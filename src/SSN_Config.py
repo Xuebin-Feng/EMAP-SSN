@@ -6,6 +6,7 @@ os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 # --- Placeholder Parameters ---
 SEQUENCE_SET = ""
 ALIGNMENT_REFERENCE = ""
+ALIGNMENT_OFFSET = 0
 SIMILARITY_THRESHOLD = None
 TOP_EDGE_PERCENT = None    
 ALIGNMENT_SCORE = None
@@ -440,6 +441,7 @@ if __name__ == "__main__":
                 "ALIGNMENT_SCORE": "(For embedding-based SSNs only) Specifies whether to use global alignment similarity scores or local alignment similarity scores.\nLocal alignment is recommended for multi-domain proteins, whereas global alignment is best for full-length comparisons.",
                 "NORM_MODE": "(For embedding-based SSNs only) Normalization strategy for pairwise sequence alignment scores.\nOptions include normalizing by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias.",
                 "ALIGNMENT_REFERENCE": "Substring from a sequence header to identify the reference sequence (e.g. wildtype or specific construct) in the alignment.\nThis sequence is used to calculate absolute relative positions and mapping offsets across the entire network.",
+                "ALIGNMENT_OFFSET": "Integer added to reference-anchored alignment positions. For example, an offset of 10 changes reference position 1 to 11.\nThe offset is applied only when the Alignment Reference ID resolves successfully.",
                 "SIMILARITY_THRESHOLD": "Minimum similarity score threshold (e.g. identity fraction, normalized score, or Log10 E-Value) required to retain an edge.\nEdges with scores below this value are filtered out and will not be rendered or computed in the physics simulation.",
                 "TOP_EDGE_PERCENT": "Alternative edge filtering method that automatically calculates a threshold to retain only the top N% of all possible edges.\nUseful for maintaining network connectivity and density without manually tuning raw similarity score thresholds (Overrides Similarity Threshold).",
                 "FILTER_MIN_OCCUPANCY": "Minimum percentage of non-gap characters required at an alignment column to retain it in the clustering calculations.\nColumns with occupancy below this percentage are treated as noise and are excluded to improve signal-to-noise ratio.",
@@ -629,7 +631,35 @@ if __name__ == "__main__":
             
             ref_val = globals().get("ALIGNMENT_REFERENCE", "")
             self.line_ref = QLineEdit("" if ref_val in [None, "None"] else str(ref_val))
-            add_row("ALIGNMENT_REFERENCE", "Alignment Reference ID:", self.line_ref)
+
+            ref_container = QWidget()
+            ref_container.setObjectName("alignment_reference_wrapper")
+            ref_layout = QHBoxLayout(ref_container)
+            ref_layout.setContentsMargins(0, 0, 0, 0)
+            ref_layout.addWidget(self.line_ref, 1)
+
+            self.lbl_alignment_offset = QLabel("Alignment Offset:")
+            self.spin_alignment_offset = QSpinBox()
+            self.spin_alignment_offset.setRange(-1000000, 1000000)
+            try:
+                offset_value = int(globals().get("ALIGNMENT_OFFSET", 0) or 0)
+            except (TypeError, ValueError):
+                offset_value = 0
+            self.spin_alignment_offset.setValue(offset_value)
+            self.spin_alignment_offset.setAccelerated(True)
+            self.spin_alignment_offset.setFixedWidth(100)
+            self.spin_alignment_offset.setStyleSheet(
+                "QSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
+            )
+            ref_layout.addWidget(self.lbl_alignment_offset)
+            ref_layout.addWidget(self.spin_alignment_offset)
+
+            ref_label = QLabel("Alignment Reference ID:")
+            layout.addRow(ref_label, ref_container)
+            self.labels["ALIGNMENT_REFERENCE"] = ref_label
+            self.inputs["ALIGNMENT_REFERENCE"] = self.line_ref
+            self.labels["ALIGNMENT_OFFSET"] = self.lbl_alignment_offset
+            self.inputs["ALIGNMENT_OFFSET"] = self.spin_alignment_offset
             
             # --- UMAP Controls ---
             umap_container = QWidget()
@@ -637,7 +667,6 @@ if __name__ == "__main__":
             umap_layout = QHBoxLayout(umap_container)
             umap_layout.setContentsMargins(0, 0, 0, 0)
             
-            from PyQt6.QtWidgets import QCheckBox, QSpinBox
             self.check_umap = QPushButton()
             self.check_umap.setCheckable(True)
             self.check_umap.setFixedSize(60, 28)
@@ -671,6 +700,18 @@ if __name__ == "__main__":
             self.spin_umap_md.setDecimals(2)
             self.spin_umap_md.setValue(float(globals().get("UMAP_MIN_DIST") or 0.1))
             self.spin_umap_md.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+            # Match the taller spinboxes used beside sliders on the Visuals/Physics tabs.
+            input_spinbox_height = max(
+                self.spin_umap_k.sizeHint().height(),
+                self.spin_umap_md.sizeHint().height(),
+            )
+            for spinbox in (
+                self.spin_alignment_offset,
+                self.spin_umap_k,
+                self.spin_umap_md,
+            ):
+                spinbox.setFixedHeight(input_spinbox_height)
             
             # Apply styling for disabled states (grayed out)
             disabled_spinbox_style = "QSpinBox:disabled, QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
@@ -860,6 +901,11 @@ if __name__ == "__main__":
         def update_live_validators(self):
             has_fasta = bool(self.cb_fasta.currentText().strip())
             has_hdf5 = bool(self.cb_hdf5.currentText().strip())
+            has_reference = bool(self.line_ref.text().strip())
+            if hasattr(self, 'spin_alignment_offset'):
+                self.spin_alignment_offset.setEnabled(has_reference)
+            if hasattr(self, 'lbl_alignment_offset'):
+                self.lbl_alignment_offset.setEnabled(has_reference)
             self.btn_stats.setEnabled(has_fasta and has_hdf5)
             if hasattr(self, 'btn_hist'):
                 self.btn_hist.setEnabled(has_fasta and has_hdf5)

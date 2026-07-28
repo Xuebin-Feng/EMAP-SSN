@@ -1,0 +1,114 @@
+import Command_Engine
+import SSN_Config as cfg
+
+
+def print_help():
+    print("""
+    Alignment Numbering Offset Tool
+    ===============================
+    Usage:
+      offset
+          Displays the current alignment offset and whether it is active.
+      offset <INTEGER>
+          Changes the alignment offset for the current viewer session.
+      offset help
+          Displays this help message.
+
+    Description:
+      Adds an integer offset to reference-anchored alignment numbering without
+      changing the alignment itself. Displayed positions are calculated as:
+
+          displayed position = reference position + offset
+
+      For example, an offset of 10 changes position 1 to 11 and insertion
+      position 1.1 to 11.1. Setting the offset to 0 restores the original
+      reference numbering.
+
+    Requirements:
+      A multiple-sequence alignment and a valid Alignment Reference ID must be
+      loaded. Use 'reference <ID>' to select a reference during a session.
+      The offset cannot be changed while reference numbering is inactive.
+
+    Affected Commands:
+      The updated numbering is used immediately by position-aware commands,
+      including query, label, logo, color, select, group, hide, and spectrum.
+      Existing alignment columns and sequence data are not modified.
+
+    Notes:
+      Positive and negative integers are accepted. Changes made with this
+      command apply to the current viewer session. Configure Alignment Offset
+      in SSN_Config to set the value used when launching a new session.
+
+    Examples:
+      offset
+          Reports the current offset.
+      offset 10
+          Starts reference numbering at 11 instead of 1.
+      offset -5
+          Subtracts 5 from every reference-anchored position.
+      offset 0
+          Restores the unshifted reference numbering.
+    """)
+
+
+def _current_offset(viewer):
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is not None and getattr(alignment, 'has_reference', False):
+        return getattr(alignment, 'offset', 0), True
+    return getattr(viewer, 'alignment_offset', getattr(cfg, 'ALIGNMENT_OFFSET', 0)), False
+
+
+def run(viewer, args):
+    if args and args[0].lower() in ['help', '-h', '--help']:
+        print_help()
+        if hasattr(viewer, 'console_text'):
+            viewer.console_text.text = "Help information printed to the terminal"
+        return
+
+    current_offset, is_active = _current_offset(viewer)
+    if not args:
+        suffix = "" if is_active else " (inactive: no valid alignment reference is loaded)"
+        Command_Engine.print_help(
+            viewer,
+            f"Current Alignment Offset: {current_offset}{suffix}",
+        )
+        return
+
+    if len(args) != 1:
+        Command_Engine.print_help(
+            viewer,
+            "Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]",
+        )
+        return
+
+    try:
+        new_offset = int(args[0])
+    except (TypeError, ValueError):
+        Command_Engine.print_help(
+            viewer,
+            f"Error: Alignment offset must be an integer, not '{args[0]}'.",
+        )
+        return
+
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is None or not getattr(alignment, 'has_reference', False):
+        Command_Engine.print_help(
+            viewer,
+            "Error: Alignment offset requires a correctly loaded reference. "
+            "Use 'reference <ID>' first.",
+        )
+        return
+
+    if not alignment.set_offset(new_offset):
+        Command_Engine.print_help(
+            viewer,
+            "Error: Alignment offset could not be applied to the active reference.",
+        )
+        return
+
+    viewer.alignment_offset = new_offset
+    cfg.ALIGNMENT_OFFSET = new_offset
+    Command_Engine.print_help(
+        viewer,
+        f"Alignment Offset set to {new_offset}. Position numbering updated.",
+    )

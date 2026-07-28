@@ -7,13 +7,16 @@ import SSN_Config as cfg
 import SSN_Utils as utils
 
 class Alignment_Manager:
-    def __init__(self, msa_file, full_headers=None, active_reference=None):
+    def __init__(self, msa_file, full_headers=None, active_reference=None, alignment_offset=0):
         self.aln = None
         self.valid_cols = None
         self.seq_map = None
         self.col_to_label = None
         self.label_to_col = None
         self.resolved_ref_full = None
+        self.has_reference = False
+        self.offset = 0
+        self._base_col_to_label = None
 
         if not msa_file or str(msa_file).strip() == "" or str(msa_file).strip().lower() == "none" or "none_[e1_ra]_alignment.fasta" in str(msa_file).lower():
             print("An MSA is not selected and will not be loaded.")
@@ -49,8 +52,12 @@ class Alignment_Manager:
             else:
                 rec = self.aln[ref_idx]
                 self.resolved_ref_full = rec.description if rec.description else rec.id
+            self.has_reference = True
+            self._base_col_to_label = dict(self.col_to_label)
+            self.set_offset(alignment_offset)
             print(f"Matched Reference '{active_reference}' to '{self.resolved_ref_full[:40]}...'")
             print(f"Active Reference: {self.resolved_ref_full}")
+            print(f"Alignment Offset: {self.offset}")
             print(f"Alignment Ready. Valid Cols: {len(self.valid_cols)} (Reference: {ref_length}, Forced to Retain: {forced_retained})")
         else:
             self.resolved_ref_full = 'None'
@@ -67,10 +74,40 @@ class Alignment_Manager:
                     self.seq_map[simple] = i
             sorted_cols = sorted(list(self.valid_cols))
             self.col_to_label = {col_idx: str(idx + 1) for idx, col_idx in enumerate(sorted_cols)}
+            self._base_col_to_label = dict(self.col_to_label)
             print(f"No reference sequence provided. Operating in Pure Occupancy Mode.")
             print(f"Alignment Ready. Valid Cols (Occupancy >= {cfg.FILTER_MIN_OCCUPANCY}%): {len(self.valid_cols)}")
 
         self.label_to_col = {v: k for k, v in self.col_to_label.items()}
+
+    @staticmethod
+    def _offset_label(label, offset):
+        """Shift the integer portion of a reference label while preserving insertions."""
+        parts = str(label).split('.', 1)
+        shifted = str(int(parts[0]) + offset)
+        return f"{shifted}.{parts[1]}" if len(parts) == 2 else shifted
+
+    def set_offset(self, offset):
+        """Apply an integer offset to a successfully resolved reference mapping."""
+        if not self.has_reference or self.aln is None or self._base_col_to_label is None:
+            return False
+
+        if isinstance(offset, bool):
+            raise ValueError("Alignment offset must be an integer.")
+        if isinstance(offset, float) and not offset.is_integer():
+            raise ValueError("Alignment offset must be an integer.")
+        try:
+            new_offset = int(offset)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Alignment offset must be an integer.") from exc
+
+        self.offset = new_offset
+        self.col_to_label = {
+            col_idx: self._offset_label(label, new_offset)
+            for col_idx, label in self._base_col_to_label.items()
+        }
+        self.label_to_col = {label: col_idx for col_idx, label in self.col_to_label.items()}
+        return True
 
     def calculate_frequencies(self, mapping, exclude=[], aln=None):
         target_aln = aln if aln is not None else self.aln

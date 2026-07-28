@@ -3,8 +3,7 @@ Results/
 Input_Files/
 Embeddings/
 Cache_Files/
-manual_tools/
-VR_Viewer/
+tests/
 
 # User-specified files
 src/resources/agent/model_card.json

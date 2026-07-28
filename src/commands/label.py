@@ -67,6 +67,23 @@ def get_sequence_stats(aln):
     arr = np.array(lengths)
     return int(np.min(arr)), int(np.max(arr)), np.mean(arr), np.std(arr)
 
+
+def _append_workbook_metadata(
+    worksheet,
+    out_filename,
+    ref_display,
+    offset_display,
+    global_min,
+    global_list,
+):
+    worksheet.append([f"Filename: {out_filename}"])
+    worksheet.append([f"Reference: {ref_display}"])
+    worksheet.append([f"Alignment Offset: {offset_display}"])
+    worksheet.append([f"Global Conserved (>{int(global_min * 100)}%)"])
+    worksheet.append(global_list if global_list else ["None"])
+    worksheet.append([])
+
+
 def run(viewer, args):
     if args and args[0].lower() == 'reset':
         Command_Engine.execute_reset(viewer, ["clusters"])
@@ -197,6 +214,8 @@ def run(viewer, args):
 
         # --- 1. Global Statistics ---
         print("Calculating Global Stats...")
+        offset_display = utils.get_alignment_offset_display(viewer)
+        print(f"Alignment Offset: {offset_display}")
         g_stats = viewer.alignment.calculate_frequencies(viewer.alignment.col_to_label)
         total_global_seqs = len(viewer.alignment.aln)
         g_min, g_max, g_avg, g_std = get_sequence_stats(viewer.alignment.aln)
@@ -403,11 +422,14 @@ def run(viewer, args):
             ws1.title = "Subset Stats"
             
             # Write Metadata 
-            ws1.append([f"Filename: {out_filename}"])
-            ws1.append([f"Reference: {ref_display}"])
-            ws1.append([f"Global Conserved (>{int(global_min*100)}%)"])
-            ws1.append(global_list if global_list else ["None"])
-            ws1.append([])
+            _append_workbook_metadata(
+                ws1,
+                out_filename,
+                ref_display,
+                offset_display,
+                global_min,
+                global_list,
+            )
             
             # Write Headers 
             ws1.append(["Subset Specific Matrix"])
@@ -500,11 +522,14 @@ def run(viewer, args):
             ws2 = wb.create_sheet(title="Occupancy Stats")
             
             # Write Metadata 
-            ws2.append([f"Filename: {out_filename}"])
-            ws2.append([f"Reference: {ref_display}"])
-            ws2.append([f"Global Conserved (>{int(global_min*100)}%)"])
-            ws2.append(global_list if global_list else ["None"])
-            ws2.append([])
+            _append_workbook_metadata(
+                ws2,
+                out_filename,
+                ref_display,
+                offset_display,
+                global_min,
+                global_list,
+            )
             
             # Write Headers 
             ws2.append(["Occupancy Matrix"])

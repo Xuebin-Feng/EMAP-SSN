@@ -6,6 +6,40 @@ import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
 
+
+def resolve_reference_columns(alignment, requested_positions, ref_seq_str):
+    """Resolve displayed integer positions to alignment columns."""
+    valid_cols = []
+    plot_positions = []
+    missing_positions = []
+
+    if getattr(alignment, 'has_reference', False) and getattr(alignment, 'label_to_col', None):
+        for position in requested_positions:
+            col_idx = alignment.label_to_col.get(str(position))
+            if col_idx is None:
+                missing_positions.append(position)
+            else:
+                valid_cols.append(col_idx)
+                plot_positions.append(position)
+        return valid_cols, plot_positions, missing_positions
+
+    ref_pos_to_col = {}
+    curr_pos = 1
+    for col_idx, char in enumerate(ref_seq_str):
+        if char not in getattr(cfg, 'GAP_CHARS', ['-', '.']):
+            ref_pos_to_col[curr_pos] = col_idx
+            curr_pos += 1
+
+    for position in requested_positions:
+        if position in ref_pos_to_col:
+            valid_cols.append(ref_pos_to_col[position])
+            plot_positions.append(position)
+        else:
+            missing_positions.append(position)
+
+    return valid_cols, plot_positions, missing_positions
+
+
 def print_help():
     print("""
     Sequence Logo Generator
@@ -202,7 +236,7 @@ def run(viewer, args):
         viewer.console_text.text = "Error: MSA not loaded in viewer. Please check inputs."
         return
 
-    ref_id = getattr(cfg, 'ALIGNMENT_REFERENCE', '')
+    ref_id = getattr(viewer, 'active_reference', None) or getattr(cfg, 'ALIGNMENT_REFERENCE', '')
     ref_seq_str = None
 
     if ref_id:
@@ -221,22 +255,13 @@ def run(viewer, args):
         print(f"Warning: Reference ID '{ref_id}' not found. Using the first sequence as reference.")
         ref_seq_str = str(viewer.alignment.aln[0].seq)
 
-    # Map Reference Coordinates to Alignment Columns (1-based mapping)
-    ref_pos_to_col = {}
-    curr_pos = 1
-    for col_idx, char in enumerate(ref_seq_str):
-        if char not in getattr(cfg, 'GAP_CHARS', ['-', '.']):
-            ref_pos_to_col[curr_pos] = col_idx
-            curr_pos += 1
-
-    valid_cols = []
-    plot_positions = []
-    for p in requested_positions:
-        if p in ref_pos_to_col:
-            valid_cols.append(ref_pos_to_col[p])
-            plot_positions.append(p)
-        else:
-            print(f"Warning: Position {p} exceeds reference sequence length.")
+    valid_cols, plot_positions, missing_positions = resolve_reference_columns(
+        viewer.alignment,
+        requested_positions,
+        ref_seq_str,
+    )
+    for position in missing_positions:
+        print(f"Warning: Position {position} was not found in the active alignment mapping.")
 
     if not valid_cols:
         viewer.console_text.text = "Error: Requested positions are outside the sequence bounds."

@@ -175,6 +175,7 @@ def run(viewer, args):
         print(f"QUERY SUBSET: '{expr}' ({n_seqs} sequences mapped)")
     else:
         print(f"QUERY GLOBAL: All Mapped Alignment Sequences ({n_seqs} sequences)")
+    print(f"Alignment Offset: {utils.get_alignment_offset_display(viewer)}")
     print("-" * 50)
 
     # NEW: Extract the inner string from the brackets and split by comma

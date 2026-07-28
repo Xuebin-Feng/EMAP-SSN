@@ -184,6 +184,10 @@ class MainViewer:
         
         # Alignment Data 
         self.active_reference = cfg.ALIGNMENT_REFERENCE
+        try:
+            self.alignment_offset = int(getattr(cfg, 'ALIGNMENT_OFFSET', 0))
+        except (TypeError, ValueError):
+            self.alignment_offset = 0
         self.alignment = None
         self.col_to_label = None  
         self.label_to_col = None  
@@ -961,7 +965,12 @@ class MainViewer:
         Loads alignment using the new standalone Alignment_Manager.
         """
         import Alignment_Manager
-        self.alignment = Alignment_Manager.Alignment_Manager(cfg.MSA_FILE, full_headers=self.full_headers, active_reference=self.active_reference)
+        self.alignment = Alignment_Manager.Alignment_Manager(
+            cfg.MSA_FILE,
+            full_headers=self.full_headers,
+            active_reference=self.active_reference,
+            alignment_offset=self.alignment_offset,
+        )
 
 
     def draw_network(self):

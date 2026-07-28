@@ -28,6 +28,20 @@ except Exception:
     HAS_TORCH = False
 
 # --- 2. String & Label Helpers ---
+def get_alignment_offset_display(viewer):
+    """Return the current offset with an inactive marker when no reference is resolved."""
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is not None and getattr(alignment, 'has_reference', False):
+        return str(getattr(alignment, 'offset', 0))
+
+    configured_offset = getattr(
+        viewer,
+        'alignment_offset',
+        getattr(cfg, 'ALIGNMENT_OFFSET', 0),
+    )
+    return f"{configured_offset} (inactive)"
+
+
 def get_network_suffix():
     suffix = ""
     
