@@ -982,6 +982,17 @@ if __name__ == "__main__":
                 
             net_prefix = f"{fasta_base}{model_str}"
             is_blast = "blast" in hdf5_base.lower()
+            hdf5_dir_path = self.inputs["HDF5_DIR"].text() if "HDF5_DIR" in self.inputs else globals().get("HDF5_DIR", "")
+            hdf5_full_chk = os.path.join(hdf5_dir_path, hdf5_base) if hdf5_base else ""
+            if hdf5_full_chk and os.path.exists(hdf5_full_chk):
+                try:
+                    import h5py
+                    with h5py.File(hdf5_full_chk, "r") as hf_chk:
+                        m_attr = str(hf_chk.attrs.get("model_name", "")).upper()
+                        if m_attr == "BLAST" or len(hf_chk.keys()) == 4 or 'score' in hf_chk:
+                            is_blast = True
+                except Exception:
+                    pass
             
             # Update Score/Norm Toggles
             self.cb_score_mode.setEnabled(not is_blast)
@@ -1078,11 +1089,12 @@ if __name__ == "__main__":
             QApplication.processEvents()
             
             try:
-                is_blast = "EValue" in os.path.basename(hdf5_path) or "Evalue" in os.path.basename(hdf5_path)
                 score_mode = self.cb_score_mode.currentText()
                 norm_mode = self.cb_norm_mode.currentText()
                 
                 with h5py.File(hdf5_path, "r") as hf:
+                    m_attr = str(hf.attrs.get("model_name", "")).upper()
+                    is_blast = m_attr == "BLAST" or len(hf.keys()) == 4 or 'score' in hf or "evalue" in os.path.basename(hdf5_path).lower() or "blast" in os.path.basename(hdf5_path).lower()
                     from Bio import SeqIO
                     kept_mask = None
                     if fasta_path and os.path.exists(fasta_path):
@@ -1233,11 +1245,12 @@ if __name__ == "__main__":
             QApplication.processEvents()
             
             try:
-                is_blast = "EValue" in os.path.basename(hdf5_path) or "Evalue" in os.path.basename(hdf5_path)
                 score_mode = self.cb_score_mode.currentText()
                 norm_mode = self.cb_norm_mode.currentText()
                 
                 with h5py.File(hdf5_path, "r") as hf:
+                    m_attr = str(hf.attrs.get("model_name", "")).upper()
+                    is_blast = m_attr == "BLAST" or len(hf.keys()) == 4 or 'score' in hf or "evalue" in os.path.basename(hdf5_path).lower() or "blast" in os.path.basename(hdf5_path).lower()
                     from Bio import SeqIO
                     kept_mask = None
                     if fasta_path and os.path.exists(fasta_path):

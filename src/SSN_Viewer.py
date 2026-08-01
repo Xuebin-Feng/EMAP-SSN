@@ -760,7 +760,10 @@ class MainViewer:
                     'PACKING_GEOMETRY': getattr(cfg, 'PACKING_GEOMETRY', 'Square'),
                     'COULOMB_CUTOFF': getattr(cfg, 'COULOMB_CUTOFF', 15.0),
                     'COULOMB_K': getattr(cfg, 'COULOMB_K', 50.0),
-                    'MAX_FORCE_LIMIT': getattr(cfg, 'MAX_FORCE_LIMIT', 10.0),
+                    'MAX_FORCE_LIMIT': getattr(cfg, 'MAX_FORCE_LIMIT', 20.0),
+                    'MAX_TOTAL_REPULSION_FORCE': getattr(
+                        cfg, 'MAX_TOTAL_REPULSION_FORCE', 0.0
+                    ),
                     'SPRING_K': getattr(cfg, 'SPRING_K', 0.1),
                     'DAMPING': getattr(cfg, 'DAMPING', 0.5),
                     'DT': getattr(cfg, 'DT', 0.1),

@@ -25,16 +25,21 @@ except Exception as e:
 # --- 1. Physics Kernels ---
 
 def _get_physics_kernel():
-    def _run_physics_kernel(pos, vel, springs, comp_labels, box_limit, dt, damping, k_spr, k_coul, max_f, cutoff_dist):
+    def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
         n_balls = pos.shape[0]
         acc = np.zeros_like(pos)
+        repulsion = np.zeros_like(pos)
         
         # Calculate squared cutoff for efficient distance comparison
         cutoff_sq = cutoff_dist * cutoff_dist 
+        taper_start = cutoff_dist * 0.8
+        taper_width = max(cutoff_dist * 0.2, 1e-9)
         
         # --- SPRINGS (Attraction) ---
         for i in range(springs.shape[0]):
             idx_a, idx_b = springs[i, 0], springs[i, 1]
+            if not active_mask[idx_a] or not active_mask[idx_b]:
+                continue
             dx, dy = pos[idx_a, 0] - pos[idx_b, 0], pos[idx_a, 1] - pos[idx_b, 1]
             dist = math.sqrt(dx*dx + dy*dy) + 1e-9
             
@@ -44,27 +49,54 @@ def _get_physics_kernel():
             acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist)
             
         # --- REPULSION (Coulomb Only) ---
-        for i in range(n_balls):
-            for j in range(i+1, n_balls):
+        for active_i in range(active_nodes.shape[0]):
+            i = active_nodes[active_i]
+            for active_j in range(active_i + 1, active_nodes.shape[0]):
+                j = active_nodes[active_j]
+                if comp_labels[i] != comp_labels[j]:
+                    continue
+
                 dx, dy = pos[i, 0] - pos[j, 0], pos[i, 1] - pos[j, 1]
                 dist_sq = dx*dx + dy*dy
-                
-                if dist_sq > cutoff_sq: continue 
-                if dist_sq == 0.0: continue 
+
+                if dist_sq > cutoff_sq: continue
+                if dist_sq == 0.0: continue
 
                 dist = math.sqrt(dist_sq)
-                safe_dist = max(dist, 0.5) 
-                
+                safe_dist = max(dist, 0.5)
+
                 f = k_coul / (safe_dist**2)
-                
-                if f > max_f: f = max_f
-                
-                acc[i, 0] += f*(dx/dist); acc[i, 1] += f*(dy/dist)
-                acc[j, 0] -= f*(dx/dist); acc[j, 1] -= f*(dy/dist)
+
+                if max_f > 0.0 and f > max_f:
+                    f = max_f
+                if dist > taper_start:
+                    f *= max(0.0, (cutoff_dist - dist) / taper_width)
+
+                repulsion[i, 0] += f*(dx/dist); repulsion[i, 1] += f*(dy/dist)
+                repulsion[j, 0] -= f*(dx/dist); repulsion[j, 1] -= f*(dy/dist)
+
+        # MAX_FORCE_LIMIT caps each pair. This second cap limits the norm of the
+        # accumulated repulsive force on a node before it is combined with springs.
+        for active_idx in range(active_nodes.shape[0]):
+            i = active_nodes[active_idx]
+            rep_norm = math.sqrt(
+                repulsion[i, 0] * repulsion[i, 0]
+                + repulsion[i, 1] * repulsion[i, 1]
+            )
+            if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
+                rep_scale = max_total_repulsion / rep_norm
+                repulsion[i, 0] *= rep_scale
+                repulsion[i, 1] *= rep_scale
+            acc[i, 0] += repulsion[i, 0]
+            acc[i, 1] += repulsion[i, 1]
                     
         # --- INTEGRATION (Euler) ---
         rmsd = 0.0
+        n_active = active_nodes.shape[0]
         for i in range(n_balls):
+            if not active_mask[i]:
+                continue
+            box_limit = box_limits[i]
             acc[i] -= damping * vel[i]
             vel[i] += acc[i] * dt
             old_p = pos[i].copy()
@@ -78,7 +110,9 @@ def _get_physics_kernel():
             diff = pos[i] - old_p
             rmsd += diff[0]**2 + diff[1]**2
             
-        return math.sqrt(rmsd / n_balls)
+        if n_active == 0:
+            return 0.0
+        return math.sqrt(rmsd / n_active)
         
     if NUMBA_AVAILABLE:
         return jit(nopython=True, fastmath=True)(_run_physics_kernel)
@@ -86,90 +120,125 @@ def _get_physics_kernel():
 
 run_physics_kernel = _get_physics_kernel()
 
+def _normalize_active_mask(active_mask, n_nodes):
+    if active_mask is None:
+        return np.ones(n_nodes, dtype=np.bool_)
+
+    mask = np.asarray(active_mask, dtype=np.bool_).reshape(-1)
+    if mask.size != n_nodes:
+        raise ValueError("active_mask must contain one value per node.")
+    return mask
+
+
+def _normalize_box_limits(box_limits, n_nodes):
+    """Expand a scalar boundary or validate a per-node boundary array."""
+    limits = np.asarray(box_limits, dtype=np.float32)
+    if limits.ndim == 0:
+        return np.full(n_nodes, float(limits), dtype=np.float32)
+
+    limits = limits.reshape(-1)
+    if limits.size != n_nodes:
+        raise ValueError("box_limits must be a scalar or contain one value per node.")
+    return limits
+
+
 class SSNSimulationCPU:
-    def __init__(self, pos, springs, comp_labels, box_limit, params):
+    def __init__(self, pos, springs, comp_labels, box_limit, params, active_mask=None):
         self.pos = pos.astype(np.float32)
         self.vel = np.zeros_like(pos)
         self.springs = springs
-        self.comp_labels = comp_labels
-        self.box = box_limit
+        self.comp_labels = np.asarray(comp_labels, dtype=np.int32)
+        self.active_mask = _normalize_active_mask(active_mask, len(self.pos))
+        self.active_nodes = np.flatnonzero(self.active_mask).astype(np.int32)
+        self.box_limits = _normalize_box_limits(box_limit, len(self.pos))
         self.params = params
-        
-    def step(self, current_step, apply_warmup=True):
-        max_cutoff = self.params.get('COULOMB_CUTOFF', 15.0)
-        max_steps = self.params.get('MAX_STEPS', 2000)
-        
-        if apply_warmup:
-            target_step = max_steps / 4.0
-            curve_scale = target_step / 5.0 
-            
-            if current_step >= target_step:
-                cutoff = max_cutoff
-            else:
-                num = math.atan(current_step / curve_scale)
-                den = math.atan(target_step / curve_scale)
-                cutoff = max_cutoff * (num / den)
-        else:
-            cutoff = max_cutoff
+        self.cutoff = float(self.params.get('COULOMB_CUTOFF', 15.0))
 
+    def step(self, current_step):
         return run_physics_kernel(
-            self.pos, self.vel, self.springs, self.comp_labels, self.box, 
+            self.pos, self.vel, self.springs, self.comp_labels,
+            self.active_mask, self.active_nodes, self.box_limits,
             self.params.get('DT', 0.1), 
             self.params.get('DAMPING', 0.5), 
             self.params.get('SPRING_K', 0.1), 
             self.params.get('COULOMB_K', 50.0), 
-            self.params.get('MAX_FORCE_LIMIT', 10.0), 
-            cutoff 
+            self.params.get('MAX_FORCE_LIMIT', 20.0),
+            self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0),
+            self.cutoff
         )
         
     def get_pos(self): return self.pos
 
 if HAS_TORCH:
     class SSNSimulationGPU:
-        def __init__(self, pos, springs, comp_labels, box_limit, params):
+        def __init__(self, pos, springs, comp_labels, box_limit, params, active_mask=None):
             self.device = Hardware_Utils.get_optimal_device()
             self.pos = torch.tensor(pos, dtype=torch.float32, device=self.device)
             self.vel = torch.zeros_like(self.pos)
             self.springs = torch.tensor(springs, dtype=torch.long, device=self.device)
             self.comp_labels = torch.tensor(comp_labels, dtype=torch.long, device=self.device)
-            self.box = box_limit
+            active_mask_array = _normalize_active_mask(active_mask, len(pos))
+            self.active_mask = torch.tensor(
+                active_mask_array,
+                dtype=torch.bool,
+                device=self.device
+            )
+            self.box_limits = torch.tensor(
+                _normalize_box_limits(box_limit, len(pos)),
+                dtype=torch.float32,
+                device=self.device
+            )
             self.params = params
+            self.cutoff = float(self.params.get('COULOMB_CUTOFF', 15.0))
         
         @torch.no_grad()
-        def step(self, current_step, apply_warmup=True):
-            max_cutoff = self.params.get('COULOMB_CUTOFF', 15.0)
-            max_steps = self.params.get('MAX_STEPS', 2000)
-            
-            if apply_warmup:
-                target_step = max_steps / 4.0
-                curve_scale = target_step / 5.0 
-                
-                if current_step >= target_step:
-                    cutoff = max_cutoff
-                else:
-                    num = math.atan(current_step / curve_scale)
-                    den = math.atan(target_step / curve_scale)
-                    cutoff = max_cutoff * (num / den)
-            else:
-                cutoff = max_cutoff
-
+        def step(self, current_step):
             # --- PHYSICS ---
             delta = self.pos.unsqueeze(1) - self.pos.unsqueeze(0)
-            dist = delta.norm(dim=2) + 1e-9
-            
-            # Element-wise force magnitude calculation
-            f_mag = self.params.get('COULOMB_K', 50.0) / (dist.clamp(min=0.5)**2)
-            
-            # Zero out forces outside the cutoff or self-repulsion using torch.where
-            is_self = torch.eye(dist.size(0), dtype=torch.bool, device=self.device)
-            cond = (dist < cutoff) & (~is_self)
-            f_mag = torch.where(cond, f_mag, 0.0)
-            
-            f_mag = f_mag.clamp(max=self.params.get('MAX_FORCE_LIMIT', 10.0))
-            acc = (f_mag.unsqueeze(2) * (delta/dist.unsqueeze(2))).sum(dim=1)
+            dist_sq = (delta * delta).sum(dim=2)
+            dist = torch.sqrt(dist_sq) + 1e-9
+
+            pair_mask = (
+                self.active_mask.unsqueeze(1)
+                & self.active_mask.unsqueeze(0)
+                & (self.comp_labels.unsqueeze(1) == self.comp_labels.unsqueeze(0))
+                & (dist_sq > 0.0)
+                & (dist_sq <= self.cutoff * self.cutoff)
+            )
+
+            f_mag = (
+                self.params.get('COULOMB_K', 50.0)
+                / dist.clamp(min=0.5).pow(2)
+            )
+            max_f = self.params.get('MAX_FORCE_LIMIT', 20.0)
+            if max_f > 0.0:
+                f_mag.clamp_(max=max_f)
+            taper_start = self.cutoff * 0.8
+            taper_width = max(self.cutoff * 0.2, 1e-9)
+            taper = (
+                (self.cutoff - dist) / taper_width
+            ).clamp(min=0.0, max=1.0)
+            taper = torch.where(dist > taper_start, taper, 1.0)
+            f_mag = torch.where(pair_mask, f_mag * taper, 0.0)
+
+            repulsion = (
+                f_mag.unsqueeze(2) * (delta / dist.unsqueeze(2))
+            ).sum(dim=1)
+
+            max_total_repulsion = self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0)
+            if max_total_repulsion > 0.0:
+                repulsion_norm = repulsion.norm(dim=1, keepdim=True)
+                repulsion_scale = (
+                    max_total_repulsion / repulsion_norm.clamp(min=1e-12)
+                ).clamp(max=1.0)
+                repulsion *= repulsion_scale
+            acc = repulsion
             
             if len(self.springs) > 0:
                 idx_a, idx_b = self.springs[:,0], self.springs[:,1]
+                spring_active = self.active_mask[idx_a] & self.active_mask[idx_b]
+                idx_a = idx_a[spring_active]
+                idx_b = idx_b[spring_active]
                 pa, pb = self.pos[idx_a], self.pos[idx_b]
                 d = (pa-pb).norm(dim=1) + 1e-9
                 f = -self.params.get('SPRING_K', 0.1) * d
@@ -180,24 +249,40 @@ if HAS_TORCH:
             dt = self.params.get('DT', 0.1)
             
             acc -= damping * self.vel
-            self.vel += acc * dt
+            acc[~self.active_mask] = 0.0
+            self.vel[~self.active_mask] = 0.0
+            self.vel[self.active_mask] += acc[self.active_mask] * dt
             old = self.pos.clone()
-            self.pos += self.vel * dt
+            self.pos[self.active_mask] += self.vel[self.active_mask] * dt
             
             # --- Boundary Collisions (Match CPU Bouncing) ---
-            out_of_bounds_x = self.pos[:, 0].abs() > self.box
-            out_of_bounds_y = self.pos[:, 1].abs() > self.box
+            out_of_bounds_x = (self.pos[:, 0].abs() > self.box_limits) & self.active_mask
+            out_of_bounds_y = (self.pos[:, 1].abs() > self.box_limits) & self.active_mask
             
             # Reverse and dampen velocity for nodes hitting the walls
             self.vel[out_of_bounds_x, 0] *= -0.5
             self.vel[out_of_bounds_y, 1] *= -0.5
             
             # Clamp positions
-            self.pos.clamp_(min=-self.box, max=self.box)
+            limits = self.box_limits[self.active_mask].unsqueeze(1)
+            active_pos = self.pos[self.active_mask]
+            self.pos[self.active_mask] = torch.maximum(
+                torch.minimum(active_pos, limits),
+                -limits
+            )
+
+            if self.active_mask.any():
+                rmsd = (
+                    (self.pos[self.active_mask] - old[self.active_mask])
+                    .norm(dim=1).pow(2).mean().sqrt().item()
+                )
+            else:
+                rmsd = 0.0
             
-            rmsd = (self.pos - old).norm(dim=1).pow(2).mean().sqrt().item()
-            
-            del delta, dist, cond, is_self, f_mag, acc, old
+            del delta, dist_sq, dist, pair_mask, f_mag, taper
+            del repulsion, acc, old, limits, active_pos
+            if max_total_repulsion > 0.0:
+                del repulsion_norm, repulsion_scale
             return rmsd
 
         def get_pos(self): return self.pos.cpu().numpy()
@@ -429,6 +514,46 @@ def pack_components_to_grid(pos, edges, n_nodes, grid_size, padding, packing_geo
 
 # --- 3. Main Layout Algorithm ---
 
+def _prepare_progressive_stage(pos, stage_edges, stage_scores, previous_active):
+    """Activate stage nodes and place newly introduced nodes near active neighbors."""
+    active_mask = np.zeros(len(pos), dtype=np.bool_)
+    for u, v in stage_edges:
+        active_mask[u] = True
+        active_mask[v] = True
+
+    newly_active = active_mask & (~previous_active)
+    if not np.any(newly_active) or not np.any(previous_active):
+        return active_mask
+
+    reference_pos = pos.copy()
+    weighted_sum = np.zeros_like(pos, dtype=np.float64)
+    weight_sum = np.zeros(len(pos), dtype=np.float64)
+
+    # Prefer neighbors that were already relaxed in the preceding stage.
+    for (u, v), score in zip(stage_edges, stage_scores):
+        weight = max(float(score), 1e-9)
+        if newly_active[u] and previous_active[v]:
+            weighted_sum[u] += reference_pos[v] * weight
+            weight_sum[u] += weight
+        if newly_active[v] and previous_active[u]:
+            weighted_sum[v] += reference_pos[u] * weight
+            weight_sum[v] += weight
+
+    # If a newly activated group has no older anchor, retain its spectral/grid
+    # initialization rather than forcing several new nodes onto one coordinate.
+    anchored_nodes = np.flatnonzero(newly_active & (weight_sum > 0.0))
+    if len(anchored_nodes) > 0:
+        pos[anchored_nodes] = (
+            weighted_sum[anchored_nodes]
+            / weight_sum[anchored_nodes, None]
+        ).astype(np.float32)
+        pos[anchored_nodes] += np.random.normal(
+            0.0, 0.05, (len(anchored_nodes), 2)
+        ).astype(np.float32)
+
+    return active_mask
+
+
 def calculate_layout(connectivity, n_nodes, params):
     """
     Main layout generation pipeline.
@@ -530,9 +655,8 @@ def calculate_layout(connectivity, n_nodes, params):
         batch_edges_list = []
         batch_scores_list = []
         batch_pos_list = []
-
-        grid_side = int(np.ceil(np.sqrt(len(batch_comps))))
-        spacing = 100.0
+        batch_comp_labels_list = []
+        batch_box_limits_list = []
 
         # Construct initial positions per component
         for c_idx_in_batch, c in enumerate(batch_comps):
@@ -587,15 +711,20 @@ def calculate_layout(connectivity, n_nodes, params):
                 xv_c, yv_c = np.meshgrid(x_c, y_c)
                 local_pos = np.column_stack((xv_c.flatten(), yv_c.flatten()))[:n_comp_nodes].astype(np.float32)
 
-            row_grid = c_idx_in_batch // grid_side
-            col_grid = c_idx_in_batch % grid_side
-            offset_x = (col_grid - grid_side / 2.0) * spacing
-            offset_y = (row_grid - grid_side / 2.0) * spacing
-            
-            local_pos[:, 0] += offset_x
-            local_pos[:, 1] += offset_y
+            # Every connected component has its own local coordinate system.
+            # They may overlap numerically because the physics kernels restrict
+            # all non-bonded interactions to the matching component label.
+            local_min = np.min(local_pos, axis=0)
+            local_max = np.max(local_pos, axis=0)
+            local_pos -= (local_min + local_max) / 2.0
 
             batch_pos_list.append(local_pos)
+            batch_comp_labels_list.append(
+                np.full(n_comp_nodes, c_idx_in_batch, dtype=np.int32)
+            )
+            batch_box_limits_list.append(
+                np.full(n_comp_nodes, comp_box_limit, dtype=np.float32)
+            )
 
             for (u, v), score in zip(c_edges, c_scores):
                 batch_edges_list.append((global_to_batch[u], global_to_batch[v]))
@@ -603,8 +732,8 @@ def calculate_layout(connectivity, n_nodes, params):
 
         # Unify the arrays for the batch
         batch_pos = np.vstack(batch_pos_list).astype(np.float32)
-        batch_box_limit = (np.sqrt(n_batch_nodes) * 2.5 + 5.0) * params.get('BOX_SCALE', 1.0)
-        batch_comp_labels = np.zeros(n_batch_nodes, dtype=np.int32)
+        batch_comp_labels = np.concatenate(batch_comp_labels_list)
+        batch_box_limits = np.concatenate(batch_box_limits_list)
 
         batch_pos += np.random.normal(0, 0.1, batch_pos.shape).astype(np.float32)
 
@@ -633,12 +762,28 @@ def calculate_layout(connectivity, n_nodes, params):
                 
             print(f"  > Massive component detected. Using {len(cutoffs)}-stage progressive annealing (Edge-based).")
         
+        previous_active = np.zeros(n_batch_nodes, dtype=np.bool_)
+
         for stage, cutoff in enumerate(cutoffs):
             if len(cutoffs) > 1:
                 stage_edge_count = sum(1 for s in batch_scores_list if s >= cutoff)
                 print(f"  > Stage {stage+1}/{len(cutoffs)}: Cutoff = {cutoff:.3f} | Active Edges: {stage_edge_count}")
 
-            stage_edges = [edge for edge, score in zip(batch_edges_list, batch_scores_list) if score >= cutoff]
+            stage_edges = [
+                edge for edge, score in zip(batch_edges_list, batch_scores_list)
+                if score >= cutoff
+            ]
+            stage_scores = [
+                score for score in batch_scores_list
+                if score >= cutoff
+            ]
+            stage_active_mask = _prepare_progressive_stage(
+                batch_pos,
+                stage_edges,
+                stage_scores,
+                previous_active,
+            )
+            previous_active = stage_active_mask.copy()
 
             if len(stage_edges) > 0:
                 local_edges = np.array(stage_edges, dtype=np.int32)
@@ -646,9 +791,15 @@ def calculate_layout(connectivity, n_nodes, params):
                 local_edges = np.zeros((0, 2), dtype=np.int32)
                 
             if use_gpu:
-                sim = SSNSimulationGPU(batch_pos, local_edges, batch_comp_labels, batch_box_limit, params)
+                sim = SSNSimulationGPU(
+                    batch_pos, local_edges, batch_comp_labels,
+                    batch_box_limits, params, active_mask=stage_active_mask
+                )
             else:
-                sim = SSNSimulationCPU(batch_pos, local_edges, batch_comp_labels, batch_box_limit, params)
+                sim = SSNSimulationCPU(
+                    batch_pos, local_edges, batch_comp_labels,
+                    batch_box_limits, params, active_mask=stage_active_mask
+                )
                 
             rmsd_window = params.get('RMSD_WINDOW', 50)
             max_steps = params.get('MAX_STEPS', 2000)
@@ -656,7 +807,7 @@ def calculate_layout(connectivity, n_nodes, params):
             avg_history = []
             
             for step in range(max_steps):
-                rmsd = sim.step(step, apply_warmup=(stage == 0))
+                rmsd = sim.step(step)
                 rmsd_buffer.append(rmsd)
                 avg_rmsd = np.mean(rmsd_buffer)
                 
@@ -671,10 +822,10 @@ def calculate_layout(connectivity, n_nodes, params):
                         break
                         
                     pct_threshold = params.get('PERCENTAGE_DROP_THRESHOLD', 0.0)
-                    warmup_steps = max_steps / 4.0
+                    minimum_observation_steps = max_steps / 4.0
                     trend_window = 10
                     
-                    if pct_threshold > 0.0 and len(avg_history) >= (rmsd_window + trend_window) and step > warmup_steps:
+                    if pct_threshold > 0.0 and len(avg_history) >= (rmsd_window + trend_window) and step > minimum_observation_steps:
                         current_trend = np.mean(avg_history[-trend_window:])
                         old_trend = np.mean(avg_history[-(rmsd_window + trend_window):-rmsd_window])
                         
