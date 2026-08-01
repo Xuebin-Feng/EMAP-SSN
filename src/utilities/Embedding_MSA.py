@@ -6,14 +6,15 @@ This script performs a Multiple Sequence Alignment (MSA) heavily optimized aroun
 Traditional tools like MAFFT and MUSCLE rely solely on amino acid substitution matrices. This tool instead calculates mathematical 
 consensus averages of structural embeddings to align sequences, often performing better on sequences with extremely low literal identity.
 
-It implements a robust "auto-intersection" algorithm. It looks at the Network File (Topology/Scores), the Embeddings File, 
-and the sequence FASTA file, determines exactly which sequences are common to all three, and dynamically restricts its operations 
-only to that intersection.
+It implements a robust "auto-intersection" algorithm. It always intersects the Network File (Topology/Scores) with the
+Embeddings File. When sequence filtering is enabled, it also intersects an explicit sequence FASTA file and restricts the
+alignment to sequences common to all three inputs.
 
 Input:
 - Network File HDF5: Used to construct the evolutionary guide tree utilizing existing alignment scores (`INPUT_NETWORK`).
 - Embeddings HDF5: Supplies the dense tensor representations of each sequence used during the active alignment phase (`INPUT_EMBED`).
-- Sequence FASTA: The actual structural letters to be aligned and padded with gaps (`INPUT_FASTA`).
+- Sequence FASTA: Optional filter and sequence source when `USE_SEQUENCE_FILTER` is enabled (`INPUT_FASTA`). When filtering is
+  disabled, sequences stored in the embedding manifest are aligned and padded with gaps.
 
 Output:
 - A completed Multiple Sequence Alignment FASTA file padded with '-' gap characters (`OUTPUT_FASTA`).
@@ -58,14 +59,23 @@ from sklearn.isotonic import IsotonicRegression
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 
+try:
+    from FASTA_Sanitization import load_sanitized_fasta
+    from Embedding_HDF5 import read_embedding_manifest
+except ModuleNotFoundError:
+    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
+    from src.utilities.Embedding_HDF5 import read_embedding_manifest
+
+
 # ==========================================
 # CONFIGURATION
 # ==========================================
 
 # Inputs - Now using .h5
-INPUT_FASTA   = None
+INPUT_FASTA   = ""
 INPUT_EMBED   = None
 INPUT_NETWORK = None
+USE_SEQUENCE_FILTER = False
 
 # Metric for Guide Tree: "local" or "global"
 ALIGNMENT_SCORE = "global"
@@ -77,20 +87,20 @@ BOOTSTRAP_TREE = True
 NUM_TREES = 100             
 NOISE_SCALE = 0.02          
 
-# Alignment Settings
-GAP_OPEN = -0.5
-GAP_EXTEND = 0.0           
-WORKERS = 1   
-SAFE_TEMP_DIR = os.path.join(os.path.expanduser("~"), "Alignment_TEMP")
-SHOW_REGRESSION_PLOT = False
-POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
-LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
-
 # --- DIRECTORY DEFAULTS ---
 FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
 EMBED_DIR = os.path.join("..", "Embeddings")
 NETWORK_DIR = os.path.join("..", "Input_Files", "Networks_EValues")
 MSA_DIR = os.path.join("..", "Input_Files", "Multiple_Alignments")
+SAFE_TEMP_DIR = MSA_DIR
+
+# Alignment Settings
+GAP_OPEN = -0.5
+GAP_EXTEND = 0.0           
+WORKERS = 1   
+SHOW_REGRESSION_PLOT = False
+POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
+LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
 
 # --- JSON Settings Override ---
 import json
@@ -115,6 +125,7 @@ if os.path.exists(SETTINGS_FILE):
                         if not os.path.isabs(str(v)):
                             v = os.path.normpath(os.path.join(PROJECT_ROOT, str(v)))
                         globals()[k] = v
+                SAFE_TEMP_DIR = MSA_DIR
                         
             # 2. Load script-specific settings
             script_name = os.path.basename(__file__)
@@ -150,23 +161,77 @@ if os.path.exists(SETTINGS_FILE):
 # Resolve directories after config overrides
 
 # --- INFERRED PATHS ---
-# Built AFTER JSON loading so they use the overwritten variables
+# Resolved at runtime so an inactive FASTA remains optional and the validated
+# embedding manifest can supply the authoritative model name.
 import re
 
-FULL_INPUT_FASTA   = os.path.join(FASTA_DIR, INPUT_FASTA)
-FULL_INPUT_EMBED   = os.path.join(EMBED_DIR, INPUT_EMBED)
-FULL_INPUT_NETWORK = os.path.join(NETWORK_DIR, INPUT_NETWORK)
 
-# ---> Extract SEQUENCE_SET and MODEL_NAME <---
-# 1. Extract SEQUENCE_SET by stripping the '.fasta' extension
-_seq_set = INPUT_FASTA.replace(".fasta", "")
+class MSAConfigurationError(ValueError):
+    """Raised when the MSA utility cannot resolve its configured inputs."""
 
-# 2. Extract MODEL_NAME by finding the text between brackets in the embed filename
-_model_match = re.search(r"\[(.*?)\]", INPUT_EMBED)
-_model_name = _model_match.group(1) if _model_match else "unknown_model"
 
-# 3. Construct the exact requested output format dynamically using the MSA directory
-OUTPUT_FASTA = os.path.join(MSA_DIR, f"{_seq_set}_[{_model_name}]_alignment.fasta")
+def _embedding_sequence_set(input_embed):
+    """Infer the sequence-set label from a configured embedding filename."""
+    filename = os.path.basename(input_embed)
+    match = re.match(r"^(.*)_\[[^\]]+\]_embeddings\.h5$", filename, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+
+    stem = os.path.splitext(filename)[0]
+    if stem.lower().endswith("_embeddings"):
+        stem = stem[:-len("_embeddings")]
+    return stem
+
+
+def resolve_msa_configuration(
+    fasta_dir,
+    embed_dir,
+    network_dir,
+    input_fasta,
+    input_embed,
+    input_network,
+    use_sequence_filter,
+):
+    """Resolve configured input paths without joining an inactive FASTA value."""
+    if not isinstance(input_embed, str) or input_embed == "":
+        raise MSAConfigurationError("INPUT_EMBED must select an embedding HDF5 file.")
+    if not isinstance(input_network, str) or input_network == "":
+        raise MSAConfigurationError("INPUT_NETWORK must select a network HDF5 file.")
+    if not isinstance(input_fasta, str):
+        raise MSAConfigurationError("INPUT_FASTA must be a filename or an empty string.")
+    if use_sequence_filter and input_fasta == "":
+        raise MSAConfigurationError(
+            "INPUT_FASTA must select a FASTA file when USE_SEQUENCE_FILTER is enabled."
+        )
+
+    full_input_fasta = (
+        os.path.join(fasta_dir, input_fasta) if input_fasta != "" else ""
+    )
+    sequence_set = (
+        os.path.splitext(os.path.basename(input_fasta))[0]
+        if use_sequence_filter
+        else _embedding_sequence_set(input_embed)
+    )
+
+    return {
+        "full_input_fasta": full_input_fasta,
+        "full_input_embed": os.path.join(embed_dir, input_embed),
+        "full_input_network": os.path.join(network_dir, input_network),
+        "sequence_set": sequence_set,
+    }
+
+
+def build_msa_output_path(msa_dir, sequence_set, model_name):
+    """Build the final MSA filename from resolved, validated metadata."""
+    return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_alignment.fasta")
+
+
+FULL_INPUT_FASTA = ""
+FULL_INPUT_EMBED = ""
+FULL_INPUT_NETWORK = ""
+OUTPUT_FASTA = ""
+_seq_set = ""
+_model_name = ""
 
 DEVICE = Hardware_Utils.get_optimal_device()
 
@@ -247,6 +312,49 @@ def load_fasta_map(filepath):
     except FileNotFoundError:
         sys.exit(f"❌ Error: FASTA file not found at {filepath}")
     return seq_dict
+
+
+class SequenceEmbeddingMismatchError(ValueError):
+    """Raised when FASTA sequence strings and embedding database sequences do not match."""
+
+
+def validate_sequence_embedding_match(seq_dict, valid_headers, emb_seq_dict, embeddings_group):
+    """
+    Validate that for every header in the intersection:
+    1. The sanitized sequence in the input FASTA matches the sequence stored in the embedding file.
+    2. The FASTA sequence length matches the row count of the residue embedding dataset.
+    """
+    mismatches = []
+
+    for header in valid_headers:
+        safe_header = header.replace("/", "_").replace("\\", "_")
+        fasta_seq = seq_dict[header]
+        emb_seq = emb_seq_dict.get(header)
+        embedding_length = embeddings_group[safe_header].shape[0]
+
+        if emb_seq is None:
+            mismatches.append(f"  - {header}: Missing sequence in embedding manifest")
+        elif fasta_seq != emb_seq:
+            mismatches.append(
+                f"  - {header}: Sequence mismatch!\n"
+                f"      Input FASTA ({len(fasta_seq)} aa): {fasta_seq[:30]}...\n"
+                f"      Embedding   ({len(emb_seq)} aa): {emb_seq[:30]}..."
+            )
+        elif len(fasta_seq) != embedding_length:
+            mismatches.append(
+                f"  - {header}: Length mismatch between FASTA ({len(fasta_seq)}) "
+                f"and embedding tensor ({embedding_length})"
+            )
+
+    if mismatches:
+        details = "\n".join(mismatches)
+        raise SequenceEmbeddingMismatchError(
+            "Intersected FASTA sequences do not match embedding database records for "
+            f"{len(mismatches)} sequence(s):\n"
+            f"{details}\n"
+            "Ensure the input FASTA sequences match the records used to generate the embedding file."
+        )
+
 
 # ==========================================
 # ALIGNMENT KERNELS
@@ -618,26 +726,61 @@ def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
 # MAIN EXECUTION
 # ==========================================
 def run_msa_builder():
-    os.makedirs(os.path.dirname(OUTPUT_FASTA), exist_ok=True)
+    global FULL_INPUT_FASTA, FULL_INPUT_EMBED, FULL_INPUT_NETWORK
+    global OUTPUT_FASTA, _seq_set, _model_name
 
-    # 1. LOAD RAW HEADERS
-    print("--- Loading Headers ---")
+    try:
+        resolved = resolve_msa_configuration(
+            FASTA_DIR,
+            EMBED_DIR,
+            NETWORK_DIR,
+            INPUT_FASTA,
+            INPUT_EMBED,
+            INPUT_NETWORK,
+            USE_SEQUENCE_FILTER,
+        )
+    except MSAConfigurationError as error:
+        sys.exit(f"❌ Configuration Error: {error}")
+
+    FULL_INPUT_FASTA = resolved["full_input_fasta"]
+    FULL_INPUT_EMBED = resolved["full_input_embed"]
+    FULL_INPUT_NETWORK = resolved["full_input_network"]
+    _seq_set = resolved["sequence_set"]
+
+    # 1. LOAD & VALIDATE INPUTS
+    print("--- Loading & Validating Inputs ---")
     
-    # A. Network Headers & Arrays
-    print(f"Opening HDF5 data...")
+    # A. Open HDF5 files and run rigorous embedding file validation
+    print("Opening HDF5 data...")
     try:
         f_emb = h5py.File(FULL_INPUT_EMBED, "r")
         f_net = h5py.File(FULL_INPUT_NETWORK, "r")
     except Exception as e:
-        sys.exit(f"❌ Error opening HDF5 arrays: {e}")
-    
+        sys.exit(f"❌ Error opening HDF5 files: {e}")
+
+    print("Validating embedding database manifest...")
+    try:
+        manifest = read_embedding_manifest(
+            f_emb,
+            require_complete=True,
+            validate_embeddings=True,
+        )
+    except Exception as error:
+        sys.exit(f"❌ Critical Error: Embedding file '{FULL_INPUT_EMBED}' validation failed:\n{error}")
+
+    emb_headers = manifest.headers
+    emb_seq_dict = manifest.sequence_by_header
+    _model_name = manifest.model_name
+    OUTPUT_FASTA = build_msa_output_path(MSA_DIR, _seq_set, _model_name)
+
     raw_net_headers = f_net['headers'][:]
     net_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_net_headers]
-    
+
     arr_i = f_net['i'][:]
     arr_j = f_net['j'][:]
     
-    if 'score' in f_net:
+    model_name_attr = str(f_net.attrs.get("model_name", "")).upper()
+    if 'score' in f_net or model_name_attr == "BLAST" or len(f_net.keys()) == 4:
         target_score = f_net['score'][:]
         target_len   = np.ones_like(target_score)
         is_evalue = True
@@ -655,30 +798,41 @@ def run_msa_builder():
         sys.exit(f"❌ Error: Network file {FULL_INPUT_NETWORK} is corrupted or incomplete.\n"
                  f"Dataset lengths: i={len(arr_i)}, j={len(arr_j)}, score={len(target_score)}, len={len(target_len)}.\n"
                  f"Please delete this network file and re-run the pipeline to re-generate it.")
+
+    os.makedirs(os.path.dirname(OUTPUT_FASTA), exist_ok=True)
     
-    # B. Embedding Headers (Metadata Only)
-    raw_emb_headers = f_emb['headers'][:]
-    emb_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_emb_headers]
-    
-    # C. FASTA Headers
-    # 3. VERIFY FASTA COVERAGE
-    seq_dict = load_fasta_map(FULL_INPUT_FASTA)
-    fasta_headers = list(seq_dict.keys())
-    
-    # 2. CALCULATE INTERSECTION
     set_net = set(net_headers)
     set_emb = set(emb_headers)
-    set_fas = set(fasta_headers)
-    
-    common_set = set_net.intersection(set_emb).intersection(set_fas)
-    
-    if not common_set:
-        sys.exit("❌ Error: No common sequences found between Network, Embeddings, and FASTA!")
-        
-    print(f"Intersection Found: {len(common_set)} sequences.")
-    print(f"  (Network: {len(set_net)}, Embed: {len(set_emb)}, FASTA: {len(set_fas)})")
 
-    # 3. BUILD VALIDATION LIST (Preserve Network Order)
+    use_filter = bool(USE_SEQUENCE_FILTER)
+    if use_filter:
+        print(f"Loading and sanitizing input FASTA from {FULL_INPUT_FASTA}...")
+        try:
+            clean_headers, clean_sequences, _ = load_sanitized_fasta(FULL_INPUT_FASTA)
+        except Exception as e:
+            sys.exit(f"❌ Error loading/sanitizing FASTA file: {e}")
+
+        seq_dict = dict(zip(clean_headers, clean_sequences))
+        fasta_headers = clean_headers
+        set_fas = set(fasta_headers)
+        
+        common_set = set_net.intersection(set_emb).intersection(set_fas)
+        if not common_set:
+            sys.exit("❌ Error: No common sequences found between Network, Embeddings, and FASTA!")
+
+        print(f"Intersection Found (3-Way Filtered): {len(common_set)} sequences.")
+        print(f"  (Network: {len(set_net)}, Embed: {len(set_emb)}, FASTA: {len(set_fas)})")
+    else:
+        print("Use Sequence Filter is OFF. Using embedded sequences directly from HDF5 database...")
+        common_set = set_net.intersection(set_emb)
+        if not common_set:
+            sys.exit("❌ Error: No common sequences found between Network and Embeddings database!")
+
+        seq_dict = {h: emb_seq_dict[h] for h in common_set if h in emb_seq_dict}
+        print(f"Intersection Found (2-Way Network ∩ Embeddings): {len(common_set)} sequences.")
+        print(f"  (Network: {len(set_net)}, Embed: {len(set_emb)})")
+
+    # BUILD VALIDATION LIST (Preserve Network Order)
     valid_headers = []
     for h in net_headers:
         if h in common_set:
@@ -686,8 +840,15 @@ def run_msa_builder():
     
     num_seqs = len(valid_headers)
     header_to_new_idx = {h: i for i, h in enumerate(valid_headers)}
-    
-    # 4. Has been removed
+
+    # Validate sequence string & length match if sequence filter is active
+    if use_filter:
+        try:
+            validate_sequence_embedding_match(
+                seq_dict, valid_headers, emb_seq_dict, f_emb["embeddings"]
+            )
+        except SequenceEmbeddingMismatchError as e:
+            sys.exit(f"❌ Error: {e}")
 
     # 5. BUILD MAPPINGS & FILTER NETWORK EDGES
     print("--- Filtering Network Edges ---")

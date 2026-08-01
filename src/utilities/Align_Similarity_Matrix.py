@@ -10,23 +10,24 @@ Input:
 
 Output:
 - A network edge HDF5 file containing pairwise combinations (i, j), raw local/global scores, and alignment lengths (`{SEQUENCE_SET}_{MODEL_NAME}_network.h5`).
-- (Optional) An HDF5 file containing compressed path strings for global alignment traceback logic (`{SEQUENCE_SET}_{MODEL_NAME}_paths.h5`).
 
 Settings:
 - SEQUENCE_SET: The base name of the project.
 - MODEL_NAME: The name of the embedding model used.
-- GENERATE_PATHS: Boolean to toggle traceback path saving (saves disk space if False).
 - BATCH_SIZE: Number of pairs to process before writing to disk (prevents memory overflow).
 - WORKERS: Number of multiprocessing workers to use.
+- ACCELERATOR_LANES: Accelerator concurrency ("auto" or a positive integer).
 - LOCAL_GAP_P: The gap penalty for local alignment (e.g. Smith-Waterman style).
 - GLOBAL_GAP_P: The gap penalty for global alignment (e.g. Needleman-Wunsch style).
 
 Algorithm:
 1. Loads pairs of embeddings dynamically from the input HDF5 file.
-2. Computes a similarity matrix between the two embeddings using PyTorch (L2-normalized cosine distance converted to exponential similarity, followed by Z-score standardization across rows and columns).
-3. Evaluates both a Global Alignment (run_global_traceback) and a Local Alignment (run_local_traceback) utilizing Numba compiled JIT functions for speed. 
-4. Batches results sequentially into temporary pickle files.
-5. Merges all batches into optimized final HDF5 datasets.
+2. Uses one process to compute similarity matrices on the selected accelerator.
+3. Passes those matrices by reference through a bounded queue to parallel CPU
+   threads, which evaluate Global and Local Alignments using Numba functions
+   compiled to release the Python GIL.
+4. On CPU-only systems, distributes complete pairs across the CPU workers.
+5. Writes intermediate HDF5 batches and merges them into the final datasets.
 """
 # %% Import Necessary Libraries
 # Limit threads to prevent CPU thrashing
@@ -37,7 +38,6 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-import zlib
 import pickle
 import numpy as np
 import torch
@@ -47,10 +47,20 @@ import shutil
 import sys
 import h5py
 import hashlib
+import threading
+import time
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
-from numba import jit
 import Hardware_Utils
+from Alignment_Score_Kernels import global_local_scores
+
+try:
+    from Embedding_HDF5 import read_embedding_manifest
+except ModuleNotFoundError:
+    from src.utilities.Embedding_HDF5 import read_embedding_manifest
 
 # ==========================================
 # CONFIGURATION
@@ -60,15 +70,18 @@ EDGE_PREFILTERING = False
 PREFILTER_STRENGTH = 20
 POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
 LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
-GENERATE_PATHS = False
 WORKERS = 12
+ACCELERATOR_LANES = "auto"
+ACCELERATOR_TUNE_PAIRS = 256
+# Compatibility for callers that use _accelerator_worker_count directly.
+# Production scheduling uses ACCELERATOR_LANES and the automatic tuner.
+GPU_STREAMS = 4
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 BATCH_SIZE = 500000
 
 EMBED_DIR = os.path.join("..", "Embeddings")
 NETWORK_DIR = os.path.join("..", "Input_Files", "Networks_EValues")
-PATH_DIR = os.path.join("..", "Cache_Files", "Global_Path")
 
 # --- JSON Settings Override ---
 import json
@@ -141,7 +154,6 @@ if match:
 FULL_INPUT_HDF5 = os.path.join(EMBED_DIR, INPUT_HDF5)
 RESULTS_DIR = os.path.join(NETWORK_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_network_temp") 
 FINAL_OUTPUT_NET = os.path.join(NETWORK_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_network.h5") 
-FINAL_OUTPUT_PATHS = os.path.join(PATH_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_paths.h5")
         
 # %% =======================================
 # KERNELS
@@ -156,172 +168,691 @@ def calculate_file_hash(file_path):
             hasher.update(chunk)
     return hasher.hexdigest()
 
-def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
-    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
-    t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
-    t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
+
+class EmbeddingFileError(RuntimeError):
+    """Raised when an embedding HDF5 file is incomplete or incompatible."""
+
+
+def load_embedding_metadata(file_path):
+    """
+    Validate an embedding database using Embedding_HDF5.read_embedding_manifest
+    and return ordered headers, safe headers, and sequence lengths.
+    """
+    try:
+        with h5py.File(file_path, "r") as hf:
+            manifest = read_embedding_manifest(
+                hf,
+                require_complete=True,
+                validate_embeddings=True,
+            )
+            headers = manifest.headers
+            safe_headers = [
+                header.replace("/", "_").replace("\\", "_")
+                for header in headers
+            ]
+            seq_lens = [len(seq) for seq in manifest.sequences]
+    except EmbeddingFileError:
+        raise
+    except Exception as error:
+        raise EmbeddingFileError(
+            f"Embedding file '{file_path}' validation failed: {error}"
+        ) from error
+
+    return headers, safe_headers, seq_lens, manifest
+
+
+def _device_cache_key(device):
+    """Return a stable key for per-backend scoring capability caches."""
+    return (_device_type(device), getattr(device, "index", None))
+
+
+def _normalize_embedding_torch(embedding, device):
+    """Transfer one embedding to ``device`` and L2-normalize its residues."""
+    tensor = torch.as_tensor(embedding, device=device, dtype=torch.float32)
+    return torch.nn.functional.normalize(tensor, p=2, dim=-1)
+
+
+def _normalized_row_for_active_lane(emb_i, device):
+    """
+    Return the normalized left embedding for the active accelerator lane.
+
+    ``_compute_accelerated_matrix`` supplies a row key while it owns the lane.
+    The cached tensor therefore remains on the same worker thread and stream
+    that created it. Direct callers, including the CPU-only process fallback,
+    do not have an active row key and retain the original per-pair behavior.
+    """
+    active_row_key = getattr(accelerator_thread_state, "active_row_key", None)
+    if active_row_key is None:
+        return _normalize_embedding_torch(emb_i, device)
+
+    cached_row_key = getattr(accelerator_thread_state, "normalized_row_key", None)
+    if cached_row_key != active_row_key:
+        accelerator_thread_state.normalized_row = _normalize_embedding_torch(
+            emb_i,
+            device,
+        )
+        accelerator_thread_state.normalized_row_key = active_row_key
+    return accelerator_thread_state.normalized_row
+
+
+std_mean_support_cache = {}
+
+
+def _score_matrix_statistics(sim_mat, device):
+    """Return row/column means and standard deviations with safe fallback."""
+    cache_key = _device_cache_key(device)
+    fused_supported = std_mean_support_cache.get(cache_key)
+
+    if fused_supported is not False:
+        try:
+            row_std, row_mean = torch.std_mean(
+                sim_mat,
+                dim=1,
+                keepdim=True,
+                correction=1,
+            )
+            col_std, col_mean = torch.std_mean(
+                sim_mat,
+                dim=0,
+                keepdim=True,
+                correction=1,
+            )
+        except (RuntimeError, NotImplementedError):
+            # Some accelerator integrations do not implement std_mean. Only
+            # remember the failure after the established operations succeed,
+            # so unrelated failures are not silently cached as capabilities.
+            row_mean = sim_mat.mean(dim=1, keepdim=True)
+            row_std = sim_mat.std(dim=1, keepdim=True)
+            col_mean = sim_mat.mean(dim=0, keepdim=True)
+            col_std = sim_mat.std(dim=0, keepdim=True)
+            std_mean_support_cache[cache_key] = False
+        else:
+            if fused_supported is None:
+                std_mean_support_cache[cache_key] = True
+    else:
+        row_mean = sim_mat.mean(dim=1, keepdim=True)
+        row_std = sim_mat.std(dim=1, keepdim=True)
+        col_mean = sim_mat.mean(dim=0, keepdim=True)
+        col_std = sim_mat.std(dim=0, keepdim=True)
+
+    return row_mean, row_std, col_mean, col_std
+
+
+def _score_matrix_from_normalized_row(t_i_norm, emb_j, device):
+    """Calculate a score matrix when the left embedding is pre-normalized."""
+    t_j_norm = _normalize_embedding_torch(emb_j, device)
     cos_sim = torch.mm(t_i_norm, t_j_norm.T)
     dist_mat = 1.0 - cos_sim
     sim_mat = torch.exp(-dist_mat)
-    
+
     epsilon = 1e-8
-    row_mean = sim_mat.mean(dim=1, keepdim=True)
-    row_std = sim_mat.std(dim=1, keepdim=True)
-    col_mean = sim_mat.mean(dim=0, keepdim=True)
-    col_std = sim_mat.std(dim=0, keepdim=True)
-    
+    row_mean, row_std, col_mean, col_std = _score_matrix_statistics(
+        sim_mat,
+        device,
+    )
+
     z_r = (sim_mat - row_mean) / (row_std + epsilon)
     z_c = (sim_mat - col_mean) / (col_std + epsilon)
     final_score = (z_r + z_c) / 2.0
-    
+
     return final_score.to(dtype=torch.float32, device="cpu").numpy()
 
-@jit(nopython=True, fastmath=True)
-def run_global_traceback(score_matrix, gap_p):
-    N, M = score_matrix.shape
-    dp = np.zeros((N + 1, M + 1), dtype=np.float32)
-    pointer = np.zeros((N + 1, M + 1), dtype=np.int8)
 
-    for c in range(1, M + 1): dp[0, c] = c * gap_p; pointer[0, c] = 3
-    for r in range(1, N + 1): dp[r, 0] = r * gap_p; pointer[r, 0] = 2
-    pointer[0, 0] = 0
-
-    for i in range(1, N + 1):
-        for j in range(1, M + 1):
-            match = dp[i-1, j-1] + score_matrix[i-1, j-1]
-            delete = dp[i-1, j] + gap_p
-            insert = dp[i, j-1] + gap_p
-            
-            best = match; ptr = 1
-            if delete > best: best = delete; ptr = 2
-            if insert > best: best = insert; ptr = 3
-            
-            dp[i, j] = best
-            pointer[i, j] = ptr
-
-    max_score = dp[N, M]
-    path_buffer = np.zeros(N + M, dtype=np.int8)
-    k = 0
-    i, j = N, M
-    while i > 0 or j > 0:
-        p = pointer[i, j]
-        path_buffer[k] = p
-        k += 1
-        if p == 1: i -= 1; j -= 1
-        elif p == 2: i -= 1
-        elif p == 3: j -= 1
-        else: break 
-
-    return max_score, k, path_buffer[:k]
-
-@jit(nopython=True, fastmath=True)
-def run_local_traceback(score_matrix, gap_p):
-    N, M = score_matrix.shape
-    dp = np.zeros((N + 1, M + 1), dtype=np.float32)
-    pointer = np.zeros((N + 1, M + 1), dtype=np.int8)
-    
-    max_score = 0.0
-    max_i, max_j = 0, 0
-    
-    for i in range(1, N + 1):
-        for j in range(1, M + 1):
-            match = dp[i-1, j-1] + score_matrix[i-1, j-1]
-            delete = dp[i-1, j] + gap_p
-            insert = dp[i, j-1] + gap_p
-            
-            best = 0.0; ptr = 0
-            if match > best: best = match; ptr = 1
-            if delete > best: best = delete; ptr = 2
-            if insert > best: best = insert; ptr = 3
-            
-            dp[i, j] = best
-            pointer[i, j] = ptr
-            
-            if best > max_score:
-                max_score = best
-                max_i = i
-                max_j = j
-                
-    align_len = 0
-    curr_i, curr_j = max_i, max_j
-    while curr_i > 0 and curr_j > 0:
-        if dp[curr_i, curr_j] == 0: break 
-        p = pointer[curr_i, curr_j]
-        if p == 0: break
-        align_len += 1
-        if p == 1: curr_i -= 1; curr_j -= 1
-        elif p == 2: curr_i -= 1
-        elif p == 3: curr_j -= 1
-        else: break
-            
-    return max_score, align_len
-
-@jit(nopython=True)
-def pack_path_2bit(path_arr):
-    n = len(path_arr)
-    n_bytes = (n + 3) // 4
-    out = np.zeros(n_bytes, dtype=np.uint8)
-    for i in range(n_bytes):
-        val = 0
-        for b in range(4):
-            idx = i * 4 + b
-            if idx < n: val |= (path_arr[idx] << (b * 2))
-        out[i] = val
-    return out
+def compute_score_matrix_torch(emb_i, emb_j, device):
+    t_i_norm = _normalized_row_for_active_lane(emb_i, device)
+    return _score_matrix_from_normalized_row(t_i_norm, emb_j, device)
 
 # %% =======================================
 # HDF5 WORKER INITIALIZATION
 # ==========================================
 worker_hf = None
+worker_device = None
 
 def init_worker(h5_path):
-    global worker_hf
+    global worker_hf, worker_device
     worker_hf = h5py.File(h5_path, "r", libver='latest', swmr=True)
+    # This initializer is used only by the CPU-only fallback. Keeping the
+    # device explicit prevents child processes from creating GPU contexts.
+    worker_device = torch.device("cpu")
 
 # %% =======================================
-# HYBRID WORKER - Reverted to individual pairs
+# CPU ALIGNMENT WORKERS
 # ==========================================
-def calculate_hybrid_data(args):
-    idx_i, idx_j, header_i, header_j, generate_paths = args
-    global worker_hf
-    
-    device = Hardware_Utils.get_optimal_device()
-    
-    # 0. Fetch embeddings dynamically from disk
+def calculate_alignment_data(args):
+    """
+    Run the dynamic-programming portion of one pair entirely on the CPU.
+
+    The score matrix is produced by the single accelerator-owning thread and
+    passed by reference to a CPU worker thread. The Numba kernels release the
+    GIL, so multiple alignments can execute on separate CPU cores.
+    """
+    idx_i, idx_j, matrix = args
+
+    g_raw, g_len, l_raw, l_len = global_local_scores(
+        matrix,
+        GLOBAL_GAP_P,
+        LOCAL_GAP_P,
+    )
+
+    return (idx_i, idx_j, l_raw, l_len, g_raw, g_len)
+
+
+def calculate_cpu_pair(args):
+    """
+    CPU-only fallback that computes both the score matrix and alignments.
+
+    Multiple processes may execute this function because none of them creates
+    or accesses an accelerator context.
+    """
+    idx_i, idx_j, header_i, header_j = args
+    global worker_hf, worker_device
+
     emb_i = worker_hf["embeddings"][header_i][:]
     emb_j = worker_hf["embeddings"][header_j][:]
-    
-    # 1. Compute Base Matrix
-    matrix = compute_score_matrix_torch(emb_i, emb_j, device)
-    
-    # 2. GLOBAL PASS
-    # Even if paths are disabled, we must run the traceback to get the global g_raw and g_len scores
-    g_raw, g_len, path_array = run_global_traceback(matrix, GLOBAL_GAP_P)
-    
-    # Skip packing and zlib overhead if we don't need paths
-    c_path = b""
-    if generate_paths:
-        packed_path = pack_path_2bit(path_array)
-        c_path = zlib.compress(packed_path.tobytes())
-    
-    # 3. LOCAL PASS
-    matrix -= 2.0   
-    l_raw, l_len = run_local_traceback(matrix, LOCAL_GAP_P)
+    matrix = compute_score_matrix_torch(emb_i, emb_j, worker_device)
 
-    return (idx_i, idx_j, l_raw, l_len, g_raw, g_len, c_path)
+    return calculate_alignment_data((idx_i, idx_j, matrix))
+
+
+def _uses_accelerator(device):
+    return getattr(device, "type", str(device).split(":", 1)[0]) != "cpu"
+
+
+accelerator_thread_state = threading.local()
+accelerator_lane_cache = {}
+
+
+def _device_type(device):
+    """Return a normalized PyTorch device type."""
+    return getattr(device, "type", str(device).split(":", 1)[0])
+
+
+def _supports_explicit_streams(device):
+    """Return whether this backend exposes usable Python stream controls."""
+    return _device_type(device) in {"cuda", "xpu"}
+
+
+def _accelerator_worker_count(device, cpu_workers, requested_lanes=None):
+    """
+    Bound an explicit lane request to what the selected backend can use.
+
+    ``requested_lanes`` is optional to preserve compatibility with callers of
+    the previous CUDA-only helper.
+    """
+    if not _supports_explicit_streams(device):
+        return 1
+    if requested_lanes is None:
+        requested_lanes = GPU_STREAMS
+    return max(1, min(int(requested_lanes), int(cpu_workers)))
+
+
+def _accelerator_lane_candidates(device, cpu_workers):
+    """Return conservative tuning candidates for the active backend."""
+    device_type = _device_type(device)
+    max_lanes = max(1, int(cpu_workers))
+
+    if device_type == "cuda":
+        candidates = [1, 2, 4, 8, 16]
+        backend_cap = 16
+    elif device_type == "xpu":
+        candidates = [1, 2, 4]
+        backend_cap = 4
+    else:
+        return [1]
+
+    limit = min(max_lanes, backend_cap)
+    bounded = [count for count in candidates if count <= limit]
+    if limit not in bounded:
+        bounded.append(limit)
+    return sorted(set(bounded))
+
+
+def _configured_accelerator_lanes(device, cpu_workers):
+    """
+    Resolve a manual lane setting, returning None when automatic tuning is
+    requested.
+    """
+    configured = ACCELERATOR_LANES
+    if isinstance(configured, str):
+        normalized = configured.strip().lower()
+        if normalized in {"", "auto"}:
+            return None
+        try:
+            configured = int(normalized)
+        except ValueError:
+            print(
+                f"⚠️ Invalid ACCELERATOR_LANES={configured!r}; using auto."
+            )
+            return None
+
+    try:
+        configured = int(configured)
+    except (TypeError, ValueError):
+        print(f"⚠️ Invalid ACCELERATOR_LANES={configured!r}; using auto.")
+        return None
+
+    if configured < 1:
+        print(f"⚠️ ACCELERATOR_LANES must be positive; using auto.")
+        return None
+    return _accelerator_worker_count(device, cpu_workers, configured)
+
+
+def _accelerator_name(device):
+    """Return a stable device label for tuning messages and cache keys."""
+    device_type = _device_type(device)
+    try:
+        if device_type == "cuda":
+            return torch.cuda.get_device_name(device)
+        if device_type == "xpu":
+            return torch.xpu.get_device_name(device)
+        if device_type == "mps" and hasattr(torch.backends.mps, "get_name"):
+            return torch.backends.mps.get_name()
+    except (AttributeError, RuntimeError):
+        pass
+    return str(device)
+
+
+def _stream_context(device):
+    """
+    Return a context for a stream owned by the current accelerator thread.
+
+    CUDA and XPU use separate explicit streams. MPS, DirectML, and other
+    backends deliberately retain their default execution queue.
+    """
+    device_type = _device_type(device)
+    if device_type == "cuda":
+        backend = torch.cuda
+    elif device_type == "xpu":
+        backend = torch.xpu
+    else:
+        return nullcontext()
+
+    stream = getattr(accelerator_thread_state, "stream", None)
+    stream_key = getattr(accelerator_thread_state, "stream_key", None)
+    current_key = (device_type, str(device))
+    if stream is None or stream_key != current_key:
+        stream = backend.Stream(device=device)
+        accelerator_thread_state.stream = stream
+        accelerator_thread_state.stream_key = current_key
+
+    return _DeviceStreamContext(backend, device, stream)
+
+
+class _DeviceStreamContext:
+    """Enter matching device and stream contexts for CUDA or XPU."""
+
+    def __init__(self, backend, device, stream):
+        self.device_context = backend.device(device)
+        self.stream_context = backend.stream(stream)
+
+    def __enter__(self):
+        self.device_context.__enter__()
+        try:
+            return self.stream_context.__enter__()
+        except BaseException:
+            self.device_context.__exit__(*sys.exc_info())
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return self.stream_context.__exit__(
+                exc_type,
+                exc_value,
+                traceback,
+            )
+        finally:
+            self.device_context.__exit__(exc_type, exc_value, traceback)
+
+
+def _compute_accelerated_matrix(args):
+    """
+    Compute one score matrix on a stream owned by the current worker thread.
+
+    All threads share one accelerator process. CUDA and XPU threads own
+    separate streams; backends without public stream controls use one lane.
+    """
+    idx_i, idx_j, emb_i, emb_j, device = args
+    with torch.inference_mode():
+        with _stream_context(device):
+            previous_row_key = getattr(
+                accelerator_thread_state,
+                "active_row_key",
+                None,
+            )
+            accelerator_thread_state.active_row_key = (
+                _device_cache_key(device),
+                idx_i,
+            )
+            try:
+                matrix = compute_score_matrix_torch(emb_i, emb_j, device)
+            finally:
+                if previous_row_key is None:
+                    try:
+                        del accelerator_thread_state.active_row_key
+                    except AttributeError:
+                        pass
+                else:
+                    accelerator_thread_state.active_row_key = previous_row_key
+
+    return idx_i, idx_j, matrix
+
+
+def _run_accelerated_pipeline(
+    batch_tasks,
+    workers,
+    input_h5,
+    device,
+    batch_id,
+    accelerator_workers,
+    show_progress,
+):
+    """
+    Run one complete accelerator/CPU pipeline with a fixed lane count.
+
+    GPU and CPU queues are independently bounded. Matrices stay in the same
+    process and are passed by reference, avoiding serialization and extra CUDA
+    contexts while allowing both stages to remain busy.
+    """
+    results = []
+    gpu_pending = set()
+    cpu_pending = set()
+    ready_for_cpu = deque()
+    ready_limit = max(accelerator_workers, min(workers, 8))
+    task_iterator = iter(batch_tasks)
+    tasks_exhausted = False
+    cached_row_header = None
+    cached_row_embedding = None
+    progress_context = (
+        tqdm(
+            total=len(batch_tasks),
+            desc=(
+                f"  Batch {batch_id} "
+                f"({accelerator_workers} accelerator lane"
+                f"{'s' if accelerator_workers != 1 else ''})"
+            ),
+            leave=False,
+        )
+        if show_progress
+        else nullcontext(None)
+    )
+
+    with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf, \
+            ThreadPoolExecutor(
+                max_workers=accelerator_workers,
+                thread_name_prefix="alignment-gpu",
+            ) as gpu_executor, \
+            ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="alignment-cpu",
+            ) as cpu_executor, \
+            progress_context as progress:
+        while (
+            not tasks_exhausted
+            or gpu_pending
+            or ready_for_cpu
+            or cpu_pending
+        ):
+            # Move completed matrices into the independently bounded CPU pool.
+            while ready_for_cpu and len(cpu_pending) < workers:
+                cpu_pending.add(
+                    cpu_executor.submit(
+                        calculate_alignment_data,
+                        ready_for_cpu.popleft(),
+                    )
+                )
+
+            # Keep every CUDA stream supplied, but do not accumulate an
+            # unbounded number of embeddings or score matrices in host RAM.
+            while (
+                not tasks_exhausted
+                and len(gpu_pending) < accelerator_workers
+                and len(ready_for_cpu) + len(gpu_pending) < ready_limit
+            ):
+                try:
+                    idx_i, idx_j, header_i, header_j = next(task_iterator)
+                except StopIteration:
+                    tasks_exhausted = True
+                    break
+
+                # Tasks are generated row-by-row. Reuse the row embedding
+                # instead of reading it from HDF5 once for every pair.
+                if header_i != cached_row_header:
+                    cached_row_embedding = hf["embeddings"][header_i][:]
+                    cached_row_header = header_i
+                emb_i = cached_row_embedding
+                emb_j = hf["embeddings"][header_j][:]
+                gpu_pending.add(
+                    gpu_executor.submit(
+                        _compute_accelerated_matrix,
+                        (
+                            idx_i,
+                            idx_j,
+                            emb_i,
+                            emb_j,
+                            device,
+                        ),
+                    )
+                )
+
+            completed_gpu = {
+                future for future in gpu_pending if future.done()
+            }
+            completed_cpu = {
+                future for future in cpu_pending if future.done()
+            }
+
+            if not completed_gpu and not completed_cpu:
+                all_pending = gpu_pending | cpu_pending
+                if not all_pending:
+                    continue
+                completed, _ = wait(
+                    all_pending,
+                    return_when=FIRST_COMPLETED,
+                )
+                completed_gpu = completed & gpu_pending
+                completed_cpu = completed & cpu_pending
+
+            for future in completed_gpu:
+                gpu_pending.remove(future)
+                ready_for_cpu.append(future.result())
+
+            for future in completed_cpu:
+                cpu_pending.remove(future)
+                results.append(future.result())
+                if progress is not None:
+                    progress.update(1)
+
+    return results
+
+
+def _select_accelerator_lanes(
+    batch_tasks,
+    workers,
+    input_h5,
+    device,
+    batch_id,
+):
+    """
+    Select accelerator concurrency using a short representative benchmark.
+
+    The benchmark includes HDF5 input, accelerator work, the device-to-host
+    transfer, and CPU alignment. This optimizes completed-pair throughput
+    rather than accelerator utilization alone.
+    """
+    manual_lanes = _configured_accelerator_lanes(device, workers)
+    if manual_lanes is not None:
+        return manual_lanes
+
+    candidates = _accelerator_lane_candidates(device, workers)
+    if len(candidates) == 1 or len(batch_tasks) < 2:
+        return 1
+
+    cache_key = (
+        _device_type(device),
+        _accelerator_name(device),
+        int(workers),
+    )
+    if cache_key in accelerator_lane_cache:
+        return accelerator_lane_cache[cache_key]
+
+    tune_count = max(
+        2,
+        min(int(ACCELERATOR_TUNE_PAIRS), len(batch_tasks)),
+    )
+    tuning_tasks = list(batch_tasks[:tune_count])
+    device_name = cache_key[1]
+    print(
+        f"  > Auto-tuning accelerator lanes on {device_name} "
+        f"using {tune_count} representative pairs..."
+    )
+
+    # Warm the backend, HDF5 cache, PyTorch allocators, and Numba kernels
+    # before recording any candidate.
+    _run_accelerated_pipeline(
+        tuning_tasks,
+        workers,
+        input_h5,
+        device,
+        batch_id,
+        accelerator_workers=1,
+        show_progress=False,
+    )
+
+    measured_rates = {}
+    for lanes in candidates:
+        start_time = time.perf_counter()
+        try:
+            _run_accelerated_pipeline(
+                tuning_tasks,
+                workers,
+                input_h5,
+                device,
+                batch_id,
+                accelerator_workers=lanes,
+                show_progress=False,
+            )
+        except (RuntimeError, NotImplementedError) as error:
+            if lanes == 1:
+                raise
+            print(
+                f"    {lanes} lanes unavailable: "
+                f"{type(error).__name__}: {error}"
+            )
+            continue
+
+        elapsed = max(time.perf_counter() - start_time, 1e-9)
+        measured_rates[lanes] = tune_count / elapsed
+
+    if not measured_rates:
+        selected = 1
+    else:
+        fastest_rate = max(measured_rates.values())
+        # Prefer the least concurrency within 3% of the fastest result. This
+        # avoids extra memory use for differences smaller than tuning noise.
+        selected = min(
+            lanes
+            for lanes, rate in measured_rates.items()
+            if rate >= fastest_rate * 0.97
+        )
+
+    accelerator_lane_cache[cache_key] = selected
+    measurements = ", ".join(
+        f"{lanes}: {rate:.1f} pairs/s"
+        for lanes, rate in sorted(measured_rates.items())
+    )
+    print(f"    {measurements}")
+    print(f"  > Selected {selected} accelerator lane(s).")
+    return selected
+
+
+def process_accelerated_tasks(
+    batch_tasks,
+    workers,
+    input_h5,
+    device,
+    batch_id,
+    accelerator_workers=None,
+):
+    """
+    Auto-select accelerator concurrency, then run the complete task batch.
+    """
+    if accelerator_workers is None:
+        accelerator_workers = _select_accelerator_lanes(
+            batch_tasks,
+            workers,
+            input_h5,
+            device,
+            batch_id,
+        )
+    return _run_accelerated_pipeline(
+        batch_tasks,
+        workers,
+        input_h5,
+        device,
+        batch_id,
+        accelerator_workers,
+        show_progress=True,
+    )
+
+
+def process_cpu_tasks(batch_tasks, workers, input_h5, batch_id):
+    """Process complete pairs in parallel when no accelerator is available."""
+    results = []
+    with Pool(
+        processes=workers,
+        initializer=init_worker,
+        initargs=(input_h5,),
+    ) as pool:
+        iterator = pool.imap_unordered(
+            calculate_cpu_pair,
+            batch_tasks,
+            chunksize=10,
+        )
+        for result in tqdm(
+            iterator,
+            total=len(batch_tasks),
+            desc=f"  Batch {batch_id}",
+            leave=False,
+        ):
+            results.append(result)
+    return results
+
 
 # %% =======================================
 # PROCESSING & MERGE
 # ==========================================
-def process_batch(batch_tasks, batch_id, workers, input_h5, embedding_checksum):
+def process_batch(
+    batch_tasks,
+    batch_id,
+    workers,
+    input_h5,
+    embedding_checksum,
+    model_name=None,
+    saving_mode=None,
+    gap_penalties=None,
+    device=None,
+    accelerator_workers=None,
+):
     output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
-    results = []
-    
-    with Pool(processes=workers, initializer=init_worker, initargs=(input_h5,)) as pool:
-        iterator = pool.imap_unordered(calculate_hybrid_data, batch_tasks, chunksize=10)
-        for res in tqdm(iterator, total=len(batch_tasks), desc=f"  Batch {batch_id}", leave=False):
-            results.append(res)
+    if device is None:
+        device = Hardware_Utils.get_optimal_device()
+
+    if _uses_accelerator(device):
+        results = process_accelerated_tasks(
+            batch_tasks,
+            workers,
+            input_h5,
+            device,
+            batch_id,
+            accelerator_workers=accelerator_workers,
+        )
+    else:
+        results = process_cpu_tasks(
+            batch_tasks,
+            workers,
+            input_h5,
+            batch_id,
+        )
             
     # Save as uncompressed HDF5 for easy access
     rows_i = [r[0] for r in results]
@@ -334,6 +865,10 @@ def process_batch(batch_tasks, batch_id, workers, input_h5, embedding_checksum):
     with h5py.File(output_filename, "w") as hf:
         if embedding_checksum is not None:
             hf.attrs["embedding_checksum"] = embedding_checksum
+        if model_name is not None:
+            hf.attrs["model_name"] = model_name
+        if gap_penalties is not None:
+            hf.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
             
         hf.create_dataset("i", data=np.array(rows_i, dtype=np.uint32))
         hf.create_dataset("j", data=np.array(rows_j, dtype=np.uint32))
@@ -341,74 +876,153 @@ def process_batch(batch_tasks, batch_id, workers, input_h5, embedding_checksum):
         hf.create_dataset("l_len", data=np.array(l_lens, dtype=np.uint16))
         hf.create_dataset("g_score", data=np.array(g_scores, dtype=np.float32))
         hf.create_dataset("g_len", data=np.array(g_lens, dtype=np.uint16))
-        if GENERATE_PATHS:
-            edges_paths = [r[6] for r in results]
-            dt_vlen = h5py.vlen_dtype(np.uint8)
-            np_paths = np.empty(len(edges_paths), dtype=object)
-            for idx, p in enumerate(edges_paths):
-                np_paths[idx] = np.frombuffer(p, dtype=np.uint8)
-            hf.create_dataset("paths", data=np_paths, dtype=dt_vlen)
 
-def scan_existing_batches(n, current_checksum, computed_mask):
+def _decode_attr(val):
+    if val is None:
+        return None
+    if isinstance(val, bytes):
+        return val.decode("utf-8")
+    return str(val)
+
+def _compare_gap_penalties(cached_gap, current_gap):
+    if cached_gap is None:
+        return False
+    try:
+        cached_arr = np.array(cached_gap, dtype=np.float32).flatten()
+        current_arr = np.array(current_gap, dtype=np.float32).flatten()
+        return len(cached_arr) == len(current_arr) and np.allclose(cached_arr, current_arr, atol=1e-5)
+    except Exception:
+        return False
+
+def scan_existing_batches(
+    n,
+    current_checksum,
+    model_name,
+    saving_mode,
+    gap_penalties,
+    computed_mask,
+):
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR, exist_ok=True)
         return
     
     batch_files = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
+    if not batch_files:
+        return
+
+    mismatches = []
+    found_attrs = {
+        "model_name": "Unknown/Legacy",
+        "gap_penalties": "Unknown/Legacy",
+        "embedding_checksum": "Unknown/Legacy",
+    }
+
     for bf in batch_files:
         try:
             with h5py.File(bf, "r") as hf:
-                cached_checksum = hf.attrs.get("embedding_checksum")
-                if isinstance(cached_checksum, bytes):
-                    cached_checksum = cached_checksum.decode('utf-8')
-                if cached_checksum != current_checksum:
-                    print(f"⚠️ Checksum mismatch in {bf}! Deleting mismatched cache file...")
-                    hf.close()
-                    try:
-                        os.remove(bf)
-                    except Exception as err:
-                        print(f"Error removing mismatched file {bf}: {err}")
-                    continue
-                
-                # Check for completeness of the batch file
+                cached_checksum = _decode_attr(hf.attrs.get("embedding_checksum"))
+                cached_model = _decode_attr(hf.attrs.get("model_name"))
+                cached_gaps = hf.attrs.get("gap_penalties")
+
+                if cached_checksum: found_attrs["embedding_checksum"] = cached_checksum
+                if cached_model: found_attrs["model_name"] = cached_model
+                if cached_gaps is not None: found_attrs["gap_penalties"] = list(np.array(cached_gaps, dtype=np.float32).flatten())
+
+                # Check for completeness of datasets
                 required_keys = ["i", "j", "l_score", "l_len", "g_score", "g_len"]
                 if not all(k in hf for k in required_keys):
-                    print(f"⚠️ Batch file {bf} is missing required datasets. Deleting corrupted cache...")
-                    hf.close()
-                    try:
-                        os.remove(bf)
-                    except:
-                        pass
-                    continue
-                
-                # Check for matching dataset lengths
+                    mismatches.append(f"Missing required datasets in batch file '{os.path.basename(bf)}'")
+                    break
+
                 len_i = len(hf["i"])
-                lengths_match = True
-                for k in ["j", "l_score", "l_len", "g_score", "g_len"]:
-                    if len(hf[k]) != len_i:
-                        lengths_match = False
-                        break
-                if not lengths_match:
-                    print(f"⚠️ Batch file {bf} has mismatched dataset lengths. Deleting corrupted cache...")
-                    hf.close()
-                    try:
-                        os.remove(bf)
-                    except:
-                        pass
-                    continue
-                
+                if any(len(hf[k]) != len_i for k in ["j", "l_score", "l_len", "g_score", "g_len"]):
+                    mismatches.append(f"Dataset length mismatch in batch file '{os.path.basename(bf)}'")
+                    break
+
+                # Attribute checks
+                if cached_checksum != current_checksum:
+                    mismatches.append(f"Checksum mismatch in '{os.path.basename(bf)}' ('{cached_checksum}' vs current '{current_checksum}')")
+                    break
+                if cached_model != model_name:
+                    mismatches.append(f"Model name mismatch in '{os.path.basename(bf)}' ('{cached_model}' vs current '{model_name}')")
+                    break
+                if not _compare_gap_penalties(cached_gaps, gap_penalties):
+                    mismatches.append(f"Gap penalties mismatch in '{os.path.basename(bf)}' ({found_attrs['gap_penalties']} vs current {gap_penalties})")
+                    break
+        except Exception as e:
+            mismatches.append(f"Error reading batch file '{os.path.basename(bf)}': {e}")
+            break
+
+    if mismatches:
+        # Determine unique backup folder path
+        backup_dir = f"{RESULTS_DIR}_BackUp"
+        counter = 1
+        while os.path.exists(backup_dir):
+            backup_dir = f"{RESULTS_DIR}_BackUp_{counter}"
+            counter += 1
+
+        print(f"\n⚠️ WARNING: Existing batch cache directory '{RESULTS_DIR}' contains mismatched or incomplete batches.")
+        print(f"  > Mismatch reason: {mismatches[0]}")
+        print(f"  > Renaming existing batch folder to: '{backup_dir}'")
+
+        try:
+            shutil.move(RESULTS_DIR, backup_dir)
+        except Exception as err:
+            print(f"⚠️ Error renaming directory {RESULTS_DIR} to {backup_dir}: {err}")
+
+        # Create informative text report inside the backup folder
+        info_file = os.path.join(backup_dir, "batch_attributes_info.txt")
+        try:
+            os.makedirs(backup_dir, exist_ok=True)
+            with open(info_file, "w", encoding="utf-8") as info_f:
+                info_f.write("==========================================================\n")
+                info_f.write("ALIGNMENT BATCH DIRECTORY BACKUP REPORT\n")
+                info_f.write("==========================================================\n")
+                info_f.write(f"Backup Timestamp:    {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                info_f.write(f"Original Directory:  {RESULTS_DIR}\n")
+                info_f.write(f"Backup Directory:    {backup_dir}\n\n")
+                info_f.write("REASON(S) FOR BACKUP:\n")
+                for m in mismatches:
+                    info_f.write(f"  - {m}\n")
+                info_f.write("\nATTRIBUTES DETECTED IN BACKED-UP BATCHES:\n")
+                info_f.write(f"  - Model Name:         {found_attrs['model_name']}\n")
+                info_f.write(f"  - Gap Penalties:      {found_attrs['gap_penalties']}\n")
+                info_f.write(f"  - Embedding Checksum: {found_attrs['embedding_checksum']}\n\n")
+                info_f.write("CURRENT EXECUTION SETTINGS:\n")
+                info_f.write(f"  - Model Name:         {model_name}\n")
+                info_f.write(f"  - Gap Penalties:      {gap_penalties}\n")
+                info_f.write(f"  - Embedding Checksum: {current_checksum}\n")
+                info_f.write("==========================================================\n")
+            print(f"  > Created attribute report: '{info_file}'")
+        except Exception as err:
+            print(f"⚠️ Error creating info file '{info_file}': {err}")
+
+        # Re-initialize clean working directory
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        print(f"  > Initialized fresh calculation directory: '{RESULTS_DIR}'\n")
+        return
+
+    # If all existing batches match current settings perfectly, populate computed_mask
+    for bf in batch_files:
+        try:
+            with h5py.File(bf, "r") as hf:
                 arr_i = hf["i"][:]
                 arr_j = hf["j"][:]
                 computed_mask[arr_i, arr_j] = True
                 computed_mask[arr_j, arr_i] = True
-        except Exception as e:
-            print(f"Warning: Could not read batch file {bf}: {e}. Deleting corrupted cache file...")
-            try:
-                os.remove(bf)
-            except Exception as err:
-                print(f"Error removing corrupted file {bf}: {err}")
+        except Exception:
+            pass
 
-def compile_final_output(headers, seq_lens, required_mask, n):
+def compile_final_output(
+    headers,
+    seq_lens,
+    required_mask,
+    n,
+    current_checksum,
+    model_name,
+    saving_mode,
+    gap_penalties,
+):
     print(f"\n--- Compiling Final HDF5 Output (Deduplicated) ---")
     
     num_seqs = len(headers)
@@ -452,6 +1066,13 @@ def compile_final_output(headers, seq_lens, required_mask, n):
     compiled_mask.fill(False)
     
     with h5py.File(FINAL_OUTPUT_NET, "w") as hf_out:
+        if current_checksum is not None:
+            hf_out.attrs["embedding_checksum"] = current_checksum
+        if model_name is not None:
+            hf_out.attrs["model_name"] = model_name
+        if gap_penalties is not None:
+            hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
+
         dt_str = h5py.string_dtype(encoding='utf-8')
         hf_out.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
         hf_out.create_dataset("seq_lens", data=np.array(seq_lens, dtype=np.uint16))
@@ -464,21 +1085,6 @@ def compile_final_output(headers, seq_lens, required_mask, n):
         hf_out.create_dataset("g_score", shape=(total_edges,), dtype=np.float32)
         hf_out.create_dataset("g_len", shape=(total_edges,), dtype=np.uint16)
         
-        paths_exist = False
-        if len(batch_files) > 0:
-            with h5py.File(batch_files[0], "r") as hf_in:
-                if "paths" in hf_in:
-                    paths_exist = True
-                    
-        hf_p_out = None
-        if GENERATE_PATHS and paths_exist:
-            print(f"Saving Global Traceback Paths to {FINAL_OUTPUT_PATHS}...")
-            os.makedirs(os.path.dirname(FINAL_OUTPUT_PATHS), exist_ok=True)
-            hf_p_out = h5py.File(FINAL_OUTPUT_PATHS, "w")
-            hf_p_out.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
-            dt_vlen = h5py.vlen_dtype(np.uint8)
-            hf_p_out.create_dataset("paths", shape=(total_edges,), dtype=dt_vlen)
-            
         curr_idx = 0
         for bf in tqdm(batch_files, desc="Merging batches"):
             try:
@@ -503,9 +1109,6 @@ def compile_final_output(headers, seq_lens, required_mask, n):
                     hf_out["g_score"][curr_idx:end_idx] = hf_in["g_score"][:][uncompiled]
                     hf_out["g_len"][curr_idx:end_idx] = hf_in["g_len"][:][uncompiled]
                     
-                    if hf_p_out is not None and "paths" in hf_in:
-                        hf_p_out["paths"][curr_idx:end_idx] = hf_in["paths"][:][uncompiled]
-                        
                     # Mark as compiled
                     compiled_mask[arr_i[uncompiled], arr_j[uncompiled]] = True
                     compiled_mask[arr_j[uncompiled], arr_i[uncompiled]] = True
@@ -514,16 +1117,13 @@ def compile_final_output(headers, seq_lens, required_mask, n):
             except Exception as e:
                 print(f"Warning: Error merging batch {bf}: {e}")
                 
-        if hf_p_out is not None:
-            hf_p_out.close()
-            
     print("✅ Compilation complete!")
 
 # %% =======================================
 # MAIN
 # ==========================================
 def run_job_distributor():
-    if os.path.exists(FINAL_OUTPUT_NET) and (not GENERATE_PATHS or os.path.exists(FINAL_OUTPUT_PATHS)):
+    if os.path.exists(FINAL_OUTPUT_NET):
         print("✅ Job already done."); return
 
     try: set_start_method('spawn')
@@ -532,17 +1132,18 @@ def run_job_distributor():
     print(f"Loading Metadata from {FULL_INPUT_HDF5}...")
     if not os.path.exists(FULL_INPUT_HDF5): print("Embeddings file not found."); return
 
-    with h5py.File(FULL_INPUT_HDF5, "r") as hf:
-        raw_headers = hf["headers"][:]
-        headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-        
-        print("Pre-calculating sequence lengths...")
-        seq_lens = []
-        safe_headers = []
-        for h in tqdm(headers, desc="Reading lengths"):
-            safe_h = h.replace("/", "_").replace("\\", "_")
-            safe_headers.append(safe_h)
-            seq_lens.append(hf["embeddings"][safe_h].shape[0])
+    print("Validating embedding metadata and sequence lengths...")
+    try:
+        headers, safe_headers, seq_lens, manifest = load_embedding_metadata(
+            FULL_INPUT_HDF5
+        )
+    except EmbeddingFileError as error:
+        print(f"\n❌ Cannot start alignment:\n{error}")
+        return
+
+    current_model_name = manifest.model_name
+    current_saving_mode = manifest.saving_mode
+    current_gap_penalties = [LOCAL_GAP_P, GLOBAL_GAP_P]
 
     n = len(headers)
     total_pairs = (n * (n - 1)) // 2
@@ -610,7 +1211,14 @@ def run_job_distributor():
     print(f"  > Checksum: {current_checksum}")
 
     # Scan existing batches for already computed pairs
-    scan_existing_batches(n, current_checksum, computed_mask)
+    scan_existing_batches(
+        n,
+        current_checksum,
+        current_model_name,
+        current_saving_mode,
+        current_gap_penalties,
+        computed_mask,
+    )
 
     # Find the next available batch_id
     existing_batches = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
@@ -640,9 +1248,11 @@ def run_job_distributor():
     if num_tasks > 0:
         current_batch = []
         batch_id = next_batch_id
+        processing_device = Hardware_Utils.get_optimal_device()
+        accelerator_workers = None
         
         batches_to_run = math.ceil(num_tasks / BATCH_SIZE)
-        pbar = tqdm(total=batches_to_run, desc="Overall Progress", unit="batch")
+        pbar = None
         
         for i in range(n):
             cols = np.arange(i + 1, n)
@@ -659,21 +1269,81 @@ def run_job_distributor():
                 
             pending_cols = cols[pending_mask]
             for j_val in pending_cols:
-                current_batch.append((i, int(j_val), safe_headers[i], safe_headers[j_val], GENERATE_PATHS))
+                current_batch.append((i, int(j_val), safe_headers[i], safe_headers[j_val]))
                 if len(current_batch) >= BATCH_SIZE:
-                    process_batch(current_batch, batch_id, WORKERS, FULL_INPUT_HDF5, current_checksum)
+                    if pbar is None:
+                        if _uses_accelerator(processing_device):
+                            accelerator_workers = _select_accelerator_lanes(
+                                current_batch,
+                                WORKERS,
+                                FULL_INPUT_HDF5,
+                                processing_device,
+                                batch_id,
+                            )
+                        pbar = tqdm(
+                            total=batches_to_run,
+                            desc="Overall Progress",
+                            unit="batch",
+                        )
+                    process_batch(
+                        current_batch,
+                        batch_id,
+                        WORKERS,
+                        FULL_INPUT_HDF5,
+                        current_checksum,
+                        current_model_name,
+                        current_saving_mode,
+                        current_gap_penalties,
+                        device=processing_device,
+                        accelerator_workers=accelerator_workers,
+                    )
                     batch_id += 1
                     current_batch = []
                     pbar.update(1)
 
         if len(current_batch) > 0:
-            process_batch(current_batch, batch_id, WORKERS, FULL_INPUT_HDF5, current_checksum)
+            if pbar is None:
+                if _uses_accelerator(processing_device):
+                    accelerator_workers = _select_accelerator_lanes(
+                        current_batch,
+                        WORKERS,
+                        FULL_INPUT_HDF5,
+                        processing_device,
+                        batch_id,
+                    )
+                pbar = tqdm(
+                    total=batches_to_run,
+                    desc="Overall Progress",
+                    unit="batch",
+                )
+            process_batch(
+                current_batch,
+                batch_id,
+                WORKERS,
+                FULL_INPUT_HDF5,
+                current_checksum,
+                current_model_name,
+                current_saving_mode,
+                current_gap_penalties,
+                device=processing_device,
+                accelerator_workers=accelerator_workers,
+            )
             pbar.update(1)
             
-        pbar.close()
+        if pbar is not None:
+            pbar.close()
 
     # Compile intermediate HDF5 batches into final output
-    compile_final_output(headers, seq_lens, required_mask, n)
+    compile_final_output(
+        headers,
+        seq_lens,
+        required_mask,
+        n,
+        current_checksum,
+        current_model_name,
+        current_saving_mode,
+        current_gap_penalties,
+    )
 
 if __name__ == "__main__":
     run_job_distributor()

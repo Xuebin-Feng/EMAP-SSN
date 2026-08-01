@@ -6,19 +6,19 @@ Similar to the NCBI's traditional SSEARCH program, this tool performs a rigorous
 This allows you to find remote homologs that share structural similarities even if their literal sequence identity has degraded entirely.
 
 How it Works:
-1. Target Database: You select a pre-computed embedding database (.h5) to search against. (If the .h5 file doesn't exist yet, the script will automatically generate one from the selected FASTA file).
-2. Query Input: You can either type the exact header of a sequence already in the FASTA file, OR paste a brand new raw amino acid sequence into the 'Query Sequence' box.
+1. Target Database: You select a complete metadata-first embedding database (.h5) to search against.
+2. Query Input: You can either type the header of a stored sequence, OR paste a brand new raw amino acid sequence into the 'Query Sequence' box.
 3. Inference: The script calculates the structural embedding for your query.
 4. Scanning: Using parallel CPU workers, it scans your query against every sequence in the database using either Local (Smith-Waterman) or Global (Needleman-Wunsch) dynamic programming.
 5. Scoring: The raw alignment scores are normalized (to prevent bias toward excessively long sequences) and ranked.
 
 Outputs:
-The script generates two files in the same directory as your input FASTA:
+The script generates report files in the configured report directory:
 - Report_<Query>.txt: A human-readable text file showing the ranked hits, their normalized scores, raw scores, and effective alignment lengths.
 - Hits_<Query>.fasta: A clean FASTA file containing the sequences of all your top hits, ordered strictly by rank, with your query sequence pinned to the very top. This file is perfectly formatted to be immediately dropped into an MSA tool!
 
 Key Parameters:
-- Query Sequence (Optional): If you populate this box, the script will ignore the FASTA lookup and use your raw text.
+- Query Sequence (Optional): If populated, the script ignores stored-header lookup and sanitizes the supplied sequence in memory.
 - Norm Score Cutoff: Filters out any hits that fall below a specific normalized similarity score.
 - Alignment Mode: Use 'local' if you are searching for a specific structural domain within larger proteins. Use 'global' if you are comparing overall holistic similarity.
 """
@@ -30,20 +30,42 @@ import pandas as pd
 import torch
 import re
 import sys
+import gc
+import threading
+import time
 import Hardware_Utils
-from numba import jit
+from Alignment_Score_Kernels import global_score_length, local_score_length
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
+
+try:
+    from FASTA_Sanitization import sanitize_header, sanitize_sequence
+    from Embedding_HDF5 import (
+        dtype_for_saving_mode,
+        read_embedding_manifest,
+        validate_embedding_array,
+    )
+    from Generate_Embeddings import find_model_plugin
+except ModuleNotFoundError:
+    from src.utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
+    from src.utilities.Embedding_HDF5 import (
+        dtype_for_saving_mode,
+        read_embedding_manifest,
+        validate_embedding_array,
+    )
+    from src.utilities.Generate_Embeddings import find_model_plugin
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-INPUT_FASTA = "Sample.fasta"
 INPUT_EMBED = "Sample_[E1_RA]_embeddings.h5"
 
 # QUERY SETTINGS
 QUERY_HEADER = "Query_Header"
-QUERY_SEQUENCE = "" # Optional: If left blank, it fetches the sequence from INPUT_FASTA using QUERY_HEADER.
+QUERY_SEQUENCE = "" # Optional: if blank, fetch from INPUT_EMBED using QUERY_HEADER.
 OUTPUT_NAME = "" # Optional: Custom base name for the generated output files.
 
 # SEARCH PARAMETERS
@@ -56,9 +78,8 @@ NORM_MODE = "longer_sequence"
 
 # HARDWARE & CACHE
 WORKERS = 8                  
-SAVING_PRECISION = "float16" 
-
-FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
+ACCELERATOR_LANES = "auto"
+ACCELERATOR_TUNE_PAIRS = 256
 EMBED_DIR = os.path.join("..", "Embeddings")
 REPORT_DIR = os.path.join("..", "Cache_Files", "Align_Report")
 GENERATE_FASTA = False
@@ -108,128 +129,48 @@ if os.path.exists(SETTINGS_FILE):
         print(f"Failed to load user settings: {e}")
 
 # --- DYNAMIC INFERENCE ---
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR else ""
 FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
 
-_model_name = "unknown_model"
-_match = re.search(r"_\[(.*?)\]_embeddings\.h5$", INPUT_EMBED)
-if _match:
-    _model_name = _match.group(1)
-MODEL_NAME = _model_name
-
-# --- 2. LIBRARY CHECK ---------------------------------------------------------
-try:
-    from esm.models.esmc import ESMC
-    from esm.sdk.api import ESMProtein, LogitsConfig
-    from transformers import BertTokenizer, BertModel, T5Tokenizer, T5EncoderModel
-except ImportError:
-    print("\n[!] Warning: ESM or Transformers libraries not found.\n")
-
 # --- 3. DATA & MODEL LOADING --------------------------------------------------
-def read_fasta_to_dict(file_path):
-    seq_dict = {}
-    current_header, current_seq = None, []
-    if not os.path.exists(file_path):
-        print(f"Error: FASTA file not found at {file_path}")
-        sys.exit(1)
-    with open(file_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            if line.startswith(">"):
-                if current_header: seq_dict[current_header] = "".join(current_seq)
-                current_header = line[1:]
-                current_seq = []
-            else: current_seq.append(line)
-        if current_header: seq_dict[current_header] = "".join(current_seq)
-    return seq_dict
-
-def read_fasta_lists(file_path):
-    headers, sequences = [], []
-    d = read_fasta_to_dict(file_path)
-    for h, s in d.items():
-        headers.append(h); sequences.append(s)
-    return headers, sequences
-
 def load_model_integrated(model_name):
     device = Hardware_Utils.get_optimal_device()
     print(f"[System] Loading model '{model_name}' on {device}...")
-    if "esmc" in model_name:
-        return ESMC.from_pretrained(model_name).to(device), device, "esmc"
-    elif "prot_bert" in model_name:
-        tokenizer = BertTokenizer.from_pretrained(f"Rostlab/{model_name}", do_lower_case=False)
-        model = BertModel.from_pretrained(f"Rostlab/{model_name}").to(device)
-        model.eval()
-        return (tokenizer, model), device, "bert"
-    elif "ProstT5" in model_name:
-        tokenizer = T5Tokenizer.from_pretrained(f"Rostlab/{model_name}_fp16", do_lower_case=False)
-        model = T5EncoderModel.from_pretrained(f"Rostlab/{model_name}_fp16").to(device)
-        return (tokenizer, model), device, "t5"
-    else: raise ValueError(f"Unknown model: {model_name}")
+    plugin = find_model_plugin(model_name)
+    if plugin is None:
+        raise ValueError(
+            f"Model '{model_name}' is not supported by an available pLM plugin."
+        )
+    return plugin.load_model(model_name, device), device, plugin
 
 def get_embedding_integrated(seq, model_obj, device, model_type, target_dtype):
-    seq = seq.upper()
-    
-    # 1. Exact sanitization (same as Generate_Embeddings.py)
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    seq = match.group(0) if match else ""
-    
-    if model_type == "esmc":
-        seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWY\-]', '-', seq)
-    elif model_type in ["bert", "t5"]:
-        seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO\-]', 'X', seq)
-        seq = re.sub(r'[BZUO]', 'X', seq) 
+    return model_type.get_embedding(seq, model_obj, device, target_dtype)
 
-    # 2. Inference
-    with torch.no_grad():
-        if model_type == "esmc":
-            protein_tensor = model_obj.encode(ESMProtein(sequence=seq))
-            logits = model_obj.logits(protein_tensor, LogitsConfig(sequence=True, return_embeddings=True))
-            return logits.embeddings.squeeze(0)[1:-1].cpu().numpy().astype(target_dtype)
-        elif model_type == "bert":
-            tokenizer, model = model_obj
-            spaced_seq = " ".join(list(seq))
-            inputs = tokenizer(spaced_seq, return_tensors="pt").to(device)
-            outputs = model(**inputs)
-            return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
-        elif model_type == "t5":
-            tokenizer, model = model_obj
-            spaced_seq = " ".join(list(seq))
-            input_seq = "<AA2fold> " + spaced_seq
-            inputs = tokenizer(input_seq, return_tensors="pt").to(device)
-            outputs = model(**inputs)
-            return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
+
+def release_accelerator_cache(device):
+    """Release cached model allocations before the alignment search begins."""
+    if device is None:
+        return
+    device_type = getattr(device, "type", str(device).split(":", 1)[0])
+    try:
+        if device_type == "cuda":
+            torch.cuda.empty_cache()
+        elif device_type == "xpu" and hasattr(torch, "xpu"):
+            torch.xpu.empty_cache()
+        elif device_type == "mps" and hasattr(torch, "mps"):
+            torch.mps.empty_cache()
+    except (AttributeError, RuntimeError):
+        pass
+
 
 def prepare_database_embeddings():
-    if os.path.exists(FULL_INPUT_EMBED):
-        print(f"[Init] Found cached HDF5 embeddings at:\n       {FULL_INPUT_EMBED}")
-        with h5py.File(FULL_INPUT_EMBED, "r") as hf:
-            raw_headers = hf['headers'][:]
-            headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-        return headers, None
-        
-    print(f"[Init] No HDF5 cache found. Generating '{SAVING_PRECISION}' embeddings from FASTA...")
-    os.makedirs(os.path.dirname(FULL_INPUT_EMBED), exist_ok=True)
-    headers, seqs = read_fasta_lists(FULL_INPUT_FASTA)
-    model_obj, device, model_type = load_model_integrated(MODEL_NAME)
-    
-    target_dtype = np.float16 if SAVING_PRECISION == "float16" else np.float32
-    
-    # Write directly to HDF5 on-the-fly to save RAM
-    with h5py.File(FULL_INPUT_EMBED, "w") as hf:
-        hf.attrs["model_name"] = MODEL_NAME
-        hf.attrs["num_sequences"] = len(headers)
-        
-        dt_str = h5py.string_dtype(encoding='utf-8')
-        hf.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
-        emb_group = hf.create_group("embeddings")
-        
-        for header, seq in tqdm(zip(headers, seqs), total=len(headers), desc="Embedding Generation"):
-            emb = get_embedding_integrated(seq, model_obj, device, model_type, target_dtype)
-            safe_h = header.replace("/", "_").replace("\\", "_")
-            emb_group.create_dataset(safe_h, data=emb)
-            
-    return headers, (model_obj, device, model_type)
+    if not os.path.exists(FULL_INPUT_EMBED):
+        raise FileNotFoundError(
+            f"Embedding database not found: {FULL_INPUT_EMBED}. Generate it "
+            "with Generate_Embeddings.py before running SSEARCH."
+        )
+    print(f"[Init] Loading HDF5 embeddings from:\n       {FULL_INPUT_EMBED}")
+    with h5py.File(FULL_INPUT_EMBED, "r") as hf:
+        return read_embedding_manifest(hf, require_complete=True)
 
 # --- 4. ALIGNMENT & NORMALIZATION LOGIC ---------------------------------------
 def compute_score_matrix_torch(emb_i, emb_j, device):
@@ -247,59 +188,6 @@ def compute_score_matrix_torch(emb_i, emb_j, device):
     z_c = (sim_mat - col_mean) / (col_std + epsilon)
     return ((z_r + z_c) / 2.0).to(dtype=torch.float32, device="cpu").numpy()
 
-@jit(nopython=True, fastmath=True)
-def run_traceback_numba(score_matrix, gap_p, is_local):
-    N, M = score_matrix.shape
-    dp = np.zeros((N + 1, M + 1), dtype=np.float32)
-    pointer = np.zeros((N + 1, M + 1), dtype=np.int8) 
-
-    if not is_local: 
-        # GLOBAL (NW)
-        for c in range(M + 1): dp[0, c] = c * gap_p; pointer[0, c] = 3
-        for r in range(N + 1): dp[r, 0] = r * gap_p; pointer[r, 0] = 2
-        pointer[0, 0] = 0
-        for i in range(1, N + 1):
-            for j in range(1, M + 1):
-                match = dp[i-1, j-1] + score_matrix[i-1, j-1]
-                delete = dp[i-1, j] + gap_p
-                insert = dp[i, j-1] + gap_p
-                best = match; ptr = 1
-                if delete > best: best = delete; ptr = 2
-                if insert > best: best = insert; ptr = 3
-                dp[i, j] = best; pointer[i, j] = ptr
-        max_score = dp[N, M]; start_i, start_j = N, M
-    else: 
-        # LOCAL (SW)
-        max_score_val = 0.0; start_i, start_j = 0, 0
-        for i in range(1, N + 1):
-            for j in range(1, M + 1):
-                match = dp[i-1, j-1] + score_matrix[i-1, j-1]
-                delete = dp[i-1, j] + gap_p
-                insert = dp[i, j-1] + gap_p
-                best = 0.0; ptr = 0
-                if match > best: best = match; ptr = 1
-                if delete > best: best = delete; ptr = 2
-                if insert > best: best = insert; ptr = 3
-                dp[i, j] = best; pointer[i, j] = ptr
-                if best > max_score_val: max_score_val = best; start_i, start_j = i, j
-        max_score = max_score_val
-
-    # Count path length for normalization
-    i, j = start_i, start_j
-    path_len = 0
-    while True:
-        if is_local and dp[i, j] == 0: break
-        if not is_local and i == 0 and j == 0: break
-        if i == 0 and j == 0: break
-        p = pointer[i, j]
-        path_len += 1
-        if p == 1: i -= 1; j -= 1
-        elif p == 2: i -= 1
-        elif p == 3: j -= 1
-        else: break
-            
-    return max_score, path_len
-
 def normalize_score(raw_score, align_len, len_i, len_j, mode):
     if mode == "alignment_length": return raw_score / align_len if align_len > 0 else 0.0
     elif mode == "shorter_sequence": denom = min(len_i, len_j); return raw_score / denom if denom > 0 else 0.0
@@ -309,35 +197,389 @@ def normalize_score(raw_score, align_len, len_i, len_j, mode):
 
 # --- HDF5 MULTIPROCESSING INITIALIZATION ---
 worker_hf = None
+worker_device = None
+
 def init_worker(h5_path):
-    global worker_hf
+    global worker_hf, worker_device
     worker_hf = h5py.File(h5_path, "r", libver='latest', swmr=True)
+    worker_device = torch.device("cpu")
 
-def search_worker(args):
-    idx, header, safe_h, q_emb, mode, gap, norm_mode = args
-    global worker_hf
-    
-    device = Hardware_Utils.get_optimal_device()
-    is_local = (mode == 'local')
-    
-    t_emb = worker_hf["embeddings"][safe_h][:]
-    mat = compute_score_matrix_torch(q_emb, t_emb, device)
-    
-    if is_local: mat -= 2.0
-    
-    raw, path_len = run_traceback_numba(mat, gap, is_local)
-    
-    len_q = q_emb.shape[0]
-    len_t = t_emb.shape[0]
+
+def finish_search(args):
+    idx, header, len_q, len_t, mode, gap, norm_mode, mat = args
+    is_local = (mode == "local")
+    if is_local:
+        raw, path_len = local_score_length(mat, gap)
+    else:
+        raw, path_len = global_score_length(mat, gap)
     norm = normalize_score(raw, path_len, len_q, len_t, norm_mode)
-    
-    if norm_mode == "alignment_length": eff_len = path_len
-    elif norm_mode == "shorter_sequence": eff_len = min(len_q, len_t)
-    elif norm_mode == "longer_sequence": eff_len = max(len_q, len_t)
-    elif norm_mode == "average_sequence": eff_len = (len_q + len_t) / 2.0
-    else: eff_len = path_len
 
-    return {"index": idx, "header": header, "raw_score": raw, "norm_score": norm, "length": eff_len, "seq_len": len_t, "aln_len": path_len}
+    if norm_mode == "alignment_length":
+        eff_len = path_len
+    elif norm_mode == "shorter_sequence":
+        eff_len = min(len_q, len_t)
+    elif norm_mode == "longer_sequence":
+        eff_len = max(len_q, len_t)
+    elif norm_mode == "average_sequence":
+        eff_len = (len_q + len_t) / 2.0
+    else:
+        eff_len = path_len
+
+    return {
+        "index": idx,
+        "header": header,
+        "raw_score": raw,
+        "norm_score": norm,
+        "length": eff_len,
+        "seq_len": len_t,
+        "aln_len": path_len,
+    }
+
+
+def search_cpu_worker(args):
+    idx, header, safe_h, q_emb, mode, gap, norm_mode = args
+    global worker_hf, worker_device
+    t_emb = worker_hf["embeddings"][safe_h][:]
+    mat = compute_score_matrix_torch(q_emb, t_emb, worker_device)
+    return finish_search(
+        (
+            idx,
+            header,
+            q_emb.shape[0],
+            t_emb.shape[0],
+            mode,
+            gap,
+            norm_mode,
+            mat,
+        )
+    )
+
+
+accelerator_thread_state = threading.local()
+accelerator_lane_cache = {}
+
+
+def _device_type(device):
+    return getattr(device, "type", str(device).split(":", 1)[0])
+
+
+def _uses_accelerator(device):
+    return _device_type(device) != "cpu"
+
+
+def _supports_explicit_streams(device):
+    return _device_type(device) in {"cuda", "xpu"}
+
+
+def _lane_candidates(device, cpu_workers):
+    device_type = _device_type(device)
+    max_lanes = max(1, int(cpu_workers))
+    if device_type == "cuda":
+        base, backend_cap = [1, 2, 4, 8, 16], 16
+    elif device_type == "xpu":
+        base, backend_cap = [1, 2, 4], 4
+    else:
+        return [1]
+
+    limit = min(max_lanes, backend_cap)
+    candidates = [count for count in base if count <= limit]
+    if limit not in candidates:
+        candidates.append(limit)
+    return sorted(set(candidates))
+
+
+def _configured_lanes(device, cpu_workers):
+    configured = ACCELERATOR_LANES
+    if isinstance(configured, str):
+        normalized = configured.strip().lower()
+        if normalized in {"", "auto"}:
+            return None
+        try:
+            configured = int(normalized)
+        except ValueError:
+            print(
+                f"⚠️ Invalid ACCELERATOR_LANES={configured!r}; using auto."
+            )
+            return None
+    try:
+        configured = int(configured)
+    except (TypeError, ValueError):
+        return None
+    if configured < 1:
+        return None
+    if not _supports_explicit_streams(device):
+        return 1
+    return min(configured, max(1, int(cpu_workers)))
+
+
+def _accelerator_name(device):
+    device_type = _device_type(device)
+    try:
+        if device_type == "cuda":
+            return torch.cuda.get_device_name(device)
+        if device_type == "xpu":
+            return torch.xpu.get_device_name(device)
+        if device_type == "mps" and hasattr(torch.backends.mps, "get_name"):
+            return torch.backends.mps.get_name()
+    except (AttributeError, RuntimeError):
+        pass
+    return str(device)
+
+
+class _DeviceStreamContext:
+    def __init__(self, backend, device, stream):
+        self.device_context = backend.device(device)
+        self.stream_context = backend.stream(stream)
+
+    def __enter__(self):
+        self.device_context.__enter__()
+        try:
+            return self.stream_context.__enter__()
+        except BaseException:
+            self.device_context.__exit__(*sys.exc_info())
+            raise
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return self.stream_context.__exit__(
+                exc_type,
+                exc_value,
+                traceback,
+            )
+        finally:
+            self.device_context.__exit__(exc_type, exc_value, traceback)
+
+
+def _stream_context(device):
+    device_type = _device_type(device)
+    if device_type == "cuda":
+        backend = torch.cuda
+    elif device_type == "xpu":
+        backend = torch.xpu
+    else:
+        return nullcontext()
+
+    key = (device_type, str(device))
+    stream = getattr(accelerator_thread_state, "stream", None)
+    if (
+        stream is None
+        or getattr(accelerator_thread_state, "stream_key", None) != key
+    ):
+        stream = backend.Stream(device=device)
+        accelerator_thread_state.stream = stream
+        accelerator_thread_state.stream_key = key
+    return _DeviceStreamContext(backend, device, stream)
+
+
+def _compute_accelerated_search(args):
+    idx, header, q_emb, t_emb, mode, gap, norm_mode, device = args
+    with torch.inference_mode():
+        with _stream_context(device):
+            mat = compute_score_matrix_torch(q_emb, t_emb, device)
+    return (
+        idx,
+        header,
+        q_emb.shape[0],
+        t_emb.shape[0],
+        mode,
+        gap,
+        norm_mode,
+        mat,
+    )
+
+
+def _run_accelerated_search(
+    tasks,
+    workers,
+    input_h5,
+    device,
+    lanes,
+    show_progress,
+):
+    results = []
+    accelerator_pending = set()
+    cpu_pending = set()
+    ready_for_cpu = deque()
+    ready_limit = max(lanes, min(workers, 8))
+    task_iterator = iter(tasks)
+    tasks_exhausted = False
+    progress_context = (
+        tqdm(
+            total=len(tasks),
+            desc=f"Search ({lanes} accelerator lane"
+                 f"{'s' if lanes != 1 else ''})",
+        )
+        if show_progress
+        else nullcontext(None)
+    )
+
+    with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf, \
+            ThreadPoolExecutor(
+                max_workers=lanes,
+                thread_name_prefix="search-accelerator",
+            ) as accelerator_executor, \
+            ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="search-cpu",
+            ) as cpu_executor, \
+            progress_context as progress:
+        while (
+            not tasks_exhausted
+            or accelerator_pending
+            or ready_for_cpu
+            or cpu_pending
+        ):
+            while ready_for_cpu and len(cpu_pending) < workers:
+                cpu_pending.add(
+                    cpu_executor.submit(
+                        finish_search,
+                        ready_for_cpu.popleft(),
+                    )
+                )
+
+            while (
+                not tasks_exhausted
+                and len(accelerator_pending) < lanes
+                and len(ready_for_cpu) + len(accelerator_pending) < ready_limit
+            ):
+                try:
+                    (
+                        idx,
+                        header,
+                        safe_h,
+                        q_emb,
+                        mode,
+                        gap,
+                        norm_mode,
+                    ) = next(task_iterator)
+                except StopIteration:
+                    tasks_exhausted = True
+                    break
+
+                t_emb = hf["embeddings"][safe_h][:]
+                accelerator_pending.add(
+                    accelerator_executor.submit(
+                        _compute_accelerated_search,
+                        (
+                            idx,
+                            header,
+                            q_emb,
+                            t_emb,
+                            mode,
+                            gap,
+                            norm_mode,
+                            device,
+                        ),
+                    )
+                )
+
+            completed_accelerator = {
+                future
+                for future in accelerator_pending
+                if future.done()
+            }
+            completed_cpu = {
+                future for future in cpu_pending if future.done()
+            }
+            if not completed_accelerator and not completed_cpu:
+                pending = accelerator_pending | cpu_pending
+                if not pending:
+                    continue
+                completed, _ = wait(
+                    pending,
+                    return_when=FIRST_COMPLETED,
+                )
+                completed_accelerator = completed & accelerator_pending
+                completed_cpu = completed & cpu_pending
+
+            for future in completed_accelerator:
+                accelerator_pending.remove(future)
+                ready_for_cpu.append(future.result())
+            for future in completed_cpu:
+                cpu_pending.remove(future)
+                results.append(future.result())
+                if progress is not None:
+                    progress.update(1)
+
+    return results
+
+
+def _select_lanes(tasks, workers, input_h5, device):
+    manual = _configured_lanes(device, workers)
+    if manual is not None:
+        return manual
+    candidates = _lane_candidates(device, workers)
+    if len(candidates) == 1 or len(tasks) < 2:
+        return 1
+
+    cache_key = (_device_type(device), _accelerator_name(device), int(workers))
+    if cache_key in accelerator_lane_cache:
+        return accelerator_lane_cache[cache_key]
+
+    count = max(2, min(int(ACCELERATOR_TUNE_PAIRS), len(tasks)))
+    sample = list(tasks[:count])
+    print(
+        f"[Search] Auto-tuning accelerator lanes on {cache_key[1]} "
+        f"using {count} representative targets..."
+    )
+    _run_accelerated_search(
+        sample, workers, input_h5, device, 1, False
+    )
+
+    rates = {}
+    for lanes in candidates:
+        started = time.perf_counter()
+        try:
+            _run_accelerated_search(
+                sample, workers, input_h5, device, lanes, False
+            )
+        except (RuntimeError, NotImplementedError) as error:
+            if lanes == 1:
+                raise
+            print(f"    {lanes} lanes unavailable: {error}")
+            continue
+        rates[lanes] = count / max(time.perf_counter() - started, 1e-9)
+
+    fastest = max(rates.values())
+    selected = min(
+        lanes
+        for lanes, rate in rates.items()
+        if rate >= fastest * 0.97
+    )
+    accelerator_lane_cache[cache_key] = selected
+    print(
+        "    "
+        + ", ".join(
+            f"{lanes}: {rate:.1f} targets/s"
+            for lanes, rate in sorted(rates.items())
+        )
+    )
+    print(f"[Search] Selected {selected} accelerator lane(s).")
+    return selected
+
+
+def process_search_tasks(tasks, workers, input_h5):
+    device = Hardware_Utils.get_optimal_device()
+    if _uses_accelerator(device):
+        lanes = _select_lanes(tasks, workers, input_h5, device)
+        return _run_accelerated_search(
+            tasks, workers, input_h5, device, lanes, True
+        )
+
+    results = []
+    with Pool(
+        processes=workers,
+        initializer=init_worker,
+        initargs=(input_h5,),
+    ) as pool:
+        iterator = pool.imap_unordered(
+            search_cpu_worker,
+            tasks,
+            chunksize=50,
+        )
+        for result in tqdm(iterator, total=len(tasks)):
+            results.append(result)
+    return results
 
 # --- 5. REPORTING -------------------------------------------------------------
 def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, norm_mode, gap_p):
@@ -456,61 +698,82 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
 
 # --- 6. MAIN ------------------------------------------------------------------
 if __name__ == "__main__":
-    print(f"[Init] Loading sequences for export...")
-    seq_lookup = read_fasta_to_dict(FULL_INPUT_FASTA)
-    
-    db_headers, loaded_model_pack = prepare_database_embeddings()
-    
-    # Process Query Input
-    query_name = QUERY_HEADER if QUERY_HEADER else "Manual_Query"
-    query_seq_str = QUERY_SEQUENCE.strip() if QUERY_SEQUENCE else ""
-    query_emb = None
-    target_dtype = np.float16 if SAVING_PRECISION == "float16" else np.float32
+    database = prepare_database_embeddings()
+    db_headers = database.headers
+    seq_lookup = database.sequence_by_header
 
-    if not query_seq_str:
-        if QUERY_HEADER in seq_lookup:
-            query_seq_str = seq_lookup[QUERY_HEADER]
-            print(f"[Input] Found query sequence for '{QUERY_HEADER}' in FASTA.")
-            
-            # ---> NEW: Check the HDF5 Database for pre-calculated embedding <---
-            safe_q_head = QUERY_HEADER.replace("/", "_").replace("\\", "_")
-            if os.path.exists(FULL_INPUT_EMBED):
-                with h5py.File(FULL_INPUT_EMBED, "r") as hf:
-                    if "embeddings" in hf and safe_q_head in hf["embeddings"]:
-                        print(f"[Input] Found pre-calculated embedding for '{QUERY_HEADER}' in HDF5 cache. Skipping generation.")
-                        query_emb = hf["embeddings"][safe_q_head][:].astype(target_dtype)
-        else:
-            print(f"[Error] QUERY_SEQUENCE is empty and QUERY_HEADER '{QUERY_HEADER}' not found in FASTA.")
-            sys.exit(1)
+    # Process Query Input
+    raw_query_name = QUERY_HEADER if QUERY_HEADER else "Manual_Query"
+    query_name = sanitize_header(str(raw_query_name))[0] or "Manual_Query"
+    raw_query_sequence = QUERY_SEQUENCE.strip() if QUERY_SEQUENCE else ""
+    query_seq_str = ""
+    query_emb = None
+    target_dtype = dtype_for_saving_mode(database.saving_mode)
+    cleanup_device = None
+
+    if raw_query_sequence:
+        query_seq_str, _, _ = sanitize_sequence(raw_query_sequence)
+        if not query_seq_str:
+            raise ValueError("QUERY_SEQUENCE is empty after sanitization.")
+        print("[Input] Using manually provided sanitized query sequence.")
     else:
-        print(f"[Input] Using manually provided query sequence.")
-        
-    # ---> CONDITIONAL EMBEDDING GENERATION <---
-    # Only run the model inference if we didn't successfully pull the embedding from the HDF5 file
+        if query_name not in seq_lookup:
+            raise ValueError(
+                f"QUERY_SEQUENCE is empty and sanitized QUERY_HEADER "
+                f"'{query_name}' is not stored in the embedding database."
+            )
+        query_seq_str = seq_lookup[query_name]
+        with h5py.File(FULL_INPUT_EMBED, "r") as hf:
+            query_emb = hf["embeddings"][query_name][:]
+        print(
+            f"[Input] Reusing the stored sequence and embedding for "
+            f"'{query_name}'."
+        )
+
     if query_emb is None:
-        print(f"[Input] Generating new embedding for the query...")
-        if loaded_model_pack is None: model_obj, device, model_type = load_model_integrated(MODEL_NAME)
-        else: model_obj, device, model_type = loaded_model_pack
-        
-        query_emb = get_embedding_integrated(query_seq_str, model_obj, device, model_type, target_dtype)
+        print("[Input] Generating a new embedding for the query...")
+        model_obj, device, model_type = load_model_integrated(database.model_name)
+        cleanup_device = device
+        query_emb = get_embedding_integrated(
+            query_seq_str,
+            model_obj,
+            device,
+            model_type,
+            target_dtype,
+        )
+        validate_embedding_array(
+            query_emb,
+            query_seq_str,
+            database.saving_mode,
+            feature_dimension=database.feature_dimension,
+            require_finite=True,
+            header=query_name,
+        )
+
+    # The embedding model is no longer needed. Release it before the
+    # multi-lane search so smaller accelerators retain maximum working memory.
+    if "model_obj" in locals():
+        del model_obj
+    gc.collect()
+    release_accelerator_cache(cleanup_device)
 
     # 3. Search
     gap_p = LOCAL_GAP_P if ALIGNMENT_MODE == "local" else GLOBAL_GAP_P
     tasks = []
     
     for i, header in enumerate(db_headers):
-        safe_h = header.replace("/", "_").replace("\\", "_")
-        tasks.append((i, header, safe_h, query_emb, ALIGNMENT_MODE, gap_p, NORM_MODE))
+        tasks.append((i, header, header, query_emb, ALIGNMENT_MODE, gap_p, NORM_MODE))
         
-    print(f"[Search] Scanning {len(tasks)} sequences against {MODEL_NAME} using '{NORM_MODE}' normalization...")
+    print(
+        f"[Search] Scanning {len(tasks)} sequences against "
+        f"{database.model_name} using '{NORM_MODE}' normalization..."
+    )
     results = []
     
     try: set_start_method('spawn')
     except RuntimeError: pass
-    
-    with Pool(processes=WORKERS, initializer=init_worker, initargs=(FULL_INPUT_EMBED,)) as pool:
-        for res in tqdm(pool.imap_unordered(search_worker, tasks, chunksize=50), total=len(tasks)):
-            results.append(res)
+
+    results = process_search_tasks(tasks, WORKERS, FULL_INPUT_EMBED)
             
     df = pd.DataFrame(results)
     df = df.sort_values(by="norm_score", ascending=False)

@@ -21,26 +21,40 @@ Settings:
 - OUTPUT_HDF5: The filename to save the newly merged database as so it does not overwrite your original.
 
 Algorithm:
-1. Loads the metadata from the old database to determine which language model (ESM/ProtT5/ProtBERT) was originally used.
+1. Loads the metadata from the old database to identify the pLM plugin originally used.
 2. Checks the datatypes of the arrays to ensure precision matching (FP16 vs FP32).
-3. Parses the new FASTA file and performs a heavy set difference calculation to strictly identify new headers.
+3. Parses and sanitizes the new FASTA file, then identifies genuinely new headers.
 4. Validates that ALL original sequences are still present in the new FASTA (throwing an error if the user accidentally deleted some).
-5. If new sequences are detected, it initializes the specific language model into VRAM.
+5. If new sequences are detected, it initializes the matching local or remote pLM plugin.
 6. Streams the final output database sequentially: if a sequence is old, it blitz-copies the binary array from the old file. If it is new, it routes it through the GPU for inference and streams the result directly to disk.
 """
 # %% Import Necessary Libraries
 import os
-import re
 import numpy as np
 import h5py
-import torch
 from tqdm import tqdm
 import Hardware_Utils
 
-# Import Embedding Models
-from esm.models.esmc import ESMC
-from esm.sdk.api import ESMProtein, LogitsConfig
-from transformers import BertTokenizer, BertModel, T5Tokenizer, T5EncoderModel
+try:
+    from FASTA_Sanitization import load_sanitized_fasta
+    from Embedding_HDF5 import (
+        create_metadata_first_file,
+        dtype_for_saving_mode,
+        mark_generation_complete,
+        read_embedding_manifest,
+        validate_embedding_array,
+        validate_manifest_records,
+    )
+except ModuleNotFoundError:
+    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
+    from src.utilities.Embedding_HDF5 import (
+        create_metadata_first_file,
+        dtype_for_saving_mode,
+        mark_generation_complete,
+        read_embedding_manifest,
+        validate_embedding_array,
+        validate_manifest_records,
+    )
 
 # ==========================================
 # CONFIGURATION
@@ -111,195 +125,189 @@ FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
 FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR else ""
 
 # %% Helper Functions
-def read_fasta(file_path):
+def find_model_plugin(model_name):
     """
-    Reads a FASTA file and returns two lists: headers and sequences.
-    Handles multi-line sequences correctly.
+    Locates the pLM plugin that declares support for model_name.
+
+    SUPPORTED_MODELS is inspected with AST so unrelated plugins are not imported.
     """
-    headers = []
-    sequences = []
-    
-    current_header = None
-    current_sequence = []
-    
-    with open(file_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue 
-            
-            if line.startswith(">"):
-                if current_header is not None:
-                    headers.append(current_header)
-                    sequences.append("".join(current_sequence))
-                
-                current_header = line[1:]
-                current_sequence = []
-            else:
-                current_sequence.append(line)
-        
-        if current_header is not None:
-            headers.append(current_header)
-            sequences.append("".join(current_sequence))
-            
-    return headers, sequences
+    import ast
+    import glob
+    import importlib.util
+
+    plugin_dir = os.path.abspath(
+        os.path.join(PROJECT_ROOT, "src", "resources", "pLM_models")
+    )
+
+    if not os.path.exists(plugin_dir):
+        raise FileNotFoundError(f"Plugin directory not found: {plugin_dir}")
+
+    for filepath in glob.glob(os.path.join(plugin_dir, "*.py")):
+        if os.path.basename(filepath) == "__init__.py":
+            continue
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as handle:
+                node = ast.parse(handle.read(), filename=filepath)
+
+            supported_models = []
+            for item in node.body:
+                if isinstance(item, ast.Assign):
+                    for target in item.targets:
+                        if (
+                            isinstance(target, ast.Name)
+                            and target.id == "SUPPORTED_MODELS"
+                        ):
+                            supported_models = ast.literal_eval(item.value)
+                            break
+
+            if model_name in supported_models:
+                module_name = os.path.splitext(os.path.basename(filepath))[0]
+                spec = importlib.util.spec_from_file_location(module_name, filepath)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+        except Exception as exc:
+            print(f"Warning: Failed to parse/load plugin {filepath}: {exc}")
+
+    return None
+
 
 def load_model(model_name):
     """
-    Loads the model based on the name extracted from the HDF5 file.
+    Loads the model plugin identified by the HDF5 model_name metadata.
     """
+    plugin = find_model_plugin(model_name)
+    if plugin is None:
+        raise ValueError(
+            f"Model '{model_name}' is not supported by any available plugin "
+            "in 'pLM_models'."
+        )
+
+    missing_functions = [
+        function_name
+        for function_name in ("load_model", "get_embedding")
+        if not callable(getattr(plugin, function_name, None))
+    ]
+    if missing_functions:
+        raise AttributeError(
+            f"Model plugin '{plugin.__name__}' is missing required function(s): "
+            f"{', '.join(missing_functions)}"
+        )
+
     device = Hardware_Utils.get_optimal_device()
-    
-    print(f"Loading {model_name} on {device}...")
+    model_obj = plugin.load_model(model_name, device)
+    return model_obj, device, plugin
 
-    if "esmc" in model_name:
-        client = ESMC.from_pretrained(model_name).to(device)
-        return client, device, "esmc"
-    
-    elif "prot_bert" in model_name:
-        tokenizer = BertTokenizer.from_pretrained(f"Rostlab/{model_name}", do_lower_case=False)
-        model = BertModel.from_pretrained(f"Rostlab/{model_name}").to(device)
-        model.eval()
-        return (tokenizer, model), device, "bert"
-        
-    elif "ProstT5" in model_name:
-        tokenizer = T5Tokenizer.from_pretrained(f"Rostlab/{model_name}_fp16", do_lower_case=False)
-        model = T5EncoderModel.from_pretrained(f"Rostlab/{model_name}_fp16").to(device)
-        return (tokenizer, model), device, "t5"
 
-def get_embedding(seq, model_obj, device, model_type, target_dtype):
+def get_embedding(seq, model_obj, device, model_plugin, target_dtype):
     """
-    Generates embedding for a single sequence, casting to the inferred precision.
-    Applies strict sanitization matching the base generation pipeline.
+    Generates an embedding through the selected pLM plugin.
     """
-    seq = seq.upper()
-    
-    # 1. Strip everything before the first and after the last valid AA (Standard + Extended)
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    seq = match.group(0) if match else ""
-    
-    # 2. Model-specific internal character replacements
-    if model_type == "esmc":
-        # ESMC: Convert anything NOT in the standard 20 (or a gap) to '-'
-        seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWY\-]', '-', seq)
-        
-    elif model_type in ["bert", "t5"]:
-        # Prot_BERT / ProstT5: Convert anything NOT standard or extended (or a gap) to 'X'
-        seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO\-]', 'X', seq)
-        
-        # Force rare B/Z/U/O tokens to X 
-        seq = re.sub(r'[BZUO]', 'X', seq) 
+    return model_plugin.get_embedding(seq, model_obj, device, target_dtype)
 
-    with torch.no_grad():
-        if model_type == "esmc":
-            protein_tensor = model_obj.encode(ESMProtein(sequence=seq))
-            logits = model_obj.logits(protein_tensor, LogitsConfig(sequence=True, return_embeddings=True))
-            return logits.embeddings.squeeze(0)[1:-1].cpu().numpy().astype(target_dtype)
-            
-        elif model_type == "bert":
-            tokenizer, model = model_obj
-            spaced_seq = " ".join(list(seq))
-            inputs = tokenizer(spaced_seq, return_tensors="pt").to(device)
-            outputs = model(**inputs)
-            return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
-            
-        elif model_type == "t5":
-            tokenizer, model = model_obj
-            spaced_seq = " ".join(list(seq))
-            input_seq = "<AA2fold> " + spaced_seq
-            inputs = tokenizer(input_seq, return_tensors="pt").to(device)
-            outputs = model(**inputs)
-            return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
+def inject_embeddings(input_hdf5, input_fasta, output_hdf5=None):
+    """Copy unchanged embeddings and generate only sanitized additions."""
+    if not os.path.exists(input_hdf5):
+        raise FileNotFoundError(f"Original embedding file not found: {input_hdf5}")
+
+    new_headers, new_sequences, _ = load_sanitized_fasta(input_fasta)
+    validate_manifest_records(new_headers, new_sequences)
+    with h5py.File(input_hdf5, "r") as hf_in:
+        source_manifest = read_embedding_manifest(hf_in, require_complete=True)
+
+    old_sequences = source_manifest.sequence_by_header
+    new_by_header = dict(zip(new_headers, new_sequences))
+    missing_from_new = sorted(set(source_manifest.headers) - set(new_headers))
+    if missing_from_new:
+        raise ValueError(
+            f"Cannot inject because original header '{missing_from_new[0]}' "
+            "is absent from the sanitized replacement FASTA."
+        )
+    changed = sorted(
+        header
+        for header in source_manifest.headers
+        if old_sequences[header] != new_by_header[header]
+    )
+    if changed:
+        raise ValueError(
+            f"Cannot reuse the embedding for '{changed[0]}' because its "
+            "sanitized sequence changed."
+        )
+
+    additions = [header for header in new_headers if header not in old_sequences]
+    if output_hdf5 is None:
+        fasta_base = os.path.splitext(os.path.basename(input_fasta))[0]
+        output_hdf5 = os.path.join(
+            EMBED_DIR,
+            f"{fasta_base}_[{source_manifest.model_name}]_embeddings.h5",
+        )
+    if os.path.abspath(output_hdf5) == os.path.abspath(input_hdf5):
+        raise ValueError("Injection output must not overwrite its source file.")
+    output_directory = os.path.dirname(output_hdf5)
+    if output_directory:
+        os.makedirs(output_directory, exist_ok=True)
+
+    model_obj = device = model_plugin = None
+    if additions:
+        model_obj, device, model_plugin = load_model(source_manifest.model_name)
+    target_dtype = dtype_for_saving_mode(source_manifest.saving_mode)
+
+    copied_count = 0
+    generated_count = 0
+    feature_dimension = source_manifest.feature_dimension
+    with h5py.File(input_hdf5, "r") as hf_in, h5py.File(output_hdf5, "w") as hf_out:
+        emb_group_out = create_metadata_first_file(
+            hf_out,
+            new_headers,
+            new_sequences,
+            source_manifest.model_name,
+            source_manifest.saving_mode,
+        )
+        for header, sequence in tqdm(
+            zip(new_headers, new_sequences),
+            total=len(new_headers),
+            desc="Writing",
+        ):
+            is_new = header not in old_sequences
+            if is_new:
+                embedding = get_embedding(
+                    sequence,
+                    model_obj,
+                    device,
+                    model_plugin,
+                    target_dtype,
+                )
+            else:
+                embedding = hf_in["embeddings"][header][:]
+            feature_dimension = validate_embedding_array(
+                embedding,
+                sequence,
+                source_manifest.saving_mode,
+                feature_dimension=feature_dimension,
+                require_finite=is_new,
+                header=header,
+            )
+            emb_group_out.create_dataset(header, data=embedding)
+            hf_out.flush()
+            if is_new:
+                generated_count += 1
+            else:
+                copied_count += 1
+        mark_generation_complete(hf_out)
+
+    return output_hdf5, generated_count, copied_count
+
 
 # %% Main Execution
 if __name__ == "__main__":
-    print("--- Step 1: Loading Original Metadata ---")
-    
-    if not os.path.exists(FULL_INPUT_EMBED):
-        raise FileNotFoundError(f"Original embedding file not found: {FULL_INPUT_EMBED}")
-        
-    # Read just the metadata and headers from the old HDF5 file
-    with h5py.File(FULL_INPUT_EMBED, "r") as hf_in:
-        raw_headers = hf_in["headers"][:]
-        old_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-        model_name = hf_in.attrs.get("model_name", "Unknown")
-        
-        # Infer precision dynamically based on the first existing array
-        target_dtype = hf_in["embeddings"][old_headers[0]].dtype
-    
-    print(f"Detected Model: {model_name}")
-    print(f"Detected Precision: {target_dtype}")
-    print(f"Original sequences loaded: {len(old_headers)}")
-
-    print("\n--- Step 2: Cross-Referencing Sequences ---")
-    new_headers, new_seqs = read_fasta(FULL_INPUT_FASTA)
-    print(f"New FASTA sequences loaded: {len(new_headers)}")
-    
-    old_set = set(old_headers)
-    new_set = set(new_headers)
-    
-    # Requirement 1: Error if original headers are missing from the new FASTA
-    missing_from_new = old_set - new_set
-    if missing_from_new:
-        example_missing = list(missing_from_new)[0]
-        raise ValueError(
-            f"CRITICAL ERROR: {len(missing_from_new)} sequences from the original embedding "
-            f"are missing from the new FASTA file. Example missing header: '{example_missing}'"
-        )
-        
-    # Requirement 2: Identify sequences that are in the new FASTA but not in the old file
-    new_sequences_dict = {}
-    for h, s in zip(new_headers, new_seqs):
-        if h not in old_set:
-            new_sequences_dict[h] = s
-            
-    print(f"Found {len(new_sequences_dict)} new sequence(s) requiring embedding generation.")
-
-    # Load model only if new sequences exist
-    if len(new_sequences_dict) > 0:
-        print("\n--- Step 3: Initializing Model ---")
-        model_obj, device, model_type = load_model(model_name)
-    else:
-        model_obj, device, model_type = None, None, None
-        print("No new sequences found. Skipping model load.")
-
-    _fasta_base = INPUT_FASTA.replace(".fasta", "")
-    OUTPUT_HDF5 = os.path.join(EMBED_DIR, f"{_fasta_base}_[{model_name}]_embeddings.h5")
-    
-    print("\n--- Step 4: Stream Processing & Saving ---")
-    os.makedirs(os.path.dirname(OUTPUT_HDF5), exist_ok=True)
-    
-    print(f"Reordering and streaming {len(new_headers)} synchronized embeddings...")
-    
-    new_generated_count = 0
-    copied_count = 0
-    
-    with h5py.File(FULL_INPUT_EMBED, "r") as hf_in, h5py.File(OUTPUT_HDF5, "w") as hf_out:
-        
-        # Setup metadata and groups in the new file
-        hf_out.attrs["model_name"] = model_name
-        hf_out.attrs["num_sequences"] = len(new_headers)
-        
-        dt_str = h5py.string_dtype(encoding='utf-8')
-        hf_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
-        
-        emb_group_out = hf_out.create_group("embeddings")
-        emb_group_in = hf_in["embeddings"]
-        
-        # Stream the sequences in the exact order of the new FASTA
-        for h, seq in tqdm(zip(new_headers, new_seqs), total=len(new_headers), desc="Writing"):
-            
-            if h in old_set:
-                # Pluck the array directly from the old HDF5 file
-                emb_data = emb_group_in[h][:]
-                copied_count += 1
-            else:
-                # Generate it on the fly
-                emb_data = get_embedding(seq, model_obj, device, model_type, target_dtype)
-                new_generated_count += 1
-                
-            # Immediately save to the new file
-            emb_group_out.create_dataset(h, data=emb_data)
-        
-    print(f"\n✅ Done! Injected {new_generated_count} new embeddings and copied {copied_count} existing ones.")
-    print(f"Total sequences in new database: {len(new_headers)}")
-    print(f"Saved directly to: {OUTPUT_HDF5}")
+    print("--- Embedding Injection ---")
+    output_path, generated_count, copied_count = inject_embeddings(
+        FULL_INPUT_EMBED,
+        FULL_INPUT_FASTA,
+    )
+    print(
+        f"\n✅ Done! Injected {generated_count} new embeddings and copied "
+        f"{copied_count} existing ones."
+    )
+    print(f"Saved directly to: {output_path}")
