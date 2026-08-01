@@ -16,15 +16,16 @@ precisely matched order arrays (`OUTPUT_HDF5`).
 Settings:
 - SEQUENCE_SET: Defines the input FASTA file to target.
 - MODEL_NAME: The protein language model identifier to download from HuggingFace and load into VRAM. Supported models include 
-  the Evolutionary Scale Modeling families (`esmc_300m`, `esmc_600m`), and the Rostlab families (`prot_bert`, `ProstT5`).
+  the local Evolutionary Scale Modeling families (`esmc_300m`, `esmc_600m`), the remote API-backed
+  ESMC 6B model (`esmc_6b`), and the Rostlab families (`prot_bert`, `ProstT5`).
 - SAVING_MODE: Determines data precision. `float16` halves HDF5 file size and RAM requirements by slightly reducing gradient precision, 
   which is recommended for massive datasets. `float32` uses standard uncompressed precision.
 
 Algorithm:
-1. Sequentially parses the target FASTA string blocks into RAM.
+1. Sequentially parses and sanitizes the target FASTA records in RAM.
 2. Identifies PyTorch hardware acceleration (CUDA/XPU/CPU) and allocates the massive neural networks accordingly.
 3. Initializes a new HDF5 file stream in append mode ("a"), checking for existing embeddings to allow seamless resuming.
-4. Iterates linearly over sequences. Each sequence is cleaned (gaps removed) and passed into the loaded neural network.
+4. Iterates linearly over the sanitized sequences and passes them into the loaded neural network.
 5. The model strips start/stop tokens internally and isolates the output matrices characterizing every residue in the sequence.
 6. The resultant PyTorch tensor is demoted to a Numpy array, cast to the selected precision (`float16/float32`), and streamed 
    directly to disk under a sanitized header name key to prevent RAM overflow.
@@ -35,8 +36,30 @@ from tqdm import tqdm
 import numpy as np
 import torch
 import h5py
-import re
 import Hardware_Utils
+
+try:
+    from FASTA_Sanitization import load_sanitized_fasta
+    from Embedding_HDF5 import (
+        create_metadata_first_file,
+        dtype_for_saving_mode,
+        mark_generation_complete,
+        read_embedding_manifest,
+        validate_embedding_array,
+        validate_manifest_records,
+        write_embedding_manifest,
+    )
+except ModuleNotFoundError:
+    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
+    from src.utilities.Embedding_HDF5 import (
+        create_metadata_first_file,
+        dtype_for_saving_mode,
+        mark_generation_complete,
+        read_embedding_manifest,
+        validate_embedding_array,
+        validate_manifest_records,
+        write_embedding_manifest,
+    )
 
 # Script configuration
 INPUT_FASTA = None
@@ -103,33 +126,6 @@ OUTPUT_HDF5 = os.path.join(EMBED_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_embeddings
 
 # Embedding model imports are deferred to dynamic plugin scripts under src/resources/pLM_models/
 
-# Helper function
-def read_fasta(file_path):
-    headers = []
-    sequences = []
-    current_header = None
-    current_sequence = []
-    
-    with open(file_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue  
-            
-            if line.startswith(">"):
-                if current_header is not None:
-                    headers.append(current_header)
-                    sequences.append("".join(current_sequence))
-                current_header = line[1:]
-                current_sequence = []
-            else:
-                current_sequence.append(line)
-        
-        if current_header is not None:
-            headers.append(current_header)
-            sequences.append("".join(current_sequence))
-            
-    return headers, sequences
-
 # %% =======================================
 # OPTIMIZED EMBEDDING (GPU/CPU)
 # ==========================================
@@ -174,81 +170,158 @@ def find_model_plugin(model_name):
             print(f"Warning: Failed to parse/load plugin {filepath}: {e}")
     return None
 
+def generate_embeddings(
+    input_fasta,
+    output_hdf5,
+    model_name,
+    saving_mode,
+    *,
+    plugin_loader=find_model_plugin,
+):
+    """Generate or safely resume one metadata-first embedding database."""
+    target_dtype = dtype_for_saving_mode(saving_mode)
+    headers, sequences, _ = load_sanitized_fasta(input_fasta)
+    validate_manifest_records(headers, sequences)
+    if not isinstance(model_name, str) or not model_name:
+        raise ValueError("model_name must be a non-empty string.")
+    print(f"Loaded {len(headers)} sequences from FASTA.")
+
+    output_directory = os.path.dirname(output_hdf5)
+    if output_directory:
+        os.makedirs(output_directory, exist_ok=True)
+    print(f"Opening {output_hdf5} for evaluation...")
+
+    with h5py.File(output_hdf5, "a") as hf:
+        is_new_file = len(hf) == 0 and len(hf.attrs) == 0
+        if is_new_file:
+            emb_group = create_metadata_first_file(
+                hf,
+                headers,
+                sequences,
+                model_name,
+                saving_mode,
+            )
+            feature_dimension = None
+        else:
+            existing = read_embedding_manifest(
+                hf,
+                require_complete=False,
+                validate_embeddings=True,
+            )
+            if existing.model_name != model_name:
+                raise ValueError(
+                    f"Cannot resume model '{model_name}' from a file created "
+                    f"with model '{existing.model_name}'."
+                )
+            if existing.saving_mode != saving_mode:
+                raise ValueError(
+                    f"Cannot resume {saving_mode} generation from a "
+                    f"{existing.saving_mode} file."
+                )
+
+            incoming_by_header = dict(zip(headers, sequences))
+            existing_by_header = existing.sequence_by_header
+            removed = sorted(set(existing.headers) - set(headers))
+            if removed:
+                raise ValueError(
+                    f"Cannot resume because existing header '{removed[0]}' "
+                    "was removed from the sanitized FASTA manifest."
+                )
+            changed = sorted(
+                header
+                for header in set(existing.headers) & set(headers)
+                if existing_by_header[header] != incoming_by_header[header]
+            )
+            if changed:
+                raise ValueError(
+                    f"Cannot resume because the sanitized sequence for "
+                    f"'{changed[0]}' changed."
+                )
+
+            if existing.headers != headers or existing.sequences != sequences:
+                write_embedding_manifest(
+                    hf,
+                    headers,
+                    sequences,
+                    model_name,
+                    saving_mode,
+                    replace=True,
+                )
+            emb_group = hf["embeddings"]
+            feature_dimension = existing.feature_dimension
+
+        existing_keys = set(emb_group.keys())
+        pending = [
+            (header, sequence)
+            for header, sequence in zip(headers, sequences)
+            if header not in existing_keys
+        ]
+
+        if not pending:
+            if not bool(hf.attrs["generation_complete"]):
+                mark_generation_complete(hf)
+            print(
+                f"HDF5 database already complete ({len(headers)} embeddings). "
+                "Skipping generation."
+            )
+            return 0
+
+        hf.attrs["generation_complete"] = False
+        hf.flush()
+        if existing_keys:
+            print(
+                f"Resuming from interruption: {len(existing_keys)} found, "
+                f"{len(pending)} remaining."
+            )
+        else:
+            print(f"Starting fresh embedding generation for {len(pending)} sequences.")
+
+        plugin = plugin_loader(model_name)
+        if plugin is None:
+            raise ValueError(
+                f"Model '{model_name}' is not supported by any available "
+                "plugin in 'pLM_models'."
+            )
+        device = Hardware_Utils.get_optimal_device()
+        model_obj = plugin.load_model(model_name, device)
+
+        for header, sequence in tqdm(pending, desc="Embedding"):
+            embedding = plugin.get_embedding(
+                sequence,
+                model_obj,
+                device,
+                target_dtype,
+            )
+            feature_dimension = validate_embedding_array(
+                embedding,
+                sequence,
+                saving_mode,
+                feature_dimension=feature_dimension,
+                require_finite=True,
+                header=header,
+            )
+            emb_group.create_dataset(header, data=embedding)
+            hf.flush()
+
+        mark_generation_complete(hf)
+        return len(pending)
+
+
 # %% =======================================
 # MAIN EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    print(f"--- Step 1: Embedding Generation ---")
-    
-    # 1. Configuration Check
+    print("--- Step 1: Embedding Generation ---")
     if SAVING_MODE == "float16":
-        target_dtype = np.float16
         print("--> Mode: Saving as float16 (Compact)")
     elif SAVING_MODE == "float32":
-        target_dtype = np.float32
         print("--> Mode: Saving as float32 (High Precision)")
-    else:
-        raise ValueError("SAVING_MODE must be 'float16' or 'float32'")
 
-    # 2. Read Data
-    headers, seqs = read_fasta(FULL_INPUT_FASTA)
-    print(f"Loaded {len(headers)} sequences from FASTA.")
-    
-    os.makedirs(os.path.dirname(OUTPUT_HDF5), exist_ok=True)
-    print(f"Opening {OUTPUT_HDF5} for evaluation...")
-    
-    # 3. Check Completeness & Resume Logic using "a" (Append) Mode
-    with h5py.File(OUTPUT_HDF5, "a") as hf:
-        
-        # Ensure the group exists
-        if "embeddings" not in hf:
-            emb_group = hf.create_group("embeddings")
-        else:
-            emb_group = hf["embeddings"]
-            
-        existing_keys = set(emb_group.keys())
-        
-        pending_headers = []
-        pending_seqs = []
-        
-        # Build a list of sequences that actually need to be generated
-        for h, s in zip(headers, seqs):
-            safe_h = h.replace("/", "_").replace("\\", "_")
-            if safe_h not in existing_keys:
-                pending_headers.append(h)
-                pending_seqs.append(s)
-                
-        if len(pending_headers) == 0:
-            print(f"✅ HDF5 database already complete ({len(headers)} embeddings). Skipping generation.")
-        else:
-            if len(pending_headers) < len(headers):
-                print(f"🔄 Resuming from interruption: {len(existing_keys)} found, {len(pending_headers)} remaining.")
-            else:
-                print(f"🚀 Starting fresh embedding generation for {len(pending_headers)} sequences.")
-                
-            # 4. Find and Load Model Plugin (Only if we actually have work to do!)
-            plugin = find_model_plugin(MODEL_NAME)
-            if plugin is None:
-                raise ValueError(f"Model '{MODEL_NAME}' is not supported by any available plugin in 'pLM_models'.")
-            
-            device = Hardware_Utils.get_optimal_device()
-            model_obj = plugin.load_model(MODEL_NAME, device)
-            
-            # 5. Generate & Save Loop
-            for header, seq in tqdm(zip(pending_headers, pending_seqs), total=len(pending_headers), desc="Embedding"):
-                emb = plugin.get_embedding(seq, model_obj, device, target_dtype)
-                safe_header = header.replace("/", "_").replace("\\", "_")
-                emb_group.create_dataset(safe_header, data=emb)
-        
-        # 6. Finalize Metadata (Overwriting to ensure the master list perfectly matches the current FASTA file)
-        hf.attrs["model_name"] = MODEL_NAME
-        hf.attrs["num_sequences"] = len(headers)
-        
-        if "headers" in hf:
-            del hf["headers"] # Delete the old array before replacing it
-            
-        dt_str = h5py.string_dtype(encoding='utf-8')
-        hf.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
-
-    if len(pending_headers) > 0:
-        print(f"\n✅ Done! All embeddings generated and saved to {OUTPUT_HDF5}")
+    generated_count = generate_embeddings(
+        FULL_INPUT_FASTA,
+        OUTPUT_HDF5,
+        MODEL_NAME,
+        SAVING_MODE,
+    )
+    if generated_count:
+        print(f"\nDone! All embeddings generated and saved to {OUTPUT_HDF5}")

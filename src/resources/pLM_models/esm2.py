@@ -9,6 +9,24 @@ SUPPORTED_MODELS = [
     "esm2_t48_15B"
 ]
 
+# ESM-2 uses the same sequence alphabet as ESM-C: X/B/U/Z/O, ".", and
+# "-" are native tokens, while J must be represented as X.
+SUPPORTED_RESIDUE_CODES = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO.-")
+_RESIDUE_BOUNDARY_PATTERN = re.compile(
+    r"[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]"
+    r"|[ACDEFGHIKLMNPQRSTVWYBZJXUO]"
+)
+
+
+def _clean_sequence(seq):
+    """Normalize one sequence for the native ESM-2 tokenizer vocabulary."""
+    seq = seq.upper()
+    match = _RESIDUE_BOUNDARY_PATTERN.search(seq)
+    core_seq = match.group(0) if match else ""
+    return "".join(
+        code if code in SUPPORTED_RESIDUE_CODES else "X" for code in core_seq
+    )
+
 def load_model(model_name, device):
     """
     Loads the ESM-2 model and tokenizer from Hugging Face on the specified device.
@@ -38,11 +56,9 @@ def get_embedding(seq, model_obj, device, target_dtype):
     import torch
     tokenizer, model = model_obj
 
-    seq = seq.upper()
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    seq = match.group(0) if match else ""
-    seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO\-]', 'X', seq)
-    seq = re.sub(r'[BZUO]', 'X', seq)
+    seq = _clean_sequence(seq)
+    if not seq:
+        raise ValueError("Sequence contains no supported amino-acid characters.")
 
     with torch.no_grad():
         # ESM-2 takes continuous unspaced sequences

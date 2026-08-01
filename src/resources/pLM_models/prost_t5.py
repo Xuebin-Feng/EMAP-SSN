@@ -2,6 +2,24 @@ import re
 
 SUPPORTED_MODELS = ["ProstT5"]
 
+# ProstT5's published amino-acid preprocessing maps B/Z/U/O to X. J and
+# alignment punctuation are also outside the model's documented AA input.
+SUPPORTED_RESIDUE_CODES = frozenset("ACDEFGHIKLMNPQRSTVWYX")
+_RESIDUE_BOUNDARY_PATTERN = re.compile(
+    r"[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]"
+    r"|[ACDEFGHIKLMNPQRSTVWYBZJXUO]"
+)
+
+
+def _clean_sequence(seq):
+    """Normalize one sequence using the published ProstT5 AA contract."""
+    seq = seq.upper()
+    match = _RESIDUE_BOUNDARY_PATTERN.search(seq)
+    core_seq = match.group(0) if match else ""
+    return "".join(
+        code if code in SUPPORTED_RESIDUE_CODES else "X" for code in core_seq
+    )
+
 def load_model(model_name, device):
     """
     Loads the ProstT5 model and tokenizer on the specified device.
@@ -19,12 +37,9 @@ def get_embedding(seq, model_obj, device, target_dtype):
     import torch
     tokenizer, model = model_obj
 
-    seq = seq.upper()
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    seq = match.group(0) if match else ""
-    # Replace non-standard amino acids
-    seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO\-]', 'X', seq)
-    seq = re.sub(r'[BZUO]', 'X', seq)
+    seq = _clean_sequence(seq)
+    if not seq:
+        raise ValueError("Sequence contains no supported amino-acid characters.")
 
     with torch.no_grad():
         spaced_seq = " ".join(list(seq))

@@ -5,6 +5,24 @@ SUPPORTED_MODELS = [
     "ankh_large"
 ]
 
+# The Ankh tokenizer recognizes X/B/U/Z/O directly. It does not have native
+# J, ".", or "-" residue tokens, so those are represented as X.
+SUPPORTED_RESIDUE_CODES = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO")
+_RESIDUE_BOUNDARY_PATTERN = re.compile(
+    r"[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]"
+    r"|[ACDEFGHIKLMNPQRSTVWYBZJXUO]"
+)
+
+
+def _clean_sequence(seq):
+    """Normalize one sequence for the native Ankh tokenizer vocabulary."""
+    seq = seq.upper()
+    match = _RESIDUE_BOUNDARY_PATTERN.search(seq)
+    core_seq = match.group(0) if match else ""
+    return "".join(
+        code if code in SUPPORTED_RESIDUE_CODES else "X" for code in core_seq
+    )
+
 def load_model(model_name, device):
     """
     Loads the Ankh model (encoder-only) and tokenizer on the specified device.
@@ -30,11 +48,9 @@ def get_embedding(seq, model_obj, device, target_dtype):
     import torch
     tokenizer, model = model_obj
 
-    seq = seq.upper()
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    seq = match.group(0) if match else ""
-    seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO\-]', 'X', seq)
-    seq = re.sub(r'[BZUO]', 'X', seq)
+    seq = _clean_sequence(seq)
+    if not seq:
+        raise ValueError("Sequence contains no supported amino-acid characters.")
 
     with torch.no_grad():
         # Ankh tokenizer takes unspaced sequences and appends only </s> at the end.
