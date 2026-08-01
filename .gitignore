@@ -5,6 +5,9 @@ Embeddings/
 Cache_Files/
 tests/
 
+# Per-plugin API credentials stored beside their plugin
+src/resources/pLM_models/*_api_key.json
+
 # User-specified files
 src/resources/agent/model_card.json
 src/resources/agent/evaluate_agent.py
