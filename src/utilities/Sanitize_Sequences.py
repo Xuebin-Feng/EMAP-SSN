@@ -25,8 +25,7 @@ What this script does step-by-step:
      it keeps only one copy.
     - Merging (Same Sequence, Different Headers): If the exact same sequence appears 
       multiple times under different names, it keeps only one copy of the sequence and 
-      assigns it the longest, most descriptive header name from the group (preferring 
-      headers containing "sid|").
+      assigns it the longest, most descriptive header name from the group.
    - Renaming (Different Sequences, Same Header): If different sequences share the 
      exact same name, it prevents data loss by keeping all sequences and renaming the 
      headers (e.g., Header_1, Header_2).
@@ -48,10 +47,25 @@ Output:
 """
 
 import os
-import re
+import tempfile
 from tqdm import tqdm
 from collections import Counter
 import matplotlib.pyplot as plt
+
+try:
+    from FASTA_Sanitization import (
+        allocate_unique_headers,
+        sanitize_header,
+        sanitize_sequence,
+        select_preferred_header,
+    )
+except ModuleNotFoundError:
+    from src.utilities.FASTA_Sanitization import (
+        allocate_unique_headers,
+        sanitize_header,
+        sanitize_sequence,
+        select_preferred_header,
+    )
 
 # ==========================================
 # CONFIGURATION
@@ -59,16 +73,15 @@ import matplotlib.pyplot as plt
 INPUT_FASTA = None  
 OVER_WRITE = False
 ENABLE_LENGTH_FILTER = False
-MIN_SEQ_LENGTH = None
-MAX_SEQ_LENGTH = None
+MIN_SEQ_LENGTH = 0
+MAX_SEQ_LENGTH = 0
 REMOVE_BY_HEADER_STRING = ""
 
-FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
+FASTA_DIR = None
 
 # --- JSON Settings Override ---
 import json
 import ast
-import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Assuming utility scripts are located in the /utilities/ folder)
@@ -136,11 +149,29 @@ else:
 # ==========================================
 def should_remove_by_header(header, filter_string):
     """
-    Checks if the header contains the specified filter string (case-insensitive).
+    Checks if the header contains the specified filter string (case-sensitive).
     """
-    if not filter_string or not filter_string.strip():
+    normalized_filter = str(filter_string).strip()
+    if not normalized_filter:
         return False
-    return filter_string.strip().lower() in header.lower()
+
+    return normalized_filter in header
+
+
+def validate_configuration(fasta_dir, input_fasta, output_fasta):
+    """Validate paths that must be selected before processing starts."""
+    if fasta_dir is None or not str(fasta_dir).strip():
+        raise ValueError(
+            "No FASTA output directory is configured. Select FASTA_DIR in "
+            "the utility settings before running sequence sanitization."
+        )
+    if input_fasta is None or not str(input_fasta).strip():
+        raise ValueError(
+            "No input FASTA is configured. Select INPUT_FASTA before running "
+            "sequence sanitization."
+        )
+    if output_fasta is None or not str(output_fasta).strip():
+        raise ValueError("Unable to determine the sanitized FASTA output path.")
 
 def read_fasta(file_path):
     if not os.path.exists(file_path):
@@ -169,50 +200,40 @@ def read_fasta(file_path):
             
     return headers, sequences
 
-def sanitize_header(header):
-    """
-    Sanitizes headers using a specific mapping:
-    - [ ] { } are replaced with ( )
-    - ? * " # % @ $ and slashes are replaced with _
-    - International characters are preserved.
-    """
-    # 1. Store original for modification tracking
-    original_clean = header.strip()
-    
-    # 2. Replace brackets and braces with parentheses
-    # We use a simple translation table for speed and clarity
-    trans_map = str.maketrans("[]{}", "()()")
-    safe_header = header.translate(trans_map)
-    
-    # 3. Replace the rest of the blacklist with underscores
-    # Blacklist: ? * " # % @ $
-    safe_header = re.sub(r'[?*"#%@$/\\]', '_', safe_header)
-    
-    # 4. Collapse any accidental double-spaces and trim edges
-    safe_header = re.sub(r'\s+', ' ', safe_header).strip()
-    
-    # 5. Check if the header was modified
-    was_modified = (safe_header != original_clean)
-    
-    return safe_header, was_modified
+def write_fasta_atomic(file_path, headers, sequences, refuse_empty=False):
+    """Write a FASTA through a same-directory temporary file and replace atomically."""
+    if len(headers) != len(sequences):
+        raise ValueError("FASTA header and sequence counts do not match.")
+    if refuse_empty and not headers:
+        raise RuntimeError(
+            "Refusing to overwrite the input FASTA because sanitization produced "
+            "zero output sequences."
+        )
 
-def sanitize_sequence(seq):
-    seq = seq.upper()
-    
-    # 1. Strip leading/trailing artifacts
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    
-    if not match:
-        return "", seq, []
-        
-    core_seq = match.group(0)
-    stripped_chars = seq[:match.start()] + seq[match.end():]
-    
-    # 2. Identify and convert invalid internal characters/gaps to 'X'
-    invalid_internal_chars = re.findall(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO]', core_seq)
-    final_seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO]', 'X', core_seq)
-    
-    return final_seq, stripped_chars, invalid_internal_chars
+    output_path = os.path.abspath(file_path)
+    output_dir = os.path.dirname(output_path)
+    os.makedirs(output_dir, exist_ok=True)
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=output_dir,
+            prefix=f".{os.path.basename(output_path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = temporary_file.name
+            for header, seq in zip(headers, sequences):
+                temporary_file.write(f">{header}\n{seq}\n")
+
+        os.replace(temporary_path, output_path)
+        temporary_path = None
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
 
 def plot_length_distribution(lengths):
     plt.figure(figsize=(10, 6))
@@ -232,6 +253,8 @@ def plot_length_distribution(lengths):
 if __name__ == "__main__":
     print(f"--- 🧬 Sequence Sanitization ---")
     print(f"Reading from: {INPUT_FASTA}")
+
+    validate_configuration(FASTA_DIR, INPUT_FASTA, OUTPUT_FASTA)
     
     headers, raw_seqs = read_fasta(FULL_INPUT_FASTA)
     print(f"Loaded {len(headers)} raw sequences.")
@@ -287,33 +310,21 @@ if __name__ == "__main__":
     header_to_seqs = {} 
     
     for seq, current_headers in seq_to_headers.items():
-        unique_headers = list(set(current_headers))
-        
-        # Track exact duplicates (same sequence AND same header)
-        duplicates_count = len(current_headers) - len(unique_headers)
+        (
+            best_header,
+            discarded_headers,
+            duplicate_headers,
+            duplicates_count,
+        ) = select_preferred_header(current_headers)
+
         if duplicates_count > 0:
             exact_duplicates_removed += duplicates_count
-            removed_exact_duplicate_headers.add(unique_headers[0])
+            removed_exact_duplicate_headers.update(duplicate_headers)
             
-        # FEATURE ADDITION: Keep the longest header if there are different headers for the same sequence
-        # (Prioritizing headers containing "sid|")
-        if len(unique_headers) > 1:
-            sid_headers = [h for h in unique_headers if "sid|" in h]
-            if sid_headers:
-                # If multiple headers contain "sid|", only compare them for length
-                sid_headers.sort(key=lambda x: (-len(x), x))
-                best_header = sid_headers[0]
-            else:
-                # Otherwise, sort all headers by length descending
-                unique_headers.sort(key=lambda x: (-len(x), x))
-                best_header = unique_headers[0]
-            
-            discarded_headers = [h for h in unique_headers if h != best_header]
-            
+        # Keep the longest header if there are different headers for the same sequence.
+        if discarded_headers:
             different_headers_merged += len(discarded_headers)
             merged_header_logs.append((best_header, discarded_headers))
-        else:
-            best_header = unique_headers[0]
             
         # Re-group by the chosen header. (This catches edge cases where two completely different 
         # sequences happen to end up with the exact same chosen header name).
@@ -323,13 +334,12 @@ if __name__ == "__main__":
             
     # --- PHASE 3: Rename and Apply Length Filters ---
     clean_headers, clean_seqs, clean_lengths = [], [], []
+    assigned_headers_by_base = allocate_unique_headers(header_to_seqs)
     
     for header, unique_seqs in header_to_seqs.items():
         # Rename headers if multiple different sequences ended up with the same header
-        if len(unique_seqs) == 1:
-            assigned_headers = [header]
-        else:
-            assigned_headers = [f"{header}_{i+1}" for i in range(len(unique_seqs))]
+        assigned_headers = assigned_headers_by_base[header]
+        if len(unique_seqs) > 1:
             headers_renamed += len(unique_seqs)
             renamed_duplicate_headers.append(header) 
             
@@ -351,13 +361,14 @@ if __name__ == "__main__":
                 clean_seqs.append(s)
                 clean_lengths.append(seq_len)
             
-    os.makedirs(os.path.dirname(OUTPUT_FASTA), exist_ok=True)
-    
     # Write FASTA
     print(f"\nWriting clean sequences to {OUTPUT_FASTA}...")
-    with open(OUTPUT_FASTA, 'w') as f:
-        for header, seq in zip(clean_headers, clean_seqs):
-            f.write(f">{header}\n{seq}\n")
+    write_fasta_atomic(
+        OUTPUT_FASTA,
+        clean_headers,
+        clean_seqs,
+        refuse_empty=bool(OVER_WRITE),
+    )
             
     # Final Diagnostics
     print("\n" + "="*50)

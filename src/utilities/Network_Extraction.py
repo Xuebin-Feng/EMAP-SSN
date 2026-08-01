@@ -157,7 +157,8 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
     with h5py.File(input_net, "r") as hf_in:
         
         # --- AUTO-DETECT FORMAT ---
-        is_blast_network = 'score' in hf_in
+        m_attr = str(hf_in.attrs.get("model_name", "")).upper()
+        is_blast_network = 'score' in hf_in or m_attr == "BLAST" or len(hf_in.keys()) == 4
         if is_blast_network:
             print("-> Format Detected: BLAST/SSEARCH E-Value Network")
         else:
@@ -214,6 +215,8 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
         # 5. Save to New HDF5 Network
         print(f"Saving filtered network to {output_net}...")
         with h5py.File(output_net, "w") as hf_out:
+            for k, v in hf_in.attrs.items():
+                hf_out.attrs[k] = v
             dt_str = h5py.string_dtype(encoding='utf-8')
             hf_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
             

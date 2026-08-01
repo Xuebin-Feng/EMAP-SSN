@@ -247,6 +247,8 @@ if __name__ == "__main__":
     
     print(f"Writing to {OUTPUT_HDF5}...")
     with h5py.File(OUTPUT_HDF5, "w") as hf:
+        hf.attrs["model_name"] = "BLAST"
+        hf.attrs["matrix"] = "BLAST"
         dt_str = h5py.string_dtype(encoding='utf-8')
         hf.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
         hf.create_dataset("i", data=arr_i)

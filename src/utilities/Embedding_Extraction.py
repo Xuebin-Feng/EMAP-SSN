@@ -1,201 +1,171 @@
-"""
-File: Embedding_Extraction.py
-===================================
-Description:
-This script acts as a filter to extract a specific subset of sequence embeddings from a massive master HDF5 embedding file.
-Instead of recalculating computationally expensive embeddings on a smaller subset of proteins, this script simply slices 
-the existing pre-computed arrays out of the database and saves them to a new, smaller HDF5 file.
+"""Extract a sanitized subset from a metadata-first embedding database."""
 
-Input:
-- A large source HDF5 file containing pre-computed embeddings for an entire dataset (`SOURCE_H5`).
-- A target text or FASTA file containing the specific subset of sequence headers you want to extract (`TARGET_SEQUENCE_FILE`).
-
-Output:
-- A new, compact HDF5 file containing only the embeddings for the requested sequence subset (`OUTPUT_H5`).
-
-Settings:
-- SOURCE_H5: The absolute or relative path to the large embedding database.
-- TARGET_SEQUENCE_FILE: The file containing the IDs or headers defining the subset to retain.
-- OUTPUT_H5: The path where the new, smaller database will be written.
-
-Algorithm:
-1. Validates the existence of the source HDF5 database.
-2. Parses the target text/FASTA file to generate a list of requested headers.
-3. Opens the source database (Read-Only) and target database (Write) simultaneously.
-4. Iterates through the requested target headers, applying filesystem sanitization rules to match the HDF5 internal structure.
-5. If the header exists in the source, it copies the variable-length numpy array into the new target dataset.
-6. Regenerates the master metadata arrays (`headers`, `model_name`, `num_sequences`) for the new file.
-7. Logs successful transfers and explicitly prints any requested headers that were missing from the master file.
-"""
-# %% Imports
-import h5py
-import numpy as np
+import ast
+import json
 import os
-import sys
+
+import h5py
 from tqdm import tqdm
 
-# ==========================================
-# CONFIGURATION
-# ==========================================
+try:
+    from FASTA_Sanitization import load_sanitized_fasta, sanitize_header
+    from Embedding_HDF5 import (
+        create_metadata_first_file,
+        mark_generation_complete,
+        read_embedding_manifest,
+        validate_embedding_array,
+        validate_manifest_records,
+    )
+except ModuleNotFoundError:
+    from src.utilities.FASTA_Sanitization import load_sanitized_fasta, sanitize_header
+    from src.utilities.Embedding_HDF5 import (
+        create_metadata_first_file,
+        mark_generation_complete,
+        read_embedding_manifest,
+        validate_embedding_array,
+        validate_manifest_records,
+    )
+
+
 INPUT_EMBED = None
 INPUT_FASTA = None
 
 EMBED_DIR = os.path.join("..", "Embeddings")
 FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
-# --- JSON Settings Override ---
-import json
-import ast
-import os
-
-# Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
-            all_settings = json.load(f)
-            
-            # 1. Load GLOBAL directories and convert relative paths to absolute paths
-            if "DIRECTORIES" in all_settings:
-                for k, v in all_settings["DIRECTORIES"].items():
-                    if k in globals() and v is not None and str(v).strip() != "":
-                        # Expand relative paths dynamically based on the current PC
-                        if not os.path.isabs(str(v)):
-                            v = os.path.normpath(os.path.join(PROJECT_ROOT, str(v)))
-                        globals()[k] = v
-                        
-            # 2. Load script-specific settings
-            script_name = os.path.basename(__file__)
-            if script_name in all_settings:
-                user_settings = all_settings[script_name]
-                for k, v in user_settings.items():
-                    if k in globals() and v is not None and str(v).strip() != "":
-                        orig = globals()[k]
-                        
-                        # Type casting to match the original Python variable type
-                        if isinstance(orig, int) and not isinstance(orig, bool):
-                            try: v = int(v)
-                            except: pass
-                        elif isinstance(orig, float):
-                            try: v = float(v)
-                            except: pass
-                        elif isinstance(orig, list):
-                            try: v = ast.literal_eval(v) if isinstance(v, str) else v
-                            except: pass
-                        elif orig is None:
-                            if v == "None": v = None
-                            elif str(v).replace('.', '', 1).isdigit():
-                                v = float(v) if '.' in str(v) else int(v)
-                                
-                        # Convert any script-specific directory paths to absolute paths
-                        if isinstance(v, str) and k.endswith("_DIR") and not os.path.isabs(v):
-                            v = os.path.normpath(os.path.join(PROJECT_ROOT, v))
-                            
-                        globals()[k] = v
-    except Exception as e:
-        print(f"Failed to load user settings: {e}")
-        
-# --- DYNAMIC INFERENCE ---
-FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR else ""
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as settings_handle:
+            all_settings = json.load(settings_handle)
+        for key, value in all_settings.get("DIRECTORIES", {}).items():
+            if key in globals() and value is not None and str(value).strip():
+                if not os.path.isabs(str(value)):
+                    value = os.path.normpath(os.path.join(PROJECT_ROOT, str(value)))
+                globals()[key] = value
+        for key, value in all_settings.get(os.path.basename(__file__), {}).items():
+            if key in globals() and value is not None and str(value).strip():
+                original = globals()[key]
+                if isinstance(original, list) and isinstance(value, str):
+                    try:
+                        value = ast.literal_eval(value)
+                    except (SyntaxError, ValueError):
+                        pass
+                globals()[key] = value
+    except Exception as exc:
+        print(f"Failed to load user settings: {exc}")
 
-# ==========================================
-# FUNCTIONS
-# ==========================================
-def load_target_headers(filepath):
-    """ Reads headers from a FASTA or TXT file. """
+FULL_INPUT_EMBED = (
+    os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR and INPUT_EMBED else ""
+)
+FULL_INPUT_FASTA = (
+    os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR and INPUT_FASTA else ""
+)
+
+
+def load_target_records(file_path):
+    """Load a sanitized FASTA selection or a sanitized header-only list."""
+    extension = os.path.splitext(file_path)[1].lower()
+    if extension in {".fasta", ".fa", ".fna"}:
+        headers, sequences, _ = load_sanitized_fasta(file_path)
+        validate_manifest_records(headers, sequences)
+        return headers, dict(zip(headers, sequences))
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Target selection file not found: {file_path}")
     headers = []
-    ext = os.path.splitext(filepath)[1].lower()
-    
-    try:
-        with open(filepath, "r") as f:
-            if ext in [".fasta", ".fa", ".fna"]:
-                print(f"Reading FASTA format: {filepath}")
-                for line in f:
-                    if line.startswith(">"):
-                        clean_header = line.strip()[1:]
-                        headers.append(clean_header)
-            else:
-                print(f"Reading List format: {filepath}")
-                for line in f:
-                    if line.strip():
-                        headers.append(line.strip())
-    except FileNotFoundError:
-        print(f"❌ Error: Target file {filepath} not found.")
-        sys.exit(1)
-        
-    return headers
+    with open(file_path, "r", encoding="utf-8-sig") as selection_handle:
+        for line in selection_handle:
+            if line.strip():
+                headers.append(sanitize_header(line.strip())[0])
+    if len(headers) != len(set(headers)):
+        raise ValueError("Target header list contains duplicates after sanitization.")
+    validate_manifest_records(headers, ["X"] * len(headers))
+    return headers, None
 
-def extract_subset():
-    print(f"--- HDF5 Embedding Extractor ---")
-    
-    # 1. Verify Source
-    if not os.path.exists(FULL_INPUT_EMBED):
-        print(f"❌ Error: Source HDF5 not found at {FULL_INPUT_EMBED}")
-        return
 
-    # 2. Load Target List
-    target_headers = load_target_headers(FULL_INPUT_FASTA)
-    print(f"  > Target list contains {len(target_headers)} sequences.")
+def extract_subset(input_hdf5, selection_file, output_hdf5=None):
+    """Copy selected embeddings and their stored sanitized sequences."""
+    if not os.path.exists(input_hdf5):
+        raise FileNotFoundError(f"Source HDF5 not found: {input_hdf5}")
+    target_headers, supplied_sequences = load_target_records(selection_file)
+
+    with h5py.File(input_hdf5, "r") as hf_in:
+        source_manifest = read_embedding_manifest(hf_in, require_complete=True)
+    source_sequences = source_manifest.sequence_by_header
 
     found_headers = []
+    found_sequences = []
     missing_headers = []
+    for header in target_headers:
+        if header not in source_sequences:
+            missing_headers.append(header)
+            continue
+        stored_sequence = source_sequences[header]
+        if supplied_sequences is not None and supplied_sequences[header] != stored_sequence:
+            raise ValueError(
+                f"Selection FASTA sequence for '{header}' does not match the "
+                "sanitized sequence stored in the source embedding file."
+            )
+        found_headers.append(header)
+        found_sequences.append(stored_sequence)
 
-    # Infer outputs
-    with h5py.File(FULL_INPUT_EMBED, "r") as hf_in:
-        model_name = hf_in.attrs.get("model_name", "Unknown")
-        
-    _fasta_base = INPUT_FASTA.replace(".fasta", "")
-    OUTPUT_H5 = os.path.join(EMBED_DIR, f"{_fasta_base}_[{model_name}]_embeddings.h5")
+    validate_manifest_records(found_headers, found_sequences)
+    if output_hdf5 is None:
+        selection_base = os.path.splitext(os.path.basename(selection_file))[0]
+        output_hdf5 = os.path.join(
+            EMBED_DIR,
+            f"{selection_base}_[{source_manifest.model_name}]_embeddings.h5",
+        )
+    if os.path.abspath(output_hdf5) == os.path.abspath(input_hdf5):
+        raise ValueError("Extraction output must not overwrite its source file.")
+    output_directory = os.path.dirname(output_hdf5)
+    if output_directory:
+        os.makedirs(output_directory, exist_ok=True)
 
-    # 3. Ensure output directory exists
-    os.makedirs(os.path.dirname(OUTPUT_H5), exist_ok=True)
+    feature_dimension = None
+    with h5py.File(input_hdf5, "r") as hf_in, h5py.File(output_hdf5, "w") as hf_out:
+        emb_group_out = create_metadata_first_file(
+            hf_out,
+            found_headers,
+            found_sequences,
+            source_manifest.model_name,
+            source_manifest.saving_mode,
+        )
+        for header, sequence in tqdm(
+            zip(found_headers, found_sequences),
+            total=len(found_headers),
+            desc="Extracting",
+        ):
+            embedding = hf_in["embeddings"][header][:]
+            feature_dimension = validate_embedding_array(
+                embedding,
+                sequence,
+                source_manifest.saving_mode,
+                feature_dimension=feature_dimension,
+                header=header,
+            )
+            emb_group_out.create_dataset(header, data=embedding)
+            hf_out.flush()
+        mark_generation_complete(hf_out)
 
-    # 4. Open both HDF5 files (Source as Read-Only, Output as Write)
-    print("Extracting matches...")
-    with h5py.File(FULL_INPUT_EMBED, "r") as hf_in, h5py.File(OUTPUT_H5, "w") as hf_out:
-        
-        # Copy metadata
-        hf_out.attrs["model_name"] = model_name
-        
-        emb_group_in = hf_in["embeddings"]
-        emb_group_out = hf_out.create_group("embeddings")
+    return output_hdf5, found_headers, missing_headers
 
-        # Extract embeddings one by one
-        for th in tqdm(target_headers, desc="Processing"):
-            # Apply the exact same sanitization used during the HDF5 creation
-            safe_th = th.replace("/", "_").replace("\\", "_")
-            
-            if safe_th in emb_group_in:
-                # Read specific array into RAM, write to new file, then discard from RAM
-                emb_data = emb_group_in[safe_th][:]
-                emb_group_out.create_dataset(safe_th, data=emb_data)
-                
-                # Store the original unsanitized header for the master list
-                found_headers.append(th)
-            else:
-                missing_headers.append(th)
-
-        # Recreate the master headers list dataset in the new file
-        dt_str = h5py.string_dtype(encoding='utf-8')
-        hf_out.create_dataset("headers", data=np.array(found_headers, dtype=object), dtype=dt_str)
-        hf_out.attrs["num_sequences"] = len(found_headers)
-
-    # 5. Summary
-    print(f"\n✅ Extraction Complete!")
-    print(f"  > Saved to: {OUTPUT_H5}")
-    print(f"  > Extracted: {len(found_headers)}")
-    print(f"  > Missing:   {len(missing_headers)}")
-    
-    if missing_headers:
-        print("\n⚠️  The following headers were not found in the source:")
-        # Only print first 10 to avoid flooding the console if many are missing
-        for missing in missing_headers[:10]:
-            print(f"    - {missing}")
-        if len(missing_headers) > 10:
-            print(f"    ... and {len(missing_headers) - 10} more.")
 
 if __name__ == "__main__":
-    extract_subset()
+    print("--- HDF5 Embedding Extractor ---")
+    output_path, found, missing = extract_subset(
+        FULL_INPUT_EMBED,
+        FULL_INPUT_FASTA,
+    )
+    print("\n✅ Extraction Complete!")
+    print(f"  > Saved to: {output_path}")
+    print(f"  > Extracted: {len(found)}")
+    print(f"  > Missing:   {len(missing)}")
+    if missing:
+        print("\n⚠️  The following headers were not found in the source:")
+        for header in missing[:10]:
+            print(f"    - {header}")
+        if len(missing) > 10:
+            print(f"    ... and {len(missing) - 10} more.")
