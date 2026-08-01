@@ -23,7 +23,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 | Enable Length Filter **`ENABLE_LENGTH_FILTER`** | Toggle to filter out sequences that do not meet the minimum or maximum length constraints. |
 | Minimum Sequence Length **`MIN_SEQ_LENGTH`** | The minimum sequence length (in amino acids) required to keep a sequence. |
 | Maximum Sequence Length **`MAX_SEQ_LENGTH`** | The maximum sequence length allowed. |
-| Remove by Header String **`REMOVE_BY_HEADER_STRING`** | Excludes sequences whose headers contain this specific case-insensitive substring (e.g., 'partial', 'fragment', 'low quality'). Set to 'None' to disable. |
+| Remove by Header String **`REMOVE_BY_HEADER_STRING`** | Excludes sequences whose headers contain this exact case-sensitive substring (e.g., `partial`, `fragment`, or `low quality`). Leave empty to disable; `None` is treated as a literal search word. |
 
 ### 📤 Output
 
@@ -62,38 +62,44 @@ This script extracts sequence embeddings from pre-trained protein language model
 
 ### 📥 Input
 
-#### Sanitized FASTA File `INPUT_FASTA`
-*   **Format**: Sanitized FASTA (`.fasta`).
-*   **Created By**: `Sanitize_Sequences.py` (Sequence Sanitization utility).
-*   **Description**: Output of the sequence sanitization process.
+#### FASTA File `INPUT_FASTA`
+*   **Format**: Standard FASTA (`.fasta`), either raw or previously sanitized.
+*   **Created By**: A user-provided sequence set or `Sanitize_Sequences.py`.
+*   **Description**: Records are sanitized automatically in memory before embedding. This simplified pass does not filter by header text or sequence length and prints a result only when records change.
 
 ### ⚙️ Parameters
 
 | Parameter | Description |
 | :--- | :--- |
-| Model Name **`MODEL_NAME`** | The protein language model architecture to use (e.g. `esmc_600m`, `esm2_t33_650m`, `esm2_t30_150m`, `protbert`, `prostt5`). |
+| Model Name **`MODEL_NAME`** | The protein language model architecture to use and the label written into the output filename (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `protbert`, `prostt5`). |
 | Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`float16` or `float32`). `float16` is recommended to reduce disk space by 50% with negligible loss of accuracy. |
+
+> **ESMC 6B API access:** Select `esmc_6b`; the plugin maps that filename-friendly label to Biohub's `esmc-6b-2024-12` API identifier. Store the token beside the plugin in the Git-ignored `src/resources/pLM_models/esmc_6b_api_key.json` file as `{"ESM_API_TOKEN": "your-token"}`. Future API plugins can follow the same `*_api_key.json` naming convention.
 
 ### 📤 Output
 
 #### HDF5 Embedding Database
 *   **Format**: HDF5 (`.h5`).
 *   **Structure**:
-    - `/{sanitized_header}`: Dataset of shape $L \times D$, where $L$ is sequence length and $D$ is model dimension.
-    - `/headers`: Array of sequence headers.
-    - `/seq_lens`: Array of sequence lengths.
+    - `/headers`: UTF-8 sanitized sequence headers.
+    - `/sequences`: UTF-8 sanitized sequences in one-to-one order with `/headers`.
+    - `/embeddings/{sanitized_header}`: Dataset of shape $L \times D$.
+    - Attributes `model_name`, `saving_mode`, `num_sequences`, and `generation_complete`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
-1. **Model Loader and Weight Cache**:
+1. **In-Memory FASTA Sanitization**:
+     Cleans headers and sequences, removes empty or duplicate records, retains the longest header for identical sequences, and assigns collision-safe unique headers. Header-substring and sequence-length filters are not applied.
+
+2. **Model Loader and Weight Cache**:
      Downloads and caches model weights from Hugging Face. Loads the transformer model and tokenizes the input.
 
-2. **Hardware Target Selection**:
+3. **Hardware Target Selection**:
      Checks system capabilities and assigns tensor operations to the optimal accelerator:
      $$\text{Device} = \begin{cases} \text{cuda} & \text{if Nvidia GPU available} \\ \text{mps} & \text{if Apple Silicon available} \\ \text{cpu} & \text{otherwise} \end{cases}$$
 
-3. **Residue Embedding Generation**:
+4. **Residue Embedding Generation**:
      For each sanitized sequence $s$:
      - Tokenizes and formats the sequence with start/stop tokens:
        $$s_{\text{token}} = \langle\text{cls}\rangle \, s_1 \, s_2 \, \dots \, s_L \, \langle\text{eos}\rangle$$
@@ -103,8 +109,8 @@ This script extracts sequence embeddings from pre-trained protein language model
      - Slices off the start/stop boundary tokens, yielding the residue embedding matrix:
        $$E_{\text{residue}} = E_{1 \dots L} \in \mathbb{R}^{L \times D}$$
 
-4. **HDF5 Database Compilation**:
-     Saves each $E_{\text{residue}}$ dataset in the output HDF5 database using the sanitized header as the key. Slices values into the target precision (`float16` or `float32`). Writes a global `headers` index array and a `seq_lens` array to enable rapid database lookups.
+5. **HDF5 Database Compilation**:
+     Writes and flushes sanitized `/headers` and `/sequences` before generating any embeddings. Each validated residue matrix is then stored under its sanitized header and flushed individually. `generation_complete` becomes true only after the complete database passes validation.
 
 </details>
 
@@ -118,19 +124,15 @@ This script produces embeddings for cropped/partial sequences by slicing them di
 
 #### Full Embedding Database `INPUT_EMBED`
 *   **Format**: HDF5 embedding database (`.h5`).
-*   **Created By**: `Generate_Embeddings.py` (Embedding Generation utility), run on `FULL_FASTA`.
-
-#### Full Sequence Set `FULL_FASTA`
-*   **Format**: Standard FASTA (`.fasta`).
-*   **Description**: The full-length sequences that `INPUT_EMBED` was generated from. May contain more sequences than `CROPPED_FASTA` needs — extras are ignored.
+*   **Created By**: `Generate_Embeddings.py` (Embedding Generation utility). The required full sanitized sequences are stored in `/sequences`; a separate full-length FASTA is not needed.
 
 #### Cropped Sequence Set `CROPPED_FASTA`
 *   **Format**: Standard FASTA (`.fasta`).
-*   **Description**: Partial sequences to produce contextual embeddings for. Each header must also appear in `FULL_FASTA` and `INPUT_EMBED`, and each sequence must be an exact contiguous substring of its full-length counterpart.
+*   **Description**: Partial sequences to produce contextual embeddings for. Records are sanitized identically to embedding generation. Each sanitized header must appear in `INPUT_EMBED`, and each sanitized sequence must be an exact contiguous substring of the stored full sequence.
 
 ### ⚙️ Parameters
 
-This script does not require additional configuration parameters — behavior is fully determined by the three input files above.
+This script does not require additional configuration parameters — behavior is fully determined by the source embedding database and cropped FASTA.
 
 ### 📤 Output
 
@@ -139,18 +141,19 @@ This script does not require additional configuration parameters — behavior is
 *   **Structure**:
     - `/embeddings/{sanitized_header}`: Dataset of shape $L_{\text{crop}} \times D$, sliced from the full-length embedding.
     - `/headers`: Array of resolved cropped-sequence headers.
-    - `attrs["model_name"]`, `attrs["num_sequences"]`.
+    - `/sequences`: One-to-one array of resolved sanitized cropped sequences.
+    - Attributes `model_name`, `saving_mode`, `num_sequences`, and `generation_complete`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
 1. **Header Correspondence**:
-     For each cropped sequence $s_{\text{crop}}$ with header $h$, locates the full sequence $s_{\text{full}}$ and full embedding matrix $E_{\text{full}} \in \mathbb{R}^{L_{\text{full}} \times D}$ sharing the same header $h$ in `FULL_FASTA` / `INPUT_EMBED`. Headers absent from either are reported and skipped.
+     For each sanitized cropped sequence $s_{\text{crop}}$ with header $h$, locates the stored full sequence $s_{\text{full}}$ and embedding matrix $E_{\text{full}} \in \mathbb{R}^{L_{\text{full}} \times D}$ sharing that header in `INPUT_EMBED`. Missing headers are reported and skipped.
 
 2. **Consistency Check**:
      Verifies that the full embedding's row count matches the full sequence's length:
      $$L_{\text{full}} \overset{?}{=} \text{Length}(s_{\text{full}})$$
-     A mismatch indicates `INPUT_EMBED` does not actually correspond to `FULL_FASTA` for that header, and the entry is skipped rather than sliced incorrectly.
+     A mismatch makes the source embedding database invalid and cropping stops rather than slicing stale data.
 
 3. **Offset Resolution**:
      Finds the position of the cropped sequence within its full parent via exact substring search:
@@ -162,6 +165,6 @@ This script does not require additional configuration parameters — behavior is
      $$E_{\text{crop}} = E_{\text{full}}[\text{offset} : \text{offset} + L_{\text{crop}}]$$
 
 5. **HDF5 Database Compilation**:
-     Writes each $E_{\text{crop}}$ into the output database keyed by the sanitized cropped header, alongside a `headers` index array and `model_name`/`num_sequences` metadata — matching the standard embedding database structure.
+     Writes and flushes the resolved sanitized headers and sequences first, streams each crop under its header key, and marks the output complete only after validation.
 
 </details>

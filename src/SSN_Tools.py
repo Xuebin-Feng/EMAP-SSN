@@ -9,6 +9,98 @@ import re
 
 MAX_CORES = os.cpu_count() or 16
 
+SECTION_CARD_STYLE = (
+    "QFrame#toolSectionCard { "
+    "  border: none; "
+    "  border-radius: 8px; "
+    "  background-color: #f4f6f8; "
+    "  padding: 16px; "
+    "  margin-bottom: 20px; "
+    "}"
+)
+PRIMARY_TITLE_STYLE = (
+    "font-weight: bold; font-size: 18px; margin-top: 5px; margin-bottom: 5px; "
+    "color: #2C3E50; border-bottom: 1px solid #3498DB; padding-bottom: 8px;"
+)
+SECONDARY_TITLE_STYLE = (
+    "font-weight: bold; font-size: 15px; margin-bottom: 5px; "
+    "border-bottom: 1px solid #95A5A6; padding-bottom: 2px;"
+)
+SECONDARY_TITLE_WITH_TOP_PADDING_STYLE = (
+    SECONDARY_TITLE_STYLE + " padding-top: 18px;"
+)
+COMPACT_ROW_PAIRS = {
+    "Sanitize_Sequences.py": [
+        ("MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"),
+    ],
+    "Generate_Embeddings.py": [
+        ("MODEL_NAME", "SAVING_MODE"),
+    ],
+    "Align_Similarity_Matrix.py": [
+        ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
+        ("BATCH_SIZE", "WORKERS"),
+    ],
+    "Align_Substitution_Matrix.py": [
+        ("BATCH_SIZE", "NUM_THREADS"),
+    ],
+    "Network_Injection.py": [
+        ("BATCH_SIZE", "WORKERS"),
+    ],
+    "Embedding_MSA.py": [
+        ("GAP_OPEN", "GAP_EXTEND"),
+    ],
+}
+INLINE_FIELD_GROUPS = {
+    "Sanitize_Sequences.py": [
+        ("INPUT_FASTA", "OVER_WRITE"),
+        ("ENABLE_LENGTH_FILTER", "REMOVE_BY_HEADER_STRING"),
+    ],
+    "Sparse_MSA_Converter.py": [
+        ("CONVERT_ALL", "INPUT_FASTA"),
+    ],
+    "Embedding_MSA.py": [
+        ("USE_SEQUENCE_FILTER", "INPUT_FASTA"),
+        ("INPUT_NETWORK", "SHOW_REGRESSION_PLOT"),
+        ("TREE_METHOD", "ALIGNMENT_SCORE", "NORMALIZATION_MODE"),
+        ("BOOTSTRAP_TREE", "NUM_TREES"),
+    ],
+}
+TAB_DISPLAY_NAMES = {
+    "Sequence_and_Embedding_Preparation": "Sequence && Embedding Preparation",
+    "Embedding_and_Network_Tools": "Embedding && Network Tools",
+    "Others": "Manual Tools",
+    "Sequence_Similarity_Calculations": "Sequence Similarity Calculations",
+}
+
+def get_utility_tool_titles():
+    """Map utility script filenames to their emoji titles in the Markdown descriptions."""
+    descriptions_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "utilities",
+        "utility_descriptions",
+    )
+    heading_pattern = re.compile(
+        r"^#\s+(.+?)\s+\(`([^`]+\.py)`\)\s*$"
+    )
+    titles = {}
+    if not os.path.isdir(descriptions_dir):
+        return titles
+
+    for filename in os.listdir(descriptions_dir):
+        if not filename.endswith(".md"):
+            continue
+        description_path = os.path.join(descriptions_dir, filename)
+        try:
+            with open(description_path, "r", encoding="utf-8") as description_file:
+                for line in description_file:
+                    match = heading_pattern.match(line.strip())
+                    if match:
+                        title, script_name = match.groups()
+                        titles[script_name] = title
+        except OSError:
+            continue
+    return titles
+
 def get_supported_embedding_models():
     """
     Scans the src/resources/pLM_models/ folder and parses all scripts
@@ -55,7 +147,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QTabWidget, QFormLayout, QLineEdit, 
                              QPushButton, QMessageBox, QLabel, QScrollArea, QTextEdit,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
-                             QSpinBox, QFileDialog, QStyle, QStyleOptionSlider)
+                             QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
+                             QSizePolicy, QFrame)
 from PyQt6.QtCore import Qt
 
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -255,6 +348,8 @@ class NoScrollSpinBox(QSpinBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMinimumHeight(28)
+        self.setStyleSheet("QSpinBox:disabled { background-color: #f0f0f0; color: #888; }")
     def wheelEvent(self, e):
         e.ignore()
 
@@ -262,6 +357,8 @@ class NoScrollDoubleSpinBox(QDoubleSpinBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMinimumHeight(28)
+        self.setStyleSheet("QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }")
     def wheelEvent(self, e):
         e.ignore()
 
@@ -340,6 +437,7 @@ class ToolsGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SSN Utilities Tools")
+        self.tool_titles = get_utility_tool_titles()
         
         # Set Window Icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "tool_logo.ico")
@@ -356,52 +454,50 @@ class ToolsGUI(QMainWindow):
                 "INPUT_FASTA": "Sequence Set (.fasta): The raw sequence file to be cleaned. Sanitization standardizes characters to uppercase, strips trailing/leading invalid symbols, and filters out non-standard elements.",
                 "ENABLE_LENGTH_FILTER": "Enable Length Filter: Toggle to filter sequences based on their amino acid length. When enabled, only sequences within the specified minimum and maximum length bounds will be retained.",
                 "OVER_WRITE": "Overwrite Original File: If enabled, the sanitized sequences will overwrite the input file. If disabled, a new file named <input_name>_sanitized.fasta will be created to preserve the original raw file.",
-                "REMOVE_BY_HEADER_STRING": "Remove Header Substring: If specified, sequences with headers containing this text (case-insensitive) will be discarded.",
+                "REMOVE_BY_HEADER_STRING": "Remove Header Substring: If specified, sequences with headers containing this exact case-sensitive text will be discarded. Leave empty to disable filtering.",
                 "MIN_SEQ_LENGTH": "Minimum Sequence Length: The lower limit (inclusive) for filtering sequences by length. Sequences shorter than this number of residues will be discarded during sanitization.",
                 "MAX_SEQ_LENGTH": "Maximum Sequence Length: The upper limit (inclusive) for filtering sequences by length. Sequences longer than this number of residues will be discarded to remove outliers."
             },
             "Generate_Embeddings.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): The sanitized input sequence file to generate embeddings for. Each sequence is parsed and fed through the neural network to produce high-dimensional dense representations.",
-                "MODEL_NAME": "Model Name: The protein language model (pLM) used to calculate sequence embeddings. Supported architectures include Evolutionary Scale Modeling (esmc_300m/600m) and Rostlab models (prot_bert/ProstT5).",
+                "MODEL_NAME": "Model Name: The protein language model (pLM) used to calculate sequence embeddings and label the output filename. ESMC 300M/600M run locally; esmc_6b maps internally to Biohub's esmc-6b-2024-12 API model and reads ESM_API_TOKEN from src/resources/pLM_models/esmc_6b_api_key.json. Rostlab models (prot_bert/ProstT5) are also supported.",
                 "SAVING_MODE": "Saving Mode: The floating-point precision for storing embedding tensors in the HDF5 file. Float16 is highly recommended to save up to 50% disk space and RAM, while float32 retains full uncompressed precision."
             },
             "Embedding_Cropping.py": {
                 "INPUT_EMBED": "Full Embedding Set (.h5): The pre-computed embedding database for the full-length sequences, generated by Generate_Embeddings.py. Cropped embeddings are sliced directly out of these arrays.",
-                "FULL_FASTA": "Full Sequence Set (.fasta): The full-length sequences matching the Input Embedding Set. Used to locate where each cropped sequence sits within its full-length parent.",
-                "CROPPED_FASTA": "Cropped Sequence Set (.fasta): The partial/cropped sequences to produce contextual embeddings for. Each header must also be present in the Full Sequence Set and Input Embedding Set."
+                "CROPPED_FASTA": "Cropped Sequence Set (.fasta): The partial sequences to produce contextual embeddings for. Headers and sequences are sanitized exactly as in embedding generation; full sequences are read from the embedding file metadata."
             },
             "Align_Similarity_Matrix.py": {
                 "INPUT_HDF5": "Embedding Set (.h5): The HDF5 database containing dense embedding vectors for each sequence in the network. These vectors are used to compute residue-level alignment scores.",
                 "EDGE_PREFILTERING": "Edge Prefiltering: Pre-filter sequence pairs by evaluating the cosine similarity of their global mean embedding vectors. This avoids running full alignments on highly dissimilar pairs, saving computation.",
                 "PREFILTER_STRENGTH": "Strength (%): The percentage of candidate edges with the lowest cosine similarity to discard. Higher percentages speed up calculations by performing sequence alignment on only the most promising pairs.",
-                "GENERATE_PATHS": "Path Generation: Toggle whether to compute and save the full traceback alignment paths (match/mismatch/gap indices) inside the output network. Enabling this increases output file size.",
                 "WORKERS": "CPU Workers: The number of CPU threads allocated for parallel processing. Running with more threads speeds up the alignment of large embedding matrices by distributing pairs across multiple cores.",
                 "LOCAL_GAP_P": "Local Align Gap Penalty: The penalty score applied for initiating or extending gaps in local alignment. More negative values enforce stricter local alignments with fewer gaps.",
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: The penalty score applied for initiating or extending gaps in global alignment. Adjust this to control how alignment length matches are forced.",
                 "BATCH_SIZE": "Batch Size: The number of sequence pairs processed in a single chunk. Larger values maximize CPU utilization but require more system memory. Set to 'auto' or specify a number."
             },
             "Align_Substitution_Matrix.py": {
-                "INPUT_FASTA": "Sequence Set (.fasta): The structural sequences to be aligned using traditional substitution matrices. The alignment calculates pairwise local and global alignment scores.",
+                "INPUT_FASTA": "Sequence Set (.fasta): The sequence file to align with BLASTP. Before alignment, records undergo the same canonical header, residue, empty-record, and duplicate-sequence sanitization used by Generate Embeddings.",
                 "MATRIX": "Substitution Matrix: The amino acid substitution matrix (e.g., BLOSUM62, PAM250) used to score matches/mismatches during pairwise alignment. Select based on the evolutionary distance of the sequences.",
                 "NUM_THREADS": "CPU Workers: The number of CPU threads allocated for parallel sequence alignments. Increasing threads speeds up computations on multi-core systems.",
                 "BATCH_SIZE": "Batch Size: The number of sequence pairs aligned per block. Tuning this controls memory consumption and parallel execution batch sizes.",
-                "SAFE_TEMP_DIR": "Temporary Working Directory: The directory for caching intermediate files and memory-mapped arrays during execution. Ensure it has enough free space for larger runs.",
                 "BLASTP_DIR": "BLASTP Directory: The folder containing your local blastp and makeblastdb binaries (usually named 'bin'). If left blank, standard system PATH directories are searched."
             },
             "Embedding_MSA.py": {
+                "USE_SEQUENCE_FILTER": "Use Sequence Filter: Toggle whether to filter the alignment by an explicit FASTA sequence set. If OFF (default), the sequence set field is blanked out and alignment uses all sequences in the embedding database.",
                 "INPUT_FASTA": "Sequence Set (.fasta): The raw sequence file to be aligned. These letters are aligned, padded with gaps, and output as the final Multiple Sequence Alignment (MSA).",
                 "INPUT_EMBED": "Embedding Set (.h5): The HDF5 database containing dense sequence embedding tensors. These embeddings drive the progressive profile alignments along the guide tree nodes.",
-                "INPUT_NETWORK": "Network / E-value (.h5): The pairwise similarity network used to build the evolutionary guide tree. For sparse networks, missing edge scores are predicted using regression.",
+                "INPUT_NETWORK": "Network File (.h5): The pairwise similarity network used to build the evolutionary guide tree. For sparse networks, missing edge scores are predicted using regression.",
                 "SHOW_REGRESSION_PLOT": "Show Isotonic Regression Plot: Toggle whether to display a regression plot when a sparse network is loaded. This visualizes the fit between embedding distances and pairwise connectivity.",
                 "TREE_METHOD": "Tree Building Method: The method used to construct the guide tree. 'UPGMA' groups by average proximity. 'Neighbor-joining' adjusts for rate variations (slower but more biologically standard).",
                 "ALIGNMENT_SCORE": "Score Mode: Specifies whether to weight guide tree branches based on 'global' or 'local' connectivity scores. This determines the progressive alignment order.",
                 "NORMALIZATION_MODE": "Normalization Mode: Normalization method for pairwise embedding scores (e.g., alignment length, shorter sequence length). Not active when using raw BLAST E-values.",
-                "BOOTSTRAP_TREE": "Bootstrap Guide Tree: Toggle whether to build the guide tree using bootstrapped random trees (ON) or a single deterministic tree (OFF). Disabling this significantly speeds up the run.",
-                "NUM_TREES": "Number of Trees: The number of bootstrap replicates used to construct the consensus guide tree. Higher values generate a more stable topology but increase calculation time.",
-                "NOISE_SCALE": "Noise Scale: Standard deviation of random Gaussian noise added to the distance matrix during bootstrap tree building. Helps resolve branching ambiguities in similar sequences.",
+                "BOOTSTRAP_TREE": "Noise-Perturbed Consensus Guide Tree: Toggle whether to average guide-tree distances across randomly perturbed replicate trees (ON) or build one deterministic tree (OFF). This is a sensitivity ensemble, not classical bootstrap support. Disabling it significantly speeds up the run.",
+                "NUM_TREES": "Number of Perturbed Trees: The number of noise-perturbed replicate trees used to construct the consensus guide tree. Higher values produce a more stable average but increase calculation time.",
+                "NOISE_SCALE": "Normalized Additive Noise Scale: Gaussian standard deviation expressed as a fraction of the valid distance range. For example, 0.02 means 2% of the maximum guide-tree distance. Every observed and regression-imputed distance is perturbed, then clamped between zero (closest) and the maximum distance (weakest or unconnected).",
                 "GAP_OPEN": "Gap Open Penalty: The penalty score applied for initiating a new gap within progressive profile alignments. More negative values result in fewer gaps.",
                 "GAP_EXTEND": "Gap Extend Penalty: The penalty score applied for extending an existing gap. More negative values yield shorter, more compact gap regions.",
-                "WORKERS": "CPU Workers: The number of CPU threads allocated for parallel consensus tree bootstrap replicates, accelerating guide tree construction.",
+                "WORKERS": "CPU Workers: The number of CPU processes allocated to parallel noise-perturbed guide-tree replicates.",
                 "SAFE_TEMP_DIR": "Temporary Working Directory: The directory for caching intermediate files and memory-mapped matrices. Ensures that massive guide tree calculations do not overflow RAM."
             },
             "Sparse_MSA_Converter.py": {
@@ -422,8 +518,6 @@ class ToolsGUI(QMainWindow):
             "Network_Injection.py": {
                 "OLD_NETWORK": "Input Network Edges (.h5): The pre-existing HDF5 network file. The script will inject newly calculated embedding alignments into this file to expand its edge details.",
                 "NEW_EMBEDDINGS": "Input Embedding Set (.h5): The HDF5 embedding set containing the dense representations to align and inject into the targeted network file.",
-                "LOCAL_GAP_P": "Local Align Gap Penalty: The penalty score applied for initiating or extending gaps in local alignment during the injection step.",
-                "GLOBAL_GAP_P": "Global Align Gap Penalty: The penalty score applied for initiating or extending gaps in global alignment during the injection step.",
                 "WORKERS": "CPU Workers: The number of CPU threads allocated for parallel embedding alignment calculation and network writing.",
                 "BATCH_SIZE": "Batch Size: The number of sequence alignments calculated per write block. Tuning this controls memory consumption and optimizes file write performance."
             },
@@ -445,9 +539,8 @@ class ToolsGUI(QMainWindow):
                 "GENERATE_REPORT": "Generate Report: Toggle whether to save the pairwise alignment visualization and score into a color-coded HTML report in the report directory."
             },
             "Embedding_SSEARCH.py": {
-                "INPUT_FASTA": "Sequence Set (.fasta): The FASTA file representing the database sequence names and residues, matching the embedding file database.",
-                "INPUT_EMBED": "Embedding Set (.h5): The HDF5 embedding file containing pre-computed tensors for database search. Pairwise scoring is run against these.",
-                "QUERY_HEADER": "Query Header: The exact header of the sequence within the FASTA database to use as the query. Overridden if Query Sequence is specified.",
+                "INPUT_EMBED": "Embedding Set (.h5): A complete metadata-first HDF5 database containing sanitized headers, sequences, and pre-computed tensors for database search.",
+                "QUERY_HEADER": "Query Header: The header of a sequence stored in the embedding database to use as the query. It is sanitized before lookup and overridden if Query Sequence is specified.",
                 "QUERY_SEQUENCE": "Query Sequence (Optional): A raw amino acid sequence string to search against the database, overriding the Query Header lookup.",
                 "OUTPUT_NAME": "Output Name: Custom prefix for search output files. If left blank, the query header (sanitized) is used as the default name.",
                 "TOP_K": "Top K Hits: The maximum number of highest-scoring database hits to include in the output results. Set to control list size.",
@@ -553,15 +646,6 @@ class ToolsGUI(QMainWindow):
                             "display": "Full Embedding Set (.h5):"
                         },
                         {
-                            "var_name": "FULL_FASTA",
-                            "type": "dropdown_from_folder",
-                            "folder": os.path.join("Input_Files", "Sequence_Sets"),
-                            "extension": ".fasta",
-                            "include_ext": True,
-                            "dir_key": "FASTA_DIR",
-                            "display": "Full Sequence Set (.fasta):"
-                        },
-                        {
                             "var_name": "CROPPED_FASTA",
                             "type": "dropdown_from_folder",
                             "folder": os.path.join("Input_Files", "Sequence_Sets"),
@@ -573,7 +657,11 @@ class ToolsGUI(QMainWindow):
                     ]
                 }
             },
-            "Align_Similarity_Matrix.py": [
+            "Sequence_Similarity_Calculations": {
+                "is_combined": True,
+                "hide_secondary_titles": True,
+                "scripts": {
+                    "Align_Similarity_Matrix.py": [
                 {
                     "var_name": "title_asm_io",
                     "type": "title",
@@ -606,11 +694,6 @@ class ToolsGUI(QMainWindow):
                     "display": "Alignment Settings:"
                 },
                 {
-                    "var_name": "GENERATE_PATHS",
-                    "type": "switch",
-                    "display": "Path Generation:"
-                },
-                {
                     "var_name": "LOCAL_GAP_P",
                     "type": "negative_number",
                     "display": "Local Align Gap Penalty:"
@@ -637,10 +720,7 @@ class ToolsGUI(QMainWindow):
                     "type": "text",
                     "display": "Batch Size:"
                 }
-            ],
-            "Align_Substitution_Matrix": {
-                "is_combined": True,
-                "scripts": {
+                    ],
                     "Align_Substitution_Matrix.py": [
                         {
                             "var_name": "title_sub_io",
@@ -685,11 +765,6 @@ class ToolsGUI(QMainWindow):
                             "display": "Batch Size:"
                         },
                         {
-                            "var_name": "SAFE_TEMP_DIR",
-                            "type": "folder_browser",
-                            "display": "Temporary Working Directory:"
-                        },
-                        {
                             "var_name": "BLASTP_DIR",
                             "type": "folder_browser",
                             "display": "BLASTP Directory:"
@@ -723,6 +798,11 @@ class ToolsGUI(QMainWindow):
                             "display": "Input & Output Settings:"
                         },
                         {
+                            "var_name": "USE_SEQUENCE_FILTER",
+                            "type": "switch",
+                            "display": "Use Sequence Filter:"
+                        },
+                        {
                             "var_name": "INPUT_FASTA",
                             "type": "dropdown_from_folder",
                             "folder": os.path.join("Input_Files", "Sequence_Sets"),
@@ -747,7 +827,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",
-                            "display": "Network / E-value (.h5):"
+                            "display": "Network File (.h5):"
                         },
                         {
                             "var_name": "SHOW_REGRESSION_PLOT",
@@ -780,12 +860,12 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "BOOTSTRAP_TREE",
                             "type": "switch",
-                            "display": "Bootstrap Guide Tree:"
+                            "display": "Noise-Perturbed Trees:"
                         },
                         {
                             "var_name": "NUM_TREES",
                             "type": "number",
-                            "display": "Number of Trees:"
+                            "display": "Number of Perturbed Trees:"
                         },
                         {
                             "var_name": "NOISE_SCALE",
@@ -793,7 +873,7 @@ class ToolsGUI(QMainWindow):
                             "min": 0,
                             "max": 100,
                             "scale": 1000.0,
-                            "display": "Noise Scale (0 to 0.1):"
+                            "display": "Normalized Noise Scale (0 to 0.1):"
                         },
                         {
                             "var_name": "title_align",
@@ -811,21 +891,11 @@ class ToolsGUI(QMainWindow):
                             "display": "Gap Extend Penalty:"
                         },
                         {
-                            "var_name": "title_hw",
-                            "type": "title",
-                            "display": "Hardware & Workspace Settings:"
-                        },
-                        {
                             "var_name": "WORKERS",
                             "type": "slider",
                             "min": 1,
                             "max": MAX_CORES,
                             "display": "CPU Workers:"
-                        },
-                        {
-                            "var_name": "SAFE_TEMP_DIR",
-                            "type": "folder_browser",
-                            "display": "Temporary Working Directory:"
                         }
                     ],
                     "Sparse_MSA_Converter.py": [
@@ -851,7 +921,7 @@ class ToolsGUI(QMainWindow):
                     ]
                 }
             },
-            "Embedding_Tools": {
+            "Embedding_and_Network_Tools": {
                 "is_combined": True,
                 "scripts": {
                     "Embedding_Injection.py": [
@@ -903,12 +973,7 @@ class ToolsGUI(QMainWindow):
                             "dir_key": "FASTA_DIR",  # <-- Added
                             "display": "Input Sequence Set (.fasta):"
                         }
-                    ]
-                }
-            },
-            "Network_Tools": {
-                "is_combined": True,
-                "scripts": {
+                    ],
                     "Network_Injection.py": [
                         {
                             "var_name": "title_net_inj",
@@ -933,16 +998,6 @@ class ToolsGUI(QMainWindow):
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",  # <-- Added
                             "display": "Input Embedding Set (.h5):"
-                        },
-                        {
-                            "var_name": "LOCAL_GAP_P",
-                            "type": "negative_number",
-                            "display": "Local Align Gap Penalty:"
-                        },
-                        {
-                            "var_name": "GLOBAL_GAP_P",
-                            "type": "negative_number",
-                            "display": "Global Align Gap Penalty:"
                         },
                         {
                             "var_name": "WORKERS",
@@ -1073,15 +1128,6 @@ class ToolsGUI(QMainWindow):
                             "var_name": "title_ss_io",
                             "type": "title",
                             "display": "Input Files:"
-                        },
-                        {
-                            "var_name": "INPUT_FASTA",
-                            "type": "dropdown_from_folder",
-                            "folder": os.path.join("Input_Files", "Sequence_Sets"),
-                            "extension": ".fasta",
-                            "include_ext": True,
-                            "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1260,24 +1306,44 @@ class ToolsGUI(QMainWindow):
         
         main_layout = QVBoxLayout(tab)
         
-        form_widget = QWidget()
+        form_widget = QFrame()
+        form_widget.setObjectName("toolSectionCard")
+        form_widget.setStyleSheet(SECTION_CARD_STYLE)
         layout = QFormLayout(form_widget)
         layout.setHorizontalSpacing(30)
-        layout.setVerticalSpacing(10)
+        layout.setVerticalSpacing(12)
         
-        desc_label = QLabel("Global Directory Settings:")
-        desc_label.setStyleSheet("font-weight: bold; margin-bottom: 5px; font-size: 13px;")
-        layout.addRow(desc_label)
-        
-        title_lbl = QLabel("Directory Paths:")
-        title_lbl.setStyleSheet("font-weight: bold; font-size: 15px; margin-top: 15px; color: #2C3E50; border-bottom: 1px solid #3498DB; padding-bottom: 2px;")
-        layout.addRow(title_lbl)
+        header = QWidget()
+        header.setObjectName("toolHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(12)
+
+        desc_label = QLabel("📂 Global Directory Settings")
+        desc_label.setObjectName("toolTitle")
+        desc_label.setStyleSheet(PRIMARY_TITLE_STYLE)
+
+        btn_save = QPushButton("Save Directories")
+        btn_save.setObjectName("saveDirectoriesButton")
+        btn_save.setStyleSheet(
+            "background-color: #4CAF50; color: white; "
+            "font-weight: bold; padding: 10px 16px;"
+        )
+        btn_save.clicked.connect(self.save_directories)
+
+        header_layout.addWidget(
+            btn_save,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        header_layout.addWidget(desc_label, 1)
+        layout.addRow(header)
         
         self.dir_inputs = {}
         dir_defaults = {
+            "EMBED_DIR": os.path.join("Embeddings"),
             "FASTA_DIR": os.path.join("Input_Files","Sequence_Sets"),
             "MSA_DIR": os.path.join("Input_Files","Multiple_Alignments"),
-            "EMBED_DIR": os.path.join("Embeddings"),
             "NETWORK_DIR": os.path.join("Input_Files","Networks_EValues"),
             "PATH_DIR": os.path.join("Cache_Files","Global_Path"),
             "REPORT_DIR": os.path.join("Cache_Files","Align_Report")
@@ -1343,11 +1409,6 @@ class ToolsGUI(QMainWindow):
             lbl.installEventFilter(self)
             le.installEventFilter(self)
             
-        btn_save = QPushButton("Save Directories")
-        btn_save.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px; margin-top: 15px;")
-        btn_save.clicked.connect(self.save_directories)
-        layout.addRow("", btn_save)
-        
         main_layout.addWidget(form_widget)
         main_layout.addStretch() # Pushes the form strictly to the top
         
@@ -1393,7 +1454,15 @@ class ToolsGUI(QMainWindow):
             
         for tab_key, settings_def in self.MANUAL_SETTINGS.items():
             if isinstance(settings_def, dict) and settings_def.get("is_combined"):
-                self.create_combined_tab(utils_dir, tab_key, settings_def["scripts"])
+                self.create_combined_tab(
+                    utils_dir,
+                    tab_key,
+                    settings_def["scripts"],
+                    show_secondary_titles=not settings_def.get(
+                        "hide_secondary_titles",
+                        False,
+                    ),
+                )
             else:
                 script_path = os.path.join(utils_dir, tab_key)
                 if os.path.exists(script_path):
@@ -1418,10 +1487,16 @@ class ToolsGUI(QMainWindow):
                 
             # Get the exact name of the current tab
             tab_name = self.tabs.tabText(index)
+            tab_widget = self.tabs.widget(index)
+            description_key = (
+                tab_widget.property("descriptionKey")
+                if tab_widget is not None
+                else None
+            ) or tab_name
             
             # Formulate the target Markdown file paths (checking both exact match and underscore match)
-            md_name = f"{tab_name}.md"
-            alt_md_name = f"{tab_name.replace(' ', '_')}.md"
+            md_name = f"{description_key}.md"
+            alt_md_name = f"{description_key.replace(' ', '_')}.md"
             
             md_path = os.path.join(_SRC_DIR, "utilities", "utility_descriptions", md_name)
             alt_md_path = os.path.join(_SRC_DIR, "utilities", "utility_descriptions", alt_md_name)
@@ -1460,8 +1535,18 @@ class ToolsGUI(QMainWindow):
             html_content = html_content.replace("<table>", '<table border="1" cellpadding="6" style="border-collapse: collapse;">')
             self.script_desc_text.setHtml(html_content)
             
-    def _populate_script_layout(self, layout, script_name, script_path, script_settings_def, source, tree):
+    def _populate_script_layout(
+        self,
+        layout,
+        script_name,
+        script_path,
+        script_settings_def,
+        source,
+        tree,
+        show_secondary_titles=True,
+    ):
         defined_vars = {item["var_name"]: item for item in script_settings_def}
+        section_title_count = sum(item["type"] == "title" for item in script_settings_def)
         settings = []
         for node in tree.body:
             if isinstance(node, ast.Assign):
@@ -1534,12 +1619,21 @@ class ToolsGUI(QMainWindow):
             return
             
         inputs = {}
+        row_widgets = {}
         skip_vars = set()
+        section_title_index = 0
         for s_def in script_settings_def:
             if s_def['type'] == "title":
-                title_lbl = QLabel(s_def['display'])
-                title_lbl.setStyleSheet("font-weight: bold; font-size: 15px; margin-top: 15px; color: #2C3E50; border-bottom: 1px solid #3498DB; padding-bottom: 2px;")
-                layout.addRow(title_lbl)
+                if section_title_count > 1 and show_secondary_titles:
+                    title_lbl = QLabel(s_def['display'])
+                    title_style = (
+                        SECONDARY_TITLE_STYLE
+                        if section_title_index == 0
+                        else SECONDARY_TITLE_WITH_TOP_PADDING_STYLE
+                    )
+                    title_lbl.setStyleSheet(title_style)
+                    layout.addRow(title_lbl)
+                section_title_index += 1
                 continue
                 
             var_name = s_def['var_name']
@@ -1630,7 +1724,7 @@ class ToolsGUI(QMainWindow):
                 compound_widget = QWidget()
                 compound_lay = QHBoxLayout(compound_widget)
                 compound_lay.setContentsMargins(0, 0, 0, 0)
-                compound_lay.setSpacing(10)
+                compound_lay.setSpacing(12)
                 compound_lay.addWidget(switch_btn)
                 
                 if strength_widget:
@@ -1699,64 +1793,14 @@ class ToolsGUI(QMainWindow):
                 self.tip_db[filter_btn] = filter_tip
                 filter_btn.installEventFilter(self)
                 
-                # Create the overwrite switch
-                overwrite_def = next((d for d in script_settings_def if d.get('var_name') == 'OVER_WRITE'), None)
-                overwrite_setting = next((s for s in settings if s['name'] == 'OVER_WRITE'), None)
-                
-                if overwrite_def and overwrite_setting:
-                    skip_vars.add("OVER_WRITE")
-                    overwrite_actual_val = overwrite_setting['actual_val']
-                    
-                    overwrite_btn = QPushButton()
-                    overwrite_btn.setCheckable(True)
-                    overwrite_btn.setFixedSize(60, 28)
-                    
-                    def switch_toggle_style_overwrite(checked, btn=overwrite_btn):
-                        if checked:
-                            btn.setText("ON")
-                            btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; font-weight: bold; border: 1px solid #388E3C; }")
-                        else:
-                            btn.setText("OFF")
-                            btn.setStyleSheet("QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }")
-                    
-                    overwrite_btn.toggled.connect(switch_toggle_style_overwrite)
-                    overwrite_btn.setChecked(bool(overwrite_actual_val))
-                    switch_toggle_style_overwrite(bool(overwrite_actual_val))
-                    
-                    overwrite_tip = self.SCRIPT_TIPS.get(script_name, {}).get("OVER_WRITE", "Overwrite Original File")
-                    overwrite_btn.setToolTip(overwrite_tip)
-                    self.tip_db[overwrite_btn] = overwrite_tip
-                    overwrite_btn.installEventFilter(self)
-                else:
-                    overwrite_btn = None
-                
-                # Assemble in compound widget
-                compound_widget = QWidget()
-                compound_lay = QHBoxLayout(compound_widget)
-                compound_lay.setContentsMargins(0, 0, 0, 0)
-                compound_lay.setSpacing(10)
-                compound_lay.addWidget(filter_btn)
-                
-                if overwrite_btn:
-                    compound_lay.addStretch(1)
-                    overwrite_lbl = QLabel("Overwrite Original File:")
-                    compound_lay.addWidget(overwrite_lbl)
-                    compound_lay.addWidget(overwrite_btn)
-                    compound_lay.addStretch(1)
-                    
-                    overwrite_lbl.setToolTip(overwrite_tip)
-                    self.tip_db[overwrite_lbl] = overwrite_tip
-                    overwrite_lbl.installEventFilter(self)
-                    
-                    inputs["OVER_WRITE"] = {'widget': overwrite_btn, 'type': 'switch'}
-                
                 # Create label for the row
                 label = QLabel(s_def['display'])
                 label.setToolTip(filter_tip)
                 self.tip_db[label] = filter_tip
                 label.installEventFilter(self)
                 
-                layout.addRow(label, compound_widget)
+                layout.addRow(label, filter_btn)
+                row_widgets["ENABLE_LENGTH_FILTER"] = (label, filter_btn)
                 inputs["ENABLE_LENGTH_FILTER"] = {'widget': filter_btn, 'type': 'switch'}
                 continue
                 
@@ -1958,6 +2002,7 @@ class ToolsGUI(QMainWindow):
             ui_element.installEventFilter(self)
             
             label = QLabel(s_def['display'])
+            label.setStyleSheet("QLabel:disabled { color: #888; }")
             self.tip_db[label] = tip
             label.installEventFilter(self)
             
@@ -1968,18 +2013,42 @@ class ToolsGUI(QMainWindow):
                          child.installEventFilter(self)
             
             layout.addRow(label, ui_element)
+            row_widgets[var_name] = (label, ui_element)
             inputs[var_name] = {'widget': ui_element, 'type': s_def['type']}
-            
+
+        self._merge_compact_rows(layout, script_name, row_widgets)
+        self._merge_inline_field_rows(layout, script_name, row_widgets)
         self.script_data[script_path] = {'inputs': inputs, 'settings': settings}
         
         if script_name == "Embedding_MSA.py":
+            use_filter_input = inputs.get("USE_SEQUENCE_FILTER")
+            fasta_input = inputs.get("INPUT_FASTA")
+
+            if use_filter_input and fasta_input:
+                filter_switch = use_filter_input['widget']
+                fasta_widget = fasta_input['widget']
+                fasta_combo = getattr(fasta_widget, 'combo', None)
+
+                def update_seq_filter_toggle(checked):
+                    fasta_widget.setEnabled(checked)
+                    if fasta_combo is not None:
+                        fasta_combo.blockSignals(True)
+                        if not checked:
+                            fasta_combo.setCurrentIndex(-1)
+                        else:
+                            if fasta_combo.currentIndex() == -1 and fasta_combo.count() > 0:
+                                fasta_combo.setCurrentIndex(0)
+                        fasta_combo.blockSignals(False)
+
+                filter_switch.toggled.connect(update_seq_filter_toggle)
+                update_seq_filter_toggle(filter_switch.isChecked())
+
             net_input = inputs.get("INPUT_NETWORK")
             score_input = inputs.get("ALIGNMENT_SCORE")
             norm_input = inputs.get("NORMALIZATION_MODE")
             bootstrap_input = inputs.get("BOOTSTRAP_TREE")
             num_trees_input = inputs.get("NUM_TREES")
             noise_scale_input = inputs.get("NOISE_SCALE")
-            temp_dir_input = inputs.get("SAFE_TEMP_DIR")
             tree_method_input = inputs.get("TREE_METHOD")
             
             if net_input and score_input and norm_input:
@@ -2033,16 +2102,14 @@ class ToolsGUI(QMainWindow):
                 net_combo.currentTextChanged.connect(update_msa_toggles)
                 update_msa_toggles(net_combo.currentText()) # Trigger once on load
                 
-            if bootstrap_input and num_trees_input and noise_scale_input and temp_dir_input:
+            if bootstrap_input and num_trees_input and noise_scale_input:
                 bootstrap_switch = bootstrap_input['widget']
                 num_trees_widget = num_trees_input['widget']
                 noise_scale_widget = noise_scale_input['widget']
-                temp_dir_widget = temp_dir_input['widget']
                 
                 def update_bootstrap_toggles(checked):
                     num_trees_widget.setEnabled(checked)
                     noise_scale_widget.setEnabled(checked)
-                    temp_dir_widget.setEnabled(checked)
                     
                 bootstrap_switch.toggled.connect(update_bootstrap_toggles)
                 update_bootstrap_toggles(bootstrap_switch.isChecked())
@@ -2091,21 +2158,14 @@ class ToolsGUI(QMainWindow):
                 min_spinbox = min_input['widget'] 
                 max_spinbox = max_input['widget']
                 
+                min_label = row_widgets.get("MIN_SEQ_LENGTH", (None, None))[0]
+                max_label = row_widgets.get("MAX_SEQ_LENGTH", (None, None))[0]
+                
                 def update_length_filters(checked):
                     min_spinbox.setEnabled(checked)
                     max_spinbox.setEnabled(checked)
-                    
-                    if not checked:
-                        # QSpinBox doesn't inherently support 'empty' strings, so we set the minimum value (0) 
-                        # to display a blank space using the SpecialValueText property.
-                        min_spinbox.setSpecialValueText(" ")
-                        max_spinbox.setSpecialValueText(" ")
-                        min_spinbox.setValue(0)
-                        max_spinbox.setValue(0)
-                    else:
-                        # Clear the override so numbers show up normally again
-                        min_spinbox.setSpecialValueText("") 
-                        max_spinbox.setSpecialValueText("")
+                    if min_label: min_label.setEnabled(checked)
+                    if max_label: max_label.setEnabled(checked)
                         
                 filter_switch.toggled.connect(update_length_filters)
                 update_length_filters(filter_switch.isChecked()) # Trigger once on load
@@ -2137,12 +2197,285 @@ class ToolsGUI(QMainWindow):
                 score_combo.currentTextChanged.connect(lambda text: sync_local_norm_mode_ssearch())
                 sync_local_norm_mode_ssearch() # Trigger once on load
 
-        btn_run = QPushButton(f"Save && Run {script_name}")
-        btn_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px; margin-top: 15px;")
-        btn_run.clicked.connect(lambda checked, sp=script_path: self.save_and_run(sp))
-        layout.addRow("", btn_run)
+    @staticmethod
+    def _merge_compact_rows(layout, script_name, row_widgets):
+        for first_var, second_var in COMPACT_ROW_PAIRS.get(script_name, []):
+            if first_var not in row_widgets or second_var not in row_widgets:
+                continue
+
+            first_label, first_input = row_widgets[first_var]
+            second_label, second_input = row_widgets[second_var]
+            first_row, _ = layout.getWidgetPosition(first_label)
+            second_row, _ = layout.getWidgetPosition(second_label)
+            if first_row < 0 or second_row < 0:
+                continue
+
+            insertion_row = min(first_row, second_row)
+            for row in sorted((first_row, second_row), reverse=True):
+                layout.takeRow(row)
+
+            is_batch_worker_pair = (
+                first_var == "BATCH_SIZE"
+                and second_var in {"WORKERS", "NUM_THREADS"}
+            )
+            if is_batch_worker_pair:
+                field_row = QWidget()
+                field_row.setObjectName(
+                    f"compactRow_{first_var}_{second_var}"
+                )
+                field_row.setProperty("compactColumnRatio", "1:3")
+                field_layout = QHBoxLayout(field_row)
+                field_layout.setContentsMargins(0, 0, 0, 0)
+                field_layout.setSpacing(layout.horizontalSpacing())
+
+                first_column = QWidget()
+                first_column.setObjectName(
+                    f"compactColumn_left_{first_var}_{second_var}"
+                )
+                first_column_layout = QHBoxLayout(first_column)
+                first_column_layout.setContentsMargins(0, 0, 0, 0)
+                first_column_layout.addWidget(first_input)
+                first_input.setMinimumWidth(110)
+
+                second_column = QWidget()
+                second_column.setObjectName(
+                    f"compactColumn_right_{first_var}_{second_var}"
+                )
+                second_column_layout = QHBoxLayout(second_column)
+                second_column_layout.setContentsMargins(0, 0, 0, 0)
+                second_column_layout.setSpacing(layout.horizontalSpacing())
+                second_column_layout.addWidget(second_label)
+                second_column_layout.addWidget(second_input, 1)
+
+                for column in (first_column, second_column):
+                    column.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        QSizePolicy.Policy.Preferred,
+                    )
+
+                field_layout.addWidget(first_column, 1)
+                field_layout.addWidget(second_column, 3)
+                layout.insertRow(insertion_row, first_label, field_row)
+                continue
+
+            compact_row = QWidget()
+            compact_row.setObjectName(
+                f"compactRow_{first_var}_{second_var}"
+            )
+            compact_layout = QHBoxLayout(compact_row)
+            compact_layout.setContentsMargins(0, 0, 0, 0)
+            compact_layout.setSpacing(30)
+
+            columns = []
+            for side, label_widget, input_widget in (
+                ("left", first_label, first_input),
+                ("right", second_label, second_input),
+            ):
+                if side == "left":
+                    label_widget.setProperty("compactColumnLabel", True)
+                column = QWidget()
+                column.setObjectName(
+                    f"compactColumn_{side}_{first_var}_{second_var}"
+                )
+                column_layout = QHBoxLayout(column)
+                column_layout.setContentsMargins(0, 0, 0, 0)
+                column_layout.setSpacing(layout.horizontalSpacing())
+                column_layout.addWidget(label_widget)
+                column_layout.addWidget(input_widget, 1)
+                columns.append(column)
+
+            shared_column_width = max(
+                column.sizeHint().width() for column in columns
+            )
+            compact_row.setProperty("compactColumnRatio", "1:1")
+            for column in columns:
+                column.setMinimumWidth(shared_column_width)
+
+            for column in columns:
+                compact_layout.addWidget(column, 1)
+
+            layout.insertRow(insertion_row, compact_row)
+
+    @staticmethod
+    def _merge_inline_field_rows(layout, script_name, row_widgets):
+        for variable_group in INLINE_FIELD_GROUPS.get(script_name, []):
+            if any(var_name not in row_widgets for var_name in variable_group):
+                continue
+
+            group_widgets = [
+                (var_name, *row_widgets[var_name])
+                for var_name in variable_group
+            ]
+            row_positions = [
+                layout.getWidgetPosition(label_widget)[0]
+                for _, label_widget, _ in group_widgets
+            ]
+            if any(row < 0 for row in row_positions):
+                continue
+
+            insertion_row = min(row_positions)
+            for row in sorted(row_positions, reverse=True):
+                layout.takeRow(row)
+
+            group_name = "_".join(variable_group)
+            field_row = QWidget()
+            field_row.setObjectName(f"compactRow_{group_name}")
+            field_row.setProperty(
+                "compactColumnRatio",
+                ":".join("1" for _ in variable_group),
+            )
+            field_layout = QHBoxLayout(field_row)
+            field_layout.setContentsMargins(0, 0, 0, 0)
+
+            first_label = group_widgets[0][1]
+            first_input = group_widgets[0][2]
+            if variable_group in (
+                ("INPUT_FASTA", "OVER_WRITE"),
+                ("INPUT_NETWORK", "SHOW_REGRESSION_PLOT"),
+            ):
+                field_row.setProperty("compactColumnRatio", "inline")
+                field_layout.setSpacing(layout.horizontalSpacing())
+                field_layout.addWidget(first_input, 1)
+                _, second_label, second_input = group_widgets[1]
+                second_label.setText(
+                    f"   {second_label.text().lstrip()}"
+                )
+                field_layout.addWidget(second_label)
+                field_layout.addWidget(second_input)
+                layout.insertRow(insertion_row, first_label, field_row)
+                continue
+
+            if isinstance(first_input, QPushButton):
+                field_row.setProperty("compactColumnRatio", "inline")
+                field_layout.addWidget(first_input)
+                for _, label_widget, input_widget in group_widgets[1:]:
+                    label_widget.setText(
+                        f"   {label_widget.text().lstrip()}"
+                    )
+                    field_layout.addWidget(label_widget)
+                    input_policy = input_widget.sizePolicy()
+                    input_policy.setHorizontalPolicy(
+                        QSizePolicy.Policy.Expanding
+                    )
+                    input_widget.setSizePolicy(input_policy)
+                    field_layout.addWidget(input_widget, 1)
+                layout.insertRow(insertion_row, first_label, field_row)
+                continue
+
+            field_layout.setSpacing(layout.horizontalSpacing())
+            for column_index, (_, label_widget, input_widget) in enumerate(
+                group_widgets
+            ):
+                column = QWidget()
+                column.setObjectName(
+                    f"compactColumn_{column_index}_{group_name}"
+                )
+                column_layout = QHBoxLayout(column)
+                column_layout.setContentsMargins(0, 0, 0, 0)
+                column_layout.setSpacing(layout.horizontalSpacing())
+                if column_index > 0:
+                    column_layout.addWidget(label_widget)
+                column_layout.addWidget(input_widget, 1)
+                column.setSizePolicy(
+                    QSizePolicy.Policy.Ignored,
+                    QSizePolicy.Policy.Preferred,
+                )
+                field_layout.addWidget(column, 1)
+
+            layout.insertRow(insertion_row, first_label, field_row)
+
+    def _create_tool_header(self, script_name, script_path):
+        header = QWidget()
+        header.setObjectName("toolHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(12)
+
+        tool_title = self.tool_titles.get(
+            script_name,
+            script_name.removesuffix(".py").replace("_", " "),
+        )
+        title_label = QLabel(tool_title)
+        title_label.setObjectName("toolTitle")
+        title_label.setStyleSheet(PRIMARY_TITLE_STYLE)
+
+        btn_run = QPushButton("Save && Run")
+        btn_run.setObjectName("saveRunButton")
+        btn_run.setStyleSheet(
+            "background-color: #4CAF50; color: white; "
+            "font-weight: bold; padding: 10px 16px;"
+        )
+        btn_run.clicked.connect(
+            lambda checked, sp=script_path: self.save_and_run(sp)
+        )
+
+        header_layout.addWidget(
+            btn_run,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        header_layout.addWidget(title_label, 1)
+        return header
+
+    @staticmethod
+    def _align_form_label_columns(form_layouts):
+        label_widgets = []
+        compact_rows = []
+        shared_width = 0
+
+        for form_layout in form_layouts:
+            for row in range(form_layout.rowCount()):
+                label_item = form_layout.itemAt(
+                    row,
+                    QFormLayout.ItemRole.LabelRole,
+                )
+                if label_item is None or label_item.widget() is None:
+                    continue
+                label_widget = label_item.widget()
+                label_widgets.append(label_widget)
+                shared_width = max(shared_width, label_widget.sizeHint().width())
+
+            form_widget = form_layout.parentWidget()
+            compact_labels = [
+                label
+                for label in form_widget.findChildren(QLabel)
+                if label.property("compactColumnLabel")
+            ]
+            label_widgets.extend(compact_labels)
+            for label_widget in compact_labels:
+                shared_width = max(
+                    shared_width,
+                    label_widget.sizeHint().width(),
+                )
+            compact_rows.extend(
+                row
+                for row in form_widget.findChildren(QWidget)
+                if row.objectName().startswith("compactRow_")
+            )
+
+        for label_widget in label_widgets:
+            label_widget.setFixedWidth(shared_width)
+
+        for compact_row in compact_rows:
+            if compact_row.property("compactColumnRatio") != "1:1":
+                continue
+            columns = [
+                compact_row.layout().itemAt(index).widget()
+                for index in range(compact_row.layout().count())
+            ]
+            shared_column_width = max(
+                column.sizeHint().width() for column in columns
+            )
+            for column in columns:
+                column.setMinimumWidth(shared_column_width)
             
-    def create_combined_tab(self, utils_dir, tab_key, scripts_dict):
+    def create_combined_tab(
+        self,
+        utils_dir,
+        tab_key,
+        scripts_dict,
+        show_secondary_titles=True,
+    ):
         tab = QWidget()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -2152,6 +2485,7 @@ class ToolsGUI(QMainWindow):
         
         combined_docstring = ""
         script_idx = 0
+        script_form_layouts = []
         
         for script_name, script_settings_def in scripts_dict.items():
             script_path = os.path.join(utils_dir, script_name)
@@ -2166,32 +2500,37 @@ class ToolsGUI(QMainWindow):
             docstring = ast.get_docstring(tree) or ""
             if not combined_docstring: combined_docstring = docstring
                 
-            if script_idx > 0:
-                from PyQt6.QtWidgets import QFrame
-                line = QFrame()
-                line.setFrameShape(QFrame.Shape.HLine)
-                line.setFrameShadow(QFrame.Shadow.Sunken)
-                line.setStyleSheet("margin-top: 15px; margin-bottom: 5px; color: #aaaaaa;")
-                main_layout.addWidget(line)
-            
-            form_widget = QWidget()
+            form_widget = QFrame()
+            form_widget.setObjectName("toolSectionCard")
+            form_widget.setStyleSheet(SECTION_CARD_STYLE)
             layout = QFormLayout(form_widget)
             layout.setHorizontalSpacing(30)
-            layout.setVerticalSpacing(10)
+            layout.setVerticalSpacing(12)
             
-            desc_label = QLabel(f"Modify configuration for {script_name}:")
-            desc_label.setStyleSheet("font-weight: bold; margin-bottom: 5px; font-size: 13px;")
-            layout.addRow(desc_label)
+            layout.addRow(self._create_tool_header(script_name, script_path))
             
-            self._populate_script_layout(layout, script_name, script_path, script_settings_def, source, tree)
+            self._populate_script_layout(
+                layout,
+                script_name,
+                script_path,
+                script_settings_def,
+                source,
+                tree,
+                show_secondary_titles=show_secondary_titles,
+            )
             main_layout.addWidget(form_widget)
+            script_form_layouts.append(layout)
             script_idx += 1
-            
+
+        self._align_form_label_columns(script_form_layouts)
+        main_layout.addStretch()
+
         pseudo_path = os.path.join(utils_dir, tab_key) + "_GUI_tab" 
         self.script_data[pseudo_path] = {'inputs': {}, 'settings': [], 'docstring': combined_docstring}
         self.tab_paths.append(pseudo_path)
         
-        tab_name = tab_key.replace("_", " ")
+        scroll.setProperty("descriptionKey", tab_key)
+        tab_name = TAB_DISPLAY_NAMES.get(tab_key, tab_key.replace("_", " "))
         self.tabs.addTab(scroll, tab_name)
 
     def create_script_tab(self, script_path, script_name, script_settings_def=None):
@@ -2218,16 +2557,17 @@ class ToolsGUI(QMainWindow):
         
         main_layout = QVBoxLayout(tab)
         
-        form_widget = QWidget()
+        form_widget = QFrame()
+        form_widget.setObjectName("toolSectionCard")
+        form_widget.setStyleSheet(SECTION_CARD_STYLE)
         layout = QFormLayout(form_widget)
         layout.setHorizontalSpacing(30)
-        layout.setVerticalSpacing(10)
+        layout.setVerticalSpacing(12)
         
-        desc_label = QLabel(f"Modify configuration for {script_name}:")
-        desc_label.setStyleSheet("font-weight: bold; margin-bottom: 5px; font-size: 13px;")
-        layout.addRow(desc_label)
+        layout.addRow(self._create_tool_header(script_name, script_path))
 
         self._populate_script_layout(layout, script_name, script_path, script_settings_def, source, tree)
+        self._align_form_label_columns([layout])
         
         main_layout.addWidget(form_widget)
         main_layout.addStretch() # Pushes the form strictly to the top
@@ -2235,6 +2575,10 @@ class ToolsGUI(QMainWindow):
         self.tab_paths.append(script_path)
         self.script_data[script_path]['docstring'] = docstring
         
+        scroll.setProperty(
+            "descriptionKey",
+            script_name.removesuffix(".py"),
+        )
         tab_name = script_name.replace(".py", "").replace("_", " ")
         self.tabs.addTab(scroll, tab_name)
 
@@ -2296,12 +2640,11 @@ class ToolsGUI(QMainWindow):
                     combined_settings = json.load(f)
             except: pass
             
-        # 3. Update and Save (NESTED BY SCRIPT NAME)
+        # 3. Replace and save only the selected script's complete settings section.
+        # This removes stale keys that are no longer represented in the GUI while
+        # preserving DIRECTORIES and every other script section.
         script_name = os.path.basename(script_path)
-        if script_name not in combined_settings:
-            combined_settings[script_name] = {}
-            
-        combined_settings[script_name].update(new_settings)
+        combined_settings[script_name] = new_settings
         
         try:
             with open(settings_file, "w") as f:

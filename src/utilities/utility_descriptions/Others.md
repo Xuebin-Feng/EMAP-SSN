@@ -65,20 +65,16 @@ This script queries a single sequence against an entire database using residue-l
 
 ### 📥 Input
 
-#### Sequence Database `INPUT_FASTA`
-*   **Format**: FASTA sequence database file (`.fasta`) containing sequence pools.
-*   **Created By**: `Sanitize_Sequences.py` (Sequence Sanitization utility) or user-provided raw FASTA.
-
 #### Embedding Database `INPUT_EMBED`
-*   **Format**: HDF5 database (`.h5`) containing embeddings of the sequence pool.
-*   **Created By**: `Generate_Embeddings.py` (Embedding Generation utility).
+*   **Format**: A complete metadata-first HDF5 database (`.h5`) containing sanitized headers, sequences, and embeddings.
+*   **Created By**: `Generate_Embeddings.py` or another active embedding writer. SSEARCH does not generate a missing database automatically.
 
 ### ⚙️ Parameters
 
 | Parameter | Description |
 | :--- | :--- |
-| Query Header ID **`QUERY_HEADER`** | The exact FASTA header of the query sequence (searched inside the database or input file). |
-| Manual Query String **`QUERY_SEQUENCE`** | Manually input the query sequence (overrides FASTA matching if provided). |
+| Query Header ID **`QUERY_HEADER`** | A header stored in the embedding database. It is sanitized before lookup. |
+| Manual Query String **`QUERY_SEQUENCE`** | A sequence sanitized in memory and embedded with the database model's pLM plugin; overrides header lookup. |
 | Output Spreadsheet Prefix **`OUTPUT_NAME`** | The prefix for the exported search results spreadsheet and optional FASTA files. |
 | Max Database Hits **`TOP_K`** | The maximum number of top-scoring database hits to include in the output report. |
 | Normalized Score Cutoff **`NORM_THRESHOLD`** | A filter to exclude hits scoring below a normalized similarity cutoff. Set to 'None' to disable. |
@@ -99,7 +95,7 @@ This script queries a single sequence against an entire database using residue-l
 <summary><b>Algorithm Details</b></summary>
 
 1. **Query Setup**:
-     Loads the query sequence and extracts/computes its embedding $v_{\text{query}}$ of length $L_q$.
+     Reads stored sequences from `/sequences`. A header query reuses its stored embedding; a manual query is sanitized and embedded through the same model adapter recorded by `model_name`.
 
 2. **Database Alignment Queue**:
      Iterates through all database sequences $j$ in the HDF5 file. For each sequence, it adds the pair (query, j) to a parallel queue.
