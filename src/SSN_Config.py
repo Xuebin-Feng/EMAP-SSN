@@ -1,6 +1,7 @@
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 # Import Libraries
 import os
+import re
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -15,6 +16,8 @@ UMAP_MODE = None
 UMAP_NEIGHBORS = None
 UMAP_MIN_DIST = None
 TARGET_CACHE_FILE = os.environ.get("SSN_TARGET_CACHE", None)
+TARGET_CACHE_PATH = os.environ.get("SSN_TARGET_CACHE_PATH", None)
+TARGET_CACHE_MODE = os.environ.get("SSN_TARGET_CACHE_MODE", None)
 
 # --- Directory & File Paths ---
 FASTA_DIR = os.path.join("Input_Files", "Sequence_Sets")
@@ -88,6 +91,7 @@ SGLD_NOISE_SCALE = 1.0
 # --- JSON Settings Override ---
 import json
 import ast
+import Cache_Manifest as cache_manifest
 
 SETTINGS_FILE = os.path.join("Input_Files", "viewer_settings.json")
 if os.path.exists(SETTINGS_FILE):
@@ -147,7 +151,7 @@ if __name__ == "__main__":
                                  QComboBox, QPushButton, QMessageBox, QTextEdit,
                                  QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
                                  QStyle, QStyleOptionSlider, QFileDialog, QColorDialog)
-    from PyQt6.QtCore import Qt, QUrl
+    from PyQt6.QtCore import Qt, QUrl, QThread, pyqtSignal
     from PyQt6.QtGui import QDesktopServices, QIcon
     
     # --- Custom Widget Classes ---
@@ -217,6 +221,36 @@ if __name__ == "__main__":
                     return
             super().mousePressEvent(event)
 
+    class CacheHashWorker(QThread):
+        completed = pyqtSignal(int, object, str)
+
+        def __init__(self, request_id, sequence_path, network_path, cached_records=None):
+            super().__init__()
+            self.request_id = request_id
+            self.sequence_path = sequence_path
+            self.network_path = network_path
+            self.cached_records = cached_records or {}
+
+        def run(self):
+            try:
+                records = {}
+                for kind, path in (
+                    ("sequence", self.sequence_path),
+                    ("network", self.network_path),
+                ):
+                    records[kind] = self.cached_records.get(kind)
+                    if records[kind] is None:
+                        records[kind] = cache_manifest.fingerprint_file(
+                            path,
+                            cancellation_requested=self.isInterruptionRequested,
+                        )
+                records["network_type"] = cache_manifest.detect_network_type(
+                    self.network_path
+                )
+                self.completed.emit(self.request_id, records, "")
+            except Exception as error:
+                self.completed.emit(self.request_id, {}, str(error))
+
     class ConfigGUI(QMainWindow):
         def __init__(self):
             super().__init__()
@@ -269,9 +303,9 @@ if __name__ == "__main__":
             self.btn_check.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 5px;")
             self.btn_check.clicked.connect(self.run_consistency_check)
             
-            btn_save_run = QPushButton("Save && Run")
-            btn_save_run.clicked.connect(self.save_and_run)
-            btn_save_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+            self.btn_save_run = QPushButton("Save && Run")
+            self.btn_save_run.clicked.connect(self.save_and_run)
+            self.btn_save_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
             
             btn_save = QPushButton("Save")
             btn_save.clicked.connect(self.save_only)
@@ -279,7 +313,7 @@ if __name__ == "__main__":
             btn_exit = QPushButton("Exit")
             btn_exit.clicked.connect(self.close)
             
-            btn_layout.addWidget(btn_save_run)
+            btn_layout.addWidget(self.btn_save_run)
             btn_layout.addWidget(self.btn_check)
             btn_layout.addWidget(btn_save)
             btn_layout.addWidget(btn_exit)
@@ -316,6 +350,13 @@ if __name__ == "__main__":
             self.inputs = {}
             self.labels = {} 
             self.color_swatches = {} 
+            self._cache_hash_cache = {}
+            self._cache_hash_request_id = 0
+            self._cache_hash_workers = {}
+            self._cache_hash_pending_keys = None
+            self._cache_launch_allowed = False
+            self._last_duplicate_signature = None
+            self.current_cache_folder = None
             
             self.create_inputs_tab()
             self.create_visuals_tab()
@@ -333,6 +374,14 @@ if __name__ == "__main__":
             
             self.update_live_validators()
             self.setup_tips()
+
+        def closeEvent(self, event):
+            self._cache_hash_request_id += 1
+            for worker in self._cache_hash_workers.values():
+                worker.requestInterruption()
+            for worker in self._cache_hash_workers.values():
+                worker.wait(5000)
+            super().closeEvent(event)
             
         def run_consistency_check(self):
             import h5py
@@ -536,6 +585,243 @@ if __name__ == "__main__":
                     combo.setCurrentText(current)
             combo.blockSignals(False)
             self.update_live_validators()
+
+        def _set_cache_unavailable(self, message, color="gray"):
+            self._cache_launch_allowed = False
+            self.btn_save_run.setEnabled(False)
+            self.current_cache_folder = None
+            self.lbl_cache_tracker.setText(message)
+            self.lbl_cache_tracker.setStyleSheet(f"color: {color};")
+            self.cb_cache_file.blockSignals(True)
+            self.cb_cache_file.clear()
+            self.cb_cache_file.setEnabled(False)
+            self.cb_cache_file.blockSignals(False)
+            self.line_new_cache.setEnabled(False)
+            self.btn_open_target_folder.setEnabled(False)
+
+        def _cache_paths_from_inputs(self):
+            fasta_name = self.cb_fasta.currentText().strip()
+            network_name = self.cb_hdf5.currentText().strip()
+            if not fasta_name or not network_name:
+                return None, None
+            fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), fasta_name)
+            network_path = os.path.join(self.inputs["HDF5_DIR"].text(), network_name)
+            return os.path.abspath(fasta_path), os.path.abspath(network_path)
+
+        def _cache_setting_values(self):
+            top_value = self.line_top.text().strip()
+            threshold_value = self.line_thresh.text().strip()
+            return {
+                "alignment_score": self.cb_score_mode.currentText() or None,
+                "normalization": self.cb_norm_mode.currentText() or None,
+                "umap_mode": self.check_umap.isChecked(),
+                "umap_neighbors": self.spin_umap_k.value(),
+                "top_edge_percent": top_value if top_value else None,
+                "similarity_threshold": threshold_value if threshold_value else None,
+            }
+
+        def _set_network_type_controls(self, network_type):
+            is_blast = network_type == "blast"
+            self.cb_score_mode.blockSignals(True)
+            self.cb_norm_mode.blockSignals(True)
+            self.cb_score_mode.setEnabled(not is_blast)
+            self.cb_norm_mode.setEnabled(not is_blast)
+            if is_blast:
+                self.cb_score_mode.setCurrentIndex(-1)
+                self.cb_norm_mode.setCurrentIndex(-1)
+            else:
+                if self.cb_score_mode.currentIndex() == -1:
+                    self.cb_score_mode.setCurrentText("global")
+                if self.cb_norm_mode.currentIndex() == -1:
+                    self.cb_norm_mode.setCurrentText("alignment_length")
+            self.cb_score_mode.blockSignals(False)
+            self.cb_norm_mode.blockSignals(False)
+
+        def _default_new_cache_name(self, folder_path):
+            return cache_manifest.next_cache_version_filename(folder_path)
+
+        def _apply_cache_discovery(self, records):
+            sequence_path, network_path = self._cache_paths_from_inputs()
+            if not sequence_path or not network_path:
+                self._set_cache_unavailable("Target Cache: Missing input files")
+                return
+
+            network_type = records["network_type"]
+            self._set_network_type_controls(network_type)
+            settings = self._cache_setting_values()
+            try:
+                compatibility = cache_manifest.build_compatibility(
+                    records["sequence"]["sha256"],
+                    records["network"]["sha256"],
+                    network_type,
+                    **settings,
+                )
+                saved_layout_dir = os.path.abspath(
+                    self.inputs["SAVED_LAYOUT_DIR"].text()
+                )
+                canonical_name = cache_manifest.build_canonical_cache_name(
+                    sequence_path,
+                    network_path,
+                    network_type,
+                    **settings,
+                )
+                canonical_folder = os.path.join(saved_layout_dir, canonical_name)
+                matches = cache_manifest.find_matching_manifest_folders(
+                    saved_layout_dir, compatibility
+                )
+            except Exception as error:
+                self._set_cache_unavailable(
+                    f"Cache compatibility error: {error}", "#d32f2f"
+                )
+                return
+
+            self.cb_cache_file.blockSignals(True)
+            self.cb_cache_file.clear()
+            self.line_new_cache.clear()
+
+            if len(matches) > 1:
+                folders = tuple(item["folder"] for item in matches)
+                self.current_cache_folder = None
+                self._cache_launch_allowed = False
+                self.btn_save_run.setEnabled(False)
+                self.cb_cache_file.setEnabled(False)
+                self.line_new_cache.setEnabled(False)
+                self.btn_open_target_folder.setEnabled(False)
+                self.lbl_cache_tracker.setText(
+                    f"Error: {len(folders)} compatible cache folders found"
+                )
+                self.lbl_cache_tracker.setStyleSheet(
+                    "color: #d32f2f; font-weight: bold;"
+                )
+                if folders != self._last_duplicate_signature:
+                    print("ERROR: Multiple compatible cache folders were found:")
+                    for folder in folders:
+                        print(f"  - {folder}")
+                self._last_duplicate_signature = folders
+                self.cb_cache_file.blockSignals(False)
+                return
+
+            self._last_duplicate_signature = None
+            if matches:
+                active_folder = matches[0]["folder"]
+                self.current_cache_folder = active_folder
+                cache_files = [
+                    entry.name
+                    for entry in os.scandir(active_folder)
+                    if entry.is_file() and entry.name.lower().endswith(".h5")
+                ]
+                cache_files.sort(
+                    key=lambda name: os.path.getmtime(os.path.join(active_folder, name)),
+                    reverse=True,
+                )
+                for filename in cache_files:
+                    relative_path = cache_manifest.relative_cache_path(
+                        saved_layout_dir, active_folder, filename
+                    )
+                    self.cb_cache_file.addItem(filename, relative_path)
+                self.lbl_cache_tracker.setText(
+                    f"Compatible Folder: {os.path.basename(active_folder)}"
+                )
+                self.lbl_cache_tracker.setStyleSheet(
+                    "color: green; font-weight: bold;"
+                )
+                self.btn_open_target_folder.setEnabled(True)
+            else:
+                active_folder = canonical_folder
+                self.current_cache_folder = active_folder
+                self.lbl_cache_tracker.setText(
+                    f"Target Folder: {canonical_name} [Needs Computing]"
+                )
+                self.lbl_cache_tracker.setStyleSheet("color: #d32f2f;")
+                self.btn_open_target_folder.setEnabled(False)
+
+            self.line_new_cache.setPlaceholderText(
+                self._default_new_cache_name(active_folder)
+            )
+            self.cb_cache_file.addItem("(New Layout Cache)", None)
+            self.cb_cache_file.setEnabled(True)
+            self.cb_cache_file.setCurrentIndex(0)
+            self.cb_cache_file.blockSignals(False)
+            self._cache_launch_allowed = True
+            self.btn_save_run.setEnabled(True)
+            self._toggle_new_cache_input(self.cb_cache_file.currentText())
+
+        def _cache_hash_completed(self, request_id, records, error):
+            worker = self._cache_hash_workers.pop(request_id, None)
+            if worker is not None:
+                worker.deleteLater()
+            if request_id != self._cache_hash_request_id:
+                return
+            self._cache_hash_pending_keys = None
+            if error:
+                self._set_cache_unavailable(f"Cache hashing failed: {error}", "#d32f2f")
+                return
+            sequence_path, network_path = self._cache_paths_from_inputs()
+            try:
+                self._cache_hash_cache[cache_manifest.file_cache_key(sequence_path)] = records["sequence"]
+                self._cache_hash_cache[cache_manifest.file_cache_key(network_path)] = records["network"]
+            except (OSError, TypeError):
+                self.update_live_validators()
+                return
+            self._apply_cache_discovery(records)
+
+        def _request_cache_discovery(self):
+            sequence_path, network_path = self._cache_paths_from_inputs()
+            if not sequence_path or not network_path:
+                self._cache_hash_request_id += 1
+                self._cache_hash_pending_keys = None
+                self._set_cache_unavailable("Target Cache: Missing FASTA or HDF5")
+                return
+            if not os.path.isfile(sequence_path) or not os.path.isfile(network_path):
+                self._cache_hash_request_id += 1
+                self._cache_hash_pending_keys = None
+                self._set_cache_unavailable("Target Cache: Selected input file is missing", "#d32f2f")
+                return
+
+            try:
+                sequence_key = cache_manifest.file_cache_key(sequence_path)
+                network_key = cache_manifest.file_cache_key(network_path)
+            except OSError as error:
+                self._cache_hash_request_id += 1
+                self._cache_hash_pending_keys = None
+                self._set_cache_unavailable(f"Cache input error: {error}", "#d32f2f")
+                return
+
+            cached_records = {
+                "sequence": self._cache_hash_cache.get(sequence_key),
+                "network": self._cache_hash_cache.get(network_key),
+            }
+            if all(cached_records.values()):
+                try:
+                    cached_records["network_type"] = cache_manifest.detect_network_type(
+                        network_path
+                    )
+                    self._apply_cache_discovery(cached_records)
+                except Exception as error:
+                    self._set_cache_unavailable(
+                        f"Cache compatibility error: {error}", "#d32f2f"
+                    )
+                return
+
+            pending_keys = (sequence_key, network_key)
+            if self._cache_hash_pending_keys == pending_keys:
+                return
+
+            for active_worker in self._cache_hash_workers.values():
+                active_worker.requestInterruption()
+            self._cache_hash_request_id += 1
+            request_id = self._cache_hash_request_id
+            self._cache_hash_pending_keys = pending_keys
+            self._set_cache_unavailable("Checking input files…")
+            worker = CacheHashWorker(
+                request_id,
+                sequence_path,
+                network_path,
+                cached_records=cached_records,
+            )
+            self._cache_hash_workers[request_id] = worker
+            worker.completed.connect(self._cache_hash_completed)
+            worker.start()
 
         def create_inputs_tab(self):
             tab = QWidget()
@@ -929,152 +1215,11 @@ if __name__ == "__main__":
             if hasattr(self, 'btn_check'):
                 self.btn_check.setEnabled(has_fasta and has_hdf5)
             
-            # --- STABILIZE LAYOUT (SINGLE LINE MODE) ---
-            # Turning off WordWrap forces PyQt to keep it strictly on one line.
-            # It will gracefully truncate at the edge of the window instead of jumping.
+            # Keep cache status on one compact line and refresh manifest discovery.
             self.lbl_cache_tracker.setWordWrap(False) 
-            self.lbl_cache_tracker.setMinimumHeight(0) # Clear any previous manual heights
-            self.lbl_cache_tracker.setMaximumHeight(30) # Prevent vertical expansion
-            
-            if not has_hdf5:
-                self.lbl_cache_tracker.setText("Target Cache: Missing HDF5")
-                self.lbl_cache_tracker.setStyleSheet("color: gray;")
-                return
-                
-            from SSN_Utils import simplify_node_label
-            import re
-            
-            # --- 1. FATAL OS CHARACTER CHECK ---
-            raw_ref = self.line_ref.text().strip()
-            prohibited_pattern = r'[\\/:*?"<>|]'
-            
-            if re.search(prohibited_pattern, raw_ref):
-                # Condensed error message to fit beautifully on one line
-                self.lbl_cache_tracker.setText("Error: Invalid OS characters in Alignment Reference")
-                self.lbl_cache_tracker.setStyleSheet("color: #d32f2f; font-weight: bold;")
-                
-                # Sync Dropdown
-                self.cb_cache_file.blockSignals(True)
-                self.cb_cache_file.clear()
-                self.cb_cache_file.setEnabled(False)
-                self.cb_cache_file.addItem("Folder does not exist")
-                self.cb_cache_file.blockSignals(False)
-                
-                self.btn_open_target_folder.setEnabled(False)
-                return
-            # ------------------------------------
-
-            fasta_base = self.cb_fasta.currentText()
-            if fasta_base: fasta_base = os.path.splitext(fasta_base)[0]
-            else: fasta_base = "Network"
-                
-            hdf5_base = self.cb_hdf5.currentText()
-            
-            # Resolve Model String
-            match = re.search(r'(\[.*?\])', hdf5_base)
-            if match:
-                model_str = f"_{match.group(1)}"
-            else:
-                hdf5_no_ext = hdf5_base[:-3] if hdf5_base.endswith(".h5") else os.path.splitext(hdf5_base)[0]
-                stripped = re.sub(r'_(network|evalue)$', '', hdf5_no_ext, flags=re.IGNORECASE)
-                old_match = re.search(r'_(e[0-9]+_.*|blast.*)$', stripped, flags=re.IGNORECASE)
-                model_str = f"_{old_match.group(1)}" if old_match else ""
-                
-            net_prefix = f"{fasta_base}{model_str}"
-            is_blast = "blast" in hdf5_base.lower()
-            hdf5_dir_path = self.inputs["HDF5_DIR"].text() if "HDF5_DIR" in self.inputs else globals().get("HDF5_DIR", "")
-            hdf5_full_chk = os.path.join(hdf5_dir_path, hdf5_base) if hdf5_base else ""
-            if hdf5_full_chk and os.path.exists(hdf5_full_chk):
-                try:
-                    import h5py
-                    with h5py.File(hdf5_full_chk, "r") as hf_chk:
-                        m_attr = str(hf_chk.attrs.get("model_name", "")).upper()
-                        if m_attr == "BLAST" or len(hf_chk.keys()) == 4 or 'score' in hf_chk:
-                            is_blast = True
-                except Exception:
-                    pass
-            
-            # Update Score/Norm Toggles
-            self.cb_score_mode.setEnabled(not is_blast)
-            self.cb_norm_mode.setEnabled(not is_blast)
-            
-            # ---> NEW: Clear selections for blast, restore defaults for others <---
-            if is_blast:
-                self.cb_score_mode.setCurrentIndex(-1)
-                self.cb_norm_mode.setCurrentIndex(-1)
-            else:
-                # Restore sensible defaults if switching back from a blast network
-                if self.cb_score_mode.currentIndex() == -1:
-                    self.cb_score_mode.setCurrentText("global")
-                if self.cb_norm_mode.currentIndex() == -1:
-                    self.cb_norm_mode.setCurrentText("alignment_length")
-                    
-            suffix = ""
-            if not is_blast:
-                norm_m = self.cb_norm_mode.currentText()
-                if norm_m: suffix += f"_{norm_m}"
-                score_m = self.cb_score_mode.currentText()
-                if score_m: suffix += f"_{score_m}"
-            
-            if is_umap:
-                suffix += f"_UMAP_k{self.spin_umap_k.value()}"
-            else:
-                top_val = self.line_top.text().strip()
-                if top_val and top_val != "None":
-                    try: suffix += f"_Top{float(top_val)}Pct"
-                    except: pass
-                else:
-                    try: suffix += f"_Score{float(self.line_thresh.text().strip())}"
-                    except: pass
-                
-            # --- 2. FOLDER & HDF5 CHECKING ---
-            cache_file = f"{net_prefix}{suffix}.h5"
-            folder_name = os.path.splitext(cache_file)[0]
-            cache_folder = os.path.join("Cache_Files", "Saved_Layouts", folder_name)
-            self.current_cache_folder = cache_folder
-            
-            self.cb_cache_file.blockSignals(True)
-            self.cb_cache_file.clear()
-            
-            # Calculate default next cache name
-            max_ver = -1
-            if os.path.exists(cache_folder):
-                 for f in os.listdir(cache_folder):
-                     if f.startswith(f"{folder_name}_ver.") and f.endswith(".h5"):
-                         match = re.search(r'_ver\.(\d+)\.h5$', f)
-                         if match:
-                             max_ver = max(max_ver, int(match.group(1)))
-                             
-            next_ver = max_ver + 1
-            default_new_name = f"{folder_name}_ver.{next_ver:02d}.h5"
-            self.line_new_cache.setPlaceholderText(default_new_name)
-            self.line_new_cache.setText("") # Clear previous user input
-            
-            self.cb_cache_file.setEnabled(True) # Always enable the dropdown now
-            
-            if os.path.exists(cache_folder):
-                 self.lbl_cache_tracker.setText(f"Target Folder: {folder_name} [✅ Exists]")
-                 self.lbl_cache_tracker.setStyleSheet("color: green; font-weight: bold;")
-                 self.btn_open_target_folder.setEnabled(True)
-                 
-                 h5_files = [f for f in os.listdir(cache_folder) if f.endswith(".h5")]
-                 if h5_files:
-                     h5_files.sort(key=lambda x: os.path.getmtime(os.path.join(cache_folder, x)), reverse=True)
-                     self.cb_cache_file.addItems(h5_files)
-            else:
-                 self.lbl_cache_tracker.setText(f"Target Folder: {folder_name} [❌ Needs Computing]")
-                 self.lbl_cache_tracker.setStyleSheet("color: #d32f2f;")
-                 self.btn_open_target_folder.setEnabled(False)
-                 
-            # Always append the 'New Layout' option at the very bottom
-            self.cb_cache_file.addItem("(New Layout Cache)")
-                 
-            # Auto-select newest cache (Index 0), or 'New Layout Cache' if the folder is empty
-            self.cb_cache_file.setCurrentIndex(0)
-            self.cb_cache_file.blockSignals(False)
-            
-            # Force the UI to evaluate the correct grey-out state on refresh
-            self._toggle_new_cache_input(self.cb_cache_file.currentText())
+            self.lbl_cache_tracker.setMinimumHeight(0)
+            self.lbl_cache_tracker.setMaximumHeight(30)
+            self._request_cache_discovery()
 
         def run_statistics(self):
             import h5py
@@ -2029,6 +2174,7 @@ if __name__ == "__main__":
             self.inputs["FASTA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_fasta, "FASTA_DIR", ['.fasta']))
             self.inputs["MSA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
             self.inputs["HDF5_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_hdf5, "HDF5_DIR", ['.h5']))
+            self.inputs["SAVED_LAYOUT_DIR"].textChanged.connect(self.update_live_validators)
                 
             self.tabs.addTab(tab, "Directories")
 
@@ -2077,49 +2223,65 @@ if __name__ == "__main__":
                 return False
 
         def save_and_run(self):
-            if self.save_settings():
-                self.close()
-                print("Launching SSN_Viewer.py...")
-                
-                import subprocess
-                import sys
-                import os
-                
-                env = os.environ.copy()
-                selected_cache = self.cb_cache_file.currentText()
-                
-                # Check if the user opted to force a new calculation
+            if not self._cache_launch_allowed or not self.current_cache_folder:
+                QMessageBox.critical(
+                    self,
+                    "Cache Selection Error",
+                    "A unique compatible cache folder has not been resolved.",
+                )
+                return
+
+            selected_cache = self.cb_cache_file.currentText()
+            saved_layout_dir = os.path.abspath(self.inputs["SAVED_LAYOUT_DIR"].text())
+            try:
                 if selected_cache == "(New Layout Cache)":
-                    custom_name = self.line_new_cache.text().strip()
-                    
-                    # Fallback to the greyed-out default if they left it blank
-                    if not custom_name:
-                        custom_name = self.line_new_cache.placeholderText()
-                        
-                    # Auto-append extension if forgotten
-                    if not custom_name.endswith(".h5"):
-                        custom_name += ".h5"
-                        
-                    env["SSN_TARGET_CACHE"] = custom_name
-                    
-                # Otherwise, load the existing file
-                elif selected_cache:
-                    env["SSN_TARGET_CACHE"] = selected_cache
-                        
-                # Use the project root (parent of src/) as cwd so all relative data paths resolve correctly
-                script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                
-                if sys.platform == "win32":
-                    creationflags = subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0x10
-                    subprocess.Popen(
-                        f'cmd.exe /c ""{sys.executable}" src\\SSN_Viewer.py || pause"', 
-                        env=env, 
-                        creationflags=creationflags, 
-                        cwd=script_dir
+                    cache_name = self.line_new_cache.text().strip()
+                    if not cache_name:
+                        cache_name = self.line_new_cache.placeholderText()
+                    if not cache_name.lower().endswith(".h5"):
+                        cache_name += ".h5"
+                    cache_manifest.validate_cache_filename(cache_name)
+                    relative_path = cache_manifest.relative_cache_path(
+                        saved_layout_dir, self.current_cache_folder, cache_name
                     )
+                    cache_mode = "new"
                 else:
-                    # GUI applications do not need a terminal window on macOS/Linux and run fine as detached processes
-                    subprocess.Popen([sys.executable, os.path.join("src", "SSN_Viewer.py")], env=env, cwd=script_dir)
+                    relative_path = self.cb_cache_file.currentData()
+                    cache_manifest.resolve_relative_cache_path(
+                        saved_layout_dir, relative_path
+                    )
+                    cache_mode = "existing"
+            except Exception as error:
+                QMessageBox.critical(self, "Cache Selection Error", str(error))
+                return
+
+            if not self.save_settings():
+                return
+
+            self.close()
+            print("Launching SSN_Viewer.py...")
+            env = os.environ.copy()
+            env.pop("SSN_TARGET_CACHE", None)
+            env["SSN_TARGET_CACHE_PATH"] = relative_path.replace("\\", "/")
+            env["SSN_TARGET_CACHE_MODE"] = cache_mode
+
+            # Use the project root (parent of src/) as cwd so all relative data paths resolve correctly
+            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            if sys.platform == "win32":
+                creationflags = subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0x10
+                subprocess.Popen(
+                    f'cmd.exe /c ""{sys.executable}" src\\SSN_Viewer.py || pause"',
+                    env=env,
+                    creationflags=creationflags,
+                    cwd=script_dir,
+                )
+            else:
+                subprocess.Popen(
+                    [sys.executable, os.path.join("src", "SSN_Viewer.py")],
+                    env=env,
+                    cwd=script_dir,
+                )
 
         def save_only(self):
             if self.save_settings():

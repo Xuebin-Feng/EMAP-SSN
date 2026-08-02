@@ -5,6 +5,7 @@ except Exception:
     pass
 import sys
 import os
+import json
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # Ensure src/ (the directory containing all project modules) is on sys.path.
@@ -23,6 +24,7 @@ from PyQt6 import QtWidgets, QtCore, QtGui
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
+import Cache_Manifest as cache_manifest
 
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
@@ -562,15 +564,57 @@ class MainViewer:
             # --- Resolve Path and Header ---
             cache_path, self.resolved_ref_full = utils.get_cache_filename()
             print(f"Target Cache File: {cache_path}")
-            
+            cache_mode = getattr(cfg, 'TARGET_CACHE_MODE', None)
+            if cache_mode not in {'existing', 'new'}:
+                cache_mode = 'existing' if os.path.exists(cache_path) else 'new'
+
+            manifest_settings = {
+                'alignment_score': getattr(cfg, 'ALIGNMENT_SCORE', None),
+                'normalization': getattr(cfg, 'NORM_MODE', None),
+                'umap_mode': getattr(cfg, 'UMAP_MODE', False),
+                'umap_neighbors': getattr(cfg, 'UMAP_NEIGHBORS', 15),
+                'top_edge_percent': getattr(cfg, 'TOP_EDGE_PERCENT', None),
+                'similarity_threshold': getattr(cfg, 'SIMILARITY_THRESHOLD', None),
+            }
+            try:
+                current_manifest = cache_manifest.build_manifest_for_files(
+                    getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', ''),
+                    cfg.INPUT_HDF5,
+                    **manifest_settings,
+                )
+            except Exception as error:
+                raise RuntimeError(f"Unable to fingerprint cache inputs: {error}") from error
+            self.cache_manifest = current_manifest
+            self.cache_manifest_id = current_manifest['manifest_id']
+            cfg.CACHE_MANIFEST_ID = self.cache_manifest_id
+
             raw_loaded = False
 
             # --- Try Loading Cache ---
-            if os.path.exists(cache_path):
+            if cache_mode == 'existing':
+                if not os.path.exists(cache_path):
+                    raise RuntimeError(f"Selected cache file does not exist: {cache_path}")
                 print(f"--- Found Cached Layout! ---")
                 try:
                     import json
+                    stored_manifest = cache_manifest.read_manifest(
+                        os.path.dirname(cache_path),
+                        current_manifest['compatibility'],
+                    )
+                    if stored_manifest['manifest_id'] != self.cache_manifest_id:
+                        raise cache_manifest.CacheManifestError(
+                            "Selected cache folder manifest does not match current inputs."
+                        )
+
+                    with h5py.File(cfg.INPUT_HDF5, "r") as raw_data:
+                        expected_headers, expected_edges, expected_edge_scores, _, _ = utils.build_network_from_raw(
+                            raw_data,
+                            forced_ref_header=self.resolved_ref_full,
+                        )
                     with h5py.File(cache_path, "r") as hf:
+                        cache_manifest.validate_cache_hdf5(
+                            hf, expected_headers, self.cache_manifest_id
+                        )
                         raw_headers = hf["headers"][:]
                         self.full_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
                         self.pos = hf["positions"][:].astype(np.float32)
@@ -667,46 +711,10 @@ class MainViewer:
                             else:
                                 self.last_cluster_params = tuple(val)
                                 
-                    # Freshly load connectivity and edge scores from selected network file
-                    print("Fetching fresh connectivity and edge scores from raw network file...")
-                    try:
-                        with h5py.File(cfg.INPUT_HDF5, "r") as raw_data:
-                            raw_headers, raw_edges, raw_edge_scores, _, _ = utils.build_network_from_raw(
-                                raw_data, 
-                                forced_ref_header=self.resolved_ref_full
-                            )
-                        
-                        # Robustly map raw_edges to the cached headers
-                        raw_to_idx = {h: idx for idx, h in enumerate(raw_headers)}
-                        cached_to_idx = {h: idx for idx, h in enumerate(self.full_headers)}
-                        
-                        mapped_edges = []
-                        mapped_scores = []
-                        for edge_idx, (u, v) in enumerate(raw_edges):
-                            u_header = raw_headers[u]
-                            v_header = raw_headers[v]
-                            u_cached = cached_to_idx.get(u_header)
-                            v_cached = cached_to_idx.get(v_header)
-                            if u_cached is not None and v_cached is not None:
-                                mapped_edges.append([u_cached, v_cached])
-                                mapped_scores.append(raw_edge_scores[edge_idx])
-                        
-                        self.edges = np.array(mapped_edges, dtype=np.int32) if mapped_edges else np.zeros((0, 2), dtype=np.int32)
-                        self.edge_scores = np.array(mapped_scores, dtype=np.float32) if mapped_scores else np.zeros(0, dtype=np.float32)
-                    except Exception as e:
-                        print(f"Warning: Failed to load raw connectivity/scores from network file: {e}")
-                        # Fallback: if connectivity was in older cache file, load it
-                        with h5py.File(cache_path, "r") as hf:
-                            if "connectivity" in hf:
-                                edges_raw = hf["connectivity"][:]
-                                self.edges = edges_raw.astype(np.int32) if len(edges_raw) > 0 else np.zeros((0, 2), dtype=np.int32)
-                            else:
-                                self.edges = np.zeros((0, 2), dtype=np.int32)
-                            
-                            if "edge_scores" in hf:
-                                self.edge_scores = hf["edge_scores"][:]
-                            else:
-                                self.edge_scores = np.zeros(0, dtype=np.float32)
+                    # Headers were validated in exact order, so fresh edges can be used directly.
+                    print("Using fresh connectivity and edge scores from raw network file...")
+                    self.edges = expected_edges.astype(np.int32, copy=False)
+                    self.edge_scores = expected_edge_scores.astype(np.float32, copy=False)
                     
                     base_box = np.sqrt(self.n_nodes) * 2.5 + 5.0
                     self.box_limit = base_box * cfg.BOX_SCALE
@@ -714,12 +722,19 @@ class MainViewer:
                     raw_loaded = True
 
                 except Exception as e:
-                    import traceback
-                    print(f"Error loading HDF5 cache: {e}")
-                    traceback.print_exc()
+                    raise RuntimeError(
+                        f"Selected cache is incompatible or invalid: {e}. "
+                        "Choose '(New Layout Cache)' in SSN Config."
+                    ) from e
 
             # --- Calculate from Scratch (if cache failed or missing) ---
             if not raw_loaded:
+                if cache_mode != 'new':
+                    raise RuntimeError("Existing cache validation did not complete.")
+                if os.path.exists(cache_path):
+                    raise RuntimeError(
+                        f"New cache target already exists and will not be overwritten: {cache_path}"
+                    )
                 # ---> FIX: Normalize the slash direction for the console output <---
                 clean_hdf5_path = os.path.normpath(cfg.INPUT_HDF5)
                 print(f"--- Calculating New Layout (Raw: {clean_hdf5_path}) ---")
@@ -785,18 +800,51 @@ class MainViewer:
                 
                 # --- Save to Cache (Using FULL headers) ---
                 try:
-                    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-                    
-                    with h5py.File(cache_path, "w") as hf:
+                    cache_folder = os.path.dirname(cache_path)
+                    cache_folder_was_created = not os.path.isdir(cache_folder)
+                    os.makedirs(cache_folder, exist_ok=True)
+
+                    if cache_folder_was_created:
+                        fasta_path = (
+                            getattr(cfg, 'NODE_FASTA_FILE', None)
+                            or getattr(cfg, 'SEQUENCES_FILE', '')
+                        )
+                        fasta_backup_name = os.path.basename(os.path.normpath(fasta_path))
+                        reserved_names = {
+                            os.path.normcase(os.path.basename(cache_path)),
+                            os.path.normcase(cache_manifest.MANIFEST_FILENAME),
+                        }
+                        while os.path.normcase(fasta_backup_name) in reserved_names:
+                            fasta_backup_name = f"original_{fasta_backup_name}"
+                        fasta_backup_path = os.path.join(
+                            cache_folder, fasta_backup_name
+                        )
+                        cache_manifest.copy_file_atomic(
+                            fasta_path, fasta_backup_path
+                        )
+                        print(f"FASTA backup saved to: {fasta_backup_path}")
+
+                    partial_cache_path = cache_path + ".partial"
+                    if os.path.exists(partial_cache_path):
+                        os.remove(partial_cache_path)
+
+                    with h5py.File(partial_cache_path, "w") as hf:
                         dt_str = h5py.string_dtype(encoding='utf-8')
+                        hf.attrs["cache_manifest_id"] = self.cache_manifest_id
                         hf.create_dataset("headers", data=np.array(self.full_headers, dtype=object), dtype=dt_str, compression="gzip")
                         hf.create_dataset("positions", data=self.pos, compression="gzip")
                         
                         if getattr(self, 'last_cluster_params', None) is not None: hf.attrs["last_cluster_params"] = json.dumps(self.last_cluster_params)
-                        
+
+                    os.replace(partial_cache_path, cache_path)
+                    cache_manifest.write_manifest_atomic(
+                        cache_folder, self.cache_manifest
+                    )
                     print(f"Layout saved to: {cache_path}")
                 except Exception as e:
-                    print(f"Warning: Could not save layout cache: {e}")
+                    if 'partial_cache_path' in locals() and os.path.exists(partial_cache_path):
+                        os.remove(partial_cache_path)
+                    raise RuntimeError(f"Could not save layout cache: {e}") from e
 
             self._init_colors()
 

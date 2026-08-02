@@ -1,23 +1,21 @@
 import Command_Engine
 import os
-import glob
-import re
 import h5py
 import numpy as np
 import json
 import SSN_Utils as utils
 import SSN_Config as cfg
+import Cache_Manifest as cache_manifest
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., _ver.01.h5).\nExamples:\n  save\n  save my_layout.h5"
+        msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\nExamples:\n  save\n  save my_layout.h5"
         Command_Engine.print_help(viewer, msg)
         return
         
     try:
         default_path, _ = utils.get_cache_filename()
         folder_path = os.path.dirname(default_path)
-        folder_name = os.path.basename(folder_path)
         
         os.makedirs(folder_path, exist_ok=True)
         
@@ -25,21 +23,28 @@ def run(viewer, args):
             save_name = args[0]
             if not save_name.endswith(".h5"):
                 save_name += ".h5"
+            cache_manifest.validate_cache_filename(save_name)
             final_save_path = os.path.join(folder_path, save_name)
         else:
-            max_ver = -1
-            if os.path.exists(folder_path):
-                for f in os.listdir(folder_path):
-                    if f.startswith(f"{folder_name}_ver.") and f.endswith(".h5"):
-                        match = re.search(r'_ver\.(\d+)\.h5$', f)
-                        if match:
-                            max_ver = max(max_ver, int(match.group(1)))
-            
-            next_ver = max_ver + 1
-            save_name = f"{folder_name}_ver.{next_ver:02d}.h5"
+            save_name = cache_manifest.next_cache_version_filename(folder_path)
             final_save_path = os.path.join(folder_path, save_name)
 
-        with h5py.File(final_save_path, "w") as hf:
+        manifest_id = getattr(viewer, 'cache_manifest_id', None)
+        if not manifest_id:
+            raise cache_manifest.CacheManifestError(
+                "The active viewer has no cache manifest binding."
+            )
+        folder_manifest = cache_manifest.read_manifest(folder_path)
+        if folder_manifest["manifest_id"] != manifest_id:
+            raise cache_manifest.CacheManifestError(
+                "The active cache folder manifest has changed."
+            )
+        partial_save_path = final_save_path + ".partial"
+        if os.path.exists(partial_save_path):
+            os.remove(partial_save_path)
+
+        with h5py.File(partial_save_path, "w") as hf:
+            hf.attrs["cache_manifest_id"] = manifest_id
             dt_str = h5py.string_dtype(encoding='utf-8')
             hf.create_dataset("headers", data=np.array(viewer.full_headers, dtype=object), dtype=dt_str, compression="gzip")
             hf.create_dataset("positions", data=viewer.pos, compression="gzip")
@@ -92,6 +97,8 @@ def run(viewer, args):
                                 ds.attrs["is_json"] = True
                 
             if getattr(viewer, 'last_cluster_params', None) is not None: hf.attrs["last_cluster_params"] = json.dumps(viewer.last_cluster_params)
+
+        os.replace(partial_save_path, final_save_path)
         
         if hasattr(viewer, 'original_pos'):
             viewer.original_pos = viewer.pos.copy()
@@ -100,5 +107,7 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, msg)
         
     except Exception as e:
+        if 'partial_save_path' in locals() and os.path.exists(partial_save_path):
+            os.remove(partial_save_path)
         msg = f"Error saving layout state: {e}"
         Command_Engine.print_help(viewer, msg)

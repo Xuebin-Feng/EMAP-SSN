@@ -10,6 +10,7 @@ from collections import Counter
 import math
 import fnmatch
 import SSN_Config as cfg
+import Cache_Manifest as cache_manifest
 
 # --- 1. Library Detection ---
 try:
@@ -112,69 +113,44 @@ def get_cache_filename():
         except Exception as e:
             print(f"Utils Warning: Could not resolve reference header: {e}")
 
-    # ---> NEW: MATCH GUI PREDICTION LOGIC EXACTLY <---
-    import re
-    hdf5_base = os.path.basename(getattr(cfg, 'INPUT_HDF5', ''))
-    
-    # Extract sequence set from fasta file or fallback
-    fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
-    if fasta_file:
-        fasta_base = os.path.splitext(os.path.basename(fasta_file))[0]
-    else:
-        fasta_base = getattr(cfg, 'SEQUENCE_SET', 'Network')
-        
-    # Extract model name
-    match = re.search(r'(\[.*?\])', hdf5_base)
-    if match:
-        model_str = f"_{match.group(1)}"
-    else:
-        hdf5_no_ext = hdf5_base[:-3] if hdf5_base.endswith(".h5") else os.path.splitext(hdf5_base)[0]
-        stripped = re.sub(r'_(network|evalue)$', '', hdf5_no_ext, flags=re.IGNORECASE)
-        old_match = re.search(r'_(e[0-9]+_.*|blast.*)$', stripped, flags=re.IGNORECASE)
-        model_str = f"_{old_match.group(1)}" if old_match else ""
-        
-    net_prefix = f"{fasta_base}{model_str}"
-    
-    # Construct Suffixes
-    is_blast = "EValue" in hdf5_base or "Evalue" in hdf5_base or "blast" in hdf5_base.lower()
-    
-    suffix = ""
-    if not is_blast:
-        norm_m = getattr(cfg, 'NORM_MODE', None)
-        if norm_m: suffix += f"_{norm_m}"
-        
-        score_m = getattr(cfg, 'ALIGNMENT_SCORE', None)
-        if score_m: suffix += f"_{score_m}"
-    
-    is_umap = getattr(cfg, 'UMAP_MODE', False)
-    if is_umap:
-        umap_k = getattr(cfg, 'UMAP_NEIGHBORS', 15)
-        suffix += f"_UMAP_k{int(umap_k)}"
-    else:
-        # Threshold or Top %
-        top_val = getattr(cfg, 'TOP_EDGE_PERCENT', None)
-        if top_val is not None and str(top_val).strip() != "None":
-            try: suffix += f"_Top{float(top_val)}Pct"
-            except: pass
-        else:
-            thresh = getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0)
-            try: suffix += f"_Score{float(thresh)}"
-            except: pass
-        
-    # ---> NEW: Build the folder name and default _ver.00 filename
-    base_name = f"{net_prefix}{suffix}"
     saved_layout_dir = getattr(cfg, 'SAVED_LAYOUT_DIR', os.path.join("Cache_Files", "Saved_Layouts"))
-    
+    explicit_relative_path = getattr(cfg, 'TARGET_CACHE_PATH', None)
+    if explicit_relative_path:
+        return (
+            cache_manifest.resolve_relative_cache_path(
+                saved_layout_dir, explicit_relative_path
+            ),
+            resolved_ref_full,
+        )
+
+    fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(
+        cfg, 'SEQUENCES_FILE', ''
+    )
+    network_file = getattr(cfg, 'INPUT_HDF5', '')
+    try:
+        network_type = cache_manifest.detect_network_type(network_file)
+    except Exception:
+        network_type = "blast" if "blast" in os.path.basename(network_file).lower() else "alignment"
+    base_name = cache_manifest.build_canonical_cache_name(
+        fasta_file,
+        network_file,
+        network_type,
+        alignment_score=getattr(cfg, 'ALIGNMENT_SCORE', None),
+        normalization=getattr(cfg, 'NORM_MODE', None),
+        umap_mode=getattr(cfg, 'UMAP_MODE', False),
+        umap_neighbors=getattr(cfg, 'UMAP_NEIGHBORS', 15),
+        top_edge_percent=getattr(cfg, 'TOP_EDGE_PERCENT', None),
+        similarity_threshold=getattr(cfg, 'SIMILARITY_THRESHOLD', None),
+    )
     target_folder = os.path.join(saved_layout_dir, base_name)
-    default_path = os.path.join(target_folder, f"{base_name}_ver.00.h5")
-    
-    # Check if GUI passed a specific selected cache file from the dropdown
+    default_path = os.path.join(target_folder, "version_00.h5")
+
+    # Retain a validated fallback for older direct callers.
     selected_cache = getattr(cfg, 'TARGET_CACHE_FILE', None)
     if selected_cache and selected_cache.strip() and selected_cache != "None":
-        if not selected_cache.startswith("No .h5") and not selected_cache.startswith("Folder does"):
-            selected_path = os.path.join(target_folder, selected_cache)
-            return selected_path, resolved_ref_full
-        
+        cache_manifest.validate_cache_filename(selected_cache)
+        return os.path.join(target_folder, selected_cache), resolved_ref_full
+
     return default_path, resolved_ref_full
 
 def get_cluster_alignment_dir(viewer):
@@ -352,9 +328,10 @@ def plot_score_histogram(scores, threshold):
     plt.legend(); plt.show()
 
 def build_network_from_raw(data, forced_ref_header=None):
-    # ---> FIX: Ensure INPUT_IS_EVALUE is set before accessing it <---
-    hdf5_base = os.path.basename(getattr(cfg, 'INPUT_HDF5', ''))
-    cfg.INPUT_IS_EVALUE = "blast" in hdf5_base.lower()
+    model_name = data.attrs.get("model_name", "")
+    if isinstance(model_name, bytes):
+        model_name = model_name.decode("utf-8", errors="replace")
+    cfg.INPUT_IS_EVALUE = str(model_name).upper() == "BLAST" or "score" in data
 
     # Decode HDF5 byte-strings into standard python strings
     raw_headers = data['headers'][:]
