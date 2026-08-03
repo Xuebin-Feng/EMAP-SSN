@@ -4,27 +4,22 @@ import ast
 import json
 import os
 
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+
 import h5py
 from tqdm import tqdm
 
-try:
-    from FASTA_Sanitization import load_sanitized_fasta, sanitize_header
-    from Embedding_HDF5 import (
-        create_metadata_first_file,
-        mark_generation_complete,
-        read_embedding_manifest,
-        validate_embedding_array,
-        validate_manifest_records,
-    )
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import load_sanitized_fasta, sanitize_header
-    from src.utilities.Embedding_HDF5 import (
-        create_metadata_first_file,
-        mark_generation_complete,
-        read_embedding_manifest,
-        validate_embedding_array,
-        validate_manifest_records,
-    )
+from utilities.FASTA_Sanitization import load_sanitized_fasta, sanitize_header
+from utilities.Embedding_HDF5 import (
+    create_metadata_first_file,
+    mark_generation_complete,
+    read_embedding_manifest,
+    validate_embedding_array,
+    validate_manifest_records,
+)
 
 
 INPUT_EMBED = None

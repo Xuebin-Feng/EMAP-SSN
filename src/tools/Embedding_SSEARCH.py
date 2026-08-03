@@ -24,6 +24,12 @@ Key Parameters:
 """
 # %%
 import os
+
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -33,30 +39,21 @@ import sys
 import gc
 import threading
 import time
-import Hardware_Utils
-from Alignment_Score_Kernels import global_score_length, local_score_length
+from utilities import Hardware_Utils
+from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 
-try:
-    from FASTA_Sanitization import sanitize_header, sanitize_sequence
-    from Embedding_HDF5 import (
-        dtype_for_saving_mode,
-        read_embedding_manifest,
-        validate_embedding_array,
-    )
-    from Generate_Embeddings import find_model_plugin
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
-    from src.utilities.Embedding_HDF5 import (
-        dtype_for_saving_mode,
-        read_embedding_manifest,
-        validate_embedding_array,
-    )
-    from src.utilities.Generate_Embeddings import find_model_plugin
+from utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
+from utilities.Embedding_HDF5 import (
+    dtype_for_saving_mode,
+    read_embedding_manifest,
+    validate_embedding_array,
+)
+from tools.Generate_Embeddings import find_model_plugin
 
 # ==========================================
 # CONFIGURATION

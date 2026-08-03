@@ -42,6 +42,12 @@ Algorithm:
 """
 # %% --- Imports ---
 import os
+
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+
 import shutil  
 import gc      
 import h5py
@@ -54,17 +60,13 @@ from functools import partial
 from numba import jit
 from tqdm import tqdm
 import sys
-import Hardware_Utils
+from utilities import Hardware_Utils
 from sklearn.isotonic import IsotonicRegression
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 
-try:
-    from FASTA_Sanitization import load_sanitized_fasta
-    from Embedding_HDF5 import read_embedding_manifest
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
-    from src.utilities.Embedding_HDF5 import read_embedding_manifest
+from utilities.FASTA_Sanitization import load_sanitized_fasta
+from utilities.Embedding_HDF5 import read_embedding_manifest
 
 
 # ==========================================
@@ -108,7 +110,7 @@ import ast
 import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 

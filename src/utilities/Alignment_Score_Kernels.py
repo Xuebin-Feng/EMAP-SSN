@@ -6,8 +6,20 @@ score and length rows so their scratch memory grows linearly with the second
 sequence length.
 """
 
+import sys
+
 import numpy as np
 from numba import njit
+
+
+# Keep legacy top-level imports and package-qualified imports on one module
+# object during the tools-folder migration.  This matters for Numba dispatchers
+# and prevents duplicate JIT caches in long-running processes.
+_THIS_MODULE = sys.modules[__name__]
+if __name__ == "Alignment_Score_Kernels":
+    sys.modules.setdefault("utilities.Alignment_Score_Kernels", _THIS_MODULE)
+else:
+    sys.modules.setdefault("Alignment_Score_Kernels", _THIS_MODULE)
 
 
 @njit(nogil=True, fastmath=True, cache=True)

@@ -7,6 +7,9 @@ import subprocess
 import markdown
 import re
 
+from utilities import Hardware_Utils
+from utilities.PLM_Plugin_Utils import discover_model_execution_modes
+
 MAX_CORES = os.cpu_count() or 16
 
 SECTION_CARD_STYLE = (
@@ -39,6 +42,7 @@ COMPACT_ROW_PAIRS = {
     "Align_Similarity_Matrix.py": [
         ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
         ("BATCH_SIZE", "WORKERS"),
+        ("DEVICE_SELECTION", "ACCELERATOR_LANES"),
     ],
     "Align_Substitution_Matrix.py": [
         ("BATCH_SIZE", "NUM_THREADS"),
@@ -72,12 +76,12 @@ TAB_DISPLAY_NAMES = {
     "Sequence_Similarity_Calculations": "Sequence Similarity Calculations",
 }
 
-def get_utility_tool_titles():
-    """Map utility script filenames to their emoji titles in the Markdown descriptions."""
+def get_tool_titles():
+    """Map tool script filenames to their display titles in the Markdown descriptions."""
     descriptions_dir = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "utilities",
-        "utility_descriptions",
+        "tools",
+        "tool_descriptions",
     )
     heading_pattern = re.compile(
         r"^#\s+(.+?)\s+\(`([^`]+\.py)`\)\s*$"
@@ -106,29 +110,19 @@ def get_supported_embedding_models():
     Scans the src/resources/pLM_models/ folder and parses all scripts
     statically via AST to dynamically build the list of supported embedding models.
     """
-    import glob
-    models = []
     current_dir = os.path.dirname(os.path.abspath(__file__))
     plugin_dir = os.path.join(current_dir, "resources", "pLM_models")
-    if os.path.exists(plugin_dir):
-        for filepath in glob.glob(os.path.join(plugin_dir, "*.py")):
-            if os.path.basename(filepath) == "__init__.py":
-                continue
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    node = ast.parse(f.read(), filename=filepath)
-                for item in node.body:
-                    if isinstance(item, ast.Assign):
-                        for target in item.targets:
-                            if isinstance(target, ast.Name) and target.id == "SUPPORTED_MODELS":
-                                val = ast.literal_eval(item.value)
-                                if isinstance(val, list):
-                                    models.extend(val)
-            except Exception:
-                pass
-    if not models:
-        models = ["esmc_300m", "esmc_600m", "prot_bert", "ProstT5"]
-    return models
+    try:
+        return list(discover_model_execution_modes(plugin_dir))
+    except Exception as error:
+        print(f"Failed to discover pLM plugin metadata: {error}")
+        return []
+
+
+def get_embedding_model_execution_modes():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    plugin_dir = os.path.join(current_dir, "resources", "pLM_models")
+    return discover_model_execution_modes(plugin_dir)
 
 # Ensure src/ (the directory containing all project modules) is on sys.path.
 # This is needed when the script is run as a subprocess or from a different working directory.
@@ -437,7 +431,7 @@ class ToolsGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SSN Utilities Tools")
-        self.tool_titles = get_utility_tool_titles()
+        self.tool_titles = get_tool_titles()
         
         # Set Window Icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "tool_logo.ico")
@@ -461,7 +455,8 @@ class ToolsGUI(QMainWindow):
             "Generate_Embeddings.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): The sanitized input sequence file to generate embeddings for. Each sequence is parsed and fed through the neural network to produce high-dimensional dense representations.",
                 "MODEL_NAME": "Model Name: The protein language model (pLM) used to calculate sequence embeddings and label the output filename. ESMC 300M/600M run locally; esmc_6b maps internally to Biohub's esmc-6b-2024-12 API model and reads ESM_API_TOKEN from src/resources/pLM_models/esmc_6b_api_key.json. Rostlab models (prot_bert/ProstT5) are also supported.",
-                "SAVING_MODE": "Saving Mode: The floating-point precision for storing embedding tensors in the HDF5 file. Float16 is highly recommended to save up to 50% disk space and RAM, while float32 retains full uncompressed precision."
+                "SAVING_MODE": "Saving Mode: The floating-point precision for storing embedding tensors in the HDF5 file. Float16 is highly recommended to save up to 50% disk space and RAM, while float32 retains full uncompressed precision.",
+                "DEVICE_SELECTION": "Device: Auto Benchmark compares CPU and every available local accelerator using representative sequences. Remote API models do not use this setting."
             },
             "Embedding_Cropping.py": {
                 "INPUT_EMBED": "Full Embedding Set (.h5): The pre-computed embedding database for the full-length sequences, generated by Generate_Embeddings.py. Cropped embeddings are sliced directly out of these arrays.",
@@ -474,7 +469,9 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: The number of CPU threads allocated for parallel processing. Running with more threads speeds up the alignment of large embedding matrices by distributing pairs across multiple cores.",
                 "LOCAL_GAP_P": "Local Align Gap Penalty: The penalty score applied for initiating or extending gaps in local alignment. More negative values enforce stricter local alignments with fewer gaps.",
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: The penalty score applied for initiating or extending gaps in global alignment. Adjust this to control how alignment length matches are forced.",
-                "BATCH_SIZE": "Batch Size: The number of sequence pairs processed in a single chunk. Larger values maximize CPU utilization but require more system memory. Set to 'auto' or specify a number."
+                "BATCH_SIZE": "Batch Size: The number of sequence pairs processed in a single chunk. Larger values maximize CPU utilization but require more system memory. Set to 'auto' or specify a number.",
+                "DEVICE_SELECTION": "Device: Auto Benchmark compares the complete CPU pipeline with every available accelerator. Select a concrete device to bypass device comparison.",
+                "ACCELERATOR_LANES": "Accelerator Lanes: Auto benchmarks supported stream counts for the selected accelerator. CPU, MPS, and DirectML use one lane."
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): The sequence file to align with BLASTP. Before alignment, records undergo the same canonical header, residue, empty-record, and duplicate-sequence sanitization used by Generate Embeddings.",
@@ -628,6 +625,11 @@ class ToolsGUI(QMainWindow):
                             "type": "dropdown",
                             "options": ["float16", "float32"],
                             "display": "Saving Mode:"
+                        },
+                        {
+                            "var_name": "DEVICE_SELECTION",
+                            "type": "device_dropdown",
+                            "display": "Device:"
                         }
                     ],
                     "Embedding_Cropping.py": [
@@ -719,6 +721,16 @@ class ToolsGUI(QMainWindow):
                     "var_name": "BATCH_SIZE",
                     "type": "text",
                     "display": "Batch Size:"
+                },
+                {
+                    "var_name": "DEVICE_SELECTION",
+                    "type": "device_dropdown",
+                    "display": "Device:"
+                },
+                {
+                    "var_name": "ACCELERATOR_LANES",
+                    "type": "text",
+                    "display": "Accelerator Lanes:"
                 }
                     ],
                     "Align_Substitution_Matrix.py": [
@@ -1295,7 +1307,7 @@ class ToolsGUI(QMainWindow):
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
-        self.load_utilities()
+        self.load_tools()
         self.create_directories_tab()
     
     def create_directories_tab(self):
@@ -1446,16 +1458,16 @@ class ToolsGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save directories:\n{e}")
 
-    def load_utilities(self):
-        utils_dir = os.path.join(_SRC_DIR, "utilities")
-        if not os.path.exists(utils_dir):
-            QMessageBox.critical(self, "Error", f"Could not find '{utils_dir}' directory.")
+    def load_tools(self):
+        tools_dir = os.path.join(_SRC_DIR, "tools")
+        if not os.path.exists(tools_dir):
+            QMessageBox.critical(self, "Error", f"Could not find '{tools_dir}' directory.")
             return
             
         for tab_key, settings_def in self.MANUAL_SETTINGS.items():
             if isinstance(settings_def, dict) and settings_def.get("is_combined"):
                 self.create_combined_tab(
-                    utils_dir,
+                    tools_dir,
                     tab_key,
                     settings_def["scripts"],
                     show_secondary_titles=not settings_def.get(
@@ -1464,7 +1476,7 @@ class ToolsGUI(QMainWindow):
                     ),
                 )
             else:
-                script_path = os.path.join(utils_dir, tab_key)
+                script_path = os.path.join(tools_dir, tab_key)
                 if os.path.exists(script_path):
                     self.create_script_tab(script_path, tab_key, settings_def)
             
@@ -1477,7 +1489,7 @@ class ToolsGUI(QMainWindow):
             if path == "DIRECTORIES_TAB":
                 dir_md = (
                     "## 📂 Global Directory Settings\n\n"
-                    "Define paths to folders used globally across the SSN Utilities scripts. "
+                    "Define paths to folders used globally across the SSN tool scripts. "
                     "These configurations are automatically saved, validated, and loaded at runtime by all scripts."
                 )
                 dir_html = render_markdown_with_math(dir_md)
@@ -1498,8 +1510,8 @@ class ToolsGUI(QMainWindow):
             md_name = f"{description_key}.md"
             alt_md_name = f"{description_key.replace(' ', '_')}.md"
             
-            md_path = os.path.join(_SRC_DIR, "utilities", "utility_descriptions", md_name)
-            alt_md_path = os.path.join(_SRC_DIR, "utilities", "utility_descriptions", alt_md_name)
+            md_path = os.path.join(_SRC_DIR, "tools", "tool_descriptions", md_name)
+            alt_md_path = os.path.join(_SRC_DIR, "tools", "tool_descriptions", alt_md_name)
             
             markdown_content = ""
             
@@ -1528,7 +1540,7 @@ class ToolsGUI(QMainWindow):
                         f"## ⚠️ Documentation Missing\n\n"
                         f"No documentation file found for this tab.\n\n"
                         f"To add one, create a Markdown document at:\n\n"
-                        f"`src\\utilities\\utility_descriptions\\{md_name}`"
+                        f"`src\\tools\\tool_descriptions\\{md_name}`"
                     )
             
             html_content = render_markdown_with_math(markdown_content.strip())
@@ -1815,6 +1827,19 @@ class ToolsGUI(QMainWindow):
                 ui_element.addItems(s_def['options'])
                 idx = ui_element.findText(str(actual_val))
                 if idx >= 0: ui_element.setCurrentIndex(idx)
+
+            elif s_def['type'] == "device_dropdown":
+                ui_element = NoScrollComboBox()
+                for display, spec in Hardware_Utils.device_selection_options():
+                    ui_element.addItem(display, spec)
+                normalized = Hardware_Utils.normalize_device_selection(actual_val)
+                idx = ui_element.findData(normalized)
+                if idx < 0 and normalized != "auto":
+                    ui_element.addItem(
+                        f"Unavailable saved device [{normalized}]", normalized
+                    )
+                    idx = ui_element.count() - 1
+                ui_element.setCurrentIndex(max(0, idx))
                 
             elif s_def['type'] == "dropdown_from_folder":
                 ui_element = QWidget()
@@ -2019,6 +2044,63 @@ class ToolsGUI(QMainWindow):
         self._merge_compact_rows(layout, script_name, row_widgets)
         self._merge_inline_field_rows(layout, script_name, row_widgets)
         self.script_data[script_path] = {'inputs': inputs, 'settings': settings}
+
+        if script_name == "Generate_Embeddings.py":
+            model_input = inputs.get("MODEL_NAME")
+            device_input = inputs.get("DEVICE_SELECTION")
+            if model_input and device_input:
+                model_combo = model_input['widget']
+                device_combo = device_input['widget']
+                execution_modes = get_embedding_model_execution_modes()
+
+                def update_embedding_device(model_name):
+                    is_remote = execution_modes.get(model_name) == "remote_api"
+                    if is_remote:
+                        if device_combo.currentData() != "__remote_api__":
+                            device_combo.setProperty(
+                                "localDeviceSelection", device_combo.currentData()
+                            )
+                        remote_index = device_combo.findData("__remote_api__")
+                        if remote_index < 0:
+                            device_combo.addItem(
+                                "Remote API — local device not applicable",
+                                "__remote_api__",
+                            )
+                            remote_index = device_combo.count() - 1
+                        device_combo.setCurrentIndex(remote_index)
+                        device_combo.setEnabled(False)
+                        device_combo.setToolTip(
+                            "Remote API — local device not applicable"
+                        )
+                    else:
+                        local_selection = device_combo.property(
+                            "localDeviceSelection"
+                        )
+                        if device_combo.currentData() == "__remote_api__":
+                            restore_index = device_combo.findData(
+                                local_selection or "auto"
+                            )
+                            device_combo.setCurrentIndex(max(0, restore_index))
+                        device_combo.setEnabled(True)
+                        tip = self.SCRIPT_TIPS[script_name]["DEVICE_SELECTION"]
+                        device_combo.setToolTip(tip)
+
+                model_combo.currentTextChanged.connect(update_embedding_device)
+                update_embedding_device(model_combo.currentText())
+
+        if script_name == "Align_Similarity_Matrix.py":
+            device_input = inputs.get("DEVICE_SELECTION")
+            lanes_input = inputs.get("ACCELERATOR_LANES")
+            if device_input and lanes_input:
+                device_combo = device_input['widget']
+                lanes_widget = lanes_input['widget']
+
+                def update_alignment_lanes(*_):
+                    selected = device_combo.currentData()
+                    lanes_widget.setEnabled(selected != "cpu")
+
+                device_combo.currentIndexChanged.connect(update_alignment_lanes)
+                update_alignment_lanes()
         
         if script_name == "Embedding_MSA.py":
             use_filter_input = inputs.get("USE_SEQUENCE_FILTER")
@@ -2471,7 +2553,7 @@ class ToolsGUI(QMainWindow):
             
     def create_combined_tab(
         self,
-        utils_dir,
+        tools_dir,
         tab_key,
         scripts_dict,
         show_secondary_titles=True,
@@ -2488,7 +2570,7 @@ class ToolsGUI(QMainWindow):
         script_form_layouts = []
         
         for script_name, script_settings_def in scripts_dict.items():
-            script_path = os.path.join(utils_dir, script_name)
+            script_path = os.path.join(tools_dir, script_name)
             if not os.path.exists(script_path): continue
                 
             with open(script_path, "r", encoding="utf-8") as f:
@@ -2525,7 +2607,7 @@ class ToolsGUI(QMainWindow):
         self._align_form_label_columns(script_form_layouts)
         main_layout.addStretch()
 
-        pseudo_path = os.path.join(utils_dir, tab_key) + "_GUI_tab" 
+        pseudo_path = os.path.join(tools_dir, tab_key) + "_GUI_tab"
         self.script_data[pseudo_path] = {'inputs': {}, 'settings': [], 'docstring': combined_docstring}
         self.tab_paths.append(pseudo_path)
         
@@ -2604,9 +2686,11 @@ class ToolsGUI(QMainWindow):
             widget = input_data['widget']
             w_type = input_data['type']
             
-            if w_type in ["dropdown", "dropdown_from_folder"]:
+            if w_type in ["dropdown", "dropdown_from_folder", "device_dropdown"]:
                 if w_type == "dropdown_from_folder":
                     val = widget.combo.currentText()
+                elif w_type == "device_dropdown":
+                    val = widget.currentData()
                 else:
                     val = widget.currentText()
                     
@@ -2639,11 +2723,45 @@ class ToolsGUI(QMainWindow):
                 with open(settings_file, "r") as f:
                     combined_settings = json.load(f)
             except: pass
-            
+
+        script_name = os.path.basename(script_path)
+        if script_name == "Generate_Embeddings.py":
+            execution_modes = get_embedding_model_execution_modes()
+            execution_mode = execution_modes.get(new_settings.get("MODEL_NAME"))
+            if execution_mode == "remote_api":
+                previous_device = combined_settings.get(script_name, {}).get(
+                    "DEVICE_SELECTION"
+                )
+                if previous_device is None:
+                    new_settings.pop("DEVICE_SELECTION", None)
+                else:
+                    new_settings["DEVICE_SELECTION"] = previous_device
+            else:
+                try:
+                    Hardware_Utils.resolve_device_selection(
+                        new_settings.get("DEVICE_SELECTION", "auto")
+                    )
+                except ValueError as error:
+                    QMessageBox.critical(
+                        self, "Invalid Hardware Selection", str(error)
+                    )
+                    return
+
+        if script_name == "Align_Similarity_Matrix.py":
+            try:
+                Hardware_Utils.resolve_device_selection(
+                    new_settings.get("DEVICE_SELECTION", "auto")
+                )
+                lanes = str(new_settings.get("ACCELERATOR_LANES", "auto")).strip()
+                if lanes.lower() not in {"", "auto"} and int(lanes) < 1:
+                    raise ValueError("Accelerator Lanes must be Auto or a positive integer.")
+            except (TypeError, ValueError) as error:
+                QMessageBox.critical(self, "Invalid Hardware Selection", str(error))
+                return
+
         # 3. Replace and save only the selected script's complete settings section.
         # This removes stale keys that are no longer represented in the GUI while
         # preserving DIRECTORIES and every other script section.
-        script_name = os.path.basename(script_path)
         combined_settings[script_name] = new_settings
         
         try:

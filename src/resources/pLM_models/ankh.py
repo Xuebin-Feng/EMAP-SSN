@@ -4,6 +4,10 @@ SUPPORTED_MODELS = [
     "ankh_base",
     "ankh_large"
 ]
+MODEL_EXECUTION_MODES = {
+    "ankh_base": "local",
+    "ankh_large": "local",
+}
 
 # The Ankh tokenizer recognizes X/B/U/Z/O directly. It does not have native
 # J, ".", or "-" residue tokens, so those are represented as X.

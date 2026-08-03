@@ -30,31 +30,25 @@ Algorithm:
 """
 # %% Import Necessary Libraries
 import os
+
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+
 import numpy as np
 import h5py
 from tqdm import tqdm
-import Hardware_Utils
-
-try:
-    from FASTA_Sanitization import load_sanitized_fasta
-    from Embedding_HDF5 import (
-        create_metadata_first_file,
-        dtype_for_saving_mode,
-        mark_generation_complete,
-        read_embedding_manifest,
-        validate_embedding_array,
-        validate_manifest_records,
-    )
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
-    from src.utilities.Embedding_HDF5 import (
-        create_metadata_first_file,
-        dtype_for_saving_mode,
-        mark_generation_complete,
-        read_embedding_manifest,
-        validate_embedding_array,
-        validate_manifest_records,
-    )
+from utilities import Hardware_Utils
+from utilities.FASTA_Sanitization import load_sanitized_fasta
+from utilities.Embedding_HDF5 import (
+    create_metadata_first_file,
+    dtype_for_saving_mode,
+    mark_generation_complete,
+    read_embedding_manifest,
+    validate_embedding_array,
+    validate_manifest_records,
+)
 
 # ==========================================
 # CONFIGURATION
@@ -71,7 +65,7 @@ import ast
 import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 

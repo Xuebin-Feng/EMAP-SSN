@@ -33,6 +33,10 @@ Algorithm:
 # %% Import Necessary Libraries
 # Limit threads to prevent CPU thrashing
 import os
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -53,12 +57,8 @@ import h5py
 from Bio import SeqIO
 from tqdm import tqdm
 
-try:
-    from FASTA_Sanitization import load_sanitized_fasta
-    from Embedding_HDF5 import validate_manifest_records
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
-    from src.utilities.Embedding_HDF5 import validate_manifest_records
+from utilities.FASTA_Sanitization import load_sanitized_fasta
+from utilities.Embedding_HDF5 import validate_manifest_records
 
 # %% =======================================
 # CONFIGURATION
@@ -86,7 +86,7 @@ import ast
 import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 

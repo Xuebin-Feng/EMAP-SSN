@@ -67,6 +67,7 @@ PACKING_PADDING = 10.0     # Extra padding applied to the bounding box of each c
 
 # --- Simulation & Physics Settings ---
 PHYSICS_ENGINE = "Molecular Dynamics (Style)"
+LAYOUT_DEVICE_SELECTION = "auto"
 SPRING_K = 5.0             
 COULOMB_K = 10.0            
 COULOMB_CUTOFF = 30.0      
@@ -143,6 +144,13 @@ if os.path.exists(SETTINGS_FILE):
 if __name__ == "__main__":
     import sys
     import subprocess
+
+    # Hardware_Utils imports PyTorch.  On Windows this must happen before
+    # PyQt6/OpenGL initializes, otherwise torch's c10.dll can fail to load.
+    try:
+        from utilities import Hardware_Utils
+    except ImportError:
+        import Hardware_Utils
 
     os.environ["QT_API"] = "pyqt6"
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
@@ -506,6 +514,7 @@ if __name__ == "__main__":
                 "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node in the network visualization plot.\nTypically set to dark grey or black to cleanly separate adjacent nodes and enhance the depth of the visualization.",
                 "NODE_BOUNDARY_WIDTH": "Visual rendering parameter controlling the thickness of the outer border ring outline drawn around each sequence node.\nSetting this to a small non-zero value helps distinguish overlapping nodes in dense cluster regions.",
                 "PHYSICS_ENGINE": "Selects the simulation engine used to compute node coordinates: Molecular Dynamics or Monte Carlo (SGLD).\nMolecular Dynamics uses deterministic force integration, while Monte Carlo uses stochastic Langevin dynamics for escape from local minima.",
+                "LAYOUT_DEVICE_SELECTION": "Selects the device used for physics layout generation. Auto Benchmark compares CPU and every available accelerator separately for each populated layout size class.",
                 "SPRING_K": "Attractive spring constant controlling the magnitude of hookian tension pulling connected node pairs closer together.\nLarger values pull highly similar sequences into tighter, more compact clusters, which increases local network density.",
                 "COULOMB_K": "Repulsive constant controlling the electrostatic-like force pushing all nodes away from each other.\nLarger values push unrelated nodes and clusters apart, increasing separation distance between distinct sequence families.",
                 "COULOMB_CUTOFF": "Maximum distance threshold past which the repulsive force between unrelated nodes drops off completely to zero.\nLowering this cutoff speeds up calculation and prevents distant clusters from exerting unnecessary forces on each other.",
@@ -567,6 +576,57 @@ if __name__ == "__main__":
                 self.line_new_cache.setEnabled(True)
             else:
                 self.line_new_cache.setEnabled(False)
+
+        def _refresh_cache_file_combo(self):
+            folder_path = self.current_cache_folder
+            if not folder_path or not os.path.isdir(folder_path):
+                return
+
+            try:
+                cache_files = [
+                    (entry.name, entry.stat().st_mtime)
+                    for entry in os.scandir(folder_path)
+                    if entry.is_file() and entry.name.lower().endswith(".h5")
+                ]
+                cache_files.sort(key=lambda item: item[1], reverse=True)
+                saved_layout_dir = os.path.abspath(
+                    self.inputs["SAVED_LAYOUT_DIR"].text()
+                )
+                cache_items = [
+                    (
+                        filename,
+                        cache_manifest.relative_cache_path(
+                            saved_layout_dir, folder_path, filename
+                        ),
+                    )
+                    for filename, _mtime in cache_files
+                ]
+            except (OSError, cache_manifest.CacheManifestError):
+                return
+
+            current_text = self.cb_cache_file.currentText()
+            current_data = self.cb_cache_file.currentData()
+            self.cb_cache_file.blockSignals(True)
+            try:
+                self.cb_cache_file.clear()
+                for filename, relative_path in cache_items:
+                    self.cb_cache_file.addItem(filename, relative_path)
+                self.cb_cache_file.addItem("(New Layout Cache)", None)
+
+                if current_text == "(New Layout Cache)":
+                    selected_index = self.cb_cache_file.count() - 1
+                else:
+                    selected_index = self.cb_cache_file.findData(current_data)
+                    if selected_index < 0:
+                        selected_index = 0
+                self.cb_cache_file.setCurrentIndex(selected_index)
+            finally:
+                self.cb_cache_file.blockSignals(False)
+
+            self.line_new_cache.setPlaceholderText(
+                self._default_new_cache_name(folder_path)
+            )
+            self._toggle_new_cache_input(self.cb_cache_file.currentText())
 
         def refresh_combo(self, combo, dir_key, ext_list):
             import os  # Moved here to ensure it's loaded before use
@@ -1125,7 +1185,7 @@ if __name__ == "__main__":
             target_lay = QHBoxLayout(target_container)
             target_lay.setContentsMargins(0, 0, 0, 0)
 
-            self.cb_cache_file = NoScrollComboBox()
+            self.cb_cache_file = DynamicComboBox(self._refresh_cache_file_combo)
             self.cb_cache_file.setEnabled(False)
             
             self.btn_open_target_folder = QPushButton("📂")
@@ -1197,6 +1257,10 @@ if __name__ == "__main__":
                 self.btn_hist.setEnabled(has_fasta and has_hdf5)
             
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
+            if hasattr(self, 'cb_layout_device'):
+                self.cb_layout_device.setEnabled(not is_umap)
+            if "LAYOUT_DEVICE_SELECTION" in self.labels:
+                self.labels["LAYOUT_DEVICE_SELECTION"].setEnabled(not is_umap)
             
             if hasattr(self, 'line_thresh') and hasattr(self, 'line_top'):
                 has_top_edge = bool(self.line_top.text().strip())
@@ -1699,6 +1763,7 @@ if __name__ == "__main__":
             
             self.physics_defaults = {
                 "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
+                "LAYOUT_DEVICE_SELECTION": "auto",
                 "SPRING_K": 5.0, "COULOMB_K": 10.0, "COULOMB_CUTOFF": 30.0, 
                 "DAMPING": 0.9, "DT": 0.005, "MAX_STEPS": 10000, "RMSD_THRESHOLD": 0.005,
                 "PERCENTAGE_DROP_THRESHOLD": 0.1, "RMSD_WINDOW": 50,
@@ -1719,6 +1784,26 @@ if __name__ == "__main__":
             form_layout.addRow(lbl_engine, cb_engine)
             self.inputs["PHYSICS_ENGINE"] = cb_engine
             self.labels["PHYSICS_ENGINE"] = lbl_engine
+
+            cb_layout_device = NoScrollComboBox()
+            for display_name, specification in Hardware_Utils.device_selection_options():
+                cb_layout_device.addItem(display_name, specification)
+            saved_device = Hardware_Utils.normalize_device_selection(
+                globals().get("LAYOUT_DEVICE_SELECTION", "auto")
+            )
+            saved_index = cb_layout_device.findData(saved_device)
+            if saved_index < 0:
+                cb_layout_device.addItem(
+                    f"Unavailable saved device [{saved_device}]", saved_device
+                )
+                saved_index = cb_layout_device.count() - 1
+            cb_layout_device.setCurrentIndex(saved_index)
+            lbl_layout_device = QLabel("Layout Device:")
+            lbl_layout_device.setFixedWidth(180)
+            form_layout.addRow(lbl_layout_device, cb_layout_device)
+            self.inputs["LAYOUT_DEVICE_SELECTION"] = cb_layout_device
+            self.labels["LAYOUT_DEVICE_SELECTION"] = lbl_layout_device
+            self.cb_layout_device = cb_layout_device
             
             # --- 2. Existing Physics Sliders ---
             slider_settings = [
@@ -2109,7 +2194,11 @@ if __name__ == "__main__":
                 for k, v in self.physics_defaults.items():
                     widget = self.inputs.get(k)
                     if widget:
-                        if hasattr(widget, 'setCurrentText'):
+                        if k == "LAYOUT_DEVICE_SELECTION":
+                            index = widget.findData(v)
+                            if index >= 0:
+                                widget.setCurrentIndex(index)
+                        elif hasattr(widget, 'setCurrentText'):
                             widget.setCurrentText(str(v))
                         elif hasattr(widget, 'setValue'):
                             widget.setValue(v)
@@ -2187,8 +2276,11 @@ if __name__ == "__main__":
                 if key == "TARGET_CACHE_FILE":
                     continue
                     
-                if isinstance(widget, QComboBox): 
-                    val = widget.currentText()
+                if isinstance(widget, QComboBox):
+                    if key == "LAYOUT_DEVICE_SELECTION":
+                        val = widget.currentData()
+                    else:
+                        val = widget.currentText()
                 elif hasattr(widget, 'value'): 
                     val = str(widget.value())
                 elif isinstance(widget, QPushButton) and widget.isCheckable(): 
@@ -2223,6 +2315,17 @@ if __name__ == "__main__":
                 return False
 
         def save_and_run(self):
+            if not self.check_umap.isChecked():
+                try:
+                    Hardware_Utils.resolve_device_selection(
+                        self.cb_layout_device.currentData()
+                    )
+                except ValueError as error:
+                    QMessageBox.critical(
+                        self, "Layout Device Unavailable", str(error)
+                    )
+                    return
+
             if not self._cache_launch_allowed or not self.current_cache_folder:
                 QMessageBox.critical(
                     self,

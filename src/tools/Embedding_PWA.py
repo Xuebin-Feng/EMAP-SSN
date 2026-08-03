@@ -15,13 +15,19 @@ Output:
 """
 # %% Import
 import os
+
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+
 import numpy as np
 import torch
 import h5py
 import pickle
 import sys
 import re
-import Hardware_Utils
+from utilities import Hardware_Utils
 
 try:
     from esm.models.esmc import ESMC

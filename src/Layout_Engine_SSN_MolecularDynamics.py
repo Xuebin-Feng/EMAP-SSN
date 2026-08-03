@@ -11,9 +11,9 @@ except ImportError:
 try:
     import torch
     try:
-        from utilities import Hardware_Utils
+        from utilities import Hardware_Utils, Layout_Hardware
     except ImportError:
-        import Hardware_Utils
+        import Hardware_Utils, Layout_Hardware
     HAS_TORCH = True
 except Exception as e:
     import traceback
@@ -171,8 +171,10 @@ class SSNSimulationCPU:
 
 if HAS_TORCH:
     class SSNSimulationGPU:
-        def __init__(self, pos, springs, comp_labels, box_limit, params, active_mask=None):
-            self.device = Hardware_Utils.get_optimal_device()
+        def __init__(self, pos, springs, comp_labels, box_limit, params, active_mask=None, *, device=None):
+            # Production callers always pass an explicit candidate. CPU is a
+            # safe compatibility default for direct/unit-test construction.
+            self.device = torch.device("cpu") if device is None else device
             self.pos = torch.tensor(pos, dtype=torch.float32, device=self.device)
             self.vel = torch.zeros_like(self.pos)
             self.springs = torch.tensor(springs, dtype=torch.long, device=self.device)
@@ -554,6 +556,89 @@ def _prepare_progressive_stage(pos, stage_edges, stage_scores, previous_active):
     return active_mask
 
 
+def _run_layout_stage(
+    candidate,
+    positions,
+    edges,
+    component_labels,
+    box_limits,
+    params,
+    active_mask,
+):
+    """Run one serially dependent production stage on an explicit device."""
+    if candidate.is_cpu:
+        simulation = SSNSimulationCPU(
+            positions.copy(), edges, component_labels, box_limits, params,
+            active_mask=active_mask,
+        )
+    else:
+        if not HAS_TORCH:
+            raise RuntimeError("PyTorch accelerator simulation is unavailable")
+        simulation = SSNSimulationGPU(
+            positions.copy(), edges, component_labels, box_limits, params,
+            active_mask=active_mask, device=candidate.device,
+        )
+
+    try:
+        rmsd_window = params.get('RMSD_WINDOW', 50)
+        max_steps = params.get('MAX_STEPS', 2000)
+        rmsd_buffer = deque(maxlen=rmsd_window)
+        average_history = []
+
+        for step in range(max_steps):
+            rmsd = simulation.step(step)
+            rmsd_buffer.append(rmsd)
+            average_rmsd = np.mean(rmsd_buffer)
+
+            if step > 0 and step % 500 == 0:
+                print(
+                    f"    - Step {step:04d}/{max_steps}: "
+                    f"RMSD = {average_rmsd:.5f}"
+                )
+
+            if len(rmsd_buffer) == rmsd_window:
+                average_history.append(average_rmsd)
+                if average_rmsd < params.get('RMSD_THRESHOLD', 0.005):
+                    print(
+                        f"    - Converged at Step {step} "
+                        f"(RMSD: {average_rmsd:.5f})"
+                    )
+                    break
+
+                percentage_threshold = params.get(
+                    'PERCENTAGE_DROP_THRESHOLD', 0.0
+                )
+                minimum_observation_steps = max_steps / 4.0
+                trend_window = 10
+                if (
+                    percentage_threshold > 0.0
+                    and len(average_history) >= (rmsd_window + trend_window)
+                    and step > minimum_observation_steps
+                ):
+                    current_trend = np.mean(average_history[-trend_window:])
+                    old_trend = np.mean(
+                        average_history[
+                            -(rmsd_window + trend_window):-rmsd_window
+                        ]
+                    )
+                    if old_trend > 0:
+                        percentage_drop = (
+                            (old_trend - current_trend) / old_trend
+                        ) * 100.0
+                        if percentage_drop < percentage_threshold:
+                            print(
+                                f"    - Plateau Reached at Step {step} "
+                                f"(Drop: {percentage_drop:.3f}% < "
+                                f"{percentage_threshold}%)"
+                            )
+                            break
+
+        return simulation.get_pos()
+    finally:
+        del simulation
+        Hardware_Utils.release_device_cache(candidate)
+
+
 def calculate_layout(connectivity, n_nodes, params):
     """
     Main layout generation pipeline.
@@ -566,16 +651,7 @@ def calculate_layout(connectivity, n_nodes, params):
         pos (np.ndarray): Final X/Y coordinates
         box_limit (float): Boundary box size
     """
-    # Determine execution device
-    use_gpu = False
-    device_name = "CPU"
-    if HAS_TORCH:
-        device = Hardware_Utils.get_optimal_device()
-        if device.type != "cpu":
-            use_gpu = True
-            device_name = f"GPU ({device})"
-            
-    print(f"Running layout calculation on {device_name}")
+    device_selection = params.get('LAYOUT_DEVICE_SELECTION', 'auto')
     
     edges = connectivity[:, :2].astype(np.int32)
     edge_scores = connectivity[:, 2]
@@ -639,103 +715,59 @@ def calculate_layout(connectivity, n_nodes, params):
             c_idx = node_to_comp_idx[u]
             comp_edges[c_idx].append((u, v))
             comp_scores[c_idx].append(edge_scores[i])
+
+    device_rankings = Layout_Hardware.manual_layout_rankings(
+        jobs, device_selection
+    )
+    if device_rankings is None:
+        representative_indices = Layout_Hardware.representative_job_indices(
+            jobs,
+            node_to_comp_idx,
+            comp_edges,
+            params,
+            engine="molecular_dynamics",
+        )
+        representative_batches = Layout_Hardware.prepare_representative_batches(
+            jobs,
+            representative_indices,
+            node_to_comp_idx,
+            comp_edges,
+            comp_scores,
+            params,
+        )
+        gpu_simulation_class = SSNSimulationGPU if HAS_TORCH else None
+        device_rankings = {
+            size_class: Layout_Hardware.benchmark_layout_devices(
+                prepared,
+                params,
+                selection=device_selection,
+                size_class=size_class,
+                engine_label="Molecular Dynamics",
+                cpu_simulation_class=SSNSimulationCPU,
+                gpu_simulation_class=gpu_simulation_class,
+            )
+            for size_class, prepared in representative_batches.items()
+        }
     
     # 3. Simulate jobs sequentially
     for job_idx, batch_comps in enumerate(jobs):
-        n_batch_nodes = sum(len(c) for c in batch_comps)
-        is_large_job = len(batch_comps) == 1 and n_batch_nodes >= 500
-
-        # Build batch-level arrays
-        batch_global_nodes = []
-        for c in batch_comps:
-            batch_global_nodes.extend(c)
-
-        global_to_batch = {g_id: l_id for l_id, g_id in enumerate(batch_global_nodes)}
-
-        batch_edges_list = []
-        batch_scores_list = []
-        batch_pos_list = []
-        batch_comp_labels_list = []
-        batch_box_limits_list = []
-
-        # Construct initial positions per component
-        for c_idx_in_batch, c in enumerate(batch_comps):
-            n_comp_nodes = len(c)
-            c_idx = node_to_comp_idx[c[0]]
-
-            c_edges = comp_edges[c_idx]
-            c_scores = comp_scores[c_idx]
-
-            comp_global_to_local = {g: l for l, g in enumerate(c)}
-            c_local_edges = [(comp_global_to_local[u], comp_global_to_local[v]) for u, v in c_edges]
-
-            comp_box_limit = (np.sqrt(n_comp_nodes) * 2.5 + 5.0) * params.get('BOX_SCALE', 1.0)
-            local_pos = None
-            spectral_success = False
-
-            if n_comp_nodes >= 4:
-                if n_comp_nodes >= 50:
-                    print(f"  > Calculating Spectral Layout for sub-component ({n_comp_nodes} nodes)...")
-                try:
-                    import scipy.sparse as sp
-                    from scipy.sparse.csgraph import laplacian
-                    from scipy.sparse.linalg import eigsh
-
-                    row = [e[0] for e in c_local_edges] + [e[1] for e in c_local_edges]
-                    col = [e[1] for e in c_local_edges] + [e[0] for e in c_local_edges]
-                    data = c_scores + c_scores
-                    adj = sp.coo_matrix((data, (row, col)), shape=(n_comp_nodes, n_comp_nodes))
-
-                    L = laplacian(adj, normed=True)
-                    vals, vecs = eigsh(L, k=3, which='SM', tol=1e-3)
-
-                    x_coords = vecs[:, 1]
-                    y_coords = vecs[:, 2]
-
-                    x_norm = (x_coords - np.min(x_coords)) / (np.ptp(x_coords) + 1e-9)
-                    y_norm = (y_coords - np.min(y_coords)) / (np.ptp(y_coords) + 1e-9)
-
-                    x_scaled = (x_norm - 0.5) * comp_box_limit * 0.8
-                    y_scaled = (y_norm - 0.5) * comp_box_limit * 0.8
-
-                    local_pos = np.column_stack((x_scaled, y_scaled)).astype(np.float32)
-                    spectral_success = True
-                except Exception as e:
-                    if n_comp_nodes >= 50:
-                        print(f"  > Spectral solver failed: {e}. Falling back to grid layout.")
-
-            if not spectral_success:
-                side_comp = int(np.ceil(np.sqrt(n_comp_nodes)))
-                x_c = np.linspace(-comp_box_limit * 0.5, comp_box_limit * 0.5, side_comp)
-                y_c = np.linspace(-comp_box_limit * 0.5, comp_box_limit * 0.5, side_comp)
-                xv_c, yv_c = np.meshgrid(x_c, y_c)
-                local_pos = np.column_stack((xv_c.flatten(), yv_c.flatten()))[:n_comp_nodes].astype(np.float32)
-
-            # Every connected component has its own local coordinate system.
-            # They may overlap numerically because the physics kernels restrict
-            # all non-bonded interactions to the matching component label.
-            local_min = np.min(local_pos, axis=0)
-            local_max = np.max(local_pos, axis=0)
-            local_pos -= (local_min + local_max) / 2.0
-
-            batch_pos_list.append(local_pos)
-            batch_comp_labels_list.append(
-                np.full(n_comp_nodes, c_idx_in_batch, dtype=np.int32)
-            )
-            batch_box_limits_list.append(
-                np.full(n_comp_nodes, comp_box_limit, dtype=np.float32)
-            )
-
-            for (u, v), score in zip(c_edges, c_scores):
-                batch_edges_list.append((global_to_batch[u], global_to_batch[v]))
-                batch_scores_list.append(score)
-
-        # Unify the arrays for the batch
-        batch_pos = np.vstack(batch_pos_list).astype(np.float32)
-        batch_comp_labels = np.concatenate(batch_comp_labels_list)
-        batch_box_limits = np.concatenate(batch_box_limits_list)
-
-        batch_pos += np.random.normal(0, 0.1, batch_pos.shape).astype(np.float32)
+        prepared_batch = Layout_Hardware.prepare_layout_batch(
+            batch_comps,
+            node_to_comp_idx,
+            comp_edges,
+            comp_scores,
+            params,
+        )
+        n_batch_nodes = prepared_batch.node_count
+        is_large_job = prepared_batch.is_large_job
+        batch_global_nodes = prepared_batch.global_nodes
+        batch_edges_list = prepared_batch.edges
+        batch_scores_list = prepared_batch.scores
+        batch_pos = prepared_batch.positions
+        batch_comp_labels = prepared_batch.component_labels
+        batch_box_limits = prepared_batch.box_limits
+        size_class = Layout_Hardware.layout_size_class(n_batch_nodes)
+        ranked_plans = device_rankings[size_class]
 
         if is_large_job:
              print(f"\nSimulating Large Component {job_idx+1}/{len(jobs)} ({n_batch_nodes} nodes)...")
@@ -790,56 +822,37 @@ def calculate_layout(connectivity, n_nodes, params):
             else:
                 local_edges = np.zeros((0, 2), dtype=np.int32)
                 
-            if use_gpu:
-                sim = SSNSimulationGPU(
-                    batch_pos, local_edges, batch_comp_labels,
-                    batch_box_limits, params, active_mask=stage_active_mask
-                )
+            stage_input = batch_pos.copy()
+            failures = []
+            for ranked_plan in ranked_plans:
+                candidate = ranked_plan.candidate
+                try:
+                    batch_pos = _run_layout_stage(
+                        candidate,
+                        stage_input,
+                        local_edges,
+                        batch_comp_labels,
+                        batch_box_limits,
+                        params,
+                        stage_active_mask,
+                    )
+                    break
+                except (RuntimeError, MemoryError, NotImplementedError) as error:
+                    failures.append(f"{candidate.spec}: {error}")
+                    if Hardware_Utils.normalize_device_selection(device_selection) != 'auto':
+                        raise RuntimeError(
+                            f"Layout failed on manually selected device "
+                            f"'{candidate.spec}': {error}"
+                        ) from error
+                    print(
+                        f"  > Layout stage failed on {candidate.display_name}: "
+                        f"{error}. Retrying from saved stage input."
+                    )
             else:
-                sim = SSNSimulationCPU(
-                    batch_pos, local_edges, batch_comp_labels,
-                    batch_box_limits, params, active_mask=stage_active_mask
+                raise RuntimeError(
+                    "Layout stage failed on every ranked device: "
+                    + "; ".join(failures)
                 )
-                
-            rmsd_window = params.get('RMSD_WINDOW', 50)
-            max_steps = params.get('MAX_STEPS', 2000)
-            rmsd_buffer = deque(maxlen=rmsd_window)
-            avg_history = []
-            
-            for step in range(max_steps):
-                rmsd = sim.step(step)
-                rmsd_buffer.append(rmsd)
-                avg_rmsd = np.mean(rmsd_buffer)
-                
-                if step > 0 and step % 500 == 0:
-                    print(f"    - Step {step:04d}/{max_steps}: RMSD = {avg_rmsd:.5f}")
-                    
-                if len(rmsd_buffer) == rmsd_window:
-                    avg_history.append(avg_rmsd)
-                    
-                    if avg_rmsd < params.get('RMSD_THRESHOLD', 0.005):
-                        print(f"    - Converged at Step {step} (RMSD: {avg_rmsd:.5f})")
-                        break
-                        
-                    pct_threshold = params.get('PERCENTAGE_DROP_THRESHOLD', 0.0)
-                    minimum_observation_steps = max_steps / 4.0
-                    trend_window = 10
-                    
-                    if pct_threshold > 0.0 and len(avg_history) >= (rmsd_window + trend_window) and step > minimum_observation_steps:
-                        current_trend = np.mean(avg_history[-trend_window:])
-                        old_trend = np.mean(avg_history[-(rmsd_window + trend_window):-rmsd_window])
-                        
-                        if old_trend > 0:
-                            pct_drop = ((old_trend - current_trend) / old_trend) * 100.0
-                            if pct_drop < pct_threshold:
-                                print(f"    - Plateau Reached at Step {step} (Drop: {pct_drop:.3f}% < {pct_threshold}%)")
-                                break
-                    
-            batch_pos = sim.get_pos()
-            
-            del sim
-            if HAS_TORCH and torch.cuda.is_available():
-                torch.cuda.empty_cache()
                 
         # Update the final positions
         final_pos[batch_global_nodes] = batch_pos

@@ -8,6 +8,7 @@ import numpy as np
 
 
 SUPPORTED_MODELS = ["esmc_6b"]
+MODEL_EXECUTION_MODES = {"esmc_6b": "remote_api"}
 
 # ESM's sequence tokenizer has distinct tokens for the standard amino acids,
 # the ambiguity codes X/B/U/Z/O, and the alignment symbols "." and "-".
@@ -77,7 +78,7 @@ def load_model(model_name, device):
     token, api_url = _load_api_settings()
     print(
         f"Initializing remote {model_name} ({api_model_name}) API client at {api_url} "
-        f"(local device '{device}' is not used for inference)..."
+        "(remote inference; no local device is used)..."
     )
     return ESMCForgeInferenceClient(
         model=api_model_name,

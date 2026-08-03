@@ -763,6 +763,9 @@ class MainViewer:
                 # Construct params dictionary from cfg
                 params = {
                     'PHYSICS_ENGINE': getattr(cfg, 'PHYSICS_ENGINE', 'Molecular Dynamics (Style)'),
+                    'LAYOUT_DEVICE_SELECTION': getattr(
+                        cfg, 'LAYOUT_DEVICE_SELECTION', 'auto'
+                    ),
                     'BOX_SCALE': getattr(cfg, 'BOX_SCALE', 1.0),
                     'SIMILARITY_THRESHOLD': getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0),
                     'ENABLE_PROGRESSIVE_SIMULATION': getattr(cfg, 'ENABLE_PROGRESSIVE_SIMULATION', True),

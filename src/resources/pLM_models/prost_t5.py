@@ -1,6 +1,7 @@
 import re
 
 SUPPORTED_MODELS = ["ProstT5"]
+MODEL_EXECUTION_MODES = {"ProstT5": "local"}
 
 # ProstT5's published amino-acid preprocessing maps B/Z/U/O to X. J and
 # alignment punctuation are also outside the model's documented AA input.

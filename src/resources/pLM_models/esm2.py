@@ -8,6 +8,14 @@ SUPPORTED_MODELS = [
     "esm2_t36_3B",
     "esm2_t48_15B"
 ]
+MODEL_EXECUTION_MODES = {
+    "esm2_t6_8M": "local",
+    "esm2_t12_35M": "local",
+    "esm2_t30_150M": "local",
+    "esm2_t33_650M": "local",
+    "esm2_t36_3B": "local",
+    "esm2_t48_15B": "local",
+}
 
 # ESM-2 uses the same sequence alphabet as ESM-C: X/B/U/Z/O, ".", and
 # "-" are native tokens, while J must be represented as X.

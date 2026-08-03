@@ -32,39 +32,37 @@ Algorithm:
 """
 # %% Import Necessary Libraries
 import os
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+import time
 from tqdm import tqdm
 import numpy as np
 import torch
 import h5py
-import Hardware_Utils
+from utilities import Hardware_Utils
 
-try:
-    from FASTA_Sanitization import load_sanitized_fasta
-    from Embedding_HDF5 import (
-        create_metadata_first_file,
-        dtype_for_saving_mode,
-        mark_generation_complete,
-        read_embedding_manifest,
-        validate_embedding_array,
-        validate_manifest_records,
-        write_embedding_manifest,
-    )
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import load_sanitized_fasta
-    from src.utilities.Embedding_HDF5 import (
-        create_metadata_first_file,
-        dtype_for_saving_mode,
-        mark_generation_complete,
-        read_embedding_manifest,
-        validate_embedding_array,
-        validate_manifest_records,
-        write_embedding_manifest,
-    )
+from utilities.FASTA_Sanitization import load_sanitized_fasta
+from utilities.Embedding_HDF5 import (
+    create_metadata_first_file,
+    dtype_for_saving_mode,
+    mark_generation_complete,
+    read_embedding_manifest,
+    validate_embedding_array,
+    validate_manifest_records,
+    write_embedding_manifest,
+)
+from utilities.PLM_Plugin_Utils import (
+    read_plugin_metadata,
+    validate_loaded_plugin,
+)
 
 # Script configuration
 INPUT_FASTA = None
 MODEL_NAME = None
 SAVING_MODE = "float16" 
+DEVICE_SELECTION = "auto"
                   
 FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
 EMBED_DIR = os.path.join("..", "Embeddings")
@@ -74,7 +72,7 @@ import json
 import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
@@ -149,26 +147,165 @@ def find_model_plugin(model_name):
         if os.path.basename(filepath) == "__init__.py":
             continue
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                node = ast.parse(f.read(), filename=filepath)
-            
-            supported_models = []
-            for item in node.body:
-                if isinstance(item, ast.Assign):
-                    for target in item.targets:
-                        if isinstance(target, ast.Name) and target.id == "SUPPORTED_MODELS":
-                            supported_models = ast.literal_eval(item.value)
-                            break
+            supported_models, _ = read_plugin_metadata(filepath)
             
             if model_name in supported_models:
                 module_name = os.path.splitext(os.path.basename(filepath))[0]
                 spec = importlib.util.spec_from_file_location(module_name, filepath)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
+                validate_loaded_plugin(module, model_name)
                 return module
-        except Exception as e:
-            print(f"Warning: Failed to parse/load plugin {filepath}: {e}")
+        except Exception as error:
+            raise ValueError(
+                f"Invalid pLM plugin '{os.path.basename(filepath)}': {error}"
+            ) from error
     return None
+
+
+def _move_model_object(model_obj, device):
+    """Move tensors/modules inside the supported plugin container shapes."""
+    if isinstance(model_obj, torch.nn.Module):
+        return model_obj.to(device)
+    if torch.is_tensor(model_obj):
+        return model_obj.to(device)
+    if isinstance(model_obj, tuple):
+        return tuple(_move_model_object(value, device) for value in model_obj)
+    if isinstance(model_obj, list):
+        return [_move_model_object(value, device) for value in model_obj]
+    if isinstance(model_obj, dict):
+        return {
+            key: _move_model_object(value, device)
+            for key, value in model_obj.items()
+        }
+    return model_obj
+
+
+def _representative_sequences(pending):
+    """Choose actual sequences nearest the 25th, 50th, and 90th percentiles."""
+    ordered = sorted((len(sequence), sequence) for _, sequence in pending)
+    if not ordered:
+        return []
+    selected = []
+    for fraction in (0.25, 0.50, 0.90):
+        index = round((len(ordered) - 1) * fraction)
+        sequence = ordered[index][1]
+        if sequence not in selected:
+            selected.append(sequence)
+    return selected
+
+
+def _predicted_embedding_seconds(pending, samples, sample_times, move_seconds):
+    predicted = float(move_seconds)
+    for _, sequence in pending:
+        nearest = min(samples, key=lambda sample: abs(len(sample) - len(sequence)))
+        predicted += sample_times[nearest]
+    return predicted
+
+
+def _recover_model_on_cpu(plugin, model_name, model_obj):
+    """Recover after a partial accelerator move, reloading only if necessary."""
+    cpu = torch.device("cpu")
+    try:
+        return _move_model_object(model_obj, cpu)
+    except Exception:
+        return plugin.load_model(model_name, cpu)
+
+
+def _benchmark_embedding_devices(
+    plugin,
+    model_name,
+    model_obj,
+    pending,
+    target_dtype,
+    feature_dimension,
+    candidates,
+):
+    samples = _representative_sequences(pending)
+    results = []
+    print(
+        "[Hardware] Benchmarking local embedding inference on "
+        f"{len(candidates)} available device(s) using lengths "
+        f"{[len(sequence) for sequence in samples]}..."
+    )
+    print("Device/backend                 Move (s)   Predicted job (s)   Status")
+
+    for candidate in candidates:
+        move_seconds = 0.0
+        try:
+            model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+            Hardware_Utils.release_device_cache(candidate)
+            move_started = time.perf_counter()
+            model_obj = _move_model_object(model_obj, candidate.device)
+            Hardware_Utils.synchronize_device(candidate)
+            move_seconds = time.perf_counter() - move_started
+
+            warmup = samples[0][: min(64, len(samples[0]))]
+            plugin.get_embedding(
+                warmup, model_obj, candidate.device, target_dtype
+            )
+
+            sample_times = {}
+            for sequence in samples:
+                Hardware_Utils.synchronize_device(candidate)
+                started = time.perf_counter()
+                embedding = plugin.get_embedding(
+                    sequence, model_obj, candidate.device, target_dtype
+                )
+                Hardware_Utils.synchronize_device(candidate)
+                sample_times[sequence] = max(
+                    time.perf_counter() - started, 1e-9
+                )
+                validate_embedding_array(
+                    embedding,
+                    sequence,
+                    "float16" if target_dtype == np.dtype(np.float16) else "float32",
+                    feature_dimension=feature_dimension,
+                    require_finite=True,
+                    header="hardware benchmark",
+                )
+
+            predicted = _predicted_embedding_seconds(
+                pending, samples, sample_times, move_seconds
+            )
+            result = Hardware_Utils.BenchmarkResult(candidate, predicted)
+            print(
+                f"{candidate.display_name[:30]:30}  {move_seconds:>8.3f}   "
+                f"{predicted:>17.3f}   ok"
+            )
+        except Exception as error:
+            result = Hardware_Utils.BenchmarkResult(
+                candidate,
+                None,
+                error=f"{type(error).__name__}: {error}",
+            )
+            print(
+                f"{candidate.display_name[:30]:30}  {move_seconds:>8.3f}   "
+                f"{'--':>17}   {result.error}"
+            )
+            model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+        results.append(result)
+
+    ranked = Hardware_Utils.rank_benchmark_results(
+        results, higher_is_better=False
+    )
+    if not ranked:
+        failures = "; ".join(result.error or "unknown" for result in results)
+        raise RuntimeError(f"No device completed the embedding benchmark: {failures}")
+    winner = ranked[0]
+    fastest = min(
+        (result for result in results if result.succeeded),
+        key=lambda result: float(result.value),
+    )
+    tie_applied = winner.candidate.spec != fastest.candidate.spec
+    model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+    model_obj = _move_model_object(model_obj, winner.candidate.device)
+    Hardware_Utils.synchronize_device(winner.candidate)
+    print(
+        f"[Hardware] Selected {winner.candidate.display_name} for embeddings; "
+        f"3% tie preference {'applied' if tie_applied else 'not applied'}."
+    )
+    return model_obj, ranked
 
 def generate_embeddings(
     input_fasta,
@@ -282,16 +419,86 @@ def generate_embeddings(
                 f"Model '{model_name}' is not supported by any available "
                 "plugin in 'pLM_models'."
             )
-        device = Hardware_Utils.get_optimal_device()
-        model_obj = plugin.load_model(model_name, device)
+        execution_mode = validate_loaded_plugin(plugin, model_name)
 
-        for header, sequence in tqdm(pending, desc="Embedding"):
-            embedding = plugin.get_embedding(
-                sequence,
-                model_obj,
-                device,
-                target_dtype,
+        ranked_devices = []
+        manual_candidate = None
+        if execution_mode == "remote_api":
+            print(
+                f"[Hardware] Model '{model_name}' uses remote API inference; "
+                "local CPU/GPU benchmarking is not applicable."
             )
+            device = None
+            model_obj = plugin.load_model(model_name, device)
+        else:
+            available_devices = Hardware_Utils.get_available_devices()
+            manual_candidate = Hardware_Utils.resolve_device_selection(
+                DEVICE_SELECTION,
+                available_devices,
+            )
+
+        if execution_mode == "remote_api":
+            pass
+        elif manual_candidate is not None:
+            device = manual_candidate.device
+            print(f"[Hardware] Using manually selected {manual_candidate.display_name}.")
+            model_obj = plugin.load_model(model_name, device)
+            ranked_devices = [
+                Hardware_Utils.BenchmarkResult(manual_candidate, 0.0)
+            ]
+        elif len(available_devices) == 1:
+            only_candidate = available_devices[0]
+            device = only_candidate.device
+            print(f"[Hardware] Only {only_candidate.display_name} is available.")
+            model_obj = plugin.load_model(model_name, device)
+            ranked_devices = [
+                Hardware_Utils.BenchmarkResult(only_candidate, 0.0)
+            ]
+        else:
+            model_obj = plugin.load_model(model_name, torch.device("cpu"))
+            model_obj, ranked_devices = _benchmark_embedding_devices(
+                plugin,
+                model_name,
+                model_obj,
+                pending,
+                target_dtype,
+                feature_dimension,
+                available_devices,
+            )
+            device = ranked_devices[0].candidate.device
+
+        active_rank = 0
+        for header, sequence in tqdm(pending, desc="Embedding"):
+            while True:
+                try:
+                    embedding = plugin.get_embedding(
+                        sequence,
+                        model_obj,
+                        device,
+                        target_dtype,
+                    )
+                    break
+                except (RuntimeError, NotImplementedError, MemoryError) as error:
+                    if execution_mode != "local":
+                        raise
+                    if manual_candidate is not None:
+                        raise RuntimeError(
+                            f"Embedding '{header}' failed on manually selected "
+                            f"device '{manual_candidate.spec}': {error}"
+                        ) from error
+                    active_rank += 1
+                    if active_rank >= len(ranked_devices):
+                        raise RuntimeError(
+                            f"Every benchmarked device failed while embedding '{header}'."
+                        ) from error
+                    fallback = ranked_devices[active_rank].candidate
+                    print(
+                        f"[Hardware] {type(error).__name__} on {device}; "
+                        f"retrying '{header}' on {fallback.display_name}."
+                    )
+                    model_obj = _recover_model_on_cpu(plugin, model_name, model_obj)
+                    model_obj = _move_model_object(model_obj, fallback.device)
+                    device = fallback.device
             feature_dimension = validate_embedding_array(
                 embedding,
                 sequence,

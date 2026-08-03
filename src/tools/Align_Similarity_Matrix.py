@@ -32,6 +32,10 @@ Algorithm:
 # %% Import Necessary Libraries
 # Limit threads to prevent CPU thrashing
 import os
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -54,13 +58,9 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
-import Hardware_Utils
-from Alignment_Score_Kernels import global_local_scores
-
-try:
-    from Embedding_HDF5 import read_embedding_manifest
-except ModuleNotFoundError:
-    from src.utilities.Embedding_HDF5 import read_embedding_manifest
+from utilities import Hardware_Utils
+from utilities.Alignment_Score_Kernels import global_local_scores
+from utilities.Embedding_HDF5 import read_embedding_manifest
 
 # ==========================================
 # CONFIGURATION
@@ -71,6 +71,7 @@ PREFILTER_STRENGTH = 20
 POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
 LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
 WORKERS = 12
+DEVICE_SELECTION = "auto"
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
 # Compatibility for callers that use _accelerator_worker_count directly.
@@ -89,7 +90,7 @@ import ast
 import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
@@ -419,21 +420,20 @@ def _configured_accelerator_lanes(device, cpu_workers):
             return None
         try:
             configured = int(normalized)
-        except ValueError:
-            print(
-                f"⚠️ Invalid ACCELERATOR_LANES={configured!r}; using auto."
-            )
-            return None
+        except ValueError as error:
+            raise ValueError(
+                "ACCELERATOR_LANES must be 'auto' or a positive integer."
+            ) from error
 
     try:
         configured = int(configured)
-    except (TypeError, ValueError):
-        print(f"⚠️ Invalid ACCELERATOR_LANES={configured!r}; using auto.")
-        return None
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "ACCELERATOR_LANES must be 'auto' or a positive integer."
+        ) from error
 
     if configured < 1:
-        print(f"⚠️ ACCELERATOR_LANES must be positive; using auto.")
-        return None
+        raise ValueError("ACCELERATOR_LANES must be a positive integer.")
     return _accelerator_worker_count(device, cpu_workers, configured)
 
 
@@ -795,7 +795,9 @@ def process_accelerated_tasks(
     )
 
 
-def process_cpu_tasks(batch_tasks, workers, input_h5, batch_id):
+def process_cpu_tasks(
+    batch_tasks, workers, input_h5, batch_id, show_progress=True
+):
     """Process complete pairs in parallel when no accelerator is available."""
     results = []
     with Pool(
@@ -808,14 +810,263 @@ def process_cpu_tasks(batch_tasks, workers, input_h5, batch_id):
             batch_tasks,
             chunksize=10,
         )
-        for result in tqdm(
+        progress = tqdm(
             iterator,
             total=len(batch_tasks),
             desc=f"  Batch {batch_id}",
             leave=False,
-        ):
+            disable=not show_progress,
+        )
+        for result in progress:
             results.append(result)
     return results
+
+
+def _representative_alignment_tasks(batch_tasks, input_h5, limit):
+    """Select a deterministic, cost-stratified subset of pending pairs."""
+    if len(batch_tasks) <= limit:
+        return list(batch_tasks)
+    probe_count = min(len(batch_tasks), max(int(limit) * 8, int(limit)))
+    probe_indices = np.linspace(
+        0, len(batch_tasks) - 1, num=probe_count, dtype=np.int64
+    )
+    probes = [batch_tasks[int(index)] for index in probe_indices]
+    with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf:
+        scored = []
+        for task in probes:
+            _, _, header_i, header_j = task
+            shape_i = hf["embeddings"][header_i].shape
+            shape_j = hf["embeddings"][header_j].shape
+            feature_dim = shape_i[1] if len(shape_i) > 1 else 1
+            scored.append((shape_i[0] * shape_j[0] * feature_dim, task))
+    scored.sort(key=lambda item: item[0])
+    selected_indices = np.linspace(
+        0, len(scored) - 1, num=min(int(limit), len(scored)), dtype=np.int64
+    )
+    return [scored[int(index)][1] for index in selected_indices]
+
+
+def _representative_pending_pairs(
+    safe_headers,
+    sequence_lengths,
+    computed_mask,
+    required_mask,
+    num_tasks,
+    limit,
+):
+    """Sample the complete pending workload, then stratify by estimated cost."""
+    limit = max(1, min(int(limit), int(num_tasks)))
+    probe_count = min(int(num_tasks), max(limit * 8, limit))
+    target_ordinals = np.linspace(
+        0, int(num_tasks) - 1, num=probe_count, dtype=np.int64
+    )
+    targets = set(int(value) for value in target_ordinals)
+    probes = []
+    ordinal = 0
+    n_sequences = len(safe_headers)
+    for row in range(n_sequences):
+        columns = np.arange(row + 1, n_sequences)
+        pending = ~computed_mask[row, row + 1:]
+        if required_mask is not None:
+            pending &= required_mask[row, row + 1:]
+        for column in columns[pending]:
+            if ordinal in targets:
+                cost = int(sequence_lengths[row]) * int(sequence_lengths[column])
+                probes.append(
+                    (
+                        cost,
+                        (
+                            row,
+                            int(column),
+                            safe_headers[row],
+                            safe_headers[column],
+                        ),
+                    )
+                )
+            ordinal += 1
+
+    probes.sort(key=lambda item: (item[0], item[1][0], item[1][1]))
+    selected_indices = np.linspace(
+        0, len(probes) - 1, num=min(limit, len(probes)), dtype=np.int64
+    )
+    return [probes[int(index)][1] for index in selected_indices]
+
+
+def _benchmark_processing_plans(
+    batch_tasks,
+    workers,
+    input_h5,
+    batch_id,
+):
+    """Compare the complete CPU path with every accelerator/lane plan."""
+    candidates = Hardware_Utils.get_available_devices()
+    manual = Hardware_Utils.resolve_device_selection(
+        DEVICE_SELECTION, candidates
+    )
+    if manual is not None and manual.is_cpu:
+        print(f"[Hardware] Using manually selected {manual.display_name}.")
+        return [Hardware_Utils.BenchmarkResult(manual, 0.0)]
+
+    sample = _representative_alignment_tasks(
+        batch_tasks,
+        input_h5,
+        max(2, min(int(ACCELERATOR_TUNE_PAIRS), len(batch_tasks))),
+    )
+
+    if manual is not None:
+        lanes = _select_accelerator_lanes(
+            sample, workers, input_h5, manual.device, batch_id
+        )
+        print(
+            f"[Hardware] Using manually selected {manual.display_name} "
+            f"with {lanes} lane(s)."
+        )
+        return [Hardware_Utils.BenchmarkResult(manual, 0.0, lanes=lanes)]
+
+    print(
+        f"[Hardware] Benchmarking {len(candidates)} device(s) with "
+        f"{len(sample)} representative alignment pairs..."
+    )
+    print("Device/backend                 Lanes   Throughput (pairs/s)   Status")
+    results = []
+    for candidate in candidates:
+        configured_lanes = (
+            None
+            if candidate.is_cpu
+            else _configured_accelerator_lanes(candidate.device, workers)
+        )
+        lane_candidates = [1] if candidate.is_cpu else (
+            [configured_lanes]
+            if configured_lanes is not None
+            else _accelerator_lane_candidates(candidate.device, workers)
+        )
+        if candidate.is_cpu:
+            try:
+                process_cpu_tasks(
+                    sample[: min(2, len(sample))],
+                    workers,
+                    input_h5,
+                    batch_id,
+                    show_progress=False,
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                _run_accelerated_pipeline(
+                    sample[: min(2, len(sample))],
+                    workers,
+                    input_h5,
+                    candidate.device,
+                    batch_id,
+                    accelerator_workers=1,
+                    show_progress=False,
+                )
+            except Exception:
+                pass
+
+        for lanes in lane_candidates:
+            started = time.perf_counter()
+            try:
+                if candidate.is_cpu:
+                    process_cpu_tasks(
+                        sample,
+                        workers,
+                        input_h5,
+                        batch_id,
+                        show_progress=False,
+                    )
+                else:
+                    _run_accelerated_pipeline(
+                        sample,
+                        workers,
+                        input_h5,
+                        candidate.device,
+                        batch_id,
+                        accelerator_workers=lanes,
+                        show_progress=False,
+                    )
+                elapsed = max(time.perf_counter() - started, 1e-9)
+                rate = len(sample) / elapsed
+                result = Hardware_Utils.BenchmarkResult(
+                    candidate, rate, lanes=lanes
+                )
+                print(
+                    f"{candidate.display_name[:30]:30}  {lanes:>5}   "
+                    f"{rate:>20.2f}   ok"
+                )
+            except Exception as error:
+                result = Hardware_Utils.BenchmarkResult(
+                    candidate,
+                    None,
+                    lanes=lanes,
+                    error=f"{type(error).__name__}: {error}",
+                )
+                print(
+                    f"{candidate.display_name[:30]:30}  {lanes:>5}   "
+                    f"{'--':>20}   {result.error}"
+                )
+            results.append(result)
+        Hardware_Utils.release_device_cache(candidate)
+
+    ranked = Hardware_Utils.rank_benchmark_results(
+        results, higher_is_better=True
+    )
+    if not ranked:
+        raise RuntimeError("No CPU or accelerator alignment plan completed.")
+    winner = ranked[0]
+    fastest = max(
+        (result for result in results if result.succeeded),
+        key=lambda result: float(result.value),
+    )
+    tie_applied = (
+        winner.candidate.spec != fastest.candidate.spec
+        or winner.lanes != fastest.lanes
+    )
+    print(
+        f"[Hardware] Selected {winner.candidate.display_name} with "
+        f"{winner.lanes} lane(s); 3% tie preference "
+        f"{'applied' if tie_applied else 'not applied'}."
+    )
+    return ranked
+
+
+def _run_batch_with_ranked_plans(
+    ranked_plans,
+    active_plan_index,
+    *process_args,
+    **process_kwargs,
+):
+    """Run one uncommitted batch, failing over only in automatic mode."""
+    while active_plan_index < len(ranked_plans):
+        plan = ranked_plans[active_plan_index]
+        try:
+            process_batch(
+                *process_args,
+                **process_kwargs,
+                device=plan.candidate.device,
+                accelerator_workers=(
+                    None if plan.candidate.is_cpu else plan.lanes
+                ),
+            )
+            return active_plan_index
+        except (RuntimeError, NotImplementedError, MemoryError) as error:
+            if Hardware_Utils.normalize_device_selection(DEVICE_SELECTION) != "auto":
+                raise RuntimeError(
+                    f"Alignment batch failed on manually selected device "
+                    f"'{plan.candidate.spec}': {error}"
+                ) from error
+            active_plan_index += 1
+            if active_plan_index >= len(ranked_plans):
+                raise RuntimeError(
+                    "Every benchmarked alignment processing plan failed."
+                ) from error
+            fallback = ranked_plans[active_plan_index]
+            print(
+                f"[Hardware] {type(error).__name__}; retrying batch on "
+                f"{fallback.candidate.display_name}, lanes={fallback.lanes}."
+            )
+    raise RuntimeError("No alignment processing plan is available.")
 
 
 # %% =======================================
@@ -1248,11 +1499,27 @@ def run_job_distributor():
     if num_tasks > 0:
         current_batch = []
         batch_id = next_batch_id
-        processing_device = Hardware_Utils.get_optimal_device()
-        accelerator_workers = None
-        
+        active_plan_index = 0
+        benchmark_tasks = _representative_pending_pairs(
+            safe_headers,
+            seq_lens,
+            computed_mask,
+            required_mask,
+            num_tasks,
+            ACCELERATOR_TUNE_PAIRS,
+        )
+        ranked_plans = _benchmark_processing_plans(
+            benchmark_tasks,
+            WORKERS,
+            FULL_INPUT_HDF5,
+            batch_id,
+        )
         batches_to_run = math.ceil(num_tasks / BATCH_SIZE)
-        pbar = None
+        pbar = tqdm(
+            total=batches_to_run,
+            desc="Overall Progress",
+            unit="batch",
+        )
         
         for i in range(n):
             cols = np.arange(i + 1, n)
@@ -1271,21 +1538,9 @@ def run_job_distributor():
             for j_val in pending_cols:
                 current_batch.append((i, int(j_val), safe_headers[i], safe_headers[j_val]))
                 if len(current_batch) >= BATCH_SIZE:
-                    if pbar is None:
-                        if _uses_accelerator(processing_device):
-                            accelerator_workers = _select_accelerator_lanes(
-                                current_batch,
-                                WORKERS,
-                                FULL_INPUT_HDF5,
-                                processing_device,
-                                batch_id,
-                            )
-                        pbar = tqdm(
-                            total=batches_to_run,
-                            desc="Overall Progress",
-                            unit="batch",
-                        )
-                    process_batch(
+                    active_plan_index = _run_batch_with_ranked_plans(
+                        ranked_plans,
+                        active_plan_index,
                         current_batch,
                         batch_id,
                         WORKERS,
@@ -1294,29 +1549,15 @@ def run_job_distributor():
                         current_model_name,
                         current_saving_mode,
                         current_gap_penalties,
-                        device=processing_device,
-                        accelerator_workers=accelerator_workers,
                     )
                     batch_id += 1
                     current_batch = []
                     pbar.update(1)
 
         if len(current_batch) > 0:
-            if pbar is None:
-                if _uses_accelerator(processing_device):
-                    accelerator_workers = _select_accelerator_lanes(
-                        current_batch,
-                        WORKERS,
-                        FULL_INPUT_HDF5,
-                        processing_device,
-                        batch_id,
-                    )
-                pbar = tqdm(
-                    total=batches_to_run,
-                    desc="Overall Progress",
-                    unit="batch",
-                )
-            process_batch(
+            active_plan_index = _run_batch_with_ranked_plans(
+                ranked_plans,
+                active_plan_index,
                 current_batch,
                 batch_id,
                 WORKERS,
@@ -1325,13 +1566,10 @@ def run_job_distributor():
                 current_model_name,
                 current_saving_mode,
                 current_gap_penalties,
-                device=processing_device,
-                accelerator_workers=accelerator_workers,
             )
             pbar.update(1)
             
-        if pbar is not None:
-            pbar.close()
+        pbar.close()
 
     # Compile intermediate HDF5 batches into final output
     compile_final_output(

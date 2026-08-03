@@ -33,6 +33,12 @@ Algorithm:
 # %% Import Necessary Libraries
 # Limit threads to prevent CPU thrashing
 import os
+
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -55,13 +61,9 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
-import Hardware_Utils
-from Alignment_Score_Kernels import global_local_scores
-
-try:
-    from Embedding_HDF5 import read_embedding_manifest
-except ModuleNotFoundError:
-    from src.utilities.Embedding_HDF5 import read_embedding_manifest
+from utilities import Hardware_Utils
+from utilities.Alignment_Score_Kernels import global_local_scores
+from utilities.Embedding_HDF5 import read_embedding_manifest
 
 # ==========================================
 # CONFIGURATION
@@ -87,7 +89,7 @@ import json
 import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 

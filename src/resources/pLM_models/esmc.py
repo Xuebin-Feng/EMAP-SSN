@@ -1,6 +1,10 @@
 import re
 
 SUPPORTED_MODELS = ["esmc_300m", "esmc_600m"]
+MODEL_EXECUTION_MODES = {
+    "esmc_300m": "local",
+    "esmc_600m": "local",
+}
 
 # ESM's sequence tokenizer has distinct tokens for the standard amino acids,
 # the ambiguity codes X/B/U/Z/O, and the alignment symbols "." and "-".

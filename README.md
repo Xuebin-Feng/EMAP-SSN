@@ -122,7 +122,9 @@ Sequence_Similarity_Network_Viewer/
 │   │
 │   ├── commands/             # Command modules for interactive viewer console
 │   ├── resources/            # Configuration and system prompts
-│   ├── utilities/            # Underlying processing and pipeline scripts
+│   ├── tools/                # Executable processing scripts exposed by SSN_Tools
+│   │   └── tool_descriptions/# Markdown documentation displayed by the Tools GUI
+│   ├── utilities/            # Shared hardware, HDF5, alignment, and FASTA helpers
 │   └── web_ui/               # Embedded web UI backend and interfaces
 │
 ├── docs/                     # Documentation screenshots and descriptions

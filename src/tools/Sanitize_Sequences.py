@@ -47,25 +47,21 @@ Output:
 """
 
 import os
+try:
+    from tools import _bootstrap
+except ModuleNotFoundError:
+    import _bootstrap
 import tempfile
 from tqdm import tqdm
 from collections import Counter
 import matplotlib.pyplot as plt
 
-try:
-    from FASTA_Sanitization import (
-        allocate_unique_headers,
-        sanitize_header,
-        sanitize_sequence,
-        select_preferred_header,
-    )
-except ModuleNotFoundError:
-    from src.utilities.FASTA_Sanitization import (
-        allocate_unique_headers,
-        sanitize_header,
-        sanitize_sequence,
-        select_preferred_header,
-    )
+from utilities.FASTA_Sanitization import (
+    allocate_unique_headers,
+    sanitize_header,
+    sanitize_sequence,
+    select_preferred_header,
+)
 
 # ==========================================
 # CONFIGURATION
@@ -84,7 +80,7 @@ import json
 import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
-# (Assuming utility scripts are located in the /utilities/ folder)
+# (Tool scripts are located in the /tools/ folder)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
