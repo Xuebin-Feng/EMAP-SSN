@@ -39,6 +39,14 @@ def get_combined_colors(n_clusters):
             colors.append(rgb)
     return colors
 
+def get_cluster_color_map(cluster_ids):
+    sorted_clusters = sorted([cid for cid in cluster_ids if cid != -1])
+    n_clusters = len(sorted_clusters)
+    if n_clusters > 0:
+        combined_colors = get_combined_colors(n_clusters)
+        return {cid: combined_colors[idx % len(combined_colors)] for idx, cid in enumerate(sorted_clusters)}
+    return {}
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -99,12 +107,7 @@ def run(viewer, args):
         label_counts = dict(zip(unique_labels, counts))
         
         sorted_clusters = sorted([k for k in label_counts.keys() if k != -1])
-        n_clusters = len(sorted_clusters)
-        if n_clusters > 0:
-            combined_colors = get_combined_colors(n_clusters)
-            color_map = {cid: combined_colors[idx % len(combined_colors)] for idx, cid in enumerate(sorted_clusters)}
-        else:
-            color_map = {}
+        color_map = get_cluster_color_map(sorted_clusters)
             
         noise_count = label_counts.get(-1, 0)
         noise_colored = get_colored_cluster_name(-1, "Noise (Unclustered)", color_map)
@@ -294,10 +297,10 @@ def run(viewer, args):
         if hasattr(viewer, 'edge_scores'):
             G.es['weight'] = viewer.edge_scores
             print(f"Running Leiden (Resolution = {resolution}, Weighted).")
-            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, weights='weight')
+            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, weights='weight', seed=42)
         else:
             print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
-            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution)
+            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, seed=42)
             
         cluster_id = 1
         for comp in partition:
@@ -318,12 +321,7 @@ def run(viewer, args):
     
     # Apply Colors
     unique_clusters = sorted([k for k in np.unique(labels) if k != -1])
-    n_clusters = len(unique_clusters)
-    if n_clusters > 0:
-        combined_colors = get_combined_colors(n_clusters)
-        color_map = {cid: combined_colors[idx % len(combined_colors)] for idx, cid in enumerate(unique_clusters)}
-    else:
-        color_map = {}
+    color_map = get_cluster_color_map(unique_clusters)
 
     for i in range(n_nodes):
         lbl = labels[i]

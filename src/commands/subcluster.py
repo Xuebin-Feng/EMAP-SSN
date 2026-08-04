@@ -19,7 +19,7 @@ def get_colored_subcluster_name(sub_id, name_str, color_map=None):
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
     else:
         r, g, b = 180, 180, 180
-    return f"\033[38;2;{r};{g};{b}m{name_str}\033[0m"
+    return f"\033[38;2;{r};{g};{b}m●\033[0m {name_str}"
 
 def get_subcluster_colors(n_subclusters):
     if n_subclusters <= 0:
@@ -154,7 +154,9 @@ def run(viewer, args):
         elif mode == "mcl": param1 = 2.0
         elif mode == "leiden": param1 = 1.0
 
-    print(f"Subclustering cluster_{cluster_id} ({mode.upper()}) (Param={param1}, MinSize={min_sz})...")
+    if hasattr(viewer, 'console_text'):
+        viewer.console_text.text = f"Subclustering cluster_{cluster_id} ({mode.upper()})..."
+    print(f"Running {mode.upper()} Subclustering for cluster_{cluster_id} (Param={param1}, MinSize={min_sz})...")
 
     # --- 3. Extract Subgraph Edges ---
     edges = np.array(viewer.edges, dtype=np.int32)
@@ -254,6 +256,7 @@ def run(viewer, args):
             viewer.console_text.text = msg
             return
             
+        print("Building Sparse Adjacency Matrix...")
         row = np.concatenate([local_edges[:, 0], local_edges[:, 1]])
         col = np.concatenate([local_edges[:, 1], local_edges[:, 0]])
         
@@ -268,6 +271,7 @@ def run(viewer, args):
         from scipy.sparse import SparseEfficiencyWarning
         warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
         
+        print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
         result = mc.run_mcl(matrix, inflation=inflation)
         clusters = mc.get_clusters(result)
         
@@ -292,13 +296,16 @@ def run(viewer, args):
             viewer.console_text.text = msg
             return
             
+        print("Building Graph & Mapping Edge Weights...")
         G = ig.Graph(n=n_sub, edges=local_edges.tolist())
         
         if local_edge_scores is not None:
             G.es['weight'] = local_edge_scores
-            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, weights='weight')
+            print(f"Running Leiden (Resolution = {resolution}, Weighted).")
+            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, weights='weight', seed=42)
         else:
-            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution)
+            print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
+            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, seed=42)
             
         sub_id = 1
         for comp in partition:
@@ -321,7 +328,7 @@ def run(viewer, args):
         for g in to_remove:
             g_set.remove(g)
 
-    # Assign new ones
+    # Assign new ones and calculate counts
     sub_counts = {}
     for l_idx, m in enumerate(local_labels):
         if m != -1:
@@ -330,18 +337,7 @@ def run(viewer, args):
             viewer.group_labels[global_idx].add(g_name)
             sub_counts[m] = sub_counts.get(m, 0) + 1
 
-    viewer.update_nodes()
-
-    # --- 5. Print Statistics ---
-    print(f"\n{'='*52}")
-    print(f"--- Subcluster Stats for Cluster {cluster_id} (Total Nodes: {n_sub}) ---")
-    print(f"{'='*52}")
-    print(f"| {'Subcluster Name':<20} | {'Node Count':>10} | {'Percent':>10} |")
-    print(f"|{'-'*22}+{'-'*12}+{'-'*12}|")
-    
-    noise_count = np.sum(local_labels == -1)
-    noise_pct = (noise_count / n_sub) * 100
-    
+    # Compute color map for subclusters
     sorted_subs = sorted(sub_counts.keys())
     n_subclusters = len(sorted_subs)
     if n_subclusters > 0:
@@ -349,7 +345,28 @@ def run(viewer, args):
         color_map = {sid: sub_colors[idx % len(sub_colors)] for idx, sid in enumerate(sorted_subs)}
     else:
         color_map = {}
-        
+
+    # Assign colors to viewer.current_colors for nodes in the subclustered target
+    for l_idx, m in enumerate(local_labels):
+        global_idx = local_to_global[l_idx]
+        if m == -1:
+            viewer.current_colors[global_idx] = (0.8, 0.8, 0.8, 0.4)  # Grey for noise
+        else:
+            r, g, b = color_map[m]
+            viewer.current_colors[global_idx] = (r, g, b, 1.0)
+
+    viewer.update_nodes()
+
+    # --- 5. Print Statistics ---
+    print(f"\n{'='*54}")
+    print(f"--- {mode.upper()} Subclustering Stats for Cluster {cluster_id} (Total Nodes: {n_sub}) ---")
+    print(f"{'='*54}")
+    print(f"| {'Subcluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
+    print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
+    
+    noise_count = np.sum(local_labels == -1)
+    noise_pct = (noise_count / n_sub) * 100
+    
     noise_name_padded = get_colored_subcluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
     print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
     
@@ -358,9 +375,10 @@ def run(viewer, args):
         pct = (count / n_sub) * 100
         sub_name_padded = get_colored_subcluster_name(m, f"{f'subcluster_{cluster_id}_{m}':<20}", color_map)
         print(f"| {sub_name_padded} | {count:>10} | {pct:>9.2f}% |")
-    print(f"{'='*52}\n")
+    print(f"{'='*54}\n")
 
     msg = f"Done! Found {n_subclusters} subclusters in cluster_{cluster_id} via {mode.upper()}."
     if hasattr(viewer, 'console_text'):
         viewer.console_text.text = msg
     print(msg)
+

@@ -3,6 +3,7 @@ import os
 import glob
 import re
 import traceback
+import datetime
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -14,6 +15,10 @@ from Bio.Align import MultipleSeqAlignment
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Cache_Manifest as cache_manifest
+try:
+    import commands.cluster as cluster_cmd
+except ImportError:
+    import cluster as cluster_cmd
 
 def print_help():
     print("""
@@ -310,10 +315,9 @@ def run(viewer, args):
         master_labels = set()
         cluster_results = []
         
-        try:
-            cmap = cm.get_cmap('tab20')
-        except AttributeError:
-            cmap = matplotlib.colormaps['tab20']
+        # Build color map for topology clusters using cluster_cmd
+        cluster_ids = [entity_id for entity_type, entity_id, _, _ in tasks if entity_type == 'cluster']
+        cluster_color_map = cluster_cmd.get_cluster_color_map(cluster_ids)
 
         for entity_type, entity_id, c_aln, c_map in tasks:
             try:
@@ -346,7 +350,11 @@ def run(viewer, args):
                 
                 # Format Output Styling
                 if entity_type == 'cluster':
-                    hex_code = mcolors.to_hex(cmap(entity_id % 20))
+                    if entity_id in cluster_color_map:
+                        rgb = cluster_color_map[entity_id]
+                        hex_code = mcolors.to_hex(rgb)
+                    else:
+                        hex_code = "-"
                     name_str = f"Cluster {entity_id}"
                     sort_key = (0, entity_id)
                 else:
@@ -378,12 +386,9 @@ def run(viewer, args):
         out_dir = cfg.CLUSTER_LABEL_DIR
         if not os.path.exists(out_dir): os.makedirs(out_dir)
         
-        # Build clean filename
-        if lvl2_name:
-            out_filename = f"{lvl1_name}_{lvl2_name}_Gmax{int(global_max*100)}_Cmin{int(cluster_min*100)}_Gmin{int(global_min*100)}.xlsx"
-        else:
-            out_filename = f"{lvl1_name}_Gmax{int(global_max*100)}_Cmin{int(cluster_min*100)}_Gmin{int(global_min*100)}.xlsx"
-            
+        # Build simplified timestamped filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_filename = f"Label_Output_{timestamp}.xlsx"
         out_path = os.path.join(out_dir, out_filename)
 
         global_list = []
@@ -398,9 +403,31 @@ def run(viewer, args):
         
         ref_display = getattr(viewer, 'resolved_ref_full', None) or viewer.active_reference or "None"
         
+        # Prepare Metadata details
+        fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
+        fasta_name = os.path.basename(fasta_file) if fasta_file else getattr(cfg, 'SEQUENCE_SET', 'N/A')
+        
+        network_file = getattr(cfg, 'INPUT_HDF5', None)
+        network_name = os.path.basename(network_file) if network_file else "N/A"
+        
+        msa_file = getattr(cfg, 'MSA_FILE', None)
+        alignment_name = os.path.basename(msa_file) if msa_file else "N/A"
+        
+        if getattr(viewer, 'last_cluster_params', None):
+            c_mode_param, c_min_param = viewer.last_cluster_params
+            parts = c_mode_param.split('_')
+            cluster_mode = parts[0] if parts else c_mode_param
+            param_val = parts[1] if len(parts) > 1 else ""
+            cluster_params = f"Param: {param_val}, Min Size: {c_min_param}" if param_val else f"Min Size: {c_min_param}"
+        else:
+            cluster_mode = "Groups" if forced_target == "groups" else "N/A"
+            cluster_params = "N/A"
+
+        label_params = f"gmax={int(global_max*100)}%, cmin={int(cluster_min*100)}%, gmin={int(global_min*100)}%, target={forced_target}"
+
         try:
             import openpyxl
-            from openpyxl.styles import PatternFill
+            from openpyxl.styles import PatternFill, Font
         except ImportError:
             viewer.console_text.text = "Error: 'openpyxl' is required for XLSX export. Run: pip install openpyxl"
             print("Error: openpyxl not installed.")
@@ -410,10 +437,43 @@ def run(viewer, args):
             wb = openpyxl.Workbook()
             
             # ==========================================
-            # TAB 1: Subset Specific Matrix
+            # TAB 1: Meta Data
             # ==========================================
-            ws1 = wb.active
-            ws1.title = "Subset Stats"
+            ws_meta = wb.active
+            ws_meta.title = "Meta Data"
+            
+            total_nodes = getattr(viewer, 'n_nodes', total_global_seqs)
+            n_clusters = len([r for r in cluster_results if r['type'] == 'cluster'])
+            n_groups = len([r for r in cluster_results if r['type'] == 'group'])
+            if n_clusters > 0 and n_groups > 0:
+                topology_str = f"{total_nodes} nodes with {n_clusters} Clusters, {n_groups} Groups"
+            elif n_clusters > 0:
+                topology_str = f"{total_nodes} nodes with {n_clusters} Clusters"
+            else:
+                topology_str = f"{total_nodes} nodes with {n_groups} Groups"
+
+            ws_meta.append(["Metadata Field", "Value"])
+            ws_meta.append(["Cluster Mode", cluster_mode])
+            ws_meta.append(["Cluster Parameters", cluster_params])
+            ws_meta.append(["Network Topology", topology_str])
+            ws_meta.append(["Fasta Name", fasta_name])
+            ws_meta.append(["Network Name", network_name])
+            ws_meta.append(["Alignment Name", alignment_name])
+            ws_meta.append(["Label Parameters", label_params])
+            
+            # Style header row for Meta Data tab
+            header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+            header_font = Font(color="FFFFFF", bold=True)
+            for cell in ws_meta[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+            ws_meta.column_dimensions['A'].width = 25
+            ws_meta.column_dimensions['B'].width = 50
+
+            # ==========================================
+            # TAB 2: Subset Specific Matrix
+            # ==========================================
+            ws1 = wb.create_sheet(title="Subset Stats")
             
             # Write Metadata 
             _append_workbook_metadata(
@@ -600,6 +660,14 @@ def run(viewer, args):
                 
                 for col_index, occ_val in row_occs2.items():
                     ws2.cell(row=current_row2, column=col_index).fill = get_occ_fill2(occ_val)
+
+            # Auto-fit Column A width based on the longest cluster or group name
+            name_lengths = [len("Subset Name"), len("Global Stats")] + [len(res['name']) for res in cluster_results]
+            max_name_len = max(name_lengths) if name_lengths else 15
+            col_a_width = max(max_name_len + 3, 15)
+
+            ws1.column_dimensions['A'].width = col_a_width
+            ws2.column_dimensions['A'].width = col_a_width
 
             wb.save(out_path)
             

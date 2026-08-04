@@ -1,6 +1,9 @@
 import os
 import re
 import fnmatch
+import os
+import re
+import fnmatch
 import numpy as np
 from collections import Counter
 import SSN_Config as cfg
@@ -12,24 +15,35 @@ def print_help():
     Subsection Query & Alignment Statistics Tool
     ==========================================
     Usage: query [EXPRESSION] [POSITIONS]
+           query [EXPRESSION] [LOGIC_ARGUMENT]
            query help
 
     Description:
-      Queries the loaded alignment for the amino acid distribution at the specified 
-      reference positions. Can query globally OR on a subset of nodes using logic.
+      Queries the loaded alignment for amino acid distribution at specified reference
+      positions (Mode 1), OR searches for alignment positions matching specific amino 
+      acid frequency criteria (Mode 2).
+      
+      Can query globally OR on a subset of nodes using logical sequence selection.
 
       * QUICK USE: If no expression is provided, the command automatically targets 
         the nodes currently selected in the viewer. If no nodes are selected, it 
         defaults to querying ALL nodes in the entire network.
 
-    Syntax & Targets:
-      1. Positions:  Comma-separated list or ranges enclosed in brackets. 
-                     Accepts decimal positions, and 'E' or 'END' for the last residue.
-                     Example: [10, 15.1, 20-30, 250-E, END]
-      2. Expression: Boolean logic (e.g., #cluster_1#, "ATA", or $sele$).
-                     Do NOT use spaces inside your logical expression.
+    Syntax Modes:
+      1. Position Breakdown Mode:
+         [POSITIONS] - Comma-separated list or ranges enclosed in brackets.
+         Accepts decimal positions, and 'E' or 'END' for the last residue.
+         Example: [10, 15.1, 20-30, 250-E, END]
 
-    Expression Targets (Do NOT use spaces inside expressions!):
+      2. Position Frequency Search Mode:
+         [LOGIC_ARGUMENT] - Frequency criteria with operators (>, <, >=, <=) and 
+         logical operators (&, |, !, ^). Single arguments do NOT require ().
+         Multi-condition queries MUST enclose each individual argument in ().
+         Spaces are allowed. Accepts percentages (e.g. 10%) or decimals (e.g. 0.1).
+         Accepts residue codes (A-Z) and 'GAP' or '_' for gaps (case-insensitive).
+         Example: [K>10%], [(K>0.1) & (R>0.05)], [!(GAP>50%) & ((K>10%) | (R>10%))]
+
+    Sequence Selection Expression Targets (Do NOT use spaces inside expressions!):
       1. AA Position:  [AA][Pos] (e.g., P106, _100)
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list@, @my_seqs.fasta@)
@@ -42,15 +56,16 @@ def print_help():
       & (AND), | (OR), ! (NOT), ^ (XOR)
 
     Examples:
-      query [10, 15, 20-30]         (Queries pos 10, 15, and 20 to 30 for selected/all nodes)
-      query P106 [150-160]          (Sub-query pos 150-160 ONLY for nodes with Pro at 106)
-      query "ATA"&#kinase# [45-50]  (Sub-query pos 45-50 for nodes with "ATA" AND in #kinase#)
-      query {Length>500} [10-20]    (Sub-query pos 10-20 for nodes with Length > 500)
+      query [10, 15, 20-30]                         (Queries pos 10, 15, and 20 to 30)
+      query [K>10%]                                 (Finds positions where Lysine > 10%)
+      query [(K>0.1) & (R>0.05)]                    (Finds positions where K > 10% and R > 5%)
+      query P106 [(K>20%) | (R>20%)]                (Finds positions with K or R > 20% in Pro106 subset)
+      query {Length>500} [!(GAP>30%) & (K>5%)]     (Finds positions with <30% gaps and >5% Lys in length>500)
     """)
 
 def run(viewer, args):
     if not args:
-        msg = "Error: Query command requires a POSITIONS parameter.\nUsage: query [POSITIONS]"
+        msg = "Error: Query command requires a POSITIONS or LOGIC_ARGUMENT parameter.\nUsage: query [POSITIONS] or query [LOGIC_ARGUMENT]"
         Command_Engine.print_help(viewer, msg)
         return
 
@@ -93,16 +108,16 @@ def run(viewer, args):
         reconstructed_args.extend(temp_bracket)
     args = reconstructed_args
 
-    # --- 1. Extract Positions Argument (First argument containing brackets) ---
-    bracket_indices = [i for i, a in enumerate(args) if a.startswith('[') and a.endswith(']')]
+    # --- 1. Extract Positions/Logic Argument (First argument containing brackets) ---
+    bracket_indices = [i for i, a in enumerate(args) if a.strip().startswith('[') and a.strip().endswith(']')]
     
     if not bracket_indices:
-        msg = "Error: No positions provided. Use [...] syntax (e.g., [10-20])."
+        msg = "Error: No bracketed argument provided. Use [...] syntax (e.g., [10-20] or [K>10%])."
         Command_Engine.print_help(viewer, msg)
         return
         
     pos_idx = bracket_indices[0]
-    pos_str = args.pop(pos_idx)
+    pos_str = args.pop(pos_idx).strip()
     
     # --- 2. Isolate Expression & Apply Smart Fallbacks ---
     expr = "$sele$"
@@ -166,27 +181,29 @@ def run(viewer, args):
             print("-" * 50)
             return
 
-    # --- 4. Parse Ranges and Positions ---
-    is_sparse = hasattr(viewer.alignment.aln, 'matrix')
-    found_count = 0
+    # --- 4. Detect Mode: Position Breakdown (Mode 1) vs Frequency Search (Mode 2) ---
+    inner = pos_str[1:-1].strip()
+    is_logic_mode = bool(re.search(r'[><]', inner))
 
-    print("-" * 50)
-    if subset_mode:
-        print(f"QUERY SUBSET: '{expr}' ({n_seqs} sequences mapped)")
+    # Retrieve alignment metadata for printing
+    msa_file = getattr(viewer.alignment, 'msa_file', None) or getattr(cfg, 'MSA_FILE', 'None')
+    if isinstance(msa_file, str) and msa_file:
+        msa_file_display = os.path.basename(msa_file)
     else:
-        print(f"QUERY GLOBAL: All Mapped Alignment Sequences ({n_seqs} sequences)")
-    print(f"Alignment Offset: {utils.get_alignment_offset_display(viewer)}")
-    print("-" * 50)
+        msa_file_display = str(msa_file)
 
-    # NEW: Extract the inner string from the brackets and split by comma
-    inner = pos_str[1:-1]
-    parsed_args = [x.strip() for x in inner.split(',') if x.strip()]
-    
-    expanded_positions = []
+    if getattr(viewer.alignment, 'has_reference', False):
+        ref_display = getattr(viewer.alignment, 'resolved_ref_full', None) or getattr(viewer, 'active_reference', 'None')
+    else:
+        ref_display = "None (Unanchored)"
+
+    offset_display = utils.get_alignment_offset_display(viewer)
+    is_sparse = hasattr(viewer.alignment.aln, 'matrix')
+
+    # Get mapped position labels in order
+    label_to_col = getattr(viewer, 'alignment', None).label_to_col if getattr(viewer, 'alignment', None) else {}
     valid_labels = []
-    
-    # Store valid labels as Tuples for version-like sorting (e.g., 188.10 > 188.6)
-    for lbl in (getattr(viewer, 'alignment', None).label_to_col if getattr(viewer, 'alignment', None) else {}).keys():
+    for lbl in label_to_col.keys():
         try:
             parts = str(lbl).split('.')
             major = int(parts[0])
@@ -195,7 +212,196 @@ def run(viewer, args):
         except ValueError:
             pass
     valid_labels.sort(key=lambda x: x[0])
+    ordered_pos_labels = [lbl for _, lbl in valid_labels]
 
+    if is_logic_mode:
+        # =====================================================================
+        # MODE 2: POSITION FREQUENCY SEARCH MODE
+        # =====================================================================
+        print("-" * 50)
+        if subset_mode:
+            print(f"QUERY POSITION SEARCH SUBSET: '{expr}' ({n_seqs} sequences mapped)")
+        else:
+            print(f"QUERY POSITION SEARCH GLOBAL: All Mapped Alignment Sequences ({n_seqs} sequences)")
+        print(f"Alignment File:   {msa_file_display}")
+        print(f"Active Reference: {ref_display}")
+        print(f"Alignment Offset: {offset_display}")
+        print(f"Search Criteria:  [{inner}]")
+        print("-" * 50)
+
+        n_cols = len(ordered_pos_labels)
+        if n_cols == 0:
+            print("No valid alignment columns mapped.")
+            if hasattr(viewer, 'console_text'):
+                viewer.console_text.text = "No valid alignment columns mapped."
+            return
+
+        # Precompute AA and Gap frequencies for all mapped columns
+        all_gap_fracs = np.zeros(n_cols, dtype=float)
+        all_aa_fracs = {} # aa_char -> 1D numpy array of length n_cols
+
+        for idx, pos_label in enumerate(ordered_pos_labels):
+            col_idx = label_to_col[pos_label]
+            if is_sparse:
+                if subset_mode:
+                    sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
+                    if hasattr(sliced, 'toarray'):
+                        dense_col = sliced.toarray().flatten()
+                    else:
+                        dense_col = np.array(sliced).flatten()
+                    n_gaps = np.sum(dense_col == 0)
+                    residues = dense_col[dense_col != 0]
+                    counts = Counter(residues)
+                else:
+                    col_vec = viewer.alignment.aln.matrix[:, col_idx]
+                    residues = col_vec.data
+                    n_gaps = n_seqs - len(residues)
+                    counts = Counter(residues)
+
+                gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
+                all_gap_fracs[idx] = gap_frac
+
+                for aa_int, count in counts.items():
+                    aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X').upper()
+                    if aa_char not in all_aa_fracs:
+                        all_aa_fracs[aa_char] = np.zeros(n_cols, dtype=float)
+                    all_aa_fracs[aa_char][idx] += (count / n_seqs) if n_seqs > 0 else 0.0
+            else:
+                if subset_mode:
+                    col_chars = [viewer.alignment.aln[row].seq[col_idx].upper() for row in target_rows]
+                else:
+                    col_chars = [rec.seq[col_idx].upper() for rec in viewer.alignment.aln]
+
+                raw_counts = Counter(col_chars)
+                n_gaps = sum(raw_counts[g] for g in cfg.GAP_CHARS if g in raw_counts)
+                gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
+                all_gap_fracs[idx] = gap_frac
+
+                for aa_char, count in raw_counts.items():
+                    if aa_char not in cfg.GAP_CHARS:
+                        aa_clean = aa_char.upper()
+                        if aa_clean not in all_aa_fracs:
+                            all_aa_fracs[aa_clean] = np.zeros(n_cols, dtype=float)
+                        all_aa_fracs[aa_clean][idx] += (count / n_seqs) if n_seqs > 0 else 0.0
+
+        # Tokenize and evaluate atomic logical conditions
+        masks = {}
+        mask_idx = 0
+
+        def cond_repl(match):
+            nonlocal mask_idx
+            target_aa_raw, op, val_str = match.groups()
+            aa_clean = target_aa_raw.strip().upper()
+            is_gap = (aa_clean == '_' or aa_clean == 'GAP')
+
+            val_clean = val_str.strip()
+            if val_clean.endswith('%'):
+                thresh = float(val_clean[:-1]) / 100.0
+            else:
+                v = float(val_clean)
+                thresh = v if v <= 1.0 else (v / 100.0)
+
+            if is_gap:
+                col_freqs = all_gap_fracs
+            else:
+                col_freqs = all_aa_fracs.get(aa_clean, np.zeros(n_cols, dtype=float))
+
+            if op == '>':
+                cond_mask = col_freqs > thresh
+            elif op == '<':
+                cond_mask = col_freqs < thresh
+            elif op == '>=':
+                cond_mask = col_freqs >= thresh
+            elif op == '<=':
+                cond_mask = col_freqs <= thresh
+            else:
+                cond_mask = np.zeros(n_cols, dtype=bool)
+
+            mask_key = f"M_{mask_idx}"
+            masks[mask_key] = cond_mask
+            mask_idx += 1
+            return f"masks['{mask_key}']"
+
+        # 1. Replace parenthesized frequency arguments (e.g. (K>10%), ( GAP <= 0.5 ))
+        expr_sub = re.sub(r'\(\s*([A-Za-z_]+)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?%?)\s*\)', cond_repl, inner)
+
+        # 2. Fallback: single unparenthesized argument (e.g. [K>10%], [gap<=0.2])
+        if mask_idx == 0:
+            single_match = re.fullmatch(r'\s*([A-Za-z_]+)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?%?)\s*', inner)
+            if single_match:
+                expr_sub = cond_repl(single_match)
+
+        # 3. Enforcement: ensure all comparison operators in multi-condition queries are inside ()
+        if re.search(r'[><]', expr_sub) or mask_idx == 0:
+            msg = f"Error: Individual frequency arguments in multi-condition queries must be enclosed in parentheses '()'.\nExample: [K>10%], [(K>0.1) & (R>0.05)], [!(GAP>50%) & ((K>10%) | (R>10%))]"
+            if hasattr(viewer, 'console_text'):
+                viewer.console_text.text = "Error: Individual frequency arguments must be enclosed in ()"
+            print("-" * 50)
+            print(msg)
+            print("-" * 50)
+            return
+
+        try:
+            final_expr = expr_sub.replace("!", "~").replace("&", "&").replace("|", "|").replace("^", "^")
+            pos_mask = eval(final_expr, {"__builtins__": {}}, {"masks": masks})
+        except Exception as e:
+            msg = f"Error parsing position logic '[{inner}]': {e}"
+            if hasattr(viewer, 'console_text'):
+                viewer.console_text.text = msg
+            print(msg)
+            return
+
+        matching_indices = np.where(pos_mask)[0]
+        matching_labels = [ordered_pos_labels[i] for i in matching_indices]
+
+        print(f"Matching Positions ({len(matching_labels)} found):")
+        if matching_labels:
+            print(", ".join(str(lbl) for lbl in matching_labels))
+            print("-" * 50)
+
+            for idx in matching_indices:
+                pos_label = ordered_pos_labels[idx]
+                gap_pct = all_gap_fracs[idx] * 100.0
+
+                valid_aas = []
+                for aa_char, fracs in all_aa_fracs.items():
+                    pct = fracs[idx] * 100.0
+                    if pct >= 1.0:
+                        valid_aas.append((aa_char, pct))
+                valid_aas.sort(key=lambda x: x[1], reverse=True)
+
+                out_str = f"Pos {pos_label:<8}\tGap {gap_pct:>5.1f}%"
+                for aa, pct in valid_aas:
+                    out_str += f" | {aa} {pct:>5.1f}%"
+                print(out_str)
+        else:
+            print("[No positions matched the search criteria]")
+
+        print("-" * 50)
+        if hasattr(viewer, 'console_text'):
+            viewer.console_text.text = f"Found {len(matching_labels)} matching position(s). Check terminal."
+        return
+
+
+    # =========================================================================
+    # MODE 1: POSITION BREAKDOWN MODE (Existing Behavior)
+    # =========================================================================
+    found_count = 0
+
+    print("-" * 50)
+    if subset_mode:
+        print(f"QUERY SUBSET: '{expr}' ({n_seqs} sequences mapped)")
+    else:
+        print(f"QUERY GLOBAL: All Mapped Alignment Sequences ({n_seqs} sequences)")
+    print(f"Alignment File:   {msa_file_display}")
+    print(f"Active Reference: {ref_display}")
+    print(f"Alignment Offset: {offset_display}")
+    print("-" * 50)
+
+    # Extract the inner string from the brackets and split by comma
+    parsed_args = [x.strip() for x in inner.split(',') if x.strip()]
+    
+    expanded_positions = []
     max_val = valid_labels[-1][0] if valid_labels else (0, 0)
 
     def parse_to_tuple(s):
@@ -228,7 +434,7 @@ def run(viewer, args):
                 if part not in expanded_positions:
                     expanded_positions.append(part)
 
-    # --- 5. Query the Matrix ---
+    # Query the Matrix
     for pos in expanded_positions:
         if pos not in (getattr(viewer, 'alignment', None).label_to_col if getattr(viewer, 'alignment', None) else {}):
             print(f"Pos {pos: >5}: [Not found in active alignment mapping]")
