@@ -155,7 +155,7 @@ if __name__ == "__main__":
     os.environ["QT_API"] = "pyqt6"
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
     from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                 QHBoxLayout, QTabWidget, QFormLayout, QLineEdit, 
+                                 QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
                                  QComboBox, QPushButton, QMessageBox, QTextEdit,
                                  QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
                                  QStyle, QStyleOptionSlider, QFileDialog, QColorDialog)
@@ -887,7 +887,7 @@ if __name__ == "__main__":
             tab = QWidget()
             layout = QFormLayout(tab)
             layout.setHorizontalSpacing(30)
-            layout.setVerticalSpacing(10)
+            layout.setVerticalSpacing(12)
             
             def add_row(key, label_text, widget):
                 lbl = QLabel(label_text)
@@ -1575,7 +1575,7 @@ if __name__ == "__main__":
             main_layout = QVBoxLayout(tab)
             form_layout = QFormLayout()
             form_layout.setHorizontalSpacing(30)
-            form_layout.setVerticalSpacing(10)
+            form_layout.setVerticalSpacing(12)
             
             # 1. Sliders Setup
             slider_settings = [
@@ -1609,7 +1609,8 @@ if __name__ == "__main__":
                     
                     box = NoScrollSpinBox()
                     box.setRange(-999999, 999999)
-                    box.setFixedWidth(60)
+                    # Match the double spinbox width so every slider row lines up.
+                    box.setFixedWidth(70)
                     
                     sl.setValue(val)
                     box.setValue(val)
@@ -1635,15 +1636,18 @@ if __name__ == "__main__":
                     
                     sl.valueChanged.connect(lambda v, b=box, scale=sc: b.setValue(v / scale))
                     box.valueChanged.connect(lambda v, s=sl, scale=sc: s.setValue(int(v * scale)))
-                    
+
+                sl.setTickPosition(QSlider.TickPosition.TicksBelow)
+                sl.setTickInterval(1 if s["type"] == "int" else 10)
+
                 h_lay.addWidget(sl)
                 h_lay.addWidget(box)
-                
+
                 lbl = QLabel(f"{display_name}:")
                 form_layout.addRow(lbl, ui_element)
                 self.labels[key] = lbl
                 self.inputs[key] = box
-            
+
             # 2. Colors Setup
             color_keys = ["TEXT_COLOR", "INITIAL_NODE_COLOR", "HOVER_COLOR", "CONNECTED_NODE_COLOR", "EDGE_COLOR", "NODE_BOUNDARY_COLOR"]
             self.visual_defaults = {
@@ -1651,8 +1655,14 @@ if __name__ == "__main__":
                 "TEXT_COLOR": "grey", "INITIAL_NODE_COLOR": "#4488ff", "HOVER_COLOR": "#ffaa00", "CONNECTED_NODE_COLOR": "#ff0000",
                 "EDGE_COLOR": "#000000", "NODE_BOUNDARY_COLOR": "#000000", "LOW_RESOURCE_MODE": False
             }
-            
-            for key in color_keys:
+
+            color_grid = QGridLayout()
+            color_grid.setHorizontalSpacing(30)
+            color_grid.setVerticalSpacing(12)
+            color_grid.setColumnStretch(1, 1)
+            color_grid.setColumnStretch(3, 1)
+
+            for index, key in enumerate(color_keys):
                 if key == "HOVER_COLOR": display_name = "Hover and Selected Node Color"
                 else: display_name = key.replace('_', ' ').title()
                 
@@ -1688,10 +1698,16 @@ if __name__ == "__main__":
                 h_layout.addWidget(btn)
                 
                 lbl = QLabel(f"{display_name}:")
-                form_layout.addRow(lbl, color_container)
+                row = index // 2
+                column = (index % 2) * 2
+                color_grid.addWidget(lbl, row, column)
+                color_grid.addWidget(color_container, row, column + 1)
                 self.labels[key] = lbl
                 self.inputs[key] = le
                 self.color_swatches[key] = swatch
+
+            form_layout.addRow(color_grid)
+
             # --- Low Resource Mode Toggle ---
             lbl_low_res = QLabel("Low Resource Mode:")
             lbl_low_res.setFixedWidth(180)
@@ -1750,7 +1766,7 @@ if __name__ == "__main__":
             main_layout = QVBoxLayout(tab)
             form_layout = QFormLayout()
             form_layout.setHorizontalSpacing(30)
-            form_layout.setVerticalSpacing(10)
+            form_layout.setVerticalSpacing(12)
             
             self.physics_defaults = {
                 "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
@@ -1798,12 +1814,13 @@ if __name__ == "__main__":
             
             # --- 2. Existing Physics Sliders ---
             slider_settings = [
-                {"key": "SPRING_K", "type": "float", "min": 1.0, "max": 20.0, "scale": 10.0, "decimals": 1, "default": 5.0},
-                {"key": "COULOMB_K", "type": "float", "min": 1.0, "max": 30.0, "scale": 10.0, "decimals": 1, "default": 10.0},
-                {"key": "COULOMB_CUTOFF", "type": "float", "min": 1.0, "max": 100.0, "scale": 10.0, "decimals": 1, "default": 30.0},
-                {"key": "DAMPING", "type": "float", "min": 0.1, "max": 2.0, "scale": 100.0, "decimals": 2, "default": 0.9}
+                {"key": "SPRING_K", "type": "float", "min": 1.0, "max": 20.0, "scale": 10.0, "decimals": 1, "default": 5.0, "tick": 10},
+                {"key": "COULOMB_K", "type": "float", "min": 1.0, "max": 30.0, "scale": 10.0, "decimals": 1, "default": 10.0, "tick": 10},
+                {"key": "COULOMB_CUTOFF", "type": "float", "min": 1.0, "max": 100.0, "scale": 10.0, "decimals": 1, "default": 30.0, "tick": 100},
+                {"key": "DAMPING", "type": "float", "min": 0.1, "max": 2.0, "scale": 100.0, "decimals": 2, "default": 0.9, "tick": 10}
             ]
-            
+
+            physics_slider_controls = {}
             for s in slider_settings:
                 key = s["key"]
                 display_name = key.replace('_', ' ').title()
@@ -1838,90 +1855,91 @@ if __name__ == "__main__":
                 
                 sl.valueChanged.connect(lambda v, b=box, scale=sc: b.setValue(v / scale))
                 box.valueChanged.connect(lambda v, s=sl, scale=sc: s.setValue(int(v * scale)))
-                
+
+                sl.setTickPosition(QSlider.TickPosition.TicksBelow)
+                sl.setTickInterval(s["tick"])
+
                 h_lay.addWidget(sl)
                 h_lay.addWidget(box)
-                
+
                 lbl = QLabel(f"{display_name}:")
-                lbl.setFixedWidth(180)
-                form_layout.addRow(lbl, ui_element)
+                physics_slider_controls[key] = (lbl, ui_element)
                 self.labels[key] = lbl
                 self.inputs[key] = box
-            
-            # --- 3. Combined dt & max_steps row ---
-            row_widget1 = QWidget()
-            row_layout1 = QHBoxLayout(row_widget1)
-            row_layout1.setContentsMargins(0, 0, 0, 0)
-            row_layout1.setSpacing(10)
-            
-            # Step Size
-            left_widget1 = QWidget()
-            left_layout1 = QHBoxLayout(left_widget1)
-            left_layout1.setContentsMargins(0, 0, 0, 0)
+
+            # All paired slider rows share one grid. A grid per row sizes its columns
+            # independently, so rows whose right-hand labels differ in width end up a
+            # few pixels out of step with each other.
+            slider_pair_grid = QGridLayout()
+            slider_pair_grid.setHorizontalSpacing(30)
+            slider_pair_grid.setVerticalSpacing(12)
+            slider_pair_grid.setColumnMinimumWidth(0, 180)
+            slider_pair_grid.setColumnStretch(1, 1)
+            slider_pair_grid.setColumnStretch(3, 1)
+
+            def add_paired_slider_row(left_key, right_key):
+                row = slider_pair_grid.rowCount()
+                left_label, left_control = physics_slider_controls[left_key]
+                right_label, right_control = physics_slider_controls[right_key]
+                left_label.setFixedWidth(180)
+
+                slider_pair_grid.addWidget(left_label, row, 0)
+                slider_pair_grid.addWidget(left_control, row, 1)
+                slider_pair_grid.addWidget(right_label, row, 2)
+                slider_pair_grid.addWidget(right_control, row, 3)
+
+            add_paired_slider_row("SPRING_K", "COULOMB_K")
+            add_paired_slider_row("COULOMB_CUTOFF", "DAMPING")
+            form_layout.addRow(slider_pair_grid)
+
+            # --- 3. Integration and convergence settings (two columns) ---
+            convergence_grid = QGridLayout()
+            convergence_grid.setHorizontalSpacing(30)
+            convergence_grid.setVerticalSpacing(12)
+            convergence_grid.setColumnMinimumWidth(0, 180)
+            convergence_grid.setColumnMinimumWidth(2, 180)
+            convergence_grid.setColumnStretch(1, 1)
+            convergence_grid.setColumnStretch(3, 1)
+
             lbl_dt = QLabel("Step Size:")
-            lbl_dt.setFixedWidth(180)
             le_dt = QLineEdit(str(globals().get("DT", 0.005)))
-            left_layout1.addWidget(lbl_dt)
-            left_layout1.addWidget(le_dt)
             self.inputs["DT"] = le_dt
             self.labels["DT"] = lbl_dt
-            
-            # Max Steps
-            right_widget1 = QWidget()
-            right_layout1 = QHBoxLayout(right_widget1)
-            right_layout1.setContentsMargins(0, 0, 0, 0)
+
             lbl_steps = QLabel("Max Steps:")
-            lbl_steps.setFixedWidth(180)
             le_steps = QLineEdit(str(globals().get("MAX_STEPS", 10000)))
-            right_layout1.addWidget(lbl_steps)
-            right_layout1.addWidget(le_steps)
             self.inputs["MAX_STEPS"] = le_steps
             self.labels["MAX_STEPS"] = lbl_steps
-            
-            row_layout1.addWidget(left_widget1)
-            row_layout1.addWidget(right_widget1)
-            form_layout.addRow(row_widget1)
-            
-            # --- 4. Combined rmsd_threshold & percentage_drop_threshold row ---
-            row_widget2 = QWidget()
-            row_layout2 = QHBoxLayout(row_widget2)
-            row_layout2.setContentsMargins(0, 0, 0, 0)
-            row_layout2.setSpacing(10)
-            
-            # RMSD Threshold
-            left_widget2 = QWidget()
-            left_layout2 = QHBoxLayout(left_widget2)
-            left_layout2.setContentsMargins(0, 0, 0, 0)
+
+            convergence_grid.addWidget(lbl_dt, 0, 0)
+            convergence_grid.addWidget(le_dt, 0, 1)
+            convergence_grid.addWidget(lbl_steps, 0, 2)
+            convergence_grid.addWidget(le_steps, 0, 3)
+
             lbl_rmsd = QLabel("RMSD Threshold:")
-            lbl_rmsd.setFixedWidth(180)
             le_rmsd = QLineEdit(str(globals().get("RMSD_THRESHOLD", 0.005)))
-            left_layout2.addWidget(lbl_rmsd)
-            left_layout2.addWidget(le_rmsd)
             self.inputs["RMSD_THRESHOLD"] = le_rmsd
             self.labels["RMSD_THRESHOLD"] = lbl_rmsd
-            
-            # Min % Drop Threshold
-            right_widget2 = QWidget()
-            right_layout2 = QHBoxLayout(right_widget2)
-            right_layout2.setContentsMargins(0, 0, 0, 0)
+
             lbl_drop = QLabel("Min % Drop Threshold:")
-            lbl_drop.setFixedWidth(180)
             le_drop = QLineEdit(str(globals().get("PERCENTAGE_DROP_THRESHOLD", 0.1)))
-            right_layout2.addWidget(lbl_drop)
-            right_layout2.addWidget(le_drop)
             self.inputs["PERCENTAGE_DROP_THRESHOLD"] = le_drop
             self.labels["PERCENTAGE_DROP_THRESHOLD"] = lbl_drop
-            
-            row_layout2.addWidget(left_widget2)
-            row_layout2.addWidget(right_widget2)
-            form_layout.addRow(row_widget2)
-            
-            # --- 5. RMSD Window logscale slider + spinbox (10 to 1000) ---
+
+            convergence_grid.addWidget(lbl_rmsd, 1, 0)
+            convergence_grid.addWidget(le_rmsd, 1, 1)
+            convergence_grid.addWidget(lbl_drop, 1, 2)
+            convergence_grid.addWidget(le_drop, 1, 3)
+            form_layout.addRow(convergence_grid)
+
+            # --- 4. RMSD Window logscale slider + spinbox (10 to 1000) ---
             import math
             sl_window = NoScrollSlider(Qt.Orientation.Horizontal)
             sl_window.setMinimum(0)
             sl_window.setMaximum(100)
-            
+            sl_window.setTickPosition(QSlider.TickPosition.TicksBelow)
+            sl_window.setTickInterval(10)
+
             box_window = NoScrollSpinBox()
             box_window.setRange(10, 1000)
             box_window.setFixedWidth(70)
@@ -1967,24 +1985,18 @@ if __name__ == "__main__":
             self.inputs["RMSD_WINDOW"] = box_window
             self.labels["RMSD_WINDOW"] = lbl_window
             
-            # --- 6. Combined Progressive Edge Annealing & Show Score Histogram row ---
-            cb_row = QWidget()
-            cb_layout = QHBoxLayout(cb_row)
-            cb_layout.setContentsMargins(0, 0, 0, 0)
-            cb_layout.setSpacing(10)
-            
-            # Progressive Edge Annealing
-            pea_container = QWidget()
-            pea_layout = QHBoxLayout(pea_container)
-            pea_layout.setContentsMargins(0, 0, 0, 0)
+            # --- 5. Packing controls ---
             lbl_prog = QLabel("Progressive Edge Annealing:")
-            lbl_prog.setFixedWidth(180)
             cb_prog = QPushButton()
             cb_prog.setCheckable(True)
             cb_prog.setFixedSize(60, 28)
-            pea_layout.addWidget(lbl_prog)
-            pea_layout.addWidget(cb_prog)
-            pea_layout.addStretch()
+            prog_field = QWidget()
+            prog_field.setObjectName("wrapper")
+            prog_field.setMinimumHeight(cb_prog.height())
+            prog_field_layout = QHBoxLayout(prog_field)
+            prog_field_layout.setContentsMargins(0, 0, 0, 0)
+            prog_field_layout.addWidget(cb_prog)
+            prog_field_layout.addStretch()
             self.inputs["ENABLE_PROGRESSIVE_SIMULATION"] = cb_prog
             self.labels["ENABLE_PROGRESSIVE_SIMULATION"] = lbl_prog
             
@@ -2002,31 +2014,21 @@ if __name__ == "__main__":
             switch_toggle_style(initial_state)
             
             # Packing Geometry Dropdown
-            geom_container = QWidget()
-            geom_layout = QHBoxLayout(geom_container)
-            geom_layout.setContentsMargins(0, 0, 0, 0)
             lbl_geom = QLabel("Packing Geometry:")
-            lbl_geom.setFixedWidth(180)
             cb_geom = NoScrollComboBox()
             cb_geom.addItems(["Square", "Circle"])
-            
+
             from PyQt6.QtWidgets import QSizePolicy
-            cb_geom.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            
+            cb_geom.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            cb_geom.setMinimumWidth(120)
+
             initial_geom = globals().get("PACKING_GEOMETRY", "Square")
             if initial_geom not in ["Square", "Circle"]:
                 initial_geom = "Square"
             cb_geom.setCurrentText(initial_geom)
-            
-            geom_layout.addWidget(lbl_geom)
-            geom_layout.addWidget(cb_geom)
             self.inputs["PACKING_GEOMETRY"] = cb_geom
             self.labels["PACKING_GEOMETRY"] = lbl_geom
-            
-            cb_layout.addWidget(pea_container)
-            cb_layout.addWidget(geom_container)
-            form_layout.addRow(cb_row)
-            
+
             # Packing Grid Size Slider (Logarithmic Scale)
             pgs_widget = QWidget()
             pgs_widget.setObjectName("wrapper")
@@ -2036,7 +2038,9 @@ if __name__ == "__main__":
             sl_pgs = NoScrollSlider(Qt.Orientation.Horizontal)
             sl_pgs.setMinimum(0)
             sl_pgs.setMaximum(1000)
-            
+            sl_pgs.setTickPosition(QSlider.TickPosition.TicksBelow)
+            sl_pgs.setTickInterval(100)
+
             box_pgs = NoScrollDoubleSpinBox()
             box_pgs.setRange(1.0, 200.0)
             box_pgs.setDecimals(1)
@@ -2072,80 +2076,71 @@ if __name__ == "__main__":
             pgs_layout.addWidget(box_pgs)
             
             lbl_pgs = QLabel("Packing Grid Size:")
-            lbl_pgs.setFixedWidth(180)
-            
-            form_layout.addRow(lbl_pgs, pgs_widget)
             self.inputs["PACKING_GRID_SIZE"] = box_pgs
             self.labels["PACKING_GRID_SIZE"] = lbl_pgs
-            
-            # --- 7. Combined Minimum K & Percentage K row (Monte Carlo only) ---
-            k_row = QWidget()
-            k_layout = QHBoxLayout(k_row)
-            k_layout.setContentsMargins(0, 0, 0, 0)
-            k_layout.setSpacing(10)
-            
-            # Minimum K
-            min_k_container = QWidget()
-            min_k_layout = QHBoxLayout(min_k_container)
-            min_k_layout.setContentsMargins(0, 0, 0, 0)
+
+            packing_controls_grid = QGridLayout()
+            packing_controls_grid.setHorizontalSpacing(30)
+            packing_controls_grid.setVerticalSpacing(12)
+            lbl_prog.setFixedWidth(180)
+            packing_controls_grid.setColumnMinimumWidth(0, 180)
+            packing_controls_grid.setColumnStretch(5, 1)
+            packing_controls_grid.addWidget(lbl_prog, 0, 0)
+            packing_controls_grid.addWidget(prog_field, 0, 1)
+            packing_controls_grid.addWidget(lbl_geom, 0, 2)
+            packing_controls_grid.addWidget(cb_geom, 0, 3)
+            packing_controls_grid.addWidget(lbl_pgs, 0, 4)
+            packing_controls_grid.addWidget(pgs_widget, 0, 5)
+            packing_controls_grid.setRowMinimumHeight(0, cb_prog.height())
+            form_layout.addRow(packing_controls_grid)
+
+            # --- 6. Monte Carlo settings (two columns) ---
+            monte_carlo_grid = QGridLayout()
+            monte_carlo_grid.setHorizontalSpacing(30)
+            monte_carlo_grid.setVerticalSpacing(12)
+            monte_carlo_grid.setColumnMinimumWidth(0, 180)
+            monte_carlo_grid.setColumnMinimumWidth(2, 180)
+            monte_carlo_grid.setColumnStretch(1, 1)
+            monte_carlo_grid.setColumnStretch(3, 1)
+
             lbl_min_k = QLabel("Minimum K:")
-            lbl_min_k.setFixedWidth(180)
             le_min_k = QLineEdit(str(globals().get("SGLD_MIN_K", 20)))
-            min_k_layout.addWidget(lbl_min_k)
-            min_k_layout.addWidget(le_min_k)
             self.inputs["SGLD_MIN_K"] = le_min_k
             self.labels["SGLD_MIN_K"] = lbl_min_k
-            
-            # Percentage K
-            pct_k_container = QWidget()
-            pct_k_layout = QHBoxLayout(pct_k_container)
-            pct_k_layout.setContentsMargins(0, 0, 0, 0)
+
             lbl_pct_k = QLabel("Fraction K:")
-            lbl_pct_k.setFixedWidth(180)
             le_pct_k = QLineEdit(str(globals().get("SGLD_K_PERCENT", 0.01)))
-            pct_k_layout.addWidget(lbl_pct_k)
-            pct_k_layout.addWidget(le_pct_k)
             self.inputs["SGLD_K_PERCENT"] = le_pct_k
             self.labels["SGLD_K_PERCENT"] = lbl_pct_k
-            
-            k_layout.addWidget(min_k_container)
-            k_layout.addWidget(pct_k_container)
-            form_layout.addRow(k_row)
-            
-            # --- 8. Combined Temperature parameters row (Monte Carlo only) ---
-            temp_row = QWidget()
-            temp_layout = QHBoxLayout(temp_row)
-            temp_layout.setContentsMargins(0, 0, 0, 0)
-            temp_layout.setSpacing(10)
-            
-            # Starting Temperature
-            start_temp_container = QWidget()
-            start_temp_layout = QHBoxLayout(start_temp_container)
-            start_temp_layout.setContentsMargins(0, 0, 0, 0)
+
+            monte_carlo_grid.addWidget(lbl_min_k, 0, 0)
+            monte_carlo_grid.addWidget(le_min_k, 0, 1)
+            monte_carlo_grid.addWidget(lbl_pct_k, 0, 2)
+            monte_carlo_grid.addWidget(le_pct_k, 0, 3)
+
             lbl_start_temp = QLabel("Starting Temp:")
-            lbl_start_temp.setFixedWidth(180)
             le_start_temp = QLineEdit(str(globals().get("SGLD_START_TEMP", 1.5)))
-            start_temp_layout.addWidget(lbl_start_temp)
-            start_temp_layout.addWidget(le_start_temp)
             self.inputs["SGLD_START_TEMP"] = le_start_temp
             self.labels["SGLD_START_TEMP"] = lbl_start_temp
-            
-            # Thermal Noise Scale
-            noise_scale_container = QWidget()
-            noise_scale_layout = QHBoxLayout(noise_scale_container)
-            noise_scale_layout.setContentsMargins(0, 0, 0, 0)
+
             lbl_noise_scale = QLabel("Thermal Noise Scale:")
-            lbl_noise_scale.setFixedWidth(180)
             le_noise_scale = QLineEdit(str(globals().get("SGLD_NOISE_SCALE", 1.0)))
-            noise_scale_layout.addWidget(lbl_noise_scale)
-            noise_scale_layout.addWidget(le_noise_scale)
             self.inputs["SGLD_NOISE_SCALE"] = le_noise_scale
             self.labels["SGLD_NOISE_SCALE"] = lbl_noise_scale
-            
-            temp_layout.addWidget(start_temp_container)
-            temp_layout.addWidget(noise_scale_container)
-            form_layout.addRow(temp_row)
-            
+
+            paired_labels = (
+                lbl_dt, lbl_steps, lbl_rmsd, lbl_drop,
+                lbl_min_k, lbl_pct_k, lbl_start_temp, lbl_noise_scale,
+            )
+            for paired_label in paired_labels:
+                paired_label.setFixedWidth(180)
+
+            monte_carlo_grid.addWidget(lbl_start_temp, 1, 0)
+            monte_carlo_grid.addWidget(le_start_temp, 1, 1)
+            monte_carlo_grid.addWidget(lbl_noise_scale, 1, 2)
+            monte_carlo_grid.addWidget(le_noise_scale, 1, 3)
+            form_layout.addRow(monte_carlo_grid)
+
             # Apply styling for disabled states to match other tabs
             disabled_lineedit_style = "QLineEdit:disabled { background-color: #f0f0f0; color: #888; }"
             disabled_label_style = "QLabel:disabled { color: #888; }"
@@ -2212,11 +2207,17 @@ if __name__ == "__main__":
             tab = QWidget()
             layout = QFormLayout(tab)
             layout.setHorizontalSpacing(30)
-            layout.setVerticalSpacing(10)
+            layout.setVerticalSpacing(12)
             
-            # Added FASTA_DIR and HDF5_DIR
-            keys = ["FASTA_DIR", "MSA_DIR", "HDF5_DIR", "SAVED_LAYOUT_DIR", "METADATA_DIR", "PRINT_SAVE_DIR", 
-                    "FASTA_SPLIT_DIR", "CLUSTER_LABEL_DIR", "HEADER_LIST_DIR", "LOGO_DIR", "STRUCTURES_DIR"]
+            keys = [
+                # Input_Files
+                "FASTA_DIR", "MSA_DIR", "HDF5_DIR",
+                # Cache_Files
+                "SAVED_LAYOUT_DIR", "METADATA_DIR", "FASTA_SPLIT_DIR",
+                "HEADER_LIST_DIR", "STRUCTURES_DIR",
+                # Results
+                "PRINT_SAVE_DIR", "CLUSTER_LABEL_DIR", "LOGO_DIR",
+            ]
             
             for key in keys:
                 container = QWidget()
