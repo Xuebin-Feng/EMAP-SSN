@@ -27,6 +27,7 @@ Settings:
 - NUM_WORKERS: CPU threads for parallel bootstrap generation of the consensus tree.
 - NUM_TREES: How many bootstrap replicate iterations to average for the consensus guide tree (higher = more stable topology).
 - NOISE_SCALE: Standard deviation of structural noise applied during bootstrap resampling.
+- INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS: Whether missing pairs receive replicate-averaged cophenetic distances in the final matrix. Imputed pairs always participate in replicate trees.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
 
 Algorithm:
@@ -35,8 +36,8 @@ Algorithm:
 3. Builds an ensemble of randomized bootstrap neighbor-joining trees from the distance matrix (simulated via structural noise addition).
 4. Computes the geometric average (consensus) graph of all random bootstraps to form the master guide tree.
 5. In ascending order of linkage closeness, extracts sequence pairs/groups.
-6. Averages the numerical embedding vectors of groups utilizing sequence-length mathematical weights.
-7. Aligns the resultant averaged arrays using Needleman-Wunsch dynamic programming and PyTorch Cosine Distance evaluation.
+6. Forms profile columns as cluster-size-weighted averages of unit residue embeddings, treating gaps as zero.
+7. Aligns profiles using Needleman-Wunsch dynamic programming, reciprocal cosine similarity, and column-norm confidence so sparse or internally inconsistent columns contribute less evidence.
 8. Distributes the calculated optimal gap padding into all underlying string literal FASTA sequences.
 9. Saves the final alignment block.
 """
@@ -65,6 +66,7 @@ from sklearn.isotonic import IsotonicRegression
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 
+from Cache_Manifest import validate_network_schema
 from utilities.FASTA_Sanitization import load_sanitized_fasta
 from utilities.Embedding_HDF5 import read_embedding_manifest
 
@@ -88,6 +90,7 @@ TREE_METHOD = "UPGMA (Fast)" # (UPGMA (Fast), Neighbor-joining (Slow))
 BOOTSTRAP_TREE = True
 NUM_TREES = 100             
 NOISE_SCALE = 0.02          
+INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS = False
 
 # --- DIRECTORY DEFAULTS ---
 FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
@@ -240,16 +243,31 @@ DEVICE = Hardware_Utils.get_optimal_device()
 # ==========================================
 # CORE CLASSES
 # ==========================================
+def _normalize_residue_embeddings(embedding):
+    """Return unit residue vectors while leaving zero vectors unchanged."""
+    embedding = np.asarray(embedding, dtype=np.float32)
+    norms = np.linalg.norm(embedding, axis=1, keepdims=True)
+    normalized = np.zeros_like(embedding, dtype=np.float32)
+    np.divide(embedding, norms, out=normalized, where=norms > 0.0)
+    # Leaves are transient, so retain float32 until their first merge. An
+    # immediate float16 cast can make a unit vector's norm slightly less than
+    # one and incorrectly attenuate an otherwise full-confidence leaf score.
+    return normalized
+
+
 class MSACluster:
     def __init__(self, idx, sequences, ids, embedding=None):
         self.idx = idx
         self.sequences = sequences   
         self.ids = ids               
-        self.embedding = embedding   # Only populated for intermediate/merged nodes
+        # For merged nodes, each row is the average of unit residue vectors
+        # across every sequence in the cluster. Gaps contribute zero, so the
+        # row norm retains both column occupancy and residue agreement.
+        self.embedding = embedding
         self.is_leaf = embedding is None
 
     def get_embedding(self, h5_path, valid_headers):
-        """Lazy loads the embedding from disk if it's a leaf node."""
+        """Return profile vectors, lazily initializing leaf residue vectors."""
         if self.embedding is not None:
             return self.embedding
         
@@ -257,30 +275,41 @@ class MSACluster:
         with h5py.File(h5_path, "r") as f:
             header = valid_headers[self.ids[0]]
             safe_h = header.replace("/", "_").replace("\\", "_")
-            # Pull as float16 directly from the disk to minimize RAM overhead
-            return f["embeddings"][safe_h][:].astype(np.float16)  
+            # Leaves enter the profile as unit residue vectors. Subsequent
+            # weighted averages then have norms in [0, 1], where a smaller
+            # norm represents gaps and/or disagreement within the column.
+            return _normalize_residue_embeddings(f["embeddings"][safe_h][:])
 
 # ==========================================
 # HELPER: FASTA LOADER & WORKER
 # ==========================================
-def compute_single_tree_worker(seed, num_seqs, num_edges, edge_i_path, edge_j_path, edge_dist_path, max_dist, noise_scale, tree_method):
-    """Worker function optimized with Memory Mapping to bypass Windows IPC limits."""
-    np.random.seed(seed)
-    
-    # 1. Load the shared data dynamically from disk (Virtually 0 RAM overhead)
-    edge_i = np.memmap(edge_i_path, dtype=np.int32, mode='r', shape=(num_edges,))
-    edge_j = np.memmap(edge_j_path, dtype=np.int32, mode='r', shape=(num_edges,))
-    edge_dist = np.memmap(edge_dist_path, dtype=np.float32, mode='r', shape=(num_edges,))
-    
+def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noise_scale, tree_method):
+    """Build one replicate tree from the complete shared distance baseline."""
     condensed_size = int(num_seqs * (num_seqs - 1) / 2)
-    # Allocate the matrix in float32 directly in the worker
-    D_perturbed_cond = np.full(condensed_size, max_dist, dtype=np.float32)
-    
-    # Generate noise ONLY for the active edges
-    noise = np.random.normal(1.0, noise_scale, size=num_edges)
-    perturbed_dists = (edge_dist * noise).astype(np.float32)
-    
-    populate_condensed_matrix(D_perturbed_cond, num_seqs, edge_i, edge_j, perturbed_dists)
+    baseline_dist = np.memmap(
+        baseline_dist_path,
+        dtype=np.float32,
+        mode="r",
+        shape=(condensed_size,),
+    )
+
+    # Allocate only the replicate matrix in worker RAM. Generate additive
+    # noise in chunks so a dense imputed baseline does not require another
+    # full-size temporary noise array.
+    D_perturbed_cond = np.empty(condensed_size, dtype=np.float32)
+    rng = np.random.default_rng(seed)
+    sigma = float(noise_scale) * float(max_dist)
+    noise_chunk_size = 1_000_000
+
+    if sigma == 0.0:
+        D_perturbed_cond[:] = baseline_dist[:]
+    else:
+        for start in range(0, condensed_size, noise_chunk_size):
+            end = min(start + noise_chunk_size, condensed_size)
+            noise = rng.normal(0.0, sigma, size=end - start).astype(np.float32)
+            D_perturbed_cond[start:end] = baseline_dist[start:end] + noise
+
+    np.clip(D_perturbed_cond, 0.0, max_dist, out=D_perturbed_cond)
     
     # Run Linkage or Neighbor-joining
     if tree_method == "Neighbor-joining (Slow)":
@@ -288,10 +317,8 @@ def compute_single_tree_worker(seed, num_seqs, num_edges, edge_i_path, edge_j_pa
     else:
         Z = sch.linkage(D_perturbed_cond, method='average')
     
-    # Windows requires explicitly closing the memmap before it can be deleted later
-    del edge_i
-    del edge_j
-    del edge_dist
+    # Windows requires explicitly closing the memmap before cleanup.
+    del baseline_dist
     
     return Z
 
@@ -364,6 +391,12 @@ def validate_sequence_embedding_match(seq_dict, valid_headers, emb_seq_dict, emb
 def compute_score_matrix_torch(emb_i, emb_j):
     t_i = torch.as_tensor(emb_i, device=DEVICE, dtype=torch.float32)
     t_j = torch.as_tensor(emb_j, device=DEVICE, dtype=torch.float32)
+
+    # Profile-vector magnitude is meaningful: it decreases when a column has
+    # gaps or contains disagreeing residue directions. Preserve that signal
+    # before normalizing directions for the reciprocal similarity score.
+    confidence_i = torch.linalg.vector_norm(t_i, dim=-1, keepdim=True).clamp(max=1.0)
+    confidence_j = torch.linalg.vector_norm(t_j, dim=-1, keepdim=True).clamp(max=1.0)
     t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
     t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
     cos_sim = torch.mm(t_i_norm, t_j_norm.T)
@@ -378,7 +411,8 @@ def compute_score_matrix_torch(emb_i, emb_j):
     
     z_r = (sim_mat - row_mean) / (row_std + epsilon)
     z_c = (sim_mat - col_mean) / (col_std + epsilon)
-    final_score = (z_r + z_c) / 2.0
+    profile_confidence = confidence_i * confidence_j.T
+    final_score = ((z_r + z_c) / 2.0) * profile_confidence
     
     return final_score.to(dtype=torch.float32, device="cpu").numpy()
 
@@ -435,6 +469,86 @@ def compute_sparse_cophenetic(Z, num_seqs, edge_i, edge_j):
         coph_dists[k] = height[curr]
         
     return coph_dists
+
+
+@jit(nopython=True, fastmath=True)
+def compute_full_cophenetic(Z, num_seqs):
+    """Return float32 cophenetic distances for every condensed sequence pair."""
+    condensed_size = int(num_seqs * (num_seqs - 1) / 2)
+    coph_dists = np.zeros(condensed_size, dtype=np.float32)
+    if num_seqs <= 1:
+        return coph_dists
+
+    total_nodes = 2 * num_seqs - 1
+    head = np.full(total_nodes, -1, dtype=np.int32)
+    tail = np.full(total_nodes, -1, dtype=np.int32)
+    next_leaf = np.full(num_seqs, -1, dtype=np.int32)
+
+    for leaf in range(num_seqs):
+        head[leaf] = leaf
+        tail[leaf] = leaf
+
+    # At each linkage merge, every cross-child leaf pair meets for the first
+    # time at this node. Across the complete tree, each pair is written once.
+    for step in range(num_seqs - 1):
+        child_a = int(Z[step, 0])
+        child_b = int(Z[step, 1])
+        parent = num_seqs + step
+        merge_height = np.float32(Z[step, 2])
+
+        leaf_a = head[child_a]
+        while leaf_a != -1:
+            leaf_b = head[child_b]
+            while leaf_b != -1:
+                i = leaf_a
+                j = leaf_b
+                if i > j:
+                    temp = i
+                    i = j
+                    j = temp
+                condensed_idx = (
+                    num_seqs * i - i * (i + 1) // 2 + j - i - 1
+                )
+                coph_dists[condensed_idx] = merge_height
+                leaf_b = next_leaf[leaf_b]
+            leaf_a = next_leaf[leaf_a]
+
+        head[parent] = head[child_a]
+        tail[parent] = tail[child_b]
+        next_leaf[tail[child_a]] = head[child_b]
+
+    return coph_dists
+
+
+def use_full_cophenetic_consensus(is_sparse, include_imputed_pairs):
+    """Complete networks are always full; sparse networks follow the setting."""
+    return (not bool(is_sparse)) or bool(include_imputed_pairs)
+
+
+def finalize_cophenetic_consensus(
+    distance_matrix,
+    num_seqs,
+    edge_i,
+    edge_j,
+    cophenetic_accumulator,
+    num_trees,
+    full_consensus,
+):
+    """Finalize full or observed-edge-only cophenetic accumulation in place."""
+    if num_trees <= 0:
+        raise ValueError("NUM_TREES must be greater than zero.")
+    if full_consensus:
+        distance_matrix /= num_trees
+    else:
+        average_sparse = cophenetic_accumulator / num_trees
+        populate_condensed_matrix(
+            distance_matrix,
+            num_seqs,
+            edge_i,
+            edge_j,
+            average_sparse,
+        )
+    return distance_matrix
 
 @jit(nopython=True, fastmath=True)
 def neighbor_joining_kernel(D, N):
@@ -695,7 +809,8 @@ def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
         if move == 1: 
             for i, s in enumerate(cluster_a.sequences): new_seqs_a[i] += s[idx_a]
             for i, s in enumerate(cluster_b.sequences): new_seqs_b[i] += s[idx_b]
-            # Upcast to float32 for safe math against large weights
+            # These are cluster-wide averages of unit residue vectors. The
+            # weighted mean preserves occupancy and directional agreement.
             vec = (emb_a[idx_a].astype(np.float32) * w_a + emb_b[idx_b].astype(np.float32) * w_b) / total_w
             merged_vecs.append(vec)
             idx_a += 1; idx_b += 1
@@ -717,7 +832,8 @@ def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
     new_cluster = MSACluster(
         idx=-1,
         sequences=new_seqs_a + new_seqs_b,
-        # Downcast back to float16 to save RAM for the remaining iterations
+        # Values remain bounded because they are averages of unit vectors.
+        # Downcast to float16 to save RAM for the remaining iterations.
         embedding=np.stack(merged_vecs, axis=0).astype(np.float16),
         ids=cluster_a.ids + cluster_b.ids
     )
@@ -781,8 +897,8 @@ def run_msa_builder():
     arr_i = f_net['i'][:]
     arr_j = f_net['j'][:]
     
-    model_name_attr = str(f_net.attrs.get("model_name", "")).upper()
-    if 'score' in f_net or model_name_attr == "BLAST" or len(f_net.keys()) == 4:
+    network_metadata = validate_network_schema(f_net)
+    if network_metadata.network_type == "blast":
         target_score = f_net['score'][:]
         target_len   = np.ones_like(target_score)
         is_evalue = True
@@ -1042,11 +1158,23 @@ def run_msa_builder():
     else:
         D_final_cond = np.full(condensed_size, MAX_DISTANCE, dtype=np.float32)
 
+    # The regression supplies missing distances, while observed network edges
+    # remain authoritative. This complete baseline is used by every replicate
+    # so imputed relationships can influence each tree topology.
+    populate_condensed_matrix(D_final_cond, num_seqs, edge_i, edge_j, edge_dists)
+    np.clip(D_final_cond, 0.0, MAX_DISTANCE, out=D_final_cond)
+
     if BOOTSTRAP_TREE:
+        full_consensus = use_full_cophenetic_consensus(
+            is_sparse,
+            INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS,
+        )
+        consensus_label = "full all-pairs" if full_consensus else "observed-edge partial"
         print(f"\nBuilding Consensus Tree from {NUM_TREES} bootstrap replicates using {WORKERS} cores...")
+        print(f"Final cophenetic consensus mode: {consensus_label}.")
         
         # --- MEMORY MAPPING FIX FOR WINDOWS IPC LIMITS ---
-        print("Writing sparse data to temporary Memory-Mapped files for workers...")
+        print("Writing the complete distance baseline to a temporary Memory-Mapped file for workers...")
         
         # 1. Define a strictly named, predictable folder in the user-defined Temp directory
         temp_dir = os.path.join(SAFE_TEMP_DIR, f"{_seq_set}_[{_model_name}]_Memmap_Cache")
@@ -1062,41 +1190,53 @@ def run_msa_builder():
         os.makedirs(temp_dir, exist_ok=True)
         print(f"Temporary memmap cache active at: {temp_dir}")
         
-        edge_i_path = os.path.join(temp_dir, 'edge_i.dat')
-        edge_j_path = os.path.join(temp_dir, 'edge_j.dat')
-        edge_dist_path = os.path.join(temp_dir, 'edge_dist.dat')
-        
-        # Dump RAM arrays to disk
-        mm_i = np.memmap(edge_i_path, dtype=np.int32, mode='w+', shape=edge_i.shape)
-        mm_i[:] = edge_i[:]
-        mm_i.flush()
-        
-        mm_j = np.memmap(edge_j_path, dtype=np.int32, mode='w+', shape=edge_j.shape)
-        mm_j[:] = edge_j[:]
-        mm_j.flush()
-        
-        mm_d = np.memmap(edge_dist_path, dtype=np.float32, mode='w+', shape=edge_dists.shape)
-        mm_d[:] = edge_dists[:]
-        mm_d.flush()
-        
-        # Clear the massive original arrays from the main process RAM
-        del edge_i
-        del edge_j
-        del edge_dists
-        
-        # Open read-only views for the main process loop
-        mm_i_main = np.memmap(edge_i_path, dtype=np.int32, mode='r', shape=(num_edges,))
-        mm_j_main = np.memmap(edge_j_path, dtype=np.int32, mode='r', shape=(num_edges,))
-        
-        C_accum_sparse = np.zeros(num_edges, dtype=np.float32)
+        baseline_dist_path = os.path.join(temp_dir, "baseline_dist.dat")
+        mm_baseline = np.memmap(
+            baseline_dist_path,
+            dtype=np.float32,
+            mode="w+",
+            shape=D_final_cond.shape,
+        )
+        mm_baseline[:] = D_final_cond[:]
+        mm_baseline.flush()
+
+        if full_consensus:
+            # Workers now own the immutable baseline through the memory map.
+            # Reuse the main condensed array as the all-pairs accumulator.
+            del edge_i
+            del edge_j
+            del edge_dists
+            D_final_cond.fill(0.0)
+            mm_i_main = None
+            mm_j_main = None
+            C_accum_sparse = None
+        else:
+            # Partial consensus updates only observed pairs. Keep their indices
+            # memory-mapped so large sparse networks do not remain in RAM.
+            edge_i_path = os.path.join(temp_dir, "edge_i.dat")
+            edge_j_path = os.path.join(temp_dir, "edge_j.dat")
+            mm_i = np.memmap(edge_i_path, dtype=np.int32, mode="w+", shape=edge_i.shape)
+            mm_i[:] = edge_i[:]
+            mm_i.flush()
+            del mm_i
+
+            mm_j = np.memmap(edge_j_path, dtype=np.int32, mode="w+", shape=edge_j.shape)
+            mm_j[:] = edge_j[:]
+            mm_j.flush()
+            del mm_j
+
+            del edge_i
+            del edge_j
+            del edge_dists
+            mm_i_main = np.memmap(edge_i_path, dtype=np.int32, mode="r", shape=(num_edges,))
+            mm_j_main = np.memmap(edge_j_path, dtype=np.int32, mode="r", shape=(num_edges,))
+            C_accum_sparse = np.zeros(num_edges, dtype=np.float32)
+
         seeds = np.random.randint(0, int(1e9), size=NUM_TREES)
         
         worker_func = partial(compute_single_tree_worker, 
                               num_seqs=num_seqs, 
-                              num_edges=num_edges,
-                              edge_i_path=edge_i_path, 
-                              edge_j_path=edge_j_path, 
-                              edge_dist_path=edge_dist_path, 
+                              baseline_dist_path=baseline_dist_path,
                               max_dist=MAX_DISTANCE, 
                               noise_scale=NOISE_SCALE,
                               tree_method=TREE_METHOD)
@@ -1104,20 +1244,36 @@ def run_msa_builder():
         with mp.Pool(processes=WORKERS) as pool:
             iterator = pool.imap_unordered(worker_func, seeds)
             for Z in tqdm(iterator, total=NUM_TREES, desc="Bootstrapping Trees"):
-                sparse_coph = compute_sparse_cophenetic(Z, num_seqs, mm_i_main, mm_j_main)
-                C_accum_sparse += sparse_coph
-                
-        C_avg_sparse = C_accum_sparse / NUM_TREES
-        
+                if full_consensus:
+                    full_coph = compute_full_cophenetic(Z, num_seqs)
+                    D_final_cond += full_coph
+                    del full_coph
+                else:
+                    sparse_coph = compute_sparse_cophenetic(
+                        Z,
+                        num_seqs,
+                        mm_i_main,
+                        mm_j_main,
+                    )
+                    C_accum_sparse += sparse_coph
+
         print("Building final master tree...")
-        populate_condensed_matrix(D_final_cond, num_seqs, mm_i_main, mm_j_main, C_avg_sparse)
+        finalize_cophenetic_consensus(
+            D_final_cond,
+            num_seqs,
+            mm_i_main,
+            mm_j_main,
+            C_accum_sparse,
+            NUM_TREES,
+            full_consensus,
+        )
         
         # --- CLEANUP ---
-        del mm_i_main
-        del mm_j_main
-        del mm_i
-        del mm_j
-        del mm_d
+        if mm_i_main is not None:
+            del mm_i_main
+        if mm_j_main is not None:
+            del mm_j_main
+        del mm_baseline
         
         gc.collect() # Force Windows to release file handles
         try:
@@ -1126,9 +1282,6 @@ def run_msa_builder():
             print(f"Note: Could not clean up temporary directory {temp_dir}: {e}")
     else:
         print("\nBuilding Deterministic Tree (Bootstrapping bypassed)...")
-        populate_condensed_matrix(D_final_cond, num_seqs, edge_i, edge_j, edge_dists)
-        
-        # Clear original arrays
         del edge_i
         del edge_j
         del edge_dists

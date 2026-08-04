@@ -9,6 +9,11 @@ import re
 
 from utilities import Hardware_Utils
 from utilities.PLM_Plugin_Utils import discover_model_execution_modes
+from Cache_Manifest import (
+    file_cache_key,
+    inspect_network_completeness,
+    validate_network_schema,
+)
 
 MAX_CORES = os.cpu_count() or 16
 
@@ -32,17 +37,16 @@ SECONDARY_TITLE_STYLE = (
 SECONDARY_TITLE_WITH_TOP_PADDING_STYLE = (
     SECONDARY_TITLE_STYLE + " padding-top: 18px;"
 )
-COMPACT_ROW_PAIRS = {
+COMPACT_ROW_GROUPS = {
     "Sanitize_Sequences.py": [
         ("MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"),
     ],
     "Generate_Embeddings.py": [
-        ("MODEL_NAME", "SAVING_MODE"),
+        ("MODEL_NAME", "SAVING_MODE", "DEVICE_SELECTION"),
     ],
     "Align_Similarity_Matrix.py": [
         ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
         ("BATCH_SIZE", "WORKERS"),
-        ("DEVICE_SELECTION", "ACCELERATOR_LANES"),
     ],
     "Align_Substitution_Matrix.py": [
         ("BATCH_SIZE", "NUM_THREADS"),
@@ -55,6 +59,12 @@ COMPACT_ROW_PAIRS = {
     ],
 }
 INLINE_FIELD_GROUPS = {
+    "Align_Similarity_Matrix.py": [
+        ("INPUT_HDF5", "DEVICE_SELECTION"),
+    ],
+    "Align_Substitution_Matrix.py": [
+        ("INPUT_FASTA", "MATRIX"),
+    ],
     "Sanitize_Sequences.py": [
         ("INPUT_FASTA", "OVER_WRITE"),
         ("ENABLE_LENGTH_FILTER", "REMOVE_BY_HEADER_STRING"),
@@ -64,10 +74,25 @@ INLINE_FIELD_GROUPS = {
     ],
     "Embedding_MSA.py": [
         ("USE_SEQUENCE_FILTER", "INPUT_FASTA"),
-        ("INPUT_NETWORK", "SHOW_REGRESSION_PLOT"),
-        ("TREE_METHOD", "ALIGNMENT_SCORE", "NORMALIZATION_MODE"),
-        ("BOOTSTRAP_TREE", "NUM_TREES"),
+        ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
+        ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
+        ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
     ],
+}
+INLINE_FIELD_RATIOS = {
+    ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
+    ("INPUT_FASTA", "MATRIX"): (2, 1),
+}
+INLINE_TRAILING_CONTROL_GROUPS = {
+    ("INPUT_FASTA", "OVER_WRITE"),
+    ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
+    ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
+    ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
+}
+SPANNING_TRAILING_CONTROL_GROUPS = {
+    ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
+    ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
+    ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
 }
 TAB_DISPLAY_NAMES = {
     "Sequence_and_Embedding_Preparation": "Sequence && Embedding Preparation",
@@ -75,6 +100,52 @@ TAB_DISPLAY_NAMES = {
     "Others": "Manual Tools",
     "Sequence_Similarity_Calculations": "Sequence Similarity Calculations",
 }
+
+
+def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
+    """Return the enabled state and explanatory tooltip for the MSA switch."""
+    if network_info is None:
+        return False, (
+            "No network is selected. Select a valid network to determine whether "
+            "imputed pairs can be included in the final consensus."
+        )
+
+    if network_info.status == "unknown":
+        reason = network_info.reason or "The network metadata could not be validated."
+        return False, f"Network completeness is unknown: {reason}"
+
+    observed = network_info.edge_count
+    expected = network_info.expected_edge_count
+    sequences = network_info.sequence_count
+    if network_info.status == "complete":
+        return False, (
+            f"Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+            "observed pairs. All pairs are already observed, so full cophenetic "
+            "consensus is automatic."
+        )
+
+    coverage = 100.0 if expected == 0 else 100.0 * observed / expected
+    prefix = (
+        f"Incomplete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+        f"observed pairs ({coverage:.2f}% coverage). "
+    )
+    if checked:
+        behavior = (
+            "Imputed pairs participate in every replicate tree and are also replaced "
+            "by replicate-averaged cophenetic distances in the final matrix."
+        )
+    else:
+        behavior = (
+            "Imputed pairs participate in every replicate tree but retain their "
+            "baseline imputed distances in the final matrix."
+        )
+    if noise_trees_active:
+        return True, prefix + behavior
+    return False, (
+        prefix
+        + behavior
+        + " Enable Noise-Perturbed Trees with UPGMA to change this setting."
+    )
 
 def get_tool_titles():
     """Map tool script filenames to their display titles in the Markdown descriptions."""
@@ -369,24 +440,37 @@ class DynamicComboBox(QComboBox):
 
     def populate(self):
         current_text = self.currentText()
-        self.clear()
-        options = []
-        if os.path.exists(self.folder):
-            for f in os.listdir(self.folder):
-                if f.endswith(self.ext):
-                    # --- NEW: Skip files containing the exclusion string ---
-                    if self.exclude_str and self.exclude_str in f:
-                        continue
-                    # -------------------------------------------------------
-                    if self.include_ext:
-                        options.append(f)
-                    else:
-                        options.append(f.replace(self.ext, ""))
-        self.addItems(options)
-        if current_text:
-            idx = self.findText(current_text)
-            if idx >= 0:
-                self.setCurrentIndex(idx)
+        current_index = self.currentIndex()
+        signals_were_blocked = self.blockSignals(True)
+        try:
+            self.clear()
+            options = []
+            if os.path.exists(self.folder):
+                for f in os.listdir(self.folder):
+                    if f.endswith(self.ext):
+                        # --- NEW: Skip files containing the exclusion string ---
+                        if self.exclude_str and self.exclude_str in f:
+                            continue
+                        # -------------------------------------------------------
+                        if self.include_ext:
+                            options.append(f)
+                        else:
+                            options.append(f.replace(self.ext, ""))
+            self.addItems(options)
+            if current_text:
+                idx = self.findText(current_text)
+                if idx >= 0:
+                    self.setCurrentIndex(idx)
+        finally:
+            self.blockSignals(signals_were_blocked)
+
+        if not signals_were_blocked:
+            refreshed_index = self.currentIndex()
+            refreshed_text = self.currentText()
+            if refreshed_index != current_index:
+                self.currentIndexChanged.emit(refreshed_index)
+            if refreshed_text != current_text:
+                self.currentTextChanged.emit(refreshed_text)
 
     def showPopup(self):
         self.populate()
@@ -471,7 +555,6 @@ class ToolsGUI(QMainWindow):
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: The penalty score applied for initiating or extending gaps in global alignment. Adjust this to control how alignment length matches are forced.",
                 "BATCH_SIZE": "Batch Size: The number of sequence pairs processed in a single chunk. Larger values maximize CPU utilization but require more system memory. Set to 'auto' or specify a number.",
                 "DEVICE_SELECTION": "Device: Auto Benchmark compares the complete CPU pipeline with every available accelerator. Select a concrete device to bypass device comparison.",
-                "ACCELERATOR_LANES": "Accelerator Lanes: Auto benchmarks supported stream counts for the selected accelerator. CPU, MPS, and DirectML use one lane."
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): The sequence file to align with BLASTP. Before alignment, records undergo the same canonical header, residue, empty-record, and duplicate-sequence sanitization used by Generate Embeddings.",
@@ -491,6 +574,7 @@ class ToolsGUI(QMainWindow):
                 "NORMALIZATION_MODE": "Normalization Mode: Normalization method for pairwise embedding scores (e.g., alignment length, shorter sequence length). Not active when using raw BLAST E-values.",
                 "BOOTSTRAP_TREE": "Noise-Perturbed Consensus Guide Tree: Toggle whether to average guide-tree distances across randomly perturbed replicate trees (ON) or build one deterministic tree (OFF). This is a sensitivity ensemble, not classical bootstrap support. Disabling it significantly speeds up the run.",
                 "NUM_TREES": "Number of Perturbed Trees: The number of noise-perturbed replicate trees used to construct the consensus guide tree. Higher values produce a more stable average but increase calculation time.",
+                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": "Include Imputed Pairs in Final Consensus: For an incomplete network, OFF retains baseline imputed distances for missing pairs after they participate in every replicate tree; ON replaces them with replicate-averaged cophenetic distances.",
                 "NOISE_SCALE": "Normalized Additive Noise Scale: Gaussian standard deviation expressed as a fraction of the valid distance range. For example, 0.02 means 2% of the maximum guide-tree distance. Every observed and regression-imputed distance is perturbed, then clamped between zero (closest) and the maximum distance (weakest or unconnected).",
                 "GAP_OPEN": "Gap Open Penalty: The penalty score applied for initiating a new gap within progressive profile alignments. More negative values result in fewer gaps.",
                 "GAP_EXTEND": "Gap Extend Penalty: The penalty score applied for extending an existing gap. More negative values yield shorter, more compact gap regions.",
@@ -726,11 +810,6 @@ class ToolsGUI(QMainWindow):
                     "var_name": "DEVICE_SELECTION",
                     "type": "device_dropdown",
                     "display": "Device:"
-                },
-                {
-                    "var_name": "ACCELERATOR_LANES",
-                    "type": "text",
-                    "display": "Accelerator Lanes:"
                 }
                     ],
                     "Align_Substitution_Matrix.py": [
@@ -747,11 +826,6 @@ class ToolsGUI(QMainWindow):
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
                             "display": "Sequence Set (.fasta):"
-                        },
-                        {
-                            "var_name": "title_sub_align",
-                            "type": "title",
-                            "display": "Alignment Settings:"
                         },
                         {
                             "var_name": "MATRIX",
@@ -842,11 +916,6 @@ class ToolsGUI(QMainWindow):
                             "display": "Network File (.h5):"
                         },
                         {
-                            "var_name": "SHOW_REGRESSION_PLOT",
-                            "type": "switch",
-                            "display": "Show Isotonic Regression Plot:"
-                        },
-                        {
                             "var_name": "title_guide",
                             "type": "title",
                             "display": "Guide Tree Settings:"
@@ -856,18 +925,6 @@ class ToolsGUI(QMainWindow):
                             "type": "dropdown",
                             "options": ["UPGMA (Fast)", "Neighbor-joining (Slow)"],
                             "display": "Tree Building Method:"
-                        },
-                        {
-                            "var_name": "ALIGNMENT_SCORE",
-                            "type": "dropdown",
-                            "options": ["global", "local"],
-                            "display": "Score Mode:"
-                        },
-                        {
-                            "var_name": "NORMALIZATION_MODE",
-                            "type": "dropdown",
-                            "options": ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"],
-                            "display": "Normalization Mode:"
                         },
                         {
                             "var_name": "BOOTSTRAP_TREE",
@@ -886,6 +943,28 @@ class ToolsGUI(QMainWindow):
                             "max": 100,
                             "scale": 1000.0,
                             "display": "Normalized Noise Scale (0 to 0.1):"
+                        },
+                        {
+                            "var_name": "ALIGNMENT_SCORE",
+                            "type": "dropdown",
+                            "options": ["global", "local"],
+                            "display": "Score Mode:"
+                        },
+                        {
+                            "var_name": "SHOW_REGRESSION_PLOT",
+                            "type": "switch",
+                            "display": "Show Isotonic Regression Plot:"
+                        },
+                        {
+                            "var_name": "NORMALIZATION_MODE",
+                            "type": "dropdown",
+                            "options": ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"],
+                            "display": "Normalization Mode:"
+                        },
+                        {
+                            "var_name": "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
+                            "type": "switch",
+                            "display": "Include Imputed Pairs in Final Consensus:"
                         },
                         {
                             "var_name": "title_align",
@@ -999,7 +1078,6 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",
-                            "exclude_str": "[BLAST]",
                             "display": "Input Network Edges (.h5):"
                         },
                         {
@@ -1304,6 +1382,7 @@ class ToolsGUI(QMainWindow):
         self.tab_paths = [] 
 
         self.tip_db = {}
+        self.network_completeness_cache = {}
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
         
@@ -2036,6 +2115,17 @@ class ToolsGUI(QMainWindow):
                      if child.isWidgetType():
                          self.tip_db[child] = tip
                          child.installEventFilter(self)
+
+            if (
+                script_name == "Embedding_MSA.py"
+                and var_name in {"INPUT_EMBED", "INPUT_NETWORK"}
+            ):
+                responsive_policy = ui_element.sizePolicy()
+                responsive_policy.setHorizontalPolicy(
+                    QSizePolicy.Policy.Ignored
+                )
+                ui_element.setSizePolicy(responsive_policy)
+                ui_element.setMinimumWidth(0)
             
             layout.addRow(label, ui_element)
             row_widgets[var_name] = (label, ui_element)
@@ -2088,20 +2178,6 @@ class ToolsGUI(QMainWindow):
                 model_combo.currentTextChanged.connect(update_embedding_device)
                 update_embedding_device(model_combo.currentText())
 
-        if script_name == "Align_Similarity_Matrix.py":
-            device_input = inputs.get("DEVICE_SELECTION")
-            lanes_input = inputs.get("ACCELERATOR_LANES")
-            if device_input and lanes_input:
-                device_combo = device_input['widget']
-                lanes_widget = lanes_input['widget']
-
-                def update_alignment_lanes(*_):
-                    selected = device_combo.currentData()
-                    lanes_widget.setEnabled(selected != "cpu")
-
-                device_combo.currentIndexChanged.connect(update_alignment_lanes)
-                update_alignment_lanes()
-        
         if script_name == "Embedding_MSA.py":
             use_filter_input = inputs.get("USE_SEQUENCE_FILTER")
             fasta_input = inputs.get("INPUT_FASTA")
@@ -2130,13 +2206,47 @@ class ToolsGUI(QMainWindow):
             norm_input = inputs.get("NORMALIZATION_MODE")
             bootstrap_input = inputs.get("BOOTSTRAP_TREE")
             num_trees_input = inputs.get("NUM_TREES")
+            imputed_consensus_input = inputs.get(
+                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"
+            )
             noise_scale_input = inputs.get("NOISE_SCALE")
             tree_method_input = inputs.get("TREE_METHOD")
+            show_plot_input = inputs.get("SHOW_REGRESSION_PLOT")
+
+            if net_input:
+                net_combo = net_input['widget'].combo
+
+                def selected_network_path():
+                    filename = net_combo.currentText().strip()
+                    if not filename:
+                        return None
+                    if hasattr(self, 'dir_inputs') and "NETWORK_DIR" in self.dir_inputs:
+                        network_dir = self.dir_inputs["NETWORK_DIR"].text()
+                    else:
+                        network_dir = net_combo.folder
+                    return os.path.abspath(os.path.join(network_dir, filename))
             
-            if net_input and score_input and norm_input:
-                net_combo = net_input['widget'].combo # Get the underlying QComboBox
+            if net_input and score_input and norm_input and show_plot_input:
                 score_combo = score_input['widget']
                 norm_combo = norm_input['widget']
+                show_plot_switch = show_plot_input['widget']
+                show_plot_label = row_widgets.get(
+                    "SHOW_REGRESSION_PLOT", (None, None)
+                )[0]
+                score_default_tip = score_combo.toolTip()
+                norm_default_tip = norm_combo.toolTip()
+                show_plot_default_tip = show_plot_switch.toolTip()
+
+                def update_show_plot_control(enabled, tip):
+                    if not enabled:
+                        show_plot_switch.setChecked(False)
+                    show_plot_switch.setEnabled(enabled)
+                    show_plot_switch.setToolTip(tip)
+                    self.tip_db[show_plot_switch] = tip
+                    if show_plot_label is not None:
+                        show_plot_label.setEnabled(enabled)
+                        show_plot_label.setToolTip(tip)
+                        self.tip_db[show_plot_label] = tip
                 
                 def sync_local_norm_mode():
                     if not score_combo.isEnabled():
@@ -2161,8 +2271,38 @@ class ToolsGUI(QMainWindow):
                     norm_combo.setCurrentText(current_norm)
                     norm_combo.blockSignals(False)
                 
-                def update_msa_toggles(text):
-                    is_blast = "blast" in text.lower()
+                def update_msa_toggles(_text):
+                    network_path = selected_network_path()
+                    try:
+                        if network_path is None:
+                            raise ValueError("No network is selected.")
+                        network_metadata = validate_network_schema(network_path)
+                    except (OSError, ValueError) as error:
+                        error_tip = f"Unable to determine network type: {error}"
+                        score_combo.setEnabled(False)
+                        norm_combo.setEnabled(False)
+                        score_combo.setToolTip(error_tip)
+                        norm_combo.setToolTip(error_tip)
+                        update_show_plot_control(False, error_tip)
+                        score_combo.blockSignals(True)
+                        norm_combo.blockSignals(True)
+                        score_combo.setCurrentIndex(-1)
+                        norm_combo.setCurrentIndex(-1)
+                        score_combo.blockSignals(False)
+                        norm_combo.blockSignals(False)
+                        return
+
+                    is_blast = network_metadata.network_type == "blast"
+                    score_combo.setToolTip(score_default_tip)
+                    norm_combo.setToolTip(norm_default_tip)
+                    if is_blast:
+                        update_show_plot_control(
+                            False,
+                            "Isotonic regression plots are unavailable for "
+                            "BLAST networks.",
+                        )
+                    else:
+                        update_show_plot_control(True, show_plot_default_tip)
                     
                     score_combo.setEnabled(not is_blast)
                     norm_combo.setEnabled(not is_blast)
@@ -2174,11 +2314,12 @@ class ToolsGUI(QMainWindow):
                         norm_combo.setCurrentIndex(-1)
                     else:
                         if score_combo.currentIndex() == -1: score_combo.setCurrentText("global")
-                        if norm_combo.currentIndex() == -1: norm_combo.setCurrentText("alignment_length")
                     score_combo.blockSignals(False)
                     norm_combo.blockSignals(False)
                     
                     sync_local_norm_mode()
+                    if not is_blast and norm_combo.currentIndex() == -1:
+                        norm_combo.setCurrentText("alignment_length")
                     
                 score_combo.currentTextChanged.connect(lambda text: sync_local_norm_mode())
                 net_combo.currentTextChanged.connect(update_msa_toggles)
@@ -2210,6 +2351,63 @@ class ToolsGUI(QMainWindow):
                         
                 tree_method_combo.currentTextChanged.connect(update_tree_method_toggles)
                 update_tree_method_toggles(tree_method_combo.currentText()) # Trigger once on load
+
+            if net_input and bootstrap_input and imputed_consensus_input:
+                bootstrap_switch = bootstrap_input['widget']
+                imputed_consensus_switch = imputed_consensus_input['widget']
+                imputed_consensus_label = row_widgets.get(
+                    "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS", (None, None)
+                )[0]
+                tree_method_combo = (
+                    tree_method_input['widget'] if tree_method_input else None
+                )
+
+                def cached_network_completeness():
+                    network_path = selected_network_path()
+                    if network_path is None:
+                        return None
+                    try:
+                        cache_key = file_cache_key(network_path)
+                    except OSError:
+                        return inspect_network_completeness(network_path)
+                    if cache_key not in self.network_completeness_cache:
+                        self.network_completeness_cache[cache_key] = (
+                            inspect_network_completeness(network_path)
+                        )
+                    return self.network_completeness_cache[cache_key]
+
+                def update_imputed_consensus_toggle(*_):
+                    noise_trees_active = (
+                        bootstrap_switch.isChecked()
+                        and bootstrap_switch.isEnabled()
+                        and (
+                            tree_method_combo is None
+                            or "neighbor-joining"
+                            not in tree_method_combo.currentText().lower()
+                        )
+                    )
+                    enabled, tip = imputed_consensus_switch_state(
+                        cached_network_completeness(),
+                        noise_trees_active,
+                        imputed_consensus_switch.isChecked(),
+                    )
+                    imputed_consensus_switch.setEnabled(enabled)
+                    imputed_consensus_switch.setToolTip(tip)
+                    self.tip_db[imputed_consensus_switch] = tip
+                    if imputed_consensus_label is not None:
+                        imputed_consensus_label.setToolTip(tip)
+                        self.tip_db[imputed_consensus_label] = tip
+
+                net_combo.currentTextChanged.connect(update_imputed_consensus_toggle)
+                bootstrap_switch.toggled.connect(update_imputed_consensus_toggle)
+                imputed_consensus_switch.toggled.connect(
+                    update_imputed_consensus_toggle
+                )
+                if tree_method_combo is not None:
+                    tree_method_combo.currentTextChanged.connect(
+                        update_imputed_consensus_toggle
+                    )
+                update_imputed_consensus_toggle()
         
         if script_name == "Sparse_MSA_Converter.py":
             conv_all_input = inputs.get("CONVERT_ALL")
@@ -2281,26 +2479,33 @@ class ToolsGUI(QMainWindow):
 
     @staticmethod
     def _merge_compact_rows(layout, script_name, row_widgets):
-        for first_var, second_var in COMPACT_ROW_PAIRS.get(script_name, []):
-            if first_var not in row_widgets or second_var not in row_widgets:
+        for variable_group in COMPACT_ROW_GROUPS.get(script_name, []):
+            if any(var_name not in row_widgets for var_name in variable_group):
                 continue
 
-            first_label, first_input = row_widgets[first_var]
-            second_label, second_input = row_widgets[second_var]
-            first_row, _ = layout.getWidgetPosition(first_label)
-            second_row, _ = layout.getWidgetPosition(second_label)
-            if first_row < 0 or second_row < 0:
+            group_widgets = [
+                (var_name, *row_widgets[var_name])
+                for var_name in variable_group
+            ]
+            row_positions = [
+                layout.getWidgetPosition(label_widget)[0]
+                for _, label_widget, _ in group_widgets
+            ]
+            if any(row < 0 for row in row_positions):
                 continue
 
-            insertion_row = min(first_row, second_row)
-            for row in sorted((first_row, second_row), reverse=True):
+            insertion_row = min(row_positions)
+            for row in sorted(row_positions, reverse=True):
                 layout.takeRow(row)
 
             is_batch_worker_pair = (
-                first_var == "BATCH_SIZE"
-                and second_var in {"WORKERS", "NUM_THREADS"}
+                len(variable_group) == 2
+                and variable_group[0] == "BATCH_SIZE"
+                and variable_group[1] in {"WORKERS", "NUM_THREADS"}
             )
             if is_batch_worker_pair:
+                first_var, first_label, first_input = group_widgets[0]
+                second_var, second_label, second_input = group_widgets[1]
                 field_row = QWidget()
                 field_row.setObjectName(
                     f"compactRow_{first_var}_{second_var}"
@@ -2341,23 +2546,29 @@ class ToolsGUI(QMainWindow):
                 continue
 
             compact_row = QWidget()
+            group_name = "_".join(variable_group)
             compact_row.setObjectName(
-                f"compactRow_{first_var}_{second_var}"
+                f"compactRow_{group_name}"
             )
             compact_layout = QHBoxLayout(compact_row)
             compact_layout.setContentsMargins(0, 0, 0, 0)
             compact_layout.setSpacing(30)
 
             columns = []
-            for side, label_widget, input_widget in (
-                ("left", first_label, first_input),
-                ("right", second_label, second_input),
+            column_names = (
+                ("left", "right")
+                if len(group_widgets) == 2
+                else tuple(str(index) for index in range(len(group_widgets)))
+            )
+            for column_name, (_, label_widget, input_widget) in zip(
+                column_names,
+                group_widgets,
             ):
-                if side == "left":
+                if label_widget is group_widgets[0][1]:
                     label_widget.setProperty("compactColumnLabel", True)
                 column = QWidget()
                 column.setObjectName(
-                    f"compactColumn_{side}_{first_var}_{second_var}"
+                    f"compactColumn_{column_name}_{group_name}"
                 )
                 column_layout = QHBoxLayout(column)
                 column_layout.setContentsMargins(0, 0, 0, 0)
@@ -2369,7 +2580,10 @@ class ToolsGUI(QMainWindow):
             shared_column_width = max(
                 column.sizeHint().width() for column in columns
             )
-            compact_row.setProperty("compactColumnRatio", "1:1")
+            compact_row.setProperty(
+                "compactColumnRatio",
+                ":".join("1" for _ in group_widgets),
+            )
             for column in columns:
                 column.setMinimumWidth(shared_column_width)
 
@@ -2402,33 +2616,77 @@ class ToolsGUI(QMainWindow):
             group_name = "_".join(variable_group)
             field_row = QWidget()
             field_row.setObjectName(f"compactRow_{group_name}")
+            column_ratios = INLINE_FIELD_RATIOS.get(
+                variable_group,
+                tuple(1 for _ in variable_group),
+            )
             field_row.setProperty(
                 "compactColumnRatio",
-                ":".join("1" for _ in variable_group),
+                ":".join(str(ratio) for ratio in column_ratios),
             )
             field_layout = QHBoxLayout(field_row)
             field_layout.setContentsMargins(0, 0, 0, 0)
 
             first_label = group_widgets[0][1]
             first_input = group_widgets[0][2]
-            if variable_group in (
-                ("INPUT_FASTA", "OVER_WRITE"),
-                ("INPUT_NETWORK", "SHOW_REGRESSION_PLOT"),
-            ):
+            if variable_group in INLINE_TRAILING_CONTROL_GROUPS:
                 field_row.setProperty("compactColumnRatio", "inline")
-                field_layout.setSpacing(layout.horizontalSpacing())
-                field_layout.addWidget(first_input, 1)
-                _, second_label, second_input = group_widgets[1]
-                second_label.setText(
-                    f"   {second_label.text().lstrip()}"
+                field_row.setSizePolicy(
+                    QSizePolicy.Policy.Ignored,
+                    QSizePolicy.Policy.Preferred,
                 )
-                field_layout.addWidget(second_label)
-                field_layout.addWidget(second_input)
-                layout.insertRow(insertion_row, first_label, field_row)
+                field_layout.setSpacing(layout.horizontalSpacing())
+                is_spanning = (
+                    variable_group in SPANNING_TRAILING_CONTROL_GROUPS
+                )
+                if is_spanning:
+                    form_spacing = max(0, layout.horizontalSpacing())
+                    field_layout.setSpacing(0)
+                    first_label.setProperty("compactColumnLabel", True)
+                    field_layout.addWidget(first_label)
+                    field_layout.addSpacing(form_spacing)
+                    first_input_policy = first_input.sizePolicy()
+                    first_input_policy.setHorizontalPolicy(
+                        QSizePolicy.Policy.Ignored
+                    )
+                    first_input.setSizePolicy(first_input_policy)
+                    first_input.setMinimumWidth(0)
+                    field_layout.addWidget(first_input, 1)
+                else:
+                    first_input_policy = first_input.sizePolicy()
+                    first_input_policy.setHorizontalPolicy(
+                        QSizePolicy.Policy.Ignored
+                    )
+                    first_input.setSizePolicy(first_input_policy)
+                    first_input.setMinimumWidth(0)
+                    field_layout.addWidget(first_input, 1)
+                for var_name, label_widget, input_widget in group_widgets[1:]:
+                    if is_spanning:
+                        field_layout.addSpacing(12)
+                    else:
+                        label_widget.setText(
+                            f"   {label_widget.text().lstrip()}"
+                        )
+                    if var_name == "NUM_TREES":
+                        input_widget.setFixedWidth(70)
+                    field_layout.addWidget(label_widget)
+                    if isinstance(input_widget, QPushButton):
+                        field_layout.addSpacing(10)
+                    elif is_spanning:
+                        field_layout.addSpacing(6)
+                    field_layout.addWidget(input_widget)
+                if is_spanning:
+                    layout.insertRow(insertion_row, field_row)
+                else:
+                    layout.insertRow(insertion_row, first_label, field_row)
                 continue
 
             if isinstance(first_input, QPushButton):
                 field_row.setProperty("compactColumnRatio", "inline")
+                field_row.setSizePolicy(
+                    QSizePolicy.Policy.Ignored,
+                    QSizePolicy.Policy.Preferred,
+                )
                 field_layout.addWidget(first_input)
                 for _, label_widget, input_widget in group_widgets[1:]:
                     label_widget.setText(
@@ -2437,9 +2695,10 @@ class ToolsGUI(QMainWindow):
                     field_layout.addWidget(label_widget)
                     input_policy = input_widget.sizePolicy()
                     input_policy.setHorizontalPolicy(
-                        QSizePolicy.Policy.Expanding
+                        QSizePolicy.Policy.Ignored
                     )
                     input_widget.setSizePolicy(input_policy)
+                    input_widget.setMinimumWidth(0)
                     field_layout.addWidget(input_widget, 1)
                 layout.insertRow(insertion_row, first_label, field_row)
                 continue
@@ -2462,7 +2721,7 @@ class ToolsGUI(QMainWindow):
                     QSizePolicy.Policy.Ignored,
                     QSizePolicy.Policy.Preferred,
                 )
-                field_layout.addWidget(column, 1)
+                field_layout.addWidget(column, column_ratios[column_index])
 
             layout.insertRow(insertion_row, first_label, field_row)
 
@@ -2534,12 +2793,14 @@ class ToolsGUI(QMainWindow):
                 for row in form_widget.findChildren(QWidget)
                 if row.objectName().startswith("compactRow_")
             )
-
         for label_widget in label_widgets:
             label_widget.setFixedWidth(shared_width)
 
         for compact_row in compact_rows:
-            if compact_row.property("compactColumnRatio") != "1:1":
+            column_ratio = str(compact_row.property("compactColumnRatio"))
+            if not column_ratio or any(
+                ratio != "1" for ratio in column_ratio.split(":")
+            ):
                 continue
             columns = [
                 compact_row.layout().itemAt(index).widget()
@@ -2752,10 +3013,7 @@ class ToolsGUI(QMainWindow):
                 Hardware_Utils.resolve_device_selection(
                     new_settings.get("DEVICE_SELECTION", "auto")
                 )
-                lanes = str(new_settings.get("ACCELERATOR_LANES", "auto")).strip()
-                if lanes.lower() not in {"", "auto"} and int(lanes) < 1:
-                    raise ValueError("Accelerator Lanes must be Auto or a positive integer.")
-            except (TypeError, ValueError) as error:
+            except ValueError as error:
                 QMessageBox.critical(self, "Invalid Hardware Selection", str(error))
                 return
 

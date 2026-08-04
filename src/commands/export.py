@@ -4,6 +4,7 @@ import re
 from Bio import SeqIO
 import SSN_Config as cfg
 import SSN_Utils as utils
+import Cache_Manifest as cache_manifest
 
 def print_help():
     print("""
@@ -86,20 +87,13 @@ def run(viewer, args):
         return
 
     # --- 3. Resolve Target Directory (NO Reference Injection) ---
-    hdf5_base = os.path.basename(getattr(cfg, 'INPUT_HDF5', ''))
     fasta_base = os.path.splitext(os.path.basename(fasta_path))[0]
-    
-    match = re.search(r'(\[.*?\])', hdf5_base)
-    if match:
-        model_str = f"_{match.group(1)}"
-    else:
-        hdf5_no_ext = hdf5_base[:-3] if hdf5_base.endswith(".h5") else os.path.splitext(hdf5_base)[0]
-        stripped = re.sub(r'_(network|evalue)$', '', hdf5_no_ext, flags=re.IGNORECASE)
-        old_match = re.search(r'_(e[0-9]+_.*|blast.*)$', stripped, flags=re.IGNORECASE)
-        model_str = f"_{old_match.group(1)}" if old_match else ""
-        
-    lvl1_name = f"{fasta_base}{model_str}"
-    is_blast = "EValue" in hdf5_base or "Evalue" in hdf5_base or "blast" in hdf5_base.lower()
+    metadata = cache_manifest.validate_network_schema(cfg.INPUT_HDF5)
+    model_label = re.sub(
+        r'[<>:"/\\|?*]', "_", metadata.model_name
+    )
+    lvl1_name = f"{fasta_base}_[{model_label}]"
+    is_blast = metadata.network_type == "blast"
     if not is_blast:
         norm_m = getattr(cfg, 'NORM_MODE', None)
         if norm_m: lvl1_name += f"_{norm_m}"

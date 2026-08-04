@@ -67,16 +67,12 @@ def get_base_network_name():
     else:
         fasta_base = "Network"
         
-    hdf5_base = os.path.basename(getattr(cfg, 'INPUT_HDF5', ''))
-    hdf5_no_ext = hdf5_base[:-3] if hdf5_base.endswith(".h5") else os.path.splitext(hdf5_base)[0]
-    
-    cfg.INPUT_IS_EVALUE = "EValue" in hdf5_no_ext or "Evalue" in hdf5_no_ext
-    
-    stripped = re.sub(r'_(network|evalue)$', '', hdf5_no_ext, flags=re.IGNORECASE)
-    match = re.search(r'_(e[0-9]+_.*|blast.*)$', stripped, flags=re.IGNORECASE)
-    model_str = f"_{match.group(1)}" if match else ""
-    
-    return f"{fasta_base}{model_str}"
+    metadata = cache_manifest.validate_network_schema(
+        getattr(cfg, 'INPUT_HDF5', '')
+    )
+    cfg.INPUT_IS_EVALUE = metadata.network_type == "blast"
+    model_label = re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+    return f"{fasta_base}_[{model_label}]"
 
 def get_cache_filename():
     """
@@ -127,10 +123,9 @@ def get_cache_filename():
         cfg, 'SEQUENCES_FILE', ''
     )
     network_file = getattr(cfg, 'INPUT_HDF5', '')
-    try:
-        network_type = cache_manifest.detect_network_type(network_file)
-    except Exception:
-        network_type = "blast" if "blast" in os.path.basename(network_file).lower() else "alignment"
+    network_type = cache_manifest.validate_network_schema(
+        network_file
+    ).network_type
     base_name = cache_manifest.build_canonical_cache_name(
         fasta_file,
         network_file,
@@ -163,9 +158,6 @@ def get_cluster_alignment_dir(viewer):
     else:
         c_mode_param, c_min = viewer.last_cluster_params
 
-    import re
-    hdf5_base = os.path.basename(getattr(cfg, 'INPUT_HDF5', ''))
-    
     # --- 1. LEVEL 1: Cache Name until before ALIGNMENT_REFERENCE ---
     fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
     if fasta_file:
@@ -173,18 +165,12 @@ def get_cluster_alignment_dir(viewer):
     else:
         fasta_base = getattr(cfg, 'SEQUENCE_SET', 'Network')
         
-    match = re.search(r'(\[.*?\])', hdf5_base)
-    if match:
-        model_str = f"_{match.group(1)}"
-    else:
-        hdf5_no_ext = hdf5_base[:-3] if hdf5_base.endswith(".h5") else os.path.splitext(hdf5_base)[0]
-        stripped = re.sub(r'_(network|evalue)$', '', hdf5_no_ext, flags=re.IGNORECASE)
-        old_match = re.search(r'_(e[0-9]+_.*|blast.*)$', stripped, flags=re.IGNORECASE)
-        model_str = f"_{old_match.group(1)}" if old_match else ""
-        
-    lvl1_name = f"{fasta_base}{model_str}"
-    
-    is_blast = "EValue" in hdf5_base or "Evalue" in hdf5_base or "blast" in hdf5_base.lower()
+    metadata = cache_manifest.validate_network_schema(
+        getattr(cfg, 'INPUT_HDF5', '')
+    )
+    model_label = re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+    lvl1_name = f"{fasta_base}_[{model_label}]"
+    is_blast = metadata.network_type == "blast"
     if not is_blast:
         norm_m = getattr(cfg, 'NORM_MODE', None)
         if norm_m: lvl1_name += f"_{norm_m}"
@@ -328,10 +314,8 @@ def plot_score_histogram(scores, threshold):
     plt.legend(); plt.show()
 
 def build_network_from_raw(data, forced_ref_header=None):
-    model_name = data.attrs.get("model_name", "")
-    if isinstance(model_name, bytes):
-        model_name = model_name.decode("utf-8", errors="replace")
-    cfg.INPUT_IS_EVALUE = str(model_name).upper() == "BLAST" or "score" in data
+    metadata = cache_manifest.validate_network_schema(data)
+    cfg.INPUT_IS_EVALUE = metadata.network_type == "blast"
 
     # Decode HDF5 byte-strings into standard python strings
     raw_headers = data['headers'][:]

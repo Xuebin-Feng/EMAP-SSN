@@ -39,6 +39,8 @@ try:
 except ModuleNotFoundError:
     import _bootstrap
 
+from Cache_Manifest import validate_network_schema
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -138,11 +140,9 @@ import re
 
 # 1. Dynamically parse names from the input files provided by the GUI
 _old_seq_set = "UnknownOld"
-_model_name = "UnknownModel"
 match_old = re.search(r"^(.*)_\[(.*)\]_network\.h5$", OLD_NETWORK)
 if match_old:
     _old_seq_set = match_old.group(1)
-    _model_name = match_old.group(2)
 
 _new_seq_set = "UnknownNew"
 match_new = re.search(r"^(.*)_\[(.*)\]_embeddings\.h5$", NEW_EMBEDDINGS)
@@ -152,6 +152,15 @@ if match_new:
 # 2. Build Full Input Paths
 OLD_NETWORK = os.path.join(NETWORK_DIR, OLD_NETWORK) if NETWORK_DIR else ""
 NEW_EMBEDDINGS = os.path.join(EMBED_DIR, NEW_EMBEDDINGS) if EMBED_DIR else ""
+_old_network_metadata = validate_network_schema(
+    OLD_NETWORK,
+    expected_network_type="alignment",
+)
+_model_name = re.sub(
+    r'[<>:"/\\|?*]',
+    "_",
+    _old_network_metadata.model_name,
+)
 
 # 3. Build Full Output Paths
 RESULTS_DIR = os.path.join(NETWORK_DIR, f"{_new_seq_set}_[{_model_name}]_network_temp") if NETWORK_DIR else ""
@@ -834,6 +843,11 @@ def compile_final_output(
     saving_mode,
     gap_penalties,
 ):
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError(
+            "Cannot publish an alignment network without nonempty model_name metadata."
+        )
+    model_name = model_name.strip()
     print(f"\n--- Compiling Final HDF5 Output (Keep count: {len(required_pairs)}) ---")
     
     num_kept = len(required_pairs)
@@ -904,8 +918,7 @@ def compile_final_output(
     with h5py.File(FINAL_OUTPUT_NET, "w") as hf_out:
         if current_checksum is not None:
             hf_out.attrs["embedding_checksum"] = current_checksum
-        if model_name is not None:
-            hf_out.attrs["model_name"] = model_name
+        hf_out.attrs["model_name"] = model_name
         if saving_mode is not None:
             hf_out.attrs["saving_mode"] = saving_mode
         if gap_penalties is not None:
@@ -957,6 +970,7 @@ def run_injection():
         sys.exit(f"❌ Error: Old network file not found at {OLD_NETWORK}")
         
     with h5py.File(OLD_NETWORK, "r") as hf_old_net:
+        validate_network_schema(hf_old_net, expected_network_type="alignment")
         raw_old_headers = hf_old_net['headers'][:]
         old_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_old_headers]
         old_N = len(old_headers)

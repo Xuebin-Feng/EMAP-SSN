@@ -27,6 +27,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 | Score Normalization Mode **`NORMALIZATION_MODE`** | The normalization method applied to alignment scores (e.g., alignment_length, shorter_sequence, longer_sequence, average_sequence). Disabled for BLAST networks. |
 | Noise-Perturbed Consensus Guide Tree **`BOOTSTRAP_TREE`** | Builds and averages randomly perturbed guide-tree replicates when enabled. This is a sensitivity ensemble, not classical bootstrap support. The existing setting key is retained for backward compatibility. |
 | Perturbed Tree Replicates **`NUM_TREES`** | The number of noise-perturbed replicate trees used to construct the consensus guide tree. |
+| Include Imputed Pairs in Final Consensus **`INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS`** | For an incomplete network, OFF averages cophenetic distances only for originally observed pairs and retains baseline regression-imputed values for missing pairs; ON replaces every pair with its replicate-averaged cophenetic distance. Imputed pairs participate in every replicate tree in both modes. Complete networks automatically use full consensus. |
 | Normalized Additive Noise Scale **`NOISE_SCALE`** | Gaussian standard deviation expressed as a fraction of the valid distance range. For example, `0.02` applies an additive standard deviation equal to 2% of the maximum guide-tree distance. Every observed and regression-imputed distance is perturbed. |
 | Gap Open Penalty **`GAP_OPEN`** | The gap open penalty score. More negative values penalize opening new gaps more severely. |
 | Gap Extend Penalty **`GAP_EXTEND`** | The gap extend penalty score. More negative values penalize extending existing gaps. |
@@ -84,11 +85,15 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 
      For a sparse network, the complete baseline matrix combines observed network distances with regression-imputed distances for missing pairs. This complete baseline is shared with every replicate worker, and the same additive perturbation is applied to every distance. Imputed relationships therefore participate in every replicate tree instead of being replaced by $D_{\max}$.
 
-     Cophenetic distances from the replicate trees are averaged to construct the consensus guide tree. These replicates measure sensitivity to randomized distance perturbations; they are not classical bootstrap resamples and do not provide classical bootstrap support values.
+     The final averaging mode is selected after the network/embedding/FASTA intersection. A complete induced network automatically uses full all-pairs cophenetic consensus. For an incomplete induced network, **Include Imputed Pairs in Final Consensus** controls only the final matrix: OFF replaces observed-pair entries with their replicate-averaged cophenetic distances while missing pairs retain their baseline regression-imputed values; ON replaces every pair with its replicate-averaged cophenetic distance. Turning this switch OFF does not disable imputation or remove imputed pairs from replicate tree construction. When noise-perturbed trees are disabled, the switch is ignored and the complete observed-plus-imputed baseline directly builds the deterministic tree.
+
+     These replicates measure sensitivity to randomized distance perturbations; they are not classical bootstrap resamples and do not provide classical bootstrap support values.
 
 6. **Progressive Profile Alignment**:
      Traverses the guide tree from leaves to the root. At each internal node, it merges the two child clusters (which could be single sequences or alignment profiles) by:
-     - Calculating profile embeddings (average of residue embeddings across sequences in the cluster).
+     - Unit-normalizing each leaf residue embedding before it enters a profile.
+     - Averaging those unit vectors across every sequence in the cluster while treating gaps as zero. The resulting vector norm therefore records both non-gap occupancy and directional agreement within the column.
+     - Calculating reciprocal cosine similarity from the profile-vector directions, then weighting each cell by the two column norms so weakly supported or inconsistent columns contribute less alignment evidence.
      - Running dynamic programming with `GAP_OPEN` and `GAP_EXTEND` penalties to find the optimal path.
      - Merging alignments and outputting the final FASTA multiple sequence alignment (MSA).
 

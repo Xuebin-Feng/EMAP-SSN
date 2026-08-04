@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 
@@ -19,8 +20,97 @@ class CacheManifestError(ValueError):
     """Raised when cache identity or path data is unsafe or malformed."""
 
 
+class NetworkMetadataError(CacheManifestError):
+    """Raised when required HDF5 network metadata or schema is invalid."""
+
+
 class CacheHashCancelled(RuntimeError):
     """Raised when a background input hash is no longer needed."""
+
+
+@dataclass(frozen=True)
+class NetworkMetadata:
+    """Normalized metadata used to select the network loading behavior."""
+
+    model_name: str
+    network_type: str
+
+
+@dataclass(frozen=True)
+class NetworkCompletenessInfo:
+    """Constant-time HDF5 network completeness metadata."""
+
+    status: str
+    sequence_count: int = 0
+    edge_count: int = 0
+    expected_edge_count: int = 0
+    reason: str = ""
+
+
+def inspect_network_completeness(network_path):
+    """Classify a network using HDF5 dataset shapes without reading edge data."""
+    import h5py
+
+    resolved = os.path.abspath(os.path.normpath(network_path))
+    try:
+        with h5py.File(resolved, "r") as network:
+            missing = [name for name in ("headers", "i", "j") if name not in network]
+            if missing:
+                return NetworkCompletenessInfo(
+                    status="unknown",
+                    reason=f"Missing required dataset(s): {', '.join(missing)}.",
+                )
+
+            headers = network["headers"]
+            edge_i = network["i"]
+            edge_j = network["j"]
+            if headers.ndim != 1 or edge_i.ndim != 1 or edge_j.ndim != 1:
+                return NetworkCompletenessInfo(
+                    status="unknown",
+                    reason="The headers, i, and j datasets must all be one-dimensional.",
+                )
+
+            sequence_count = int(headers.shape[0])
+            edge_count_i = int(edge_i.shape[0])
+            edge_count_j = int(edge_j.shape[0])
+            expected_edge_count = sequence_count * (sequence_count - 1) // 2
+
+            if edge_count_i != edge_count_j:
+                return NetworkCompletenessInfo(
+                    status="unknown",
+                    sequence_count=sequence_count,
+                    edge_count=min(edge_count_i, edge_count_j),
+                    expected_edge_count=expected_edge_count,
+                    reason=(
+                        "The i and j edge datasets have different lengths "
+                        f"({edge_count_i:,} and {edge_count_j:,})."
+                    ),
+                )
+
+            if edge_count_i > expected_edge_count:
+                return NetworkCompletenessInfo(
+                    status="unknown",
+                    sequence_count=sequence_count,
+                    edge_count=edge_count_i,
+                    expected_edge_count=expected_edge_count,
+                    reason=(
+                        f"The network contains {edge_count_i:,} edges, exceeding the "
+                        f"{expected_edge_count:,} unique undirected pairs expected."
+                    ),
+                )
+
+            status = "complete" if edge_count_i == expected_edge_count else "incomplete"
+            return NetworkCompletenessInfo(
+                status=status,
+                sequence_count=sequence_count,
+                edge_count=edge_count_i,
+                expected_edge_count=expected_edge_count,
+            )
+    except (OSError, ValueError, KeyError) as error:
+        return NetworkCompletenessInfo(
+            status="unknown",
+            reason=f"Unable to inspect network metadata: {error}",
+        )
 
 
 def calculate_file_sha256(
@@ -56,17 +146,123 @@ def file_cache_key(file_path):
     return resolved, int(stat.st_size), int(stat.st_mtime_ns)
 
 
-def detect_network_type(network_path):
-    """Classify a network from its HDF5 contents rather than its filename."""
+def _network_source_label(network_source):
+    filename = getattr(network_source, "filename", None)
+    if filename:
+        return os.path.abspath(os.path.normpath(os.fspath(filename)))
+    try:
+        return os.path.abspath(os.path.normpath(os.fspath(network_source)))
+    except TypeError:
+        return "<open HDF5 network>"
+
+
+def _read_open_network_metadata(network, source_label):
+    if "model_name" not in network.attrs:
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' is missing the required root attribute "
+            "'model_name'. Regenerate the network with a supported SSN tool or add "
+            "valid model metadata before loading it."
+        )
+
+    raw_model_name = network.attrs["model_name"]
+    if isinstance(raw_model_name, bytes):
+        try:
+            model_name = raw_model_name.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise NetworkMetadataError(
+                f"Network file '{source_label}' has a 'model_name' attribute that "
+                "is not valid UTF-8."
+            ) from error
+    elif isinstance(raw_model_name, str):
+        model_name = raw_model_name
+    else:
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' has a non-text 'model_name' attribute "
+            f"of type {type(raw_model_name).__name__}."
+        )
+
+    model_name = model_name.strip()
+    if not model_name:
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' has a blank required root attribute "
+            "'model_name'."
+        )
+
+    network_type = "blast" if model_name.casefold() == "blast" else "alignment"
+    return NetworkMetadata(model_name=model_name, network_type=network_type)
+
+
+def read_network_metadata(network_source):
+    """Read normalized network metadata from a path or open HDF5 file."""
     import h5py
 
+    source_label = _network_source_label(network_source)
+    if hasattr(network_source, "attrs"):
+        return _read_open_network_metadata(network_source, source_label)
+
+    try:
+        network_path = os.fspath(network_source)
+    except TypeError as error:
+        raise TypeError(
+            "network_source must be a filesystem path or an open HDF5 file"
+        ) from error
+
     with h5py.File(network_path, "r") as network:
-        model_name = network.attrs.get("model_name", "")
-        if isinstance(model_name, bytes):
-            model_name = model_name.decode("utf-8", errors="replace")
-        if str(model_name).upper() == "BLAST" or "score" in network:
-            return "blast"
-        return "alignment"
+        return _read_open_network_metadata(network, source_label)
+
+
+def detect_network_type(network_source):
+    """Return ``blast`` or ``alignment`` using only ``model_name`` metadata."""
+    return read_network_metadata(network_source).network_type
+
+
+def validate_network_schema(network_source, expected_network_type=None):
+    """Validate datasets required by the metadata-selected network type."""
+    import h5py
+
+    source_label = _network_source_label(network_source)
+    if not hasattr(network_source, "attrs"):
+        try:
+            network_path = os.fspath(network_source)
+        except TypeError as error:
+            raise TypeError(
+                "network_source must be a filesystem path or an open HDF5 file"
+            ) from error
+        with h5py.File(network_path, "r") as network:
+            return validate_network_schema(network, expected_network_type)
+
+    metadata = read_network_metadata(network_source)
+    if (
+        expected_network_type is not None
+        and expected_network_type != metadata.network_type
+    ):
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' declares network type "
+            f"'{metadata.network_type}' through model_name='{metadata.model_name}', "
+            f"not the expected type '{expected_network_type}'."
+        )
+
+    required_datasets = {
+        "blast": ("headers", "i", "j", "score"),
+        "alignment": (
+            "headers",
+            "seq_lens",
+            "i",
+            "j",
+            "l_score",
+            "l_len",
+            "g_score",
+            "g_len",
+        ),
+    }[metadata.network_type]
+    missing = [name for name in required_datasets if name not in network_source]
+    if missing:
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' declares model_name="
+            f"'{metadata.model_name}' ({metadata.network_type}) but is missing "
+            f"required dataset(s): {', '.join(missing)}."
+        )
+    return metadata
 
 
 def _optional_float(value):
@@ -147,7 +343,7 @@ def build_manifest_for_files(sequence_path, network_path, **settings):
     """Hash both inputs and construct their current manifest."""
     sequence = fingerprint_file(sequence_path)
     network = fingerprint_file(network_path)
-    network_type = detect_network_type(network_path)
+    network_type = validate_network_schema(network_path).network_type
     compatibility = build_compatibility(
         sequence["sha256"],
         network["sha256"],
@@ -278,17 +474,14 @@ def build_canonical_cache_name(
     top_edge_percent=None,
     similarity_threshold=None,
 ):
-    """Reproduce the existing human-readable cache-folder naming algorithm."""
+    """Build a human-readable cache name from authoritative network metadata."""
     fasta_base = os.path.splitext(os.path.basename(sequence_path))[0] or "Network"
-    hdf5_base = os.path.basename(network_path)
-    bracket_match = re.search(r"(\[.*?\])", hdf5_base)
-    if bracket_match:
-        model_string = f"_{bracket_match.group(1)}"
-    else:
-        no_extension = hdf5_base[:-3] if hdf5_base.endswith(".h5") else os.path.splitext(hdf5_base)[0]
-        stripped = re.sub(r"_(network|evalue)$", "", no_extension, flags=re.IGNORECASE)
-        old_match = re.search(r"_(e[0-9]+_.*|blast.*)$", stripped, flags=re.IGNORECASE)
-        model_string = f"_{old_match.group(1)}" if old_match else ""
+    metadata = validate_network_schema(
+        network_path,
+        expected_network_type=str(network_type).lower(),
+    )
+    model_label = re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+    model_string = f"_[{model_label}]"
 
     suffix = ""
     if str(network_type).lower() != "blast":

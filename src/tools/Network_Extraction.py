@@ -41,6 +41,7 @@ import sys
 import h5py
 import numpy as np
 from tqdm import tqdm
+from Cache_Manifest import validate_network_schema
 
 # ==========================================
 # USER CONFIGURATION
@@ -112,19 +113,15 @@ if os.path.exists(SETTINGS_FILE):
 # --- DYNAMIC INFERENCE ---
 import re
 
-# 1. Dynamically infer the names
+# 1. Resolve inputs and read the authoritative network metadata.
 _fasta_base = INPUT_FASTA.replace(".fasta", "")
-_model_name = "UnknownModel"
-
-is_blast = "[BLAST]" in INPUT_NET
-match = re.search(r"_\[(.*?)\]_", INPUT_NET)
-if match:
-    _model_name = match.group(1)
-
-# 2. Build Full Input Paths
 FULL_INPUT_NET = os.path.join(NETWORK_DIR, INPUT_NET) if NETWORK_DIR else ""
 FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR else ""
+_network_metadata = validate_network_schema(FULL_INPUT_NET)
+is_blast = _network_metadata.network_type == "blast"
+_model_name = re.sub(r'[<>:"/\\|?*]', "_", _network_metadata.model_name)
 
+# 2. Build output paths from the metadata-selected network type.
 if is_blast:
     INPUT_PATHS = None
     OUTPUT_PATHS = None
@@ -162,9 +159,12 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
     print("Building index mapping...")
     with h5py.File(input_net, "r") as hf_in:
         
-        # --- AUTO-DETECT FORMAT ---
-        m_attr = str(hf_in.attrs.get("model_name", "")).upper()
-        is_blast_network = 'score' in hf_in or m_attr == "BLAST" or len(hf_in.keys()) == 4
+        # --- METADATA-ONLY FORMAT DETECTION ---
+        network_metadata = validate_network_schema(
+            hf_in,
+            expected_network_type=_network_metadata.network_type,
+        )
+        is_blast_network = network_metadata.network_type == "blast"
         if is_blast_network:
             print("-> Format Detected: BLAST/SSEARCH E-Value Network")
         else:

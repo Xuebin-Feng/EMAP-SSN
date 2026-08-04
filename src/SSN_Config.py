@@ -252,9 +252,9 @@ if __name__ == "__main__":
                             path,
                             cancellation_requested=self.isInterruptionRequested,
                         )
-                records["network_type"] = cache_manifest.detect_network_type(
+                records["network_type"] = cache_manifest.validate_network_schema(
                     self.network_path
-                )
+                ).network_type
                 self.completed.emit(self.request_id, records, "")
             except Exception as error:
                 self.completed.emit(self.request_id, {}, str(error))
@@ -853,8 +853,8 @@ if __name__ == "__main__":
             }
             if all(cached_records.values()):
                 try:
-                    cached_records["network_type"] = cache_manifest.detect_network_type(
-                        network_path
+                    cached_records["network_type"] = (
+                        cache_manifest.validate_network_schema(network_path).network_type
                     )
                     self._apply_cache_discovery(cached_records)
                 except Exception as error:
@@ -1302,8 +1302,8 @@ if __name__ == "__main__":
                 norm_mode = self.cb_norm_mode.currentText()
                 
                 with h5py.File(hdf5_path, "r") as hf:
-                    m_attr = str(hf.attrs.get("model_name", "")).upper()
-                    is_blast = m_attr == "BLAST" or len(hf.keys()) == 4 or 'score' in hf or "evalue" in os.path.basename(hdf5_path).lower() or "blast" in os.path.basename(hdf5_path).lower()
+                    metadata = cache_manifest.validate_network_schema(hf)
+                    is_blast = metadata.network_type == "blast"
                     from Bio import SeqIO
                     kept_mask = None
                     if fasta_path and os.path.exists(fasta_path):
@@ -1406,16 +1406,7 @@ if __name__ == "__main__":
                 indices = np.searchsorted(sorted_scores, thresholds, side='left')
                 counts = stored_edges - indices
                 
-                import re
-                hdf5_base_stat = os.path.basename(hdf5_path)
-                match_stat = re.search(r'(\[.*?\])', hdf5_base_stat)
-                if match_stat:
-                    model_name = match_stat.group(1)
-                else:
-                    hdf5_no_ext_stat = hdf5_base_stat[:-3] if hdf5_base_stat.endswith(".h5") else os.path.splitext(hdf5_base_stat)[0]
-                    stripped_stat = re.sub(r'_(network|evalue)$', '', hdf5_no_ext_stat, flags=re.IGNORECASE)
-                    old_match = re.search(r'_(e[0-9]+_.*|blast.*)$', stripped_stat, flags=re.IGNORECASE)
-                    model_name = old_match.group(1) if old_match else hdf5_base_stat
+                model_name = metadata.model_name
                 
                 lines = []
                 lines.append(f"====== Network Statistics ======")
@@ -1458,8 +1449,8 @@ if __name__ == "__main__":
                 norm_mode = self.cb_norm_mode.currentText()
                 
                 with h5py.File(hdf5_path, "r") as hf:
-                    m_attr = str(hf.attrs.get("model_name", "")).upper()
-                    is_blast = m_attr == "BLAST" or len(hf.keys()) == 4 or 'score' in hf or "evalue" in os.path.basename(hdf5_path).lower() or "blast" in os.path.basename(hdf5_path).lower()
+                    metadata = cache_manifest.validate_network_schema(hf)
+                    is_blast = metadata.network_type == "blast"
                     from Bio import SeqIO
                     kept_mask = None
                     if fasta_path and os.path.exists(fasta_path):

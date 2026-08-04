@@ -16,7 +16,6 @@ Settings:
 - MODEL_NAME: The name of the embedding model used.
 - BATCH_SIZE: Number of pairs to process before writing to disk (prevents memory overflow).
 - WORKERS: Number of multiprocessing workers to use.
-- ACCELERATOR_LANES: Accelerator concurrency ("auto" or a positive integer).
 - LOCAL_GAP_P: The gap penalty for local alignment (e.g. Smith-Waterman style).
 - GLOBAL_GAP_P: The gap penalty for global alignment (e.g. Needleman-Wunsch style).
 
@@ -72,10 +71,9 @@ POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings 
 LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
 WORKERS = 12
 DEVICE_SELECTION = "auto"
-ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
 # Compatibility for callers that use _accelerator_worker_count directly.
-# Production scheduling uses ACCELERATOR_LANES and the automatic tuner.
+# Production scheduling always uses the automatic lane tuner.
 GPU_STREAMS = 4
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
@@ -408,35 +406,6 @@ def _accelerator_lane_candidates(device, cpu_workers):
     return sorted(set(bounded))
 
 
-def _configured_accelerator_lanes(device, cpu_workers):
-    """
-    Resolve a manual lane setting, returning None when automatic tuning is
-    requested.
-    """
-    configured = ACCELERATOR_LANES
-    if isinstance(configured, str):
-        normalized = configured.strip().lower()
-        if normalized in {"", "auto"}:
-            return None
-        try:
-            configured = int(normalized)
-        except ValueError as error:
-            raise ValueError(
-                "ACCELERATOR_LANES must be 'auto' or a positive integer."
-            ) from error
-
-    try:
-        configured = int(configured)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            "ACCELERATOR_LANES must be 'auto' or a positive integer."
-        ) from error
-
-    if configured < 1:
-        raise ValueError("ACCELERATOR_LANES must be a positive integer.")
-    return _accelerator_worker_count(device, cpu_workers, configured)
-
-
 def _accelerator_name(device):
     """Return a stable device label for tuning messages and cache keys."""
     device_type = _device_type(device)
@@ -679,10 +648,6 @@ def _select_accelerator_lanes(
     transfer, and CPU alignment. This optimizes completed-pair throughput
     rather than accelerator utilization alone.
     """
-    manual_lanes = _configured_accelerator_lanes(device, workers)
-    if manual_lanes is not None:
-        return manual_lanes
-
     candidates = _accelerator_lane_candidates(device, workers)
     if len(candidates) == 1 or len(batch_tasks) < 2:
         return 1
@@ -930,14 +895,9 @@ def _benchmark_processing_plans(
     print("Device/backend                 Lanes   Throughput (pairs/s)   Status")
     results = []
     for candidate in candidates:
-        configured_lanes = (
-            None
+        lane_candidates = (
+            [1]
             if candidate.is_cpu
-            else _configured_accelerator_lanes(candidate.device, workers)
-        )
-        lane_candidates = [1] if candidate.is_cpu else (
-            [configured_lanes]
-            if configured_lanes is not None
             else _accelerator_lane_candidates(candidate.device, workers)
         )
         if candidate.is_cpu:
@@ -1274,6 +1234,11 @@ def compile_final_output(
     saving_mode,
     gap_penalties,
 ):
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError(
+            "Cannot publish an alignment network without nonempty model_name metadata."
+        )
+    model_name = model_name.strip()
     print(f"\n--- Compiling Final HDF5 Output (Deduplicated) ---")
     
     num_seqs = len(headers)
@@ -1319,8 +1284,7 @@ def compile_final_output(
     with h5py.File(FINAL_OUTPUT_NET, "w") as hf_out:
         if current_checksum is not None:
             hf_out.attrs["embedding_checksum"] = current_checksum
-        if model_name is not None:
-            hf_out.attrs["model_name"] = model_name
+        hf_out.attrs["model_name"] = model_name
         if gap_penalties is not None:
             hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
 
