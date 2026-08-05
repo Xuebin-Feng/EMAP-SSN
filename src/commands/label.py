@@ -39,16 +39,16 @@ def print_help():
       clusters : Analyzes all defined topology clusters AND any custom groups.
       groups   : Analyzes ONLY custom groups (topology clusters not required).
 
-    Arguments (Accepts decimals '0.3' or percentages '30%'):
-      gmax (Global Max)   : Default 30%. Max frequency a residue can have in the 
+    Arguments (Accepts decimals '0.4' or percentages '40%'):
+      gmax (Global Max)   : Default 40%. Max frequency a residue can have in the 
                             GLOBAL alignment to be considered "Subset Specific".
-      cmin (Cluster Min)  : Default 95%. Min frequency a residue must have WITHIN 
+      cmin (Cluster Min)  : Default 98%. Min frequency a residue must have WITHIN 
                             a subset to be reported as conserved.
       gmin (Global Min)   : Default 95%. Min frequency a residue must have in the 
                             GLOBAL dataset to be reported as globally conserved.
 
     Examples:
-      label                       (Runs using default parameters)
+      label                       (Runs using default parameters: gmax=40%, cmin=98%, gmin=95%)
       label 0.4 0.9 0.95          (Positional: gmax=40%, cmin=90%, gmin=95%)
       label groups cmin 90%       (Keyword: Analyzes groups, sets cmin to 90%)
       
@@ -114,8 +114,8 @@ def run(viewer, args):
             return
 
         # --- Parameters ---
-        global_max = 0.30
-        cluster_min = 0.95
+        global_max = 0.40
+        cluster_min = 0.98
         global_min = 0.95 
         forced_target = "clusters"
 
@@ -204,8 +204,8 @@ def run(viewer, args):
             keyword_args[target_key] = p_val
             
         # Apply final parsed variables (falling back to defaults)
-        global_max = keyword_args.get("gmax", 0.30)
-        cluster_min = keyword_args.get("cmin", 0.95)
+        global_max = keyword_args.get("gmax", 0.40)
+        cluster_min = keyword_args.get("cmin", 0.98)
         global_min = keyword_args.get("gmin", 0.95)
 
         # --- Validations ---
@@ -413,7 +413,7 @@ def run(viewer, args):
         msa_file = getattr(cfg, 'MSA_FILE', None)
         alignment_name = os.path.basename(msa_file) if msa_file else "N/A"
         
-        if getattr(viewer, 'last_cluster_params', None):
+        if forced_target == "clusters" and getattr(viewer, 'last_cluster_params', None):
             c_mode_param, c_min_param = viewer.last_cluster_params
             parts = c_mode_param.split('_')
             cluster_mode = parts[0] if parts else c_mode_param
