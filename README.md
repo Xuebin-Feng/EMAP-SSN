@@ -79,22 +79,63 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
      > [!TIP]
      > It is highly recommended to enable **Developer Mode** in your Windows Settings (Search for "Developer settings" in Windows). This allows symbolic links to be created without elevation, which is required by the Hugging Face `transformers` cache model download system to avoid duplicating file storage.
      
+     > [!IMPORTANT]
+     > **Enable long path support.** Windows limits a full path to 260 characters by default, while Linux and macOS allow far longer. Generated outputs — predicted structure `.pdb` files in particular — are named after sequence headers, so a long header inside an already-deep project folder can exceed the limit and fail to write, even though the same run succeeds on Linux or macOS.
+     >
+     > Run this once in an **Administrator** PowerShell, then reboot:
+     > ```powershell
+     > New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+     > ```
+     > Alternatively, enable **Computer Configuration → Administrative Templates → System → Filesystem → "Enable Win32 long paths"** in the Group Policy Editor (`gpedit.msc`).
+     >
+     > If you cannot change this setting, keep the project close to the drive root (for example `C:\SSN\`) rather than nested under a long folder chain such as a synced OneDrive directory. Note that external binaries invoked by the pipeline, such as NCBI BLAST, may not be long-path aware regardless of this setting — a short project path is the most reliable option.
+     
    * **🍏 macOS**:
-     Before double-clicking `install.command` for the first time, you must navigate to the project directory in your terminal and grant it execution permissions:
-     ```bash
-     cd Sequence_Similarity_Network_Viewer
-     chmod +x install.command
-     ```
-     Once granted, double-click `install.command` in the project root to configure permissions for scripts in `src/bin/` and generate double-clickable `.command` launchers (`SSN_Viewer.command` and `SSN_Tools.command`) in the project root.
+     Double-click `install.command` in the project root to configure permissions for scripts in `src/bin/` and generate double-clickable `.command` launchers (`SSN_Viewer.command` and `SSN_Tools.command`) in the project root.
+     
+     > [!NOTE]
+     > If you downloaded the project as a ZIP rather than cloning it, the executable permission is not preserved. Restore it with `chmod +x install.command` before double-clicking.
      
    * **🐧 Linux**:
-     Open your terminal, navigate to the project directory, and execute the installation script:
+     SSN Tools renders its documentation panel with QtWebEngine, which ships inside PySide6 but links against system libraries that `pip` cannot install. Install them first:
+     ```bash
+     sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \
+                      libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \
+                      libasound2t64 libcups2t64
+     ```
+     > [!NOTE]
+     > On Ubuntu 22.04 and older, use `libasound2` and `libcups2` — the `t64` suffix only exists on 24.04 and newer. On Fedora/RHEL the equivalent is:
+     > ```bash
+     > sudo dnf install nss nspr libXcomposite libXdamage libXrandr libxkbcommon-x11 \
+     >                  libXtst mesa-libgbm mesa-libEGL libxslt alsa-lib cups-libs
+     > ```
+     > If SSN Tools still reports a missing library, it names the exact file — install whichever package provides it.
+
+     Then run the installation script:
      ```bash
      cd Sequence_Similarity_Network_Viewer
-     chmod +x install.sh
      ./install.sh
      ```
      This will configure execution permissions and generate launchers (`SSN_Viewer` and `SSN_Tools`) as well as system `.desktop` application entries.
+
+---
+
+## 🔧 Linux Troubleshooting
+
+* **Blank or black 3D canvas on a Wayland session.**
+  The launchers set `QT_QPA_PLATFORM=xcb` automatically on Wayland, because the OpenGL canvas is unreliable on the native Wayland platform plugin. To opt back into native Wayland, set the variable yourself before launching:
+  ```bash
+  QT_QPA_PLATFORM=wayland ./SSN_Viewer
+  ```
+
+* **SSN Tools exits immediately, or crashes inside Chromium.**
+  If the documentation panel fails after the libraries above are installed — common inside containers or on hardened kernels where the Chromium sandbox cannot start — disable the sandbox:
+  ```bash
+  QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox ./SSN_Tools
+  ```
+
+* **`unable to lock file` when opening an HDF5 network.**
+  HDF5 file locking fails on NFS and some network home directories. Set `HDF5_USE_FILE_LOCKING=FALSE` before launching.
 
 ---
 

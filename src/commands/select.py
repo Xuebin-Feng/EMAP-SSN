@@ -129,14 +129,14 @@ def run(viewer, args):
                         missing_count += 1
                         
                 SeqIO.write(records_to_save, save_path, "fasta")
-                msg = f"Saved {len(records_to_save)} sequences to Cache_Files\\Header_Lists\\{filename}"
+                msg = f"Saved {len(records_to_save)} sequences to {os.path.join('Cache_Files', 'Header_Lists', filename)}"
                 if missing_count > 0:
                     msg += f" ({missing_count} missing from source FASTA)"
             else:
-                with open(save_path, 'w') as f:
+                with open(save_path, "w", encoding="utf-8", newline="\n") as f:
                     for idx in selected_indices:
                         f.write(f"{viewer.full_headers[idx]}\n")
-                msg = f"Saved {len(selected_indices)} headers to Cache_Files\\Header_Lists\\{filename}"
+                msg = f"Saved {len(selected_indices)} headers to {os.path.join('Cache_Files', 'Header_Lists', filename)}"
                 
             Command_Engine.print_help(viewer, msg)
         except Exception as e:
@@ -196,7 +196,7 @@ def run(viewer, args):
         os.makedirs(header_dir, exist_ok=True)
         sele_path = os.path.join(header_dir, "_sele.txt")
         
-        with open(sele_path, "w", encoding="utf-8") as f:
+        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
             if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
                 for idx in viewer.selected_indices:
                     f.write(viewer.full_headers[idx] + "\n")

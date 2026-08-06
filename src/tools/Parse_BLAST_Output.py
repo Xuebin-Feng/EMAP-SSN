@@ -60,7 +60,7 @@ SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
             
             # 1. Load GLOBAL directories and convert relative paths to absolute paths
@@ -123,7 +123,7 @@ def detect_evalue_column(filepath, num_lines_to_check=1000):
     evalue_pattern = re.compile(r'^-?\d+(\.\d+)?e[+-]?\d+$|^0\.0$', re.IGNORECASE)
     
     lines_checked = 0
-    with open(filepath, 'r') as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"): continue
@@ -180,7 +180,7 @@ if __name__ == "__main__":
     file_size = os.path.getsize(FULL_INPUT_BLAST_TABULAR)
     
     print("Parsing BLAST alignments...")
-    with open(FULL_INPUT_BLAST_TABULAR, 'r') as f, tqdm(total=file_size, unit='B', unit_scale=True, desc="Processing") as pbar:
+    with open(FULL_INPUT_BLAST_TABULAR, "r", encoding="utf-8") as f, tqdm(total=file_size, unit='B', unit_scale=True, desc="Processing") as pbar:
         for line in f:
             pbar.update(len(line))
             

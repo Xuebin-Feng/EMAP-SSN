@@ -100,7 +100,7 @@ SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
             
             # 1. Load GLOBAL directories and convert relative paths to absolute paths
@@ -190,7 +190,7 @@ def read_fasta(file_path):
     headers, sequences = [], []
     current_header, current_sequence = None, []
     
-    with open(file_path, 'r') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line: continue  

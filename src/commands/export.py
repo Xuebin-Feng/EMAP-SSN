@@ -211,7 +211,5 @@ def run(viewer, args):
     viewer.console_text.text = msg
     print(f"\nSuccess! {msg}")
     
-    # Auto-open folder on Windows
-    if os.name == 'nt':
-        try: os.startfile(out_dir)
-        except: pass
+    # Auto-open the output folder in the system file manager
+    utils.open_in_file_manager(out_dir)

@@ -150,7 +150,7 @@ def main():
                 output_protein.plddt = output_protein.plddt * 100.0
                 
             pdb_content = output_protein.to_pdb_string()
-            with open(pdb_path, "w", encoding="utf-8") as f:
+            with open(pdb_path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(pdb_content)
                 
             print(f"Saved predicted structure to: {pdb_path}")

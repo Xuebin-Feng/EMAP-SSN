@@ -1,0 +1,20 @@
+# Normalize line endings in the repository regardless of each contributor's
+# local core.autocrlf setting. Without this, a Windows clone checks shell
+# scripts out with CRLF and a "#!/bin/bash\r" shebang fails on Linux and macOS
+# with "bad interpreter".
+* text=auto
+
+# Scripts that are executed by a POSIX shell must stay LF.
+*.sh       text eol=lf
+*.command  text eol=lf
+*.py       text eol=lf
+
+# cmd.exe mis-parses multi-line batch files that use LF, so these stay CRLF.
+*.bat      text eol=crlf
+
+# Binary assets: never touch, never diff as text.
+*.woff2 binary
+*.png   binary
+*.ico   binary
+*.xlsx  binary
+*.h5    binary

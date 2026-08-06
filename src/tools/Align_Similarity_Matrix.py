@@ -108,7 +108,7 @@ SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
             
             # 1. Load GLOBAL directories and convert relative paths to absolute paths
@@ -1199,7 +1199,7 @@ def scan_existing_batches(
         info_file = os.path.join(backup_dir, "batch_attributes_info.txt")
         try:
             os.makedirs(backup_dir, exist_ok=True)
-            with open(info_file, "w", encoding="utf-8") as info_f:
+            with open(info_file, "w", encoding="utf-8", newline="\n") as info_f:
                 info_f.write("==========================================================\n")
                 info_f.write("ALIGNMENT BATCH DIRECTORY BACKUP REPORT\n")
                 info_f.write("==========================================================\n")

@@ -234,7 +234,14 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Generated Windows Shortcuts & Icons
+# Generated launchers & icons
+# install.bat writes .lnk; install.command writes .command wrappers;
+# install.sh writes .desktop entries plus extensionless symlinks.
 *.lnk
+*.desktop
+/SSN_Viewer.command
+/SSN_Tools.command
+/SSN_Viewer
+/SSN_Tools
 *.ico
 !src/bin/logos/*.ico

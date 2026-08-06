@@ -83,7 +83,7 @@ SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
             if "DIRECTORIES" in all_settings:
                 for k, v in all_settings["DIRECTORIES"].items():
@@ -137,7 +137,7 @@ def read_fasta(file_path):
     current_header, current_sequence = None, []
     if not os.path.exists(file_path):
         return headers, sequences
-    with open(file_path, 'r') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line: continue

@@ -106,7 +106,7 @@ SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
             
             # 1. Load GLOBAL directories and convert relative paths to absolute paths
@@ -991,6 +991,12 @@ def cleanup_workspace():
 
 def run_workflow():
     print(f"--- BLAST All-vs-All (-Log10 E-Value Mode) ---")
+
+    # Linux defaults to fork, which is unsafe here: the pool below is created
+    # after HDF5 handles are open and each worker spawns a BLAST subprocess.
+    # Windows and macOS already default to spawn, so this only changes Linux.
+    try: multiprocessing.set_start_method('spawn')
+    except RuntimeError: pass
 
     if not isinstance(NUM_THREADS, int) or NUM_THREADS <= 0:
         raise ValueError("NUM_THREADS must be a positive integer.")

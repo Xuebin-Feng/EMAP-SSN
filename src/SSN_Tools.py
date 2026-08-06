@@ -230,9 +230,46 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSizePolicy, QFrame)
 from PySide6.QtCore import Qt
 
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEnginePage
+# QtWebEngine ships inside the PySide6-Addons wheel, but its bundled Chromium
+# links against system libraries that pip cannot install. On a stock Linux
+# desktop the import below is the first thing that fails. Keep the module
+# importable on that path so __main__ can report which package is missing
+# instead of dumping a traceback; ResponsiveTextBrowser is never instantiated
+# when QTWEBENGINE_IMPORT_ERROR is set.
+try:
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+    QTWEBENGINE_IMPORT_ERROR = None
+except ImportError as exc:
+    QWebEngineView = object
+    QTWEBENGINE_IMPORT_ERROR = str(exc)
+
 from PySide6.QtGui import QColor, QIcon
+
+
+QTWEBENGINE_MISSING_MESSAGE = """\
+SSN Tools could not load QtWebEngine, which renders the documentation panel.
+
+  {error}
+
+QtWebEngine is installed with PySide6, but its bundled Chromium needs system
+libraries that pip cannot provide. Install them, then start SSN Tools again.
+
+Ubuntu / Debian:
+  sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \\
+                   libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \\
+                   libasound2t64 libcups2t64
+
+  On Ubuntu 22.04 and older, use libasound2 and libcups2 instead -- the t64
+  suffix only exists on 24.04 and newer.
+
+Fedora / RHEL:
+  sudo dnf install nss nspr libXcomposite libXdamage libXrandr \\
+                   libxkbcommon-x11 libXtst mesa-libgbm mesa-libEGL libxslt \\
+                   alsa-lib cups-libs
+
+The first line above names the exact library that failed to load; if it is not
+covered by these commands, install the package that provides it.\
+"""
 
 # --- Re-enabled Qt log filter for window state transitions ---
 import Qt_Log_Filter
@@ -1468,7 +1505,7 @@ class ToolsGUI(QMainWindow):
         settings_file = os.path.join("Input_Files", "tools_settings.json")
         if os.path.exists(settings_file):
             try:
-                with open(settings_file, "r") as f:
+                with open(settings_file, "r", encoding="utf-8") as f:
                     j_data = json.load(f)
                     if "DIRECTORIES" in j_data:
                         dir_defaults.update(j_data["DIRECTORIES"])
@@ -1547,14 +1584,14 @@ class ToolsGUI(QMainWindow):
         os.makedirs("Input_Files", exist_ok=True)
         if os.path.exists(settings_file):
             try:
-                with open(settings_file, "r") as f:
+                with open(settings_file, "r", encoding="utf-8") as f:
                     combined_settings = json.load(f)
             except: pass
             
         combined_settings["DIRECTORIES"] = new_settings
         
         try:
-            with open(settings_file, "w") as f:
+            with open(settings_file, "w", encoding="utf-8") as f:
                 json.dump(combined_settings, f, indent=4)
             QMessageBox.information(self, "Success", "Global directories saved to JSON successfully.")
         except Exception as e:
@@ -1642,7 +1679,7 @@ class ToolsGUI(QMainWindow):
                         f"## ⚠️ Documentation Missing\n\n"
                         f"No documentation file found for this tab.\n\n"
                         f"To add one, create a Markdown document at:\n\n"
-                        f"`src\\tools\\tool_descriptions\\{md_name}`"
+                        f"`{os.path.join('src', 'tools', 'tool_descriptions', md_name)}`"
                     )
             
             html_content = render_markdown_with_math(markdown_content.strip())
@@ -1680,7 +1717,7 @@ class ToolsGUI(QMainWindow):
                         settings_path = os.path.join("Input_Files", "tools_settings.json")
                         if os.path.exists(settings_path):
                             try:
-                                with open(settings_path, "r") as f:
+                                with open(settings_path, "r", encoding="utf-8") as f:
                                     j_data = json.load(f)
                                     if script_name in j_data and target.id in j_data[script_name]:
                                         actual_val = j_data[script_name][target.id]
@@ -3004,7 +3041,7 @@ class ToolsGUI(QMainWindow):
         os.makedirs("Input_Files", exist_ok=True)
         if os.path.exists(settings_file):
             try:
-                with open(settings_file, "r") as f:
+                with open(settings_file, "r", encoding="utf-8") as f:
                     combined_settings = json.load(f)
             except: pass
 
@@ -3046,7 +3083,7 @@ class ToolsGUI(QMainWindow):
         combined_settings[script_name] = new_settings
         
         try:
-            with open(settings_file, "w") as f:
+            with open(settings_file, "w", encoding="utf-8") as f:
                 json.dump(combined_settings, f, indent=4)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save JSON settings:\n{e}")
@@ -3124,7 +3161,20 @@ class ToolsGUI(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
+
+    # Report a missing QtWebEngine before building the GUI, since ToolsGUI
+    # constructs a ResponsiveTextBrowser. Print as well as show a dialog: if
+    # the Qt platform plugin itself is broken no window can appear, and the
+    # launchers run in a terminal where the printed copy is still readable.
+    if QTWEBENGINE_IMPORT_ERROR is not None:
+        message = QTWEBENGINE_MISSING_MESSAGE.format(error=QTWEBENGINE_IMPORT_ERROR)
+        print(message, file=sys.stderr)
+        try:
+            QMessageBox.critical(None, "Missing QtWebEngine libraries", message)
+        except Exception:
+            pass
+        sys.exit(1)
+
     # Set Application-wide Icon
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "tool_logo.ico")
     if not os.path.exists(icon_path):

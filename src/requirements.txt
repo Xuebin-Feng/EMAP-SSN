@@ -9,7 +9,11 @@
 # Pinned to 6.9.x to match the Qt version previously supplied by PyQt6 6.9.1,
 # so the binding swap is the only variable. 6.11.x is available when you want
 # to move Qt itself. The metapackage pulls PySide6-Essentials and
-# PySide6-Addons; QtWebEngine (esmfold, meta, agent panels) lives in Addons.
+# PySide6-Addons; QtWebEngine lives in Addons and renders the SSN_Tools
+# documentation panel only. The esmfold, meta and agent panels do NOT use it --
+# they open in the system browser against the local web server. On Linux
+# QtWebEngine also needs system libraries that pip cannot install; SSN_Tools
+# names them if the import fails.
 PySide6==6.9.1
 biopython==1.87
 # Requires Python >=3.12,<3.13. esm 3.2.2+ narrowed its supported range from

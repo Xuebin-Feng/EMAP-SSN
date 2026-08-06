@@ -360,7 +360,7 @@ class MainViewer:
                 background: transparent;
             }
             QLabel#sliderLabel {
-                font-family: 'Segoe UI', Arial, sans-serif;
+                font-family: %(font)s;
                 font-size: 12pt;
                 font-weight: normal;
                 color: gray;
@@ -395,7 +395,7 @@ class MainViewer:
                 background: #e5e5e5;
                 border-color: #888888;
             }
-        """)
+        """ % {"font": utils.UI_FONT_STACK})
         
         self.position_slider_overlay()
         self.slider_overlay.show()
@@ -468,7 +468,7 @@ class MainViewer:
                 border-radius: 6px;
                 font-weight: bold;
                 color: #0969da;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                font-family: %(font)s;
                 font-size: 10pt;
                 padding-left: 10px;
                 padding-right: 10px;
@@ -480,7 +480,7 @@ class MainViewer:
             QWidget#rightPanel QPushButton:pressed {
                 background-color: #e2f0fe;
             }
-        """)
+        """ % {"font": utils.UI_FONT_STACK})
         
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server

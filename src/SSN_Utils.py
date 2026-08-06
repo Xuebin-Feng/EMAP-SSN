@@ -605,4 +605,48 @@ def force_light_palette(app):
     app.setPalette(palette)
 
 
+# --- 9. Platform Utilities ---
+
+# Single source of truth for the widget font stack. Qt resolves the first family
+# present in its font database and falls through to the trailing generic, so the
+# same declaration gives a sensible face on Windows, macOS and Linux alike.
+UI_FONT_STACK = (
+    "'Segoe UI', '.AppleSystemUIFont', 'Helvetica Neue', "
+    "'Cantarell', 'Noto Sans', 'DejaVu Sans', sans-serif"
+)
+
+
+def open_in_file_manager(path):
+    """
+    Reveal ``path`` in the OS file manager (Explorer, Finder, XDG handler).
+
+    Qt routes this per-platform for us, so there is no need to shell out to
+    startfile/open/xdg-open while a QApplication is alive. The shell fallback
+    covers callers that reach here without one. Opening a folder is a
+    convenience, so failure is swallowed and never propagates to a caller whose
+    export already succeeded.
+    """
+    target = os.path.abspath(path)
+    try:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(target)):
+            return True
+    except Exception:
+        pass
+
+    try:
+        import subprocess
+        import sys
+        if os.name == "nt":
+            os.startfile(target)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", target])
+        else:
+            subprocess.Popen(["xdg-open", target])
+        return True
+    except Exception:
+        return False
+
+
 

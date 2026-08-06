@@ -111,7 +111,7 @@ import Cache_Manifest as cache_manifest
 SETTINGS_FILE = os.path.join("Input_Files", "viewer_settings.json")
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             viewer_settings = json.load(f)
             # Map legacy settings keys to new keys
             LEGACY_KEYS_MAPPING = {
@@ -2318,7 +2318,7 @@ if __name__ == "__main__":
             data = self.collect_data()
             try:
                 os.makedirs("Input_Files", exist_ok=True)
-                with open(SETTINGS_FILE, "w") as f: json.dump(data, f, indent=4)
+                with open(SETTINGS_FILE, "w", encoding="utf-8") as f: json.dump(data, f, indent=4)
                 return True
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save settings:\n{e}")

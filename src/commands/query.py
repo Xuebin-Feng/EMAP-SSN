@@ -151,7 +151,7 @@ def run(viewer, args):
         os.makedirs(header_dir, exist_ok=True)
         sele_path = os.path.join(header_dir, "_sele.txt")
         
-        with open(sele_path, "w", encoding="utf-8") as f:
+        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
             if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
                 for idx in viewer.selected_indices:
                     f.write(viewer.full_headers[idx] + "\n")

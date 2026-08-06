@@ -303,7 +303,7 @@ def inject_spreadsheet_panel(viewer, show_sidebar=True):
                     gridline-color: #e2e2e2;
                     background-color: #ffffff;
                     alternate-background-color: #f8f9fa;
-                    font-family: 'Segoe UI', Arial, sans-serif;
+                    font-family: %(font)s;
                     font-size: 9.5pt;
                     border: none;
                 }
@@ -320,7 +320,7 @@ def inject_spreadsheet_panel(viewer, show_sidebar=True):
                     font-weight: bold;
                     font-size: 9pt;
                 }
-            """)
+            """ % {"font": utils.UI_FONT_STACK})
 
             filter_header = FilterHeaderView(table_view)
             table_view.setHorizontalHeader(filter_header)
@@ -763,12 +763,12 @@ def download_metadata(viewer, filepath, expr=None):
             os.makedirs(header_dir, exist_ok=True)
             sele_path = os.path.join(header_dir, "_sele.txt")
             if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-                with open(sele_path, "w", encoding="utf-8") as f:
+                with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
                     for idx in viewer.selected_indices:
                         f.write(viewer.full_headers[idx] + "\n")
             else:
                 if os.path.exists(sele_path):
-                    open(sele_path, 'w').close()
+                    open(sele_path, "w", encoding="utf-8").close()
 
             expr_cleaned = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
             expr_cleaned = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr_cleaned)

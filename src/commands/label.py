@@ -688,9 +688,7 @@ def run(viewer, args):
             msg = f"Exported to {out_path}"
             viewer.console_text.text = msg
             print(msg)
-            if os.name == 'nt':
-                try: os.startfile(out_dir)
-                except: pass
+            utils.open_in_file_manager(out_dir)
         except Exception as e:
             viewer.console_text.text = f"IO Error: {e}"
 

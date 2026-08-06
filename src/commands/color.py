@@ -82,13 +82,13 @@ def run(viewer, args):
     sele_path = os.path.join(header_dir, "_sele.txt")
     
     if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-        with open(sele_path, "w", encoding="utf-8") as f:
+        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
             for idx in viewer.selected_indices:
                 f.write(viewer.full_headers[idx] + "\n")
     else:
         # Clear it out so old selections don't apply if nothing is selected
         if os.path.exists(sele_path):
-            open(sele_path, 'w').close()
+            open(sele_path, "w", encoding="utf-8").close()
 
     # FIX: Replace with correct file syntax, removing the literal quotes
     args = [re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', arg, flags=re.IGNORECASE) for arg in args]

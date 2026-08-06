@@ -133,7 +133,7 @@ SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
     try:
-        with open(SETTINGS_FILE, "r") as f:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
             
             # 1. Load GLOBAL directories and convert relative paths to absolute paths
@@ -340,7 +340,7 @@ def load_fasta_map(filepath):
     print(f"Loading sequences from {filepath}...")
     seq_dict = {}
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             header = None
             seq_accum = []
             for line in f:
@@ -861,6 +861,12 @@ def run_msa_builder():
     global FULL_INPUT_FASTA, FULL_INPUT_EMBED, FULL_INPUT_NETWORK
     global OUTPUT_FASTA, _seq_set, _model_name
 
+    # Linux defaults to fork, which is unsafe here: the bootstrap pool is
+    # created after torch and the memmapped edge arrays are live. Windows and
+    # macOS already default to spawn, so this only changes Linux.
+    try: mp.set_start_method('spawn')
+    except RuntimeError: pass
+
     try:
         resolved = resolve_msa_configuration(
             FASTA_DIR,
@@ -1365,7 +1371,7 @@ def run_msa_builder():
     # 11. SAVE
     final_cluster = clusters[num_seqs + len(linkage_matrix) - 1]
     print(f"Saving Consensus MSA to {OUTPUT_FASTA}...")
-    with open(OUTPUT_FASTA, "w") as f:
+    with open(OUTPUT_FASTA, "w", encoding="utf-8", newline="\n") as f:
         for i, seq_str in enumerate(final_cluster.sequences):
             original_idx = final_cluster.ids[i]
             header = valid_headers[original_idx]

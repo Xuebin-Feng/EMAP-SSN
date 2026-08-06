@@ -148,12 +148,12 @@ def run(viewer, args):
     sele_path = os.path.join(header_dir, "_sele.txt")
     
     if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-        with open(sele_path, "w", encoding="utf-8") as f:
+        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
             for idx in viewer.selected_indices:
                 f.write(viewer.full_headers[idx] + "\n")
     else:
         if os.path.exists(sele_path):
-            open(sele_path, 'w').close()
+            open(sele_path, "w", encoding="utf-8").close()
 
     # Preprocess expression (replace $sele$ and remove spaces in {})
     if expr:

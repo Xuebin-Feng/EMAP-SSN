@@ -20,6 +20,14 @@
 # Move to the project root directory (two levels up from this script)
 cd "$(dirname "$0")/../.."
 
+# 0. Prefer XWayland on Wayland sessions. The vispy OpenGL canvas hosted inside
+# Qt6 is unreliable on the native Wayland platform plugin; xcb is the known-good
+# path. Only applied when the user has not chosen a platform themselves, so
+# `QT_QPA_PLATFORM=wayland ./SSN_Viewer` still overrides this.
+if [ "$XDG_SESSION_TYPE" = "wayland" ] && [ -z "$QT_QPA_PLATFORM" ]; then
+    export QT_QPA_PLATFORM=xcb
+fi
+
 # 1. Locate uv executable
 if command -v uv &> /dev/null; then
     UV_EXE="uv"
