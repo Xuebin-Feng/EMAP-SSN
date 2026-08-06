@@ -1,3 +1,17 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import re
 import numpy as np
@@ -27,6 +41,91 @@ try:
     HAS_TORCH = True
 except Exception:
     HAS_TORCH = False
+
+
+def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
+    """Partition a network with the Leiden algorithm and return cluster labels.
+
+    Backed by graspologic-native (MIT), which replaced leidenalg/igraph (GPL) so
+    this project can be licensed permissively. The caller is responsible for
+    catching ImportError if graspologic-native is not installed.
+
+    Communities smaller than ``min_size`` are left as Noise. Nodes carrying no
+    edges at all are *always* Noise, regardless of ``min_size``. graspologic-native
+    infers its node set from the edge list, so isolated nodes never appear in the
+    returned membership map, but they are also forced to -1 explicitly below so
+    the guarantee does not rely on that implementation detail.
+
+    Parameters
+    ----------
+    n_nodes : int
+        Total node count. Labels are returned for every node in ``range(n_nodes)``.
+    edges : array-like, shape (E, 2)
+        Integer node-index pairs. Treated as undirected.
+    weights : array-like of shape (E,) or None
+        Edge weights, or None for an unweighted network.
+    resolution : float
+        Higher values yield more, smaller communities.
+    min_size : int
+        Communities below this size are labelled Noise.
+    seed : int
+        Seed for a reproducible partition.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(n_nodes,)``, dtype int. Cluster ids are 1-based; -1 is Noise.
+    """
+    import graspologic_native as gn
+
+    labels = np.full(n_nodes, -1, dtype=int)
+
+    edges = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
+    if edges.shape[0] == 0:
+        return labels
+
+    if weights is not None and len(weights) != edges.shape[0]:
+        print("Warning: edge weight count does not match edge count; "
+              "treating the network as unweighted.")
+        weights = None
+
+    if weights is None:
+        weights = np.ones(edges.shape[0], dtype=float)
+    else:
+        weights = np.asarray(weights, dtype=float).ravel()
+
+    edge_list = [
+        (str(int(u)), str(int(v)), float(w))
+        for (u, v), w in zip(edges, weights)
+    ]
+
+    _, membership = gn.leiden(
+        edges=edge_list,
+        resolution=float(resolution),
+        use_modularity=True,
+        seed=int(seed),
+    )
+
+    communities = {}
+    for node_str, community in membership.items():
+        communities.setdefault(community, []).append(int(node_str))
+
+    cluster_id = 1
+    for community in sorted(communities):
+        members = communities[community]
+        if len(members) >= min_size:
+            for node in members:
+                labels[node] = cluster_id
+            cluster_id += 1
+
+    # Isolated nodes are always Noise, even when min_size == 1.
+    connected = np.zeros(n_nodes, dtype=bool)
+    connected[edges[:, 0]] = True
+    connected[edges[:, 1]] = True
+    labels[~connected] = -1
+
+    return labels
+
 
 # --- 2. String & Label Helpers ---
 def get_alignment_offset_display(viewer):
@@ -487,7 +586,7 @@ def build_network_from_raw(data, forced_ref_header=None):
 # --- 8. Theme Utility ---
 def force_light_palette(app):
     """Forces the application to use a standard light theme palette on all platforms."""
-    from PyQt6.QtGui import QPalette, QColor
+    from PySide6.QtGui import QPalette, QColor
     app.setStyle("Fusion")
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))

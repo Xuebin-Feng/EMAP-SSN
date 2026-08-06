@@ -1,6 +1,20 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 try:
-    import torch  # Pre-load to prevent DLL initialization conflicts between PyTorch and PyQt6/OpenGL
+    import torch  # Pre-load to prevent DLL initialization conflicts between PyTorch and PySide6/OpenGL
 except Exception:
     pass
 import sys
@@ -20,7 +34,12 @@ from collections import deque
 import math
 import queue
 from vispy import scene, app
-from PyQt6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtWidgets, QtCore, QtGui
+
+# Suppress the benign QPainter warning burst Qt emits during fullscreen
+# transitions. See Qt_Log_Filter for the full explanation and how to disable it.
+import Qt_Log_Filter
+Qt_Log_Filter.install()
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine

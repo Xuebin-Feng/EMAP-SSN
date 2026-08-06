@@ -1,3 +1,17 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import re
 
 SUPPORTED_MODELS = ["esmc_300m", "esmc_600m"]
@@ -30,7 +44,7 @@ def load_model(model_name, device):
     Loads the ESMC model on the specified device.
     """
     from esm.models.esmc import ESMC
-    print(f"Loading {model_name} on {device}...")
+    print(f"Loading {model_name} ...")
     client = ESMC.from_pretrained(model_name).to(device)
     return client
 
@@ -48,5 +62,8 @@ def get_embedding(seq, model_obj, device, target_dtype):
     with torch.no_grad():
         protein_tensor = model_obj.encode(ESMProtein(sequence=seq))
         logits = model_obj.logits(protein_tensor, LogitsConfig(sequence=True, return_embeddings=True))
-        # Slice out the start/end special tokens and convert to target precision
-        return logits.embeddings.squeeze(0)[1:-1].cpu().numpy().astype(target_dtype)
+        # Slice out the start/end special tokens and convert to target precision.
+        # ESMC returns bfloat16 tensors, which NumPy cannot represent, so upcast
+        # to float32 before leaving PyTorch and then apply the storage dtype.
+        embeddings = logits.embeddings.squeeze(0)[1:-1]
+        return embeddings.to(torch.float32).cpu().numpy().astype(target_dtype)

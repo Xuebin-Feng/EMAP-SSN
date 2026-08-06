@@ -1,3 +1,17 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 agent_backend.py — Core LLM agent logic for SSN Viewer.
 
@@ -21,7 +35,7 @@ if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
 import Command_Engine
-from PyQt6 import QtCore
+from PySide6 import QtCore
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 
@@ -251,7 +265,7 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=0.
 # ─── Worker threads ───────────────────────────────────────────────────────────
 
 class AgentWorker(QtCore.QThread):
-    finished = QtCore.pyqtSignal(str, str, str, str)  # (response, reasoning, tokens_json, error)
+    finished = QtCore.Signal(str, str, str, str)  # (response, reasoning, tokens_json, error)
 
     def __init__(self, backend, url, model_name, system_prompt, query, history, temperature, api_key, options=None):
         super().__init__()
@@ -279,7 +293,7 @@ class AgentWorker(QtCore.QThread):
 
 
 class RefinementWorker(QtCore.QThread):
-    finished = QtCore.pyqtSignal(str, str, str, str)  # (refined_explanation, reasoning, tokens_json, error)
+    finished = QtCore.Signal(str, str, str, str)  # (refined_explanation, reasoning, tokens_json, error)
 
     def __init__(self, backend, url, model_name, user_query, commands, terminal_output, temperature, api_key, options=None):
         super().__init__()

@@ -1,9 +1,23 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import http.server
 import threading
 import queue
 import json
 import os
-from PyQt6 import QtCore
+from PySide6 import QtCore
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -22,7 +36,7 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 class QtCommunicator(QtCore.QObject):
-    action_signal = QtCore.pyqtSignal(dict)
+    action_signal = QtCore.Signal(dict)
     
     def __init__(self, viewer):
         super().__init__()
@@ -46,6 +60,13 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         self.queues_lock = threading.Lock()
         self.static_routes = {}  # prefix -> local_dir (registered by dynamic backends)
 
+        # Vendored fonts are a shared resource rather than one panel's asset, so
+        # they are registered here instead of by an individual backend. This
+        # keeps the web UI working without network access.
+        self.static_routes["/fonts/"] = os.path.join(
+            os.path.dirname(BASE_DIR), "resources", "fonts"
+        )
+
     def handle_error(self, request, client_address):
         # Suppress traceback print for socket/connection abortions when browser tabs close
         import sys
@@ -67,7 +88,10 @@ MIME_TYPES = {
     ".svg": "image/svg+xml",
     ".gif": "image/gif",
     ".ico": "image/x-icon",
-    ".md": "text/plain"
+    ".md": "text/plain",
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf"
 }
 
 class WebServerHandler(http.server.BaseHTTPRequestHandler):

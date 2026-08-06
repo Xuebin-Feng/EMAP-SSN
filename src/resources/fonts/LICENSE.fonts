@@ -1,0 +1,30 @@
+Fonts vendored in this directory
+================================
+
+Inter
+  Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+  SIL Open Font License 1.1 - full text in LICENSE.Inter
+  Files: Inter-*.woff2
+
+Fira Code
+  Copyright (c) 2014, The Fira Code Project Authors
+  (https://github.com/tonsky/FiraCode)
+  SIL Open Font License 1.1 - full text in LICENSE.FiraCode
+  Files: FiraCode-*.woff2
+
+  The OFL requires that this license notice accompany the font files whenever
+  they are redistributed. Both license files are shipped verbatim rather than
+  merged, because the two texts differ slightly.
+
+KaTeX fonts
+  Copyright (c) 2013-2020 Khan Academy and other contributors
+  MIT License - full text in ../LICENSE.katex
+  Files: KaTeX_*.woff2
+
+  These are NOT covered by the OFL. They live here because katex.min.css
+  resolves its font references relative to its own location, i.e. ./fonts/.
+
+fonts.css
+  Generated from the Google Fonts CSS the web UI previously fetched at runtime,
+  with the remote URLs rewritten to the local files above. Regenerate it only
+  together with the woff2 files, since the two must stay in sync.

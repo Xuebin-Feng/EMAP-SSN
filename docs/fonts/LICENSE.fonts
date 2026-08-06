@@ -1,0 +1,29 @@
+Fonts vendored in this directory
+================================
+
+These fonts are used by docs/list_of_commands.html. They are kept here, separate
+from src/resources/fonts/, so the documentation is self-contained and does not
+reach into the application source tree.
+
+Inter
+  Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+  SIL Open Font License 1.1 - full text in LICENSE.Inter
+  Files: Inter-*.woff2
+
+Fira Code
+  Copyright (c) 2014, The Fira Code Project Authors
+  (https://github.com/tonsky/FiraCode)
+  SIL Open Font License 1.1 - full text in LICENSE.FiraCode
+  Files: FiraCode-*.woff2
+
+  The OFL requires that this license notice accompany the font files whenever
+  they are redistributed. Both license files are shipped verbatim rather than
+  merged, because the two texts differ slightly.
+
+fonts.css
+  Generated from the Google Fonts CSS this page previously fetched at runtime,
+  with the remote URLs rewritten to the local files above. This file is a copy
+  of src/resources/fonts/fonts.css; if either is regenerated, update both.
+
+Note: the KaTeX fonts under src/resources/fonts/ are NOT duplicated here. They
+are MIT licensed rather than OFL, and this page does not use KaTeX.

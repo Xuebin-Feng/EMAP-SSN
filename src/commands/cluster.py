@@ -1,3 +1,17 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import Command_Engine
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,7 +73,7 @@ def print_help():
       leiden (Default)
           - Leiden Community Detection (Modularity & Density optimization).
           - Automatically uses network edge scores as structural weights if available.
-          - Requires: pip install leidenalg igraph
+          - Requires: pip install graspologic-native
           - PARAM_1: Resolution (Higher = more clusters). Default: 1.0
           - Example: cluster leiden 1.0 10  (OR simply: cluster 1.0 10)
           
@@ -282,32 +296,28 @@ def run(viewer, args):
     elif mode == "leiden":
         resolution = param1
         try:
-            import igraph as ig
-            import leidenalg as la
+            import graspologic_native  # noqa: F401  (availability check)
         except ImportError:
-            msg = "Missing libraries! Run: pip install leidenalg igraph"
+            msg = "Missing library! Run: pip install graspologic-native"
             print(f"Error: {msg}")
             viewer.console_text.text = msg
             return
-            
-        print("Building Graph & Mapping Edge Weights...")
-        G = ig.Graph(n=n_nodes, edges=edges.tolist())
-        
+
+        print("Building Edge List & Mapping Edge Weights...")
+
         # Automatically harness the physics edge weights if available!
         if hasattr(viewer, 'edge_scores'):
-            G.es['weight'] = viewer.edge_scores
+            weights = viewer.edge_scores
             print(f"Running Leiden (Resolution = {resolution}, Weighted).")
-            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, weights='weight', seed=42)
         else:
+            weights = None
             print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
-            partition = la.find_partition(G, la.RBConfigurationVertexPartition, resolution_parameter=resolution, seed=42)
-            
-        cluster_id = 1
-        for comp in partition:
-            if len(comp) >= min_sz:
-                for node in comp:
-                    labels[node] = cluster_id
-                cluster_id += 1
+
+        # Nodes with no edges are always returned as Noise (-1), even if
+        # min_sz is 1. See SSN_Utils.leiden_partition for the guarantee.
+        labels = utils.leiden_partition(
+            n_nodes, edges, weights, resolution, min_sz, seed=42
+        )
 
     # --- 6. Update Viewer ---
     

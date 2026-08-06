@@ -1,4 +1,18 @@
 @echo off
+REM Copyright 2026 Xuebin Feng
+REM
+REM Licensed under the Apache License, Version 2.0 (the "License");
+REM you may not use this file except in compliance with the License.
+REM You may obtain a copy of the License at
+REM
+REM     http://www.apache.org/licenses/LICENSE-2.0
+REM
+REM Unless required by applicable law or agreed to in writing, software
+REM distributed under the License is distributed on an "AS IS" BASIS,
+REM WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+REM See the License for the specific language governing permissions and
+REM limitations under the License.
+
 REM =========================================================================
 REM Installation and Shortcut Generation Script for SSN Viewer & Tools
 REM =========================================================================
@@ -16,7 +30,7 @@ if not exist "src\bin\logos\viewer_logo_large.ico" (
     echo Icon files are missing. Attempting to generate them...
     set "PY_EXE=.venv\Scripts\python.exe"
     if exist "!PY_EXE!" (
-        "!PY_EXE!" -c "import sys, os; from PyQt6.QtWidgets import QApplication; from PyQt6.QtGui import QPixmap; app = QApplication(sys.argv); logo_dir = r'src/bin/logos'; [QPixmap(os.path.join(logo_dir, f)).save(os.path.join(logo_dir, os.path.splitext(f)[0] + '.ico'), 'ICO') for f in os.listdir(logo_dir) if f.endswith('.png')]"
+        "!PY_EXE!" -c "import sys, os; from PySide6.QtWidgets import QApplication; from PySide6.QtGui import QPixmap; app = QApplication(sys.argv); logo_dir = r'src/bin/logos'; [QPixmap(os.path.join(logo_dir, f)).save(os.path.join(logo_dir, os.path.splitext(f)[0] + '.ico'), 'ICO') for f in os.listdir(logo_dir) if f.endswith('.png')]"
         echo [OK] Generated .ico files from png files.
     ) else (
         echo [INFO] Python virtual environment not found. Please run SSN_Viewer.bat or SSN_Tools.bat once first to set up the environment, or ensure the .ico files are synced.

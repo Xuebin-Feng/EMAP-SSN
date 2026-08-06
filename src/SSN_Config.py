@@ -1,3 +1,17 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 # Import Libraries
 import os
@@ -146,22 +160,26 @@ if __name__ == "__main__":
     import subprocess
 
     # Hardware_Utils imports PyTorch.  On Windows this must happen before
-    # PyQt6/OpenGL initializes, otherwise torch's c10.dll can fail to load.
+    # PySide6/OpenGL initializes, otherwise torch's c10.dll can fail to load.
     try:
         from utilities import Hardware_Utils
     except ImportError:
         import Hardware_Utils
 
-    os.environ["QT_API"] = "pyqt6"
+    os.environ["QT_API"] = "pyside6"
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
-    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+    from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                  QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
                                  QComboBox, QPushButton, QMessageBox, QTextEdit,
                                  QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
                                  QStyle, QStyleOptionSlider, QFileDialog, QColorDialog)
-    from PyQt6.QtCore import Qt, QUrl, QThread, pyqtSignal
-    from PyQt6.QtGui import QDesktopServices, QIcon
-    
+    from PySide6.QtCore import Qt, QUrl, QThread, Signal
+    from PySide6.QtGui import QDesktopServices, QIcon
+
+    # --- Re-enabled Qt log filter for window state transitions ---
+    import Qt_Log_Filter
+    Qt_Log_Filter.install()
+
     # --- Custom Widget Classes ---
     class NoScrollComboBox(QComboBox):
         def __init__(self, *args, **kwargs):
@@ -230,7 +248,7 @@ if __name__ == "__main__":
             super().mousePressEvent(event)
 
     class CacheHashWorker(QThread):
-        completed = pyqtSignal(int, object, str)
+        completed = Signal(int, object, str)
 
         def __init__(self, request_id, sequence_path, network_path, cached_records=None):
             super().__init__()
@@ -411,7 +429,7 @@ if __name__ == "__main__":
             msa_path = os.path.join(self.inputs["MSA_DIR"].text(), msa_file) if msa_file else None
                 
             self.tip_panel.setText("Running Consistency Check...")
-            from PyQt6.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
             
             try:
@@ -482,7 +500,7 @@ if __name__ == "__main__":
                 self.tip_panel.setText(f"Error during consistency check: {e}")
             
         def eventFilter(self, obj, event):
-            from PyQt6.QtCore import QEvent
+            from PySide6.QtCore import QEvent
             if event.type() in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress):
                 if hasattr(self, 'tip_db'):
                     tip = self.tip_db.get(obj, None)
@@ -912,8 +930,8 @@ if __name__ == "__main__":
                     path = self.inputs[dir_key].text() if dir_key in self.inputs else globals().get(dir_key, default_dir)
                     abs_path = os.path.abspath(path)
                     os.makedirs(abs_path, exist_ok=True)
-                    from PyQt6.QtGui import QDesktopServices
-                    from PyQt6.QtCore import QUrl
+                    from PySide6.QtGui import QDesktopServices
+                    from PySide6.QtCore import QUrl
                     QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
                     
                 btn.clicked.connect(open_folder)
@@ -1031,7 +1049,7 @@ if __name__ == "__main__":
             self.check_umap.setChecked(bool(umap_mode_val))
             switch_umap_style(bool(umap_mode_val))
             
-            from PyQt6.QtWidgets import QSizePolicy
+            from PySide6.QtWidgets import QSizePolicy
             lbl_k = QLabel("   UMAP Nearest Neighbors (k):")
             lbl_md = QLabel("   UMAP Minimum Distance:")
             
@@ -1162,8 +1180,8 @@ if __name__ == "__main__":
             
             def open_cache_folder(checked):
                 import os
-                from PyQt6.QtGui import QDesktopServices
-                from PyQt6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+                from PySide6.QtCore import QUrl
                 
                 # Exclusively open the parent directory
                 dir_input = self.inputs.get("SAVED_LAYOUT_DIR")
@@ -1195,8 +1213,8 @@ if __name__ == "__main__":
             
             def open_target_folder(checked):
                 import os
-                from PyQt6.QtGui import QDesktopServices
-                from PyQt6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+                from PySide6.QtCore import QUrl
                 
                 path = getattr(self, 'current_cache_folder', None)
                 if path and os.path.exists(path):
@@ -1684,7 +1702,7 @@ if __name__ == "__main__":
                 
                 def pick_color(checked, line_edit=le, color_swatch=swatch):
                     initial = line_edit.text()
-                    from PyQt6.QtGui import QColor
+                    from PySide6.QtGui import QColor
                     color = QColorDialog.getColor(QColor(initial) if initial else QColor("white"), self, "Select Color")
                     if color.isValid():
                         hex_val = color.name()
@@ -2018,7 +2036,7 @@ if __name__ == "__main__":
             cb_geom = NoScrollComboBox()
             cb_geom.addItems(["Square", "Circle"])
 
-            from PyQt6.QtWidgets import QSizePolicy
+            from PySide6.QtWidgets import QSizePolicy
             cb_geom.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
             cb_geom.setMinimumWidth(120)
 
@@ -2261,7 +2279,7 @@ if __name__ == "__main__":
 
         def collect_data(self):
             data = {}
-            from PyQt6.QtWidgets import QComboBox, QPushButton, QLineEdit
+            from PySide6.QtWidgets import QComboBox, QPushButton, QLineEdit
             for key, widget in self.inputs.items():
                 
                 # ---> NEW: Completely skip saving the target cache selection to JSON

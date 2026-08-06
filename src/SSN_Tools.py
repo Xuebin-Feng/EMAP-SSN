@@ -1,3 +1,17 @@
+# Copyright 2026 Xuebin Feng
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 import sys
 import os
@@ -202,23 +216,27 @@ if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
 # Fix High-DPI scaling
-os.environ["QT_API"] = "pyqt6"
+os.environ["QT_API"] = "pyside6"
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
 
 
 
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QTabWidget, QFormLayout, QLineEdit, 
                              QPushButton, QMessageBox, QLabel, QScrollArea, QTextEdit,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
                              QSizePolicy, QFrame)
-from PyQt6.QtCore import Qt
+from PySide6.QtCore import Qt
 
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEnginePage
-from PyQt6.QtGui import QColor, QIcon
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEnginePage
+from PySide6.QtGui import QColor, QIcon
+
+# --- Re-enabled Qt log filter for window state transitions ---
+import Qt_Log_Filter
+Qt_Log_Filter.install()
 
 class ResponsiveTextBrowser(QWebEngineView):
     def __init__(self, *args, **kwargs):
@@ -234,7 +252,7 @@ class ResponsiveTextBrowser(QWebEngineView):
         pass
         
     def font(self):
-        from PyQt6.QtGui import QFont
+        from PySide6.QtGui import QFont
         return QFont()
         
     def setFont(self, font):
@@ -355,10 +373,11 @@ class ResponsiveTextBrowser(QWebEngineView):
             <style>
                 {github_style}
             </style>
-            <!-- Load KaTeX math rendering -->
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" 
+            <!-- KaTeX is vendored under src/resources so math renders offline.
+                 These paths are relative to the baseUrl set below. -->
+            <link rel="stylesheet" href="katex.min.css">
+            <script defer src="katex.min.js"></script>
+            <script defer src="katex-auto-render.min.js"
                     onload="renderMathInElement(document.body, {{
                         delimiters: [
                             {{left: '$$', right: '$$', display: true}},
@@ -374,10 +393,14 @@ class ResponsiveTextBrowser(QWebEngineView):
         </body>
         </html>
         """
-        if baseUrl:
-            super().setHtml(full_html, baseUrl)
-        else:
-            super().setHtml(full_html)
+        # The vendored KaTeX assets are referenced relatively, so the page needs a
+        # baseUrl pointing at src/resources/. Without one, setHtml() resolves
+        # against about:blank and the relative paths silently fail to load.
+        if not baseUrl:
+            from PySide6.QtCore import QUrl
+            resources_dir = os.path.join(_SRC_DIR, "resources")
+            baseUrl = QUrl.fromLocalFile(resources_dir + os.sep)
+        super().setHtml(full_html, baseUrl)
 
 class NoScrollComboBox(QComboBox):
     def __init__(self, *args, **kwargs):
@@ -395,7 +418,7 @@ class NoScrollSlider(QSlider):
         e.ignore()
         
     def mousePressEvent(self, event):
-        from PyQt6.QtCore import Qt
+        from PySide6.QtCore import Qt
         if event.button() == Qt.MouseButton.LeftButton:
             opt = QStyleOptionSlider()
             self.initStyleOption(opt)
@@ -1957,8 +1980,8 @@ class ToolsGUI(QMainWindow):
                 btn.setToolTip("Open Folder")
                 def open_folder(checked, dk=dir_key, df=folder):
                     import os
-                    from PyQt6.QtGui import QDesktopServices
-                    from PyQt6.QtCore import QUrl
+                    from PySide6.QtGui import QDesktopServices
+                    from PySide6.QtCore import QUrl
                     path = self.dir_inputs[dk].text() if dk and hasattr(self, 'dir_inputs') and dk in self.dir_inputs else df
                     abs_path = os.path.abspath(path)
                     os.makedirs(abs_path, exist_ok=True)
@@ -2926,7 +2949,7 @@ class ToolsGUI(QMainWindow):
         self.tabs.addTab(scroll, tab_name)
 
     def eventFilter(self, obj, event):
-        from PyQt6.QtCore import QEvent
+        from PySide6.QtCore import QEvent
         if event.type() in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress, QEvent.Type.Enter):
             tip = self.tip_db.get(obj, None)
             if tip:

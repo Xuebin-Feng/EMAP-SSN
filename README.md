@@ -2,8 +2,8 @@
 
 [![Python Version](https://img.shields.io/badge/python-%3E3.10-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey.svg)](https://github.com/)
-[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Framework PyQt6](https://img.shields.io/badge/UI-PyQt6-orange.svg)](https://www.riverbankcomputing.com/software/pyqt/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Framework PySide6](https://img.shields.io/badge/UI-PySide6-orange.svg)](https://doc.qt.io/qtforpython/)
 [![Render VisPy](https://img.shields.io/badge/Render-VisPy-red.svg)](https://vispy.org/)
 
 The **Embedding-based SSN Viewer (name: TBD)** is an interactive, high-performance graphical application designed to streamline the generation, visualization, and analysis of both traditional and embedding-based Sequence Similarity Networks (SSNs). By integrating **Multiple Sequence Alignments (MSAs)** directly into network exploration, the viewer bridges macroscopic sequence relationships with microscopic residue-level conservation, providing a comprehensive, multi-scale view of the protein sequence space.
@@ -58,7 +58,7 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 *Work in Progress*
 
 *   **Embedding-Based Dynamic Programming Alignment**: Align sequences using high-dimensional dense embedding similarity vectors instead of simple substitution matrices (BLOSUM/PAM), resolving structural and functional relationships even at low sequence identity.
-*   **High-Performance Visualization**: Powered by PyQt6 and VisPy, allowing real-time rendering, rotation, zooming, and manipulation of large networks containing thousands of nodes and edges.
+*   **High-Performance Visualization**: Powered by PySide6 and VisPy, allowing real-time rendering, rotation, zooming, and manipulation of large networks containing thousands of nodes and edges.
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
 *   **Comprehensive Utilities Suite**: Centralized GUI in `SSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
@@ -108,7 +108,7 @@ Sequence_Similarity_Network_Viewer/
 ├── install.sh                # Linux installer (creates symlinks and desktop entries)
 │
 ├── src/                      # Source code directory
-│   ├── SSN_Viewer.py         # Main PyQt6 / VisPy desktop visualization application
+│   ├── SSN_Viewer.py         # Main PySide6 / VisPy desktop visualization application
 │   ├── SSN_Tools.py          # GUI & CLI utility for generating network data & computing layouts
 │   ├── SSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
 │   ├── SSN_Utils.py          # Shared utility functions (IO, math helper, parsing)
@@ -142,4 +142,35 @@ Contributions are welcome! Please feel free to open Issues or submit Pull Reques
 
 ## 📄 License
 
-This project is licensed under the GNU GPL v3 License - see the [LICENSE](LICENSE) file for details.
+Copyright 2026 Xuebin Feng
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the [LICENSE](LICENSE)
+file for the specific language governing permissions and limitations under the
+License, and [NOTICE](NOTICE) for required attributions.
+
+### Third-party components
+
+This repository bundles Mol* and Tabulator (both MIT), depends on Python
+packages under a range of licenses, and can load protein-language-model weights
+governed by their own terms. A full inventory, including which components are
+redistributed and which are merely required at runtime, is in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+The GUI uses **PySide6 under its LGPL-3.0 option**. This permits Apache-2.0
+application code provided Qt stays dynamically linked and user-replaceable,
+which a normal `pip install` satisfies. Do not vendor or statically link Qt.
+
+**Open item:** the optional `esm` package has been relicensed upstream from
+EvolutionaryScale's bespoke "Cambrian" licenses to MIT, but that relicense has
+not yet reached PyPI — every published release, including the latest (3.2.3),
+still ships the older Cambrian license text. Upgrading the pin therefore does not
+resolve the discrepancy; it must be re-checked when a release later than 3.2.3
+appears. See section 5 of [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

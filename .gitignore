@@ -4,6 +4,7 @@ Input_Files/
 Embeddings/
 Cache_Files/
 tests/
+validation/
 
 # Per-plugin API credentials stored beside their plugin
 src/resources/pLM_models/*_api_key.json
