@@ -14,6 +14,7 @@
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 # Import Libraries
+import html
 import os
 import re
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
@@ -177,6 +178,19 @@ if __name__ == "__main__":
     from PySide6.QtGui import QDesktopServices, QIcon
 
     # --- Custom Widget Classes ---
+    class SpacedTipLabel(QLabel):
+        """Help-panel label with proportional multiline spacing."""
+
+        def __init__(self, text="", parent=None):
+            super().__init__(parent)
+            self.setTextFormat(Qt.TextFormat.RichText)
+            self.setText(text)
+
+        def setText(self, text):
+            escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
+            escaped_text = escaped_text.replace("\n", "<br>")
+            super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
+
     class NoScrollComboBox(QComboBox):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -315,7 +329,7 @@ if __name__ == "__main__":
             self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
             self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
             
-            self.tip_panel = QLabel("Click or tab to an input or its label to see helpful tips here.")
+            self.tip_panel = SpacedTipLabel("Click or tab to an input or its label to see helpful tips here.")
             self.tip_panel.setWordWrap(True)
             self.tip_panel.setStyleSheet("color: #444; font-style: italic; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
             self.left_bottom_layout.addWidget(self.tip_panel)
@@ -1587,9 +1601,13 @@ if __name__ == "__main__":
         def create_visuals_tab(self):
             tab = QWidget()
             main_layout = QVBoxLayout(tab)
-            form_layout = QFormLayout()
-            form_layout.setHorizontalSpacing(30)
-            form_layout.setVerticalSpacing(12)
+            visual_grid = QGridLayout()
+            visual_grid.setHorizontalSpacing(8)
+            visual_grid.setVerticalSpacing(12)
+            visual_grid.setColumnStretch(1, 1)
+            visual_grid.setColumnMinimumWidth(2, 16)
+            visual_grid.setColumnStretch(4, 1)
+            visual_row = 0
             
             # 1. Sliders Setup
             slider_settings = [
@@ -1658,7 +1676,9 @@ if __name__ == "__main__":
                 h_lay.addWidget(box)
 
                 lbl = QLabel(f"{display_name}:")
-                form_layout.addRow(lbl, ui_element)
+                visual_grid.addWidget(lbl, visual_row, 0)
+                visual_grid.addWidget(ui_element, visual_row, 1, 1, 4)
+                visual_row += 1
                 self.labels[key] = lbl
                 self.inputs[key] = box
 
@@ -1670,14 +1690,10 @@ if __name__ == "__main__":
                 "EDGE_COLOR": "#000000", "NODE_BOUNDARY_COLOR": "#000000", "LOW_RESOURCE_MODE": False
             }
 
-            color_grid = QGridLayout()
-            color_grid.setHorizontalSpacing(30)
-            color_grid.setVerticalSpacing(12)
-            color_grid.setColumnStretch(1, 1)
-            color_grid.setColumnStretch(3, 1)
+            color_row_start = visual_row
 
             for index, key in enumerate(color_keys):
-                if key == "HOVER_COLOR": display_name = "Hover and Selected Node Color"
+                if key == "HOVER_COLOR": display_name = "Highlight Color"
                 else: display_name = key.replace('_', ' ').title()
                 
                 color_container = QWidget()
@@ -1712,15 +1728,15 @@ if __name__ == "__main__":
                 h_layout.addWidget(btn)
                 
                 lbl = QLabel(f"{display_name}:")
-                row = index // 2
-                column = (index % 2) * 2
-                color_grid.addWidget(lbl, row, column)
-                color_grid.addWidget(color_container, row, column + 1)
+                row = color_row_start + index // 2
+                column = 0 if index % 2 == 0 else 3
+                visual_grid.addWidget(lbl, row, column)
+                visual_grid.addWidget(color_container, row, column + 1)
                 self.labels[key] = lbl
                 self.inputs[key] = le
                 self.color_swatches[key] = swatch
 
-            form_layout.addRow(color_grid)
+            visual_row = color_row_start + (len(color_keys) + 1) // 2
 
             # --- Low Resource Mode Toggle ---
             lbl_low_res = QLabel("Low Resource Mode:")
@@ -1742,11 +1758,12 @@ if __name__ == "__main__":
             cb_low_res.setChecked(initial_low_res)
             switch_toggle_style_low_res(initial_low_res)
             
-            form_layout.addRow(lbl_low_res, cb_low_res)
+            visual_grid.addWidget(lbl_low_res, visual_row, 0)
+            visual_grid.addWidget(cb_low_res, visual_row, 1)
             self.labels["LOW_RESOURCE_MODE"] = lbl_low_res
             self.inputs["LOW_RESOURCE_MODE"] = cb_low_res
             
-            main_layout.addLayout(form_layout)
+            main_layout.addLayout(visual_grid)
             main_layout.addStretch()
             
             btn_reset = QPushButton("Reset to Default")
@@ -1779,7 +1796,7 @@ if __name__ == "__main__":
             tab = QWidget()
             main_layout = QVBoxLayout(tab)
             form_layout = QFormLayout()
-            form_layout.setHorizontalSpacing(30)
+            form_layout.setHorizontalSpacing(8)
             form_layout.setVerticalSpacing(12)
             
             self.physics_defaults = {
@@ -1884,12 +1901,14 @@ if __name__ == "__main__":
             # All paired slider rows share one grid. A grid per row sizes its columns
             # independently, so rows whose right-hand labels differ in width end up a
             # few pixels out of step with each other.
+            paired_group_padding = 24
             slider_pair_grid = QGridLayout()
-            slider_pair_grid.setHorizontalSpacing(30)
+            slider_pair_grid.setHorizontalSpacing(0)
             slider_pair_grid.setVerticalSpacing(12)
             slider_pair_grid.setColumnMinimumWidth(0, 180)
+            slider_pair_grid.setColumnMinimumWidth(2, paired_group_padding)
             slider_pair_grid.setColumnStretch(1, 1)
-            slider_pair_grid.setColumnStretch(3, 1)
+            slider_pair_grid.setColumnStretch(4, 1)
 
             def add_paired_slider_row(left_key, right_key):
                 row = slider_pair_grid.rowCount()
@@ -1899,8 +1918,8 @@ if __name__ == "__main__":
 
                 slider_pair_grid.addWidget(left_label, row, 0)
                 slider_pair_grid.addWidget(left_control, row, 1)
-                slider_pair_grid.addWidget(right_label, row, 2)
-                slider_pair_grid.addWidget(right_control, row, 3)
+                slider_pair_grid.addWidget(right_label, row, 3)
+                slider_pair_grid.addWidget(right_control, row, 4)
 
             add_paired_slider_row("SPRING_K", "COULOMB_K")
             add_paired_slider_row("COULOMB_CUTOFF", "DAMPING")
@@ -1908,12 +1927,12 @@ if __name__ == "__main__":
 
             # --- 3. Integration and convergence settings (two columns) ---
             convergence_grid = QGridLayout()
-            convergence_grid.setHorizontalSpacing(30)
+            convergence_grid.setHorizontalSpacing(0)
             convergence_grid.setVerticalSpacing(12)
             convergence_grid.setColumnMinimumWidth(0, 180)
-            convergence_grid.setColumnMinimumWidth(2, 180)
+            convergence_grid.setColumnMinimumWidth(2, paired_group_padding)
             convergence_grid.setColumnStretch(1, 1)
-            convergence_grid.setColumnStretch(3, 1)
+            convergence_grid.setColumnStretch(4, 1)
 
             lbl_dt = QLabel("Step Size:")
             le_dt = QLineEdit(str(globals().get("DT", 0.005)))
@@ -1927,8 +1946,8 @@ if __name__ == "__main__":
 
             convergence_grid.addWidget(lbl_dt, 0, 0)
             convergence_grid.addWidget(le_dt, 0, 1)
-            convergence_grid.addWidget(lbl_steps, 0, 2)
-            convergence_grid.addWidget(le_steps, 0, 3)
+            convergence_grid.addWidget(lbl_steps, 0, 3)
+            convergence_grid.addWidget(le_steps, 0, 4)
 
             lbl_rmsd = QLabel("RMSD Threshold:")
             le_rmsd = QLineEdit(str(globals().get("RMSD_THRESHOLD", 0.005)))
@@ -1942,8 +1961,8 @@ if __name__ == "__main__":
 
             convergence_grid.addWidget(lbl_rmsd, 1, 0)
             convergence_grid.addWidget(le_rmsd, 1, 1)
-            convergence_grid.addWidget(lbl_drop, 1, 2)
-            convergence_grid.addWidget(le_drop, 1, 3)
+            convergence_grid.addWidget(lbl_drop, 1, 3)
+            convergence_grid.addWidget(le_drop, 1, 4)
             form_layout.addRow(convergence_grid)
 
             # --- 4. RMSD Window logscale slider + spinbox (10 to 1000) ---
@@ -2094,28 +2113,28 @@ if __name__ == "__main__":
             self.labels["PACKING_GRID_SIZE"] = lbl_pgs
 
             packing_controls_grid = QGridLayout()
-            packing_controls_grid.setHorizontalSpacing(30)
+            packing_controls_grid.setHorizontalSpacing(0)
             packing_controls_grid.setVerticalSpacing(12)
-            lbl_prog.setFixedWidth(180)
-            packing_controls_grid.setColumnMinimumWidth(0, 180)
-            packing_controls_grid.setColumnStretch(5, 1)
+            packing_controls_grid.setColumnMinimumWidth(2, paired_group_padding)
+            packing_controls_grid.setColumnMinimumWidth(5, paired_group_padding)
+            packing_controls_grid.setColumnStretch(7, 1)
             packing_controls_grid.addWidget(lbl_prog, 0, 0)
             packing_controls_grid.addWidget(prog_field, 0, 1)
-            packing_controls_grid.addWidget(lbl_geom, 0, 2)
-            packing_controls_grid.addWidget(cb_geom, 0, 3)
-            packing_controls_grid.addWidget(lbl_pgs, 0, 4)
-            packing_controls_grid.addWidget(pgs_widget, 0, 5)
+            packing_controls_grid.addWidget(lbl_geom, 0, 3)
+            packing_controls_grid.addWidget(cb_geom, 0, 4)
+            packing_controls_grid.addWidget(lbl_pgs, 0, 6)
+            packing_controls_grid.addWidget(pgs_widget, 0, 7)
             packing_controls_grid.setRowMinimumHeight(0, cb_prog.height())
             form_layout.addRow(packing_controls_grid)
 
             # --- 6. Monte Carlo settings (two columns) ---
             monte_carlo_grid = QGridLayout()
-            monte_carlo_grid.setHorizontalSpacing(30)
+            monte_carlo_grid.setHorizontalSpacing(0)
             monte_carlo_grid.setVerticalSpacing(12)
             monte_carlo_grid.setColumnMinimumWidth(0, 180)
-            monte_carlo_grid.setColumnMinimumWidth(2, 180)
+            monte_carlo_grid.setColumnMinimumWidth(2, paired_group_padding)
             monte_carlo_grid.setColumnStretch(1, 1)
-            monte_carlo_grid.setColumnStretch(3, 1)
+            monte_carlo_grid.setColumnStretch(4, 1)
 
             lbl_min_k = QLabel("Minimum K:")
             le_min_k = QLineEdit(str(globals().get("SGLD_MIN_K", 20)))
@@ -2129,8 +2148,8 @@ if __name__ == "__main__":
 
             monte_carlo_grid.addWidget(lbl_min_k, 0, 0)
             monte_carlo_grid.addWidget(le_min_k, 0, 1)
-            monte_carlo_grid.addWidget(lbl_pct_k, 0, 2)
-            monte_carlo_grid.addWidget(le_pct_k, 0, 3)
+            monte_carlo_grid.addWidget(lbl_pct_k, 0, 3)
+            monte_carlo_grid.addWidget(le_pct_k, 0, 4)
 
             lbl_start_temp = QLabel("Starting Temp:")
             le_start_temp = QLineEdit(str(globals().get("SGLD_START_TEMP", 1.5)))
@@ -2142,17 +2161,27 @@ if __name__ == "__main__":
             self.inputs["SGLD_NOISE_SCALE"] = le_noise_scale
             self.labels["SGLD_NOISE_SCALE"] = lbl_noise_scale
 
-            paired_labels = (
-                lbl_dt, lbl_steps, lbl_rmsd, lbl_drop,
-                lbl_min_k, lbl_pct_k, lbl_start_temp, lbl_noise_scale,
+            paired_left_labels = (
+                lbl_dt, lbl_rmsd, lbl_min_k, lbl_start_temp,
             )
-            for paired_label in paired_labels:
+            paired_right_labels = (
+                physics_slider_controls["COULOMB_K"][0],
+                physics_slider_controls["DAMPING"][0],
+                lbl_steps, lbl_drop, lbl_pct_k, lbl_noise_scale,
+            )
+            for paired_label in paired_left_labels:
                 paired_label.setFixedWidth(180)
+            right_label_width = max(
+                label.fontMetrics().horizontalAdvance(label.text())
+                for label in paired_right_labels
+            )
+            for paired_label in paired_right_labels:
+                paired_label.setFixedWidth(right_label_width)
 
             monte_carlo_grid.addWidget(lbl_start_temp, 1, 0)
             monte_carlo_grid.addWidget(le_start_temp, 1, 1)
-            monte_carlo_grid.addWidget(lbl_noise_scale, 1, 2)
-            monte_carlo_grid.addWidget(le_noise_scale, 1, 3)
+            monte_carlo_grid.addWidget(lbl_noise_scale, 1, 3)
+            monte_carlo_grid.addWidget(le_noise_scale, 1, 4)
             form_layout.addRow(monte_carlo_grid)
 
             # Apply styling for disabled states to match other tabs

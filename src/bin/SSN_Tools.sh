@@ -17,8 +17,23 @@
 # Portable Startup Script for SSN_Tools.py (Linux/macOS)
 # =========================================================================
 
-# Move to the project root directory (two levels up from this script)
-cd "$(dirname "$0")/../.."
+# Load dependency checks and desktop-launch failure handling from the installer.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [ -f "$SCRIPT_DIR/../../install.sh" ]; then
+    PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+elif [ -f "$SCRIPT_DIR/install.sh" ]; then
+    # Invoked through the project-root SSN_Tools symlink.
+    PROJECT_ROOT="$SCRIPT_DIR"
+else
+    echo "Could not locate install.sh from $SCRIPT_DIR." >&2
+    exit 1
+fi
+# shellcheck source=../../install.sh
+. "$PROJECT_ROOT/install.sh"
+ssn_enable_desktop_failure_pause
+
+# Move to the project root directory.
+cd "$PROJECT_ROOT"
 
 # 0. Prefer XWayland on Wayland sessions. The vispy OpenGL canvas hosted inside
 # Qt6 is unreliable on the native Wayland platform plugin; xcb is the known-good
@@ -26,6 +41,12 @@ cd "$(dirname "$0")/../.."
 # `QT_QPA_PLATFORM=wayland ./SSN_Tools` still overrides this.
 if [ "$XDG_SESSION_TYPE" = "wayland" ] && [ -z "$QT_QPA_PLATFORM" ]; then
     export QT_QPA_PLATFORM=xcb
+fi
+
+# SSN Tools also embeds QtWebEngine, so its preflight includes the Chromium
+# runtime libraries in addition to the shared xcb dependencies.
+if ! ssn_require_linux_gui_dependencies tools; then
+    exit 1
 fi
 
 # 1. Locate uv executable

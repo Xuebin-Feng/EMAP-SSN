@@ -140,25 +140,24 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
      > If you downloaded the project as a ZIP rather than cloning it, the executable permission is not preserved. Restore it with `chmod +x install.command` before double-clicking.
      
    * **🐧 Linux**:
-     SSN Tools renders its documentation panel with QtWebEngine, which ships inside PySide6 but links against system libraries that `pip` cannot install. Install them first:
+     Clone the repository and run the installer directly. Git preserves the executable bit, so a normal `git clone` does not require a separate `chmod` step:
      ```bash
-     sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \
-                      libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \
-                      libasound2t64 libcups2t64
+     git clone <repository-url>
+     cd Sequence_Similarity_Network_Viewer
+     ./install.sh
      ```
+     On Ubuntu/Debian, the installer detects missing Qt xcb and QtWebEngine system libraries and offers to install them with `sudo apt`. These libraries cannot be installed by `pip` or `uv`.
+
      > [!NOTE]
-     > On Ubuntu 22.04 and older, use `libasound2` and `libcups2` — the `t64` suffix only exists on 24.04 and newer. On Fedora/RHEL the equivalent is:
+     > ZIP archives do not reliably preserve Unix executable modes. If you downloaded a ZIP instead of using `git clone`, run `bash install.sh` (or restore the mode once with `chmod +x install.sh`).
+
+     > [!NOTE]
+     > On Fedora/RHEL, install the equivalent system libraries before launching:
      > ```bash
      > sudo dnf install nss nspr libXcomposite libXdamage libXrandr libxkbcommon-x11 \
      >                  libXtst mesa-libgbm mesa-libEGL libxslt alsa-lib cups-libs
      > ```
-     > If SSN Tools still reports a missing library, it names the exact file — install whichever package provides it.
 
-     Then run the installation script:
-     ```bash
-     cd Sequence_Similarity_Network_Viewer
-     ./install.sh
-     ```
      This will configure execution permissions and generate launchers (`SSN_Viewer` and `SSN_Tools`) as well as system `.desktop` application entries.
 
 ---
@@ -170,6 +169,9 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
   ```bash
   QT_QPA_PLATFORM=wayland ./SSN_Viewer
   ```
+
+* **The application closes immediately when launched from a desktop icon.**
+  The Ubuntu/Debian launchers now check the Qt/XCB libraries before startup and print the exact `sudo apt install` command for anything missing. If any later startup step fails, a desktop-launched terminal remains open until you press Enter so the original error stays visible.
 
 * **SSN Tools exits immediately, or crashes inside Chromium.**
   If the documentation panel fails after the libraries above are installed — common inside containers or on hardened kernels where the Chromium sandbox cannot start — disable the sandbox:

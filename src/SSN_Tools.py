@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
+import html
 import sys
 import os
 import ast
@@ -541,6 +542,20 @@ class ResponsiveTextBrowser(QWebEngineView):
             resources_dir = os.path.join(_SRC_DIR, "resources")
             baseUrl = QUrl.fromLocalFile(resources_dir + os.sep)
         super().setHtml(full_html, baseUrl)
+
+class SpacedTipLabel(QLabel):
+    """Help-panel label with proportional multiline spacing."""
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.setTextFormat(Qt.TextFormat.RichText)
+        self.setText(text)
+
+    def setText(self, text):
+        escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
+        escaped_text = escaped_text.replace("\n", "<br>")
+        super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
+
 
 class NoScrollComboBox(QComboBox):
     def __init__(self, *args, **kwargs):
@@ -1512,7 +1527,7 @@ class ToolsGUI(QMainWindow):
         self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
         self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.tip_panel = QLabel("Hover or focus on an input to see its description.")
+        self.tip_panel = SpacedTipLabel("Hover or focus on an input to see its description.")
         self.tip_panel.setWordWrap(True)
         self.tip_panel.setMinimumHeight(20)
         self.tip_panel.setStyleSheet("color: #444; font-style: italic; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
