@@ -73,6 +73,15 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 
 2. **Set up the environment:**
 
+   The generated Viewer and Tools launchers create a Python 3.12 environment
+   and select a pinned PyTorch build automatically. NVIDIA systems use CUDA
+   13.2 when the GPU and driver support it, with CUDA 12.6 compatibility
+   fallback; Intel uses XPU, Linux AMD uses ROCm, Apple Silicon uses MPS, and
+   supported Windows 11 AMD GPUs install ROCm packages directly from AMD's
+   official wheel index. Apple Silicon installation requires macOS 14 or newer,
+   matching the PyTorch 2.12.1 wheel's deployment target. Unsupported or failed
+   accelerators fall back to CPU when a compatible CPU wheel exists.
+
    * **🪟 Windows**:
      Double-click `install.bat` in the project root to generate Windows Shortcuts (`.lnk` files) in the project root and optionally on your Desktop.
      
@@ -199,19 +208,28 @@ License, and [NOTICE](NOTICE) for required attributions.
 
 ### Third-party components
 
-This repository bundles Mol* and Tabulator (both MIT), depends on Python
-packages under a range of licenses, and can load protein-language-model weights
-governed by their own terms. A full inventory, including which components are
-redistributed and which are merely required at runtime, is in
+This repository bundles the MIT-licensed ESM wheel, Mol*, and Tabulator, depends
+on Python packages under a range of licenses, and can load
+protein-language-model weights governed by their own terms. A full inventory,
+including which components are redistributed and which are merely required at
+runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-The GUI uses **PySide6 under its LGPL-3.0 option**. This permits Apache-2.0
-application code provided Qt stays dynamically linked and user-replaceable,
-which a normal `pip install` satisfies. Do not vendor or statically link Qt.
+The optional Ankh weights are licensed separately under **CC BY-NC-SA 4.0** and
+are restricted to non-commercial use. The application labels these models and
+requires explicit acknowledgement before accessing their files; the integration
+code remains Apache-2.0 and does not redistribute the weights.
 
-**Open item:** the optional `esm` package has been relicensed upstream from
-EvolutionaryScale's bespoke "Cambrian" licenses to MIT, but that relicense has
-not yet reached PyPI — every published release, including the latest (3.2.3),
-still ships the older Cambrian license text. Upgrading the pin therefore does not
-resolve the discrepancy; it must be re-checked when a release later than 3.2.3
-appears. See section 5 of [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+The GUI uses **PySide6 under its LGPL-3.0 option**. PySide6 and Qt are installed
+separately and are not included in this source repository. Any future executable
+or installer that redistributes Qt binaries needs a separate LGPL compliance
+review.
+
+The repository bundles an unmodified ESM 3.3.0 wheel built from the upstream
+MIT-licensed source commit. Its source commit, SHA-256, and adjacent license are
+recorded under `src/resources/wheels/`; model weights remain separately
+downloaded and retain their publishers' licenses. See sections 1 and 5 of
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+Before publishing a release, complete the ownership, contributor-identity,
+artwork, and technical gates in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).

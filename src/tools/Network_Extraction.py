@@ -124,27 +124,63 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- DYNAMIC INFERENCE ---
 import re
 
-# 1. Resolve inputs and read the authoritative network metadata.
-_fasta_base = INPUT_FASTA.replace(".fasta", "")
-FULL_INPUT_NET = os.path.join(NETWORK_DIR, INPUT_NET) if NETWORK_DIR else ""
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR else ""
-_network_metadata = validate_network_schema(FULL_INPUT_NET)
-is_blast = _network_metadata.network_type == "blast"
-_model_name = re.sub(r'[<>:"/\\|?*]', "_", _network_metadata.model_name)
+FULL_INPUT_NET = None
+FULL_INPUT_FASTA = None
+INPUT_PATHS = None
+OUTPUT_PATHS = None
+OUTPUT_NET = None
 
-# 2. Build output paths from the metadata-selected network type.
-if is_blast:
-    INPUT_PATHS = None
-    OUTPUT_PATHS = None
-    OUTPUT_NET = os.path.join(NETWORK_DIR, f"{_fasta_base}_[{_model_name}]_EValue.h5") if NETWORK_DIR else ""
-else:
-    _old_net_base = INPUT_NET.replace("_network.h5", "")
-    INPUT_PATHS = os.path.join(PATH_DIR, f"{_old_net_base}_paths.h5") if PATH_DIR else ""
-    OUTPUT_PATHS = os.path.join(PATH_DIR, f"{_fasta_base}_[{_model_name}]_paths.h5") if PATH_DIR else ""
-    OUTPUT_NET = os.path.join(NETWORK_DIR, f"{_fasta_base}_[{_model_name}]_network.h5") if NETWORK_DIR else ""
+
+def _resolve_selected_path(value, directory, description):
+    if value is None or not str(value).strip():
+        raise ValueError(f"No {description} has been selected.")
+
+    selected_path = os.fspath(value)
+    if os.path.isabs(selected_path):
+        return os.path.normpath(selected_path)
+    return os.path.normpath(os.path.join(directory, selected_path))
+
+
+def configure_runtime_paths():
+    """Resolve inputs and derive outputs when extraction actually starts."""
+    global FULL_INPUT_NET, FULL_INPUT_FASTA
+    global INPUT_PATHS, OUTPUT_PATHS, OUTPUT_NET
+
+    FULL_INPUT_NET = _resolve_selected_path(
+        INPUT_NET,
+        NETWORK_DIR,
+        "source network file",
+    )
+    FULL_INPUT_FASTA = _resolve_selected_path(
+        INPUT_FASTA,
+        FASTA_DIR,
+        "filter FASTA file",
+    )
+
+    network_metadata = validate_network_schema(FULL_INPUT_NET)
+    model_name = re.sub(r'[<>:"/\\|?*]', "_", network_metadata.model_name)
+    fasta_base = os.path.splitext(os.path.basename(FULL_INPUT_FASTA))[0]
+
+    if network_metadata.network_type == "blast":
+        INPUT_PATHS = None
+        OUTPUT_PATHS = None
+        OUTPUT_NET = os.path.join(
+            NETWORK_DIR,
+            f"{fasta_base}_[{model_name}]_EValue.h5",
+        )
+    else:
+        old_net_base = os.path.basename(FULL_INPUT_NET).replace("_network.h5", "")
+        INPUT_PATHS = os.path.join(PATH_DIR, f"{old_net_base}_paths.h5")
+        OUTPUT_PATHS = os.path.join(
+            PATH_DIR,
+            f"{fasta_base}_[{model_name}]_paths.h5",
+        )
+        OUTPUT_NET = os.path.join(
+            NETWORK_DIR,
+            f"{fasta_base}_[{model_name}]_network.h5",
+        )
 
 def load_fasta_headers(fasta_path):
     print(f"Loading filtered headers from: {fasta_path}")
@@ -176,7 +212,6 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
         # --- METADATA-ONLY FORMAT DETECTION ---
         network_metadata = validate_network_schema(
             hf_in,
-            expected_network_type=_network_metadata.network_type,
         )
         is_blast_network = network_metadata.network_type == "blast"
         if is_blast_network:
@@ -299,4 +334,9 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
             print(f"    ... and {len(missing_headers) - 10} more.")
 
 if __name__ == "__main__":
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        raise SystemExit(f"❌ Error: {error}") from error
+
     filter_network(FULL_INPUT_NET, FULL_INPUT_FASTA, OUTPUT_NET, INPUT_PATHS, OUTPUT_PATHS)

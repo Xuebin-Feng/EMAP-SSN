@@ -4,23 +4,22 @@ This script aligns two sequences using their residue-level language model embedd
 
 ### 📥 Input
 
-#### Pairwise Sequence Set `INPUT_FASTA`
-*   **Format**: FASTA sequence file (`.fasta`) containing reference and target sequences.
-*   **Created By**: `Sanitize_Sequences.py` (Sequence Sanitization utility) or user-provided raw FASTA.
-
 #### Embedding Database `INPUT_EMBED`
-*   **Format**: HDF5 embedding database (`.h5`). If missing, calculations run on the fly.
+*   **Format**: Metadata-first HDF5 embedding database (`.h5`) containing sanitized headers, sequences, model metadata, and residue-level tensors. It is required whenever either sequence is selected by header.
 *   **Created By**: `Generate_Embeddings.py` (Embedding Generation utility).
 
 ### ⚙️ Parameters
 
 | Parameter | Description |
 | :--- | :--- |
-| Reference Header **`REF_HEADER`** | The exact FASTA header of the reference sequence. |
-| Target Header **`TAR_HEADER`** | The exact FASTA header of the target sequence. |
-| Manual Reference String **`REF_SEQUENCE`** | Manually input the reference sequence (ignores headers and FASTA files if provided). |
-| Manual Target String **`TAR_SEQUENCE`** | Manually input the target sequence (ignores headers and FASTA files if provided). |
+| Reference Header **`REF_HEADER`** | The reference header to find in the embedding database. Typed text receives the same canonical header sanitization used by Generate Embeddings. |
+| Target Header **`TAR_HEADER`** | The target header to find in the embedding database. Typed text receives the same canonical header sanitization used by Generate Embeddings. |
+| Manual Reference Toggle **`MANUAL_REF_SEQ`** | Enables the optional manual reference-sequence field. When ON, the manual sequence is used even if its sanitized header matches a stored database header. It is OFF by default. |
+| Manual Reference String **`REF_SEQUENCE`** | Used only while `MANUAL_REF_SEQ` is ON and canonically sanitized before embedding generation; otherwise the reference is loaded by header. |
+| Manual Target Toggle **`MANUAL_TAR_SEQ`** | Enables the optional manual target-sequence field. When ON, the manual sequence is used even if its sanitized header matches a stored database header. It is OFF by default. |
+| Manual Target String **`TAR_SEQUENCE`** | Used only while `MANUAL_TAR_SEQ` is ON and canonically sanitized before embedding generation; otherwise the target is loaded by header. |
 | Highlight Mapping Positions **`HIGHLIGHT_POSITIONS`** | A comma-separated list of 1-indexed residue positions in the reference sequence to map and highlight in the target sequence alignment. |
+| Embedding Model **`EMBEDDING_MODEL`** | Model used when both sequences are manual. Available choices are discovered from `src/resources/pLM_models`; if either sequence comes from the embedding set, that set's model is used. |
 | Alignment Metric **`ALIGNMENT_MODE`** | The alignment mode to run (either 'global' or 'local'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
@@ -36,7 +35,7 @@ This script aligns two sequences using their residue-level language model embedd
 <summary><b>Algorithm Details</b></summary>
 
 1. **Embedding Extraction / Generation**:
-     Fetches residue embeddings for the reference sequence $v_{\text{ref}}$ and target sequence $v_{\text{tar}}$ from the HDF5 database. If missing, it uses the default local model (e.g., ESM-C) to compute them.
+     Loads stored sequence text and tensors directly from the HDF5 manifest. Typed headers and manual sequences are canonically sanitized first. If only one sequence is manual, its embedding uses the database model. If both are manual, they use the explicitly selected embedding model.
 
 2. **Z-Score Score Matrix Construction**:
      Calculates the normalized residue-level score matrix:
@@ -74,7 +73,8 @@ This script queries a single sequence against an entire database using residue-l
 | Parameter | Description |
 | :--- | :--- |
 | Query Header ID **`QUERY_HEADER`** | A header stored in the embedding database. It is sanitized before lookup. |
-| Manual Query String **`QUERY_SEQUENCE`** | A sequence sanitized in memory and embedded with the database model's pLM plugin; overrides header lookup. |
+| Manual Query Toggle **`MANUAL_QUERY_SEQ`** | Enables the optional manual query-sequence field. When ON, the query remains distinct from a same-header database record, which can still appear as a search hit. It is OFF by default. |
+| Manual Query String **`QUERY_SEQUENCE`** | Used only while `MANUAL_QUERY_SEQ` is ON, then sanitized in memory and embedded with the database model's pLM plugin. |
 | Output Spreadsheet Prefix **`OUTPUT_NAME`** | The prefix for the exported search results spreadsheet and optional FASTA files. |
 | Max Database Hits **`TOP_K`** | The maximum number of top-scoring database hits to include in the output report. |
 | Normalized Score Cutoff **`NORM_THRESHOLD`** | A filter to exclude hits scoring below a normalized similarity cutoff. Set to 'None' to disable. |
@@ -95,7 +95,7 @@ This script queries a single sequence against an entire database using residue-l
 <summary><b>Algorithm Details</b></summary>
 
 1. **Query Setup**:
-     Reads stored sequences from `/sequences`. A header query reuses its stored embedding; a manual query is sanitized and embedded through the same model adapter recorded by `model_name`.
+     Reads stored sequences from `/sequences`. The manual switch explicitly selects the source: OFF reuses the stored header and embedding, while ON requires a sanitized manual sequence and embeds it through the model adapter recorded by `model_name`. A colliding manual header does not replace or suppress the same-header database record.
 
 2. **Database Alignment Queue**:
      Iterates through all database sequences $j$ in the HDF5 file. For each sequence, it adds the pair (query, j) to a parallel queue.

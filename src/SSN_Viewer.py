@@ -44,6 +44,27 @@ import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
 import Cache_Manifest as cache_manifest
+from utilities.FASTA_Sanitization import (
+    load_sanitized_fasta,
+    write_fasta_atomic,
+)
+
+
+def _load_selected_fasta_records(fasta_path):
+    """Load the same canonical FASTA records used by embedding generation."""
+    headers, sequences, _ = load_sanitized_fasta(fasta_path)
+    return list(zip(headers, sequences))
+
+
+def _build_sequence_lookup(records):
+    """Index canonical FASTA records by both full header and first token."""
+    sequence_lookup = {}
+    for header, sequence in records:
+        sequence_lookup[header] = sequence
+        header_parts = header.split()
+        if header_parts:
+            sequence_lookup[header_parts[0]] = sequence
+    return sequence_lookup
 
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
@@ -587,6 +608,20 @@ class MainViewer:
             if cache_mode not in {'existing', 'new'}:
                 cache_mode = 'existing' if os.path.exists(cache_path) else 'new'
 
+            selected_fasta_path = (
+                getattr(cfg, 'NODE_FASTA_FILE', None)
+                or getattr(cfg, 'SEQUENCES_FILE', '')
+            )
+            self._selected_fasta_records = _load_selected_fasta_records(
+                selected_fasta_path
+            )
+            self.sequences_map = _build_sequence_lookup(
+                self._selected_fasta_records
+            )
+            selected_fasta_headers = [
+                header for header, _ in self._selected_fasta_records
+            ]
+
             manifest_settings = {
                 'alignment_score': getattr(cfg, 'ALIGNMENT_SCORE', None),
                 'normalization': getattr(cfg, 'NORM_MODE', None),
@@ -597,7 +632,7 @@ class MainViewer:
             }
             try:
                 current_manifest = cache_manifest.build_manifest_for_files(
-                    getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', ''),
+                    selected_fasta_path,
                     cfg.INPUT_HDF5,
                     **manifest_settings,
                 )
@@ -629,6 +664,7 @@ class MainViewer:
                         expected_headers, expected_edges, expected_edge_scores, _, _ = utils.build_network_from_raw(
                             raw_data,
                             forced_ref_header=self.resolved_ref_full,
+                            selected_fasta_headers=selected_fasta_headers,
                         )
                     with h5py.File(cache_path, "r") as hf:
                         cache_manifest.validate_cache_hdf5(
@@ -761,7 +797,8 @@ class MainViewer:
                     with h5py.File(cfg.INPUT_HDF5, "r") as raw_data: 
                         self.full_headers, self.edges, self.edge_scores, initial_pos, self.box_limit = utils.build_network_from_raw(
                             raw_data, 
-                            forced_ref_header=self.resolved_ref_full
+                            forced_ref_header=self.resolved_ref_full,
+                            selected_fasta_headers=selected_fasta_headers,
                         )
                 except Exception as e:
                     sys.exit(f"Error loading HDF5 file: {e}")
@@ -823,28 +860,36 @@ class MainViewer:
                 # --- Save to Cache (Using FULL headers) ---
                 try:
                     cache_folder = os.path.dirname(cache_path)
-                    cache_folder_was_created = not os.path.isdir(cache_folder)
                     os.makedirs(cache_folder, exist_ok=True)
 
-                    if cache_folder_was_created:
-                        fasta_path = (
-                            getattr(cfg, 'NODE_FASTA_FILE', None)
-                            or getattr(cfg, 'SEQUENCES_FILE', '')
+                    fasta_backup_name = os.path.basename(
+                        os.path.normpath(selected_fasta_path)
+                    )
+                    fasta_backup_path = os.path.join(
+                        cache_folder, fasta_backup_name
+                    )
+                    if os.path.normcase(os.path.abspath(fasta_backup_path)) == (
+                        os.path.normcase(os.path.abspath(selected_fasta_path))
+                    ):
+                        raise RuntimeError(
+                            "The cache FASTA backup path resolves to the selected "
+                            "input FASTA. Choose a separate saved-layout folder."
                         )
-                        fasta_backup_name = os.path.basename(os.path.normpath(fasta_path))
-                        reserved_names = {
-                            os.path.normcase(os.path.basename(cache_path)),
-                            os.path.normcase(cache_manifest.MANIFEST_FILENAME),
-                        }
-                        while os.path.normcase(fasta_backup_name) in reserved_names:
-                            fasta_backup_name = f"original_{fasta_backup_name}"
-                        fasta_backup_path = os.path.join(
-                            cache_folder, fasta_backup_name
-                        )
-                        cache_manifest.copy_file_atomic(
-                            fasta_path, fasta_backup_path
-                        )
-                        print(f"FASTA backup saved to: {fasta_backup_path}")
+                    sanitized_headers = [
+                        header for header, _ in self._selected_fasta_records
+                    ]
+                    sanitized_sequences = [
+                        sequence for _, sequence in self._selected_fasta_records
+                    ]
+                    write_fasta_atomic(
+                        fasta_backup_path,
+                        sanitized_headers,
+                        sanitized_sequences,
+                    )
+                    print(
+                        f"Sanitized FASTA backup saved to: "
+                        f"{fasta_backup_path}"
+                    )
 
                     partial_cache_path = cache_path + ".partial"
                     if os.path.exists(partial_cache_path):
@@ -888,16 +933,10 @@ class MainViewer:
         
         # Initialize Length metadata if not already loaded from cache
         if "Length" not in self.metadata:
-            lengths_map = {}
-            fasta_path = getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', '')
-            if fasta_path and os.path.exists(fasta_path):
-                try:
-                    from Bio import SeqIO
-                    for rec in SeqIO.parse(fasta_path, "fasta"):
-                        lengths_map[rec.id] = len(rec.seq)
-                        lengths_map[rec.description] = len(rec.seq)
-                except Exception as e:
-                    print(f"Warning: Failed to parse FASTA for sequence lengths: {e}")
+            lengths_map = {
+                header: len(sequence)
+                for header, sequence in self.sequences_map.items()
+            }
             
             length_values = np.zeros(self.n_nodes, dtype=np.int32)
             for i, h in enumerate(self.full_headers):
@@ -1663,16 +1702,16 @@ class MainViewer:
                 
                 # Lazy-load sequence map if not already loaded
                 if not hasattr(self, 'sequences_map'):
-                    self.sequences_map = {}
                     fasta_path = getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', '')
                     if fasta_path and os.path.exists(fasta_path):
                         try:
-                            from Bio import SeqIO
-                            for rec in SeqIO.parse(fasta_path, "fasta"):
-                                self.sequences_map[rec.id] = str(rec.seq)
-                                self.sequences_map[rec.description] = str(rec.seq)
+                            records = _load_selected_fasta_records(fasta_path)
+                            self.sequences_map = _build_sequence_lookup(records)
                         except Exception as e:
+                            self.sequences_map = {}
                             print(f"Warning: Failed to parse FASTA for sequences: {e}")
+                    else:
+                        self.sequences_map = {}
                 
                 # Look up sequence
                 sequence = None

@@ -21,7 +21,7 @@ This allows you to find remote homologs that share structural similarities even 
 
 How it Works:
 1. Target Database: You select a complete metadata-first embedding database (.h5) to search against.
-2. Query Input: You can either type the header of a stored sequence, OR paste a brand new raw amino acid sequence into the 'Query Sequence' box.
+2. Query Input: You can either type the header of a stored sequence, OR enable 'Manual Query Seq' and paste a new raw amino acid sequence into the 'Query Sequence' box.
 3. Inference: The script calculates the structural embedding for your query.
 4. Scanning: Using parallel CPU workers, it scans your query against every sequence in the database using either Local (Smith-Waterman) or Global (Needleman-Wunsch) dynamic programming.
 5. Scoring: The raw alignment scores are normalized (to prevent bias toward excessively long sequences) and ranked.
@@ -32,7 +32,7 @@ The script generates report files in the configured report directory:
 - Hits_<Query>.fasta: A clean FASTA file containing the sequences of all your top hits, ordered strictly by rank, with your query sequence pinned to the very top. This file is perfectly formatted to be immediately dropped into an MSA tool!
 
 Key Parameters:
-- Query Sequence (Optional): If populated, the script ignores stored-header lookup and sanitizes the supplied sequence in memory.
+- Manual Query Seq: When enabled, the script ignores stored-header lookup and sanitizes the supplied Query Sequence in memory.
 - Norm Score Cutoff: Filters out any hits that fall below a specific normalized similarity score.
 - Alignment Mode: Use 'local' if you are searching for a specific structural domain within larger proteins. Use 'global' if you are comparing overall holistic similarity.
 """
@@ -76,7 +76,8 @@ INPUT_EMBED = "Sample_[E1_RA]_embeddings.h5"
 
 # QUERY SETTINGS
 QUERY_HEADER = "Query_Header"
-QUERY_SEQUENCE = "" # Optional: if blank, fetch from INPUT_EMBED using QUERY_HEADER.
+MANUAL_QUERY_SEQ = False
+QUERY_SEQUENCE = "" # Used only when MANUAL_QUERY_SEQ is enabled.
 OUTPUT_NAME = "" # Optional: Custom base name for the generated output files.
 
 # SEARCH PARAMETERS
@@ -157,6 +158,32 @@ def get_embedding_integrated(seq, model_obj, device, model_type, target_dtype):
     return model_type.get_embedding(seq, model_obj, device, target_dtype)
 
 
+def resolve_manual_query_sequence(enabled, sequence):
+    """Return a canonical manual query only when its switch is enabled."""
+    if not enabled:
+        return ""
+    cleaned_sequence, _, _ = sanitize_sequence(str(sequence or ""))
+    if not cleaned_sequence:
+        raise ValueError("QUERY_SEQUENCE is empty after sanitization.")
+    return cleaned_sequence
+
+
+def filter_ranked_hits(df, query_name, manual_query_enabled, top_k):
+    """Apply self-hit removal and hit limits using the explicit query source."""
+    query_from_database = not bool(manual_query_enabled)
+    if query_from_database:
+        df = df[df['header'] != query_name]
+
+    if top_k is not None:
+        # Stored queries occupy one of TOP_K output slots. Manual queries are
+        # pinned separately and retain TOP_K database hits, including a
+        # same-header record.
+        limit = int(top_k) - 1 if query_from_database else int(top_k)
+        df = df.head(max(0, limit))
+
+    return df
+
+
 def release_accelerator_cache(device):
     """Release cached model allocations before the alignment search begins."""
     if device is None:
@@ -185,16 +212,16 @@ def prepare_database_embeddings():
 
 # --- 4. ALIGNMENT & NORMALIZATION LOGIC ---------------------------------------
 def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float16)
-    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float16)
+    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
+    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
     t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
     t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T)
+    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
     dist_mat = 1.0 - cos_sim
     sim_mat = torch.exp(-dist_mat)
     epsilon = 1e-8
-    row_mean = sim_mat.mean(dim=1, keepdim=True); row_std = sim_mat.std(dim=1, keepdim=True)
-    col_mean = sim_mat.mean(dim=0, keepdim=True); col_std = sim_mat.std(dim=0, keepdim=True)
+    row_mean = sim_mat.mean(dim=1, keepdim=True); row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
+    col_mean = sim_mat.mean(dim=0, keepdim=True); col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
     z_r = (sim_mat - row_mean) / (row_std + epsilon)
     z_c = (sim_mat - col_mean) / (col_std + epsilon)
     return ((z_r + z_c) / 2.0).to(dtype=torch.float32, device="cpu").numpy()
@@ -716,16 +743,16 @@ if __name__ == "__main__":
     # Process Query Input
     raw_query_name = QUERY_HEADER if QUERY_HEADER else "Manual_Query"
     query_name = sanitize_header(str(raw_query_name))[0] or "Manual_Query"
-    raw_query_sequence = QUERY_SEQUENCE.strip() if QUERY_SEQUENCE else ""
-    query_seq_str = ""
+    manual_query_enabled = bool(MANUAL_QUERY_SEQ)
+    query_seq_str = resolve_manual_query_sequence(
+        manual_query_enabled,
+        QUERY_SEQUENCE,
+    )
     query_emb = None
     target_dtype = dtype_for_saving_mode(database.saving_mode)
     cleanup_device = None
 
-    if raw_query_sequence:
-        query_seq_str, _, _ = sanitize_sequence(raw_query_sequence)
-        if not query_seq_str:
-            raise ValueError("QUERY_SEQUENCE is empty after sanitization.")
+    if manual_query_enabled:
         print("[Input] Using manually provided sanitized query sequence.")
     else:
         if query_name not in seq_lookup:
@@ -793,20 +820,12 @@ if __name__ == "__main__":
     if NORM_THRESHOLD is not None: 
         df = df[df['norm_score'] >= float(NORM_THRESHOLD)]
         
-    # Check if the query already exists in the database
-    query_in_db = query_name in db_headers
-    
-    # Remove the query from the database hits to prevent duplicates in the FASTA
-    df = df[df['header'] != query_name]
-    
-    if TOP_K is not None:
-        # If in DB, we want TOP_K total sequences in the FASTA (1 pinned query + TOP_K-1 hits)
-        # If not in DB, we want TOP_K+1 total sequences (1 pinned query + TOP_K hits)
-        limit = int(TOP_K) - 1 if query_in_db else int(TOP_K)
-        limit = max(0, limit)
-        
-        if len(df) > limit:
-            df = df.head(limit)
+    df = filter_ranked_hits(
+        df,
+        query_name,
+        manual_query_enabled,
+        TOP_K,
+    )
     
     # Add dummy row for Query (Ensures it appears at the top of the text report)
     q_row = pd.DataFrame([{"index": -1, "header": f"(Query) {query_name}", "raw_score": 0.0, "norm_score": 99.9, "length": len(query_emb), "seq_len": len(query_emb), "aln_len": len(query_emb)}])

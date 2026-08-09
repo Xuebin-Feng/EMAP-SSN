@@ -71,7 +71,7 @@ This script extracts sequence embeddings from pre-trained protein language model
 
 | Parameter | Description |
 | :--- | :--- |
-| Model Name **`MODEL_NAME`** | The protein language model architecture to use and the label written into the output filename (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `protbert`, `prostt5`). |
+| Model Name **`MODEL_NAME`** | The protein language model architecture to use and the label written into the output filename. Identifiers are always lower case (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `ankh_base`, `prot_bert`, `prost_t5`). |
 | Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`float16` or `float32`). `float16` is recommended to reduce disk space by 50% with negligible loss of accuracy. |
 
 > **ESMC 6B API access:** Select `esmc_6b`; the plugin maps that filename-friendly label to Biohub's `esmc-6b-2024-12` API identifier. Store the token beside the plugin in the Git-ignored `src/resources/pLM_models/esmc_6b_api_key.json` file as `{"ESM_API_TOKEN": "your-token"}`. Future API plugins can follow the same `*_api_key.json` naming convention.

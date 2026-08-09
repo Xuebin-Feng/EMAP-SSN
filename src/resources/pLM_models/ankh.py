@@ -1,4 +1,5 @@
 # Copyright 2026 Xuebin Feng
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +15,8 @@
 
 import re
 
+from utilities.Model_License_Utils import require_model_license_acceptance
+
 SUPPORTED_MODELS = [
     "ankh_base",
     "ankh_large"
@@ -21,6 +24,32 @@ SUPPORTED_MODELS = [
 MODEL_EXECUTION_MODES = {
     "ankh_base": "local",
     "ankh_large": "local",
+}
+MODEL_USAGE_TERMS = {
+    "ankh_base": {
+        "source_url": "https://huggingface.co/ElnaggarLab/ankh-base",
+        "license_id": "CC-BY-NC-SA-4.0",
+        "license_url": (
+            "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.en"
+        ),
+        "restriction": (
+            "The publisher permits non-commercial use and requires attribution "
+            "and ShareAlike distribution under CC BY-NC-SA 4.0."
+        ),
+        "requires_acknowledgement": True,
+    },
+    "ankh_large": {
+        "source_url": "https://huggingface.co/ElnaggarLab/ankh-large",
+        "license_id": "CC-BY-NC-SA-4.0",
+        "license_url": (
+            "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.en"
+        ),
+        "restriction": (
+            "The publisher permits non-commercial use and requires attribution "
+            "and ShareAlike distribution under CC BY-NC-SA 4.0."
+        ),
+        "requires_acknowledgement": True,
+    },
 }
 
 # The Ankh tokenizer recognizes X/B/U/Z/O directly. It does not have native
@@ -45,6 +74,10 @@ def load_model(model_name, device):
     """
     Loads the Ankh model (encoder-only) and tokenizer on the specified device.
     """
+    require_model_license_acceptance(
+        model_name,
+        MODEL_USAGE_TERMS.get(model_name),
+    )
     from transformers import AutoTokenizer, T5EncoderModel
     
     hf_mappings = {

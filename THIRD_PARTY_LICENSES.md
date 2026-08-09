@@ -6,28 +6,39 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-09
 
 ---
 
 ## 1. Bundled code (redistributed in this repository)
 
-These files are shipped verbatim inside this repository. Their license text is
-included alongside them, and their copyright notices must be preserved in any
-redistribution.
+These upstream distribution files are shipped inside this repository. Their
+license text is included alongside them, and their copyright notices must be
+preserved in any redistribution. Where noted, the project prepends a short
+attribution banner; the underlying upstream body is otherwise unchanged.
 
 | Component | Version | License | Location | License text |
 |---|---|---|---|---|
-| [Mol*](https://github.com/molstar/molstar) | see note | MIT | `src/resources/esmfold/molstar.js`, `molstar.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar) |
+| [ESM](https://github.com/evolutionaryscale/esm) | 3.3.0, source commit `c94ed8d763bbd7088b296949e5b401e8ea12073a` | MIT | `src/resources/wheels/esm-3.3.0-py3-none-any.whl` | [`LICENSE.esm`](src/resources/wheels/LICENSE.esm) |
+| [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT | `src/resources/esmfold/molstar.js`, `molstar.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar) |
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex) |
 | [Inter](https://github.com/rsms/inter) | Google Fonts build | SIL OFL 1.1 | `src/resources/fonts/Inter-*.woff2` **and** `docs/fonts/Inter-*.woff2` | [`src`](src/resources/fonts/LICENSE.Inter), [`docs`](docs/fonts/LICENSE.Inter) |
 | [Fira Code](https://github.com/tonsky/FiraCode) | Google Fonts build | SIL OFL 1.1 | `src/resources/fonts/FiraCode-*.woff2` **and** `docs/fonts/FiraCode-*.woff2` | [`src`](src/resources/fonts/LICENSE.FiraCode), [`docs`](docs/fonts/LICENSE.FiraCode) |
 
-- Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15.
-  The upstream release version is not recorded in the minified bundle; record it
-  here when the bundle is next refreshed.
+- Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
+  the official npm package `molstar@5.10.1`, whose version is embedded in the
+  JavaScript bundle. After removing only this project's three-line attribution
+  banner, both files match the official jsDelivr npm artifacts byte-for-byte:
+  `molstar.js` SHA-256 `5567eb19fa8e7a7b3b161d4b96807c4db244cecd2f3e7c87f99c052b8b5b5b30`;
+  `molstar.css` SHA-256 `5b68ceb6d3642549b4e9b2c071e58e41b98a5350ae269180587b39da86925d55`.
+- ESM: the unmodified `py3-none-any` wheel was built from the upstream commit
+  where the MIT relicense landed. Its SHA-256 is
+  `d5e412470877fa2e21c36b40a52cdf1bef5664234654355dc2a35bb8cd2f4d82`;
+  `src/resources/wheels/manifest.json` records its size and provenance. The
+  wheel pins Chan Zuckerberg Biohub's Apache-2.0 Transformers fork at commit
+  `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`.
 - Tabulator: Copyright (c) 2015-2024 Oli Folkerd. Vendored 2026-07-07.
 - marked: Copyright (c) 2018+, MarkedJS; Copyright (c) 2011-2018, Christopher
   Jeffrey. Vendored 2026-08-06. **Version note:** the page previously loaded an
@@ -63,10 +74,11 @@ redistribution.
   The KaTeX fonts are **not** duplicated into `docs/` — they are MIT rather than
   OFL, and the documentation page does not use KaTeX.
 
-Mol*, Tabulator, marked, and KaTeX are included **unmodified**. Mol* and
-Tabulator carry an attribution banner in the file itself so the notice travels
-with the code if the file is copied out. Only `fonts.css` is generated rather
-than vendored verbatim, and it is a rewrite of URLs only.
+The bodies of Mol*, Tabulator, marked, and KaTeX are upstream distribution
+artifacts. Mol* and Tabulator are not byte-for-byte unmodified because this
+project prepends attribution banners so their notices travel with the files if
+copied out. Only `fonts.css` is project-generated rather than an upstream
+artifact; it rewrites remote font URLs to local paths.
 
 ## 2. Remotely loaded assets
 
@@ -94,15 +106,17 @@ a remote inference API, and the agent calls whichever LLM endpoint is configured
 
 ## 3. Python dependencies
 
-Installed via `pip` from `src/requirements.txt`; not redistributed by this
-project. As of the PySide6 and graspologic-native migrations there are **no
+Installed at runtime via `pip`/`uv`; except for the ESM wheel identified in
+section 1, these packages are not redistributed by this project. As of the
+PySide6 and graspologic-native migrations there are **no
 strong-copyleft dependencies remaining**; what is left is weak/file-level
 copyleft, which imposes obligations only on those packages' own files. This set
 is compatible with the project's Apache-2.0 license.
 
-PySide6 is used under its **LGPL-3.0** option. That permits permissively licensed
-application code provided Qt remains dynamically linked and user-replaceable — a
-normal `pip install` satisfies this. Do not vendor or statically link Qt.
+PySide6 is used under its **LGPL-3.0** option and is installed separately; Qt is
+not included in this source repository. A normal `pip install` keeps the Qt
+libraries separate and replaceable. Any future executable or installer that
+redistributes Qt binaries needs a separate LGPL compliance review.
 
 ### Direct dependencies
 
@@ -112,9 +126,10 @@ normal `pip install` satisfies this. Do not vendor or statically link Qt.
 | shiboken6 | LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0 — used under **LGPL-3.0** |
 | graspologic-native | MIT (Copyright (c) Microsoft Corporation) |
 | biopython | Biopython License (BSD-style) |
-| esm | Cambrian Open License — **see section 5** |
-| torch, torchvision, torchaudio | BSD-3-Clause |
-| transformers, accelerate | Apache-2.0 |
+| esm 3.3.0 wheel | MIT — bundled as documented in section 1 |
+| torch | BSD-3-Clause — CPU, CUDA, XPU, Linux ROCm, or Windows ROCm build selected at installation |
+| AMD ROCm 7.14 runtime wheel components | MIT — downloaded dynamically from AMD's official index only for supported Windows AMD GPUs |
+| Biohub Transformers fork, accelerate | Apache-2.0 |
 | numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown | BSD-3-Clause |
 | numba | BSD-2-Clause |
@@ -137,9 +152,10 @@ All remaining transitive dependencies (huggingface-hub, safetensors, tokenizers,
 regex, filelock, sympy, pillow, requests, joblib, pynndescent, fonttools,
 threadpoolctl, and others) are MIT, BSD, Apache-2.0, or PSF licensed.
 
-`esm` 3.2.3 additionally pulls in the following, all permissive: biotite
-(BSD-3-Clause), torchtext (BSD), boto3 and pygtrie (Apache-2.0), and pydssp,
-py3dmol, dna-features-viewer (MIT), plus ipywidgets (BSD-3-Clause).
+`esm` 3.3.0 additionally pulls in the following, all permissive: biotite and
+RDKit (BSD-3-Clause), boto3, pygtrie and tenacity (Apache-2.0), pydssp, py3dmol,
+dna-features-viewer, einops, msgpack-numpy and cloudpathlib (MIT), plus
+ipywidgets (BSD-3-Clause).
 
 ## 4. External programs invoked as subprocesses
 
@@ -163,8 +179,10 @@ No license obligation arises from these mentions.
 ## 5. Model weights and non-open components
 
 Model weights are **not** redistributed by this project. They are downloaded at
-runtime from Hugging Face or accessed through remote APIs, and are governed by
-their own licenses, which the user accepts directly with the model provider.
+runtime from Hugging Face or accessed through remote APIs and remain governed by
+their publishers' terms. For models with explicit usage restrictions, the
+application may require a local acknowledgement before accessing model files;
+that acknowledgement is not a sublicense or a substitute for reading the terms.
 
 | Model family | Source | License |
 |---|---|---|
@@ -173,49 +191,17 @@ their own licenses, which the user accepts directly with the model provider.
 | ESM C 600M | `biohub/esmc-600m-2024-12` | MIT (card also carries a legacy `other` tag) |
 | ESM3-open 1.4B | `biohub/esm3-sm-open-v1` | MIT |
 | ESM C 6B (remote API) | `https://biohub.ai` | Governed by the API provider's terms of use |
-| ProtBERT, ProstT5 | `Rostlab/*` | Verify on the model card before relying on it |
-| Ankh | `ElnaggarLab/ankh-base`, `ankh-large` | Verify on the model card before relying on it |
+| ProtBERT | [`Rostlab/prot_bert`](https://huggingface.co/Rostlab/prot_bert) | Academic Free License 3.0 (AFL-3.0). The Hugging Face repository has no license tag, but the official [`ProtTrans`](https://github.com/agemagician/ProtTrans#license) project explicitly states that its pretrained models are released under AFL-3.0. ProtTrans source code is separately MIT-licensed. |
+| ProstT5 | [`Rostlab/ProstT5_fp16`](https://huggingface.co/Rostlab/ProstT5_fp16) | MIT (declared by the model repository) |
+| Ankh Base, Ankh Large | [`ElnaggarLab/ankh-base`](https://huggingface.co/ElnaggarLab/ankh-base), [`ankh-large`](https://huggingface.co/ElnaggarLab/ankh-large) | CC-BY-NC-SA-4.0 — non-commercial, attribution, and ShareAlike terms; explicit application acknowledgement required before access |
 
-> **Note on the `esm` package licensing history.**
->
-> EvolutionaryScale originally released ESM under a family of bespoke "Cambrian"
-> licenses: the Cambrian Open License for the codebase and ESM C 300M, and the
-> Cambrian **Non-Commercial** License for ESM3-open and ESM C 600M. Those
-> licenses are not OSI-approved and carried a naming requirement ("Built with
-> ESM"). Under the project's former GPL-3.0 license that sat awkwardly against
-> section 7, which forbids layering additional restrictions onto a covered work.
-> Under Apache-2.0 that particular tension does not arise: Apache-2.0 places no
-> equivalent restriction on what a work may be combined with. The naming
-> requirement remains an obligation on anyone who redistributes `esm` itself,
-> which this project does not do.
->
-> EvolutionaryScale joined Chan Zuckerberg Biohub in 2025, and the ESM stack has
-> since been **relicensed to MIT**. As of this review, the upstream
-> `LICENSE.md` is the MIT License (Copyright Chan Zuckerberg Biohub, Inc.), the
-> upstream README states "These models are available under the MIT license", and
-> the Hugging Face cards for ESM3-open, ESM C 300M, and ESM C 600M declare `mit`.
-> Under MIT there is no licensing conflict and no non-commercial restriction.
->
-> **Caveat — the MIT relicense has not reached any release.** Verified
-> 2026-08-05 against both PyPI and the upstream git tags:
->
-> | Source | `LICENSE.md` |
-> |---|---|
-> | PyPI wheel `esm-3.2.1.post1` | Cambrian |
-> | PyPI wheel `esm-3.2.3` (latest release, 2025-10-14) | Cambrian — byte-identical to 3.2.1.post1 (sha256 `be40c772…`), no mention of MIT |
-> | git tag `v3.2.1` | Cambrian |
-> | git tag `v3.2.3` | Cambrian |
-> | branch `main` | **MIT** (Chan Zuckerberg Biohub, Inc.) |
->
-> The relicense landed on `main` on **2026-05-27** (commit "Update esm repo for
-> ESMC paper (#304)"), roughly seven months after the most recent release. No
-> commit states that the MIT grant applies to prior versions.
->
-> Consequently, **upgrading the pin does not change the license situation.** Any
-> released version of `esm`, installed from PyPI or checked out at its tag, is
-> obtained under the Cambrian terms. That grant is valid; it is simply not MIT.
-> A claim of MIT rights over `esm` would rest on the current `main` branch, not
-> on any installed artifact. Re-check when a release later than 3.2.3 appears.
+> **Note on the `esm` package licensing history.** EvolutionaryScale's PyPI
+> releases through 3.2.3 carry the bespoke Cambrian license. The upstream MIT
+> relicense landed on 2026-05-27 at commit
+> `c94ed8d763bbd7088b296949e5b401e8ea12073a`, after those releases. This project
+> therefore builds and redistributes an unmodified wheel from that exact
+> MIT-licensed commit rather than relabeling a Cambrian-licensed PyPI artifact.
+> The adjacent license and recorded hash travel with the wheel.
 >
 > Note that **model weights are acquired separately from Hugging Face** and are
 > governed by the terms declared on their model cards at download time, which
@@ -227,14 +213,17 @@ their own licenses, which the user accepts directly with the model provider.
 > every `esm` import is lazy (inside a function or a `try`/`except`), the
 > protein-language-model plugins are discovered by static AST parsing without
 > importing model dependencies, and the ESMFold path runs in a **separate
-> process** (`src/resources/esmfold/esmfold_worker.py`). `esm` is an optional
-> runtime dependency, and the software remains functional without it via the
-> ESM-2, ProtBERT, and Ankh backends.
+> process** (`src/resources/esmfold/esmfold_worker.py`). Model weights remain
+> external and are not included in the bundled wheel.
 
 ## 6. Artwork
 
-Logos and icons in `src/bin/logos/` and screenshots in `docs/assets/` are
-original works of this project and are covered by its Apache-2.0 license.
+The project author confirmed on 2026-08-09 that the logos and icons in
+`src/bin/logos/` and screenshots in `docs/assets/` are original or otherwise
+authorized. This satisfies the artwork-authorship check recorded in
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). Authority to release those works
+remains subject to the same University of Toronto ownership review as the rest
+of the project.
 
 ---
 

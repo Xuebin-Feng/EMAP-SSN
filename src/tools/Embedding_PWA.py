@@ -21,8 +21,9 @@ structural protein language model (pLM) embeddings instead of traditional amino 
 It represents a "sandbox" or debugging version of the core algorithm used in the massive all-vs-all array script.
 
 Input:
-- A sequence FASTA file to render the literal characters of the alignment (`FASTA_FILE`).
-- An embedding HDF5 file to supply the mathematical tensors for scoring (`HDF5_FILE`).
+- A metadata-first embedding HDF5 file containing sanitized headers, sequences,
+  model metadata, and residue-level embedding tensors.
+- Optional manually entered reference and target sequences.
 
 Output:
 - Prints a text-based visual alignment of the two sequences directly to the terminal, highlighting matching vs mismatched residues along with the final similarity score.
@@ -38,37 +39,34 @@ except ModuleNotFoundError:
 import numpy as np
 import torch
 import h5py
-import pickle
-import sys
-import re
 from utilities import Hardware_Utils
-
-try:
-    from esm.models.esmc import ESMC
-    from esm.sdk.api import ESMProtein, LogitsConfig
-    from transformers import BertTokenizer, BertModel, T5Tokenizer, T5EncoderModel
-except ImportError:
-    print("\n[!] Warning: ESM or Transformers libraries not found. Generation will fail if embeddings are missing.\n")
+from utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
+from utilities.Embedding_HDF5 import (
+    read_embedding_manifest,
+    validate_embedding_array,
+)
+from tools.Generate_Embeddings import find_model_plugin
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-INPUT_FASTA = None
 INPUT_EMBED = None
 
 REF_HEADER = None
 TAR_HEADER = None
 
+MANUAL_REF_SEQ = False
 REF_SEQUENCE = ""
+MANUAL_TAR_SEQ = False
 TAR_SEQUENCE = ""
 
 HIGHLIGHT_POSITIONS = ""
+EMBEDDING_MODEL = "esmc_300m"
 
 ALIGNMENT_MODE = "global"
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 
-FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
 EMBED_DIR = os.path.join("..", "Embeddings")
 REPORT_DIR = os.path.join("..", "Cache_Files", "Align_Report")
 GENERATE_REPORT = False
@@ -118,102 +116,89 @@ if os.path.exists(SETTINGS_FILE):
         print(f"Failed to load user settings: {e}")
 
 # --- DYNAMIC INFERENCE ---
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR and INPUT_FASTA else ""
 FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR and INPUT_EMBED else ""
 
-_model_name = "unknown_model"
-if INPUT_EMBED:
-    _match = re.search(r"_\[(.*?)\]_embeddings\.h5$", INPUT_EMBED)
-    if _match:
-        _model_name = _match.group(1)
-MODEL_NAME = _model_name
+def resolve_manual_alignment_inputs(
+    manual_ref_sequence,
+    ref_sequence,
+    manual_tar_sequence,
+    tar_sequence,
+    inferred_model_name,
+    selected_model_name,
+):
+    """Apply manual switches, canonical sequence cleaning, and model selection."""
+
+    def resolve_sequence(enabled, sequence, label):
+        if not enabled:
+            return ""
+        cleaned_sequence, _, _ = sanitize_sequence(str(sequence or ""))
+        if not cleaned_sequence:
+            raise ValueError(
+                f"{label} manual sequence is empty after sanitization."
+            )
+        return cleaned_sequence
+
+    resolved_ref = resolve_sequence(
+        manual_ref_sequence,
+        ref_sequence,
+        "Reference",
+    )
+    resolved_tar = resolve_sequence(
+        manual_tar_sequence,
+        tar_sequence,
+        "Target",
+    )
+    selected_model = str(selected_model_name or "").strip()
+    model_name = (
+        selected_model
+        if manual_ref_sequence and manual_tar_sequence and selected_model
+        else inferred_model_name
+    )
+    if not model_name:
+        raise ValueError(
+            "An embedding model is required for manual sequence generation."
+        )
+    return resolved_ref, resolved_tar, model_name
 
 # ==========================================
 # 1. HELPER FUNCTIONS (Data Loading & Gen)
 # ==========================================
 
-def read_fasta(file_path):
-    headers, sequences = [], []
-    current_header, current_sequence = None, []
-    if not os.path.exists(file_path):
-        return headers, sequences
-    with open(file_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            if line.startswith(">"):
-                if current_header is not None:
-                    headers.append(current_header)
-                    sequences.append("".join(current_sequence))
-                current_header = line[1:]
-                current_sequence = []
-            else:
-                current_sequence.append(line)
-        if current_header is not None:
-            headers.append(current_header)
-            sequences.append("".join(current_sequence))
-    return headers, sequences
+def prepare_embedding_database(h5_path):
+    """Load and validate the metadata-first embedding database manifest."""
+    if not h5_path or not os.path.exists(h5_path):
+        raise FileNotFoundError(
+            f"Embedding database not found: {h5_path or '(not selected)'}."
+        )
+    with h5py.File(h5_path, "r") as hf:
+        return read_embedding_manifest(hf, require_complete=True)
 
-def load_sequences(fasta_path):
-    headers, seqs = read_fasta(fasta_path)
-    return dict(zip(headers, seqs))
+
+def sanitize_alignment_header(header):
+    """Apply the canonical Generate_Embeddings header rules."""
+    return sanitize_header(str(header or ""))[0]
 
 def fetch_embedding(h5_path, header):
     if not header or not os.path.exists(h5_path):
         return None
-    safe_header = header.replace("/", "_").replace("\\", "_")
     with h5py.File(h5_path, "r") as hf:
-        if "embeddings" in hf and safe_header in hf["embeddings"]:
-            emb_array = hf["embeddings"][safe_header][:]
+        if "embeddings" in hf and header in hf["embeddings"]:
+            emb_array = hf["embeddings"][header][:]
             return torch.from_numpy(emb_array).float()
     return None
 
 def load_model_integrated(model_name):
     device = Hardware_Utils.get_optimal_device()
     print(f"[System] Loading model '{model_name}' on {device}...")
-    if "esmc" in model_name:
-        return ESMC.from_pretrained(model_name).to(device), device, "esmc"
-    elif "prot_bert" in model_name:
-        tokenizer = BertTokenizer.from_pretrained(f"Rostlab/{model_name}", do_lower_case=False)
-        model = BertModel.from_pretrained(f"Rostlab/{model_name}").to(device)
-        model.eval()
-        return (tokenizer, model), device, "bert"
-    elif "ProstT5" in model_name:
-        tokenizer = T5Tokenizer.from_pretrained(f"Rostlab/{model_name}_fp16", do_lower_case=False)
-        model = T5EncoderModel.from_pretrained(f"Rostlab/{model_name}_fp16").to(device)
-        return (tokenizer, model), device, "t5"
-    else: 
-        raise ValueError(f"Unknown or unsupported model: {model_name}. Cannot generate new embeddings.")
+    plugin = find_model_plugin(model_name)
+    if plugin is None:
+        raise ValueError(
+            f"Model '{model_name}' is not supported by an available pLM plugin."
+        )
+    return plugin.load_model(model_name, device), device, plugin
 
 def get_embedding_integrated(seq, model_obj, device, model_type, target_dtype):
-    seq = seq.upper()
-    match = re.search(r'[ACDEFGHIKLMNPQRSTVWYBZJXUO].*[ACDEFGHIKLMNPQRSTVWYBZJXUO]|[ACDEFGHIKLMNPQRSTVWYBZJXUO]', seq)
-    seq = match.group(0) if match else ""
-    
-    if model_type == "esmc":
-        seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWY\-]', '-', seq)
-    elif model_type in ["bert", "t5"]:
-        seq = re.sub(r'[^ACDEFGHIKLMNPQRSTVWYBZJXUO\-]', 'X', seq)
-        seq = re.sub(r'[BZUO]', 'X', seq) 
-
-    with torch.no_grad():
-        if model_type == "esmc":
-            protein_tensor = model_obj.encode(ESMProtein(sequence=seq))
-            logits = model_obj.logits(protein_tensor, LogitsConfig(sequence=True, return_embeddings=True))
-            return logits.embeddings.squeeze(0)[1:-1].cpu().numpy().astype(target_dtype)
-        elif model_type == "bert":
-            tokenizer, model = model_obj
-            spaced_seq = " ".join(list(seq))
-            inputs = tokenizer(spaced_seq, return_tensors="pt").to(device)
-            outputs = model(**inputs)
-            return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
-        elif model_type == "t5":
-            tokenizer, model = model_obj
-            spaced_seq = " ".join(list(seq))
-            input_seq = "<AA2fold> " + spaced_seq
-            inputs = tokenizer(input_seq, return_tensors="pt").to(device)
-            outputs = model(**inputs)
-            return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
+    return model_type.get_embedding(seq, model_obj, device, target_dtype)
 def map_highlight_positions(highlight_str, ref_to_tar_map):
     if not highlight_str:
         return []
@@ -268,10 +253,12 @@ def map_highlight_positions(highlight_str, ref_to_tar_map):
 # ==========================================
 
 def needleman_wunsch_custom(score_matrix, gap_penalty):
+    score_matrix = np.asarray(score_matrix, dtype=np.float32)
+    gap_penalty = np.float32(gap_penalty)
     N, M = score_matrix.shape
-    dp = np.zeros((N + 1, M + 1))
-    dp[0, :] = np.arange(M + 1) * gap_penalty
-    dp[:, 0] = np.arange(N + 1) * gap_penalty
+    dp = np.zeros((N + 1, M + 1), dtype=np.float32)
+    dp[0, :] = np.arange(M + 1, dtype=np.float32) * gap_penalty
+    dp[:, 0] = np.arange(N + 1, dtype=np.float32) * gap_penalty
 
     for i in range(1, N + 1):
         for j in range(1, M + 1):
@@ -294,11 +281,13 @@ def needleman_wunsch_custom(score_matrix, gap_penalty):
     return idx_1[::-1], idx_2[::-1], dp[N, M]
 
 def smith_waterman_custom(score_matrix, gap_penalty):
-    score_matrix = score_matrix - 2.0
+    score_matrix = np.asarray(score_matrix, dtype=np.float32)
+    score_matrix = score_matrix - np.float32(2.0)
+    gap_penalty = np.float32(gap_penalty)
     N, M = score_matrix.shape
-    dp = np.zeros((N + 1, M + 1))
-    pointer = np.zeros((N + 1, M + 1), dtype=int) 
-    max_score, max_pos = 0, (0, 0)
+    dp = np.zeros((N + 1, M + 1), dtype=np.float32)
+    pointer = np.zeros((N + 1, M + 1), dtype=np.int8)
+    max_score, max_pos = np.float32(0.0), (0, 0)
 
     for i in range(1, N + 1):
         for j in range(1, M + 1):
@@ -331,52 +320,156 @@ def smith_waterman_custom(score_matrix, gap_penalty):
 # 3. MAIN RUNNER
 # ==========================================
 
-def run_alignment(header_ref, header_tar, seq_ref_manual, seq_tar_manual, h5_path, seq_db, mode, gap_p_local, gap_p_global, highlight_str):
-    
+def compute_score_matrix_torch(emb_i, emb_j, device):
+    """Build the population-normalized residue score matrix."""
+    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
+    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
+    t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
+    t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
+    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
+    sim_mat = torch.exp(-(1.0 - cos_sim))
+
+    epsilon = 1e-8
+    row_mean = sim_mat.mean(dim=1, keepdim=True)
+    row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
+    col_mean = sim_mat.mean(dim=0, keepdim=True)
+    col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
+    z_row = (sim_mat - row_mean) / (row_std + epsilon)
+    z_col = (sim_mat - col_mean) / (col_std + epsilon)
+    return ((z_row + z_col) / 2.0).to(
+        dtype=torch.float32,
+        device="cpu",
+    ).numpy()
+
+def run_alignment(
+    header_ref,
+    header_tar,
+    seq_ref_manual,
+    seq_tar_manual,
+    h5_path,
+    seq_db,
+    mode,
+    gap_p_local,
+    gap_p_global,
+    highlight_str,
+    model_name=None,
+    *,
+    manual_ref_enabled=None,
+    manual_tar_enabled=None,
+):
+    if manual_ref_enabled is None:
+        manual_ref_enabled = bool(seq_ref_manual)
+    else:
+        manual_ref_enabled = bool(manual_ref_enabled)
+    if manual_tar_enabled is None:
+        manual_tar_enabled = bool(seq_tar_manual)
+    else:
+        manual_tar_enabled = bool(manual_tar_enabled)
+
+    header_ref = sanitize_alignment_header(header_ref)
+    header_tar = sanitize_alignment_header(header_tar)
+    stored_headers = list(seq_db)
+
     # 1. Determine Sequences and Check for Pre-calculated Embeddings
-    seq_ref = seq_ref_manual.strip() if seq_ref_manual else ""
+    seq_ref = (
+        sanitize_sequence(str(seq_ref_manual or ""))[0]
+        if manual_ref_enabled
+        else ""
+    )
     emb_ref = None
 
-    if not seq_ref:
+    if manual_ref_enabled:
+        if not seq_ref:
+            raise ValueError(
+                "Reference manual sequence is empty after sanitization."
+            )
+        print("[Input] Using manually provided sanitized Reference sequence (Forcing Generation).")
+    else:
+        if not header_ref and stored_headers:
+            header_ref = stored_headers[0]
         if header_ref and header_ref in seq_db:
             seq_ref = seq_db[header_ref]
             emb_ref = fetch_embedding(h5_path, header_ref)
             if emb_ref is not None:
                 print(f"[Input] Found pre-calculated embedding for Reference '{header_ref}'.")
         else:
-            raise ValueError(f"CRITICAL: Reference sequence not provided and header '{header_ref}' not found in FASTA.")
-    else:
-        print("[Input] Using manually provided Reference sequence (Forcing Generation).")
+            raise ValueError(
+                f"CRITICAL: Reference sequence not provided and sanitized "
+                f"header '{header_ref}' not found in the embedding database."
+            )
 
-    seq_tar = seq_tar_manual.strip() if seq_tar_manual else ""
+    seq_tar = (
+        sanitize_sequence(str(seq_tar_manual or ""))[0]
+        if manual_tar_enabled
+        else ""
+    )
     emb_tar = None
 
-    if not seq_tar:
+    if manual_tar_enabled:
+        if not seq_tar:
+            raise ValueError(
+                "Target manual sequence is empty after sanitization."
+            )
+        print("[Input] Using manually provided sanitized Target sequence (Forcing Generation).")
+    else:
+        if not header_tar and stored_headers:
+            header_tar = stored_headers[1] if len(stored_headers) > 1 else stored_headers[0]
         if header_tar and header_tar in seq_db:
             seq_tar = seq_db[header_tar]
             emb_tar = fetch_embedding(h5_path, header_tar)
             if emb_tar is not None:
                 print(f"[Input] Found pre-calculated embedding for Target '{header_tar}'.")
         else:
-            raise ValueError(f"CRITICAL: Target sequence not provided and header '{header_tar}' not found in FASTA.")
-    else:
-        print("[Input] Using manually provided Target sequence (Forcing Generation).")
+            raise ValueError(
+                f"CRITICAL: Target sequence not provided and sanitized "
+                f"header '{header_tar}' not found in the embedding database."
+            )
 
     # 2. Generate Missing Embeddings dynamically
     if emb_ref is None or emb_tar is None:
-        print(f"\n[Input] Generating missing embeddings using model: {MODEL_NAME}")
-        model_obj, device, model_type = load_model_integrated(MODEL_NAME)
+        runtime_model_name = str(model_name or "").strip()
+        if not runtime_model_name:
+            raise ValueError(
+                "An embedding model is required to generate missing embeddings."
+            )
+        print(f"\n[Input] Generating missing embeddings using model: {runtime_model_name}")
+        model_obj, device, model_type = load_model_integrated(runtime_model_name)
         target_dtype = np.float32
+
+        def generate_validated_embedding(sequence, label, feature_dimension=None):
+            embedding = get_embedding_integrated(
+                sequence,
+                model_obj,
+                device,
+                model_type,
+                target_dtype,
+            )
+            validate_embedding_array(
+                embedding,
+                sequence,
+                "float32",
+                feature_dimension=feature_dimension,
+                require_finite=True,
+                header=label,
+            )
+            return torch.from_numpy(embedding).float()
         
         if emb_ref is None:
             print("        -> Generating Reference Embedding...")
-            emb_np = get_embedding_integrated(seq_ref, model_obj, device, model_type, target_dtype)
-            emb_ref = torch.from_numpy(emb_np).float()
+            expected_dimension = emb_tar.shape[1] if emb_tar is not None else None
+            emb_ref = generate_validated_embedding(
+                seq_ref,
+                header_ref or "Manual Reference",
+                expected_dimension,
+            )
             
         if emb_tar is None:
             print("        -> Generating Target Embedding...")
-            emb_np = get_embedding_integrated(seq_tar, model_obj, device, model_type, target_dtype)
-            emb_tar = torch.from_numpy(emb_np).float()
+            emb_tar = generate_validated_embedding(
+                seq_tar,
+                header_tar or "Manual Target",
+                emb_ref.shape[1],
+            )
 
     # 3. Process Highlighting Positions
     highlight_set = set()
@@ -395,19 +488,7 @@ def run_alignment(header_ref, header_tar, seq_ref_manual, seq_tar_manual, h5_pat
     # 4. Calculate Similarity Matrix
     print(f"\n[Compute] Calculating similarity matrix...")
     device = Hardware_Utils.get_optimal_device()
-    emb_ref = emb_ref.to(device)
-    emb_tar = emb_tar.to(device)
-
-    emb_ref_norm = torch.nn.functional.normalize(emb_ref, p=2, dim=-1)
-    emb_tar_norm = torch.nn.functional.normalize(emb_tar, p=2, dim=-1)
-    cos_sim = torch.mm(emb_ref_norm, emb_tar_norm.T)
-    dist_mat = 1.0 - cos_sim
-    sim_mat = torch.exp(-dist_mat)
-    
-    eps = 1e-8
-    z_row = (sim_mat - sim_mat.mean(dim=1, keepdim=True)) / (sim_mat.std(dim=1, keepdim=True) + eps)
-    z_col = (sim_mat - sim_mat.mean(dim=0, keepdim=True)) / (sim_mat.std(dim=0, keepdim=True) + eps)
-    score_mat = ((z_row + z_col) / 2.0).cpu().numpy()
+    score_mat = compute_score_matrix_torch(emb_ref, emb_tar, device)
 
     # 5. Run Alignment
     print(f"[Compute] Running {mode.upper()} alignment...")
@@ -424,8 +505,8 @@ def run_alignment(header_ref, header_tar, seq_ref_manual, seq_tar_manual, h5_pat
     print("\n" + "="*80)
     print(f"ALIGNMENT RESULT (Mode: {mode.upper()} | Score: {score:.4f})")
     print("="*80)
-    print(f"Reference : {header_ref if not seq_ref_manual else 'Manual Input'} (Length: {len_ref})")
-    print(f"Target    : {header_tar if not seq_tar_manual else 'Manual Input'} (Length: {len_tar})")
+    print(f"Reference : {header_ref if not manual_ref_enabled else 'Manual Input'} (Length: {len_ref})")
+    print(f"Target    : {header_tar if not manual_tar_enabled else 'Manual Input'} (Length: {len_tar})")
     print(f"Align Len : {align_len}")
     print("-" * 80)
 
@@ -501,8 +582,8 @@ def run_alignment(header_ref, header_tar, seq_ref_manual, seq_tar_manual, h5_pat
         html_lines.append("="*80)
         html_lines.append(f"<span class='title'>ALIGNMENT RESULT (Mode: {mode.upper()} | Score: {score:.4f})</span>")
         html_lines.append("="*80)
-        html_lines.append(f"Reference : <span class='header'>{header_ref if not seq_ref_manual else 'Manual Input'}</span> (Length: {len_ref})")
-        html_lines.append(f"Target    : <span class='header'>{header_tar if not seq_tar_manual else 'Manual Input'}</span> (Length: {len_tar})")
+        html_lines.append(f"Reference : <span class='header'>{header_ref if not manual_ref_enabled else 'Manual Input'}</span> (Length: {len_ref})")
+        html_lines.append(f"Target    : <span class='header'>{header_tar if not manual_tar_enabled else 'Manual Input'}</span> (Length: {len_tar})")
         html_lines.append(f"Align Len : {align_len}")
         html_lines.append("-" * 80)
         
@@ -547,13 +628,29 @@ def run_alignment(header_ref, header_tar, seq_ref_manual, seq_tar_manual, h5_pat
 if __name__ == "__main__":
     print(f"--- 🧬 Embedding Pairwise Alignment ---")
     try:
-        seq_database = {}
-        if FULL_INPUT_FASTA and os.path.exists(FULL_INPUT_FASTA):
-            seq_database = load_sequences(FULL_INPUT_FASTA)
+        database = None
+        if not MANUAL_REF_SEQ or not MANUAL_TAR_SEQ:
+            database = prepare_embedding_database(FULL_INPUT_EMBED)
+        seq_database = database.sequence_by_header if database else {}
+        database_model_name = database.model_name if database else None
+
+        manual_ref_sequence, manual_tar_sequence, runtime_model_name = (
+            resolve_manual_alignment_inputs(
+                MANUAL_REF_SEQ,
+                REF_SEQUENCE,
+                MANUAL_TAR_SEQ,
+                TAR_SEQUENCE,
+                database_model_name,
+                EMBEDDING_MODEL,
+            )
+        )
         
-        run_alignment(REF_HEADER, TAR_HEADER, REF_SEQUENCE, TAR_SEQUENCE, 
+        run_alignment(REF_HEADER, TAR_HEADER, manual_ref_sequence, manual_tar_sequence,
                       FULL_INPUT_EMBED, seq_database, ALIGNMENT_MODE, 
-                      LOCAL_GAP_P, GLOBAL_GAP_P, HIGHLIGHT_POSITIONS)
+                      LOCAL_GAP_P, GLOBAL_GAP_P, HIGHLIGHT_POSITIONS,
+                      runtime_model_name,
+                      manual_ref_enabled=MANUAL_REF_SEQ,
+                      manual_tar_enabled=MANUAL_TAR_SEQ)
         
     except Exception as e:
         print(f"\n❌ {e}")

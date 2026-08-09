@@ -143,16 +143,32 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- DYNAMIC PATH INFERENCE ---
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR and INPUT_FASTA else ""
+FULL_INPUT_FASTA = None
+SEQUENCE_SET = ""
+OUTPUT_FASTA = None
 
-# Derive the base name for saving
-SEQUENCE_SET = INPUT_FASTA.replace(".fasta", "") if INPUT_FASTA else "Unknown_Set"
 
-if OVER_WRITE:
-    OUTPUT_FASTA = FULL_INPUT_FASTA
-else:
-    OUTPUT_FASTA = os.path.join(FASTA_DIR, f"{SEQUENCE_SET}_sanitized.fasta") if FASTA_DIR else ""
+def configure_runtime_paths():
+    """Resolve selected FASTA paths immediately before sanitization."""
+    global FULL_INPUT_FASTA, SEQUENCE_SET, OUTPUT_FASTA
+
+    if FASTA_DIR is None or not str(FASTA_DIR).strip():
+        raise ValueError("No FASTA output directory has been configured.")
+    if INPUT_FASTA is None or not str(INPUT_FASTA).strip():
+        raise ValueError("No input FASTA file has been selected.")
+
+    selected_path = os.fspath(INPUT_FASTA)
+    FULL_INPUT_FASTA = (
+        os.path.normpath(selected_path)
+        if os.path.isabs(selected_path)
+        else os.path.normpath(os.path.join(FASTA_DIR, selected_path))
+    )
+    SEQUENCE_SET = os.path.splitext(os.path.basename(selected_path))[0]
+    OUTPUT_FASTA = (
+        FULL_INPUT_FASTA
+        if OVER_WRITE
+        else os.path.join(FASTA_DIR, f"{SEQUENCE_SET}_sanitized.fasta")
+    )
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -263,6 +279,11 @@ def plot_length_distribution(lengths):
 if __name__ == "__main__":
     print(f"--- 🧬 Sequence Sanitization ---")
     print(f"Reading from: {INPUT_FASTA}")
+
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        raise SystemExit(f"❌ Error: {error}") from error
 
     validate_configuration(FASTA_DIR, INPUT_FASTA, OUTPUT_FASTA)
     

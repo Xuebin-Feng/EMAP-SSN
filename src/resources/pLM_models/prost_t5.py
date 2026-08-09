@@ -14,8 +14,8 @@
 
 import re
 
-SUPPORTED_MODELS = ["ProstT5"]
-MODEL_EXECUTION_MODES = {"ProstT5": "local"}
+SUPPORTED_MODELS = ["prost_t5"]
+MODEL_EXECUTION_MODES = {"prost_t5": "local"}
 
 # ProstT5's published amino-acid preprocessing maps B/Z/U/O to X. J and
 # alignment punctuation are also outside the model's documented AA input.
@@ -40,9 +40,15 @@ def load_model(model_name, device):
     Loads the ProstT5 model and tokenizer on the specified device.
     """
     from transformers import T5Tokenizer, T5EncoderModel
-    print(f"Loading {model_name} ...")
-    tokenizer = T5Tokenizer.from_pretrained(f"Rostlab/{model_name}_fp16", do_lower_case=False)
-    model = T5EncoderModel.from_pretrained(f"Rostlab/{model_name}_fp16").to(device)
+
+    hf_mappings = {
+        "prost_t5": "Rostlab/ProstT5_fp16"
+    }
+
+    hf_id = hf_mappings.get(model_name, model_name)
+    print(f"Loading {model_name} ({hf_id}) ...")
+    tokenizer = T5Tokenizer.from_pretrained(hf_id, do_lower_case=False)
+    model = T5EncoderModel.from_pretrained(hf_id).to(device)
     return tokenizer, model
 
 def get_embedding(seq, model_obj, device, target_dtype):

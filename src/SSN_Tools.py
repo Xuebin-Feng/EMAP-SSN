@@ -1,4 +1,5 @@
 # Copyright 2026 Xuebin Feng
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +23,16 @@ import markdown
 import re
 
 from utilities import Hardware_Utils
-from utilities.PLM_Plugin_Utils import discover_model_execution_modes
+from utilities.PLM_Plugin_Utils import (
+    discover_model_execution_modes,
+    discover_model_usage_terms,
+)
+from utilities.Model_License_Utils import (
+    format_model_selector_label,
+    format_model_usage_terms,
+    is_model_license_accepted,
+    record_model_license_acceptance,
+)
 from Cache_Manifest import (
     file_cache_key,
     inspect_network_completeness,
@@ -71,6 +81,15 @@ COMPACT_ROW_GROUPS = {
     "Embedding_MSA.py": [
         ("GAP_OPEN", "GAP_EXTEND"),
     ],
+    "Embedding_PWA.py": [
+        ("HIGHLIGHT_POSITIONS", "EMBEDDING_MODEL"),
+        ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
+    ],
+    "Embedding_SSEARCH.py": [
+        ("OUTPUT_NAME", "TOP_K", "NORM_THRESHOLD"),
+        ("ALIGNMENT_MODE", "NORM_MODE"),
+        ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
+    ],
 }
 INLINE_FIELD_GROUPS = {
     "Align_Similarity_Matrix.py": [
@@ -92,6 +111,15 @@ INLINE_FIELD_GROUPS = {
         ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
         ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
     ],
+    "Embedding_PWA.py": [
+        ("REF_HEADER", "MANUAL_REF_SEQ"),
+        ("TAR_HEADER", "MANUAL_TAR_SEQ"),
+        ("ALIGNMENT_MODE", "GENERATE_REPORT"),
+    ],
+    "Embedding_SSEARCH.py": [
+        ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
+        ("GENERATE_FASTA", "WORKERS"),
+    ],
 }
 INLINE_FIELD_RATIOS = {
     ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
@@ -102,11 +130,19 @@ INLINE_TRAILING_CONTROL_GROUPS = {
     ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
     ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
     ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
+    ("REF_HEADER", "MANUAL_REF_SEQ"),
+    ("TAR_HEADER", "MANUAL_TAR_SEQ"),
+    ("ALIGNMENT_MODE", "GENERATE_REPORT"),
+    ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
 }
 SPANNING_TRAILING_CONTROL_GROUPS = {
     ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
     ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
     ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
+}
+MATCHED_TRAILING_LABEL_VARS = {
+    "SHOW_REGRESSION_PLOT",
+    "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
 }
 TAB_DISPLAY_NAMES = {
     "Sequence_and_Embedding_Preparation": "Sequence && Embedding Preparation",
@@ -209,6 +245,17 @@ def get_embedding_model_execution_modes():
     plugin_dir = os.path.join(current_dir, "resources", "pLM_models")
     return discover_model_execution_modes(plugin_dir)
 
+
+def get_embedding_model_usage_terms():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    plugin_dir = os.path.join(current_dir, "resources", "pLM_models")
+    try:
+        return discover_model_usage_terms(plugin_dir)
+    except Exception as error:
+        print(f"Failed to discover pLM model usage terms: {error}")
+        return {}
+
+
 # Ensure src/ (the directory containing all project modules) is on sys.path.
 # This is needed when the script is run as a subprocess or from a different working directory.
 _SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -243,7 +290,67 @@ except ImportError as exc:
     QWebEngineView = object
     QTWEBENGINE_IMPORT_ERROR = str(exc)
 
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QPalette
+
+
+def confirm_model_usage_terms(parent, model_name, terms):
+    """Prompt once per model-and-license fingerprint and persist an opt-in."""
+    if is_model_license_accepted(model_name, terms):
+        return True
+
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    while True:
+        dialog = QMessageBox(parent)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle("External Model License")
+        dialog.setText(
+            f"{model_name} weights require separate publisher terms."
+        )
+        dialog.setInformativeText(format_model_usage_terms(model_name, terms))
+        accept_button = dialog.addButton(
+            "I Accept These Terms",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        view_button = dialog.addButton(
+            "View License",
+            QMessageBox.ButtonRole.ActionRole,
+        )
+        cancel_button = dialog.addButton(
+            QMessageBox.StandardButton.Cancel,
+        )
+        dialog.setDefaultButton(cancel_button)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked is view_button:
+            QDesktopServices.openUrl(QUrl(terms["license_url"]))
+            continue
+        if clicked is not accept_button:
+            return False
+        record_model_license_acceptance(model_name, terms)
+        return True
+
+
+def apply_gated_input_palette(widget):
+    """Grey disabled inputs without replacing their native control theme."""
+    palette = widget.palette()
+    disabled = QPalette.ColorGroup.Disabled
+    for role in (
+        QPalette.ColorRole.Base,
+        QPalette.ColorRole.AlternateBase,
+        QPalette.ColorRole.Button,
+        QPalette.ColorRole.Window,
+    ):
+        palette.setColor(disabled, role, QColor("#f0f0f0"))
+    for role in (
+        QPalette.ColorRole.Text,
+        QPalette.ColorRole.ButtonText,
+        QPalette.ColorRole.WindowText,
+        QPalette.ColorRole.PlaceholderText,
+    ):
+        palette.setColor(disabled, role, QColor("#888888"))
+    widget.setPalette(palette)
 
 
 QTWEBENGINE_MISSING_MESSAGE = """\
@@ -598,7 +705,7 @@ class ToolsGUI(QMainWindow):
             },
             "Generate_Embeddings.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): The sanitized input sequence file to generate embeddings for. Each sequence is parsed and fed through the neural network to produce high-dimensional dense representations.",
-                "MODEL_NAME": "Model Name: The protein language model (pLM) used to calculate sequence embeddings and label the output filename. ESMC 300M/600M run locally; esmc_6b maps internally to Biohub's esmc-6b-2024-12 API model and reads ESM_API_TOKEN from src/resources/pLM_models/esmc_6b_api_key.json. Rostlab models (prot_bert/ProstT5) are also supported.",
+                "MODEL_NAME": "Model Name: The protein language model (pLM) used to calculate sequence embeddings and label the output filename. ESMC 300M/600M run locally; esmc_6b maps internally to Biohub's esmc-6b-2024-12 API model and reads ESM_API_TOKEN from src/resources/pLM_models/esmc_6b_api_key.json. Rostlab models (prot_bert/prost_t5) are also supported. All model identifiers are lower case.",
                 "SAVING_MODE": "Saving Mode: The floating-point precision for storing embedding tensors in the HDF5 file. Float16 is highly recommended to save up to 50% disk space and RAM, while float32 retains full uncompressed precision.",
                 "DEVICE_SELECTION": "Device: Auto Benchmark compares CPU and every available local accelerator using representative sequences. Remote API models do not use this setting."
             },
@@ -667,13 +774,15 @@ class ToolsGUI(QMainWindow):
                 "INPUT_FASTA": "Input Sequence Set (.fasta): The FASTA file defining the subset of sequences. Only network edges between these sequences will be extracted."
             },
             "Embedding_PWA.py": {
-                "INPUT_FASTA": "Sequence Set (.fasta): The FASTA file containing raw sequences. Used to retrieve sequence headers and amino acid sequences for display.",
-                "INPUT_EMBED": "Embedding Set (.h5): The HDF5 file containing the sequence embeddings. Needed to compute the pairwise embedding-based alignment.",
-                "REF_HEADER": "Reference Header: The exact FASTA header of the reference sequence to align. If left empty, the first sequence in the file is used.",
-                "REF_SEQUENCE": "Ref Sequence (Optional): Manually provide a raw amino acid sequence for the reference. If set, this overrides the reference header lookup.",
-                "TAR_HEADER": "Target Header: The exact FASTA header of the target sequence to align. If left empty, the second sequence in the file is used.",
-                "TAR_SEQUENCE": "Tar Sequence (Optional): Manually provide a raw amino acid sequence for the target. If set, this overrides the target header lookup.",
+                "INPUT_EMBED": "Embedding Set (.h5): A metadata-first HDF5 database containing sanitized headers, sequences, model metadata, and residue-level embeddings. It supplies stored sequences whenever a manual-sequence switch is OFF.",
+                "REF_HEADER": "Reference Header: The header of the reference sequence in the embedding database. Typed text is canonically sanitized before lookup. If left empty, the first stored sequence is used.",
+                "MANUAL_REF_SEQ": "Manual Ref Seq: Enable the optional reference-sequence field. When OFF, the reference is loaded from the selected embedding set by header.",
+                "REF_SEQUENCE": "Ref Sequence (Optional): Manually provide an amino acid sequence for the reference. This field is used only while Manual Ref Seq is ON and is canonically sanitized before embedding generation.",
+                "TAR_HEADER": "Target Header: The header of the target sequence in the embedding database. Typed text is canonically sanitized before lookup. If left empty, the second stored sequence is used.",
+                "MANUAL_TAR_SEQ": "Manual Tar Seq: Enable the optional target-sequence field. When OFF, the target is loaded from the selected embedding set by header.",
+                "TAR_SEQUENCE": "Tar Sequence (Optional): Manually provide an amino acid sequence for the target. This field is used only while Manual Tar Seq is ON and is canonically sanitized before embedding generation.",
                 "HIGHLIGHT_POSITIONS": "Highlight Pos (e.g., 1, 4-6): A comma-separated list of 1-indexed residue positions or ranges to highlight in the alignment visualization.",
+                "EMBEDDING_MODEL": "Embedding Model: Protein language model used to generate embeddings when both sequences are entered manually. The choices are discovered from src/resources/pLM_models. When either sequence comes from the embedding set, its stored model is used instead.",
                 "ALIGNMENT_MODE": "Alignment Mode: Select whether to compute a global (Needleman-Wunsch) or local (Smith-Waterman) alignment based on embedding similarities.",
                 "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied when using local alignment. Adjusts the frequency and size of gap insertions within local alignments.",
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied when using global alignment. Adjusts the frequency and size of gap insertions across entire sequences.",
@@ -681,8 +790,9 @@ class ToolsGUI(QMainWindow):
             },
             "Embedding_SSEARCH.py": {
                 "INPUT_EMBED": "Embedding Set (.h5): A complete metadata-first HDF5 database containing sanitized headers, sequences, and pre-computed tensors for database search.",
-                "QUERY_HEADER": "Query Header: The header of a sequence stored in the embedding database to use as the query. It is sanitized before lookup and overridden if Query Sequence is specified.",
-                "QUERY_SEQUENCE": "Query Sequence (Optional): A raw amino acid sequence string to search against the database, overriding the Query Header lookup.",
+                "QUERY_HEADER": "Query Header: The header of a sequence stored in the embedding database to use as the query. It is sanitized before lookup unless Manual Query Seq is enabled.",
+                "MANUAL_QUERY_SEQ": "Manual Query Seq: Enable the optional raw query-sequence field. When OFF, the query is loaded from the embedding database by header.",
+                "QUERY_SEQUENCE": "Query Sequence (Optional): A raw amino acid sequence used only while Manual Query Seq is ON.",
                 "OUTPUT_NAME": "Output Name: Custom prefix for search output files. If left blank, the query header (sanitized) is used as the default name.",
                 "TOP_K": "Top K Hits: The maximum number of highest-scoring database hits to include in the output results. Set to control list size.",
                 "NORM_THRESHOLD": "Norm Score Cutoff: The minimum normalized similarity score threshold for hits. Sequences scoring below this are excluded.",
@@ -762,6 +872,7 @@ class ToolsGUI(QMainWindow):
                             "var_name": "MODEL_NAME",
                             "type": "dropdown",
                             "options": get_supported_embedding_models(),
+                            "model_license_labels": True,
                             "display": "Model Name:"
                         },
                         {
@@ -1196,16 +1307,7 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "title_pwa_io",
                             "type": "title",
-                            "display": "Input Files:"
-                        },
-                        {
-                            "var_name": "INPUT_FASTA",
-                            "type": "dropdown_from_folder",
-                            "folder": os.path.join("Input_Files", "Sequence_Sets"),
-                            "extension": ".fasta",
-                            "include_ext": True,
-                            "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
+                            "display": "Embedding Input:"
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1227,6 +1329,11 @@ class ToolsGUI(QMainWindow):
                             "display": "Reference Header:"
                         },
                         {
+                            "var_name": "MANUAL_REF_SEQ",
+                            "type": "switch",
+                            "display": "Manual Ref Seq:"
+                        },
+                        {
                             "var_name": "REF_SEQUENCE",
                             "type": "text",
                             "display": "Ref Sequence (Optional):"
@@ -1237,6 +1344,11 @@ class ToolsGUI(QMainWindow):
                             "display": "Target Header:"
                         },
                         {
+                            "var_name": "MANUAL_TAR_SEQ",
+                            "type": "switch",
+                            "display": "Manual Tar Seq:"
+                        },
+                        {
                             "var_name": "TAR_SEQUENCE",
                             "type": "text",
                             "display": "Tar Sequence (Optional):"
@@ -1245,6 +1357,13 @@ class ToolsGUI(QMainWindow):
                             "var_name": "HIGHLIGHT_POSITIONS",
                             "type": "text",
                             "display": "Highlight Pos (e.g., 1, 4-6):"
+                        },
+                        {
+                            "var_name": "EMBEDDING_MODEL",
+                            "type": "dropdown",
+                            "options": get_supported_embedding_models(),
+                            "model_license_labels": True,
+                            "display": "Embedding Model:"
                         },
                         {
                             "var_name": "title_pwa_params",
@@ -1297,6 +1416,11 @@ class ToolsGUI(QMainWindow):
                             "var_name": "QUERY_HEADER",
                             "type": "text",
                             "display": "Query Header:"
+                        },
+                        {
+                            "var_name": "MANUAL_QUERY_SEQ",
+                            "type": "switch",
+                            "display": "Manual Query Seq:"
                         },
                         {
                             "var_name": "QUERY_SEQUENCE",
@@ -1963,8 +2087,21 @@ class ToolsGUI(QMainWindow):
             
             if s_def['type'] == "dropdown":
                 ui_element = NoScrollComboBox()
-                ui_element.addItems(s_def['options'])
-                idx = ui_element.findText(str(actual_val))
+                if s_def.get("model_license_labels", False):
+                    usage_terms = get_embedding_model_usage_terms()
+                    for model_name in s_def['options']:
+                        ui_element.addItem(
+                            format_model_selector_label(
+                                model_name,
+                                usage_terms.get(model_name),
+                            ),
+                            model_name,
+                        )
+                    ui_element.setProperty("persistItemData", True)
+                    idx = ui_element.findData(str(actual_val))
+                else:
+                    ui_element.addItems(s_def['options'])
+                    idx = ui_element.findText(str(actual_val))
                 if idx >= 0: ui_element.setCurrentIndex(idx)
 
             elif s_def['type'] == "device_dropdown":
@@ -2203,6 +2340,13 @@ class ToolsGUI(QMainWindow):
                 device_combo = device_input['widget']
                 execution_modes = get_embedding_model_execution_modes()
 
+                def selected_model_name():
+                    return (
+                        model_combo.currentData()
+                        if model_combo.property("persistItemData")
+                        else model_combo.currentText()
+                    )
+
                 def update_embedding_device(model_name):
                     is_remote = execution_modes.get(model_name) == "remote_api"
                     if is_remote:
@@ -2235,8 +2379,10 @@ class ToolsGUI(QMainWindow):
                         tip = self.SCRIPT_TIPS[script_name]["DEVICE_SELECTION"]
                         device_combo.setToolTip(tip)
 
-                model_combo.currentTextChanged.connect(update_embedding_device)
-                update_embedding_device(model_combo.currentText())
+                model_combo.currentIndexChanged.connect(
+                    lambda index: update_embedding_device(selected_model_name())
+                )
+                update_embedding_device(selected_model_name())
 
         if script_name == "Embedding_MSA.py":
             use_filter_input = inputs.get("USE_SEQUENCE_FILTER")
@@ -2510,9 +2656,112 @@ class ToolsGUI(QMainWindow):
                 filter_switch.toggled.connect(update_length_filters)
                 update_length_filters(filter_switch.isChecked()) # Trigger once on load
 
+        if script_name == "Embedding_PWA.py":
+            embedding_set_input = inputs.get("INPUT_EMBED")
+            ref_toggle_input = inputs.get("MANUAL_REF_SEQ")
+            ref_sequence_input = inputs.get("REF_SEQUENCE")
+            tar_toggle_input = inputs.get("MANUAL_TAR_SEQ")
+            tar_sequence_input = inputs.get("TAR_SEQUENCE")
+            model_input = inputs.get("EMBEDDING_MODEL")
+
+            if all((
+                embedding_set_input,
+                ref_toggle_input,
+                ref_sequence_input,
+                tar_toggle_input,
+                tar_sequence_input,
+                model_input,
+            )):
+                embedding_set_widget = embedding_set_input['widget']
+                embedding_set_combo = embedding_set_widget.combo
+                ref_toggle = ref_toggle_input['widget']
+                ref_sequence = ref_sequence_input['widget']
+                tar_toggle = tar_toggle_input['widget']
+                tar_sequence = tar_sequence_input['widget']
+                model_combo = model_input['widget']
+                embedding_set_label = row_widgets.get(
+                    "INPUT_EMBED", (None, None)
+                )[0]
+                ref_sequence_label = row_widgets.get(
+                    "REF_SEQUENCE", (None, None)
+                )[0]
+                tar_sequence_label = row_widgets.get(
+                    "TAR_SEQUENCE", (None, None)
+                )[0]
+                model_label = row_widgets.get(
+                    "EMBEDDING_MODEL", (None, None)
+                )[0]
+                apply_gated_input_palette(embedding_set_combo)
+                for gated_widget in (
+                    ref_sequence,
+                    tar_sequence,
+                    model_combo,
+                ):
+                    apply_gated_input_palette(gated_widget)
+                previous_embedding_set = embedding_set_combo.currentText()
+
+                def sync_manual_pairwise_controls():
+                    nonlocal previous_embedding_set
+                    ref_enabled = ref_toggle.isChecked()
+                    tar_enabled = tar_toggle.isChecked()
+                    both_manual = ref_enabled and tar_enabled
+                    if both_manual:
+                        current_embedding_set = embedding_set_combo.currentText()
+                        if current_embedding_set:
+                            previous_embedding_set = current_embedding_set
+                        embedding_set_combo.setCurrentIndex(-1)
+                    elif embedding_set_combo.currentIndex() < 0:
+                        restore_index = embedding_set_combo.findText(
+                            previous_embedding_set
+                        )
+                        if restore_index >= 0:
+                            embedding_set_combo.setCurrentIndex(restore_index)
+
+                    embedding_set_widget.setEnabled(not both_manual)
+                    if embedding_set_label is not None:
+                        embedding_set_label.setEnabled(not both_manual)
+                    model_enabled = (
+                        both_manual
+                        and model_combo.count() > 0
+                    )
+                    for widget, label, enabled in (
+                        (ref_sequence, ref_sequence_label, ref_enabled),
+                        (tar_sequence, tar_sequence_label, tar_enabled),
+                        (model_combo, model_label, model_enabled),
+                    ):
+                        widget.setEnabled(enabled)
+                        if label is not None:
+                            label.setEnabled(enabled)
+
+                ref_toggle.toggled.connect(
+                    lambda checked: sync_manual_pairwise_controls()
+                )
+                tar_toggle.toggled.connect(
+                    lambda checked: sync_manual_pairwise_controls()
+                )
+                sync_manual_pairwise_controls()
+
         if script_name == "Embedding_SSEARCH.py":
             score_input = inputs.get("ALIGNMENT_MODE")
             norm_input = inputs.get("NORM_MODE")
+            query_toggle_input = inputs.get("MANUAL_QUERY_SEQ")
+            query_sequence_input = inputs.get("QUERY_SEQUENCE")
+
+            if query_toggle_input and query_sequence_input:
+                query_toggle = query_toggle_input['widget']
+                query_sequence = query_sequence_input['widget']
+                query_sequence_label = row_widgets.get(
+                    "QUERY_SEQUENCE", (None, None)
+                )[0]
+                apply_gated_input_palette(query_sequence)
+
+                def sync_manual_query_control(checked):
+                    query_sequence.setEnabled(checked)
+                    if query_sequence_label is not None:
+                        query_sequence_label.setEnabled(checked)
+
+                query_toggle.toggled.connect(sync_manual_query_control)
+                sync_manual_query_control(query_toggle.isChecked())
             
             if score_input and norm_input:
                 score_combo = score_input['widget']
@@ -2702,9 +2951,6 @@ class ToolsGUI(QMainWindow):
                 if is_spanning:
                     form_spacing = max(0, layout.horizontalSpacing())
                     field_layout.setSpacing(0)
-                    first_label.setProperty("compactColumnLabel", True)
-                    field_layout.addWidget(first_label)
-                    field_layout.addSpacing(form_spacing)
                     first_input_policy = first_input.sizePolicy()
                     first_input_policy.setHorizontalPolicy(
                         QSizePolicy.Policy.Ignored
@@ -2722,23 +2968,37 @@ class ToolsGUI(QMainWindow):
                     field_layout.addWidget(first_input, 1)
                 for var_name, label_widget, input_widget in group_widgets[1:]:
                     if is_spanning:
-                        field_layout.addSpacing(12)
+                        field_layout.addSpacing(
+                            30 if variable_group == (
+                                "TREE_METHOD",
+                                "NUM_TREES",
+                                "BOOTSTRAP_TREE",
+                            ) else 12
+                        )
                     else:
                         label_widget.setText(
                             f"   {label_widget.text().lstrip()}"
                         )
-                    if var_name == "NUM_TREES":
-                        input_widget.setFixedWidth(70)
+                    if var_name in MATCHED_TRAILING_LABEL_VARS:
+                        label_widget.setProperty("matchedTrailingLabel", True)
                     field_layout.addWidget(label_widget)
                     if isinstance(input_widget, QPushButton):
-                        field_layout.addSpacing(10)
+                        field_layout.addSpacing(
+                            10 + (2 * form_spacing if is_spanning else 0)
+                        )
                     elif is_spanning:
                         field_layout.addSpacing(6)
-                    field_layout.addWidget(input_widget)
-                if is_spanning:
-                    layout.insertRow(insertion_row, field_row)
-                else:
-                    layout.insertRow(insertion_row, first_label, field_row)
+                    if var_name == "NUM_TREES":
+                        input_policy = input_widget.sizePolicy()
+                        input_policy.setHorizontalPolicy(
+                            QSizePolicy.Policy.Ignored
+                        )
+                        input_widget.setSizePolicy(input_policy)
+                        input_widget.setMinimumWidth(0)
+                        field_layout.addWidget(input_widget, 1)
+                    else:
+                        field_layout.addWidget(input_widget)
+                layout.insertRow(insertion_row, first_label, field_row)
                 continue
 
             if isinstance(first_input, QPushButton):
@@ -2821,6 +3081,7 @@ class ToolsGUI(QMainWindow):
     @staticmethod
     def _align_form_label_columns(form_layouts):
         label_widgets = []
+        matched_trailing_labels = []
         compact_rows = []
         shared_width = 0
 
@@ -2853,8 +3114,20 @@ class ToolsGUI(QMainWindow):
                 for row in form_widget.findChildren(QWidget)
                 if row.objectName().startswith("compactRow_")
             )
+            matched_trailing_labels.extend(
+                label
+                for label in form_widget.findChildren(QLabel)
+                if label.property("matchedTrailingLabel")
+            )
         for label_widget in label_widgets:
             label_widget.setFixedWidth(shared_width)
+
+        if matched_trailing_labels:
+            matched_width = max(
+                label.sizeHint().width() for label in matched_trailing_labels
+            )
+            for label_widget in matched_trailing_labels:
+                label_widget.setFixedWidth(matched_width)
 
         for compact_row in compact_rows:
             column_ratio = str(compact_row.property("compactColumnRatio"))
@@ -3013,7 +3286,11 @@ class ToolsGUI(QMainWindow):
                 elif w_type == "device_dropdown":
                     val = widget.currentData()
                 else:
-                    val = widget.currentText()
+                    val = (
+                        widget.currentData()
+                        if widget.property("persistItemData")
+                        else widget.currentText()
+                    )
                     
                 if w_type == "dropdown_from_folder" and s['def'].get('include_ext', False):
                     if val and not val.endswith(s['def']['extension']):
@@ -3046,6 +3323,28 @@ class ToolsGUI(QMainWindow):
             except: pass
 
         script_name = os.path.basename(script_path)
+        selected_model = None
+        if script_name == "Generate_Embeddings.py":
+            selected_model = new_settings.get("MODEL_NAME")
+        elif (
+            script_name == "Embedding_PWA.py"
+            and new_settings.get("MANUAL_REF_SEQ")
+            and new_settings.get("MANUAL_TAR_SEQ")
+        ):
+            selected_model = new_settings.get("EMBEDDING_MODEL")
+        if selected_model:
+            usage_terms = get_embedding_model_usage_terms().get(selected_model)
+            if (
+                usage_terms
+                and usage_terms.get("requires_acknowledgement", False)
+                and not confirm_model_usage_terms(
+                    self,
+                    selected_model,
+                    usage_terms,
+                )
+            ):
+                return
+
         if script_name == "Generate_Embeddings.py":
             execution_modes = get_embedding_model_execution_modes()
             execution_mode = execution_modes.get(new_settings.get("MODEL_NAME"))

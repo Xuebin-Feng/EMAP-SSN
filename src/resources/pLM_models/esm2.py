@@ -15,20 +15,20 @@
 import re
 
 SUPPORTED_MODELS = [
-    "esm2_t6_8M",
-    "esm2_t12_35M",
-    "esm2_t30_150M",
-    "esm2_t33_650M",
-    "esm2_t36_3B",
-    "esm2_t48_15B"
+    "esm2_t6_8m",
+    "esm2_t12_35m",
+    "esm2_t30_150m",
+    "esm2_t33_650m",
+    "esm2_t36_3b",
+    "esm2_t48_15b"
 ]
 MODEL_EXECUTION_MODES = {
-    "esm2_t6_8M": "local",
-    "esm2_t12_35M": "local",
-    "esm2_t30_150M": "local",
-    "esm2_t33_650M": "local",
-    "esm2_t36_3B": "local",
-    "esm2_t48_15B": "local",
+    "esm2_t6_8m": "local",
+    "esm2_t12_35m": "local",
+    "esm2_t30_150m": "local",
+    "esm2_t33_650m": "local",
+    "esm2_t36_3b": "local",
+    "esm2_t48_15b": "local",
 }
 
 # ESM-2 uses the same sequence alphabet as ESM-C: X/B/U/Z/O, ".", and
@@ -56,12 +56,12 @@ def load_model(model_name, device):
     from transformers import AutoTokenizer, AutoModel
     
     hf_mappings = {
-        "esm2_t6_8M": "facebook/esm2_t6_8M_UR50D",
-        "esm2_t12_35M": "facebook/esm2_t12_35M_UR50D",
-        "esm2_t30_150M": "facebook/esm2_t30_150M_UR50D",
-        "esm2_t33_650M": "facebook/esm2_t33_650M_UR50D",
-        "esm2_t36_3B": "facebook/esm2_t36_3B_UR50D",
-        "esm2_t48_15B": "facebook/esm2_t48_15B_UR50D"
+        "esm2_t6_8m": "facebook/esm2_t6_8M_UR50D",
+        "esm2_t12_35m": "facebook/esm2_t12_35M_UR50D",
+        "esm2_t30_150m": "facebook/esm2_t30_150M_UR50D",
+        "esm2_t33_650m": "facebook/esm2_t33_650M_UR50D",
+        "esm2_t36_3b": "facebook/esm2_t36_3B_UR50D",
+        "esm2_t48_15b": "facebook/esm2_t48_15B_UR50D"
     }
     
     hf_id = hf_mappings.get(model_name, model_name)

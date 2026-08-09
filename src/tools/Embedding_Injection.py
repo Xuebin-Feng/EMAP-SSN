@@ -128,9 +128,34 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- DYNAMIC INFERENCE ---
-FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR else ""
+FULL_INPUT_EMBED = None
+FULL_INPUT_FASTA = None
+
+
+def _resolve_selected_path(value, directory, description):
+    if value is None or not str(value).strip():
+        raise ValueError(f"No {description} has been selected.")
+
+    selected_path = os.fspath(value)
+    if os.path.isabs(selected_path):
+        return os.path.normpath(selected_path)
+    return os.path.normpath(os.path.join(directory, selected_path))
+
+
+def configure_runtime_paths():
+    """Resolve GUI-selected inputs immediately before injection starts."""
+    global FULL_INPUT_EMBED, FULL_INPUT_FASTA
+
+    FULL_INPUT_EMBED = _resolve_selected_path(
+        INPUT_EMBED,
+        EMBED_DIR,
+        "existing embeddings file",
+    )
+    FULL_INPUT_FASTA = _resolve_selected_path(
+        INPUT_FASTA,
+        FASTA_DIR,
+        "replacement FASTA file",
+    )
 
 # %% Helper Functions
 def find_model_plugin(model_name):
@@ -310,6 +335,11 @@ def inject_embeddings(input_hdf5, input_fasta, output_hdf5=None):
 # %% Main Execution
 if __name__ == "__main__":
     print("--- Embedding Injection ---")
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        raise SystemExit(f"❌ Error: {error}") from error
+
     output_path, generated_count, copied_count = inject_embeddings(
         FULL_INPUT_EMBED,
         FULL_INPUT_FASTA,

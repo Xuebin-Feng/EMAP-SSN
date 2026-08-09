@@ -1,4 +1,5 @@
 # Copyright 2026 Xuebin Feng
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,7 +32,9 @@ Settings:
 - SEQUENCE_SET: Defines the input FASTA file to target.
 - MODEL_NAME: The protein language model identifier to download from HuggingFace and load into VRAM. Supported models include 
   the local Evolutionary Scale Modeling families (`esmc_300m`, `esmc_600m`), the remote API-backed
-  ESMC 6B model (`esmc_6b`), and the Rostlab families (`prot_bert`, `ProstT5`).
+  ESMC 6B model (`esmc_6b`), the ESM-2 family (`esm2_t6_8m` ... `esm2_t48_15b`), the Ankh family
+  (`ankh_base`, `ankh_large`), and the Rostlab families (`prot_bert`, `prost_t5`). Model identifiers
+  are always lower case.
 - SAVING_MODE: Determines data precision. `float16` halves HDF5 file size and RAM requirements by slightly reducing gradient precision, 
   which is recommended for massive datasets. `float32` uses standard uncompressed precision.
 
@@ -70,6 +73,10 @@ from utilities.Embedding_HDF5 import (
 from utilities.PLM_Plugin_Utils import (
     read_plugin_metadata,
     validate_loaded_plugin,
+)
+from utilities.Model_License_Utils import (
+    prompt_for_model_license_acceptance,
+    require_model_license_acceptance,
 )
 
 # Script configuration
@@ -129,12 +136,31 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- DYNAMIC PATH INFERENCE ---
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR and INPUT_FASTA else ""
+FULL_INPUT_FASTA = None
+SEQUENCE_SET = ""
+OUTPUT_HDF5 = None
 
-# Derive the base name for saving
-SEQUENCE_SET = INPUT_FASTA.replace(".fasta", "") if INPUT_FASTA else "Unknown_Set"
-OUTPUT_HDF5 = os.path.join(EMBED_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_embeddings.h5") if EMBED_DIR else ""
+
+def configure_runtime_paths():
+    """Resolve selected input and output names immediately before generation."""
+    global FULL_INPUT_FASTA, SEQUENCE_SET, OUTPUT_HDF5
+
+    if INPUT_FASTA is None or not str(INPUT_FASTA).strip():
+        raise ValueError("No input FASTA file has been selected.")
+    if MODEL_NAME is None or not str(MODEL_NAME).strip():
+        raise ValueError("No protein language model has been selected.")
+
+    selected_path = os.fspath(INPUT_FASTA)
+    FULL_INPUT_FASTA = (
+        os.path.normpath(selected_path)
+        if os.path.isabs(selected_path)
+        else os.path.normpath(os.path.join(FASTA_DIR, selected_path))
+    )
+    SEQUENCE_SET = os.path.splitext(os.path.basename(selected_path))[0]
+    OUTPUT_HDF5 = os.path.join(
+        EMBED_DIR,
+        f"{SEQUENCE_SET}_[{MODEL_NAME}]_embeddings.h5",
+    )
 
 # Embedding model imports are deferred to dynamic plugin scripts under src/resources/pLM_models/
 
@@ -330,6 +356,16 @@ def generate_embeddings(
     plugin_loader=find_model_plugin,
 ):
     """Generate or safely resume one metadata-first embedding database."""
+    plugin = plugin_loader(model_name)
+    if plugin is None:
+        raise ValueError(
+            f"Model '{model_name}' is not supported by any available "
+            "plugin in 'pLM_models'."
+        )
+    execution_mode = validate_loaded_plugin(plugin, model_name)
+    usage_terms = getattr(plugin, "MODEL_USAGE_TERMS", {}).get(model_name)
+    require_model_license_acceptance(model_name, usage_terms)
+
     target_dtype = dtype_for_saving_mode(saving_mode)
     headers, sequences, _ = load_sanitized_fasta(input_fasta)
     validate_manifest_records(headers, sequences)
@@ -427,14 +463,6 @@ def generate_embeddings(
         else:
             print(f"Starting fresh embedding generation for {len(pending)} sequences.")
 
-        plugin = plugin_loader(model_name)
-        if plugin is None:
-            raise ValueError(
-                f"Model '{model_name}' is not supported by any available "
-                "plugin in 'pLM_models'."
-            )
-        execution_mode = validate_loaded_plugin(plugin, model_name)
-
         ranked_devices = []
         manual_candidate = None
         if execution_mode == "remote_api":
@@ -531,7 +559,48 @@ def generate_embeddings(
 # %% =======================================
 # MAIN EXECUTION
 # ==========================================
+def _handle_model_license_cli(argv=None):
+    """Record explicit terminal acceptance and exit without running a model."""
+    import argparse
+
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument(
+        "--accept-model-license",
+        metavar="MODEL_ID",
+        help="review and record acceptance of separately licensed model weights",
+    )
+    args = parser.parse_args(argv)
+    if not args.accept_model_license:
+        return False
+
+    model_name = args.accept_model_license
+    plugin = find_model_plugin(model_name)
+    if plugin is None:
+        parser.error(f"unknown model ID: {model_name}")
+    validate_loaded_plugin(plugin, model_name)
+    terms = getattr(plugin, "MODEL_USAGE_TERMS", {}).get(model_name)
+    if not terms or not terms.get("requires_acknowledgement", False):
+        print(f"Model '{model_name}' does not require a separate acknowledgement.")
+        return True
+
+    if not prompt_for_model_license_acceptance(model_name, terms):
+        print("Acceptance cancelled. No record was written.")
+        return True
+    print(
+        "Acceptance recorded in ignored local state. Run the embedding command "
+        "again without --accept-model-license."
+    )
+    return True
+
+
 if __name__ == "__main__":
+    if _handle_model_license_cli():
+        raise SystemExit(0)
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        raise SystemExit(f"❌ Error: {error}") from error
+
     print("--- Step 1: Embedding Generation ---")
     if SAVING_MODE == "float16":
         print("--> Mode: Saving as float16 (Compact)")

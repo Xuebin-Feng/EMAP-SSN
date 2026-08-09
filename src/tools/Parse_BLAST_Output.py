@@ -103,11 +103,28 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- DYNAMIC INFERENCE ---
-FULL_INPUT_BLAST_TABULAR = os.path.join(NETWORK_DIR, INPUT_BLAST_TABULAR) if NETWORK_DIR else ""
+FULL_INPUT_BLAST_TABULAR = None
+OUTPUT_HDF5 = None
 
-_base_name = INPUT_BLAST_TABULAR.replace(".tabular", "")
-OUTPUT_HDF5 = os.path.join(NETWORK_DIR, f"{_base_name}_[BLAST]_EValue.h5") if NETWORK_DIR else ""
+
+def configure_runtime_paths():
+    """Resolve the GUI-selected BLAST file immediately before parsing."""
+    global FULL_INPUT_BLAST_TABULAR, OUTPUT_HDF5
+
+    if INPUT_BLAST_TABULAR is None or not str(INPUT_BLAST_TABULAR).strip():
+        raise ValueError("No BLAST tabular file has been selected.")
+
+    selected_path = os.fspath(INPUT_BLAST_TABULAR)
+    FULL_INPUT_BLAST_TABULAR = (
+        os.path.normpath(selected_path)
+        if os.path.isabs(selected_path)
+        else os.path.normpath(os.path.join(NETWORK_DIR, selected_path))
+    )
+    base_name = os.path.splitext(os.path.basename(selected_path))[0]
+    OUTPUT_HDF5 = os.path.join(
+        NETWORK_DIR,
+        f"{base_name}_[BLAST]_EValue.h5",
+    )
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -153,6 +170,10 @@ def detect_evalue_column(filepath, num_lines_to_check=1000):
 # ==========================================
 if __name__ == "__main__":
     print(f"--- 🔄 Converting External BLAST Results to HDF5 ---")
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        raise SystemExit(f"❌ Error: {error}") from error
     
     # 1. Verify Input
     if not os.path.exists(FULL_INPUT_BLAST_TABULAR):

@@ -132,37 +132,6 @@ def get_available_devices() -> list[DeviceCandidate]:
     except Exception:
         pass
 
-    try:
-        import torch_directml
-
-        available_getter = getattr(torch_directml, "is_available", None)
-        directml_available = (
-            bool(available_getter()) if callable(available_getter) else True
-        )
-        if directml_available:
-            count_getter = getattr(torch_directml, "device_count", None)
-            count = int(count_getter()) if callable(count_getter) else 1
-            name_getter = getattr(torch_directml, "device_name", None)
-            for index in range(max(1, count)):
-                name = _safe_name(
-                    (lambda i=index: name_getter(i))
-                    if callable(name_getter)
-                    else (lambda i=index: f"DirectML device {i}"),
-                    f"DirectML device {index}",
-                )
-                candidates.append(
-                    DeviceCandidate(
-                        f"directml:{index}",
-                        f"{name} (DirectML)",
-                        torch_directml.device(index),
-                        "directml",
-                        index,
-                        False,
-                    )
-                )
-    except (ImportError, RuntimeError, TypeError, AttributeError):
-        pass
-
     return candidates
 
 
@@ -185,13 +154,17 @@ def normalize_device_selection(selection: Any) -> str:
     if match:
         text = match.group(1)
     normalized = text.strip().lower()
+    # DirectML was used by older releases. It is no longer installed; migrate
+    # persisted selections back to automatic backend discovery.
+    if normalized == "directml" or re.fullmatch(r"directml:\d+", normalized):
+        return AUTO_DEVICE
     if normalized == "cpu":
         return "cpu"
     if normalized in {"mps"}:
         return normalized
-    if re.fullmatch(r"(?:cuda|xpu|directml):\d+", normalized):
+    if re.fullmatch(r"(?:cuda|xpu):\d+", normalized):
         return normalized
-    if normalized in {"cuda", "xpu", "directml"}:
+    if normalized in {"cuda", "xpu"}:
         return f"{normalized}:0"
     return normalized
 
@@ -288,7 +261,7 @@ def rank_benchmark_results(
 def get_optimal_device():
     """Return the first available accelerator, retaining the legacy API."""
     candidates = get_available_devices()
-    for backend in ("cuda", "xpu", "mps", "directml"):
+    for backend in ("cuda", "xpu", "mps"):
         for candidate in candidates:
             if candidate.backend == backend:
                 return candidate.device

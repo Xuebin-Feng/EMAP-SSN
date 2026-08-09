@@ -413,15 +413,15 @@ def compute_score_matrix_torch(emb_i, emb_j):
     confidence_j = torch.linalg.vector_norm(t_j, dim=-1, keepdim=True).clamp(max=1.0)
     t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
     t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T)
+    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
     dist_mat = 1.0 - cos_sim
     sim_mat = torch.exp(-dist_mat)
     
     epsilon = 1e-8
     row_mean = sim_mat.mean(dim=1, keepdim=True)
-    row_std = sim_mat.std(dim=1, keepdim=True)
+    row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
     col_mean = sim_mat.mean(dim=0, keepdim=True)
-    col_std = sim_mat.std(dim=0, keepdim=True)
+    col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
     
     z_r = (sim_mat - row_mean) / (row_std + epsilon)
     z_c = (sim_mat - col_mean) / (col_std + epsilon)
@@ -944,7 +944,6 @@ def run_msa_builder():
 
     use_filter = bool(USE_SEQUENCE_FILTER)
     if use_filter:
-        print(f"Loading and sanitizing input FASTA from {FULL_INPUT_FASTA}...")
         try:
             clean_headers, clean_sequences, _ = load_sanitized_fasta(FULL_INPUT_FASTA)
         except Exception as e:

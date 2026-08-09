@@ -17,6 +17,7 @@
 from collections import Counter
 import os
 import re
+import tempfile
 
 
 VALID_RESIDUE_CODES = "ACDEFGHIKLMNPQRSTVWYBZJXUO"
@@ -56,6 +57,39 @@ def read_fasta(file_path):
             sequences.append("".join(current_sequence))
 
     return headers, sequences
+
+
+def write_fasta_atomic(file_path, headers, sequences):
+    """Atomically write canonical FASTA records as UTF-8 with LF newlines."""
+    if len(headers) != len(sequences):
+        raise ValueError("FASTA header and sequence counts do not match.")
+
+    output_path = os.path.abspath(file_path)
+    output_dir = os.path.dirname(output_path)
+    os.makedirs(output_dir, exist_ok=True)
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=output_dir,
+            prefix=f".{os.path.basename(output_path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = temporary_file.name
+            for header, sequence in zip(headers, sequences):
+                temporary_file.write(f">{header}\n{sequence}\n")
+
+        os.replace(temporary_path, output_path)
+        temporary_path = None
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+    return output_path
 
 
 def sanitize_header(header):
@@ -253,4 +287,3 @@ def load_sanitized_fasta(file_path):
     )
     print_sanitization_result(stats)
     return clean_headers, clean_sequences, stats
-

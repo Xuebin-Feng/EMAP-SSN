@@ -19,6 +19,13 @@ __pycache__/
 *$py.class
 .vscode/
 .agent/
+.agents/
+.codex/
+.claude/
+.idea/
+
+# Separately licensed model acknowledgements are local user state.
+src/resources/pLM_models/ankh_license.json
 
 # C extensions
 *.so
@@ -37,6 +44,8 @@ parts/
 sdist/
 var/
 wheels/
+!src/resources/wheels/
+!src/resources/wheels/**
 share/python-wheels/
 *.egg-info/
 .installed.cfg

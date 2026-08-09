@@ -149,37 +149,69 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- DYNAMIC INFERENCE ---
 import re
 
-# 1. Dynamically parse names from the input files provided by the GUI
 _old_seq_set = "UnknownOld"
-match_old = re.search(r"^(.*)_\[(.*)\]_network\.h5$", OLD_NETWORK)
-if match_old:
-    _old_seq_set = match_old.group(1)
-
 _new_seq_set = "UnknownNew"
-match_new = re.search(r"^(.*)_\[(.*)\]_embeddings\.h5$", NEW_EMBEDDINGS)
-if match_new:
-    _new_seq_set = match_new.group(1)
+_model_name = "unknown"
+RESULTS_DIR = None
+FINAL_OUTPUT_NET = None
+CONFIG_FILE = None
 
-# 2. Build Full Input Paths
-OLD_NETWORK = os.path.join(NETWORK_DIR, OLD_NETWORK) if NETWORK_DIR else ""
-NEW_EMBEDDINGS = os.path.join(EMBED_DIR, NEW_EMBEDDINGS) if EMBED_DIR else ""
-_old_network_metadata = validate_network_schema(
-    OLD_NETWORK,
-    expected_network_type="alignment",
-)
-_model_name = re.sub(
-    r'[<>:"/\\|?*]',
-    "_",
-    _old_network_metadata.model_name,
-)
 
-# 3. Build Full Output Paths
-RESULTS_DIR = os.path.join(NETWORK_DIR, f"{_new_seq_set}_[{_model_name}]_network_temp") if NETWORK_DIR else ""
-FINAL_OUTPUT_NET = os.path.join(NETWORK_DIR, f"{_new_seq_set}_[{_model_name}]_network.h5") if NETWORK_DIR else ""
-CONFIG_FILE = os.path.join(RESULTS_DIR, "injection_config.json")
+def _resolve_selected_path(value, directory, description):
+    if value is None or not str(value).strip():
+        raise ValueError(f"No {description} has been selected.")
+
+    selected_path = os.fspath(value)
+    if os.path.isabs(selected_path):
+        return os.path.normpath(selected_path)
+    return os.path.normpath(os.path.join(directory, selected_path))
+
+
+def configure_input_paths():
+    """Resolve GUI-selected inputs without opening either file."""
+    global OLD_NETWORK, NEW_EMBEDDINGS, _old_seq_set, _new_seq_set
+
+    old_filename = os.path.basename(os.fspath(OLD_NETWORK)) if OLD_NETWORK else ""
+    new_filename = os.path.basename(os.fspath(NEW_EMBEDDINGS)) if NEW_EMBEDDINGS else ""
+
+    _old_seq_set = "UnknownOld"
+    match_old = re.search(r"^(.*)_\[(.*)\]_network\.h5$", old_filename)
+    if match_old:
+        _old_seq_set = match_old.group(1)
+
+    _new_seq_set = "UnknownNew"
+    match_new = re.search(r"^(.*)_\[(.*)\]_embeddings\.h5$", new_filename)
+    if match_new:
+        _new_seq_set = match_new.group(1)
+
+    OLD_NETWORK = _resolve_selected_path(
+        OLD_NETWORK,
+        NETWORK_DIR,
+        "existing network file",
+    )
+    NEW_EMBEDDINGS = _resolve_selected_path(
+        NEW_EMBEDDINGS,
+        EMBED_DIR,
+        "new embeddings file",
+    )
+
+
+def configure_output_paths(model_name):
+    """Build output paths after the existing network has been validated."""
+    global _model_name, RESULTS_DIR, FINAL_OUTPUT_NET, CONFIG_FILE
+
+    _model_name = re.sub(r'[<>:"/\\|?*]', "_", model_name)
+    RESULTS_DIR = os.path.join(
+        NETWORK_DIR,
+        f"{_new_seq_set}_[{_model_name}]_network_temp",
+    )
+    FINAL_OUTPUT_NET = os.path.join(
+        NETWORK_DIR,
+        f"{_new_seq_set}_[{_model_name}]_network.h5",
+    )
+    CONFIG_FILE = os.path.join(RESULTS_DIR, "injection_config.json")
 
 # %% =======================================
 # KERNELS 
@@ -228,19 +260,19 @@ def load_embedding_metadata(file_path):
 
 
 def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float16)
-    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float16)
+    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
+    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
     t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
     t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T)
+    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
     dist_mat = 1.0 - cos_sim
     sim_mat = torch.exp(-dist_mat)
     
     epsilon = 1e-8
     row_mean = sim_mat.mean(dim=1, keepdim=True)
-    row_std = sim_mat.std(dim=1, keepdim=True)
+    row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
     col_mean = sim_mat.mean(dim=0, keepdim=True)
-    col_std = sim_mat.std(dim=0, keepdim=True)
+    col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
     
     z_r = (sim_mat - row_mean) / (row_std + epsilon)
     z_c = (sim_mat - col_mean) / (col_std + epsilon)
@@ -952,6 +984,12 @@ def compile_final_output(
     print("✅ Compilation complete!")
 
 def run_injection():
+    try:
+        configure_input_paths()
+    except ValueError as error:
+        print(f"\n❌ Cannot start Network Injection:\n{error}")
+        return
+
     try: set_start_method('spawn')
     except RuntimeError: pass
 
@@ -977,14 +1015,15 @@ def run_injection():
     current_checksum = calculate_file_hash(NEW_EMBEDDINGS)
     print(f"  > Checksum: {current_checksum}")
             
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-
     print("Loading Existing Network...")
     if not os.path.exists(OLD_NETWORK):
         sys.exit(f"❌ Error: Old network file not found at {OLD_NETWORK}")
         
     with h5py.File(OLD_NETWORK, "r") as hf_old_net:
-        validate_network_schema(hf_old_net, expected_network_type="alignment")
+        old_network_metadata = validate_network_schema(
+            hf_old_net,
+            expected_network_type="alignment",
+        )
         raw_old_headers = hf_old_net['headers'][:]
         old_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_old_headers]
         old_N = len(old_headers)
@@ -1012,6 +1051,9 @@ def run_injection():
         globals()["GLOBAL_GAP_P"] = inherited_global
         current_gap_penalties = [inherited_local, inherited_global]
         print(f"  > Inherited gap penalties from input network: Local={inherited_local}, Global={inherited_global}")
+
+    configure_output_paths(old_network_metadata.model_name)
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 
     theoretical_old_total = (old_N * (old_N - 1)) // 2
     total_old_pairs = len(old_i)
@@ -1047,7 +1089,7 @@ def run_injection():
         norms = np.where(norms == 0, 1e-8, norms)
         norm_embs = mean_embs / norms
         print("Computing all-vs-all cosine similarities...")
-        cos_sim = np.dot(norm_embs, norm_embs.T)
+        cos_sim = np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
         
         new_header_to_idx = {h: idx for idx, h in enumerate(new_headers)}
         

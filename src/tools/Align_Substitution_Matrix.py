@@ -210,23 +210,51 @@ else:
 E_VALUE_CUTOFF = 1e300 # Maximum E-value threshold; sequence hit pairs evaluated above this cutoff are entirely discarded.
 MAX_TARGET_SEQS = 1000000 # The maximum threshold of mathematically aligned sequence hit traces retained per query.
 
-SEQUENCE_SET = INPUT_FASTA.replace(".fasta", "") if INPUT_FASTA else "Unknown_Set"
+SEQUENCE_SET = ""
+FULL_INPUT_FASTA = None
+OUTPUT_HDF5 = None
+SAFE_TEMP_DIR = None
+CHUNKS_DIR = None
+RESULTS_DIR = None
+BATCH_DIR = None
+CONFIG_FILE = None
 
-FULL_INPUT_FASTA = os.path.join(FASTA_DIR, INPUT_FASTA) if INPUT_FASTA else ""
-OUTPUT_HDF5 = os.path.join(NETWORK_DIR, f"{SEQUENCE_SET}_[BLAST]_EValue.h5")
 
-# Keep resumable BLAST work beside the network it will produce. This path is
-# derived rather than user-configurable so it always follows NETWORK_DIR.
-SAFE_TEMP_DIR = os.path.join(
-    NETWORK_DIR,
-    f"{SEQUENCE_SET}_[BLAST]_EValue_temp",
-)
+def configure_runtime_paths():
+    """Resolve the selected FASTA and its output workspace at execution time."""
+    global SEQUENCE_SET, FULL_INPUT_FASTA, OUTPUT_HDF5, SAFE_TEMP_DIR
+    global CHUNKS_DIR, RESULTS_DIR, BATCH_DIR, CONFIG_FILE
 
-# WORKSPACE SETUP
-CHUNKS_DIR    = os.path.join(SAFE_TEMP_DIR, "chunks")
-RESULTS_DIR   = os.path.join(SAFE_TEMP_DIR, "results")
-BATCH_DIR     = os.path.join(SAFE_TEMP_DIR, "batches")
-CONFIG_FILE   = os.path.join(SAFE_TEMP_DIR, "job_config.json")
+    if INPUT_FASTA is None or not str(INPUT_FASTA).strip():
+        raise ValueError("No input FASTA file has been selected.")
+
+    selected_path = os.fspath(INPUT_FASTA)
+    FULL_INPUT_FASTA = (
+        os.path.normpath(selected_path)
+        if os.path.isabs(selected_path)
+        else os.path.normpath(os.path.join(FASTA_DIR, selected_path))
+    )
+    SEQUENCE_SET = os.path.splitext(os.path.basename(selected_path))[0]
+    OUTPUT_HDF5 = os.path.join(
+        NETWORK_DIR,
+        f"{SEQUENCE_SET}_[BLAST]_EValue.h5",
+    )
+
+    # Keep resumable BLAST work beside the network it will produce.
+    SAFE_TEMP_DIR = os.path.join(
+        NETWORK_DIR,
+        f"{SEQUENCE_SET}_[BLAST]_EValue_temp",
+    )
+    CHUNKS_DIR = os.path.join(SAFE_TEMP_DIR, "chunks")
+    RESULTS_DIR = os.path.join(SAFE_TEMP_DIR, "results")
+    BATCH_DIR = os.path.join(SAFE_TEMP_DIR, "batches")
+    CONFIG_FILE = os.path.join(SAFE_TEMP_DIR, "job_config.json")
+
+
+# Preserve the existing module-level path interface when GUI settings contain
+# a real selection, while keeping every derived name neutral when they do not.
+if INPUT_FASTA is not None and str(INPUT_FASTA).strip():
+    configure_runtime_paths()
 
 # %% =======================================
 # HELPER FUNCTIONS
@@ -991,6 +1019,12 @@ def cleanup_workspace():
 
 def run_workflow():
     print(f"--- BLAST All-vs-All (-Log10 E-Value Mode) ---")
+
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        print(f"❌ Error: {error}")
+        return
 
     # Linux defaults to fork, which is unsafe here: the pool below is created
     # after HDF5 handles are open and each worker spawns a BLAST subprocess.

@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "artifacts": [
+    {
+      "filename": "esm-3.3.0-py3-none-any.whl",
+      "package": "esm",
+      "version": "3.3.0",
+      "python_tag": "py3",
+      "requires_python": ">=3.12,<3.13",
+      "platform_tag": "any",
+      "size": 2531845,
+      "sha256": "d5e412470877fa2e21c36b40a52cdf1bef5664234654355dc2a35bb8cd2f4d82",
+      "source_repository": "https://github.com/evolutionaryscale/esm",
+      "source_commit": "c94ed8d763bbd7088b296949e5b401e8ea12073a",
+      "license": "MIT",
+      "license_file": "LICENSE.esm",
+      "notes": "Unmodified wheel built from the upstream MIT-licensed source commit."
+    }
+  ]
+}

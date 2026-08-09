@@ -151,22 +151,46 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-# --- PATH INFERENCE ---
-_filename = os.path.basename(INPUT_HDF5)
-_base_name = _filename.replace("_embeddings.h5", "").replace(".h5", "")
-
 import re
 MODEL_NAME = "unknown"
-SEQUENCE_SET = _base_name
+SEQUENCE_SET = ""
+FULL_INPUT_HDF5 = None
+RESULTS_DIR = None
+FINAL_OUTPUT_NET = None
 
-match = re.search(r"^(.*)_\[(.*)\]_embeddings\.h5$", _filename)
-if match:
-    SEQUENCE_SET = match.group(1)
-    MODEL_NAME = match.group(2)
 
-FULL_INPUT_HDF5 = os.path.join(EMBED_DIR, INPUT_HDF5)
-RESULTS_DIR = os.path.join(NETWORK_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_network_temp") 
-FINAL_OUTPUT_NET = os.path.join(NETWORK_DIR, f"{SEQUENCE_SET}_[{MODEL_NAME}]_network.h5") 
+def configure_runtime_paths():
+    """Resolve GUI-selected paths immediately before starting the job."""
+    global MODEL_NAME, SEQUENCE_SET
+    global FULL_INPUT_HDF5, RESULTS_DIR, FINAL_OUTPUT_NET
+
+    if INPUT_HDF5 is None or not str(INPUT_HDF5).strip():
+        raise ValueError("No embeddings file has been selected.")
+
+    selected_path = os.fspath(INPUT_HDF5)
+    filename = os.path.basename(selected_path)
+    base_name = filename.replace("_embeddings.h5", "").replace(".h5", "")
+
+    MODEL_NAME = "unknown"
+    SEQUENCE_SET = base_name
+    match = re.search(r"^(.*)_\[(.*)\]_embeddings\.h5$", filename)
+    if match:
+        SEQUENCE_SET = match.group(1)
+        MODEL_NAME = match.group(2)
+
+    FULL_INPUT_HDF5 = (
+        os.path.normpath(selected_path)
+        if os.path.isabs(selected_path)
+        else os.path.normpath(os.path.join(EMBED_DIR, selected_path))
+    )
+    RESULTS_DIR = os.path.join(
+        NETWORK_DIR,
+        f"{SEQUENCE_SET}_[{MODEL_NAME}]_network_temp",
+    )
+    FINAL_OUTPUT_NET = os.path.join(
+        NETWORK_DIR,
+        f"{SEQUENCE_SET}_[{MODEL_NAME}]_network.h5",
+    )
         
 # %% =======================================
 # KERNELS
@@ -262,31 +286,31 @@ def _score_matrix_statistics(sim_mat, device):
                 sim_mat,
                 dim=1,
                 keepdim=True,
-                correction=1,
+                correction=0,
             )
             col_std, col_mean = torch.std_mean(
                 sim_mat,
                 dim=0,
                 keepdim=True,
-                correction=1,
+                correction=0,
             )
         except (RuntimeError, NotImplementedError):
             # Some accelerator integrations do not implement std_mean. Only
             # remember the failure after the established operations succeed,
             # so unrelated failures are not silently cached as capabilities.
             row_mean = sim_mat.mean(dim=1, keepdim=True)
-            row_std = sim_mat.std(dim=1, keepdim=True)
+            row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
             col_mean = sim_mat.mean(dim=0, keepdim=True)
-            col_std = sim_mat.std(dim=0, keepdim=True)
+            col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
             std_mean_support_cache[cache_key] = False
         else:
             if fused_supported is None:
                 std_mean_support_cache[cache_key] = True
     else:
         row_mean = sim_mat.mean(dim=1, keepdim=True)
-        row_std = sim_mat.std(dim=1, keepdim=True)
+        row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
         col_mean = sim_mat.mean(dim=0, keepdim=True)
-        col_std = sim_mat.std(dim=0, keepdim=True)
+        col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
 
     return row_mean, row_std, col_mean, col_std
 
@@ -294,7 +318,7 @@ def _score_matrix_statistics(sim_mat, device):
 def _score_matrix_from_normalized_row(t_i_norm, emb_j, device):
     """Calculate a score matrix when the left embedding is pre-normalized."""
     t_j_norm = _normalize_embedding_torch(emb_j, device)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T)
+    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
     dist_mat = 1.0 - cos_sim
     sim_mat = torch.exp(-dist_mat)
 
@@ -439,7 +463,7 @@ def _stream_context(device):
     """
     Return a context for a stream owned by the current accelerator thread.
 
-    CUDA and XPU use separate explicit streams. MPS, DirectML, and other
+    CUDA and XPU use separate explicit streams. MPS and other
     backends deliberately retain their default execution queue.
     """
     device_type = _device_type(device)
@@ -1352,6 +1376,12 @@ def compile_final_output(
 # MAIN
 # ==========================================
 def run_job_distributor():
+    try:
+        configure_runtime_paths()
+    except ValueError as error:
+        print(f"\n❌ Cannot start alignment:\n{error}")
+        return
+
     if os.path.exists(FINAL_OUTPUT_NET):
         print("✅ Job already done."); return
 
@@ -1396,7 +1426,7 @@ def run_job_distributor():
         norms = np.linalg.norm(mean_embs, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1e-8, norms)
         norm_embs = mean_embs / norms
-        cos_sim = np.dot(norm_embs, norm_embs.T)
+        cos_sim = np.clip(np.dot(norm_embs, norm_embs.T), -1.0, 1.0)
         
         # Apply sequence length ratio adjustment
         seq_lens_array = np.array(seq_lens, dtype=np.int32)

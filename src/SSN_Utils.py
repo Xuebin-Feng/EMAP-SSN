@@ -25,6 +25,7 @@ import math
 import fnmatch
 import SSN_Config as cfg
 import Cache_Manifest as cache_manifest
+from utilities.FASTA_Sanitization import load_sanitized_fasta
 
 # --- 1. Library Detection ---
 try:
@@ -412,7 +413,11 @@ def plot_score_histogram(scores, threshold):
     
     plt.legend(); plt.show()
 
-def build_network_from_raw(data, forced_ref_header=None):
+def build_network_from_raw(
+    data,
+    forced_ref_header=None,
+    selected_fasta_headers=None,
+):
     metadata = cache_manifest.validate_network_schema(data)
     cfg.INPUT_IS_EVALUE = metadata.network_type == "blast"
 
@@ -448,17 +453,21 @@ def build_network_from_raw(data, forced_ref_header=None):
     fasta_path = getattr(cfg, "NODE_FASTA_FILE", "")
     kept_indices = []
     
-    if os.path.exists(fasta_path):
+    if selected_fasta_headers is not None or os.path.exists(fasta_path):
         # ---> FIX: Normalize the slash direction for the console output <---
         clean_fasta_path = os.path.normpath(fasta_path)
         print(f"Scanning FASTA file for node filter: {clean_fasta_path}")
         fasta_ids = set()
         fasta_headers = set()
         try:
-            from Bio import SeqIO
-            for rec in SeqIO.parse(fasta_path, "fasta"):
-                fasta_ids.add(rec.id)
-                fasta_headers.add(rec.description)
+            if selected_fasta_headers is None:
+                selected_fasta_headers, _, _ = load_sanitized_fasta(fasta_path)
+
+            for header in selected_fasta_headers:
+                fasta_headers.add(header)
+                header_parts = header.split()
+                if header_parts:
+                    fasta_ids.add(header_parts[0])
                 
             net_headers_set = set(headers)
             net_id_set = {h.split()[0] for h in headers}

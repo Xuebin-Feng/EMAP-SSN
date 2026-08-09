@@ -39,38 +39,21 @@ else
     UV_EXE="$HOME/.local/bin/uv"
 fi
 
-# 2. Create virtual environment if it doesn't exist
-if [ ! -d ".venv" ]; then
+# 2. Create or repair the managed virtual environment
+VENV_PYTHON=".venv/bin/python"
+if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
     echo "Creating isolated local virtual environment (.venv)..."
-    "$UV_EXE" venv --python 3.12
+    "$UV_EXE" venv --clear --python 3.12 || exit 1
 fi
 
-# 3. Detect GPU type using python script
-echo "Detecting hardware configuration..."
-GPU_TYPE=$("$UV_EXE" run --quiet python src/Detect_GPU.py)
-
-# 4. Resolve dependencies based on GPU Type
-echo "Detected platform/GPU type: $GPU_TYPE"
-echo ""
-
-if [ "$GPU_TYPE" = "NVIDIA" ]; then
-    echo "NVIDIA GPU detected. Syncing with PyTorch CUDA 13.0 support..."
-    "$UV_EXE" pip install -r src/requirements.txt --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
-elif [ "$GPU_TYPE" = "INTEL" ]; then
-    echo "Intel Arc/GPU detected. Syncing with PyTorch XPU (oneAPI/SYCL) support..."
-    "$UV_EXE" pip install -r src/requirements.txt --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match
-elif [ "$GPU_TYPE" = "AMD" ]; then
-    echo "AMD GPU detected on Linux. Syncing with PyTorch ROCm 6.1 support..."
-    "$UV_EXE" pip install -r src/requirements.txt --extra-index-url https://download.pytorch.org/whl/rocm6.1 --index-strategy unsafe-best-match
-elif [ "$GPU_TYPE" = "MPS" ]; then
-    echo "Apple Silicon detected. Syncing with macOS MPS support..."
-    "$UV_EXE" pip install -r src/requirements.txt
-else
-    echo "No dedicated GPU detected. Syncing with CPU-only PyTorch..."
-    "$UV_EXE" pip install -r src/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+# 3. Resolve base, ESM, and hardware-specific PyTorch dependencies
+echo "Detecting hardware and synchronizing dependencies..."
+if ! "$VENV_PYTHON" src/Install_Dependencies.py --uv-executable "$UV_EXE" --venv .venv; then
+    echo "Dependency installation failed."
+    exit 1
 fi
 echo ""
 
-# 5. Run the tools
+# 4. Run the tools
 echo "Starting SSN_Tools..."
-"$UV_EXE" run src/SSN_Tools.py
+"$VENV_PYTHON" src/SSN_Tools.py
