@@ -176,10 +176,6 @@ if __name__ == "__main__":
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import QDesktopServices, QIcon
 
-    # --- Re-enabled Qt log filter for window state transitions ---
-    import Qt_Log_Filter
-    Qt_Log_Filter.install()
-
     # --- Custom Widget Classes ---
     class NoScrollComboBox(QComboBox):
         def __init__(self, *args, **kwargs):

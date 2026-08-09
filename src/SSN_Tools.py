@@ -378,10 +378,6 @@ The first line above names the exact library that failed to load; if it is not
 covered by these commands, install the package that provides it.\
 """
 
-# --- Re-enabled Qt log filter for window state transitions ---
-import Qt_Log_Filter
-Qt_Log_Filter.install()
-
 class ResponsiveTextBrowser(QWebEngineView):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

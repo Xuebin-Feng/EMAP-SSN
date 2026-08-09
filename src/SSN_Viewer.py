@@ -36,10 +36,6 @@ import queue
 from vispy import scene, app
 from PySide6 import QtWidgets, QtCore, QtGui
 
-# Suppress the benign QPainter warning burst Qt emits during fullscreen
-# transitions. See Qt_Log_Filter for the full explanation and how to disable it.
-import Qt_Log_Filter
-Qt_Log_Filter.install()
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine

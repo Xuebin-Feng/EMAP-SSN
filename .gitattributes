@@ -18,3 +18,8 @@
 *.ico   binary
 *.xlsx  binary
 *.h5    binary
+
+# Vendored Mol* distribution bodies have recorded upstream hashes. Preserve
+# their exact bytes in checkouts and source archives on every platform.
+src/resources/esmfold/molstar.js  -text
+src/resources/esmfold/molstar.css -text
