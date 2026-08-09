@@ -28,7 +28,7 @@ import subprocess
 from typing import Any, Iterable
 
 
-COMPATIBILITY_REVISION = 3
+COMPATIBILITY_REVISION = 4
 CUDA_13_MIN_DRIVER = (580, 0)
 WINDOWS_11_MIN_BUILD = 22000
 WINDOWS_11_25H2_MIN_BUILD = 26200
@@ -164,6 +164,36 @@ def _read_os_release() -> dict[str, str]:
 def _pci_id(value: str) -> str | None:
     match = re.search(r"(?:VEN_|\[)([0-9a-f]{4})(?:&DEV_|:)([0-9a-f]{4})", value, re.I)
     return f"{match.group(1).lower()}:{match.group(2).lower()}" if match else None
+
+
+def _pci_address(value: Any) -> str | None:
+    """Return a canonical PCI domain:bus:device.function address."""
+    match = re.search(
+        r"(?<![0-9a-f])(?:([0-9a-f]{4,8}):)?([0-9a-f]{2}):([0-9a-f]{2})\.([0-7])(?![0-9a-f])",
+        str(value or ""),
+        re.I,
+    )
+    if not match:
+        return None
+    domain, bus, device, function = match.groups()
+    return f"{int(domain or '0', 16):x}:{int(bus, 16):02x}:{int(device, 16):02x}.{function.lower()}"
+
+
+def _gpu_name_aliases(value: Any) -> set[str]:
+    """Build conservative aliases for equivalent OS and vendor GPU names."""
+    text = str(value or "")
+    parts = [text, *re.findall(r"\[([^]]+)\]", text)]
+    ignored = {
+        "3d", "compatible", "controller", "corp", "corporation", "display",
+        "inc", "limited", "ltd", "nvidia", "vga",
+    }
+    aliases: set[str] = set()
+    for part in parts:
+        tokens = [token.lower() for token in re.findall(r"[a-z0-9]+", part, re.I)]
+        alias = " ".join(token for token in tokens if token not in ignored)
+        if alias:
+            aliases.add(alias)
+    return aliases
 
 
 def _vendor(name: str, pci_id: str | None = None) -> str:
@@ -309,7 +339,29 @@ def _merge_nvidia_inventory(devices: list[dict[str, Any]], nvidia: list[dict[str
     for device in devices:
         if device["vendor"] != "NVIDIA":
             continue
-        match = next((item for item in unused if item["name"].lower() in device["name"].lower()), None)
+        device_address = _pci_address(device.get("bus_id")) or _pci_address(device.get("id"))
+        address_matches = [
+            item for item in unused
+            if device_address and _pci_address(item.get("bus_id")) == device_address
+        ]
+        match = address_matches[0] if len(address_matches) == 1 else None
+        if match is None:
+            # A disagreeing address is stronger evidence than a similar model name.
+            # When the OS inventory has no usable address (as on Windows), names
+            # remain the only available join key. Otherwise name matching is
+            # reserved for the older nvidia-smi query that omits PCI addresses.
+            name_candidates = [
+                item for item in unused
+                if (device_address is None or _pci_address(item.get("bus_id")) is None)
+                and _gpu_name_aliases(device.get("name")) & _gpu_name_aliases(item.get("name"))
+            ]
+            if name_candidates:
+                candidate_aliases = {
+                    frozenset(_gpu_name_aliases(item.get("name")))
+                    for item in name_candidates
+                }
+                if len(name_candidates) == 1 or len(candidate_aliases) == 1:
+                    match = name_candidates[0]
         if match:
             device.update({key: value for key, value in match.items() if value is not None})
             unused.remove(match)
