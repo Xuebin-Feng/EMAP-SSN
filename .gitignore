@@ -3,16 +3,16 @@ Results/
 Input_Files/
 Embeddings/
 Cache_Files/
+
+# Keep ad-hoc test artifacts private while tracking the bundled-font regression.
 tests/
 validation/
 release_checks/
 
-# Per-plugin API credentials stored beside their plugin
-src/resources/pLM_models/*_api_key.json
-
 # User-specified files
+src/resources/pLM_models/*_api_key.json
 src/resources/agent/model_card.json
-src/resources/agent/evaluate_agent.py
+src/resources/pLM_models/ankh_license.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -24,9 +24,6 @@ __pycache__/
 .codex/
 .claude/
 .idea/
-
-# Separately licensed model acknowledgements are local user state.
-src/resources/pLM_models/ankh_license.json
 
 # C extensions
 *.so
@@ -45,8 +42,7 @@ parts/
 sdist/
 var/
 wheels/
-!src/resources/wheels/
-!src/resources/wheels/**
+
 share/python-wheels/
 *.egg-info/
 .installed.cfg

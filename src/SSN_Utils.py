@@ -616,13 +616,10 @@ def force_light_palette(app):
 
 # --- 9. Platform Utilities ---
 
-# Single source of truth for the widget font stack. Qt resolves the first family
-# present in its font database and falls through to the trailing generic, so the
-# same declaration gives a sensible face on Windows, macOS and Linux alike.
-UI_FONT_STACK = (
-    "'Segoe UI', '.AppleSystemUIFont', 'Helvetica Neue', "
-    "'Cantarell', 'Noto Sans', 'DejaVu Sans', sans-serif"
-)
+# Single source of truth for the widget font stack. The lightweight font module
+# has no Qt imports at module load time, preserving Windows DLL initialization
+# order while keeping QSS and QApplication family precedence identical.
+from utilities.Application_Fonts import UI_QSS_FONT_STACK as UI_FONT_STACK
 
 
 def open_in_file_manager(path):

@@ -160,6 +160,28 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 
      This will configure execution permissions and generate launchers (`SSN_Viewer` and `SSN_Tools`) as well as system `.desktop` application entries.
 
+### Additional language fonts
+
+The application bundles a 4.68 MiB Noto Sans/Noto Sans Mono desktop core with
+Latin, Greek, Cyrillic, IPA, combining-mark, and common scientific punctuation
+coverage. Qt uses fonts installed in the operating system when this core does
+not contain a requested glyph.
+
+For another writing system, download the appropriate family from the
+[official Noto Fonts site](https://notofonts.github.io/) and install it normally:
+
+- **Windows:** right-click the font file and select **Install** or **Install for
+  all users**.
+- **macOS:** open the font in Font Book and select **Install Font**.
+- **Linux:** copy it to `~/.local/share/fonts/`, run `fc-cache -f`, and restart
+  the application.
+
+Copying a font into `src/resources/fonts/desktop/` is not sufficient: Qt does
+not scan that directory, and the application registers only the files declared
+in its bundled manifest. System-installed fonts become available after the
+application is restarted. They can provide fallback in PySide6/Qt widgets, but
+VisPy network labels remain limited to the bundled Noto Sans face.
+
 ---
 
 ## 🔧 Linux Troubleshooting

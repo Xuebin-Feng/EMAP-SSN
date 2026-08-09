@@ -24,8 +24,7 @@ attribution banner; the underlying upstream body is otherwise unchanged.
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex) |
-| [Inter](https://github.com/rsms/inter) | Google Fonts build | SIL OFL 1.1 | `src/resources/fonts/Inter-*.woff2` **and** `docs/fonts/Inter-*.woff2` | [`src`](src/resources/fonts/LICENSE.Inter), [`docs`](docs/fonts/LICENSE.Inter) |
-| [Fira Code](https://github.com/tonsky/FiraCode) | Google Fonts build | SIL OFL 1.1 | `src/resources/fonts/FiraCode-*.woff2` **and** `docs/fonts/FiraCode-*.woff2` | [`src`](src/resources/fonts/LICENSE.FiraCode), [`docs`](docs/fonts/LICENSE.FiraCode) |
+| [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
   the official npm package `molstar@5.10.1`, whose version is embedded in the
@@ -57,19 +56,28 @@ attribution banner; the underlying upstream body is otherwise unchanged.
   first in every `@font-face`, so browsers never request the `woff`/`ttf`
   fallbacks. The fonts live in `src/resources/fonts/` because the CSS resolves
   them relative to its own location.
-- Inter and Fira Code: vendored 2026-08-06 from the Google Fonts CSS the UI
-  previously fetched at runtime, with the remote URLs rewritten to local files in
-  `fonts.css`. 49 `woff2` subsets in total. The OFL requires its license text to
-  accompany redistributed font files; both licenses are shipped verbatim rather
-  than merged, as the two texts differ slightly.
+- Noto: vendored 2026-08-09 as a compact offline desktop core. The monthly
+  release contributes the Regular, Medium, SemiBold, and Bold hinted static
+  TTFs for Noto Sans and Noto Sans Mono. These eight runtime files total
+  4,908,576 bytes and cover Latin, Greek, Cyrillic, IPA, combining marks, and
+  common scientific punctuation. They live only under
+  `src/resources/fonts/desktop/noto/`, are registered privately by Qt at
+  startup, and are never installed into the operating system. Other scripts
+  and emoji use fonts installed by the user in the operating system. VisPy
+  registers the `NotoSans` and `NotoSansMono` regular/bold faces because its
+  text visual accepts one face rather than Qt-style multi-family fallback.
+  Exact filenames and SHA-256 hashes are recorded in
+  `src/resources/fonts/desktop/SHA256SUMS`; release provenance and source hashes
+  are recorded in `src/resources/fonts/LICENSE.fonts`.
 
-  These fonts are deliberately **duplicated in two locations**: the web UI loads
-  them from `src/resources/fonts/` over the local web server, while
-  `docs/list_of_commands.html` loads them from `docs/fonts/` by relative path so
-  the documentation is self-contained and does not reach into the source tree.
-  Each copy carries its own `LICENSE.Inter` and `LICENSE.FiraCode`, which is what
-  the OFL requires of each redistributed set. The two `fonts.css` files are
-  identical; regenerate both together.
+  The embedded web surfaces use 15 variable `woff2` subsets for Noto Sans and
+  Noto Sans Mono, acquired from Google Fonts CSS with all remote URLs rewritten
+  to local paths in `fonts.css`. This compact 757,252-byte web set is duplicated
+  under `src/resources/fonts/` and `docs/fonts/`: the local web server uses the
+  first copy, while `docs/list_of_commands.html` uses the second so standalone
+  documentation remains self-contained. Each location includes the OFL text in
+  `LICENSE.Noto`; the two `fonts.css` files are identical and must be regenerated
+  together. The 4.68 MiB desktop core is not duplicated under `docs/`.
 
   The KaTeX fonts are **not** duplicated into `docs/` — they are MIT rather than
   OFL, and the documentation page does not use KaTeX.

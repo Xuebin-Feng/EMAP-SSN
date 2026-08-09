@@ -176,6 +176,10 @@ if __name__ == "__main__":
                                  QStyle, QStyleOptionSlider, QFileDialog, QColorDialog)
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import QDesktopServices, QIcon
+    from utilities.Application_Fonts import (
+        configure_qt_application_fonts,
+        qt_monospace_font,
+    )
 
     # --- Custom Widget Classes ---
     class SpacedTipLabel(QLabel):
@@ -233,6 +237,33 @@ if __name__ == "__main__":
                 event.ignore()
             else:
                 super().wheelEvent(event)
+
+    class OptionalNoScrollDoubleSpinBox(NoScrollDoubleSpinBox):
+        """Double spin box that keeps the existing blank/unset setting state."""
+
+        def __init__(self, unset_value, first_value, *args, **kwargs):
+            self._unset_value = float(unset_value)
+            self._first_value = float(first_value)
+            super().__init__(*args, **kwargs)
+
+        def setOptionalValue(self, value):
+            if value in [None, "", "None"]:
+                self.setValue(self._unset_value)
+            else:
+                self.setValue(float(value))
+
+        def optionalValue(self):
+            if self.value() <= self.minimum():
+                return None
+            return self.value()
+
+        def stepBy(self, steps):
+            if self.optionalValue() is None and steps > 0:
+                self.setValue(
+                    self._first_value + (steps - 1) * self.singleStep()
+                )
+                return
+            super().stepBy(steps)
                 
     class NoScrollSlider(QSlider):
         def __init__(self, *args, **kwargs):
@@ -331,7 +362,7 @@ if __name__ == "__main__":
             
             self.tip_panel = SpacedTipLabel("Click or tab to an input or its label to see helpful tips here.")
             self.tip_panel.setWordWrap(True)
-            self.tip_panel.setStyleSheet("color: #444; font-style: italic; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
+            self.tip_panel.setStyleSheet("color: #444; font-style: normal; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
             self.left_bottom_layout.addWidget(self.tip_panel)
             
             btn_layout = QHBoxLayout()
@@ -374,7 +405,8 @@ if __name__ == "__main__":
             self.stat_display = QTextEdit()
             self.stat_display.setReadOnly(True)
             self.stat_display.setPlaceholderText("Select Fasta subset and HDF5 Network file, then click compute.")
-            self.stat_display.setStyleSheet("font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; background-color: #f5f5f5;")
+            self.stat_display.setFont(qt_monospace_font(self.stat_display.font()))
+            self.stat_display.setStyleSheet("background-color: #f5f5f5;")
             self.right_layout.addWidget(self.stat_label)
             self.right_layout.addWidget(self.stat_display)
             
@@ -404,8 +436,8 @@ if __name__ == "__main__":
             self.cb_score_mode.currentTextChanged.connect(self.update_live_validators)
             self.cb_norm_mode.currentTextChanged.connect(self.update_live_validators)
             self.line_ref.textChanged.connect(self.update_live_validators)
-            self.line_thresh.textChanged.connect(self.update_live_validators)
-            self.line_top.textChanged.connect(self.update_live_validators)
+            self.spin_thresh.valueChanged.connect(self.update_live_validators)
+            self.spin_top.valueChanged.connect(self.update_live_validators)
             self.cb_msa.currentTextChanged.connect(self.update_live_validators)
             
             self.update_live_validators()
@@ -697,15 +729,15 @@ if __name__ == "__main__":
             return os.path.abspath(fasta_path), os.path.abspath(network_path)
 
         def _cache_setting_values(self):
-            top_value = self.line_top.text().strip()
-            threshold_value = self.line_thresh.text().strip()
+            top_value = self.spin_top.optionalValue()
+            threshold_value = self.spin_thresh.optionalValue()
             return {
                 "alignment_score": self.cb_score_mode.currentText() or None,
                 "normalization": self.cb_norm_mode.currentText() or None,
                 "umap_mode": self.check_umap.isChecked(),
                 "umap_neighbors": self.spin_umap_k.value(),
-                "top_edge_percent": top_value if top_value else None,
-                "similarity_threshold": threshold_value if threshold_value else None,
+                "top_edge_percent": top_value,
+                "similarity_threshold": threshold_value,
             }
 
         def _set_network_type_controls(self, network_type):
@@ -1025,6 +1057,7 @@ if __name__ == "__main__":
             self.spin_alignment_offset.setStyleSheet(
                 "QSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
             )
+            ref_layout.addSpacing(12)
             ref_layout.addWidget(self.lbl_alignment_offset)
             ref_layout.addWidget(self.spin_alignment_offset)
 
@@ -1061,7 +1094,7 @@ if __name__ == "__main__":
             
             from PySide6.QtWidgets import QSizePolicy
             lbl_k = QLabel("   UMAP Nearest Neighbors (k):")
-            lbl_md = QLabel("   UMAP Minimum Distance:")
+            lbl_md = QLabel("   UMAP Min Distance:")
             
             self.spin_umap_k = NoScrollSpinBox()
             self.spin_umap_k.setRange(2, 500)
@@ -1126,37 +1159,64 @@ if __name__ == "__main__":
             self.labels["UMAP_NEIGHBORS"] = lbl_k
             self.labels["UMAP_MIN_DIST"] = lbl_md
             
-            thresh_val = globals().get("SIMILARITY_THRESHOLD", "")
-            self.line_thresh = QLineEdit("" if thresh_val in [None, "None"] else str(thresh_val))
-            
-            val_top = globals().get("TOP_EDGE_PERCENT", "")
-            self.line_top = QLineEdit("" if val_top in [None, "None"] else str(val_top))
-            self.line_top.setPlaceholderText("Overrides Similarity Threshold (e.g. 1.0)")
-            self.line_top.textChanged.connect(self.update_live_validators)
-            
-            thresh_container = QWidget()
-            thresh_container.setObjectName("wrapper")
-            thresh_layout = QHBoxLayout(thresh_container)
-            thresh_layout.setContentsMargins(0, 0, 0, 0)
-            
-            lbl_top = QLabel("   Top Edge % (Optional):")
-            
-            thresh_layout.addWidget(self.line_thresh)
-            thresh_layout.addWidget(lbl_top)
-            thresh_layout.addWidget(self.line_top)
-            
+            self.spin_thresh = OptionalNoScrollDoubleSpinBox(-1000000000.0, 0.0)
+            self.spin_thresh.setDecimals(5)
+            self.spin_thresh.setRange(-1000000000.0, 1000000000.0)
+            self.spin_thresh.setSingleStep(0.1)
+            self.spin_thresh.setSpecialValueText(" ")
+            self.spin_thresh.setOptionalValue(globals().get("SIMILARITY_THRESHOLD"))
+
+            self.spin_top = OptionalNoScrollDoubleSpinBox(-0.01, 1.0)
+            self.spin_top.setDecimals(2)
+            self.spin_top.setRange(-0.01, 100.0)
+            self.spin_top.setSingleStep(0.1)
+            self.spin_top.setSpecialValueText(" ")
+            self.spin_top.setOptionalValue(globals().get("TOP_EDGE_PERCENT"))
+
+            self.spin_min_occ = NoScrollDoubleSpinBox()
+            self.spin_min_occ.setDecimals(2)
+            self.spin_min_occ.setRange(0.0, 100.0)
+            self.spin_min_occ.setSingleStep(1.0)
+            self.spin_min_occ.setValue(float(globals().get("FILTER_MIN_OCCUPANCY") or 10.0))
+
+            for spinbox in (
+                self.spin_thresh,
+                self.spin_top,
+                self.spin_min_occ,
+            ):
+                spinbox.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+                spinbox.setFixedHeight(input_spinbox_height)
+
+            filter_container = QWidget()
+            filter_container.setObjectName("wrapper")
+            filter_layout = QHBoxLayout(filter_container)
+            filter_layout.setContentsMargins(0, 0, 0, 0)
+
             lbl_thresh = QLabel("Similarity Threshold:")
-            layout.addRow(lbl_thresh, thresh_container)
-            
+            lbl_top = QLabel("   Top Edge %:")
+            lbl_min_occ = QLabel("   Min Occupancy %:")
+
+            filter_layout.addWidget(self.spin_thresh, 1)
+            filter_layout.addWidget(lbl_top)
+            filter_layout.addWidget(self.spin_top, 1)
+            filter_layout.addWidget(lbl_min_occ)
+            filter_layout.addWidget(self.spin_min_occ, 1)
+
+            layout.addRow(lbl_thresh, filter_container)
+
             self.labels["SIMILARITY_THRESHOLD"] = lbl_thresh
-            self.inputs["SIMILARITY_THRESHOLD"] = self.line_thresh
-            
+            self.inputs["SIMILARITY_THRESHOLD"] = self.spin_thresh
             self.labels["TOP_EDGE_PERCENT"] = lbl_top
-            self.inputs["TOP_EDGE_PERCENT"] = self.line_top
-            
-            min_occ_val = globals().get("FILTER_MIN_OCCUPANCY", "")
-            self.line_min_occ = QLineEdit("" if min_occ_val in [None, "None"] else str(min_occ_val))
-            add_row("FILTER_MIN_OCCUPANCY", "Filter Min Occupancy %:", self.line_min_occ)
+            self.inputs["TOP_EDGE_PERCENT"] = self.spin_top
+            self.labels["FILTER_MIN_OCCUPANCY"] = lbl_min_occ
+            self.inputs["FILTER_MIN_OCCUPANCY"] = self.spin_min_occ
+
+            # Retain the previous internal attribute names for compatibility.
+            self.line_thresh = self.spin_thresh
+            self.line_top = self.spin_top
+            self.line_min_occ = self.spin_min_occ
             
             # Horizontal layout for both statistics and histogram buttons
             btn_container = QWidget()
@@ -1290,16 +1350,16 @@ if __name__ == "__main__":
             if "LAYOUT_DEVICE_SELECTION" in self.labels:
                 self.labels["LAYOUT_DEVICE_SELECTION"].setEnabled(not is_umap)
             
-            if hasattr(self, 'line_thresh') and hasattr(self, 'line_top'):
-                has_top_edge = bool(self.line_top.text().strip())
-                self.line_thresh.setEnabled(not is_umap and not has_top_edge)
+            if hasattr(self, 'spin_thresh') and hasattr(self, 'spin_top'):
+                has_top_edge = self.spin_top.optionalValue() is not None
+                self.spin_thresh.setEnabled(not is_umap and not has_top_edge)
                 
-                if not self.line_thresh.isEnabled():
-                    self.line_thresh.setStyleSheet("QLineEdit:disabled { background-color: #f0f0f0; color: #888; }")
+                if not self.spin_thresh.isEnabled():
+                    self.spin_thresh.setStyleSheet("QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }")
                 else:
-                    self.line_thresh.setStyleSheet("")
+                    self.spin_thresh.setStyleSheet("")
                     
-                self.line_top.setEnabled(not is_umap)
+                self.spin_top.setEnabled(not is_umap)
                 
             if hasattr(self, 'tabs') and self.tabs.count() > 2:
                 self.tabs.setTabEnabled(2, not is_umap)
@@ -1557,11 +1617,7 @@ if __name__ == "__main__":
                 
                 # Determine threshold based on top edge % override
                 is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
-                top_percent_str = self.line_top.text().strip()
-                try:
-                    top_percent = float(top_percent_str) if top_percent_str else None
-                except ValueError:
-                    top_percent = None
+                top_percent = self.spin_top.optionalValue()
                     
                 if top_percent is not None and not is_umap:
                     total_active_nodes = np.sum(kept_mask) if kept_mask is not None else len(headers)
@@ -1574,10 +1630,8 @@ if __name__ == "__main__":
                         sorted_all = np.sort(scores)[::-1]
                         threshold = sorted_all[k - 1]
                 else:
-                    thresh_str = self.line_thresh.text().strip()
-                    try:
-                        threshold = float(thresh_str) if thresh_str else 0.0
-                    except ValueError:
+                    threshold = self.spin_thresh.optionalValue()
+                    if threshold is None:
                         threshold = 0.0
                 
                 self.stat_display.setText("Displaying score histogram...")
@@ -1796,7 +1850,9 @@ if __name__ == "__main__":
             tab = QWidget()
             main_layout = QVBoxLayout(tab)
             form_layout = QFormLayout()
-            form_layout.setHorizontalSpacing(8)
+            field_label_gap = 12
+            paired_group_padding = 24
+            form_layout.setHorizontalSpacing(field_label_gap)
             form_layout.setVerticalSpacing(12)
             
             self.physics_defaults = {
@@ -1901,14 +1957,15 @@ if __name__ == "__main__":
             # All paired slider rows share one grid. A grid per row sizes its columns
             # independently, so rows whose right-hand labels differ in width end up a
             # few pixels out of step with each other.
-            paired_group_padding = 24
             slider_pair_grid = QGridLayout()
             slider_pair_grid.setHorizontalSpacing(0)
             slider_pair_grid.setVerticalSpacing(12)
             slider_pair_grid.setColumnMinimumWidth(0, 180)
-            slider_pair_grid.setColumnMinimumWidth(2, paired_group_padding)
-            slider_pair_grid.setColumnStretch(1, 1)
-            slider_pair_grid.setColumnStretch(4, 1)
+            slider_pair_grid.setColumnMinimumWidth(1, field_label_gap)
+            slider_pair_grid.setColumnMinimumWidth(3, paired_group_padding)
+            slider_pair_grid.setColumnMinimumWidth(5, field_label_gap)
+            slider_pair_grid.setColumnStretch(2, 1)
+            slider_pair_grid.setColumnStretch(6, 1)
 
             def add_paired_slider_row(left_key, right_key):
                 row = slider_pair_grid.rowCount()
@@ -1917,9 +1974,9 @@ if __name__ == "__main__":
                 left_label.setFixedWidth(180)
 
                 slider_pair_grid.addWidget(left_label, row, 0)
-                slider_pair_grid.addWidget(left_control, row, 1)
-                slider_pair_grid.addWidget(right_label, row, 3)
-                slider_pair_grid.addWidget(right_control, row, 4)
+                slider_pair_grid.addWidget(left_control, row, 2)
+                slider_pair_grid.addWidget(right_label, row, 4)
+                slider_pair_grid.addWidget(right_control, row, 6)
 
             add_paired_slider_row("SPRING_K", "COULOMB_K")
             add_paired_slider_row("COULOMB_CUTOFF", "DAMPING")
@@ -1930,9 +1987,11 @@ if __name__ == "__main__":
             convergence_grid.setHorizontalSpacing(0)
             convergence_grid.setVerticalSpacing(12)
             convergence_grid.setColumnMinimumWidth(0, 180)
-            convergence_grid.setColumnMinimumWidth(2, paired_group_padding)
-            convergence_grid.setColumnStretch(1, 1)
-            convergence_grid.setColumnStretch(4, 1)
+            convergence_grid.setColumnMinimumWidth(1, field_label_gap)
+            convergence_grid.setColumnMinimumWidth(3, paired_group_padding)
+            convergence_grid.setColumnMinimumWidth(5, field_label_gap)
+            convergence_grid.setColumnStretch(2, 1)
+            convergence_grid.setColumnStretch(6, 1)
 
             lbl_dt = QLabel("Step Size:")
             le_dt = QLineEdit(str(globals().get("DT", 0.005)))
@@ -1945,9 +2004,9 @@ if __name__ == "__main__":
             self.labels["MAX_STEPS"] = lbl_steps
 
             convergence_grid.addWidget(lbl_dt, 0, 0)
-            convergence_grid.addWidget(le_dt, 0, 1)
-            convergence_grid.addWidget(lbl_steps, 0, 3)
-            convergence_grid.addWidget(le_steps, 0, 4)
+            convergence_grid.addWidget(le_dt, 0, 2)
+            convergence_grid.addWidget(lbl_steps, 0, 4)
+            convergence_grid.addWidget(le_steps, 0, 6)
 
             lbl_rmsd = QLabel("RMSD Threshold:")
             le_rmsd = QLineEdit(str(globals().get("RMSD_THRESHOLD", 0.005)))
@@ -1960,9 +2019,9 @@ if __name__ == "__main__":
             self.labels["PERCENTAGE_DROP_THRESHOLD"] = lbl_drop
 
             convergence_grid.addWidget(lbl_rmsd, 1, 0)
-            convergence_grid.addWidget(le_rmsd, 1, 1)
-            convergence_grid.addWidget(lbl_drop, 1, 3)
-            convergence_grid.addWidget(le_drop, 1, 4)
+            convergence_grid.addWidget(le_rmsd, 1, 2)
+            convergence_grid.addWidget(lbl_drop, 1, 4)
+            convergence_grid.addWidget(le_drop, 1, 6)
             form_layout.addRow(convergence_grid)
 
             # --- 4. RMSD Window logscale slider + spinbox (10 to 1000) ---
@@ -2019,7 +2078,8 @@ if __name__ == "__main__":
             self.labels["RMSD_WINDOW"] = lbl_window
             
             # --- 5. Packing controls ---
-            lbl_prog = QLabel("Progressive Edge Annealing:")
+            lbl_prog = QLabel("Progressive Annealing:")
+            lbl_prog.setFixedWidth(180)
             cb_prog = QPushButton()
             cb_prog.setCheckable(True)
             cb_prog.setFixedSize(60, 28)
@@ -2030,6 +2090,7 @@ if __name__ == "__main__":
             prog_field_layout.setContentsMargins(0, 0, 0, 0)
             prog_field_layout.addWidget(cb_prog)
             prog_field_layout.addStretch()
+            prog_field.setFixedWidth(cb_prog.width())
             self.inputs["ENABLE_PROGRESSIVE_SIMULATION"] = cb_prog
             self.labels["ENABLE_PROGRESSIVE_SIMULATION"] = lbl_prog
             
@@ -2115,15 +2176,18 @@ if __name__ == "__main__":
             packing_controls_grid = QGridLayout()
             packing_controls_grid.setHorizontalSpacing(0)
             packing_controls_grid.setVerticalSpacing(12)
-            packing_controls_grid.setColumnMinimumWidth(2, paired_group_padding)
-            packing_controls_grid.setColumnMinimumWidth(5, paired_group_padding)
-            packing_controls_grid.setColumnStretch(7, 1)
+            packing_controls_grid.setColumnMinimumWidth(1, field_label_gap)
+            packing_controls_grid.setColumnMinimumWidth(3, paired_group_padding)
+            packing_controls_grid.setColumnMinimumWidth(5, field_label_gap)
+            packing_controls_grid.setColumnMinimumWidth(7, paired_group_padding)
+            packing_controls_grid.setColumnMinimumWidth(9, field_label_gap)
+            packing_controls_grid.setColumnStretch(10, 1)
             packing_controls_grid.addWidget(lbl_prog, 0, 0)
-            packing_controls_grid.addWidget(prog_field, 0, 1)
-            packing_controls_grid.addWidget(lbl_geom, 0, 3)
-            packing_controls_grid.addWidget(cb_geom, 0, 4)
-            packing_controls_grid.addWidget(lbl_pgs, 0, 6)
-            packing_controls_grid.addWidget(pgs_widget, 0, 7)
+            packing_controls_grid.addWidget(prog_field, 0, 2)
+            packing_controls_grid.addWidget(lbl_geom, 0, 4)
+            packing_controls_grid.addWidget(cb_geom, 0, 6)
+            packing_controls_grid.addWidget(lbl_pgs, 0, 8)
+            packing_controls_grid.addWidget(pgs_widget, 0, 10)
             packing_controls_grid.setRowMinimumHeight(0, cb_prog.height())
             form_layout.addRow(packing_controls_grid)
 
@@ -2132,9 +2196,11 @@ if __name__ == "__main__":
             monte_carlo_grid.setHorizontalSpacing(0)
             monte_carlo_grid.setVerticalSpacing(12)
             monte_carlo_grid.setColumnMinimumWidth(0, 180)
-            monte_carlo_grid.setColumnMinimumWidth(2, paired_group_padding)
-            monte_carlo_grid.setColumnStretch(1, 1)
-            monte_carlo_grid.setColumnStretch(4, 1)
+            monte_carlo_grid.setColumnMinimumWidth(1, field_label_gap)
+            monte_carlo_grid.setColumnMinimumWidth(3, paired_group_padding)
+            monte_carlo_grid.setColumnMinimumWidth(5, field_label_gap)
+            monte_carlo_grid.setColumnStretch(2, 1)
+            monte_carlo_grid.setColumnStretch(6, 1)
 
             lbl_min_k = QLabel("Minimum K:")
             le_min_k = QLineEdit(str(globals().get("SGLD_MIN_K", 20)))
@@ -2147,9 +2213,9 @@ if __name__ == "__main__":
             self.labels["SGLD_K_PERCENT"] = lbl_pct_k
 
             monte_carlo_grid.addWidget(lbl_min_k, 0, 0)
-            monte_carlo_grid.addWidget(le_min_k, 0, 1)
-            monte_carlo_grid.addWidget(lbl_pct_k, 0, 3)
-            monte_carlo_grid.addWidget(le_pct_k, 0, 4)
+            monte_carlo_grid.addWidget(le_min_k, 0, 2)
+            monte_carlo_grid.addWidget(lbl_pct_k, 0, 4)
+            monte_carlo_grid.addWidget(le_pct_k, 0, 6)
 
             lbl_start_temp = QLabel("Starting Temp:")
             le_start_temp = QLineEdit(str(globals().get("SGLD_START_TEMP", 1.5)))
@@ -2179,9 +2245,9 @@ if __name__ == "__main__":
                 paired_label.setFixedWidth(right_label_width)
 
             monte_carlo_grid.addWidget(lbl_start_temp, 1, 0)
-            monte_carlo_grid.addWidget(le_start_temp, 1, 1)
-            monte_carlo_grid.addWidget(lbl_noise_scale, 1, 3)
-            monte_carlo_grid.addWidget(le_noise_scale, 1, 4)
+            monte_carlo_grid.addWidget(le_start_temp, 1, 2)
+            monte_carlo_grid.addWidget(lbl_noise_scale, 1, 4)
+            monte_carlo_grid.addWidget(le_noise_scale, 1, 6)
             form_layout.addRow(monte_carlo_grid)
 
             # Apply styling for disabled states to match other tabs
@@ -2316,6 +2382,9 @@ if __name__ == "__main__":
                         val = widget.currentData()
                     else:
                         val = widget.currentText()
+                elif isinstance(widget, OptionalNoScrollDoubleSpinBox):
+                    optional_value = widget.optionalValue()
+                    val = "" if optional_value is None else str(optional_value)
                 elif hasattr(widget, 'value'): 
                     val = str(widget.value())
                 elif isinstance(widget, QPushButton) and widget.isCheckable(): 
@@ -2426,6 +2495,10 @@ if __name__ == "__main__":
                 QMessageBox.information(self, "Success", "Settings saved successfully!")
 
     app = QApplication(sys.argv)
+    try:
+        configure_qt_application_fonts(app)
+    except Exception as e:
+        print(f"Warning: Could not configure bundled application fonts: {e}")
     
     # Set Application-wide Icon
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.ico")

@@ -292,6 +292,11 @@ except ImportError as exc:
     QTWEBENGINE_IMPORT_ERROR = str(exc)
 
 from PySide6.QtGui import QColor, QIcon, QPalette
+from utilities.Application_Fonts import (
+    MONOSPACE_QSS_FONT_STACK,
+    UI_QSS_FONT_STACK,
+    configure_qt_application_fonts,
+)
 
 
 def confirm_model_usage_terms(parent, model_name, terms):
@@ -402,7 +407,7 @@ class ResponsiveTextBrowser(QWebEngineView):
     def setHtml(self, html_content, baseUrl=None):
         github_style = """
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-family: __UI_FONT_STACK__;
             font-size: 13.5px;
             line-height: 1.5;
             color: #24292e;
@@ -440,7 +445,7 @@ class ResponsiveTextBrowser(QWebEngineView):
             margin-top: 0.25em;
         }
         code {
-            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: __MONOSPACE_FONT_STACK__;
             font-size: 85%;
             background-color: #f6f8fa;
             padding: 2px 4px;
@@ -448,7 +453,7 @@ class ResponsiveTextBrowser(QWebEngineView):
             color: #1f2328;
         }
         pre {
-            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-family: __MONOSPACE_FONT_STACK__;
             font-size: 85%;
             padding: 16px;
             line-height: 1.45;
@@ -504,13 +509,16 @@ class ResponsiveTextBrowser(QWebEngineView):
             padding-bottom: 8px;
             margin-bottom: 12px;
         }
-        """
+        """.replace("__UI_FONT_STACK__", UI_QSS_FONT_STACK).replace(
+            "__MONOSPACE_FONT_STACK__", MONOSPACE_QSS_FONT_STACK
+        )
         
         full_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
+            <link rel="stylesheet" href="fonts/fonts.css">
             <style>
                 {github_style}
             </style>
@@ -1530,7 +1538,7 @@ class ToolsGUI(QMainWindow):
         self.tip_panel = SpacedTipLabel("Hover or focus on an input to see its description.")
         self.tip_panel.setWordWrap(True)
         self.tip_panel.setMinimumHeight(20)
-        self.tip_panel.setStyleSheet("color: #444; font-style: italic; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
+        self.tip_panel.setStyleSheet("color: #444; font-style: normal; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
         self.left_bottom_layout.addWidget(self.tip_panel)
         
         btn_layout = QHBoxLayout()
@@ -3471,6 +3479,10 @@ class ToolsGUI(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    try:
+        configure_qt_application_fonts(app)
+    except Exception as e:
+        print(f"Warning: Could not configure bundled application fonts: {e}")
 
     # Report a missing QtWebEngine before building the GUI, since ToolsGUI
     # constructs a ResponsiveTextBrowser. Print as well as show a dialog: if

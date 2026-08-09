@@ -14,6 +14,7 @@
 
 # Binary assets: never touch, never diff as text.
 *.woff2 binary
+*.ttf   binary
 *.png   binary
 *.ico   binary
 *.xlsx  binary

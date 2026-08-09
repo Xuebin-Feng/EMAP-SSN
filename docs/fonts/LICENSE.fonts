@@ -1,29 +1,33 @@
-Fonts vendored in this directory
-================================
+Bundled documentation fonts
+===========================
 
-These fonts are used by docs/list_of_commands.html. They are kept here, separate
-from src/resources/fonts/, so the documentation is self-contained and does not
-reach into the application source tree.
+Noto Sans and Noto Sans Mono
+  Copyright 2012 Google Inc. All Rights Reserved.
+  SIL Open Font License 1.1 - full text in LICENSE.Noto
 
-Inter
-  Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
-  SIL Open Font License 1.1 - full text in LICENSE.Inter
-  Files: Inter-*.woff2
+  Acquired 2026-08-09 from Google Fonts CSS for Noto Sans weights 300-700
+  and Noto Sans Mono weights 400-700. The returned variable WOFF2 files were
+  saved locally and remote URLs were replaced by relative paths in fonts.css.
+  This directory contains 15 WOFF2 files totaling 757,252 bytes so the
+  standalone documentation remains self-contained and makes no network font
+  request.
 
-Fira Code
-  Copyright (c) 2014, The Fira Code Project Authors
-  (https://github.com/tonsky/FiraCode)
-  SIL Open Font License 1.1 - full text in LICENSE.FiraCode
-  Files: FiraCode-*.woff2
+  SHA-256:
+  82ff72b28e6610f2c62de49d0f295c160a157b2718fa814bb6c512ebfdebb31d  NotoSans-cyrillic-ext.woff2
+  6ab64433de6077ca5ad31b05420450ce986a616a4ea47b6ad16f3217055dafc3  NotoSans-cyrillic.woff2
+  ea6a530b75d93de7dde68b1271c5b67a1af45031810db7cd4883f6620b7b1d3d  NotoSans-devanagari.woff2
+  790b255c10c32e0b10bdcd961abad098c9697b7ffbabc1b09aca0b17af3201fd  NotoSans-greek-ext.woff2
+  7f655207c2f6c140c327d6bd263bccc7a11833084f4fb0c51d9a24b7cd753651  NotoSans-greek.woff2
+  6d5a79315528df191b9d86f97b0c4272a8b588fcb166773fe6588ac795de0613  NotoSans-latin-ext.woff2
+  51ca196f49a33e79e7870ff88ebd2829a3f627a51e7d690986618f0e7ad2b52d  NotoSans-latin.woff2
+  791e3f213c155a5b1f4bbe4cbf8e33f321cfb7f46248a5ed11077dc79209a63c  NotoSans-vietnamese.woff2
+  0c24f21ad3bd248e39d428679cddd7969f90eb6cebe20f1670e81a89e8d3f751  NotoSansMono-cyrillic-ext.woff2
+  f7e1023ce0099ebc4a67d26607f6f2ebaa5de1388635fdf748e8f290354147d6  NotoSansMono-cyrillic.woff2
+  109a84229e44cc35b5e2e9eb0bfbd0633af0c2b6f819e7752a39426446f52a84  NotoSansMono-greek-ext.woff2
+  25f926be2f80fdf964d14e56bb9baa7ddc1ed015f14449d40fd4f12322e5ec68  NotoSansMono-greek.woff2
+  aed68c8758d2a5e224dd849fe4caf0728bc33e29b471662f9a6b36f606d14202  NotoSansMono-latin-ext.woff2
+  71f6c22d5dd256eaa9e48347bda6ac2c65f58980dd372ed5780fbdaca1186331  NotoSansMono-latin.woff2
+  3075bd69d52719d6f573da7d02a83d881f50801311a13e91dc2931f1fb46d251  NotoSansMono-vietnamese.woff2
 
-  The OFL requires that this license notice accompany the font files whenever
-  they are redistributed. Both license files are shipped verbatim rather than
-  merged, because the two texts differ slightly.
-
-fonts.css
-  Generated from the Google Fonts CSS this page previously fetched at runtime,
-  with the remote URLs rewritten to the local files above. This file is a copy
-  of src/resources/fonts/fonts.css; if either is regenerated, update both.
-
-Note: the KaTeX fonts under src/resources/fonts/ are NOT duplicated here. They
-are MIT licensed rather than OFL, and this page does not use KaTeX.
+The 4,908,576-byte desktop Noto core is not duplicated here. It is stored only
+under src/resources/fonts/desktop/ and is registered privately by Qt.

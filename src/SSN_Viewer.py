@@ -44,6 +44,11 @@ from utilities.FASTA_Sanitization import (
     load_sanitized_fasta,
     write_fasta_atomic,
 )
+from utilities.Application_Fonts import (
+    VISPY_FALLBACK_FACE,
+    configure_qt_application_fonts,
+    register_vispy_application_fonts,
+)
 
 
 def _load_selected_fasta_records(fasta_path):
@@ -94,6 +99,7 @@ class HUDDisplay:
             self.text_visual = scene.visuals.Text(
                 text=text,
                 bold=True,
+                face=self.viewer.vispy_ui_face,
                 font_size=8,
                 color=cfg.TEXT_COLOR,
                 pos=pos,
@@ -134,6 +140,8 @@ class MainViewer:
         # --- 1. Viewer State ---
         self.console_mode = False
         self.web_action_handlers = {}
+        self.vispy_ui_face = VISPY_FALLBACK_FACE
+        self.vispy_monospace_face = VISPY_FALLBACK_FACE
         
         # =========================================================================
         # HUD & CONSOLE LAYOUT CONFIGURATION SECTION
@@ -248,6 +256,17 @@ class MainViewer:
         
         # --- 3. Setup Window & Canvas ---
         self.canvas = scene.SceneCanvas(keys=None, show=False, title="SSN Viewer (Live)", bgcolor='white')
+        qapp = QtWidgets.QApplication.instance()
+        if qapp:
+            try:
+                qt_font_status = configure_qt_application_fonts(qapp)
+                vispy_font_status = register_vispy_application_fonts(
+                    qt_font_status
+                )
+                self.vispy_ui_face = vispy_font_status.ui_face
+                self.vispy_monospace_face = vispy_font_status.monospace_face
+            except Exception as e:
+                print(f"Warning: Could not configure bundled application fonts: {e}")
         self.canvas.events.key_press.connect(self.on_key_press)
         self.canvas.events.resize.connect(self.on_resize)
         self.canvas.events.mouse_press.connect(self.on_mouse_press)
@@ -333,7 +352,6 @@ class MainViewer:
         self.current_slider_threshold = self.min_threshold
 
         # Force light theme on the QApplication managed by Vispy
-        qapp = QtWidgets.QApplication.instance()
         if qapp:
             try:
                 utils.force_light_palette(qapp)
@@ -1112,7 +1130,15 @@ class MainViewer:
         self.update_nodes()
         
         # --- MODIFIED: Parent changed to canvas.scene ---
-        self.tooltip = scene.visuals.Text(text="", color=cfg.TEXT_COLOR, pos=(0,0), anchor_x='left', font_size=cfg.TEXT_SIZE, parent=self.canvas.scene)
+        self.tooltip = scene.visuals.Text(
+            text="",
+            color=cfg.TEXT_COLOR,
+            pos=(0, 0),
+            anchor_x='left',
+            face=self.vispy_ui_face,
+            font_size=cfg.TEXT_SIZE,
+            parent=self.canvas.scene,
+        )
 
         # ---> NEW: Visuals for Selection Feedback <---
         self.selection_box = scene.visuals.Line(color='black', method='gl', parent=self.view.scene)
@@ -1338,6 +1364,7 @@ class MainViewer:
         self.instr_text = scene.visuals.Text(
             text="[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes",
             bold=False, 
+            face=self.vispy_ui_face,
             font_size=8, 
             color='gray', 
             pos=(cfg_hud["instr_x"], cfg_hud["instr_y"]), 
@@ -1360,6 +1387,7 @@ class MainViewer:
         self.console_text = scene.visuals.Text(
             text="", 
             bold=True, 
+            face=self.vispy_monospace_face,
             font_size=8, 
             color=cfg.TEXT_COLOR, 
             pos=(cfg_hud["console_text_x"], cfg_hud["console_text_y"]), 
@@ -1371,6 +1399,7 @@ class MainViewer:
         self.zoom_text = scene.visuals.Text(
             text="", 
             bold=False, 
+            face=self.vispy_ui_face,
             font_size=8, 
             color='gray', 
             pos=(self.canvas.size[0] - cfg_hud["zoom_x_offset"], self.canvas.size[1] - cfg_hud["zoom_y_offset"]), 
@@ -1382,6 +1411,7 @@ class MainViewer:
         self.hidden_text = scene.visuals.Text(
             text="", 
             bold=False, 
+            face=self.vispy_ui_face,
             font_size=8, 
             color='gray', 
             pos=(self.canvas.size[0] - cfg_hud["hidden_x_offset"], self.canvas.size[1] - cfg_hud["hidden_y_offset"]), 
