@@ -220,10 +220,8 @@ that acknowledgement is not a sublicense or a substitute for reading the terms.
 
 The project author confirmed on 2026-08-09 that the logos and icons in
 `src/bin/logos/` and screenshots in `docs/assets/` are original or otherwise
-authorized. This satisfies the artwork-authorship check recorded in
-[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). Authority to release those works
-remains subject to the same University of Toronto ownership review as the rest
-of the project.
+authorized. Authority to release those works remains subject to the same
+University of Toronto ownership review as the rest of the project.
 
 ---
 

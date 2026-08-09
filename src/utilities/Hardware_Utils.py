@@ -17,6 +17,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
+import sys
 from typing import Any, Iterable, Optional
 import gc
 import re
@@ -26,6 +29,7 @@ import torch
 
 AUTO_DEVICE = "auto"
 BENCHMARK_TIE_FRACTION = 0.03
+BACKEND_STATE_FILENAME = "ssn_backend.json"
 
 
 @dataclass(frozen=True)
@@ -70,8 +74,28 @@ def _safe_name(getter, fallback: str) -> str:
     return str(value) if value else fallback
 
 
+def _validated_device_specs() -> Optional[set[str]]:
+    """Return the installer-approved runtime devices, or ``None`` if unmanaged."""
+    state_path = Path(sys.prefix) / BACKEND_STATE_FILENAME
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(state, dict) or int(state.get("schema", 0)) < 3:
+        return None
+    devices = state.get("validated_devices")
+    if not isinstance(devices, list):
+        return None
+    return {
+        str(device.get("spec"))
+        for device in devices
+        if isinstance(device, dict) and device.get("success") and device.get("spec")
+    }
+
+
 def get_available_devices() -> list[DeviceCandidate]:
     """Return CPU and every accelerator/backend visible in this process."""
+    approved = _validated_device_specs()
     candidates = [
         DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")
     ]
@@ -80,13 +104,16 @@ def get_available_devices() -> list[DeviceCandidate]:
         if torch.cuda.is_available():
             backend_label = "ROCm" if getattr(torch.version, "hip", None) else "CUDA"
             for index in range(torch.cuda.device_count()):
+                spec = f"cuda:{index}"
+                if approved is not None and spec not in approved:
+                    continue
                 name = _safe_name(
                     lambda i=index: torch.cuda.get_device_name(i),
                     f"{backend_label} device {index}",
                 )
                 candidates.append(
                     DeviceCandidate(
-                        f"cuda:{index}",
+                        spec,
                         f"{name} ({backend_label})",
                         torch.device(f"cuda:{index}"),
                         "cuda",
@@ -100,13 +127,16 @@ def get_available_devices() -> list[DeviceCandidate]:
     try:
         if hasattr(torch, "xpu") and torch.xpu.is_available():
             for index in range(torch.xpu.device_count()):
+                spec = f"xpu:{index}"
+                if approved is not None and spec not in approved:
+                    continue
                 name = _safe_name(
                     lambda i=index: torch.xpu.get_device_name(i),
                     f"Intel XPU device {index}",
                 )
                 candidates.append(
                     DeviceCandidate(
-                        f"xpu:{index}",
+                        spec,
                         f"{name} (XPU)",
                         torch.device(f"xpu:{index}"),
                         "xpu",
@@ -122,6 +152,7 @@ def get_available_devices() -> list[DeviceCandidate]:
             hasattr(torch, "backends")
             and hasattr(torch.backends, "mps")
             and torch.backends.mps.is_available()
+            and (approved is None or "mps" in approved)
         ):
             name = _safe_name(
                 lambda: torch.backends.mps.get_name(), "Apple GPU"

@@ -1,7 +1,7 @@
 # Embedding-based Sequence Similarity Network (SSN) Viewer
 
 [![Python Version](https://img.shields.io/badge/python-%3E3.10-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey.svg)](https://github.com/)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS%20(Apple%20Silicon)-lightgrey.svg)](https://github.com/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Framework PySide6](https://img.shields.io/badge/UI-PySide6-orange.svg)](https://doc.qt.io/qtforpython/)
 [![Render VisPy](https://img.shields.io/badge/Render-VisPy-red.svg)](https://vispy.org/)
@@ -11,9 +11,9 @@ The **Embedding-based SSN Viewer (name: TBD)** is an interactive, high-performan
 ---
 ## ⚠️ Important Note
 
-1. **Cross-Platform Support**: Linux & macOS support is currently under active development.
+1. **Cross-Platform Support**: Linux and Apple Silicon macOS support is currently under active development. Intel-based Macs are not supported.
 2. **Work in Progress**: This documentation and the repository structure are undergoing active updates.
-3. **Recommended Hardware**: An **NVIDIA GPU** is highly recommended for CUDA acceleration of embeddings and layout solvers. Intel Arc, AMD, and Apple Silicon GPUs are also supported via standard hardware acceleration backends.
+3. **Recommended Hardware**: An **NVIDIA GPU** is highly recommended for CUDA acceleration of embeddings and layout solvers. Intel Arc, AMD, and Apple Silicon GPUs are also supported via standard hardware acceleration backends. On macOS, only Apple Silicon Macs are supported.
 
 ---
 
@@ -74,13 +74,44 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 2. **Set up the environment:**
 
    The generated Viewer and Tools launchers create a Python 3.12 environment
-   and select a pinned PyTorch build automatically. NVIDIA systems use CUDA
-   13.2 when the GPU and driver support it, with CUDA 12.6 compatibility
-   fallback; Intel uses XPU, Linux AMD uses ROCm, Apple Silicon uses MPS, and
-   supported Windows 11 AMD GPUs install ROCm packages directly from AMD's
-   official wheel index. Apple Silicon installation requires macOS 14 or newer,
-   matching the PyTorch 2.12.1 wheel's deployment target. Unsupported or failed
-   accelerators fall back to CPU when a compatible CPU wheel exists.
+   and select one pinned PyTorch backend automatically. Detection is
+   device-specific: recognizing a GPU makes it *eligible* for an installation
+   attempt, while a tensor calculation on that device is required before it is
+   recorded as *validated*. Unsupported or failed candidates are skipped in
+   favor of the next compatible accelerator and, finally, the CPU build.
+
+   | Hardware | Automatic backend policy |
+   | --- | --- |
+   | NVIDIA | CUDA 13.2 when every selected GPU and the installed driver qualify; otherwise CUDA 12.6. |
+   | AMD on Windows 11 25H2 (build 26200+) | ROCm 7.14/PyTorch 2.12 first, then ROCm 7.2.1/PyTorch 2.9.1 when the GPU is present in both pinned support tables. |
+   | AMD on earlier Windows 11 | ROCm 7.2.1 only for GPUs in AMD's corresponding Radeon/Ryzen support table. Windows 10 does not receive a native ROCm candidate. |
+   | AMD on Linux | ROCm is attempted only for a mapped GFX target on a supported Ubuntu release when `/dev/kfd` is accessible; the installer does not install the system ROCm driver. |
+   | Intel | XPU only for supported Arc, Core Ultra with Arc, or Data Center GPU Max devices on a listed OS. Intel HD/UHD graphics fall back to another accelerator or CPU. |
+   | Apple | MPS on Apple Silicon only. Intel-based Macs are not supported. |
+
+   The compatibility snapshot follows AMD's [current ROCm installer matrix](https://rocm.docs.amd.com/en/develop/install/rocm.html),
+   [ROCm 7.2.1 Windows matrix](https://rocm.docs.amd.com/projects/radeon-ryzen/en/docs-7.2/docs/compatibility/compatibilityrad/windows/windows_compatibility.html),
+   and PyTorch's [Intel XPU matrix](https://docs.pytorch.org/docs/main/notes/get_start_xpu.html).
+   A newer GPU is deliberately treated as unsupported until it is added to the
+   pinned application table.
+
+   On multi-GPU computers, a compatible discrete GPU is preferred over an
+   integrated GPU, followed by NVIDIA, AMD, and Intel within the same device
+   class. Multiple validated NVIDIA or Intel devices remain available to the
+   application's automatic benchmark. For a heterogeneous AMD integrated plus
+   discrete configuration, only the preferred discrete GFX target is installed;
+   the integrated adapter is reported as ignored. One backend-specific PyTorch
+   build is installed per `.venv`, so GPUs from different vendors are not used
+   simultaneously.
+
+   The selected backend and per-device validation results are stored in
+   `.venv/ssn_backend.json`. Hardware, driver, OS, requirements, or compatibility
+   table changes invalidate that state automatically. To explicitly retry every
+   eligible backend, run `src/Install_Dependencies.py` inside the managed virtual
+   environment with `--refresh-backend`.
+
+   Apple Silicon installation requires macOS 14 or newer, matching the pinned
+   PyTorch wheel's deployment target.
 
    * **🪟 Windows**:
      Double-click `install.bat` in the project root to generate Windows Shortcuts (`.lnk` files) in the project root and optionally on your Desktop.
@@ -99,8 +130,11 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
      >
      > If you cannot change this setting, keep the project close to the drive root (for example `C:\SSN\`) rather than nested under a long folder chain such as a synced OneDrive directory. Note that external binaries invoked by the pipeline, such as NCBI BLAST, may not be long-path aware regardless of this setting — a short project path is the most reliable option.
      
-   * **🍏 macOS**:
+   * **🍏 macOS (Apple Silicon only)**:
      Double-click `install.command` in the project root to configure permissions for scripts in `src/bin/` and generate double-clickable `.command` launchers (`SSN_Viewer.command` and `SSN_Tools.command`) in the project root.
+
+     > [!IMPORTANT]
+     > Only Apple Silicon Macs are supported. Intel-based Macs are not supported by the pinned PyTorch runtime.
      
      > [!NOTE]
      > If you downloaded the project as a ZIP rather than cloning it, the executable permission is not preserved. Restore it with `chmod +x install.command` before double-clicking.
@@ -231,5 +265,5 @@ recorded under `src/resources/wheels/`; model weights remain separately
 downloaded and retain their publishers' licenses. See sections 1 and 5 of
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-Before publishing a release, complete the ownership, contributor-identity,
-artwork, and technical gates in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+Before publishing a release, confirm that copyright ownership and release
+authority have been resolved and that all required technical gates pass.
