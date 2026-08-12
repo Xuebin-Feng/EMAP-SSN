@@ -12,7 +12,7 @@ src/resources/pLM_models/*_api_key.json
 src/resources/agent/model_card.json
 src/resources/pLM_models/ankh_license.json
 
-# Keep ad-hoc test artifacts private while tracking the bundled-font regression.
+# Keep ad-hoc test artifacts private while tracking selected regressions.
 tests/
 validation/
 release_checks/

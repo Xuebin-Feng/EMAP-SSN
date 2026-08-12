@@ -15,8 +15,8 @@
 import os
 import re
 import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.figure import Figure
 from Bio import AlignIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -400,18 +400,36 @@ def normalize_score(raw_score, align_len, len_i, len_j, mode):
         
     return np.where(denom > 0, raw_score / denom, 0.0)
 
-def plot_score_histogram(scores, threshold):
-    print("Displaying Score Histogram... (Close histogram to continue)")
+def build_score_histogram_figure(
+    scores,
+    threshold,
+    *,
+    is_evalue,
+    norm_mode,
+):
+    """Build a score histogram without starting or owning a GUI event loop."""
+    figure = Figure(figsize=(10, 6))
+    axes = figure.add_subplot(111)
+    axes.hist(
+        scores,
+        bins=100,
+        color="#4488ff",
+        edgecolor="black",
+        alpha=0.7,
+    )
+    axes.axvline(
+        threshold,
+        color="red",
+        linestyle="dashed",
+        label=f"Threshold {threshold}",
+    )
 
-    plt.figure(figsize=(10, 6))
-    plt.hist(scores, bins=100, color='#4488ff', edgecolor='black', alpha=0.7)
-    plt.axvline(threshold, color='red', linestyle='dashed', label=f"Threshold {threshold}")
-    
-    # FIX: Check mode before accessing NORM_MODE
-    mode_label = "E-Value" if cfg.INPUT_IS_EVALUE else cfg.NORM_MODE
-    plt.title(f"Score Distribution ({mode_label})")
-    
-    plt.legend(); plt.show()
+    mode_label = "E-Value" if is_evalue else norm_mode
+    axes.set_title(f"Score Distribution ({mode_label})")
+    axes.legend()
+    figure.tight_layout()
+    return figure
+
 
 def build_network_from_raw(
     data,

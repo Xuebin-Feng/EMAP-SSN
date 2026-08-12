@@ -17,6 +17,8 @@ import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with
 import html
 import os
 import re
+import subprocess
+import sys
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -153,13 +155,53 @@ if os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load viewer settings: {e}")
 
+
+def _handoff_to_viewer(
+    project_root,
+    env,
+    *,
+    platform_name=None,
+    executable=None,
+):
+    """Launch the viewer while preserving each platform's terminal contract."""
+    platform_name = platform_name or sys.platform
+    executable = executable or sys.executable
+    project_root = os.path.abspath(project_root)
+    viewer_script = os.path.join(project_root, "src", "SSN_Viewer.py")
+
+    if platform_name == "win32":
+        creationflags = (
+            subprocess.CREATE_NEW_CONSOLE
+            if hasattr(subprocess, "CREATE_NEW_CONSOLE")
+            else 0x10
+        )
+        return subprocess.Popen(
+            f'cmd.exe /c ""{executable}" src\\SSN_Viewer.py || pause"',
+            env=env,
+            creationflags=creationflags,
+            cwd=project_root,
+        )
+
+    if platform_name not in {"darwin", "linux"}:
+        raise RuntimeError(f"Unsupported viewer launch platform: {platform_name}")
+
+    previous_cwd = os.getcwd()
+    os.chdir(project_root)
+    try:
+        os.execve(executable, [executable, viewer_script], env)
+    except OSError:
+        os.chdir(previous_cwd)
+        raise
+    else:
+        # os.execve() only returns when replaced by a test double or a broken
+        # implementation. Restore process state before surfacing that failure.
+        os.chdir(previous_cwd)
+        raise RuntimeError("Viewer handoff returned without replacing the process.")
+
 # =============================================================================
 # GUI APPLICATION
 # =============================================================================
 if __name__ == "__main__":
-    import sys
-    import subprocess
-
     # Hardware_Utils imports PyTorch.  On Windows this must happen before
     # PySide6/OpenGL initializes, otherwise torch's c10.dll can fail to load.
     try:
@@ -169,19 +211,54 @@ if __name__ == "__main__":
 
     os.environ["QT_API"] = "pyside6"
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
-    from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                 QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
-                                 QComboBox, QPushButton, QMessageBox, QTextEdit,
-                                 QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
-                                 QStyle, QStyleOptionSlider, QFileDialog, QColorDialog)
+    from PySide6.QtWidgets import (
+        QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
+        QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
+        QComboBox, QPushButton, QMessageBox, QTextEdit,
+        QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
+        QStyle, QStyleOptionSlider, QFileDialog, QColorDialog,
+    )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import QDesktopServices, QIcon
+    from matplotlib.backends.backend_qtagg import (
+        FigureCanvasQTAgg,
+        NavigationToolbar2QT,
+    )
     from utilities.Application_Fonts import (
         configure_qt_application_fonts,
         qt_monospace_font,
     )
 
     # --- Custom Widget Classes ---
+    class ScoreHistogramDialog(QDialog):
+        """Qt-owned modal container for a Matplotlib score histogram."""
+
+        def __init__(self, figure, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Score Histogram")
+            self.resize(1000, 650)
+
+            self.figure = figure
+            self.canvas = FigureCanvasQTAgg(figure)
+            self.toolbar = NavigationToolbar2QT(self.canvas, self)
+
+            close_button = QPushButton("Close")
+            close_button.clicked.connect(self.accept)
+
+            button_layout = QHBoxLayout()
+            button_layout.addStretch(1)
+            button_layout.addWidget(close_button)
+
+            layout = QVBoxLayout(self)
+            layout.addWidget(self.toolbar)
+            layout.addWidget(self.canvas, 1)
+            layout.addLayout(button_layout)
+
+        def release_figure(self):
+            """Release Matplotlib resources after the modal dialog closes."""
+            self.figure.clear()
+            self.canvas.deleteLater()
+
     class SpacedTipLabel(QLabel):
         """Help-panel label with proportional multiline spacing."""
 
@@ -1649,15 +1726,21 @@ if __name__ == "__main__":
                 self.stat_display.setText("Displaying score histogram...")
                 QApplication.processEvents()
                 
-                # Call the utility function to show the histogram
-                from SSN_Utils import plot_score_histogram
-                
-                # Make sure to mock/set up the cfg configuration just in case it is read inside the function
-                import SSN_Config as cfg_mod
-                cfg_mod.INPUT_IS_EVALUE = is_blast
-                cfg_mod.NORM_MODE = norm_mode
-                
-                plot_score_histogram(scores, threshold)
+                from SSN_Utils import build_score_histogram_figure
+
+                print("Displaying Score Histogram... (Close histogram to continue)")
+                figure = build_score_histogram_figure(
+                    scores,
+                    threshold,
+                    is_evalue=is_blast,
+                    norm_mode=norm_mode,
+                )
+                dialog = ScoreHistogramDialog(figure, self)
+                try:
+                    dialog.exec()
+                finally:
+                    dialog.release_figure()
+                    dialog.deleteLater()
                 
                 self.stat_display.setText("Histogram displayed successfully.")
                 
@@ -2477,7 +2560,6 @@ if __name__ == "__main__":
             if not self.save_settings():
                 return
 
-            self.close()
             print("Launching SSN_Viewer.py...")
             env = os.environ.copy()
             env.pop("SSN_TARGET_CACHE", None)
@@ -2487,20 +2569,19 @@ if __name__ == "__main__":
             # Use the project root (parent of src/) as cwd so all relative data paths resolve correctly
             script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-            if sys.platform == "win32":
-                creationflags = subprocess.CREATE_NEW_CONSOLE if hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0x10
-                subprocess.Popen(
-                    f'cmd.exe /c ""{sys.executable}" src\\SSN_Viewer.py || pause"',
-                    env=env,
-                    creationflags=creationflags,
-                    cwd=script_dir,
+            try:
+                _handoff_to_viewer(script_dir, env)
+            except (OSError, RuntimeError) as error:
+                QMessageBox.critical(
+                    self,
+                    "Viewer Launch Error",
+                    f"Failed to launch SSN_Viewer.py:\n{error}",
                 )
-            else:
-                subprocess.Popen(
-                    [sys.executable, os.path.join("src", "SSN_Viewer.py")],
-                    env=env,
-                    cwd=script_dir,
-                )
+                return
+
+            # Windows returns after spawning a new console. POSIX replaces this
+            # process and never reaches this line.
+            self.close()
 
         def save_only(self):
             if self.save_settings():
