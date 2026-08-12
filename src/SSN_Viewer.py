@@ -107,6 +107,28 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
 
     return "\n".join(lines)
 
+
+def _apply_safe_rectangle_geometry(rectangle, center, width, height, radius):
+    """Apply rounded-rectangle geometry without exposing invalid interim state."""
+    width = max(float(width), 1.0)
+    height = max(float(height), 1.0)
+    radius = min(
+        max(float(radius), 0.0),
+        width / 2.0,
+        height / 2.0,
+    )
+
+    # VisPy regenerates and validates vertices after every property assignment.
+    # Resetting the radius first also repairs rectangles left in an invalid
+    # partially-mutated state by an earlier failed width/height assignment.
+    rectangle.radius = 0.0
+    rectangle.width = width
+    rectangle.height = height
+    rectangle.center = (float(center[0]), float(center[1]))
+    rectangle.radius = radius
+
+    return width, height, radius
+
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
 # Users can add custom attributes to be initialized on the viewer at startup
@@ -182,6 +204,11 @@ class MainViewer:
         self.web_action_handlers = {}
         self.vispy_ui_face = VISPY_FALLBACK_FACE
         self.vispy_monospace_face = VISPY_FALLBACK_FACE
+        self._display_window_handle = None
+        self._active_screen = None
+        self._active_screen_signal_bindings = []
+        self._display_refresh_pending = False
+        self._last_display_signature = None
         
         # =========================================================================
         # HUD & CONSOLE LAYOUT CONFIGURATION SECTION
@@ -207,11 +234,11 @@ class MainViewer:
             "console_font_size": 8,      # Font size used to measure text width
             
             # 3. Command Line Background Box
-            "console_bg_center_y": 35.0, # Vertical center of the background box
-            "console_bg_height": 20.0,   # Vertical height of the background box
-            "console_bg_min_width": 150.0, # Minimum width of the background box when empty/short
-            "console_bg_left_offset": 10.0, # Fixed horizontal left position of the box
-            "console_bg_radius": 6.0,    # Radius for the rounded corners (0.0 for sharp corners)
+            "console_bg_height": 40.0,   # Vertical height of the background box
+            "console_bg_min_width": 250.0, # Minimum width of the background box when empty/short
+            "console_bg_left_offset": 20.0, # Fixed horizontal left position of the box
+            "console_bg_y_offset": 22.0, # Positive values move only the box downward
+            "console_bg_radius": 10.0,    # Radius for the rounded corners (0.0 for sharp corners)
             "console_bg_padding_x": 20.0, # Fixed logical padding added to the end of the command box
             
             # 4. Zoom Indicator Text (" View Width: XXX ") at bottom-right
@@ -574,6 +601,7 @@ class MainViewer:
         self.set_sidebar_visible(False)
         
         self.main_window.show()
+        QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
         
         self._hud_timer.start()
         print("\nViewer Ready. Press [ENTER] to type commands.")
@@ -592,7 +620,6 @@ class MainViewer:
             return
         
         cfg_hud = self.hud_layout
-        scale = getattr(self.canvas, 'pixel_scale', 1.0)
         text_visual = self.console_text
 
         def measure_text_width(text):
@@ -615,17 +642,17 @@ class MainViewer:
                 prev = char
             return (width_val / 64.0) * n_pix
 
-        left_edge_physical = cfg_hud["console_bg_left_offset"] * scale
-        left_gap_physical = (cfg_hud["console_text_x"] - cfg_hud["console_bg_left_offset"]) * scale
+        left_edge = cfg_hud["console_bg_left_offset"]
+        left_gap = cfg_hud["console_text_x"] - cfg_hud["console_bg_left_offset"]
         padding_x = cfg_hud.get("console_bg_padding_x", 20.0)
 
         panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
         panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
         effective_canvas_width = self.canvas.size[0] - panel_width
-        max_width_physical = max(1.0, effective_canvas_width - 40.0)
+        max_width = max(1.0, effective_canvas_width - 40.0)
         available_text_width = max(
             1.0,
-            max_width_physical - left_gap_physical - padding_x,
+            max_width - left_gap - padding_x,
         )
 
         current_text = text_visual.text or ""
@@ -648,37 +675,47 @@ class MainViewer:
             text_visual.text = rendered_text
 
         rendered_lines = rendered_text.split('\n') if rendered_text else ['']
-        text_width_physical = max(
+        text_width = max(
             (measure_text_width(line) for line in rendered_lines),
             default=0.0,
         )
 
-        min_width_physical = min(
-            cfg_hud["console_bg_min_width"] * scale,
-            max_width_physical,
+        min_width = min(
+            cfg_hud["console_bg_min_width"],
+            max_width,
         )
-        desired_width_physical = left_gap_physical + text_width_physical + padding_x
-        width_physical = min(max_width_physical, max(min_width_physical, desired_width_physical))
+        desired_width = left_gap + text_width + padding_x
+        width = min(max_width, max(min_width, desired_width))
 
-        base_height_physical = cfg_hud["console_bg_height"] * scale
+        base_height = cfg_hud["console_bg_height"]
         font_line_height = (
             (text_visual.font_size / 72.0)
             * text_visual.transforms.dpi
             * getattr(text_visual, '_line_height', 1.2)
         )
-        extra_height_physical = max(0, len(rendered_lines) - 1) * font_line_height
-        height_physical = base_height_physical + extra_height_physical
-        radius_physical = cfg_hud["console_bg_radius"] * scale
-        center_x_physical = left_edge_physical + width_physical / 2.0
-        center_y_physical = (
-            cfg_hud["console_bg_center_y"] * scale
-            + extra_height_physical / 2.0
-        )
+        extra_height = max(0, len(rendered_lines) - 1) * font_line_height
+        height = base_height + extra_height
+        radius = cfg_hud["console_bg_radius"]
+        center_x = left_edge + width / 2.0
+        text_block_height = max(1, len(rendered_lines)) * font_line_height
+        text_y = cfg_hud["console_text_y"]
+        text_anchor_y = cfg_hud.get("console_text_anchor_y", "bottom")
+        if text_anchor_y == "top":
+            center_y = text_y + text_block_height / 2.0
+        elif text_anchor_y in ("center", "middle"):
+            center_y = text_y
+        else:
+            # Bottom and baseline anchored text extends upward from its anchor.
+            center_y = text_y - text_block_height / 2.0
+        center_y += cfg_hud.get("console_bg_y_offset", 0.0)
 
-        self.console_bg.width = width_physical
-        self.console_bg.height = height_physical
-        self.console_bg.radius = radius_physical
-        self.console_bg.center = (center_x_physical, center_y_physical)
+        _apply_safe_rectangle_geometry(
+            self.console_bg,
+            center=(center_x, center_y),
+            width=width,
+            height=height,
+            radius=radius,
+        )
 
     def load_and_simulate(self):
             """
@@ -1431,7 +1468,6 @@ class MainViewer:
 
     def create_hud(self):
         cfg_hud = self.hud_layout
-        scale = getattr(self.canvas, 'pixel_scale', 1.0)
         
         self.instr_text = scene.visuals.Text(
             text="[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes",
@@ -1446,10 +1482,19 @@ class MainViewer:
         )
         
         self.console_bg = scene.visuals.Rectangle(
-            center=(cfg_hud["console_bg_left_offset"] * scale + (cfg_hud["console_bg_min_width"] * scale) / 2.0, cfg_hud["console_bg_center_y"] * scale), 
-            width=cfg_hud["console_bg_min_width"] * scale, 
-            height=cfg_hud["console_bg_height"] * scale, 
-            radius=cfg_hud["console_bg_radius"] * scale,
+            center=(
+                cfg_hud["console_bg_left_offset"]
+                + cfg_hud["console_bg_min_width"] / 2.0,
+                cfg_hud["console_text_y"]
+                + cfg_hud.get("console_bg_y_offset", 0.0),
+            ),
+            width=cfg_hud["console_bg_min_width"],
+            height=cfg_hud["console_bg_height"],
+            radius=min(
+                max(cfg_hud["console_bg_radius"], 0.0),
+                cfg_hud["console_bg_min_width"] / 2.0,
+                cfg_hud["console_bg_height"] / 2.0,
+            ),
             color=(0.95, 0.95, 0.95, 0.95), 
             border_color='black', 
             parent=self.canvas.scene
@@ -1941,6 +1986,158 @@ class MainViewer:
                 display.update_position()
             
         self.canvas.update()
+
+    def _initialize_display_tracking(self):
+        """Bind DPI notifications after the canvas has its final top-level window."""
+        main_window = getattr(self, 'main_window', None)
+        window_handle = main_window.windowHandle() if main_window is not None else None
+
+        if window_handle is not getattr(self, '_display_window_handle', None):
+            previous_handle = getattr(self, '_display_window_handle', None)
+            if previous_handle is not None:
+                try:
+                    previous_handle.screenChanged.disconnect(self._on_display_screen_changed)
+                except (RuntimeError, TypeError):
+                    pass
+
+            self._display_window_handle = window_handle
+            if window_handle is not None:
+                window_handle.screenChanged.connect(self._on_display_screen_changed)
+
+        screen = window_handle.screen() if window_handle is not None else None
+        self._bind_active_screen(screen)
+        self._schedule_display_refresh()
+
+    def _bind_active_screen(self, screen):
+        """Follow DPI and geometry changes from only the window's active screen."""
+        signal_bindings = getattr(self, '_active_screen_signal_bindings', [])
+        if screen is getattr(self, '_active_screen', None) and signal_bindings:
+            return
+
+        for signal, callback in signal_bindings:
+            try:
+                signal.disconnect(callback)
+            except (RuntimeError, TypeError):
+                pass
+
+        self._active_screen_signal_bindings = []
+        self._active_screen = screen
+        if screen is None:
+            return
+
+        callback = self._on_active_screen_metrics_changed
+        for signal_name in (
+            'logicalDotsPerInchChanged',
+            'physicalDotsPerInchChanged',
+            'geometryChanged',
+        ):
+            signal = getattr(screen, signal_name, None)
+            if signal is None:
+                continue
+            signal.connect(callback)
+            self._active_screen_signal_bindings.append((signal, callback))
+
+    def _on_display_screen_changed(self, screen):
+        self._bind_active_screen(screen)
+        self._schedule_display_refresh()
+
+    def _on_active_screen_metrics_changed(self, *args):
+        self._schedule_display_refresh()
+
+    def _schedule_display_refresh(self):
+        """Collapse related Qt display notifications into one layout pass."""
+        if getattr(self, '_display_refresh_pending', False):
+            return
+        self._display_refresh_pending = True
+        QtCore.QTimer.singleShot(0, self._refresh_display_layout)
+
+    def _refresh_display_layout(self):
+        """Refresh VisPy's framebuffer and all logical-pixel overlays."""
+        self._display_refresh_pending = False
+        canvas = getattr(self, 'canvas', None)
+        native_canvas = getattr(canvas, 'native', None) if canvas is not None else None
+
+        if native_canvas is not None:
+            try:
+                screen_changed = getattr(native_canvas, 'screen_changed', None)
+                if callable(screen_changed):
+                    screen_changed(getattr(self, '_active_screen', None))
+                else:
+                    resize_gl = getattr(native_canvas, 'resizeGL', None)
+                    width = native_canvas.width()
+                    height = native_canvas.height()
+                    if callable(resize_gl) and width > 0 and height > 0:
+                        resize_gl(width, height)
+            except Exception as e:
+                print(f"Warning: Could not refresh VisPy display scaling: {e}")
+
+        for method_name in (
+            'position_slider_overlay',
+            'reposition_expand_btn',
+            '_update_hud_elements',
+        ):
+            method = getattr(self, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                method()
+            except Exception as e:
+                print(f"Warning: Could not refresh {method_name}: {e}")
+
+        if canvas is not None:
+            try:
+                canvas.update()
+            except Exception as e:
+                print(f"Warning: Could not redraw canvas after display refresh: {e}")
+
+        self._print_display_diagnostics()
+
+    def _print_display_diagnostics(self):
+        """Print current logical/physical display state only when it changes."""
+        canvas = getattr(self, 'canvas', None)
+        if canvas is None:
+            return
+
+        screen = getattr(self, '_active_screen', None)
+        native_canvas = getattr(canvas, 'native', None)
+        try:
+            screen_name = screen.name() if screen is not None else "Unknown display"
+            geometry = screen.geometry() if screen is not None else None
+            screen_geometry = (
+                geometry.x(),
+                geometry.y(),
+                geometry.width(),
+                geometry.height(),
+            ) if geometry is not None else (0, 0, 0, 0)
+            dpr = (
+                float(native_canvas.devicePixelRatioF())
+                if native_canvas is not None and hasattr(native_canvas, 'devicePixelRatioF')
+                else float(getattr(canvas, 'pixel_scale', 1.0))
+            )
+            logical_size = tuple(canvas.size)
+            physical_size = tuple(canvas.physical_size)
+        except Exception as e:
+            print(f"Warning: Could not read display information: {e}")
+            return
+
+        signature = (
+            screen_name,
+            screen_geometry,
+            round(dpr, 6),
+            logical_size,
+            physical_size,
+        )
+        if signature == getattr(self, '_last_display_signature', None):
+            return
+        self._last_display_signature = signature
+
+        print(
+            "Display: "
+            f"{screen_name} | geometry={screen_geometry[2]}x{screen_geometry[3]} "
+            f"at ({screen_geometry[0]}, {screen_geometry[1]}) | DPR={dpr:g} | "
+            f"canvas logical={logical_size[0]}x{logical_size[1]} | "
+            f"physical={physical_size[0]}x{physical_size[1]}"
+        )
 
     def on_resize(self, event): 
         self._hud_timer.start()
