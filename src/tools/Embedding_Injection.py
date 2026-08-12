@@ -70,8 +70,12 @@ from utilities.Embedding_HDF5 import (
 INPUT_EMBED = None
 INPUT_FASTA = None
 
-EMBED_DIR = os.path.join("..", "Embeddings")
-FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
+from utilities.Tool_Directories import project_directory_defaults
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
+EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
+FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
 
 # --- JSON Settings Override ---
 import json
@@ -80,7 +84,6 @@ import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):

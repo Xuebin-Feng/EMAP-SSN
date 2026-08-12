@@ -38,10 +38,13 @@ from utilities.Embedding_HDF5 import (
 INPUT_EMBED = None
 CROPPED_FASTA = None
 
-FASTA_DIR = os.path.join("..", "Input_Files", "Sequence_Sets")
-EMBED_DIR = os.path.join("..", "Embeddings")
+from utilities.Tool_Directories import project_directory_defaults
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
+FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
+EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
+
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):

@@ -93,8 +93,12 @@ LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 BATCH_SIZE = 500000
 
-EMBED_DIR = os.path.join("..", "Embeddings")
-NETWORK_DIR = os.path.join("..", "Input_Files", "Networks_EValues")
+from utilities.Tool_Directories import project_directory_defaults
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
+EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
+NETWORK_DIR = _DEFAULT_DIRECTORIES["NETWORK_DIR"]
 
 # --- JSON Settings Override ---
 import json
@@ -103,7 +107,6 @@ import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):

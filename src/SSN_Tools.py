@@ -34,6 +34,10 @@ from utilities.Model_License_Utils import (
     is_model_license_accepted,
     record_model_license_acceptance,
 )
+from utilities.Tool_Directories import (
+    DEFAULT_DIRECTORY_PATHS,
+    fill_missing_directory_defaults,
+)
 from Cache_Manifest import (
     file_cache_key,
     inspect_network_completeness,
@@ -260,6 +264,7 @@ def get_embedding_model_usage_terms():
 # Ensure src/ (the directory containing all project modules) is on sys.path.
 # This is needed when the script is run as a subprocess or from a different working directory.
 _SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SRC_DIR)
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
@@ -1634,18 +1639,11 @@ class ToolsGUI(QMainWindow):
         layout.addRow(header)
         
         self.dir_inputs = {}
-        dir_defaults = {
-            "EMBED_DIR": os.path.join("Embeddings"),
-            "FASTA_DIR": os.path.join("Input_Files","Sequence_Sets"),
-            "MSA_DIR": os.path.join("Input_Files","Multiple_Alignments"),
-            "NETWORK_DIR": os.path.join("Input_Files","Networks_EValues"),
-            "PATH_DIR": os.path.join("Cache_Files","Global_Path"),
-            "REPORT_DIR": os.path.join("Cache_Files","Align_Report")
-        }
+        dir_defaults = dict(DEFAULT_DIRECTORY_PATHS)
         
         # Load existing paths from JSON if available
         import json
-        settings_file = os.path.join("Input_Files", "tools_settings.json")
+        settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
         if os.path.exists(settings_file):
             try:
                 with open(settings_file, "r", encoding="utf-8") as f:
@@ -1722,9 +1720,9 @@ class ToolsGUI(QMainWindow):
             # Save the path exactly as written
             new_settings[key] = os.path.normpath(raw_path) if raw_path else ""
             
-        settings_file = os.path.join("Input_Files", "tools_settings.json")
+        settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
         combined_settings = {}
-        os.makedirs("Input_Files", exist_ok=True)
+        os.makedirs(os.path.dirname(settings_file), exist_ok=True)
         if os.path.exists(settings_file):
             try:
                 with open(settings_file, "r", encoding="utf-8") as f:
@@ -1857,7 +1855,9 @@ class ToolsGUI(QMainWindow):
                         actual_val = default_val
                         
                         # Then, try to overwrite it with the nested JSON value if it exists
-                        settings_path = os.path.join("Input_Files", "tools_settings.json")
+                        settings_path = os.path.join(
+                            _PROJECT_ROOT, "Input_Files", "tools_settings.json"
+                        )
                         if os.path.exists(settings_path):
                             try:
                                 with open(settings_path, "r", encoding="utf-8") as f:
@@ -3332,14 +3332,19 @@ class ToolsGUI(QMainWindow):
                 new_settings[var_name] = widget.text()
                 
         # 2. Load existing JSON to avoid overwriting unrelated settings
-        settings_file = os.path.join("Input_Files", "tools_settings.json")
+        settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
         combined_settings = {}
-        os.makedirs("Input_Files", exist_ok=True)
+        os.makedirs(os.path.dirname(settings_file), exist_ok=True)
         if os.path.exists(settings_file):
             try:
                 with open(settings_file, "r", encoding="utf-8") as f:
                     combined_settings = json.load(f)
             except: pass
+
+        # A first-run Save and Run must persist the same usable directory
+        # defaults shown in the Directories tab. Existing nonblank custom paths
+        # remain authoritative.
+        fill_missing_directory_defaults(combined_settings)
 
         script_name = os.path.basename(script_path)
         selected_model = None

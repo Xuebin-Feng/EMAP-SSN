@@ -76,6 +76,7 @@ from utilities.FASTA_Sanitization import (
     sanitize_sequence,
     select_preferred_header,
 )
+from utilities.Tool_Directories import project_directory_defaults
 
 # ==========================================
 # CONFIGURATION
@@ -87,7 +88,9 @@ MIN_SEQ_LENGTH = 0
 MAX_SEQ_LENGTH = 0
 REMOVE_BY_HEADER_STRING = ""
 
-FASTA_DIR = None
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
+FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
 
 # --- JSON Settings Override ---
 import json
@@ -95,7 +98,6 @@ import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):

@@ -92,15 +92,18 @@ NORM_MODE = "longer_sequence"
 WORKERS = 8                  
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
-EMBED_DIR = os.path.join("..", "Embeddings")
-REPORT_DIR = os.path.join("..", "Cache_Files", "Align_Report")
+from utilities.Tool_Directories import project_directory_defaults
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
+EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
+REPORT_DIR = _DEFAULT_DIRECTORIES["REPORT_DIR"]
 GENERATE_FASTA = False
 
 # --- JSON Settings Override ---
 import json
 import ast
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
 if os.path.exists(SETTINGS_FILE):
