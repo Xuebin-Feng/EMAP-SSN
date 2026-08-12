@@ -13,24 +13,52 @@
 # limitations under the License.
 
 import os
+import sys
+import json
 import numpy as np
 from collections import Counter
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import SSN_Config as cfg
 import SSN_Utils as utils
+from utilities.MSA_Sanitization import (
+    AA_TO_INT,
+    INT_TO_AA,
+    MSAValidationError,
+    MSASanitizationStats,
+    canonicalize_sparse_values,
+    load_sanitized_msa_fasta,
+    parse_int_to_aa_mapping,
+    print_msa_sanitization_result,
+    sanitize_msa_headers,
+)
+
+
+def _print_red_warning(message):
+    """Print a bright-red warning to terminals and plain text to redirected logs."""
+    if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+        print(f"\033[91m{message}\033[0m")
+    else:
+        print(message)
 
 class Alignment_Manager:
     def __init__(self, msa_file, full_headers=None, active_reference=None, alignment_offset=0):
+        self.msa_file = msa_file
         self.aln = None
+        self.sanitization_stats = None
         self.valid_cols = None
-        self.seq_map = None
-        self.col_to_label = None
-        self.label_to_col = None
+        self.seq_map = {}
+        self.col_to_label = {}
+        self.label_to_col = {}
         self.resolved_ref_full = None
         self.has_reference = False
         self.offset = 0
         self._base_col_to_label = None
+        self.network_headers = list(full_headers) if full_headers is not None else []
+        self.matched_headers = []
+        self.missing_headers = []
+        self.viewer_to_aln = np.full(len(self.network_headers), -1, dtype=int)
+        self.aligned_node_mask = np.zeros(len(self.network_headers), dtype=bool)
 
         if not msa_file or str(msa_file).strip() == "" or str(msa_file).strip().lower() == "none" or "none_[e1_ra]_alignment.fasta" in str(msa_file).lower():
             print("An MSA is not selected and will not be loaded.")
@@ -40,27 +68,34 @@ class Alignment_Manager:
         if self.aln is None:
             print('Warning: Failed to load alignment.')
             return
+        self.sanitization_stats = getattr(self.aln, "sanitization_stats", None)
+
+        self._initialize_coverage(is_sparse)
 
         has_ref = bool(active_reference and str(active_reference).strip().lower() != 'none')
-        if has_ref:
-            ref_to_use = active_reference # We use active_reference here, but we will print nicely
+        reference_fallback = False
+        ref_idx = self._find_reference_index(active_reference, is_sparse) if has_ref else -1
+
+        if has_ref and ref_idx not in (None, -1):
             if is_sparse:
-                self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(cfg.FILTER_MIN_OCCUPANCY, ref_header=ref_to_use)
-                ref_idx, self.col_to_label = self.aln.get_ref_anchored_mapping(active_reference, self.valid_cols)
-                self.seq_map = self.aln.header_map
+                self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(
+                    cfg.FILTER_MIN_OCCUPANCY,
+                    ref_header=active_reference,
+                )
+                _, self.col_to_label = self.aln.get_ref_anchored_mapping(
+                    active_reference,
+                    self.valid_cols,
+                )
             else:
-                self.valid_cols, ref_length, forced_retained = utils.get_valid_columns_legacy(self.aln, ref_header=ref_to_use)
-                ref_idx, self.col_to_label = utils.get_ref_anchored_mapping_legacy(self.aln, active_reference, self.valid_cols)
-                self.seq_map = {}
-                for i, r in enumerate(self.aln):
-                    self.seq_map[r.id] = i
-                    self.seq_map[r.description] = i
-                    simple = utils.simplify_node_label(r.id)
-                    self.seq_map[simple] = i
-            if ref_idx is None or ref_idx == -1:
-                print(f"Warning: Active reference '{active_reference}' not found in alignment data. MSA disabled.")
-                self.aln = None
-                return
+                self.valid_cols, ref_length, forced_retained = utils.get_valid_columns_legacy(
+                    self.aln,
+                    ref_header=active_reference,
+                )
+                _, self.col_to_label = utils.get_ref_anchored_mapping_legacy(
+                    self.aln,
+                    active_reference,
+                    self.valid_cols,
+                )
             if is_sparse:
                 self.resolved_ref_full = self.aln.headers[ref_idx]
             else:
@@ -74,25 +109,115 @@ class Alignment_Manager:
             print(f"Alignment Offset: {self.offset}")
             print(f"Alignment Ready. Valid Cols: {len(self.valid_cols)} (Reference: {ref_length}, Forced to Retain: {forced_retained})")
         else:
-            self.resolved_ref_full = 'None'
-            if is_sparse:
-                self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(cfg.FILTER_MIN_OCCUPANCY, ref_header=None)
-                self.seq_map = self.aln.header_map
-            else:
-                self.valid_cols, ref_length, forced_retained = utils.get_valid_columns_legacy(self.aln, ref_header=None)
-                self.seq_map = {}
-                for i, r in enumerate(self.aln):
-                    self.seq_map[r.id] = i
-                    self.seq_map[r.description] = i
-                    simple = utils.simplify_node_label(r.id)
-                    self.seq_map[simple] = i
-            sorted_cols = sorted(list(self.valid_cols))
-            self.col_to_label = {col_idx: str(idx + 1) for idx, col_idx in enumerate(sorted_cols)}
-            self._base_col_to_label = dict(self.col_to_label)
-            print(f"No reference sequence provided. Operating in Pure Occupancy Mode.")
-            print(f"Alignment Ready. Valid Cols (Occupancy >= {cfg.FILTER_MIN_OCCUPANCY}%): {len(self.valid_cols)}")
+            reference_fallback = has_ref
+            self._configure_occupancy_mapping(is_sparse)
 
         self.label_to_col = {v: k for k, v in self.col_to_label.items()}
+
+        if self.missing_headers:
+            self._warn_incomplete_coverage(reference_fallback, active_reference)
+        elif reference_fallback:
+            _print_red_warning(
+                f"WARNING: Configured alignment reference '{active_reference}' was not found. "
+                "The MSA remains loaded in pure occupancy mode; reference numbering and "
+                "alignment offsets are inactive."
+            )
+
+    def _initialize_coverage(self, is_sparse):
+        """Build the exact network-node to alignment-row mapping once per load."""
+        if is_sparse:
+            alignment_headers = list(self.aln.headers)
+        else:
+            alignment_headers = [
+                record.description if record.description else record.id
+                for record in self.aln
+            ]
+
+        exact_header_to_row = {
+            header: row_idx for row_idx, header in enumerate(alignment_headers)
+        }
+        for node_idx, header in enumerate(self.network_headers):
+            row_idx = exact_header_to_row.get(header)
+            if row_idx is None:
+                self.missing_headers.append(header)
+                continue
+            self.viewer_to_aln[node_idx] = row_idx
+            self.aligned_node_mask[node_idx] = True
+            self.matched_headers.append(header)
+
+        if is_sparse:
+            self.seq_map = self.aln.header_map
+        else:
+            for i, record in enumerate(self.aln):
+                self.seq_map[record.id] = i
+                self.seq_map[record.description] = i
+                self.seq_map[utils.simplify_node_label(record.id)] = i
+
+    def _find_reference_index(self, active_reference, is_sparse):
+        if not active_reference or len(self.aln) == 0:
+            return -1
+        if is_sparse:
+            return self.aln.find_reference_index(active_reference)
+
+        target_lower = str(active_reference).lower()
+        for i, record in enumerate(self.aln):
+            if target_lower in record.id.lower() or target_lower in record.description.lower():
+                return i
+        return -1
+
+    def _configure_occupancy_mapping(self, is_sparse):
+        self.resolved_ref_full = 'None'
+        self.has_reference = False
+        self.offset = 0
+
+        if len(self.aln) == 0:
+            self.valid_cols = set()
+            ref_length = 0
+            forced_retained = 0
+        elif is_sparse:
+            self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(
+                cfg.FILTER_MIN_OCCUPANCY,
+                ref_header=None,
+            )
+        else:
+            self.valid_cols, ref_length, forced_retained = utils.get_valid_columns_legacy(
+                self.aln,
+                ref_header=None,
+            )
+
+        sorted_cols = sorted(self.valid_cols)
+        self.col_to_label = {
+            col_idx: str(idx + 1) for idx, col_idx in enumerate(sorted_cols)
+        }
+        self._base_col_to_label = dict(self.col_to_label)
+        print("No active reference sequence. Operating in Pure Occupancy Mode.")
+        print(
+            f"Alignment Ready. Valid Cols (Occupancy >= "
+            f"{cfg.FILTER_MIN_OCCUPANCY}%): {len(self.valid_cols)}"
+        )
+
+    def _warn_incomplete_coverage(self, reference_fallback, active_reference):
+        total = len(self.network_headers)
+        aligned = len(self.matched_headers)
+        missing = len(self.missing_headers)
+        coverage_pct = (100.0 * aligned / total) if total else 100.0
+        shown_headers = self.missing_headers[:10]
+        lines = [
+            "WARNING: Incomplete MSA coverage",
+            f"Aligned network nodes: {aligned}/{total} ({coverage_pct:.1f}%)",
+            f"Excluded from alignment-dependent analyses: {missing}",
+            f"Missing alignment headers (showing {len(shown_headers)} of {missing}):",
+        ]
+        lines.extend(f"  - {header}" for header in shown_headers)
+        omitted = missing - len(shown_headers)
+        if omitted > 0:
+            lines.append(f"  ... and {omitted} more.")
+        if reference_fallback:
+            lines.append(
+                f"Configured reference '{active_reference}' is missing; the MSA is loaded "
+                "in pure occupancy mode and reference numbering is inactive."
+            )
+        _print_red_warning("\n".join(lines))
 
     @staticmethod
     def _offset_label(label, offset):
@@ -136,45 +261,187 @@ class SparseAlignmentLoader:
                         will be loaded/retained in the matrix.
         """
         import h5py
-        import json
         from scipy import sparse
-        
+
+        stats = MSASanitizationStats()
+
         with h5py.File(h5_path, "r") as hf:
-            # 1. Reconstruct SciPy Sparse Matrix
-            mat_group = hf["matrix"]
-            shape = tuple(mat_group.attrs["shape"])
-            raw_matrix = sparse.csr_matrix(
-                (mat_group["data"][:], mat_group["indices"][:], mat_group["indptr"][:]), 
-                shape=shape
+            required_paths = (
+                "matrix",
+                "matrix/data",
+                "matrix/indices",
+                "matrix/indptr",
+                "headers",
+                "int_to_aa",
             )
-            
-            # 2. Extract Headers
-            raw_headers_bytes = hf["headers"][:]
-            raw_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers_bytes]
-            
-            # 3. Extract JSON mappings (convert int_to_aa keys back to integers)
-            raw_int_to_aa = json.loads(hf["int_to_aa"][()].decode('utf-8'))
-            self.int_to_aa = {int(k): v for k, v in raw_int_to_aa.items()}
-            
+            for object_path in required_paths:
+                link = hf.get(object_path, getlink=True)
+                if link is None:
+                    raise MSAValidationError(
+                        f"Sparse HDF5 is missing required object '{object_path}'."
+                    )
+                if not isinstance(link, h5py.HardLink):
+                    raise MSAValidationError(
+                        f"Sparse HDF5 required object '{object_path}' must be a local hard link."
+                    )
+
+            mat_group = hf["matrix"]
+            if not isinstance(mat_group, h5py.Group):
+                raise MSAValidationError("Sparse HDF5 'matrix' must be a group.")
+            if "shape" not in mat_group.attrs:
+                raise MSAValidationError("Sparse HDF5 matrix is missing its shape attribute.")
+
+            shape_array = np.asarray(mat_group.attrs["shape"])
+            if (
+                shape_array.ndim != 1
+                or len(shape_array) != 2
+                or not np.issubdtype(shape_array.dtype, np.integer)
+            ):
+                raise MSAValidationError(
+                    "Sparse HDF5 matrix shape must contain two integers."
+                )
+            shape = tuple(int(value) for value in shape_array)
+            if shape[0] <= 0 or shape[1] <= 0:
+                raise MSAValidationError(
+                    "Sparse HDF5 matrix must contain at least one row and one column."
+                )
+
+            data_ds = mat_group["data"]
+            indices_ds = mat_group["indices"]
+            indptr_ds = mat_group["indptr"]
+            for name, dataset in (
+                ("matrix/data", data_ds),
+                ("matrix/indices", indices_ds),
+                ("matrix/indptr", indptr_ds),
+            ):
+                if not isinstance(dataset, h5py.Dataset) or dataset.ndim != 1:
+                    raise MSAValidationError(
+                        f"Sparse HDF5 '{name}' must be a one-dimensional dataset."
+                    )
+                if not np.issubdtype(dataset.dtype, np.integer):
+                    raise MSAValidationError(
+                        f"Sparse HDF5 '{name}' must use an integer dtype."
+                    )
+
+            headers_ds = hf["headers"]
+            if not isinstance(headers_ds, h5py.Dataset) or headers_ds.ndim != 1:
+                raise MSAValidationError(
+                    "Sparse HDF5 'headers' must be a one-dimensional dataset."
+                )
+            if len(headers_ds) != shape[0]:
+                raise MSAValidationError(
+                    f"Sparse HDF5 header count ({len(headers_ds)}) does not match "
+                    f"matrix rows ({shape[0]})."
+                )
+
+            if len(data_ds) != len(indices_ds):
+                raise MSAValidationError(
+                    "Sparse HDF5 data and indices datasets have different lengths."
+                )
+            if len(indptr_ds) != shape[0] + 1:
+                raise MSAValidationError(
+                    "Sparse HDF5 indptr length must equal row count plus one."
+                )
+
+            indices = indices_ds[:]
+            indptr = indptr_ds[:]
+            nnz = len(data_ds)
+
+            if int(indptr[0]) != 0 or int(indptr[-1]) != nnz:
+                raise MSAValidationError(
+                    "Sparse HDF5 indptr endpoints do not match the stored entries."
+                )
+            if np.any(indptr < 0) or np.any(indptr[1:] < indptr[:-1]):
+                raise MSAValidationError(
+                    "Sparse HDF5 indptr values must be non-negative and monotonic."
+                )
+            if np.any(indices < 0) or np.any(indices >= shape[1]):
+                raise MSAValidationError(
+                    "Sparse HDF5 contains column indices outside the matrix shape."
+                )
+            for row_idx in range(shape[0]):
+                start = int(indptr[row_idx])
+                end = int(indptr[row_idx + 1])
+                row_indices = indices[start:end]
+                if len(row_indices) != len(np.unique(row_indices)):
+                    raise MSAValidationError(
+                        f"Sparse HDF5 row {row_idx} contains duplicate column indices."
+                    )
+
+            raw_headers = []
+            for row_idx, raw_header in enumerate(headers_ds[:], start=1):
+                if isinstance(raw_header, (bytes, np.bytes_)):
+                    try:
+                        header = bytes(raw_header).decode("utf-8", errors="strict")
+                    except UnicodeDecodeError as exc:
+                        raise MSAValidationError(
+                            f"Sparse HDF5 header {row_idx} is not valid UTF-8."
+                        ) from exc
+                elif isinstance(raw_header, str):
+                    header = raw_header
+                else:
+                    raise MSAValidationError(
+                        f"Sparse HDF5 header {row_idx} is not a string."
+                    )
+                raw_headers.append(header)
+            raw_headers = sanitize_msa_headers(raw_headers, stats)
+
+            mapping_dataset = hf["int_to_aa"]
+            if not isinstance(mapping_dataset, h5py.Dataset) or mapping_dataset.shape != ():
+                raise MSAValidationError(
+                    "Sparse HDF5 'int_to_aa' must be a scalar JSON dataset."
+                )
+            mapping_text = mapping_dataset[()]
+            if isinstance(mapping_text, (bytes, np.bytes_)):
+                try:
+                    mapping_text = bytes(mapping_text).decode("utf-8", errors="strict")
+                except UnicodeDecodeError as exc:
+                    raise MSAValidationError(
+                        "Sparse HDF5 int_to_aa is not valid UTF-8."
+                    ) from exc
+            if not isinstance(mapping_text, str):
+                raise MSAValidationError(
+                    "Sparse HDF5 int_to_aa must contain UTF-8 JSON text."
+                )
+            try:
+                decoded_mapping = json.loads(mapping_text)
+            except json.JSONDecodeError as exc:
+                raise MSAValidationError(
+                    f"Sparse HDF5 int_to_aa contains invalid JSON: {exc.msg}."
+                ) from exc
+            source_int_to_aa = parse_int_to_aa_mapping(decoded_mapping)
+
+            canonical_data = np.empty(nnz, dtype=np.uint8)
+            keep_mask = np.ones(nnz, dtype=bool)
+            validation_chunk_size = 1_000_000
+            for chunk_start in range(0, nnz, validation_chunk_size):
+                chunk_end = min(chunk_start + validation_chunk_size, nnz)
+                chunk_data, chunk_keep = canonicalize_sparse_values(
+                    data_ds[chunk_start:chunk_end],
+                    source_int_to_aa,
+                    stats,
+                )
+                canonical_data[chunk_start:chunk_end] = chunk_data
+                keep_mask[chunk_start:chunk_end] = chunk_keep
+            canonical_data[~keep_mask] = 0
+            raw_matrix = sparse.csr_matrix(
+                (canonical_data, indices, indptr),
+                shape=shape,
+                dtype=np.uint8,
+            )
+            if not np.all(keep_mask):
+                raw_matrix.eliminate_zeros()
+
         if filter_headers is not None:
             header_to_idx = {h: i for i, h in enumerate(raw_headers)}
             
             keep_indices = []
             final_headers = []
-            missing_count = 0
-            
             for h in filter_headers:
                 if h in header_to_idx:
                     keep_indices.append(header_to_idx[h])
                     final_headers.append(h)
-                else:
-                    missing_count += 1
-            
-            if missing_count > 0:
-                msg = f"CRITICAL ERROR: MSA missing {missing_count} sequences from your FASTA subset! To correctly load an MSA, the fasta file must be a strict subset of the sequence set used to build the MSA."
-                print(msg)
-                raise ValueError(msg)
-                
+
             extra_count = len(raw_headers) - len(final_headers)
             if extra_count > 0:
                 print(f"Warning: The MSA contains {extra_count} more sequences than the provided FASTA subset.")
@@ -186,6 +453,8 @@ class SparseAlignmentLoader:
             self.headers = raw_headers
 
         self.n_seqs, self.n_cols = self.matrix.shape
+        self.sanitization_stats = stats
+        self.int_to_aa = dict(INT_TO_AA)
         self.header_map = {}
         
         # Re-index simplified headers
@@ -201,6 +470,8 @@ class SparseAlignmentLoader:
             # Map Simplified
             simple_id = utils.simplify_node_label(header)
             self.header_map[simple_id] = i
+
+        print_msa_sanitization_result(stats, h5_path)
 
     def __len__(self):
         return self.n_seqs
@@ -224,7 +495,24 @@ class SparseAlignmentLoader:
     def get_alignment_length(self):
         return self.n_cols
 
+    def find_reference_index(self, ref_header):
+        """Resolve a reference within the rows retained for the active network."""
+        if not ref_header or self.n_seqs == 0:
+            return -1
+
+        target_lower = str(ref_header).lower()
+        for header_key, idx in self.header_map.items():
+            if target_lower == str(header_key).lower():
+                return idx
+        for i, header in enumerate(self.headers):
+            if target_lower in header.lower() or header.lower() in target_lower:
+                return i
+        return -1
+
     def get_valid_columns(self, min_occupancy_pct, ref_header=None):
+        if self.n_seqs == 0:
+            return set(), 0, 0
+
         # 1. Occupancy Filter (Standard)
         min_count = self.n_seqs * (min_occupancy_pct / 100.0)
         col_counts = self.matrix.getnnz(axis=0) 
@@ -241,20 +529,9 @@ class SparseAlignmentLoader:
 
         ref_idx = -1
         for target in search_targets:
-            target_lower = target.lower()
-            
-            # Exact map (Case-Insensitive)
-            for h_key, idx in self.header_map.items():
-                if target_lower == str(h_key).lower():
-                    ref_idx = idx
-                    break
-            if ref_idx != -1: break
-            
-            # Substring search (Case-Insensitive)
-            for i, h in enumerate(self.headers):
-                 if target_lower in h.lower() or h.lower() in target_lower:
-                     ref_idx = i; break
-            if ref_idx != -1: break
+            ref_idx = self.find_reference_index(target)
+            if ref_idx != -1:
+                break
         
         if ref_idx != -1:
             # Get the reference row
@@ -268,23 +545,10 @@ class SparseAlignmentLoader:
             before_len = len(valid_indices)
             valid_indices.update(ref_cols)
             added = len(valid_indices) - before_len
-        else:
-            print(f"Warning: Reference not found during column filtering.")
-
         return valid_indices, ref_length, added
 
     def get_ref_anchored_mapping(self, ref_id_substring, valid_cols):
-        ref_idx = -1
-        target_lower = ref_id_substring.lower() if ref_id_substring else ""
-        
-        for h_key, idx in self.header_map.items():
-            if target_lower in str(h_key).lower():
-                ref_idx = idx; break
-        
-        if ref_idx == -1: 
-            for i, h in enumerate(self.headers):
-                if target_lower in h.lower():
-                    ref_idx = i; break
+        ref_idx = self.find_reference_index(ref_id_substring)
         
         if ref_idx == -1: return None, None
 
@@ -350,61 +614,43 @@ class SparseAlignmentLoader:
         return (dense_col == target_code)
 
 # --- Sparse In-Memory Conversion Assets ---
-AA_MAP = {
-    'A': 1, 'R': 2, 'N': 3, 'D': 4, 'C': 5, 'Q': 6, 'E': 7, 'G': 8, 'H': 9, 
-    'I': 10, 'L': 11, 'K': 12, 'M': 13, 'F': 14, 'P': 15, 'S': 16, 'T': 17, 
-    'W': 18, 'Y': 19, 'V': 20, 
-    'X': 21, 'B': 3, 'Z': 6, 'J': 10, 'U': 5, 'O': 12
-}
-INT_TO_AA = {v: k for k, v in AA_MAP.items() if k not in ['B', 'Z', 'J', 'U', 'O']}
 
 class InMemorySparseLoader(SparseAlignmentLoader):
     """Generates a CSR matrix directly from a FASTA file in RAM without saving to disk."""
     def __init__(self, fasta_path, filter_headers=None):
-        from Bio import SeqIO
         from scipy import sparse
-        import numpy as np
 
         print(f"--- Parsing FASTA to Sparse Matrix in RAM: {fasta_path} ---")
 
         row_ind, col_ind, data_vals = [], [], []
         final_headers = []
-        max_col, row_idx = 0, 0
+        headers, sequences, stats = load_sanitized_msa_fasta(fasta_path)
+        alignment_length = len(sequences[0])
+        row_idx = 0
 
-        # Pre-compute filter set for O(1) lookup
-        keep_set = set(filter_headers) if filter_headers else None
+        keep_set = set(filter_headers) if filter_headers is not None else None
 
-        for record in SeqIO.parse(fasta_path, "fasta"):
-            if keep_set and record.description not in keep_set and record.id not in keep_set:
+        for header, sequence in zip(headers, sequences):
+            if keep_set is not None and header not in keep_set:
                 continue
 
-            final_headers.append(record.description)
-            seq_str = str(record.seq).upper()
-            length = len(seq_str)
-            if length > max_col: max_col = length
+            final_headers.append(header)
 
-            for col_idx, char in enumerate(seq_str):
-                if char in AA_MAP:
+            for col_idx, char in enumerate(sequence):
+                if char in AA_TO_INT:
                     row_ind.append(row_idx)
                     col_ind.append(col_idx)
-                    data_vals.append(AA_MAP[char])
+                    data_vals.append(AA_TO_INT[char])
             row_idx += 1
 
-        if filter_headers is not None:
-            missing_count = len(filter_headers) - len(final_headers)
-            if missing_count > 0:
-                msg = f"CRITICAL ERROR: MSA missing {missing_count} sequences from your FASTA subset!"
-                print(msg)
-                raise ValueError(msg)
-
-        # Build state variables identical to HDF5 loader
         self.matrix = sparse.csr_matrix(
             (data_vals, (row_ind, col_ind)), 
-            shape=(row_idx, max_col),
+            shape=(row_idx, alignment_length),
             dtype=np.uint8 
         )
         self.headers = final_headers
-        self.int_to_aa = INT_TO_AA
+        self.int_to_aa = dict(INT_TO_AA)
+        self.sanitization_stats = stats
         self.n_seqs, self.n_cols = self.matrix.shape
         self.header_map = {}
 
@@ -416,6 +662,8 @@ class InMemorySparseLoader(SparseAlignmentLoader):
             simple_id = utils.simplify_node_label(header)
             self.header_map[simple_id] = i
 
+        print_msa_sanitization_result(stats, fasta_path)
+
 def load_alignment_smart(msa_path, filter_headers=None):
     """
     Strict loader: Respects the exact file extension provided.
@@ -425,12 +673,18 @@ def load_alignment_smart(msa_path, filter_headers=None):
     if not msa_path or str(msa_path).strip() == "" or str(msa_path).strip().lower() == "none":
         return None, False
 
-    if msa_path.endswith(".h5"):
+    msa_path = os.fspath(msa_path)
+    extension = os.path.splitext(msa_path)[1].lower()
+
+    if extension == ".h5":
         if os.path.exists(msa_path):
             print(f"--- Loading Sparse Alignment in HDF5 format: {msa_path} ---")
             try:
                 loader = SparseAlignmentLoader(msa_path, filter_headers)
                 return loader, True
+            except MSAValidationError as e:
+                _print_red_warning(f"ERROR: MSA rejected: {e}")
+                return None, False
             except Exception as e:
                 print(f"Error loading HDF5: {e}")
                 return None, False
@@ -438,13 +692,19 @@ def load_alignment_smart(msa_path, filter_headers=None):
             print(f"Error: Specified HDF5 file does not exist: {msa_path}")
             return None, False
 
-    # If it's not an .h5, we bypass Biopython and use our new high-speed RAM converter
+    if extension != ".fasta":
+        _print_red_warning(
+            f"ERROR: MSA rejected: Unsupported alignment extension '{extension or '(none)'}'. "
+            "Expected .fasta or .h5."
+        )
+        return None, False
+
     try:
-        # The InMemorySparseLoader already prints its own initialization message
         loader = InMemorySparseLoader(msa_path, filter_headers)
-        
-        # Returning True here forces SSN_Viewer to use the fast downstream sparse filtering logic
         return loader, True 
+    except MSAValidationError as e:
+        _print_red_warning(f"ERROR: MSA rejected: {e}")
+        return None, False
     except Exception as e:
         print(f"Error loading FASTA into memory: {e}")
         return None, False

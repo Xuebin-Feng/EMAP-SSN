@@ -20,6 +20,487 @@ import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
 
+try:
+    from numba import get_num_threads, njit, prange, set_num_threads
+
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    get_num_threads = None
+    set_num_threads = None
+
+
+STANDARD_AAS = tuple("ACDEFGHIKLMNPQRSTVWY")
+_BARE_IDENTITY_THRESHOLD = re.compile(
+    r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?$"
+)
+
+
+def choose_balanced_thread_count(configured_threads, logical_cpus=None):
+    """Reserve two logical CPUs when possible without exceeding Numba's limit."""
+    configured_threads = max(1, int(configured_threads))
+    if logical_cpus is None:
+        logical_cpus = os.cpu_count() or 1
+    logical_cpus = max(1, int(logical_cpus))
+    available_for_kernel = max(1, logical_cpus - 2)
+    return max(1, min(configured_threads, available_for_kernel))
+
+
+def get_balanced_thread_count():
+    """Return the balanced count for the calling thread's Numba configuration."""
+    if not NUMBA_AVAILABLE:
+        return 0
+    return choose_balanced_thread_count(get_num_threads())
+
+
+if NUMBA_AVAILABLE:
+
+    @njit(parallel=True, nogil=True, cache=True)
+    def _identity_neighbour_counts_kernel(encoded, multiplicities, threshold):
+        """Count threshold neighbours for every unique encoded sequence."""
+        sequence_count, alignment_length = encoded.shape
+        neighbour_counts = np.empty(sequence_count, dtype=np.int64)
+
+        for left_index in prange(sequence_count):
+            neighbour_count = 0
+            for right_index in range(sequence_count):
+                union_count = 0
+                match_count = 0
+
+                for column in range(alignment_length):
+                    left_residue = encoded[left_index, column]
+                    right_residue = encoded[right_index, column]
+
+                    if left_residue >= 0 or right_residue >= 0:
+                        union_count += 1
+                    if left_residue >= 0 and left_residue == right_residue:
+                        match_count += 1
+
+                if (
+                    union_count > 0
+                    and match_count >= threshold * union_count - 1e-12
+                ):
+                    neighbour_count += multiplicities[right_index]
+
+            # An all-invalid row has undefined identity. It remains one
+            # independent observation, matching the historical NumPy path.
+            neighbour_counts[left_index] = (
+                neighbour_count if neighbour_count > 0 else 1
+            )
+
+        return neighbour_counts
+
+
+def run_identity_neighbour_counts(encoded, multiplicities, threshold):
+    """Run the exact kernel with balanced threads and restore thread settings."""
+    if not NUMBA_AVAILABLE:
+        raise RuntimeError("Numba is not available")
+
+    previous_threads = get_num_threads()
+    selected_threads = choose_balanced_thread_count(previous_threads)
+    if selected_threads != previous_threads:
+        set_num_threads(selected_threads)
+
+    try:
+        counts = _identity_neighbour_counts_kernel(
+            np.ascontiguousarray(encoded, dtype=np.int8),
+            np.ascontiguousarray(multiplicities, dtype=np.int64),
+            float(threshold),
+        )
+    finally:
+        if selected_threads != previous_threads:
+            set_num_threads(previous_threads)
+
+    return counts, selected_threads
+
+
+def parse_identity_threshold(value):
+    """Normalize an identity threshold written as a fraction or percentage."""
+    text = str(value).strip()
+    if not text:
+        raise ValueError("Identity threshold cannot be empty.")
+
+    is_percent = text.endswith('%')
+    numeric_text = text[:-1].strip() if is_percent else text
+    try:
+        threshold = float(numeric_text)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid identity threshold '{value}'. Use 0.9, 90, or 90%."
+        ) from exc
+
+    if is_percent or threshold > 1.0:
+        threshold /= 100.0
+
+    if not np.isfinite(threshold) or threshold <= 0.0 or threshold > 1.0:
+        raise ValueError(
+            f"Identity threshold '{value}' is outside the supported range (0, 100%]."
+        )
+    return threshold
+
+
+def extract_identity_threshold(args):
+    """Remove and parse an optional identity-reweighting argument."""
+    threshold = None
+    remaining_args = []
+
+    for arg in args:
+        text = str(arg).strip()
+        threshold_value = text if _BARE_IDENTITY_THRESHOLD.fullmatch(text) else None
+
+        if threshold_value is None:
+            remaining_args.append(arg)
+            continue
+
+        if threshold is not None:
+            raise ValueError("Provide only one identity threshold for logo reweighting.")
+        threshold = parse_identity_threshold(threshold_value)
+
+    return threshold, remaining_args
+
+
+def _encode_standard_amino_acids(sequences):
+    """Encode aligned sequences as 0-19 and all other symbols as -1."""
+    max_length = max((len(sequence) for sequence in sequences), default=0)
+    encoded = np.full((len(sequences), max_length), -1, dtype=np.int8)
+    aa_codes = {aa: index for index, aa in enumerate(STANDARD_AAS)}
+
+    for row, sequence in enumerate(sequences):
+        values = [aa_codes.get(char, -1) for char in sequence.upper()]
+        if values:
+            encoded[row, :len(values)] = values
+    return encoded
+
+
+def _calculate_identity_neighbour_counts_numpy(
+    encoded,
+    multiplicities,
+    threshold,
+    block_size=128,
+):
+    """Historical exact NumPy implementation retained as a fallback."""
+    valid = encoded >= 0
+    valid_counts = valid.sum(axis=1, dtype=np.int64)
+    neighbour_counts = np.zeros(len(encoded), dtype=np.int64)
+    block_size = max(1, int(block_size))
+
+    for left_start in range(0, len(encoded), block_size):
+        left_end = min(left_start + block_size, len(encoded))
+        left_encoded = encoded[left_start:left_end]
+        left_valid = valid[left_start:left_end]
+
+        for right_start in range(left_start, len(encoded), block_size):
+            right_end = min(right_start + block_size, len(encoded))
+            right_encoded = encoded[right_start:right_end]
+            right_valid = valid[right_start:right_end]
+
+            overlap = np.logical_and(
+                left_valid[:, None, :], right_valid[None, :, :]
+            ).sum(axis=2, dtype=np.int64)
+            union = (
+                valid_counts[left_start:left_end, None]
+                + valid_counts[None, right_start:right_end]
+                - overlap
+            )
+            matches = np.logical_and(
+                left_encoded[:, None, :] == right_encoded[None, :, :],
+                np.logical_and(left_valid[:, None, :], right_valid[None, :, :]),
+            ).sum(axis=2, dtype=np.int64)
+            similar = np.logical_and(
+                union > 0,
+                matches >= (threshold * union - 1e-12),
+            )
+
+            neighbour_counts[left_start:left_end] += (
+                similar @ multiplicities[right_start:right_end]
+            )
+            if right_start != left_start:
+                neighbour_counts[right_start:right_end] += (
+                    similar.T @ multiplicities[left_start:left_end]
+                )
+
+    neighbour_counts[neighbour_counts == 0] = 1
+    return neighbour_counts
+
+
+def calculate_identity_weights(
+    sequences,
+    threshold,
+    block_size=128,
+    return_metadata=False,
+    report_backend=False,
+):
+    """Return inverse-neighbour weights for aligned protein sequences.
+
+    Identity is the fraction of matching standard amino acids over positions
+    where either sequence contains a standard amino acid. Thus gaps and
+    nonstandard symbols never count as matches, while missing coverage lowers
+    the identity rather than creating a spuriously perfect fragment match.
+    """
+    normalized_sequences = [str(sequence).upper() for sequence in sequences]
+    if not normalized_sequences:
+        empty_weights = np.zeros(0, dtype=float)
+        metadata = {"backend": "disabled", "threads": 0, "fallback_reason": None}
+        return (empty_weights, metadata) if return_metadata else empty_weights
+
+    unique_sequences = []
+    sequence_to_unique = {}
+    inverse = np.empty(len(normalized_sequences), dtype=np.int64)
+    multiplicities = []
+    for index, sequence in enumerate(normalized_sequences):
+        unique_index = sequence_to_unique.get(sequence)
+        if unique_index is None:
+            unique_index = len(unique_sequences)
+            sequence_to_unique[sequence] = unique_index
+            unique_sequences.append(sequence)
+            multiplicities.append(0)
+        multiplicities[unique_index] += 1
+        inverse[index] = unique_index
+
+    encoded = _encode_standard_amino_acids(unique_sequences)
+    multiplicities = np.asarray(multiplicities, dtype=np.int64)
+
+    metadata = {"backend": "numpy", "threads": 1, "fallback_reason": None}
+    if NUMBA_AVAILABLE:
+        planned_threads = get_balanced_thread_count()
+        if report_backend:
+            print(
+                "Redundancy backend: Numba "
+                f"({planned_threads} balanced worker threads; "
+                "first use may compile)"
+            )
+        try:
+            neighbour_counts, selected_threads = run_identity_neighbour_counts(
+                encoded,
+                multiplicities,
+                threshold,
+            )
+            metadata.update(backend="numba", threads=selected_threads)
+        except Exception as exc:
+            metadata["fallback_reason"] = str(exc)
+            if report_backend:
+                print(f"Numba redundancy kernel failed; using NumPy fallback ({exc})")
+            neighbour_counts = _calculate_identity_neighbour_counts_numpy(
+                encoded,
+                multiplicities,
+                threshold,
+                block_size=block_size,
+            )
+    else:
+        metadata["fallback_reason"] = "Numba is not available"
+        if report_backend:
+            print("Redundancy backend: NumPy fallback (Numba is not available)")
+        neighbour_counts = _calculate_identity_neighbour_counts_numpy(
+            encoded,
+            multiplicities,
+            threshold,
+            block_size=block_size,
+        )
+
+    unique_weights = 1.0 / neighbour_counts.astype(float)
+    weights = unique_weights[inverse]
+    return (weights, metadata) if return_metadata else weights
+
+
+def calculate_logo_matrix(
+    selected_seqs,
+    valid_cols,
+    mode="bits",
+    gap_mode="with_gap",
+    identity_threshold=None,
+    return_weighting_metadata=False,
+    report_weighting_backend=False,
+):
+    """Calculate logo letter heights and per-sequence redundancy weights."""
+    amino_acids = list(STANDARD_AAS)
+    aa_to_index = {aa: index for index, aa in enumerate(amino_acids)}
+    matrix = np.zeros((len(valid_cols), len(amino_acids)), dtype=float)
+    raw_sequence_count = len(selected_seqs)
+
+    if identity_threshold is None:
+        weights = np.ones(raw_sequence_count, dtype=float)
+        weighting_metadata = {
+            "backend": "disabled",
+            "threads": 0,
+            "fallback_reason": None,
+        }
+    else:
+        weights, weighting_metadata = calculate_identity_weights(
+            selected_seqs,
+            identity_threshold,
+            return_metadata=True,
+            report_backend=report_weighting_backend,
+        )
+
+    total_weight = float(weights.sum())
+    if raw_sequence_count == 0 or total_weight <= 0.0:
+        result = (matrix, weights, weighting_metadata)
+        return result if return_weighting_metadata else result[:2]
+
+    for row, col in enumerate(valid_cols):
+        weighted_counts = np.zeros(len(amino_acids), dtype=float)
+        valid_weight = 0.0
+
+        for sequence, weight in zip(selected_seqs, weights):
+            if col >= len(sequence):
+                continue
+            aa_index = aa_to_index.get(sequence[col].upper())
+            if aa_index is None:
+                continue
+            weighted_counts[aa_index] += weight
+            valid_weight += weight
+
+        if valid_weight <= 0.0:
+            continue
+
+        occupancy = valid_weight / total_weight
+        probabilities = weighted_counts / valid_weight
+
+        if mode == "pcts":
+            heights = probabilities
+        else:
+            positive = probabilities > 0.0
+            entropy = -np.sum(
+                probabilities[positive] * np.log2(probabilities[positive])
+            )
+            # Preserve the historical calculation when reweighting is off.
+            # With reweighting enabled, use the effective non-gap observations
+            # available at this specific alignment column.
+            correction_count = (
+                valid_weight if identity_threshold is not None else raw_sequence_count
+            )
+            correction = 19.0 / (2.0 * np.log(2) * correction_count)
+            information = max(0.0, np.log2(20) - (entropy + correction))
+            heights = probabilities * information
+
+        if gap_mode == "with_gap":
+            heights = heights * occupancy
+        matrix[row, :] = heights
+
+    result = (matrix, weights, weighting_metadata)
+    return result if return_weighting_metadata else result[:2]
+
+
+def _configure_logo_y_axis(ax, mode, gap_mode):
+    """Use a fixed theoretical scale so separate logos are comparable."""
+    if mode == "bits":
+        maximum_bits = float(np.log2(len(STANDARD_AAS)))
+        ax.set_ylim(0.0, maximum_bits)
+        ylabel = "Information Content (Bits)" if gap_mode == "with_gap" else "Bits"
+    else:
+        from matplotlib.ticker import PercentFormatter
+
+        ax.set_ylim(0.0, 1.0)
+        ax.set_yticks(np.linspace(0.0, 1.0, 6))
+        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
+        ylabel = "Percentage"
+    ax.set_ylabel(ylabel)
+
+
+def _generate_logo_artifact(payload):
+    """Calculate and render one logo without accessing live viewer state."""
+    import logomaker
+    import pandas as pd
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.transforms import Affine2D
+
+    selected_seqs = payload["selected_seqs"]
+    valid_cols = payload["valid_cols"]
+    plot_positions = payload["plot_positions"]
+    mode = payload["mode"]
+    gap_mode = payload["gap_mode"]
+    identity_threshold = payload["identity_threshold"]
+    filename = payload["filename"]
+
+    amino_acids = list(STANDARD_AAS)
+    plot_coordinates = get_compact_logo_coordinates(plot_positions)
+    matrix, sequence_weights, weighting_metadata = calculate_logo_matrix(
+        selected_seqs,
+        valid_cols,
+        mode=mode,
+        gap_mode=gap_mode,
+        identity_threshold=identity_threshold,
+        return_weighting_metadata=True,
+        report_weighting_backend=True,
+    )
+    dataframe = pd.DataFrame(matrix, index=plot_coordinates, columns=amino_acids)
+    effective_sequence_count = float(sequence_weights.sum())
+
+    if identity_threshold is not None:
+        print(
+            "Identity reweighting enabled: "
+            f"threshold={identity_threshold * 100:g}%, "
+            f"raw N={len(selected_seqs)}, "
+            f"effective N={effective_sequence_count:.2f}"
+        )
+
+    logo_dir = payload["logo_dir"]
+    os.makedirs(logo_dir, exist_ok=True)
+    save_path = os.path.join(logo_dir, filename)
+
+    fig_width = max(6, len(plot_positions) * 0.5 + 1)
+    fig = Figure(figsize=(fig_width, 4))
+    FigureCanvasAgg(fig)
+    ax = fig.subplots()
+
+    try:
+        logo = logomaker.Logo(dataframe, ax=ax, color_scheme=payload["color_scheme"])
+
+        base_gap = 0.01
+        max_gap = base_gap if mode == "pcts" else base_gap * np.log2(20)
+
+        for patch in ax.patches:
+            local_bbox = patch.get_path().get_extents()
+            local_height = local_bbox.height
+            if local_height <= 0.001:
+                continue
+
+            local_ymax = local_bbox.ymax
+            gap = min(local_height * 0.05, max_gap)
+            scale_factor = (local_height - gap) / local_height
+            local_shrink = (
+                Affine2D()
+                .translate(0, -local_ymax)
+                .scale(1.0, scale_factor)
+                .translate(0, local_ymax)
+            )
+            patch.set_transform(local_shrink + patch.get_transform())
+
+        logo.style_spines(visible=False)
+        logo.style_spines(spines=['left', 'bottom'], visible=True)
+        ax.set_xticks(plot_coordinates)
+        ax.set_xticklabels(plot_positions)
+        ax.set_xlim(-0.5, len(plot_coordinates) - 0.5)
+        ax.set_xlabel(
+            f"Position (relative to {payload['ref_id'] or 'first sequence'})"
+        )
+
+        _configure_logo_y_axis(ax, mode, gap_mode)
+
+        fig.tight_layout()
+        fig.savefig(
+            save_path,
+            transparent=filename.lower().endswith('.png'),
+            dpi=600,
+            bbox_inches='tight',
+        )
+    finally:
+        fig.clear()
+
+    message = f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes"
+    if identity_threshold is not None:
+        message += (
+            f" (identity {identity_threshold * 100:g}%, "
+            f"effective N {effective_sequence_count:.2f})"
+        )
+    message += f" to {filename}"
+    return {
+        "message": message,
+        "save_path": save_path,
+        "effective_sequence_count": effective_sequence_count,
+    }
+
 
 def resolve_reference_columns(alignment, requested_positions, ref_seq_str):
     """Resolve displayed integer positions to alignment columns."""
@@ -54,11 +535,16 @@ def resolve_reference_columns(alignment, requested_positions, ref_seq_str):
     return valid_cols, plot_positions, missing_positions
 
 
+def get_compact_logo_coordinates(plot_positions):
+    """Return evenly spaced plot coordinates for arbitrary residue labels."""
+    return list(range(len(plot_positions)))
+
+
 def print_help():
     print("""
     Sequence Logo Generator
     =======================
-    Usage: logo [EXPRESSION] [POSITIONS] [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME]
+    Usage: logo [EXPRESSION] [POSITIONS] [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]
            logo help
 
     Description:
@@ -72,8 +558,10 @@ def print_help():
     Arguments (Can be provided in almost any order):
       1. [POSITIONS] : (Required) Comma-separated list or ranges enclosed in brackets.
                        Example: [1, 2, 9-12]
+                       Non-contiguous positions are plotted adjacently while retaining
+                       their original reference-position labels.
       2. EXPRESSION  : Boolean logic target (e.g., #cluster_1#, "ATA", or $sele$).
-      3. FILENAME    : Output name. Defaults to logo_YYYYMMDD_HHMMSS.svg. 
+      3. FILENAME    : Output name. Defaults to logo_YYYYMMDD_HHMMSS.svg.
                        (Note: The LAST unrecognized string is treated as the filename).
       4. MODE        : 'bits' (Default, Information Content) or 'pcts' (Percentages).
       5. GAP_MODE    : 'with_gap' (Default, scales total height by occupancy) or 'no_gap'.
@@ -82,11 +570,16 @@ def print_help():
                        Presets: chemistry, classic, grays, base_pairing, colorblind_safe,
                        weblogo_protein, skylign_protein, dmslogo_charge, dmslogo_funcgroup,
                        hydrophobicity, charge, NajafabadiEtAl2017.
+      7. IDENTITY    : Optional sequence-redundancy threshold. Reweighting is OFF
+                       unless supplied. Equivalent forms: 0.9, 90, or 90%.
+                       Applies weighted frequencies to both modes
+                       and effective-sample correction to bits mode.
 
     Examples:
       logo [10-20]                        (Logos pos 10-20 for selected or all nodes)
       logo #cluster_1# [1,5] pcts no_gap  (Percentage logo ignoring gaps for pos 1 and 5)
       logo [10-20] color=charge           (Generates bits logo using the charge color scheme)
+      logo #cluster_1# [1,5] 90%           (Reweights sequences at 90% identity)
       logo #cluster_1# [1,5] classic      (Generates bits logo using classic scheme)
       logo K10 [1] target_logo.png        (Logos pos 1 for K10 expr, saves as target_logo.png)
     """)
@@ -101,15 +594,6 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        return
-
-    try:
-        import logomaker
-        import pandas as pd
-        import matplotlib.pyplot as plt
-    except ImportError:
-        msg = "Error: 'logomaker', 'pandas', or 'matplotlib' not installed. Run: pip install logomaker pandas matplotlib"
-        Command_Engine.print_help(viewer, msg)
         return
 
     # 1. Extract Mode Keywords (Aggressively filter to prevent filename confusion)
@@ -153,6 +637,14 @@ def run(viewer, args):
         else:
             remaining_args.append(arg)
     args = remaining_args
+
+    # 1.6. Extract optional sequence-redundancy threshold
+    try:
+        identity_threshold, args = extract_identity_threshold(args)
+    except ValueError as exc:
+        msg = f"Error: {exc}"
+        Command_Engine.print_help(viewer, msg)
+        return
 
     # 2. Extract Positions Argument (First argument containing brackets)
     bracket_indices = [i for i, a in enumerate(args) if a.startswith('[') and a.endswith(']')]
@@ -223,33 +715,39 @@ def run(viewer, args):
             
     requested_positions = sorted(list(positions))
     if not requested_positions:
-        viewer.console_text.text = "Error: Could not parse positions from brackets."
+        msg = "Error: Could not parse positions from brackets."
+        viewer.console_text.text = msg
+        return
+
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is None or alignment.aln is None:
+        msg = "Error: MSA not loaded in viewer. Please check inputs."
+        viewer.console_text.text = msg
+        return
+    if len(alignment.aln) == 0:
+        msg = (
+            "Error: The selected MSA contains no aligned rows for the current network."
+        )
+        viewer.console_text.text = msg
         return
 
     # 6. Apply Boolean Logic to get matching sequences
-    viewer_to_aln = np.full(len(viewer.full_headers), -1, dtype=int)
-    if (getattr(viewer, 'alignment', None).aln if getattr(viewer, 'alignment', None) else None) is not None:
-        for i, h in enumerate(viewer.full_headers):
-            if h in viewer.alignment.seq_map:
-                viewer_to_aln[i] = viewer.alignment.seq_map[h]
-    valid_indices = np.where(viewer_to_aln != -1)[0]
+    viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
     
     try:
         mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None))
         selected_nodes = np.where(mask)[0]
     except Exception as e:
-        viewer.console_text.text = f"Expression Error: {e}"
+        msg = f"Expression Error: {e}"
+        viewer.console_text.text = msg
         return
         
     if len(selected_nodes) == 0:
-        viewer.console_text.text = "No nodes matched the criteria for logo generation."
+        msg = "No nodes matched the criteria for logo generation."
+        viewer.console_text.text = msg
         return
 
-    # 7. Load MSA and map Reference Sequence
-    if (getattr(viewer, 'alignment', None).aln if getattr(viewer, 'alignment', None) else None) is None:
-        viewer.console_text.text = "Error: MSA not loaded in viewer. Please check inputs."
-        return
-
+    # 7. Map Reference Sequence
     ref_id = getattr(viewer, 'active_reference', None) or getattr(cfg, 'ALIGNMENT_REFERENCE', '')
     ref_seq_str = None
 
@@ -278,7 +776,8 @@ def run(viewer, args):
         print(f"Warning: Position {position} was not found in the active alignment mapping.")
 
     if not valid_cols:
-        viewer.console_text.text = "Error: Requested positions are outside the sequence bounds."
+        msg = "Error: Requested positions are outside the sequence bounds."
+        viewer.console_text.text = msg
         return
 
     # 8. Extract Sequences for Selected Nodes
@@ -290,121 +789,39 @@ def run(viewer, args):
             selected_seqs.append(seq)
 
     if not selected_seqs:
-        viewer.console_text.text = "Error: Could not retrieve sequences for matched nodes."
+        msg = (
+            "Error: No aligned nodes matched the logo selection criteria."
+        )
+        viewer.console_text.text = msg
         return
 
-    # 9. Calculate Matrix Data
-    AAs = list("ACDEFGHIKLMNPQRSTVWY")
-    df = pd.DataFrame(0.0, index=plot_positions, columns=AAs)
-    
-    # NEW: Store total sequences (N) for statistical penalties
-    N_total = len(selected_seqs)
-
-    for i, col in enumerate(valid_cols):
-        pos = plot_positions[i]
-        col_chars = [s[col].upper() for s in selected_seqs if col < len(s)]
-        valid_chars = [c for c in col_chars if c in AAs]
-        
-        n_valid = len(valid_chars)
-        if n_valid == 0 or N_total == 0:
-            continue
-            
-        occupancy = n_valid / N_total
-        counts = {aa: valid_chars.count(aa) for aa in AAs}
-        
-        if mode == "pcts":
-            for aa in AAs:
-                val = counts[aa] / n_valid
-                # Height scaling for gaps
-                if gap_mode == "with_gap":
-                    val *= occupancy
-                df.at[pos, aa] = val
-        else:
-            # Bits calculation
-            H = 0
-            for aa in AAs:
-                p_i = counts[aa] / n_valid
-                if p_i > 0:
-                    H -= p_i * np.log2(p_i)
-            
-            # NEW: Small sample correction based on TOTAL sequences (N_total)
-            e_n = 19.0 / (2.0 * np.log(2) * N_total)
-            R = max(0.0, np.log2(20) - (H + e_n))
-            
-            for aa in AAs:
-                p_i = counts[aa] / n_valid
-                val = p_i * R
-                # Height scaling for gaps
-                if gap_mode == "with_gap":
-                    val *= occupancy
-                df.at[pos, aa] = val
-
-    # 10. Generate and Save Logo
+    # 9. Generate and save the logo synchronously.
     logo_dir = getattr(cfg, 'LOGO_DIR', os.path.join("Results", "Sequence_Logos"))
-    os.makedirs(logo_dir, exist_ok=True)
-    save_path = os.path.join(logo_dir, filename)
-
+    payload = {
+        "selected_seqs": tuple(selected_seqs),
+        "valid_cols": tuple(valid_cols),
+        "plot_positions": tuple(plot_positions),
+        "mode": mode,
+        "gap_mode": gap_mode,
+        "identity_threshold": identity_threshold,
+        "filename": filename,
+        "color_scheme": color_scheme,
+        "logo_dir": logo_dir,
+        "ref_id": ref_id,
+    }
     try:
-        from matplotlib.transforms import Affine2D
-        
-        fig_width = max(6, len(plot_positions) * 0.5 + 1)
-        fig, ax = plt.subplots(figsize=(fig_width, 4))
-        
-        # 1. Generate standard flush logo
-        logo = logomaker.Logo(df, ax=ax, color_scheme=color_scheme)
-        
-        # 2. THE MATRIX FIX (With Mode-Scaled Upper Limit)
-        # Define the visual gap as a fraction of the total plot height (5%)
-        BASE_GAP = 0.01 
-        
-        # Scale the absolute gap mathematically based on the Y-axis limits
-        if mode == "pcts":
-            MAX_GAP = BASE_GAP
-        else:
-            MAX_GAP = BASE_GAP * np.log2(20) # ~0.216 bits
-            
-        for patch in ax.patches:
-            local_bbox = patch.get_path().get_extents()
-            local_height = local_bbox.height
-            
-            if local_height > 0.001:
-                local_ymax = local_bbox.ymax
-                
-                # Calculate the gap: 5% of the local height, capped at the global visual MAX_GAP
-                gap = min(local_height * 0.05, MAX_GAP)
-                
-                # Convert the absolute gap back into a relative scale factor for this specific letter
-                scale_factor = (local_height - gap) / local_height
-                
-                # Apply the shrink matrix anchored at the top
-                local_shrink = Affine2D().translate(0, -local_ymax).scale(1.0, scale_factor).translate(0, local_ymax)
-                patch.set_transform(local_shrink + patch.get_transform())
-        
-        logo.style_spines(visible=False)
-        logo.style_spines(spines=['left', 'bottom'], visible=True)
-        
-        ax.set_xticks(plot_positions)
-        ax.set_xticklabels(plot_positions)
-        ax.set_xlabel(f"Position (relative to {ref_id or 'first sequence'})")
-        
-        # Dynamic Y-Axis Labels
-        if mode == "bits":
-            ylabel = "Information Content (Bits)" if gap_mode == "with_gap" else "Bits"
-        else:
-            ylabel = "Percentage"
-            
-        ax.set_ylabel(ylabel)
-        
-        plt.tight_layout()
-        
-        # 3. HIGH RESOLUTION EXPORT
-        plt.savefig(save_path, transparent=(filename.endswith('.png')), dpi=600, bbox_inches='tight')
-        plt.close(fig)
-        
-        msg = f"Saved {gap_mode} {mode} logo for {len(selected_nodes)} nodes to {filename}"
-        viewer.console_text.text = msg
-        print(f"\nSuccess! {msg}")
-        
-    except Exception as e:
-        msg = f"Plotting Error: {e}"
+        artifact = _generate_logo_artifact(payload)
+        if hasattr(viewer, 'console_text'):
+            viewer.console_text.text = artifact["message"]
+        if hasattr(viewer, 'update_console_background'):
+            viewer.update_console_background()
+        print(f"\nSuccess! {artifact['message']}")
+    except ImportError as exc:
+        msg = (
+            "Logo generation failed because a required plotting package "
+            f"is unavailable: {exc}"
+        )
+        Command_Engine.print_help(viewer, msg)
+    except Exception as exc:
+        msg = f"Logo generation failed: {exc}"
         Command_Engine.print_help(viewer, msg)

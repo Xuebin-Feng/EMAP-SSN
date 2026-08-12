@@ -41,7 +41,7 @@ Algorithm:
 4. Concurrently maps the `blastp` binary across all query chunks. Output format is enforced as a tabular 12 column format strings.
 5. Recursively parses the output chunk text files to match sequence IDs back to an integer map.
 6. Converts resulting statistical E-Values into mathematical -Log10(E) variables to provide a linearly comparable edge score.
-7. Deduplicates results to only store unique non-directional combinations (i < j).
+7. Canonicalizes reciprocal hits and retains the strongest score for each unique pair (i < j).
 8. Streams validated HDF5 batches into an atomically written final network.
 """
 # %% Import Necessary Libraries
@@ -67,6 +67,7 @@ import numpy as np
 import math
 import multiprocessing
 import json
+import heapq
 import h5py
 from Bio import SeqIO
 from tqdm import tqdm
@@ -209,6 +210,7 @@ else:
 # ADVANCED
 E_VALUE_CUTOFF = 1e300 # Maximum E-value threshold; sequence hit pairs evaluated above this cutoff are entirely discarded.
 MAX_TARGET_SEQS = 1000000 # The maximum threshold of mathematically aligned sequence hit traces retained per query.
+COMP_BASED_STATS = 2 # Standard BLASTP conditional composition-based score adjustment.
 
 SEQUENCE_SET = ""
 FULL_INPUT_FASTA = None
@@ -635,7 +637,8 @@ def run_alignment_worker(args):
         exe_path, "-query", query_argument, "-db", database_argument, "-out", output_argument,
         "-outfmt", "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore",
         "-matrix", matrix, "-evalue", str(evalue),
-        "-max_target_seqs", limit_count, "-max_hsps", "1", "-comp_based_stats", "0" 
+        "-max_target_seqs", limit_count, "-max_hsps", "1",
+        "-comp_based_stats", str(COMP_BASED_STATS),
     ]
     
     try:
@@ -715,6 +718,8 @@ def _validate_edge_datasets(hf, sequence_count, read_size, index_dtypes):
     if np.dtype(hf["score"].dtype) != np.dtype(np.float32):
         return False, f"invalid score dtype: {hf['score'].dtype}", 0
 
+    previous_i = None
+    previous_j = None
     for start, end in _bounded_slices(edge_count, read_size):
         arr_i = hf["i"][start:end]
         arr_j = hf["j"][start:end]
@@ -725,6 +730,20 @@ def _validate_edge_datasets(hf, sequence_count, read_size, index_dtypes):
             return False, "edge datasets contain a pair that does not satisfy i < j", 0
         if not np.isfinite(arr_score).all():
             return False, "score dataset contains a non-finite value", 0
+        if len(arr_i):
+            if previous_i is not None and (
+                int(arr_i[0]) < previous_i
+                or (int(arr_i[0]) == previous_i and int(arr_j[0]) <= previous_j)
+            ):
+                return False, "edge pairs must be strictly sorted and unique", 0
+            if len(arr_i) > 1:
+                invalid_order = (arr_i[1:] < arr_i[:-1]) | (
+                    (arr_i[1:] == arr_i[:-1]) & (arr_j[1:] <= arr_j[:-1])
+                )
+                if np.any(invalid_order):
+                    return False, "edge pairs must be strictly sorted and unique", 0
+            previous_i = int(arr_i[-1])
+            previous_j = int(arr_j[-1])
 
     return True, "", edge_count
 
@@ -785,6 +804,104 @@ def _append_edge_buffer(hf, sources, targets, scores):
     hf["score"][old_size:new_size] = np.asarray(scores, dtype=np.float32)
 
 
+def _sort_and_reduce_edge_buffer(sources, targets, scores):
+    """Sort canonical pairs and retain the strongest score for each pair."""
+    arr_i = np.asarray(sources, dtype=np.uint32)
+    arr_j = np.asarray(targets, dtype=np.uint32)
+    arr_score = np.asarray(scores, dtype=np.float32)
+    if len(arr_i) == 0:
+        return arr_i, arr_j, arr_score
+
+    order = np.lexsort((arr_j, arr_i))
+    arr_i = arr_i[order]
+    arr_j = arr_j[order]
+    arr_score = arr_score[order]
+
+    pair_starts = np.empty(len(arr_i), dtype=bool)
+    pair_starts[0] = True
+    pair_starts[1:] = (arr_i[1:] != arr_i[:-1]) | (arr_j[1:] != arr_j[:-1])
+    start_indices = np.flatnonzero(pair_starts)
+    return (
+        arr_i[start_indices],
+        arr_j[start_indices],
+        np.maximum.reduceat(arr_score, start_indices),
+    )
+
+
+def _write_sorted_edge_run(runs_group, run_index, sources, targets, scores):
+    """Write one sorted, internally deduplicated external-merge run."""
+    arr_i, arr_j, arr_score = _sort_and_reduce_edge_buffer(
+        sources,
+        targets,
+        scores,
+    )
+    run = runs_group.create_group(f"run_{run_index:08d}")
+    run.create_dataset("i", data=arr_i, dtype=np.uint32)
+    run.create_dataset("j", data=arr_j, dtype=np.uint32)
+    run.create_dataset("score", data=arr_score, dtype=np.float32)
+    return run
+
+
+def _iter_sorted_edges(container, read_size):
+    """Yield sorted edge tuples from one HDF5 file or group in bounded reads."""
+    for start, end in _bounded_slices(len(container["i"]), read_size):
+        arr_i = container["i"][start:end]
+        arr_j = container["j"][start:end]
+        arr_score = container["score"][start:end]
+        for source, target, score in zip(arr_i, arr_j, arr_score):
+            yield int(source), int(target), float(score)
+
+
+def _iter_sorted_edge_file(file_path, read_size):
+    """Yield one sorted batch while keeping its HDF5 handle scoped safely."""
+    with h5py.File(file_path, "r") as source:
+        yield from _iter_sorted_edges(source, read_size)
+
+
+def _merge_sorted_edge_iterators(edge_iterators, output, batch_size):
+    """Merge sorted streams, keeping the maximum score for each canonical pair."""
+    source_buffer = []
+    target_buffer = []
+    score_buffer = []
+    edge_count = 0
+    current_pair = None
+    best_score = None
+
+    merged = heapq.merge(
+        *edge_iterators,
+        key=lambda edge: (edge[0], edge[1]),
+    )
+    for source, target, score in merged:
+        pair = (source, target)
+        if pair == current_pair:
+            if score > best_score:
+                best_score = score
+            continue
+
+        if current_pair is not None:
+            source_buffer.append(current_pair[0])
+            target_buffer.append(current_pair[1])
+            score_buffer.append(best_score)
+            edge_count += 1
+            if len(source_buffer) >= batch_size:
+                _append_edge_buffer(output, source_buffer, target_buffer, score_buffer)
+                source_buffer.clear()
+                target_buffer.clear()
+                score_buffer.clear()
+
+        current_pair = pair
+        best_score = score
+
+    if current_pair is not None:
+        source_buffer.append(current_pair[0])
+        target_buffer.append(current_pair[1])
+        score_buffer.append(best_score)
+        edge_count += 1
+
+    _append_edge_buffer(output, source_buffer, target_buffer, score_buffer)
+    return edge_count
+
+
 def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=None):
     """Reuse or atomically create one bounded-memory HDF5 parsing batch."""
     batch_size = BATCH_SIZE if batch_size is None else int(batch_size)
@@ -831,6 +948,7 @@ def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=
     mismatches = 0
     sequence_count = int(run_metadata["sequence_count"])
     hdf5_chunk = max(1, min(batch_size, 65536))
+    run_index = 0
 
     with h5py.File(partial_path, "w") as hf:
         for name, value in expected_attrs.items():
@@ -844,6 +962,7 @@ def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=
         hf.create_dataset(
             "score", shape=(0,), maxshape=(None,), chunks=(hdf5_chunk,), dtype=np.float32
         )
+        runs_group = hf.create_group("_sorted_runs")
 
         with open(result_path, "r", encoding="utf-8", errors="replace") as result_file:
             for line in result_file:
@@ -874,22 +993,39 @@ def parse_result_to_batch(result_path, query_checksum, run_metadata, batch_size=
                     continue
 
                 valid_lines += 1
-                if source < target:
-                    source_buffer.append(source)
-                    target_buffer.append(target)
+                if source != target:
+                    source_buffer.append(min(source, target))
+                    target_buffer.append(max(source, target))
                     score_buffer.append(-math.log10(raw_evalue + 1e-300))
                     if len(source_buffer) >= batch_size:
-                        _append_edge_buffer(
-                            hf,
+                        _write_sorted_edge_run(
+                            runs_group,
+                            run_index,
                             source_buffer,
                             target_buffer,
                             score_buffer,
                         )
+                        run_index += 1
                         source_buffer.clear()
                         target_buffer.clear()
                         score_buffer.clear()
 
-        _append_edge_buffer(hf, source_buffer, target_buffer, score_buffer)
+        if source_buffer:
+            _write_sorted_edge_run(
+                runs_group,
+                run_index,
+                source_buffer,
+                target_buffer,
+                score_buffer,
+            )
+            run_index += 1
+
+        run_iterators = [
+            _iter_sorted_edges(runs_group[name], batch_size)
+            for name in sorted(runs_group)
+        ]
+        _merge_sorted_edge_iterators(run_iterators, hf, batch_size)
+        del hf["_sorted_runs"]
         hf.attrs["complete"] = True
         hf.flush()
 
@@ -945,7 +1081,7 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
     if batch_size <= 0:
         raise ValueError("BATCH_SIZE must be a positive integer.")
 
-    total_edges = 0
+    candidate_edges = 0
     for record in batch_records:
         valid, reason, edge_count = validate_batch_file(
             record["path"],
@@ -957,7 +1093,7 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
             raise RuntimeError(
                 f"Cannot compile invalid batch '{record['path']}': {reason}"
             )
-        total_edges += edge_count
+        candidate_edges += edge_count
 
     output_path = os.path.normpath(output_path)
     output_directory = os.path.dirname(output_path)
@@ -969,7 +1105,10 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
 
     index_dtype = np.uint16 if len(headers) <= 65535 else np.uint32
     print(f"  > Selected {index_dtype.__name__} for {len(headers)} sequences.")
-    print(f"Saving Combined Scores to {output_path} ({total_edges} edges)...")
+    print(
+        f"Saving Combined Scores to {output_path} "
+        f"({candidate_edges} normalized batch edges before reciprocal deduplication)..."
+    )
 
     with h5py.File(partial_path, "w") as output:
         output.attrs["model_name"] = "BLAST"
@@ -980,20 +1119,30 @@ def compile_final_output(headers, batch_records, run_metadata, output_path=None,
             data=np.asarray(headers, dtype=object),
             dtype=string_dtype,
         )
-        output.create_dataset("i", shape=(total_edges,), dtype=index_dtype)
-        output.create_dataset("j", shape=(total_edges,), dtype=index_dtype)
-        output.create_dataset("score", shape=(total_edges,), dtype=np.float32)
+        hdf5_chunk = max(1, min(batch_size, 65536))
+        output.create_dataset(
+            "i", shape=(0,), maxshape=(None,), chunks=(hdf5_chunk,), dtype=index_dtype
+        )
+        output.create_dataset(
+            "j", shape=(0,), maxshape=(None,), chunks=(hdf5_chunk,), dtype=index_dtype
+        )
+        output.create_dataset(
+            "score",
+            shape=(0,),
+            maxshape=(None,),
+            chunks=(hdf5_chunk,),
+            dtype=np.float32,
+        )
 
-        write_offset = 0
-        for record in tqdm(batch_records, desc="Merging"):
-            with h5py.File(record["path"], "r") as batch:
-                edge_count = len(batch["i"])
-                for start, end in _bounded_slices(edge_count, batch_size):
-                    write_end = write_offset + (end - start)
-                    output["i"][write_offset:write_end] = batch["i"][start:end]
-                    output["j"][write_offset:write_end] = batch["j"][start:end]
-                    output["score"][write_offset:write_end] = batch["score"][start:end]
-                    write_offset = write_end
+        edge_iterators = [
+            _iter_sorted_edge_file(record["path"], batch_size)
+            for record in batch_records
+        ]
+        total_edges = _merge_sorted_edge_iterators(
+            edge_iterators,
+            output,
+            batch_size,
+        )
         output.flush()
 
     valid, reason = validate_final_output(
@@ -1160,7 +1309,7 @@ def run_workflow():
     reused_files = 0
     parsed_valid_lines = 0
     parsed_mismatches = 0
-    total_edges = 0
+    batch_edge_count = 0
     for query_checksum, result_path in result_infos:
         record = parse_result_to_batch(
             result_path,
@@ -1169,7 +1318,7 @@ def run_workflow():
             BATCH_SIZE,
         )
         batch_records.append(record)
-        total_edges += record["edges"]
+        batch_edge_count += record["edges"]
         if record["reused"]:
             reused_files += 1
         else:
@@ -1184,26 +1333,30 @@ def run_workflow():
     print(f"Batches Reused:      {reused_files}")
     print(f"Valid Parsed Hits:   {parsed_valid_lines}")
     print(f"Rejected Lines:      {parsed_mismatches}")
-    possible_edges = len(headers) * (len(headers) - 1) // 2
-    edge_coverage = (100.0 * total_edges / possible_edges) if possible_edges else 0.0
-    print(
-        f"Edges Saved:         {total_edges}/{possible_edges} "
-        f"({edge_coverage:.1f}%)"
-    )
-    if total_edges == 0:
-        print(">> No non-self u < v alignments were retained.")
+    print(f"Normalized Batch Edges: {batch_edge_count}")
     print("-"*40 + "\n")
 
     # 5. COMPILE WITHOUT LOADING THE COMPLETE NETWORK
     print("Consolidating...")
     output_full_path = os.path.normpath(OUTPUT_HDF5)
-    compile_final_output(
+    final_edge_count = compile_final_output(
         headers,
         batch_records,
         run_metadata,
         output_full_path,
         BATCH_SIZE,
     )
+
+    possible_edges = len(headers) * (len(headers) - 1) // 2
+    edge_coverage = (
+        100.0 * final_edge_count / possible_edges if possible_edges else 0.0
+    )
+    print(
+        f"Final Unique Edges:  {final_edge_count}/{possible_edges} "
+        f"({edge_coverage:.1f}%)"
+    )
+    if final_edge_count == 0:
+        print(">> No non-self alignments were retained.")
 
     print(f"Done! Saved to {output_full_path}")
 

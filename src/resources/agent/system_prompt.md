@@ -115,12 +115,14 @@ Available CLI Commands:
       - group list
       - group remove active_site
 
-12. logo [EXPRESSION] [POSITIONS] [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME]
+12. logo [EXPRESSION] [POSITIONS] [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]
     - Generates high-res SVG or PNG sequence logo.
-    - Arguments: POSITIONS (e.g. [10-20], [1,5,9-12]), EXPRESSION target, FILENAME (unrecognized string), MODE (bits, pcts), GAP_MODE (with_gap, no_gap).
+    - Calculation and file generation run in the background; exact redundancy weighting uses balanced parallel Numba acceleration when available, and only one logo job can run at a time.
+    - Arguments: POSITIONS (e.g. [10-20], [1,5,9-12]), EXPRESSION target, FILENAME (unrecognized string), MODE (bits, pcts), GAP_MODE (with_gap, no_gap), IDENTITY (optional redundancy threshold as 0.9, 90, or 90%; omitted by default).
     - Examples:
       - logo [10-20]
       - logo #cluster_1# [1,5] pcts no_gap
+      - logo #cluster_1# [1,5] bits 90%
 
 13. reference [TARGET]
     - Changes the reference sequence for alignment mapping. Call without target to view active reference.
@@ -167,13 +169,16 @@ Available CLI Commands:
       - label (Defaults to comparing topology clusters)
       - label groups (Compares custom group labels instead of clusters)
     - Modifiers:
-      - cmin <percentage>% : Sets minimum consensus percentage (default: 90%)
-      - gmax <percentage>% : Sets maximum gap percentage (default: 50%)
+      - cmin <percentage>% : Sets minimum within-subset consensus percentage (default: 98%)
+      - gmax <percentage>% : Sets maximum outside-subset residue frequency (default: 40%)
+      - filename <name> : Sets the XLSX output filename; the default is timestamp-based.
+    - Global conservation reporting uses a fixed >97% threshold and is not configurable.
     - Examples:
       - label (Compares clusters)
       - label groups (Compares groups)
       - label groups cmin 90%
       - label cmin 95% gmax 40%
+      - label groups filename group_report
 
 18. query [EXPRESSION] [POSITIONS]
     - Interrogates active alignment (MSA) residue distribution for column positions. Can be run globally (just positions) or filtered for a targeted subset of nodes using an expression.

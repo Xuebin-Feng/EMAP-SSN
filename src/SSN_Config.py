@@ -501,27 +501,39 @@ if __name__ == "__main__":
                     msg = f"SUCCESS: FASTA is a strict subset of HDF5.\n{msg}"
                 
                 if msa_path and os.path.exists(msa_path):
-                    msa_ids = set()
+                    msa_headers = set()
                     
                     if msa_path.endswith('.h5'):
                         import h5py
                         with h5py.File(msa_path, "r") as hf:
                             raw_headers = hf['headers'][:]
-                            msa_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-                            msa_ids = {h.split()[0] for h in msa_headers}
+                            msa_headers = {
+                                h.decode('utf-8') if isinstance(h, bytes) else h
+                                for h in raw_headers
+                            }
                     else:
                         for rec in SeqIO.parse(msa_path, "fasta"):
-                            msa_ids.add(rec.id)
-                            
-                    msa_missing = [hid for hid in fasta_ids if hid not in msa_ids]
-                    msa_matched = len(fasta_ids) - len(msa_missing)
+                            msa_headers.add(rec.description)
+
+                    msa_missing = [
+                        header for header in fasta_headers if header not in msa_headers
+                    ]
+                    msa_matched = len(fasta_headers) - len(msa_missing)
                     
-                    msa_msg = f"FASTA vs MSA:\nMatched: {msa_matched} of {len(msa_ids)} | Missing: {len(msa_missing)}"
+                    msa_msg = (
+                        f"FASTA vs MSA:\nMatched: {msa_matched} of "
+                        f"{len(fasta_headers)} network headers | Missing: {len(msa_missing)}"
+                    )
                     
                     if msa_missing:
-                        msg += f"\n\nERROR: FASTA is NOT a subset of MSA.\n{msa_msg}\nMissing examples: {', '.join(msa_missing[:5])}"
+                        msg += (
+                            f"\n\nWARNING: MSA coverage is incomplete.\n{msa_msg}\n"
+                            f"Missing examples: {', '.join(msa_missing[:5])}\n"
+                            "Missing nodes remain plotted but are excluded from "
+                            "alignment-dependent analyses."
+                        )
                     else:
-                        msg += f"\n\nSUCCESS: FASTA is a strict subset of MSA.\n{msa_msg}"
+                        msg += f"\n\nSUCCESS: MSA covers all FASTA nodes.\n{msa_msg}"
                 
                 # Check Reference ID if provided
                 ref_id = self.line_ref.text().strip()

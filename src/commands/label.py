@@ -19,6 +19,7 @@ import re
 import traceback
 import datetime
 import numpy as np
+from collections import Counter
 import matplotlib
 matplotlib.use('Agg')
 
@@ -34,6 +35,10 @@ try:
 except ImportError:
     import cluster as cluster_cmd
 
+
+GLOBAL_CONSERVATION_THRESHOLD = 0.97
+
+
 def print_help():
     print("""
     Differential Labeling & Statistics Tool
@@ -46,27 +51,37 @@ def print_help():
       1. A Multiple Sequence Alignment (MSA) must be loaded.
       2. A Reference Sequence must be set (use the 'reference' command).
 
-    Usage: label [TARGET] [GLOBAL_MAX] [CLUSTER_MIN] [GLOBAL_MIN]
-       or: label [TARGET] [key value] [<key 2> <value 2> ...]
+    Usage: label [TARGET] [GLOBAL_MAX] [CLUSTER_MIN] [NAME]
+       or: label [TARGET] [key value] [<key 2> <value 2> ...] [NAME]
 
     Targets (Default: clusters):
       clusters : Analyzes all defined topology clusters AND any custom groups.
       groups   : Analyzes ONLY custom groups (topology clusters not required).
 
     Arguments (Accepts decimals '0.4' or percentages '40%'):
-      gmax (Global Max)   : Default 40%. Max frequency a residue can have in the 
-                            GLOBAL alignment to be considered "Subset Specific".
+      gmax (Outside Max)  : Default 40%. Max frequency the subset's dominant
+                            residue can have among all aligned sequences OUTSIDE
+                            that subset to be considered "Subset Specific".
       cmin (Cluster Min)  : Default 98%. Min frequency a residue must have WITHIN 
                             a subset to be reported as conserved.
-      gmin (Global Min)   : Default 95%. Min frequency a residue must have in the 
-                            GLOBAL dataset to be reported as globally conserved.
+      NAME                 : Optional final XLSX filename. '.xlsx' is added if
+                            omitted. Numeric or reserved names must include the
+                            extension, for example '0.4.xlsx' or 'groups.xlsx'.
+                            The default remains Label_Output_YYYYMMDD_HHMMSS.xlsx.
+
+    Fixed behavior:
+      Globally conserved residues are reported when their frequency is greater
+      than 97% across all aligned sequences. This threshold is not configurable.
 
     Examples:
-      label                       (Runs using default parameters: gmax=40%, cmin=98%, gmin=95%)
-      label 0.4 0.9 0.95          (Positional: gmax=40%, cmin=90%, gmin=95%)
+      label                       (Uses gmax=40%, cmin=98%, and timestamp naming)
+      label 0.4 0.9               (Positional: gmax=40%, cmin=90%)
       label groups cmin 90%       (Keyword: Analyzes groups, sets cmin to 90%)
+      label groups report         (Writes report.xlsx)
+      label 0.4 0.9 report        (Sets thresholds and writes report.xlsx)
       
-    Note: Do not mix positional numbers after using keywords.
+    Note: Do not mix positional numbers after using keywords. A custom filename
+          must be the final argument.
     """)
 
 def parse_percentage(val_str):
@@ -76,6 +91,20 @@ def parse_percentage(val_str):
         if val > 1.0: return val / 100.0
         return val
     except ValueError: return None
+
+
+def _normalize_output_filename(filename):
+    """Return a safe XLSX basename for the configured label output directory."""
+    filename = str(filename).strip()
+    if not filename:
+        raise ValueError("Filename cannot be empty.")
+    if filename in {".", ".."} or "/" in filename or "\\" in filename:
+        raise ValueError("Filename must not include a directory or path separators.")
+    if re.search(r'[<>:"|?*\x00-\x1f]', filename):
+        raise ValueError(f"Filename contains unsupported characters: '{filename}'.")
+    if not filename.lower().endswith(".xlsx"):
+        filename += ".xlsx"
+    return filename
 
 def get_sequence_stats(aln):
     lengths = []
@@ -89,18 +118,102 @@ def get_sequence_stats(aln):
     return int(np.min(arr)), int(np.max(arr)), np.mean(arr), np.std(arr)
 
 
+def _get_amino_acid_counts(aln, col_idx):
+    """Return non-gap amino-acid counts for one alignment column."""
+    if hasattr(aln, 'matrix'):
+        counts = Counter(aln.matrix[:, col_idx].data)
+        aa_counts = {}
+        for aa_int, count in counts.items():
+            aa = aln.int_to_aa.get(aa_int, 'X')
+            if aa not in cfg.GAP_CHARS:
+                aa_counts[aa] = aa_counts.get(aa, 0) + count
+    else:
+        raw_counts = Counter(record.seq[col_idx].upper() for record in aln)
+        aa_counts = {
+            aa: count
+            for aa, count in raw_counts.items()
+            if aa not in cfg.GAP_CHARS
+        }
+
+    return {
+        str(aa).upper(): int(count)
+        for aa, count in aa_counts.items()
+    }
+
+
+def _get_amino_acid_frequencies(aln, col_idx):
+    """Return occupancy-diluted, non-gap amino-acid frequencies for one column."""
+    n_seqs = len(aln)
+    if n_seqs == 0:
+        return {}
+    return {
+        aa: count / n_seqs
+        for aa, count in _get_amino_acid_counts(aln, col_idx).items()
+    }
+
+
+def _format_global_amino_acid_profile(aln, col_idx, frequencies=None):
+    """Format a non-gap column profile using query.py's reporting semantics."""
+    if frequencies is None:
+        frequencies = _get_amino_acid_frequencies(aln, col_idx)
+
+    profile = []
+    for aa, frequency in frequencies.items():
+        percentage = frequency * 100.0
+        if percentage >= 1.0:
+            profile.append((aa, percentage))
+    profile.sort(key=lambda item: item[1], reverse=True)
+
+    if not profile:
+        return "-"
+    return " | ".join(f"{aa} {percentage:>5.1f}%" for aa, percentage in profile)
+
+
+def _is_subset_specific_residue(
+    subset_aa,
+    subset_frequency,
+    subset_size,
+    global_counts,
+    global_size,
+    cluster_min,
+    global_max,
+):
+    """Apply cmin and compare gmax against the leave-subset-out background."""
+    if subset_frequency < cluster_min:
+        return False
+
+    outside_size = global_size - subset_size
+    if outside_size <= 0:
+        return False
+
+    subset_count = int(round(subset_frequency * subset_size))
+    global_count = global_counts.get(str(subset_aa).upper(), 0)
+    outside_count = global_count - subset_count
+    if outside_count < 0:
+        return False
+
+    outside_frequency = outside_count / outside_size
+    return outside_frequency < global_max
+
+
 def _append_workbook_metadata(
     worksheet,
     out_filename,
     ref_display,
     offset_display,
-    global_min,
     global_list,
+    network_node_count=None,
+    aligned_node_count=None,
+    excluded_node_count=None,
 ):
     worksheet.append([f"Filename: {out_filename}"])
     worksheet.append([f"Reference: {ref_display}"])
     worksheet.append([f"Alignment Offset: {offset_display}"])
-    worksheet.append([f"Global Conserved (>{int(global_min * 100)}%)"])
+    if network_node_count is not None:
+        worksheet.append([f"Network Nodes: {network_node_count}"])
+        worksheet.append([f"Aligned Nodes: {aligned_node_count}"])
+        worksheet.append([f"Excluded Unaligned Nodes: {excluded_node_count}"])
+    worksheet.append([f"Global Conserved (>{int(GLOBAL_CONSERVATION_THRESHOLD * 100)}%)"])
     worksheet.append(global_list if global_list else ["None"])
     worksheet.append([])
 
@@ -111,14 +224,27 @@ def run(viewer, args):
         return
 
     try:
-        if viewer.alignment.aln is None:
+        alignment = getattr(viewer, 'alignment', None)
+        if alignment is None or alignment.aln is None:
             viewer.console_text.text = "Error: Global Alignment not loaded."
             print("Error: Global Alignment not loaded.")
             return
-            
-        if not getattr(viewer, 'active_reference', None):
-            viewer.console_text.text = "Error: No Reference Set. Use 'reference <ID>' first."
-            print("Error: No Reference Set. Use 'reference <ID>' first.")
+
+        if len(alignment.aln) == 0:
+            msg = (
+                "Error: The selected MSA contains no aligned rows for the current "
+                "network. Label analysis is unavailable."
+            )
+            viewer.console_text.text = msg
+            print(msg)
+            return
+
+        if not getattr(alignment, 'has_reference', False):
+            viewer.console_text.text = (
+                "Error: No active alignment reference. Use 'reference <ID>' with "
+                "a node present in the current MSA."
+            )
+            print(viewer.console_text.text)
             return
 
         if args and args[0].lower() in ['help', '-h', '-?']:
@@ -130,10 +256,11 @@ def run(viewer, args):
         # --- Parameters ---
         global_max = 0.40
         cluster_min = 0.98
-        global_min = 0.95 
         forced_target = "clusters"
+        requested_filename = None
 
-        valid_keys = {"gmax", "global_max", "g_max", "cmin", "cluster_min", "c_min", "gmin", "global_min", "g_min"}
+        valid_keys = {"gmax", "global_max", "g_max", "cmin", "cluster_min", "c_min"}
+        fixed_keys = {"gmin", "global_min", "g_min"}
         valid_targets = {"cluster", "clusters", "group", "groups"}
         
         positional_args = []
@@ -149,7 +276,13 @@ def run(viewer, args):
                 forced_target = "clusters" if arg in ["cluster", "clusters"] else "groups"
                 i += 1
                 continue
-                
+
+            if arg in fixed_keys:
+                msg = "Error: gmin is fixed at 97% and cannot be set by the label command."
+                viewer.console_text.text = msg
+                print(msg)
+                return
+
             # Catch space-separated keywords
             if arg in valid_keys:
                 keyword_mode = True
@@ -170,7 +303,6 @@ def run(viewer, args):
                 # Standardize key names
                 if arg in ["gmax", "global_max", "g_max"]: key_name = "gmax"
                 elif arg in ["cmin", "cluster_min", "c_min"]: key_name = "cmin"
-                elif arg in ["gmin", "global_min", "g_min"]: key_name = "gmin"
                 
                 if key_name in keyword_args:
                     msg = f"Error: Duplicate assignment for '{key_name}'."
@@ -182,27 +314,41 @@ def run(viewer, args):
                 i += 2
                 continue
                 
-            # If it is not a target or a keyword, it MUST be a positional number
-            if keyword_mode:
-                msg = f"Error: Ambiguous input. Positional argument '{arg}' found after keywords."
-                viewer.console_text.text = msg
-                print(msg)
-                return
-                
+            # Numeric tokens retain their historical positional gmax/cmin meaning.
             val = parse_percentage(arg)
             if val is not None:
+                if keyword_mode:
+                    msg = f"Error: Ambiguous input. Positional argument '{arg}' found after keywords."
+                    viewer.console_text.text = msg
+                    print(msg)
+                    return
                 positional_args.append(val)
-            else:
-                msg = f"Error: Unrecognized argument or invalid number '{arg}'."
+                i += 1
+                continue
+
+            # One non-numeric final token is the custom output basename.
+            if requested_filename is not None:
+                msg = "Error: Provide only one custom output filename."
                 viewer.console_text.text = msg
                 print(msg)
                 return
-                
+            if i != len(args) - 1:
+                msg = "Error: A custom output filename must be the final argument."
+                viewer.console_text.text = msg
+                print(msg)
+                return
+            try:
+                requested_filename = _normalize_output_filename(args[i])
+            except ValueError as exc:
+                msg = f"Error: {exc}"
+                viewer.console_text.text = msg
+                print(msg)
+                return
             i += 1
 
-        # Map positionals strictly to order: 1. gmax, 2. cmin, 3. gmin
-        pos_map = ["gmax", "cmin", "gmin"]
-        if len(positional_args) > 3:
+        # Map positionals strictly to order: 1. gmax, 2. cmin
+        pos_map = ["gmax", "cmin"]
+        if len(positional_args) > 2:
             msg = "Error: Too many positional numerical arguments."
             viewer.console_text.text = msg
             print(msg)
@@ -220,7 +366,6 @@ def run(viewer, args):
         # Apply final parsed variables (falling back to defaults)
         global_max = keyword_args.get("gmax", 0.40)
         cluster_min = keyword_args.get("cmin", 0.98)
-        global_min = keyword_args.get("gmin", 0.95)
 
         # --- Validations ---
         if forced_target == "clusters" and viewer.cluster_labels is None:
@@ -239,7 +384,30 @@ def run(viewer, args):
         print(f"Alignment Offset: {offset_display}")
         g_stats = viewer.alignment.calculate_frequencies(viewer.alignment.col_to_label)
         total_global_seqs = len(viewer.alignment.aln)
+        total_network_nodes = getattr(viewer, 'n_nodes', len(viewer.full_headers))
+        excluded_unaligned_nodes = total_network_nodes - total_global_seqs
         g_min, g_max, g_avg, g_std = get_sequence_stats(viewer.alignment.aln)
+
+        global_count_cache = {}
+        global_frequency_cache = {}
+
+        def get_global_counts(label):
+            if label not in global_count_cache:
+                col_idx = viewer.alignment.label_to_col.get(label)
+                global_count_cache[label] = (
+                    _get_amino_acid_counts(viewer.alignment.aln, col_idx)
+                    if col_idx is not None
+                    else {}
+                )
+            return global_count_cache[label]
+
+        def get_global_frequencies(label):
+            if label not in global_frequency_cache:
+                global_frequency_cache[label] = {
+                    aa: count / total_global_seqs
+                    for aa, count in get_global_counts(label).items()
+                } if total_global_seqs else {}
+            return global_frequency_cache[label]
 
         # --- 2. Resolve Base Directories ---
         fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
@@ -282,14 +450,15 @@ def run(viewer, args):
         tasks = [] 
         
         print(f"Splitting Global Alignment for {forced_target.upper()}...")
+        viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         
         if forced_target == "clusters":
             aln_idx_to_cid = {}
-            for i, simple_h in enumerate(viewer.full_headers):
+            for i, _header in enumerate(viewer.full_headers):
                 if i >= len(viewer.cluster_labels): break
                 cid = viewer.cluster_labels[i]
-                if viewer.alignment.seq_map and simple_h in viewer.alignment.seq_map:
-                    aln_idx = viewer.alignment.seq_map[simple_h]
+                aln_idx = int(viewer_to_aln[i])
+                if aln_idx >= 0:
                     aln_idx_to_cid[aln_idx] = cid
 
             clusters_records = {}
@@ -307,11 +476,11 @@ def run(viewer, args):
         # Group splitting
         if getattr(viewer, 'group_labels', None):
             aln_idx_to_groups = {}
-            for i, simple_h in enumerate(viewer.full_headers):
+            for i, _header in enumerate(viewer.full_headers):
                 if i >= len(viewer.group_labels): break
                 groups = viewer.group_labels[i]
-                if groups and viewer.alignment.seq_map and simple_h in viewer.alignment.seq_map:
-                    aln_idx = viewer.alignment.seq_map[simple_h]
+                aln_idx = int(viewer_to_aln[i])
+                if groups and aln_idx >= 0:
                     aln_idx_to_groups[aln_idx] = groups
             
             groups_records = {}
@@ -349,16 +518,17 @@ def run(viewer, args):
                     c_aa, c_freq, c_occ = c_stats[lbl]
                     
                     c_occ_dict[lbl] = c_occ 
-                    if c_freq < cluster_min: continue
-                    
-                    is_interesting = False
-                    if lbl in g_stats:
-                        g_aa, g_freq, _ = g_stats[lbl]
-                        if g_aa == c_aa:
-                            if g_freq < global_max: is_interesting = True
-                        else: is_interesting = True 
-                    
-                    if is_interesting:
+                    if lbl not in g_stats:
+                        continue
+                    if _is_subset_specific_residue(
+                        c_aa,
+                        c_freq,
+                        c_size,
+                        get_global_counts(lbl),
+                        total_global_seqs,
+                        cluster_min,
+                        global_max,
+                    ):
                         c_dict[lbl] = {"text": f"{c_aa}{lbl}", "occ": c_occ}
                         master_labels.add(lbl)
                 
@@ -400,22 +570,34 @@ def run(viewer, args):
         out_dir = cfg.CLUSTER_LABEL_DIR
         if not os.path.exists(out_dir): os.makedirs(out_dir)
         
-        # Build simplified timestamped filename
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_filename = f"Label_Output_{timestamp}.xlsx"
+        # Preserve timestamp naming unless the user explicitly supplies a basename.
+        if requested_filename is None:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_filename = f"Label_Output_{timestamp}.xlsx"
+        else:
+            out_filename = requested_filename
         out_path = os.path.join(out_dir, out_filename)
+        if os.path.exists(out_path):
+            msg = f"Error: Output file already exists: {out_path}"
+            viewer.console_text.text = msg
+            print(msg)
+            return
 
         global_list = []
         for lbl in utils.sort_labels(g_stats.keys()):
             aa, freq, occ = g_stats[lbl]
-            if freq > global_min:
+            if freq > GLOBAL_CONSERVATION_THRESHOLD:
                 global_list.append(f"{aa}{lbl}")
 
         sorted_cols = utils.sort_labels(list(master_labels))
         cluster_results.sort(key=lambda x: x["sort_key"])
         all_occ_labels = utils.sort_labels(list(g_stats.keys()))
         
-        ref_display = getattr(viewer, 'resolved_ref_full', None) or viewer.active_reference or "None"
+        ref_display = (
+            getattr(viewer.alignment, 'resolved_ref_full', None)
+            or getattr(viewer, 'active_reference', None)
+            or "None"
+        )
         
         # Prepare Metadata details
         fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
@@ -437,7 +619,11 @@ def run(viewer, args):
             cluster_mode = "Groups" if forced_target == "groups" else "N/A"
             cluster_params = "N/A"
 
-        label_params = f"gmax={int(global_max*100)}%, cmin={int(cluster_min*100)}%, gmin={int(global_min*100)}%, target={forced_target}"
+        label_params = (
+            f"gmax_outside={int(global_max*100)}%, cmin={int(cluster_min*100)}%, "
+            f"global_conservation_threshold={int(GLOBAL_CONSERVATION_THRESHOLD*100)}% (fixed), "
+            f"target={forced_target}"
+        )
 
         try:
             import openpyxl
@@ -473,6 +659,9 @@ def run(viewer, args):
             ws_meta.append(["Fasta Name", fasta_name])
             ws_meta.append(["Network Name", network_name])
             ws_meta.append(["Alignment Name", alignment_name])
+            ws_meta.append(["Network Nodes", total_network_nodes])
+            ws_meta.append(["Aligned Nodes", total_global_seqs])
+            ws_meta.append(["Excluded Unaligned Nodes", excluded_unaligned_nodes])
             ws_meta.append(["Label Parameters", label_params])
             
             # Style header row for Meta Data tab
@@ -484,10 +673,19 @@ def run(viewer, args):
             ws_meta.column_dimensions['A'].width = 25
             ws_meta.column_dimensions['B'].width = 50
 
+            percent_column = 2
+            hex_color_column = 4
+            position_start_column = 10
+            percent_number_format = "0.00%"
+
+            def node_fraction(count):
+                return count / total_network_nodes if total_network_nodes else 0.0
+
             # ==========================================
             # TAB 2: Subset Specific Matrix
             # ==========================================
             ws1 = wb.create_sheet(title="Subset Stats")
+            ws1.freeze_panes = "C1"  # Keep columns A and B visible during horizontal scrolling.
             
             # Write Metadata 
             _append_workbook_metadata(
@@ -495,13 +693,15 @@ def run(viewer, args):
                 out_filename,
                 ref_display,
                 offset_display,
-                global_min,
                 global_list,
+                total_network_nodes,
+                total_global_seqs,
+                excluded_unaligned_nodes,
             )
             
             # Write Headers 
             ws1.append(["Subset Specific Matrix"])
-            headers1 = ["Subset Name", "Count", "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""] + [f"#{c}" for c in sorted_cols]
+            headers1 = ["Subset Name", "Percent", "Count", "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""] + [f"#{c}" for c in sorted_cols]
             ws1.append(headers1)
             
             try:
@@ -517,6 +717,7 @@ def run(viewer, args):
             # Write Global Row 
             global_freq_row1 = [
                 "Global Stats", 
+                node_fraction(total_global_seqs),
                 total_global_seqs, 
                 "-",
                 g_min, 
@@ -529,18 +730,26 @@ def run(viewer, args):
             g_occ_dict1 = {}
             for col in sorted_cols:
                 if col in g_stats:
-                    g_aa, g_freq, g_occ = g_stats[col]
-                    global_freq_row1.append(f"{g_aa} ({int(g_freq*100)}%)")
+                    _, _, g_occ = g_stats[col]
+                    col_idx = viewer.alignment.label_to_col[col]
+                    global_freq_row1.append(
+                        _format_global_amino_acid_profile(
+                            viewer.alignment.aln,
+                            col_idx,
+                            frequencies=get_global_frequencies(col),
+                        )
+                    )
                     g_occ_dict1[col] = g_occ
                 else: 
                     global_freq_row1.append("-")
                     
             ws1.append(global_freq_row1)
             g_row_idx1 = ws1.max_row
+            ws1.cell(row=g_row_idx1, column=percent_column).number_format = percent_number_format
             
             for c_idx, col in enumerate(sorted_cols):
                 if col in g_occ_dict1:
-                    col_letter_idx = c_idx + 9 
+                    col_letter_idx = c_idx + position_start_column
                     ws1.cell(row=g_row_idx1, column=col_letter_idx).fill = get_occ_fill1(g_occ_dict1[col])
                     
             ws1.append([]) # Blank row below Global Stats
@@ -553,6 +762,7 @@ def run(viewer, args):
                 last_type = res['type']
                 row1 = [
                     res['name'], 
+                    node_fraction(res['count']),
                     res['count'], 
                     res['hex'],
                     res['min'],
@@ -570,16 +780,17 @@ def run(viewer, args):
                         row1.append("")
                         
                     if col in res['occ_data']:
-                        row_occs1[c_idx + 9] = res['occ_data'][col]
+                        row_occs1[c_idx + position_start_column] = res['occ_data'][col]
                     else:
-                        row_occs1[c_idx + 9] = 0.0 
+                        row_occs1[c_idx + position_start_column] = 0.0
                         
                 ws1.append(row1)
                 current_row1 = ws1.max_row
+                ws1.cell(row=current_row1, column=percent_column).number_format = percent_number_format
                 
                 if res['hex'] != "-":
                     hex_val = res['hex'].replace("#", "").upper()
-                    ws1.cell(row=current_row1, column=3).fill = PatternFill(start_color=hex_val, end_color=hex_val, fill_type="solid")
+                    ws1.cell(row=current_row1, column=hex_color_column).fill = PatternFill(start_color=hex_val, end_color=hex_val, fill_type="solid")
                 
                 for col_index, occ_val in row_occs1.items():
                     ws1.cell(row=current_row1, column=col_index).fill = get_occ_fill1(occ_val)
@@ -588,6 +799,7 @@ def run(viewer, args):
             # TAB 2: Occupancy Stats
             # ==========================================
             ws2 = wb.create_sheet(title="Occupancy Stats")
+            ws2.freeze_panes = "C1"  # Keep columns A and B visible during horizontal scrolling.
             
             # Write Metadata 
             _append_workbook_metadata(
@@ -595,13 +807,15 @@ def run(viewer, args):
                 out_filename,
                 ref_display,
                 offset_display,
-                global_min,
                 global_list,
+                total_network_nodes,
+                total_global_seqs,
+                excluded_unaligned_nodes,
             )
             
             # Write Headers 
             ws2.append(["Occupancy Matrix"])
-            headers2 = ["Subset Name", "Count", "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""] + [f"#{c}" for c in all_occ_labels]
+            headers2 = ["Subset Name", "Percent", "Count", "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""] + [f"#{c}" for c in all_occ_labels]
             ws2.append(headers2)
             
             try:
@@ -617,6 +831,7 @@ def run(viewer, args):
             # Write Global Row 
             global_freq_row2 = [
                 "Global Stats", 
+                node_fraction(total_global_seqs),
                 total_global_seqs, 
                 "-",
                 g_min, 
@@ -636,9 +851,10 @@ def run(viewer, args):
                     
             ws2.append(global_freq_row2)
             g_row_idx2 = ws2.max_row
+            ws2.cell(row=g_row_idx2, column=percent_column).number_format = percent_number_format
             
             for c_idx, col in enumerate(all_occ_labels):
-                col_letter_idx = c_idx + 9 
+                col_letter_idx = c_idx + position_start_column
                 ws2.cell(row=g_row_idx2, column=col_letter_idx).fill = get_occ_fill2(g_occ_dict2[col])
                 
             ws2.append([]) # Blank row below Global Stats
@@ -651,6 +867,7 @@ def run(viewer, args):
                 last_type = res['type']
                 row2 = [
                     res['name'], 
+                    node_fraction(res['count']),
                     res['count'], 
                     res['hex'],
                     res['min'],
@@ -663,14 +880,15 @@ def run(viewer, args):
                 row_occs2 = {}
                 for c_idx, col in enumerate(all_occ_labels): 
                     row2.append("") # Keep text blank
-                    row_occs2[c_idx + 9] = res['occ_data'].get(col, 0.0) 
+                    row_occs2[c_idx + position_start_column] = res['occ_data'].get(col, 0.0)
                         
                 ws2.append(row2)
                 current_row2 = ws2.max_row
+                ws2.cell(row=current_row2, column=percent_column).number_format = percent_number_format
                 
                 if res['hex'] != "-":
                     hex_val = res['hex'].replace("#", "").upper()
-                    ws2.cell(row=current_row2, column=3).fill = PatternFill(start_color=hex_val, end_color=hex_val, fill_type="solid")
+                    ws2.cell(row=current_row2, column=hex_color_column).fill = PatternFill(start_color=hex_val, end_color=hex_val, fill_type="solid")
                 
                 for col_index, occ_val in row_occs2.items():
                     ws2.cell(row=current_row2, column=col_index).fill = get_occ_fill2(occ_val)
@@ -682,6 +900,8 @@ def run(viewer, args):
 
             ws1.column_dimensions['A'].width = col_a_width
             ws2.column_dimensions['A'].width = col_a_width
+            ws1.column_dimensions['B'].width = 10
+            ws2.column_dimensions['B'].width = 10
 
             wb.save(out_path)
             

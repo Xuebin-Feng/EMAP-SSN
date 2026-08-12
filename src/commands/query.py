@@ -89,8 +89,18 @@ def run(viewer, args):
             viewer.console_text.text = "Help information printed to the terminal"
         return
 
-    if not viewer.alignment.aln:
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is None or alignment.aln is None:
         msg = "Error: No alignment loaded in the viewer."
+        viewer.console_text.text = msg
+        print(msg)
+        return
+
+    if len(alignment.aln) == 0:
+        msg = (
+            "Error: The selected MSA contains no aligned rows for the current network. "
+            "Query analysis is unavailable."
+        )
         viewer.console_text.text = msg
         print(msg)
         return
@@ -165,12 +175,7 @@ def run(viewer, args):
     subset_mode = False
 
     if expr:
-        viewer_to_aln = np.full(len(viewer.full_headers), -1, dtype=int)
-        for i, h in enumerate(viewer.full_headers):
-            if h in viewer.alignment.seq_map:
-                viewer_to_aln[i] = viewer.alignment.seq_map[h]
-                
-        valid_indices = np.where(viewer_to_aln != -1)[0]
+        viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
         
         expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
         try:

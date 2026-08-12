@@ -67,6 +67,46 @@ def _build_sequence_lookup(records):
             sequence_lookup[header_parts[0]] = sequence
     return sequence_lookup
 
+
+def _wrap_console_text_for_display(text, max_width, measure_width):
+    """Wrap one logical console line without removing or changing its text."""
+    if not text or max_width <= 0 or measure_width(text) <= max_width:
+        return text
+
+    lines = []
+    remaining = text
+    while remaining:
+        if measure_width(remaining) <= max_width:
+            lines.append(remaining)
+            break
+
+        # Find the longest prefix that fits. Glyph advances are monotonic, so a
+        # binary search avoids repeatedly measuring every possible substring.
+        low, high = 1, len(remaining)
+        while low < high:
+            midpoint = (low + high + 1) // 2
+            if measure_width(remaining[:midpoint]) <= max_width:
+                low = midpoint
+            else:
+                high = midpoint - 1
+
+        split_at = max(1, low)
+
+        # Prefer a natural whitespace boundary, while retaining that whitespace
+        # so removing the visual newlines reconstructs the exact logical text.
+        whitespace_break = -1
+        for index in range(split_at - 1, 0, -1):
+            if remaining[index].isspace():
+                whitespace_break = index + 1
+                break
+        if whitespace_break > 0:
+            split_at = whitespace_break
+
+        lines.append(remaining[:split_at])
+        remaining = remaining[split_at:]
+
+    return "\n".join(lines)
+
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
 # Users can add custom attributes to be initialized on the viewer at startup
@@ -547,62 +587,94 @@ class MainViewer:
         self.canvas.update()
 
     def update_console_background(self):
-        """Dynamically resize and position the console background based on text length."""
+        """Wrap the console visually and size its background to the rendered rows."""
         if not hasattr(self, 'console_bg') or not hasattr(self, 'console_text'):
             return
         
         cfg_hud = self.hud_layout
         scale = getattr(self.canvas, 'pixel_scale', 1.0)
-        
-        # Calculate exact logical text width from VisPy's own glyph metrics
         text_visual = self.console_text
-        logical_width = 0.0
-        if text_visual.text and hasattr(text_visual, '_font'):
+
+        def measure_text_width(text):
+            """Measure one rendered row using VisPy's own glyph metrics."""
+            if not text or not hasattr(text_visual, '_font'):
+                return 0.0
+
             font = text_visual._font
             dpi = text_visual.transforms.dpi
             font_size = text_visual.font_size
             n_pix = (font_size / 72.0) * dpi
-            
-            ratio = 0.25
+            ratio = 1.0 / getattr(font, 'ratio', 4.0)
             width_val = 0.0
             prev = None
-            for char in text_visual.text:
+            for char in text:
                 glyph = font[char]
                 kerning = glyph['kerning'].get(prev, 0.0) * ratio
                 x_move = glyph['advance'] * ratio + kerning
                 width_val += x_move
                 prev = char
-            logical_width = (width_val / 64.0) * n_pix
-            
-        # Calculate physical left edge of the box
+            return (width_val / 64.0) * n_pix
+
         left_edge_physical = cfg_hud["console_bg_left_offset"] * scale
-        
-        # Calculate physical left gap between box start and text start
         left_gap_physical = (cfg_hud["console_text_x"] - cfg_hud["console_bg_left_offset"]) * scale
-        
-        # Calculate physical text width (which scales with High-DPI screen factor)
-        text_width_physical = logical_width
-        
-        # Fixed physical padding added to the end of the text
         padding_x = cfg_hud.get("console_bg_padding_x", 20.0)
-        
-        # Determine background width in physical units, constrained by canvas size
-        min_width_physical = cfg_hud["console_bg_min_width"] * scale
-        max_width_physical = max(min_width_physical, self.canvas.size[0] - 40) if hasattr(self, 'canvas') and self.canvas.size else 1000
-        
-        # Physical width = left gap + physical text width + right padding
+
+        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
+        panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
+        effective_canvas_width = self.canvas.size[0] - panel_width
+        max_width_physical = max(1.0, effective_canvas_width - 40.0)
+        available_text_width = max(
+            1.0,
+            max_width_physical - left_gap_physical - padding_x,
+        )
+
+        current_text = text_visual.text or ""
+        previous_rendered_text = getattr(self, '_console_rendered_text', None)
+        if previous_rendered_text is None or current_text != previous_rendered_text:
+            # Overlay output remains one logical line. Newlines supplied by a
+            # command are normalized; only the rendered copy receives wrapping.
+            logical_text = current_text.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+            self._console_logical_text = logical_text
+        else:
+            logical_text = getattr(self, '_console_logical_text', current_text)
+
+        rendered_text = _wrap_console_text_for_display(
+            logical_text,
+            available_text_width,
+            measure_text_width,
+        )
+        self._console_rendered_text = rendered_text
+        if current_text != rendered_text:
+            text_visual.text = rendered_text
+
+        rendered_lines = rendered_text.split('\n') if rendered_text else ['']
+        text_width_physical = max(
+            (measure_text_width(line) for line in rendered_lines),
+            default=0.0,
+        )
+
+        min_width_physical = min(
+            cfg_hud["console_bg_min_width"] * scale,
+            max_width_physical,
+        )
         desired_width_physical = left_gap_physical + text_width_physical + padding_x
         width_physical = min(max_width_physical, max(min_width_physical, desired_width_physical))
-        
-        # Height and radius in physical units
-        height_physical = cfg_hud["console_bg_height"] * scale
+
+        base_height_physical = cfg_hud["console_bg_height"] * scale
+        font_line_height = (
+            (text_visual.font_size / 72.0)
+            * text_visual.transforms.dpi
+            * getattr(text_visual, '_line_height', 1.2)
+        )
+        extra_height_physical = max(0, len(rendered_lines) - 1) * font_line_height
+        height_physical = base_height_physical + extra_height_physical
         radius_physical = cfg_hud["console_bg_radius"] * scale
-        
-        # Center coordinates in physical units
         center_x_physical = left_edge_physical + width_physical / 2.0
-        center_y_physical = cfg_hud["console_bg_center_y"] * scale
-        
-        # Apply physical values directly
+        center_y_physical = (
+            cfg_hud["console_bg_center_y"] * scale
+            + extra_height_physical / 2.0
+        )
+
         self.console_bg.width = width_physical
         self.console_bg.height = height_physical
         self.console_bg.radius = radius_physical
@@ -1383,7 +1455,9 @@ class MainViewer:
             parent=self.canvas.scene
         )
         self.console_bg.visible = False
-        
+
+        self._console_logical_text = ""
+        self._console_rendered_text = ""
         self.console_text = scene.visuals.Text(
             text="", 
             bold=True, 
@@ -1705,6 +1779,8 @@ class MainViewer:
                 except Exception as e:
                     self.console_text.text = f"Copy Failed: {full_header}"
                     print(f"Clipboard Error: {e}")
+
+                self.update_console_background()
                 
             event.handled = True
             return
@@ -1759,6 +1835,8 @@ class MainViewer:
                 else:
                     self.console_text.text = f"Sequence not found for: {rec_id}"
                     print(f"Sequence not found in FASTA for: {rec_id}")
+
+                self.update_console_background()
                     
             event.handled = True
             return
@@ -1852,6 +1930,10 @@ class MainViewer:
             screen_pos = tr.inverse.map(self.pos[self.selected_node_idx])
 
             self.tooltip.pos = screen_pos[:2] + [15, -15]
+
+        # Keep the one-line console value visually wrapped as the canvas or
+        # sidebar width changes.
+        self.update_console_background()
 
         # 4. Update any registered HUD displays
         for display in self.hud_displays.values():

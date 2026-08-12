@@ -175,12 +175,7 @@ def run(viewer, args):
         viewer.group_labels = [set() for _ in range(viewer.n_nodes)]
 
     # Prepare mapping for boolean logic evaluations
-    viewer_to_aln = np.full(len(viewer.full_headers), -1, dtype=int)
-    if (getattr(viewer, 'alignment', None).aln if getattr(viewer, 'alignment', None) else None) is not None:
-        for i, h in enumerate(viewer.full_headers):
-            if h in viewer.alignment.seq_map:
-                viewer_to_aln[i] = viewer.alignment.seq_map[h]
-    valid_indices = np.where(viewer_to_aln != -1)[0]
+    viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
     
     total_modified = 0
     stats = []

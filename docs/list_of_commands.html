@@ -1002,7 +1002,8 @@
                 </ul>
                 <div class="callout">
                     <div class="callout-title">⚠️ Loading Rules &amp; Integrity Checks</div>
-                    <p>The sequence headers currently in the viewer must be a strict subset of the sequence headers present in the new MSA file. If any node sequence is missing, the load fails and the viewer automatically rolls back to the previous alignment to maintain session stability.</p>
+<p>The MSA may contain all, some, or none of the sequence headers currently plotted in the viewer. Coverage is matched by exact full headers. Missing nodes remain visible and usable for topology and metadata operations, but they are excluded from alignment-dependent analyses. A partial load prints a red terminal warning with coverage details; only unreadable or malformed alignment files cause rollback.</p>
+<p>For amino-acid expressions, a missing alignment row is treated as unknown: neither <code>P106</code> nor <code>!P106</code> matches an unaligned node. Independent header, metadata, cluster, group, or file clauses can still match that node through normal Boolean logic.</p>
                 </div>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -1297,7 +1298,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">label [target] [global_max] [cluster_min] [global_min]</div>
+                    <div class="syntax-content">label [target] [global_max] [cluster_min] [filename name]</div>
                     <button class="copy-btn" onclick="copyText('label', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
@@ -1312,9 +1313,10 @@
                 <div class="subheading">Targets &amp; Parameters</div>
                 <ul>
                     <li><strong>TARGET (Default: clusters):</strong> <code>clusters</code> (analyzes topology clusters and manual groups) or <code>groups</code> (skips clusters, analyzes only custom groups).</li>
-                    <li><strong>GLOBAL_MAX (gmax) [Default: 30%]:</strong> Maximum global residue frequency. Highlighted residues must occur in less than this percentage globally to be considered subset-specific.</li>
-                    <li><strong>CLUSTER_MIN (cmin) [Default: 95%]:</strong> Minimum consensus frequency. Highlighted residues must occur in at least this percentage inside the specific cluster.</li>
-                    <li><strong>GLOBAL_MIN (gmin) [Default: 95%]:</strong> Universal conservation threshold. Residues exceeding this frequency globally are highlighted as universally conserved.</li>
+                    <li><strong>OUTSIDE_MAX (gmax) [Default: 40%]:</strong> Maximum frequency of the subset's dominant residue among aligned sequences outside that cluster or group. Highlighted residues must occur in less than this percentage in the leave-subset-out background.</li>
+                    <li><strong>CLUSTER_MIN (cmin) [Default: 98%]:</strong> Minimum consensus frequency. Highlighted residues must occur in at least this percentage inside the specific cluster or group.</li>
+                    <li><strong>FILENAME (optional):</strong> Output workbook basename. The <code>.xlsx</code> extension is added when omitted; without this option, the command uses <code>Label_Output_YYYYMMDD_HHMMSS.xlsx</code>.</li>
+                    <li><strong>GLOBAL CONSERVATION (fixed at 97%):</strong> Residues exceeding 97% frequency globally are reported as universally conserved. This threshold is not user-configurable.</li>
                 </ul>
 
                 <div class="subheading">Understanding the Excel Output</div>
@@ -1327,8 +1329,9 @@
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>label</span><button class="copy-btn" onclick="copyText('label', this)">Copy</button></li>
-                    <li class="example-item"><span>label 30% 90% 95%</span><button class="copy-btn" onclick="copyText('label 30% 90% 95%', this)">Copy</button></li>
+                    <li class="example-item"><span>label 30% 90%</span><button class="copy-btn" onclick="copyText('label 30% 90%', this)">Copy</button></li>
                     <li class="example-item"><span>label groups cmin 90%</span><button class="copy-btn" onclick="copyText('label groups cmin 90%', this)">Copy</button></li>
+                    <li class="example-item"><span>label groups filename group_report</span><button class="copy-btn" onclick="copyText('label groups filename group_report', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1524,10 +1527,11 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">logo [expression] &lt;positions&gt; [filename] [mode] [gap_mode] [color_scheme]</div>
+                    <div class="syntax-content">logo [expression] &lt;positions&gt; [filename] [mode] [gap_mode] [color_scheme] [identity]</div>
                     <button class="copy-btn" onclick="copyText('logo', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The logo command generates publication-ready sequence logos (in vector .svg or transparent .png format) to visually represent amino acid conservation across a specific subset of your network. By combining this tool with the Common Expression Interpreter, you can instantly compare the binding motifs, active sites, or structural variations of different protein sub-families directly from the viewer.</p>
+                <p>Logo calculation and file generation run in a background worker so the viewer remains interactive. Exact redundancy calculations use a balanced parallel Numba kernel when available and fall back to NumPy otherwise. One logo job can run at a time; completion or failure is reported in the command overlay and terminal.</p>
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
@@ -1541,6 +1545,7 @@
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
                     <li><strong>COLOR_SCHEME:</strong> Preset color scheme. Defaults to <code>chemistry</code>. Presets: chemistry, classic, grays, base_pairing, colorblind_safe, charge, hydrophobicity, etc.</li>
+                    <li><strong>IDENTITY:</strong> Optional sequence-redundancy threshold. Reweighting is disabled when omitted. <code>0.9</code>, <code>90</code>, and <code>90%</code> are equivalent. Weighted amino-acid frequencies apply to percentage and bits modes; bits mode also uses the effective sample size for its small-sample correction.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1548,6 +1553,7 @@
                     <li class="example-item"><span>logo [10-20]</span><button class="copy-btn" onclick="copyText('logo [10-20]', this)">Copy</button></li>
                     <li class="example-item"><span>logo #cluster_1# [1,5] pcts no_gap</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] pcts no_gap', this)">Copy</button></li>
                     <li class="example-item"><span>logo [10-20] color=charge</span><button class="copy-btn" onclick="copyText('logo [10-20] color=charge', this)">Copy</button></li>
+                    <li class="example-item"><span>logo #cluster_1# [1,5] bits 90%</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] bits 90%', this)">Copy</button></li>
                 </ul>
             </section>
 

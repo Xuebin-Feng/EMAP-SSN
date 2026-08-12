@@ -18,6 +18,86 @@ import re
 import os
 import SSN_Config as cfg
 
+
+class _LogicMask:
+    """Three-state boolean mask used to preserve unknown AA predicates."""
+
+    UNKNOWN = np.int8(-1)
+    FALSE = np.int8(0)
+    TRUE = np.int8(1)
+
+    def __init__(self, values):
+        self.values = np.asarray(values, dtype=np.int8)
+
+    @classmethod
+    def known(cls, mask):
+        return cls(np.asarray(mask, dtype=bool).astype(np.int8))
+
+    @classmethod
+    def partially_known(cls, mask, known_mask):
+        mask = np.asarray(mask, dtype=bool)
+        known_mask = np.asarray(known_mask, dtype=bool)
+        values = np.full(mask.shape, cls.UNKNOWN, dtype=np.int8)
+        values[known_mask & ~mask] = cls.FALSE
+        values[known_mask & mask] = cls.TRUE
+        return cls(values)
+
+    @classmethod
+    def _coerce(cls, other):
+        return other if isinstance(other, cls) else cls.known(other)
+
+    def __invert__(self):
+        result = self.values.copy()
+        result[self.values == self.TRUE] = self.FALSE
+        result[self.values == self.FALSE] = self.TRUE
+        return _LogicMask(result)
+
+    def __and__(self, other):
+        other = self._coerce(other)
+        result = np.full(self.values.shape, self.UNKNOWN, dtype=np.int8)
+        result[(self.values == self.FALSE) | (other.values == self.FALSE)] = self.FALSE
+        result[(self.values == self.TRUE) & (other.values == self.TRUE)] = self.TRUE
+        return _LogicMask(result)
+
+    def __or__(self, other):
+        other = self._coerce(other)
+        result = np.full(self.values.shape, self.UNKNOWN, dtype=np.int8)
+        result[(self.values == self.TRUE) | (other.values == self.TRUE)] = self.TRUE
+        result[(self.values == self.FALSE) & (other.values == self.FALSE)] = self.FALSE
+        return _LogicMask(result)
+
+    def __xor__(self, other):
+        other = self._coerce(other)
+        result = np.full(self.values.shape, self.UNKNOWN, dtype=np.int8)
+        known = (self.values != self.UNKNOWN) & (other.values != self.UNKNOWN)
+        result[known] = (self.values[known] != other.values[known]).astype(np.int8)
+        return _LogicMask(result)
+
+    def to_bool(self):
+        return self.values == self.TRUE
+
+
+def get_alignment_mapping(viewer):
+    """Return the authoritative network-to-alignment map and mapped indices."""
+    full_headers = getattr(viewer, 'full_headers', [])
+    n_nodes = len(full_headers)
+    alignment = getattr(viewer, 'alignment', None)
+
+    if alignment is not None:
+        stored_mapping = getattr(alignment, 'viewer_to_aln', None)
+        if stored_mapping is not None:
+            stored_mapping = np.asarray(stored_mapping, dtype=int)
+            if stored_mapping.shape == (n_nodes,):
+                return stored_mapping, np.flatnonzero(stored_mapping >= 0)
+
+    viewer_to_aln = np.full(n_nodes, -1, dtype=int)
+    if alignment is not None and getattr(alignment, 'aln', None) is not None:
+        seq_map = getattr(alignment, 'seq_map', {}) or {}
+        for i, header in enumerate(full_headers):
+            if header in seq_map:
+                viewer_to_aln[i] = seq_map[header]
+    return viewer_to_aln, np.flatnonzero(viewer_to_aln >= 0)
+
 def evaluate_string_mask(full_headers, target):
     """Evaluates a raw string, NCBI ID, or wildcard pattern into a boolean mask."""
     mask = np.zeros(len(full_headers), dtype=bool)
@@ -296,7 +376,9 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 1. Strings: "Text" (EXECUTED FIRST to protect wildcards containing @ or #)
     def string_repl(match):
         nonlocal mask_idx
-        masks[f'M_{mask_idx}'] = evaluate_string_mask(full_headers, match.group(1))
+        masks[f'M_{mask_idx}'] = _LogicMask.known(
+            evaluate_string_mask(full_headers, match.group(1))
+        )
         repl = f"masks['M_{mask_idx}']"
         mask_idx += 1
         return repl
@@ -305,7 +387,9 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 2. Files: @file_name@
     def file_repl(match):
         nonlocal mask_idx
-        masks[f'M_{mask_idx}'] = evaluate_file_mask(full_headers, match.group(1))
+        masks[f'M_{mask_idx}'] = _LogicMask.known(
+            evaluate_file_mask(full_headers, match.group(1))
+        )
         repl = f"masks['M_{mask_idx}']"
         mask_idx += 1
         return repl
@@ -314,7 +398,9 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 2.5. Metadata: {key op val}
     def metadata_repl(match):
         nonlocal mask_idx
-        masks[f'M_{mask_idx}'] = evaluate_metadata_mask(full_headers, metadata, match.group(1))
+        masks[f'M_{mask_idx}'] = _LogicMask.known(
+            evaluate_metadata_mask(full_headers, metadata, match.group(1))
+        )
         repl = f"masks['M_{mask_idx}']"
         mask_idx += 1
         return repl
@@ -323,7 +409,9 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 3. Labels (Clusters/Groups): #label_name#
     def label_repl(match):
         nonlocal mask_idx
-        masks[f'M_{mask_idx}'] = evaluate_label_mask(full_headers, cluster_labels, group_labels, match.group(1))
+        masks[f'M_{mask_idx}'] = _LogicMask.known(
+            evaluate_label_mask(full_headers, cluster_labels, group_labels, match.group(1))
+        )
         repl = f"masks['M_{mask_idx}']"
         mask_idx += 1
         return repl
@@ -336,7 +424,18 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
             return match.group(0)
         aa = match.group(1)
         pos = match.group(2)
-        masks[f'M_{mask_idx}'] = evaluate_aa_mask(full_headers, alignment, aa, pos, viewer_to_aln, valid_indices)
+        aa_mask = evaluate_aa_mask(
+            full_headers,
+            alignment,
+            aa,
+            pos,
+            viewer_to_aln,
+            valid_indices,
+        )
+        masks[f'M_{mask_idx}'] = _LogicMask.partially_known(
+            aa_mask,
+            np.asarray(viewer_to_aln) >= 0,
+        )
         repl = f"masks['M_{mask_idx}']"
         mask_idx += 1
         return repl
@@ -344,7 +443,10 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     
     final_expr = expr.replace("!", "~").replace("&", "&").replace("|", "|").replace("^", "^")
     try:
-        return eval(final_expr, {"__builtins__": {}}, {"masks": masks})
+        result = eval(final_expr, {"__builtins__": {}}, {"masks": masks})
+        if isinstance(result, _LogicMask):
+            return result.to_bool()
+        return np.asarray(result, dtype=bool)
     except Exception as e:
         raise ValueError(f"Invalid logic expression: {final_expr}. Ensure no spaces exist inside the logic.")
 

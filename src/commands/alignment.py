@@ -31,10 +31,10 @@ def print_help():
           Displays this help message.
 
     Loading Rules:
-      To load successfully, the FASTA subset currently representing the nodes in the viewer 
-      must be a strict subset of the sequence headers present in the new MSA file. 
-      If any node is missing, the load fails and the system automatically rolls back 
-      to the previously active alignment to ensure session stability.
+      The MSA may contain all, some, or none of the nodes currently plotted in the viewer.
+      Missing nodes remain visible but are excluded from alignment-dependent analyses.
+      Coverage is matched by exact full headers and reported when the alignment loads.
+      Unreadable or malformed files still fail and restore the previous alignment.
     """)
 
 def run(viewer, args):
@@ -121,37 +121,32 @@ def run(viewer, args):
     try:
         viewer.load_global_alignment()
 
-        # Check for missing reference sequence fallback
+        # A parseable partial or zero-overlap MSA is valid. Only a genuine loader
+        # failure leaves aln as None and triggers rollback.
         if viewer.alignment is None or viewer.alignment.aln is None:
-            print(f"Warning: Active reference '{viewer.active_reference}' not found in '{selected_file}'.")
-            print("Re-attempting load in Pure Occupancy Mode (no reference sequence)...")
-            viewer.active_reference = None
-            viewer.load_global_alignment()
+            raise ValueError("Alignment loader failed to return an alignment.")
 
-            if viewer.alignment is None or viewer.alignment.aln is None:
-                raise ValueError("Alignment loader failed to return an alignment.")
-            else:
-                success_msg = f"Success: Loaded '{selected_file}' in Pure Occupancy Mode."
-                print(f"\n{success_msg}")
-                if hasattr(viewer, 'console_text'):
-                    viewer.console_text.text = f"Loaded {selected_file} (No Ref)"
-        else:
-            success_msg = f"Success: Loaded alignment '{selected_file}'."
-            print(f"\n{success_msg}")
-            if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = f"Loaded {selected_file}"
+        aligned_count = len(getattr(viewer.alignment, 'matched_headers', []))
+        total_count = len(getattr(viewer, 'full_headers', []))
+        reference_suffix = ""
+        if getattr(viewer, 'active_reference', None) and not getattr(
+            viewer.alignment,
+            'has_reference',
+            False,
+        ):
+            reference_suffix = "; reference inactive (occupancy mode)"
+
+        success_msg = (
+            f"Success: Loaded alignment '{selected_file}' "
+            f"({aligned_count}/{total_count} network nodes aligned{reference_suffix})."
+        )
+        print(f"\n{success_msg}")
+        if hasattr(viewer, 'console_text'):
+            viewer.console_text.text = (
+                f"Loaded {selected_file}: {aligned_count}/{total_count} aligned"
+            )
 
     except Exception as e:
-        # Check if it was a subset violation error
-        err_msg = str(e)
-        if "subset" in err_msg.lower() or "missing" in err_msg.lower():
-            explanation = (
-                "\nCRITICAL ERROR: Sequence subset violation!\n"
-                "The active network sequence set (FASTA subset) must be a strict subset of the sequences in the MSA.\n"
-                "One or more nodes in the current view do not exist in the new alignment."
-            )
-            print(explanation)
-        
         print(f"\nFailed to load alignment '{selected_file}': {e}")
         print("Reverting to previous alignment state...")
         

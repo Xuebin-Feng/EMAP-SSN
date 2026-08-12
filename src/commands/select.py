@@ -203,12 +203,7 @@ def run(viewer, args):
                     
         expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
 
-    viewer_to_aln = np.full(len(viewer.full_headers), -1, dtype=int)
-    if (getattr(viewer, 'alignment', None).aln if getattr(viewer, 'alignment', None) else None) is not None:
-        for i, h in enumerate(viewer.full_headers):
-            if h in viewer.alignment.seq_map:
-                viewer_to_aln[i] = viewer.alignment.seq_map[h]
-    valid_indices = np.where(viewer_to_aln != -1)[0]
+    viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
     
     if expr:
         expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)

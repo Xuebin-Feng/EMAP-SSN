@@ -1,18 +1,22 @@
+# Work in progress scripts
+src/commands/specificity.py
+
 # User-specified folders
 Results/
 Input_Files/
 Embeddings/
 Cache_Files/
 
-# Keep ad-hoc test artifacts private while tracking the bundled-font regression.
-tests/
-validation/
-release_checks/
-
 # User-specified files
 src/resources/pLM_models/*_api_key.json
 src/resources/agent/model_card.json
 src/resources/pLM_models/ankh_license.json
+
+# Keep ad-hoc test artifacts private while tracking the bundled-font regression.
+tests/
+validation/
+release_checks/
+msa_benchmark/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -44,14 +48,15 @@ var/
 wheels/
 
 share/python-wheels/
-*.egg-info/
 .installed.cfg
+*.egg-info/
 *.egg
-MANIFEST
+
 
 # PyInstaller
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
+MANIFEST
 *.manifest
 *.spec
 

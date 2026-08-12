@@ -59,8 +59,23 @@ def run(viewer, args):
         
         viewer.load_global_alignment()
         
-        if viewer.alignment and viewer.alignment.aln is not None:
+        if (
+            viewer.alignment
+            and viewer.alignment.aln is not None
+            and getattr(viewer.alignment, 'has_reference', False)
+        ):
             viewer.console_text.text = "Reference successfully set."
+        elif viewer.alignment and viewer.alignment.aln is not None:
+            msg = (
+                f"Reference '{target}' is configured but inactive because it is not "
+                "present in the current MSA. Pure occupancy mode remains active."
+            )
+            viewer.console_text.text = msg
+            print(f"\nWarning: {msg}")
+        else:
+            msg = f"Error: Could not reload the current MSA for reference '{target}'."
+            viewer.console_text.text = msg
+            print(f"\n{msg}")
     else:
         err = f"Error: Reference '{target}' not found."
         viewer.console_text.text = err

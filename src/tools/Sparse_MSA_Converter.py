@@ -51,7 +51,14 @@ except ModuleNotFoundError:
 import numpy as np
 import h5py
 import json
-from Bio import SeqIO
+import tempfile
+from utilities.MSA_Sanitization import (
+    AA_TO_INT,
+    INT_TO_AA,
+    MSAValidationError,
+    load_sanitized_msa_fasta,
+    print_msa_sanitization_result,
+)
 
 # Check for Scipy
 try:
@@ -124,19 +131,13 @@ if os.path.exists(SETTINGS_FILE):
 FULL_INPUT_FASTA = os.path.join(MSA_DIR, INPUT_FASTA) if INPUT_FASTA else ""
 
 # --- Constants & Mapping ---
-# Maps Amino Acids to Integers (1-21). 0 is reserved for Gaps.
-AA_MAP = {
-    'A': 1, 'R': 2, 'N': 3, 'D': 4, 'C': 5, 'Q': 6, 'E': 7, 'G': 8, 'H': 9, 
-    'I': 10, 'L': 11, 'K': 12, 'M': 13, 'F': 14, 'P': 15, 'S': 16, 'T': 17, 
-    'W': 18, 'Y': 19, 'V': 20, 
-    'X': 21, 'B': 3, 'Z': 6, 'J': 10, 'U': 5, 'O': 12
-}
-INT_TO_AA = {v: k for k, v in AA_MAP.items() if k not in ['B', 'Z', 'J', 'U', 'O']}
+# 0 is reserved for gaps; shared codes preserve legacy values 1-21.
+AA_MAP = AA_TO_INT
 
 def build_sparse_alignment(input_path):
     if not input_path or not os.path.exists(input_path):
         print(f"❌ Error: File not found: {input_path}")
-        return
+        return False
 
     # Auto-generate output filename in the same directory
     output_h5 = os.path.splitext(input_path)[0] + "_sparse.h5"
@@ -145,96 +146,113 @@ def build_sparse_alignment(input_path):
     print(f"📂 Input:  {input_path}")
     print(f"💾 Output: {output_h5}")
 
-    # Data containers for Sparse Matrix construction
+    try:
+        headers, sequences, sanitization_stats = load_sanitized_msa_fasta(
+            input_path
+        )
+    except MSAValidationError as error:
+        print(f"❌ MSA rejected: {error}")
+        return False
+
     row_ind = []
     col_ind = []
     data_vals = []
-    
-    headers = []
-    header_map = {} 
-    
-    max_col = 0
-    row_idx = 0
+    header_map = {}
+    alignment_length = len(sequences[0])
 
     print("Processing sequences...", end="")
-    
-    try:
-        for record in SeqIO.parse(input_path, "fasta"):
-            # 1. Store Header Info
-            headers.append(record.description)
-            header_map[record.id] = row_idx
-            header_map[record.description] = row_idx
-            
-            # 2. Encode Sequence
-            seq_str = str(record.seq).upper()
-            length = len(seq_str)
-            if length > max_col: max_col = length
-            
-            # Identify non-gap indices
-            for col_idx, char in enumerate(seq_str):
-                if char in AA_MAP:
-                    val = AA_MAP[char]
-                    row_ind.append(row_idx)
-                    col_ind.append(col_idx)
-                    data_vals.append(val)
-            
-            row_idx += 1
-            if row_idx % 5000 == 0:
-                print(f".", end="") # Print a dot every 5000 seqs to show life
-                
-    except Exception as e:
-        print(f"\n❌ Error parsing FASTA: {e}")
-        return
+    for row_idx, (header, sequence) in enumerate(zip(headers, sequences)):
+        rec_id = header.split()[0]
+        header_map[rec_id] = row_idx
+        header_map[header] = row_idx
 
-    print(f"\n✅ Parsed {row_idx} sequences.")
-    print(f"Finalizing Matrix ({row_idx} sequences x {max_col} columns)...")
+        for col_idx, char in enumerate(sequence):
+            if char in AA_MAP:
+                row_ind.append(row_idx)
+                col_ind.append(col_idx)
+                data_vals.append(AA_MAP[char])
 
-    # 3. Create CSR Matrix
-    # uint8 saves massive memory (1 byte per AA instead of 8 bytes)
-    sparse_matrix = sparse.csr_matrix(
-        (data_vals, (row_ind, col_ind)), 
-        shape=(row_idx, max_col),
-        dtype=np.uint8 
+        if (row_idx + 1) % 5000 == 0:
+            print(".", end="")
+
+    row_count = len(headers)
+    print(f"\n✅ Parsed {row_count} sequences.")
+    print(
+        f"Finalizing Matrix ({row_count} sequences x "
+        f"{alignment_length} columns)..."
     )
 
-    # 4. Save to HDF5
+    sparse_matrix = sparse.csr_matrix(
+        (data_vals, (row_ind, col_ind)),
+        shape=(row_count, alignment_length),
+        dtype=np.uint8,
+    )
+
+    output_dir = os.path.dirname(os.path.abspath(output_h5))
+    os.makedirs(output_dir, exist_ok=True)
+    temporary_path = None
+
     try:
-        with h5py.File(output_h5, "w") as hf:
-            # 4a. Store Matrix Components
+        with tempfile.NamedTemporaryFile(
+            dir=output_dir,
+            prefix=f".{os.path.basename(output_h5)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = temporary_file.name
+
+        with h5py.File(temporary_path, "w") as hf:
             mat_group = hf.create_group("matrix")
-            mat_group.create_dataset("data", data=sparse_matrix.data, compression="gzip")
-            mat_group.create_dataset("indices", data=sparse_matrix.indices, compression="gzip")
-            mat_group.create_dataset("indptr", data=sparse_matrix.indptr, compression="gzip")
+            mat_group.create_dataset(
+                "data", data=sparse_matrix.data, compression="gzip"
+            )
+            mat_group.create_dataset(
+                "indices", data=sparse_matrix.indices, compression="gzip"
+            )
+            mat_group.create_dataset(
+                "indptr", data=sparse_matrix.indptr, compression="gzip"
+            )
             mat_group.attrs["shape"] = sparse_matrix.shape
-            
-            # 4b. Store Headers (Variable Length Strings)
-            dt_str = h5py.string_dtype(encoding='utf-8')
-            hf.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str, compression="gzip")
-            
-            # 4c. Store Dictionaries as JSON strings
+
+            dt_str = h5py.string_dtype(encoding="utf-8")
+            hf.create_dataset(
+                "headers",
+                data=np.array(headers, dtype=object),
+                dtype=dt_str,
+                compression="gzip",
+            )
             hf.create_dataset("header_map", data=json.dumps(header_map))
             hf.create_dataset("aa_map", data=json.dumps(AA_MAP))
             hf.create_dataset("int_to_aa", data=json.dumps(INT_TO_AA))
-            
-            # Global Metadata
-            hf.attrs["shape"] = (row_idx, max_col)
-            
+            hf.attrs["shape"] = sparse_matrix.shape
+
+        os.replace(temporary_path, output_h5)
+        temporary_path = None
+        print_msa_sanitization_result(
+            sanitization_stats,
+            input_path,
+            output_path=output_h5,
+        )
         print(f"🎉 Success! Sparse alignment saved to:\n   {output_h5}")
 
-        # ---> NEW LOGIC: Move the original FASTA <---
         base_dir = os.path.dirname(input_path)
         full_alignments_dir = os.path.join(base_dir, "Full_Alignments")
         os.makedirs(full_alignments_dir, exist_ok=True)
-        
-        dest_fasta = os.path.join(full_alignments_dir, os.path.basename(input_path))
-        
-        # os.replace handles cross-platform atomic overwriting natively
-        os.replace(input_path, dest_fasta)
-        
-        print(f"📁 Original FASTA safely moved to:\n   {dest_fasta}")
 
-    except Exception as e:
-        print(f"❌ Error during HDF5 save or file transfer: {e}")
+        dest_fasta = os.path.join(full_alignments_dir, os.path.basename(input_path))
+        os.replace(input_path, dest_fasta)
+        print(f"📁 Original FASTA safely moved to:\n   {dest_fasta}")
+        return True
+
+    except Exception as error:
+        print(f"❌ Error during HDF5 save or file transfer: {error}")
+        return False
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
 
 # --- Execution ---
 if __name__ == "__main__":
