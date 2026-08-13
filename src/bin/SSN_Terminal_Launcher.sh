@@ -57,6 +57,12 @@ ssn_launch_in_terminal() {
 
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
         printf -v command_text '%q ' "${child[@]}"
+        # Terminal's `do script` is asynchronous.  Its `busy` property can
+        # still be false immediately after the command is submitted, which
+        # previously made us close the new window before the command started.
+        # Keep the tab busy long enough for AppleScript to observe the state,
+        # and explicitly wait for that transition before waiting for exit.
+        command_text="/bin/sleep 1; $command_text"
         escaped=${command_text//\\/\\\\}
         escaped=${escaped//\"/\\\"}
         osascript \
@@ -65,6 +71,15 @@ ssn_launch_in_terminal() {
             -e 'set launchTab to do script ""' \
             -e 'set launchWindow to front window' \
             -e "do script \"$escaped\" in launchTab" \
+            -e 'set launchStarted to false' \
+            -e 'repeat with launchAttempt from 1 to 100' \
+            -e 'if busy of launchTab then' \
+            -e 'set launchStarted to true' \
+            -e 'exit repeat' \
+            -e 'end if' \
+            -e 'delay 0.05' \
+            -e 'end repeat' \
+            -e 'if not launchStarted then error "Terminal did not start the SSN command." number 1' \
             -e 'repeat while busy of launchTab' \
             -e 'delay 0.2' \
             -e 'end repeat' \

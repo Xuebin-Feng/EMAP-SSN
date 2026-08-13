@@ -55,6 +55,8 @@ EOF
     <key>CFBundleName</key><string>$app_name</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>$app_name opens Terminal temporarily to validate its environment and start the application.</string>
 </dict>
 </plist>
 EOF

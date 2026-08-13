@@ -148,6 +148,59 @@ class ShellTerminalLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 127)
         self.assertIn("No supported terminal emulator was found", result.stderr)
 
+    def test_macos_waits_until_terminal_reports_command_started(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            log_path = directory / "osascript-argv.bin"
+            fake_uname = directory / "uname"
+            fake_uname.write_text("#!/bin/bash\nprintf Darwin\n", encoding="utf-8")
+            fake_uname.chmod(0o755)
+            fake_osascript = directory / "osascript"
+            fake_osascript.write_text(
+                "#!/bin/bash\nprintf '%s\\0' \"$@\" >\"$SSN_TEST_LOG\"\n",
+                encoding="utf-8",
+            )
+            fake_osascript.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{directory}:{environment.get('PATH', '')}"
+            environment["SSN_TEST_LOG"] = str(log_path)
+
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(LAUNCHER),
+                    "--cwd",
+                    "/tmp/project path",
+                    "--title",
+                    "SSN Test",
+                    "--",
+                    "/tmp/program path",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            argv = [
+                item.decode("utf-8")
+                for item in log_path.read_bytes().split(b"\0")
+                if item
+            ]
+            script = "\n".join(argv)
+            self.assertIn("/bin/sleep 1;", script)
+            self.assertIn("repeat with launchAttempt from 1 to 100", argv)
+            self.assertIn("repeat while busy of launchTab", argv)
+            self.assertLess(
+                argv.index("repeat with launchAttempt from 1 to 100"),
+                argv.index("repeat while busy of launchTab"),
+            )
+
+    def test_generated_macos_apps_explain_terminal_automation(self):
+        installer = (PROJECT_ROOT / "install.command").read_text(encoding="utf-8")
+        self.assertIn("<key>NSAppleEventsUsageDescription</key>", installer)
+
 
 if __name__ == "__main__":
     unittest.main()
