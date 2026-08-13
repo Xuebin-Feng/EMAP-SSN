@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import http.server
+import errno
 import threading
 import queue
 import json
@@ -210,8 +211,18 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
 
-def start_server(viewer):
-    server = ThreadSafeHTTPServer(("localhost", 8000), WebServerHandler, viewer)
+def start_server(viewer, preferred_port=8000):
+    """Start on the traditional port, falling back when another Viewer owns it."""
+    try:
+        server = ThreadSafeHTTPServer(
+            ("localhost", preferred_port), WebServerHandler, viewer
+        )
+    except OSError as error:
+        address_unavailable = error.errno in {errno.EADDRINUSE, errno.EACCES}
+        windows_address_unavailable = getattr(error, "winerror", None) in {10013, 10048}
+        if not address_unavailable and not windows_address_unavailable:
+            raise
+        server = ThreadSafeHTTPServer(("localhost", 0), WebServerHandler, viewer)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     return server

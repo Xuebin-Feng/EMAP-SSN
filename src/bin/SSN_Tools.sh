@@ -30,7 +30,10 @@ else
 fi
 # shellcheck source=../../install.sh
 . "$PROJECT_ROOT/install.sh"
-ssn_enable_desktop_failure_pause
+LAUNCH_MODE="${1:-}"
+if [ "$LAUNCH_MODE" != "--check-only" ]; then
+    ssn_enable_desktop_failure_pause
+fi
 
 # Move to the project root directory.
 cd "$PROJECT_ROOT"
@@ -55,6 +58,9 @@ if command -v uv &> /dev/null; then
 elif [ -f "$HOME/.local/bin/uv" ]; then
     UV_EXE="$HOME/.local/bin/uv"
 else
+    if [ "$LAUNCH_MODE" = "--check-only" ]; then
+        exit 10
+    fi
     echo "uv package manager not found. Installing it automatically..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     UV_EXE="$HOME/.local/bin/uv"
@@ -63,8 +69,20 @@ fi
 # 2. Create or repair the managed virtual environment
 VENV_PYTHON=".venv/bin/python"
 if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
+    if [ "$LAUNCH_MODE" = "--check-only" ]; then
+        exit 10
+    fi
     echo "Creating isolated local virtual environment (.venv)..."
     "$UV_EXE" venv --clear --python 3.12 || exit 1
+fi
+
+if [ "$LAUNCH_MODE" = "--check-only" ]; then
+    "$VENV_PYTHON" src/Install_Dependencies.py --check-only --uv-executable "$UV_EXE" --venv .venv
+    exit $?
+fi
+
+if [ "$LAUNCH_MODE" = "--run-only" ]; then
+    exec "$VENV_PYTHON" src/SSN_Tools.py
 fi
 
 # 3. Resolve base, ESM, and hardware-specific PyTorch dependencies
@@ -74,6 +92,10 @@ if ! "$VENV_PYTHON" src/Install_Dependencies.py --uv-executable "$UV_EXE" --venv
     exit 1
 fi
 echo ""
+
+if [ "$LAUNCH_MODE" = "--setup-only" ]; then
+    exit 0
+fi
 
 # 4. Run the tools
 echo "Starting SSN_Tools..."

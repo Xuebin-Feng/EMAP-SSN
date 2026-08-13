@@ -49,6 +49,23 @@ from utilities.Application_Fonts import (
     configure_qt_application_fonts,
     register_vispy_application_fonts,
 )
+from utilities.Application_Windows import show_window_in_front
+
+
+def _remove_consumed_settings_snapshot():
+    """Remove a per-launch settings snapshot after SSN_Config imported it."""
+    snapshot_path = os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
+    if not snapshot_path:
+        return
+    try:
+        os.unlink(snapshot_path)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        print(f"Warning: Could not remove settings snapshot {snapshot_path}: {error}")
+
+
+_remove_consumed_settings_snapshot()
 
 
 def _load_selected_fasta_records(fasta_path):
@@ -590,6 +607,7 @@ class MainViewer:
         
         # Initialize background WebServer
         self.web_server = None
+        self.web_server_url = None
         self.start_web_server()
         
         # Run persistent sidebar button registration commands
@@ -600,7 +618,7 @@ class MainViewer:
         # Ensure the side panel is hidden at startup
         self.set_sidebar_visible(False)
         
-        self.main_window.show()
+        show_window_in_front(self.main_window)
         QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
         
         self._hud_timer.start()
@@ -2187,12 +2205,28 @@ class MainViewer:
                 self._update_hud_elements()
 
     def open_metadata_ui(self):
-        import webbrowser
-        webbrowser.open("http://localhost:8000/meta.html")
+        self._open_web_ui("/meta.html", "Metadata UI")
 
     def open_agent_ui(self):
+        self._open_web_ui("/agent.html", "Agent UI")
+
+    def _open_web_ui(self, path, label):
         import webbrowser
-        webbrowser.open("http://localhost:8000/agent.html")
+        try:
+            url = self.get_web_url(path)
+        except RuntimeError as error:
+            if hasattr(self, "console_text"):
+                self.console_text.text = f"{label} unavailable: {error}"
+                self.update_console_background()
+            return False
+        webbrowser.open(url)
+        return True
+
+    def get_web_url(self, path="/"):
+        """Return a URL served by this Viewer instance."""
+        if not self.web_server_url:
+            raise RuntimeError("This Viewer instance's web server is unavailable.")
+        return f"{self.web_server_url}/{str(path).lstrip('/')}"
 
     def add_sidebar_button(self, name, label, callback, tooltip=None):
         if not hasattr(self, 'sidebar_buttons'):
@@ -2225,8 +2259,12 @@ class MainViewer:
         try:
             from web_ui import Web_Server
             self.web_server = Web_Server.start_server(self)
-            print(f"WebServer started at http://localhost:8000")
+            port = int(self.web_server.server_address[1])
+            self.web_server_url = f"http://localhost:{port}"
+            print(f"WebServer started at {self.web_server_url}")
         except Exception as e:
+            self.web_server = None
+            self.web_server_url = None
             print(f"Error starting WebServer: {e}")
 
     def broadcast_event(self, event):

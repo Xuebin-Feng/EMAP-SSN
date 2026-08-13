@@ -22,6 +22,7 @@ import json
 import subprocess
 import markdown
 import re
+import traceback
 
 from utilities import Hardware_Utils
 from utilities.PLM_Plugin_Utils import (
@@ -38,6 +39,7 @@ from utilities.Tool_Directories import (
     DEFAULT_DIRECTORY_PATHS,
     fill_missing_directory_defaults,
 )
+from utilities.Application_Windows import show_window_in_front
 from Cache_Manifest import (
     file_cache_key,
     inspect_network_completeness,
@@ -3484,6 +3486,11 @@ class ToolsGUI(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    def _exit_on_uncaught_exception(exc_type, exc_value, exc_traceback):
+        traceback.print_exception(exc_type, exc_value, exc_traceback)
+        app.exit(1)
+
+    sys.excepthook = _exit_on_uncaught_exception
     try:
         configure_qt_application_fonts(app)
     except Exception as e:
@@ -3516,5 +3523,5 @@ if __name__ == "__main__":
         print(f"Warning: Could not force light palette: {e}")
         app.setStyle("Fusion")
     window = ToolsGUI()
-    window.show()
+    show_window_in_front(window)
     sys.exit(app.exec())

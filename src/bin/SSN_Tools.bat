@@ -17,6 +17,7 @@ REM =========================================================================
 REM Portable Startup Script for SSN_Tools.py
 REM =========================================================================
 setlocal EnableDelayedExpansion
+set "LAUNCH_MODE=%~1"
 
 :: Move to the project root directory (two levels up from this script)
 cd /d "%~dp0..\.."
@@ -31,6 +32,8 @@ if %ERRORLEVEL% equ 0 (
 set "UV_EXE=%USERPROFILE%\.local\bin\uv.exe"
 if exist "%UV_EXE%" goto UV_FOUND
 
+if /I "%LAUNCH_MODE%"=="--check-only" exit /b 10
+
 echo uv package manager not found. Installing it automatically...
 powershell -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
 
@@ -43,11 +46,17 @@ if not exist "!VENV_PYTHON!" goto CREATE_VENV
 if !ERRORLEVEL! equ 0 goto VENV_READY
 
 :CREATE_VENV
+if /I "%LAUNCH_MODE%"=="--check-only" exit /b 10
 echo Creating isolated local virtual environment .venv...
 "!UV_EXE!" venv --clear --python 3.12
 if !ERRORLEVEL! neq 0 exit /b !ERRORLEVEL!
 
 :VENV_READY
+
+if /I "%LAUNCH_MODE%"=="--check-only" (
+    "!VENV_PYTHON!" src\Install_Dependencies.py --check-only --uv-executable "!UV_EXE!" --venv .venv
+    exit /b !ERRORLEVEL!
+)
 
 :: 3. Resolve base, ESM, and hardware-specific PyTorch dependencies
 echo Detecting hardware and synchronizing dependencies...
@@ -59,6 +68,8 @@ if !INSTALL_ERROR! neq 0 (
     exit /b !INSTALL_ERROR!
 )
 echo.
+
+if /I "%LAUNCH_MODE%"=="--setup-only" exit /b 0
 
 :: 4. Run the tools
 echo Starting SSN_Tools...

@@ -41,16 +41,16 @@ if not exist "src\bin\logos\viewer_logo_large.ico" (
 set "VIEWER_ICON=!PROJECT_ROOT!\src\bin\logos\viewer_logo_large.ico"
 set "TOOL_ICON=!PROJECT_ROOT!\src\bin\logos\tool_logo_large.ico"
 
-:: 2. Create Windows Shortcut for SSN_Viewer.bat in the root folder
+:: 2. Create a visible-startup Windows shortcut for SSN_Config.py
 echo Creating shortcut for SSN_Viewer...
-powershell -ExecutionPolicy Bypass -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\SSN_Viewer.lnk'); $Shortcut.TargetPath = $env:PROJECT_ROOT + '\src\bin\SSN_Viewer.bat'; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
+powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\SSN_Viewer.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\SSN_Desktop_Launcher.bat' + $q + ' viewer' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
 if exist "SSN_Viewer.lnk" (
     echo [OK] Created SSN_Viewer.lnk in project root.
 )
 
-:: 3. Create Windows Shortcut for SSN_Tools.bat in the root folder
+:: 3. Create a visible-startup Windows shortcut for SSN_Tools.py
 echo Creating shortcut for SSN_Tools...
-powershell -ExecutionPolicy Bypass -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\SSN_Tools.lnk'); $Shortcut.TargetPath = $env:PROJECT_ROOT + '\src\bin\SSN_Tools.bat'; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
+powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\SSN_Tools.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\SSN_Desktop_Launcher.bat' + $q + ' tools' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
 if exist "SSN_Tools.lnk" (
     echo [OK] Created SSN_Tools.lnk in project root.
 )

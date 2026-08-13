@@ -76,9 +76,15 @@ def run(viewer, args):
     # 1. Calling 'agent' alone: Open browser UI (current behavior)
     if not args:
         import webbrowser
-        webbrowser.open("http://localhost:8000/agent.html")
+        try:
+            url = viewer.get_web_url("/agent.html")
+        except RuntimeError as error:
+            if hasattr(viewer, "console_text"):
+                viewer.console_text.text = f"Agent UI unavailable: {error}"
+            return
+        webbrowser.open(url)
         if hasattr(viewer, "console_text"):
-            viewer.console_text.text = "Agent UI opened at http://localhost:8000/agent.html"
+            viewer.console_text.text = f"Agent UI opened at {url}"
             if hasattr(viewer, "update_console_background"):
                 viewer.update_console_background()
         return

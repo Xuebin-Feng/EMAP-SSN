@@ -53,6 +53,13 @@ def register(viewer):
 
 def open_esmfold_ui(viewer, force=False):
     """Opens the local Mol* page in the user's default browser."""
+    try:
+        url = viewer.get_web_url("/esmfold.html")
+    except RuntimeError as error:
+        if hasattr(viewer, 'console_text'):
+            viewer.console_text.text = f"ESMFold UI unavailable: {error}"
+        return
+
     # Check if there is already an active EventSource connection queue
     is_already_connected = False
     if hasattr(viewer, 'web_server') and viewer.web_server:
@@ -61,7 +68,7 @@ def open_esmfold_ui(viewer, force=False):
             
     if not force and is_already_connected:
         return
-    webbrowser.open("http://localhost:8000/esmfold.html")
+    webbrowser.open(url)
     if hasattr(viewer, 'console_text'):
         viewer.console_text.text = "ESMFold Mol* UI opened in browser"
 

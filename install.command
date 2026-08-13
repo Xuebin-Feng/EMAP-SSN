@@ -28,30 +28,50 @@ echo "Project root: $PROJECT_ROOT"
 chmod +x src/bin/*.sh
 echo "[OK] Configured execution permissions for scripts in src/bin/"
 
-# 2. Create double-clickable .command wrapper scripts in the project root
-cat <<EOF > SSN_Viewer.command
+# 2. Create Finder-native .app bundles with a temporary startup Terminal
+create_app_launcher() {
+    local app_name="$1"
+    local app_kind="$2"
+    local bundle_id="$3"
+    local app_dir="$PROJECT_ROOT/${app_name}.app"
+    local executable_dir="$app_dir/Contents/MacOS"
+
+    rm -rf "$app_dir"
+    mkdir -p "$executable_dir"
+    cat > "$executable_dir/launcher" <<EOF
 #!/bin/bash
-cd "\$(dirname "\$0")"
-exec ./src/bin/SSN_Viewer.sh "\$@"
+PROJECT_ROOT=\$(cd "\$(dirname "\$0")/../../.." && pwd)
+exec "\$PROJECT_ROOT/src/bin/SSN_Desktop_Launcher.sh" "$app_kind"
 EOF
+    chmod +x "$executable_dir/launcher"
 
-cat <<EOF > SSN_Tools.command
-#!/bin/bash
-cd "\$(dirname "\$0")"
-exec ./src/bin/SSN_Tools.sh "\$@"
+    cat > "$app_dir/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>launcher</string>
+    <key>CFBundleIdentifier</key><string>$bundle_id</string>
+    <key>CFBundleName</key><string>$app_name</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>LSMinimumSystemVersion</key><string>11.0</string>
+</dict>
+</plist>
 EOF
+}
 
-chmod +x SSN_Viewer.command SSN_Tools.command
+create_app_launcher "SSN Viewer" "viewer" "ca.utoronto.ssn.viewer"
+create_app_launcher "SSN Tools" "tools" "ca.utoronto.ssn.tools"
 
-# Remove any old extensionless links if they exist
-rm -f SSN_Viewer SSN_Tools
-echo "[OK] Created double-clickable SSN_Viewer.command and SSN_Tools.command launchers in project root."
+# Remove generated legacy launchers; direct shell scripts remain available in src/bin.
+rm -f SSN_Viewer.command SSN_Tools.command SSN_Viewer SSN_Tools
+echo "[OK] Created SSN Viewer.app and SSN Tools.app launchers with visible startup terminals."
 
 echo ""
 echo "To set a custom icon on macOS:"
-echo "  1. Right-click on the 'SSN_Viewer.command' or 'SSN_Tools.command' launcher in Finder and select 'Get Info'."
+echo "  1. Right-click on 'SSN Viewer.app' or 'SSN Tools.app' in Finder and select 'Get Info'."
 echo "  2. Open the corresponding large logo in Preview (e.g. 'src/bin/logos/viewer_logo_large.png' or 'src/bin/logos/tool_logo_large.png'), press Cmd+A, then Cmd+C to copy it."
 echo "  3. Click on the file icon thumbnail at the top-left of the 'Get Info' window and press Cmd+V to paste."
 
 echo ""
-echo "Setup Complete! You can now run SSN Viewer and Tools using the launchers in the project root."
+echo "Setup Complete! You can now run SSN Viewer and Tools using the .app launchers in the project root."

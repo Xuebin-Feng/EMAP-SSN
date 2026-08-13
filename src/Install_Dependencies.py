@@ -38,6 +38,7 @@ ESM_VERSION = "3.3.0"
 ESM_WHEEL_SHA256 = "d5e412470877fa2e21c36b40a52cdf1bef5664234654355dc2a35bb8cd2f4d82"
 STATE_FILENAME = "ssn_backend.json"
 STATE_SCHEMA = 3
+SETUP_REQUIRED_EXIT = 10
 
 PYTORCH_INDEXES = {
     "cpu": "https://download.pytorch.org/whl/cpu",
@@ -566,15 +567,100 @@ def install(
     return 0
 
 
+def environment_is_ready(
+    *, project_root: Path, venv: Path, uv_executable: str
+) -> bool:
+    """Check launcher readiness without installing or changing the environment."""
+    python = venv_python(venv)
+    requirements = project_root / "src" / "requirements.txt"
+    wheel = (
+        project_root / "src" / "resources" / "wheels"
+        / f"esm-{ESM_VERSION}-py3-none-any.whl"
+    )
+    if not python.is_file():
+        print(f"Environment is not ready: {python} is missing.", file=sys.stderr)
+        return False
+
+    try:
+        print(f"Managed Python: {python}")
+        verify_esm_wheel(wheel)
+        print(f"Bundled ESM wheel: verified ({wheel.name})")
+        report = Detect_GPU.detect_hardware()
+        specs = backend_specs(report)
+        fingerprint = hardware_fingerprint(report)
+        print(f"Detected: {report.get('reason', 'hardware profile resolved')}")
+        for item in report.get("ignored_devices", []):
+            print(f"Ignoring {item.get('name')}: {item.get('reason')}")
+        state = read_state(venv / STATE_FILENAME)
+        if not _state_matches(state, specs, fingerprint, requirements):
+            print(
+                "Environment is not ready: dependency or hardware state changed.",
+                file=sys.stderr,
+            )
+            return False
+        print("Dependency and hardware state: current")
+        active = _backend_from_state(state.get("active_backend")) if state else None
+        saved_backend = state.get("active_backend", {}) if state else {}
+        active_label = (
+            getattr(active, "description", None)
+            or saved_backend.get("description")
+            or saved_backend.get("backend")
+            or "validated backend"
+        )
+        if active is not None:
+            print(f"Validating runtime backend: {active_label}")
+        validation = validate_backend(python, active) if active is not None else None
+        if active is None or validation is None:
+            print("Environment is not ready: runtime backend validation failed.", file=sys.stderr)
+            return False
+        if _installed_version(python, "esm") != ESM_VERSION:
+            print("Environment is not ready: bundled ESM version is missing.", file=sys.stderr)
+            return False
+        check = _run(
+            [uv_executable, "pip", "check", "--python", str(python)],
+            capture=True,
+        )
+        if check.returncode != 0:
+            print("Environment is not ready: installed packages are inconsistent.", file=sys.stderr)
+            return False
+        print("Installed package consistency: passed")
+    except (FileNotFoundError, ValueError, OSError) as error:
+        print(f"Environment readiness check failed: {error}", file=sys.stderr)
+        return False
+
+    check_output = getattr(check, "stdout", "")
+    if isinstance(check_output, str) and check_output.strip():
+        print(check_output.strip())
+    print(f"Dependency environment is ready ({active_label}).")
+    print(
+        "Validated runtime devices: "
+        f"{len(validation.get('validated_devices', validation.get('devices', [])))}"
+    )
+    print(f"Bundled ESM version: {ESM_VERSION}")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--venv", type=Path, default=Path(".venv"))
     parser.add_argument("--uv-executable", default="uv")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="check readiness without changing the managed environment",
+    )
     parser.add_argument("--refresh-backend", action="store_true", help="retry the full accelerator candidate ladder")
     args = parser.parse_args(argv)
     project_root = Path(__file__).resolve().parents[1]
     try:
+        if args.check_only:
+            ready = environment_is_ready(
+                project_root=project_root,
+                venv=args.venv.resolve(),
+                uv_executable=args.uv_executable,
+            )
+            return 0 if ready else SETUP_REQUIRED_EXIT
         return install(
             project_root=project_root, venv=args.venv.resolve(),
             uv_executable=args.uv_executable, dry_run=args.dry_run,

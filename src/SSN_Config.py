@@ -17,8 +17,12 @@ import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with
 import html
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
+import traceback
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -111,7 +115,8 @@ import json
 import ast
 import Cache_Manifest as cache_manifest
 
-SETTINGS_FILE = os.path.join("Input_Files", "viewer_settings.json")
+DEFAULT_SETTINGS_FILE = os.path.join("Input_Files", "viewer_settings.json")
+SETTINGS_FILE = os.environ.get("SSN_VIEWER_SETTINGS_PATH") or DEFAULT_SETTINGS_FILE
 if os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -185,18 +190,76 @@ def _handoff_to_viewer(
     if platform_name not in {"darwin", "linux"}:
         raise RuntimeError(f"Unsupported viewer launch platform: {platform_name}")
 
-    previous_cwd = os.getcwd()
-    os.chdir(project_root)
-    try:
-        os.execve(executable, [executable, viewer_script], env)
-    except OSError:
-        os.chdir(previous_cwd)
-        raise
+    launch_values = {
+        key: value
+        for key, value in env.items()
+        if key.startswith("SSN_") or key in {"QT_QPA_PLATFORM", "QT_API"}
+    }
+    env_prefix = " ".join(
+        f"{key}={shlex.quote(str(value))}" for key, value in launch_values.items()
+    )
+    command = " ".join(
+        part
+        for part in (
+            "env",
+            env_prefix,
+            shlex.quote(executable),
+            "-u",
+            shlex.quote(viewer_script),
+        )
+        if part
+    )
+    shell_command = f"cd {shlex.quote(project_root)} && {command}"
+
+    if platform_name == "darwin":
+        escaped_command = shell_command.replace("\\", "\\\\").replace('"', '\\"')
+        return subprocess.Popen(
+            [
+                "osascript",
+                "-e", 'tell application "Terminal"',
+                "-e", "activate",
+                "-e", f'do script "{escaped_command}"',
+                "-e", "end tell",
+            ],
+            cwd=project_root,
+            env=env,
+        )
+
+    terminals = (
+        "gnome-terminal", "konsole", "xfce4-terminal", "mate-terminal",
+        "lxterminal", "kitty", "alacritty", "xterm", "x-terminal-emulator",
+    )
+    terminal = next((name for name in terminals if shutil.which(name)), None)
+    if terminal is None:
+        raise RuntimeError(
+            "No supported terminal emulator was found. Install gnome-terminal, "
+            "konsole, xfce4-terminal, xterm, or another supported terminal."
+        )
+
+    held_command = f"{shell_command}; status=$?; if [ $status -ne 0 ]; then printf '\\nViewer exited with code %s.\\n' $status; read -r -p 'Press Enter to close...' _; fi; exit $status"
+    if terminal in {"gnome-terminal", "kitty", "alacritty"}:
+        argv = [terminal, "--", "bash", "-c", held_command]
+    elif terminal == "konsole":
+        argv = [terminal, "--hold", "-e", "bash", "-c", held_command]
     else:
-        # os.execve() only returns when replaced by a test double or a broken
-        # implementation. Restore process state before surfacing that failure.
-        os.chdir(previous_cwd)
-        raise RuntimeError("Viewer handoff returned without replacing the process.")
+        argv = [terminal, "-e", "bash", "-c", held_command]
+    return subprocess.Popen(argv, cwd=project_root, env=env)
+
+
+def _create_viewer_settings_snapshot(settings):
+    """Write one private settings file for a single Viewer process."""
+    descriptor, path = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(settings, handle, indent=4)
+            handle.write("\n")
+    except Exception:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    return path
 
 # =============================================================================
 # GUI APPLICATION
@@ -228,6 +291,7 @@ if __name__ == "__main__":
         configure_qt_application_fonts,
         qt_monospace_font,
     )
+    from utilities.Application_Windows import show_window_in_front
 
     # --- Custom Widget Classes ---
     class ScoreHistogramDialog(QDialog):
@@ -2503,11 +2567,13 @@ if __name__ == "__main__":
                 data[key] = val
             return data
 
-        def save_settings(self):
-            data = self.collect_data()
+        def save_settings(self, data=None):
+            if data is None:
+                data = self.collect_data()
             try:
                 os.makedirs("Input_Files", exist_ok=True)
-                with open(SETTINGS_FILE, "w", encoding="utf-8") as f: json.dump(data, f, indent=4)
+                with open(DEFAULT_SETTINGS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4)
                 return True
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save settings:\n{e}")
@@ -2557,7 +2623,18 @@ if __name__ == "__main__":
                 QMessageBox.critical(self, "Cache Selection Error", str(error))
                 return
 
-            if not self.save_settings():
+            settings_data = self.collect_data()
+            if not self.save_settings(settings_data):
+                return
+
+            try:
+                settings_snapshot = _create_viewer_settings_snapshot(settings_data)
+            except OSError as error:
+                QMessageBox.critical(
+                    self,
+                    "Viewer Launch Error",
+                    f"Failed to create the per-launch settings snapshot:\n{error}",
+                )
                 return
 
             print("Launching SSN_Viewer.py...")
@@ -2565,6 +2642,7 @@ if __name__ == "__main__":
             env.pop("SSN_TARGET_CACHE", None)
             env["SSN_TARGET_CACHE_PATH"] = relative_path.replace("\\", "/")
             env["SSN_TARGET_CACHE_MODE"] = cache_mode
+            env["SSN_VIEWER_SETTINGS_PATH"] = settings_snapshot
 
             # Use the project root (parent of src/) as cwd so all relative data paths resolve correctly
             script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2572,6 +2650,10 @@ if __name__ == "__main__":
             try:
                 _handoff_to_viewer(script_dir, env)
             except (OSError, RuntimeError) as error:
+                try:
+                    os.unlink(settings_snapshot)
+                except OSError:
+                    pass
                 QMessageBox.critical(
                     self,
                     "Viewer Launch Error",
@@ -2579,15 +2661,16 @@ if __name__ == "__main__":
                 )
                 return
 
-            # Windows returns after spawning a new console. POSIX replaces this
-            # process and never reaches this line.
-            self.close()
-
         def save_only(self):
             if self.save_settings():
                 QMessageBox.information(self, "Success", "Settings saved successfully!")
 
     app = QApplication(sys.argv)
+    def _exit_on_uncaught_exception(exc_type, exc_value, exc_traceback):
+        traceback.print_exception(exc_type, exc_value, exc_traceback)
+        app.exit(1)
+
+    sys.excepthook = _exit_on_uncaught_exception
     try:
         configure_qt_application_fonts(app)
     except Exception as e:
@@ -2607,5 +2690,5 @@ if __name__ == "__main__":
         print(f"Warning: Could not force light palette: {e}")
         app.setStyle("Fusion")
     window = ConfigGUI()
-    window.show()
+    show_window_in_front(window)
     sys.exit(app.exec())

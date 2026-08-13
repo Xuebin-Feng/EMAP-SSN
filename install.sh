@@ -197,10 +197,10 @@ ssn_install() {
 Type=Application
 Name=SSN Viewer
 Comment=Sequence Similarity Network Viewer
-Exec=env SSN_LAUNCHED_FROM_DESKTOP=1 "${PROJECT_ROOT}/src/bin/SSN_Viewer.sh"
+Exec="${PROJECT_ROOT}/src/bin/SSN_Desktop_Launcher.sh" viewer
 Path=${PROJECT_ROOT}
 Icon=${VIEWER_ICON}
-Terminal=true
+Terminal=false
 Categories=Science;Biology;
 EOF
     chmod +x SSN_Viewer.desktop
@@ -210,10 +210,10 @@ EOF
 Type=Application
 Name=SSN Tools
 Comment=Sequence Similarity Network Utilities
-Exec=env SSN_LAUNCHED_FROM_DESKTOP=1 "${PROJECT_ROOT}/src/bin/SSN_Tools.sh"
+Exec="${PROJECT_ROOT}/src/bin/SSN_Desktop_Launcher.sh" tools
 Path=${PROJECT_ROOT}
 Icon=${TOOL_ICON}
-Terminal=true
+Terminal=false
 Categories=Science;Biology;
 EOF
     chmod +x SSN_Tools.desktop
