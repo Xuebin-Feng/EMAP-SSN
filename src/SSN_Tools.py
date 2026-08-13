@@ -40,6 +40,10 @@ from utilities.Tool_Directories import (
     fill_missing_directory_defaults,
 )
 from utilities.Application_Windows import show_window_in_front
+from utilities.Application_Identity import (
+    TOOLS_DESKTOP_FILE_NAME,
+    configure_linux_qt_desktop_identity,
+)
 from Cache_Manifest import (
     file_cache_key,
     inspect_network_completeness,
@@ -3437,6 +3441,7 @@ class ToolsGUI(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    configure_linux_qt_desktop_identity(app, TOOLS_DESKTOP_FILE_NAME)
     def _exit_on_uncaught_exception(exc_type, exc_value, exc_traceback):
         traceback.print_exception(exc_type, exc_value, exc_traceback)
         app.exit(1)

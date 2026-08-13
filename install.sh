@@ -201,6 +201,7 @@ Exec="${PROJECT_ROOT}/src/bin/SSN_Desktop_Launcher.sh" viewer
 Path=${PROJECT_ROOT}
 Icon=${VIEWER_ICON}
 Terminal=false
+StartupWMClass=SSN_Viewer
 Categories=Science;Biology;
 EOF
     chmod +x SSN_Viewer.desktop
@@ -214,6 +215,7 @@ Exec="${PROJECT_ROOT}/src/bin/SSN_Desktop_Launcher.sh" tools
 Path=${PROJECT_ROOT}
 Icon=${TOOL_ICON}
 Terminal=false
+StartupWMClass=SSN_Tools
 Categories=Science;Biology;
 EOF
     chmod +x SSN_Tools.desktop

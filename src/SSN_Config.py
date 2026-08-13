@@ -21,6 +21,10 @@ import sys
 import tempfile
 import traceback
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
+from utilities.Application_Identity import (
+    VIEWER_DESKTOP_FILE_NAME,
+    configure_linux_qt_desktop_identity,
+)
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -2600,6 +2604,7 @@ if __name__ == "__main__":
                 QMessageBox.information(self, "Success", "Settings saved successfully!")
 
     app = QApplication(sys.argv)
+    configure_linux_qt_desktop_identity(app, VIEWER_DESKTOP_FILE_NAME)
     def _exit_on_uncaught_exception(exc_type, exc_value, exc_traceback):
         traceback.print_exception(exc_type, exc_value, exc_traceback)
         app.exit(1)

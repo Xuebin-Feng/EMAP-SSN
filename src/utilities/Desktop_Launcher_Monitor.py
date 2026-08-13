@@ -34,6 +34,18 @@ APP_SCRIPTS = {
 }
 
 
+def _apply_linux_qt_platform_policy(environment, *, platform_name=None):
+    """Prefer XWayland for Qt/OpenGL when a desktop launch bypasses the shell."""
+    platform_name = platform_name or sys.platform
+    if (
+        platform_name.startswith("linux")
+        and environment.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+        and not environment.get("QT_QPA_PLATFORM")
+    ):
+        environment["QT_QPA_PLATFORM"] = "xcb"
+    return environment
+
+
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -124,7 +136,7 @@ def run_monitor(app_kind: str, state_dir: Path) -> int:
     log_path = state_dir / "application.log"
     state_dir.mkdir(parents=True, exist_ok=True)
 
-    env = os.environ.copy()
+    env = _apply_linux_qt_platform_policy(os.environ.copy())
     env["SSN_GUI_READY_FILE"] = str(ready_path)
     return_code = 1
     try:

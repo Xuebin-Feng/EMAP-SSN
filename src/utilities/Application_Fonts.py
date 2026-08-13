@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 import warnings
@@ -20,6 +21,7 @@ QT_MONOSPACE_FAMILY = "Noto Sans Mono"
 VISPY_UI_FACE = "NotoSans"
 VISPY_MONOSPACE_FACE = "NotoSansMono"
 VISPY_FALLBACK_FACE = "OpenSans"
+VISPY_REFERENCE_DPI = 96.0
 
 QT_UI_FAMILIES = (
     QT_UI_FAMILY,
@@ -87,6 +89,24 @@ UI_REGULAR_FILE = "noto/NotoSans/NotoSans-Regular.ttf"
 UI_BOLD_FILE = "noto/NotoSans/NotoSans-Bold.ttf"
 MONOSPACE_REGULAR_FILE = "noto/NotoSansMono/NotoSansMono-Regular.ttf"
 MONOSPACE_BOLD_FILE = "noto/NotoSansMono/NotoSansMono-Bold.ttf"
+
+
+def vispy_points_for_logical_pixels(logical_pixels: float, canvas_dpi: float) -> float:
+    """Convert a platform-independent logical-pixel size to VisPy points."""
+    logical_pixels = max(0.0, float(logical_pixels))
+    try:
+        dpi = float(canvas_dpi)
+    except (TypeError, ValueError):
+        dpi = VISPY_REFERENCE_DPI
+    if not math.isfinite(dpi) or dpi <= 0.0:
+        dpi = VISPY_REFERENCE_DPI
+    return logical_pixels * 72.0 / dpi
+
+
+def vispy_points_at_reference_dpi(point_size: float, canvas_dpi: float) -> float:
+    """Preserve an existing point-size setting's appearance at reference DPI."""
+    logical_pixels = max(0.0, float(point_size)) * VISPY_REFERENCE_DPI / 72.0
+    return vispy_points_for_logical_pixels(logical_pixels, canvas_dpi)
 
 
 @dataclass(frozen=True)

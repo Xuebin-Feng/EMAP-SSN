@@ -13,6 +13,113 @@ SRC_DIR = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from utilities import Terminal_Launcher as launcher  # noqa: E402
+from utilities import Application_Identity as identity  # noqa: E402
+from utilities import Application_Fonts as application_fonts  # noqa: E402
+from utilities import Desktop_Launcher_Monitor as desktop_monitor  # noqa: E402
+
+
+class FakeApplication:
+    def __init__(self):
+        self.application_name = None
+        self.desktop_file_name = None
+
+    def setApplicationName(self, name):
+        self.application_name = name
+
+    def setDesktopFileName(self, name):
+        self.desktop_file_name = name
+
+
+class ApplicationIdentityTests(unittest.TestCase):
+    def test_linux_identity_matches_desktop_file_basename(self):
+        application = FakeApplication()
+
+        with mock.patch.object(identity.sys, "platform", "linux"):
+            identity.configure_linux_qt_desktop_identity(
+                application, identity.VIEWER_DESKTOP_FILE_NAME
+            )
+
+        self.assertEqual(application.application_name, "SSN_Viewer")
+        self.assertEqual(application.desktop_file_name, "SSN_Viewer")
+
+    def test_non_linux_platform_is_unchanged(self):
+        application = FakeApplication()
+
+        with mock.patch.object(identity.sys, "platform", "darwin"):
+            identity.configure_linux_qt_desktop_identity(
+                application, identity.VIEWER_DESKTOP_FILE_NAME
+            )
+
+        self.assertIsNone(application.application_name)
+        self.assertIsNone(application.desktop_file_name)
+
+    def test_installer_generates_matching_wm_classes(self):
+        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            f"StartupWMClass={identity.VIEWER_DESKTOP_FILE_NAME}\n", installer
+        )
+        self.assertIn(
+            f"StartupWMClass={identity.TOOLS_DESKTOP_FILE_NAME}\n", installer
+        )
+
+
+class DesktopPlatformPolicyTests(unittest.TestCase):
+    def test_wayland_desktop_launch_prefers_xcb(self):
+        environment = {"XDG_SESSION_TYPE": "wayland"}
+
+        result = desktop_monitor._apply_linux_qt_platform_policy(
+            environment, platform_name="linux"
+        )
+
+        self.assertIs(result, environment)
+        self.assertEqual(result["QT_QPA_PLATFORM"], "xcb")
+
+    def test_explicit_qt_platform_override_is_preserved(self):
+        environment = {
+            "XDG_SESSION_TYPE": "wayland",
+            "QT_QPA_PLATFORM": "wayland",
+        }
+
+        desktop_monitor._apply_linux_qt_platform_policy(
+            environment, platform_name="linux"
+        )
+
+        self.assertEqual(environment["QT_QPA_PLATFORM"], "wayland")
+
+    def test_non_wayland_session_is_unchanged(self):
+        environment = {"XDG_SESSION_TYPE": "x11"}
+
+        desktop_monitor._apply_linux_qt_platform_policy(
+            environment, platform_name="linux"
+        )
+
+        self.assertNotIn("QT_QPA_PLATFORM", environment)
+
+
+class VispyTextScalingTests(unittest.TestCase):
+    def test_logical_pixel_size_is_independent_of_canvas_dpi(self):
+        logical_pixels = 16.0
+
+        for dpi in (72.0, 96.0, 144.0, 192.0, 220.0):
+            with self.subTest(dpi=dpi):
+                points = application_fonts.vispy_points_for_logical_pixels(
+                    logical_pixels, dpi
+                )
+                rendered_pixels = points / 72.0 * dpi
+                self.assertAlmostEqual(rendered_pixels, logical_pixels)
+
+    def test_reference_point_size_preserves_96_dpi_appearance(self):
+        for dpi in (96.0, 144.0, 192.0):
+            with self.subTest(dpi=dpi):
+                points = application_fonts.vispy_points_at_reference_dpi(8.0, dpi)
+                rendered_pixels = points / 72.0 * dpi
+                self.assertAlmostEqual(rendered_pixels, 8.0 / 72.0 * 96.0)
+
+    def test_invalid_canvas_dpi_uses_reference_dpi(self):
+        points = application_fonts.vispy_points_for_logical_pixels(16.0, 0.0)
+
+        self.assertEqual(points, 12.0)
 
 
 class TerminalRegistryTests(unittest.TestCase):

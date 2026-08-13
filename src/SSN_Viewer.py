@@ -48,8 +48,14 @@ from utilities.Application_Fonts import (
     VISPY_FALLBACK_FACE,
     configure_qt_application_fonts,
     register_vispy_application_fonts,
+    vispy_points_at_reference_dpi,
+    vispy_points_for_logical_pixels,
 )
 from utilities.Application_Windows import show_window_in_front
+from utilities.Application_Identity import (
+    VIEWER_DESKTOP_FILE_NAME,
+    configure_linux_qt_desktop_identity,
+)
 
 
 def _remove_consumed_settings_snapshot():
@@ -179,7 +185,7 @@ class HUDDisplay:
                 text=text,
                 bold=True,
                 face=self.viewer.vispy_ui_face,
-                font_size=8,
+                font_size=self.viewer._hud_font_size_points(),
                 color=cfg.TEXT_COLOR,
                 pos=pos,
                 anchor_x=self.anchor_x,
@@ -247,8 +253,7 @@ class MainViewer:
             "console_text_y": 60.0,      # Vertical coordinate from top edge (baseline)
             "console_text_anchor_x": "left",
             "console_text_anchor_y": "bottom",
-            "console_font_family": "Open Sans", # Font family used to measure text width
-            "console_font_size": 8,      # Font size used to measure text width
+            "font_size_px": 16.0,        # Logical-pixel size shared by all HUD text
             
             # 3. Command Line Background Box
             "console_bg_height": 40.0,   # Vertical height of the background box
@@ -631,6 +636,41 @@ class MainViewer:
         self.console_text.text = f"Cmd: {buf[:c]}_{buf[c:]}"
         self.update_console_background()
         self.canvas.update()
+
+    def _canvas_dpi(self):
+        """Return the DPI value VisPy uses to convert text points to pixels."""
+        return float(getattr(self.canvas, 'dpi', 96.0))
+
+    def _hud_font_size_points(self):
+        """Return a cross-platform VisPy point size for the logical HUD size."""
+        logical_pixels = self.hud_layout.get("font_size_px", 16.0)
+        return vispy_points_for_logical_pixels(logical_pixels, self._canvas_dpi())
+
+    def _tooltip_font_size_points(self):
+        """Normalize the configurable tooltip size to its 96-DPI appearance."""
+        return vispy_points_at_reference_dpi(cfg.TEXT_SIZE, self._canvas_dpi())
+
+    def _apply_vispy_text_scaling(self):
+        """Apply logical-pixel sizing to static and dynamically-created text."""
+        hud_font_size = self._hud_font_size_points()
+        for attribute_name in (
+            'instr_text',
+            'console_text',
+            'zoom_text',
+            'hidden_text',
+        ):
+            visual = getattr(self, attribute_name, None)
+            if visual is not None:
+                visual.font_size = hud_font_size
+
+        tooltip = getattr(self, 'tooltip', None)
+        if tooltip is not None:
+            tooltip.font_size = self._tooltip_font_size_points()
+
+        for display in getattr(self, 'hud_displays', {}).values():
+            visual = getattr(display, 'text_visual', None)
+            if visual is not None:
+                visual.font_size = hud_font_size
 
     def update_console_background(self):
         """Wrap the console visually and size its background to the rendered rows."""
@@ -1263,7 +1303,7 @@ class MainViewer:
             pos=(0, 0),
             anchor_x='left',
             face=self.vispy_ui_face,
-            font_size=cfg.TEXT_SIZE,
+            font_size=self._tooltip_font_size_points(),
             parent=self.canvas.scene,
         )
 
@@ -1486,12 +1526,13 @@ class MainViewer:
 
     def create_hud(self):
         cfg_hud = self.hud_layout
+        hud_font_size = self._hud_font_size_points()
         
         self.instr_text = scene.visuals.Text(
             text="[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes",
             bold=False, 
             face=self.vispy_ui_face,
-            font_size=8, 
+            font_size=hud_font_size,
             color='gray', 
             pos=(cfg_hud["instr_x"], cfg_hud["instr_y"]), 
             anchor_y=cfg_hud["instr_anchor_y"], 
@@ -1525,7 +1566,7 @@ class MainViewer:
             text="", 
             bold=True, 
             face=self.vispy_monospace_face,
-            font_size=8, 
+            font_size=hud_font_size,
             color=cfg.TEXT_COLOR, 
             pos=(cfg_hud["console_text_x"], cfg_hud["console_text_y"]), 
             anchor_y=cfg_hud["console_text_anchor_y"], 
@@ -1537,7 +1578,7 @@ class MainViewer:
             text="", 
             bold=False, 
             face=self.vispy_ui_face,
-            font_size=8, 
+            font_size=hud_font_size,
             color='gray', 
             pos=(self.canvas.size[0] - cfg_hud["zoom_x_offset"], self.canvas.size[1] - cfg_hud["zoom_y_offset"]), 
             anchor_y=cfg_hud["zoom_anchor_y"], 
@@ -1549,7 +1590,7 @@ class MainViewer:
             text="", 
             bold=False, 
             face=self.vispy_ui_face,
-            font_size=8, 
+            font_size=hud_font_size,
             color='gray', 
             pos=(self.canvas.size[0] - cfg_hud["hidden_x_offset"], self.canvas.size[1] - cfg_hud["hidden_y_offset"]), 
             anchor_y=cfg_hud["hidden_anchor_y"], 
@@ -2090,6 +2131,7 @@ class MainViewer:
                 print(f"Warning: Could not refresh VisPy display scaling: {e}")
 
         for method_name in (
+            '_apply_vispy_text_scaling',
             'position_slider_overlay',
             'reposition_expand_btn',
             '_update_hud_elements',
@@ -2489,7 +2531,9 @@ class MainViewer:
             return
         
 if __name__ == '__main__':
+    # Set the identity before VisPy creates QApplication or any native window.
+    configure_linux_qt_desktop_identity(
+        QtWidgets.QApplication, VIEWER_DESKTOP_FILE_NAME
+    )
     viewer = MainViewer()
     app.run()
-
-
