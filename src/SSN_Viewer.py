@@ -259,7 +259,7 @@ class MainViewer:
             "console_bg_height": 40.0,   # Vertical height of the background box
             "console_bg_min_width": 250.0, # Minimum width of the background box when empty/short
             "console_bg_left_offset": 20.0, # Fixed horizontal left position of the box
-            "console_bg_y_offset": 22.0, # Positive values move only the box downward
+            "console_bg_y_offset": 20.0, # Positive values move only the box downward
             "console_bg_radius": 10.0,    # Radius for the rounded corners (0.0 for sharp corners)
             "console_bg_padding_x": 20.0, # Fixed logical padding added to the end of the command box
             

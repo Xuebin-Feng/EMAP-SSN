@@ -1,0 +1,298 @@
+import io
+import os
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
+
+import h5py
+import numpy as np
+import torch
+
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+UTILITIES_DIR = os.path.join(PROJECT_ROOT, "src", "utilities")
+TOOLS_DIR = os.path.join(PROJECT_ROOT, "src", "tools")
+for path in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+    import Embedding_Injection as embedding_injection
+    import Embedding_HDF5
+    import Network_Injection as network_injection
+
+
+class EmbeddingInjectionPluginTests(unittest.TestCase):
+    EXPECTED_PLUGINS = {
+        "ankh_base": "ankh",
+        "ankh_large": "ankh",
+        "esm2_t6_8m": "esm2",
+        "esm2_t12_35m": "esm2",
+        "esm2_t30_150m": "esm2",
+        "esm2_t33_650m": "esm2",
+        "esm2_t36_3b": "esm2",
+        "esm2_t48_15b": "esm2",
+        "esmc_300m": "esmc",
+        "esmc_600m": "esmc",
+        "esmc_6b": "esmc_6b_api",
+        "prost_t5": "prost_t5",
+        "prot_bert": "prot_bert",
+    }
+
+    def test_every_declared_model_resolves_to_the_expected_plugin(self):
+        for model_name, expected_module in self.EXPECTED_PLUGINS.items():
+            with self.subTest(model_name=model_name):
+                plugin = embedding_injection.find_model_plugin(model_name)
+
+                self.assertIsNotNone(plugin)
+                self.assertEqual(plugin.__name__, expected_module)
+                self.assertTrue(callable(plugin.load_model))
+                self.assertTrue(callable(plugin.get_embedding))
+
+    def test_esmc_6b_selects_remote_api_plugin(self):
+        plugin = embedding_injection.find_model_plugin("esmc_6b")
+
+        self.assertEqual(plugin.__name__, "esmc_6b_api")
+        self.assertIn("API_MODEL_MAPPINGS", vars(plugin))
+
+    def test_load_model_delegates_to_selected_plugin(self):
+        plugin = mock.Mock()
+        plugin.__name__ = "test_plugin"
+        plugin.load_model.return_value = mock.sentinel.model
+        plugin.get_embedding = mock.Mock()
+
+        with mock.patch.object(
+            embedding_injection,
+            "find_model_plugin",
+            return_value=plugin,
+        ), mock.patch.object(
+            embedding_injection.Hardware_Utils,
+            "get_optimal_device",
+            return_value=mock.sentinel.device,
+        ):
+            model_obj, device, selected_plugin = embedding_injection.load_model(
+                "test_model"
+            )
+
+        plugin.load_model.assert_called_once_with(
+            "test_model",
+            mock.sentinel.device,
+        )
+        self.assertIs(model_obj, mock.sentinel.model)
+        self.assertIs(device, mock.sentinel.device)
+        self.assertIs(selected_plugin, plugin)
+
+    def test_get_embedding_delegates_sequence_processing_to_plugin(self):
+        expected = np.ones((3, 5), dtype=np.float16)
+        plugin = mock.Mock()
+        plugin.get_embedding.return_value = expected
+
+        actual = embedding_injection.get_embedding(
+            "AB-CD",
+            mock.sentinel.model,
+            mock.sentinel.device,
+            plugin,
+            np.float16,
+        )
+
+        plugin.get_embedding.assert_called_once_with(
+            "AB-CD",
+            mock.sentinel.model,
+            mock.sentinel.device,
+            np.float16,
+        )
+        self.assertIs(actual, expected)
+
+    def test_unknown_model_reports_unsupported_plugin(self):
+        with mock.patch.object(
+            embedding_injection,
+            "find_model_plugin",
+            return_value=None,
+        ), self.assertRaisesRegex(
+            ValueError,
+            "not supported by any available plugin",
+        ):
+            embedding_injection.load_model("not_a_model")
+
+
+class NetworkInjectionPipelineTests(unittest.TestCase):
+    def test_input_path_configuration_preserves_none_as_unselected(self):
+        with mock.patch.object(network_injection, "OLD_NETWORK", None), \
+                mock.patch.object(network_injection, "NEW_EMBEDDINGS", None):
+            with self.assertRaisesRegex(ValueError, "existing network file"):
+                network_injection.configure_input_paths()
+
+    def test_input_path_configuration_does_not_open_selected_files(self):
+        old_path = os.path.abspath(
+            os.path.join("temporary", "old_[test-model]_network.h5")
+        )
+        new_path = os.path.abspath(
+            os.path.join("temporary", "new_[test-model]_embeddings.h5")
+        )
+        with mock.patch.object(network_injection, "OLD_NETWORK", old_path), \
+                mock.patch.object(network_injection, "NEW_EMBEDDINGS", new_path), \
+                mock.patch.object(network_injection, "validate_network_schema") as validate:
+            network_injection.configure_input_paths()
+            validate.assert_not_called()
+            self.assertEqual(network_injection.OLD_NETWORK, old_path)
+            self.assertEqual(network_injection.NEW_EMBEDDINGS, new_path)
+
+    def test_embedding_metadata_loader_rejects_unfinalized_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            h5_path = os.path.join(temp_dir, "incomplete.h5")
+            with h5py.File(h5_path, "w") as hf:
+                Embedding_HDF5.create_metadata_first_file(
+                    hf,
+                    ["first"],
+                    ["ACD"],
+                    "test-model",
+                    "float32",
+                )
+
+            with self.assertRaisesRegex(
+                network_injection.EmbeddingFileError,
+                "Embedding generation is incomplete",
+            ):
+                network_injection.load_embedding_metadata(h5_path)
+
+    def test_embedding_metadata_loader_rejects_missing_embedding(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            h5_path = os.path.join(temp_dir, "missing_embedding.h5")
+            with h5py.File(h5_path, "w") as hf:
+                embeddings = Embedding_HDF5.create_metadata_first_file(
+                    hf,
+                    ["present", "missing"],
+                    ["AC", "ACD"],
+                    "test-model",
+                    "float32",
+                )
+                embeddings.create_dataset(
+                    "present",
+                    data=np.ones((2, 4), dtype=np.float32),
+                )
+                hf.attrs["generation_complete"] = True
+
+            with self.assertRaisesRegex(
+                network_injection.EmbeddingFileError,
+                "Embedding database is missing dataset 'missing'",
+            ):
+                network_injection.load_embedding_metadata(h5_path)
+
+    def test_embedding_metadata_loader_preserves_order_and_lengths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            h5_path = os.path.join(temp_dir, "complete.h5")
+            with h5py.File(h5_path, "w") as hf:
+                embeddings = Embedding_HDF5.create_metadata_first_file(
+                    hf,
+                    ["second_header", "first"],
+                    ["AC", "ACD"],
+                    "test-model",
+                    "float32",
+                )
+                embeddings.create_dataset(
+                    "first",
+                    data=np.ones((3, 4), dtype=np.float32),
+                )
+                embeddings.create_dataset(
+                    "second_header",
+                    data=np.ones((2, 4), dtype=np.float32),
+                )
+                Embedding_HDF5.mark_generation_complete(hf)
+
+            headers, safe_headers, lengths, manifest = (
+                network_injection.load_embedding_metadata(h5_path)
+            )
+
+        self.assertEqual(headers, ["second_header", "first"])
+        self.assertEqual(safe_headers, ["second_header", "first"])
+        self.assertEqual(lengths, [2, 3])
+        self.assertEqual(manifest.model_name, "test-model")
+
+    def test_injection_stops_before_hashing_incomplete_embeddings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            h5_path = os.path.join(temp_dir, "incomplete.h5")
+            with h5py.File(h5_path, "w") as hf:
+                Embedding_HDF5.create_metadata_first_file(
+                    hf,
+                    ["first"],
+                    ["ACD"],
+                    "test-model",
+                    "float32",
+                )
+
+            output = io.StringIO()
+            with mock.patch.object(
+                network_injection,
+                "NEW_EMBEDDINGS",
+                h5_path,
+            ), mock.patch.object(
+                network_injection,
+                "calculate_file_hash",
+            ) as calculate_hash, redirect_stdout(output):
+                network_injection.run_injection()
+
+        calculate_hash.assert_not_called()
+        self.assertIn("Cannot start Network Injection", output.getvalue())
+        self.assertIn("Embedding generation is incomplete", output.getvalue())
+
+    def test_alignment_worker_returns_scores_without_path_payload(self):
+        matrix = np.array(
+            [
+                [3.0, -1.0],
+                [-1.0, 3.0],
+            ],
+            dtype=np.float32,
+        )
+
+        result = network_injection.calculate_alignment_data((4, 7, matrix))
+
+        self.assertEqual(len(result), 6)
+        self.assertEqual(result[:2], (4, 7))
+        self.assertEqual(float(result[2]), 2.0)
+        self.assertEqual(int(result[3]), 2)
+        self.assertEqual(float(result[4]), 6.0)
+        self.assertEqual(int(result[5]), 2)
+
+    def test_process_batch_never_writes_paths_dataset(self):
+        expected = [(0, 1, 1.0, 1, 2.0, 1)]
+        tasks = [(0, 1, "a", "b")]
+
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(
+                    network_injection,
+                    "RESULTS_DIR",
+                    temp_dir,
+                ), mock.patch.object(
+                    network_injection.Hardware_Utils,
+                    "get_optimal_device",
+                    return_value=torch.device("cuda"),
+                ), mock.patch.object(
+                    network_injection,
+                    "process_accelerated_tasks",
+                    return_value=expected,
+                ), mock.patch.object(
+                    network_injection,
+                    "process_cpu_tasks",
+                ):
+            network_injection.process_batch(
+                tasks,
+                batch_id=5,
+                workers=4,
+                new_emb_path="unused.h5",
+                embedding_checksum="checksum",
+                model_name="test-model",
+                saving_mode="float32",
+                gap_penalties=[-2.0, 0.0],
+            )
+
+            output_path = os.path.join(temp_dir, "batch_00005.h5")
+            with h5py.File(output_path, "r") as hf:
+                self.assertNotIn("paths", hf)
+                self.assertEqual(hf.attrs["embedding_checksum"], "checksum")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,341 @@
+import os
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+import numpy as np
+
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+from commands import logo as logo_command
+from commands.logo import (
+    _configure_logo_y_axis,
+    _calculate_identity_neighbour_counts_numpy,
+    _encode_standard_amino_acids,
+    calculate_identity_weights,
+    calculate_logo_matrix,
+    extract_identity_threshold,
+    get_compact_logo_coordinates,
+)
+
+
+class LogoYAxisTests(unittest.TestCase):
+    def test_percentage_mode_uses_zero_to_one_with_percent_labels(self):
+        from matplotlib.figure import Figure
+
+        ax = Figure().subplots()
+        _configure_logo_y_axis(ax, "pcts", "with_gap")
+
+        self.assertEqual(ax.get_ylim(), (0.0, 1.0))
+        self.assertEqual(ax.get_ylabel(), "Percentage")
+        labels = [label.get_text() for label in ax.get_yticklabels()]
+        self.assertEqual(labels, ["0%", "20%", "40%", "60%", "80%", "100%"])
+
+    def test_bits_mode_uses_theoretical_protein_maximum(self):
+        from matplotlib.figure import Figure
+
+        ax = Figure().subplots()
+        _configure_logo_y_axis(ax, "bits", "no_gap")
+
+        self.assertAlmostEqual(ax.get_ylim()[0], 0.0)
+        self.assertAlmostEqual(ax.get_ylim()[1], np.log2(20))
+        self.assertEqual(ax.get_ylabel(), "Bits")
+
+
+class DisconnectedLogoPositionTests(unittest.TestCase):
+    def test_disconnected_residue_labels_receive_adjacent_plot_coordinates(self):
+        labels = [58, 62, 86, 152, 221, 282]
+
+        coordinates = get_compact_logo_coordinates(labels)
+
+        self.assertEqual(coordinates, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(labels, [58, 62, 86, 152, 221, 282])
+
+    def test_empty_and_single_position_inputs_are_supported(self):
+        self.assertEqual(get_compact_logo_coordinates([]), [])
+        self.assertEqual(get_compact_logo_coordinates([282]), [0])
+
+
+class LogoIdentityThresholdParsingTests(unittest.TestCase):
+    def test_fraction_and_percentage_forms_are_equivalent(self):
+        for token in ("0.9", "90", "90%"):
+            with self.subTest(token=token):
+                threshold, remaining = extract_identity_threshold(["[1]", token])
+                self.assertAlmostEqual(threshold, 0.9)
+                self.assertEqual(remaining, ["[1]"])
+
+    def test_weighting_is_disabled_when_threshold_is_omitted(self):
+        threshold, remaining = extract_identity_threshold(
+            ["#cluster_1#", "[1]", "bits"]
+        )
+
+        self.assertIsNone(threshold)
+        self.assertEqual(remaining, ["#cluster_1#", "[1]", "bits"])
+
+    def test_invalid_or_repeated_threshold_is_rejected(self):
+        for arguments in (["[1]", "0"], ["[1]", "101%"], ["[1]", "90", "80"]):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(ValueError):
+                    extract_identity_threshold(arguments)
+
+
+class LogoSequenceWeightingTests(unittest.TestCase):
+    def test_identical_sequences_share_one_effective_observation(self):
+        weights = calculate_identity_weights(["AAAA", "AAAA", "GGGG"], 0.9)
+
+        np.testing.assert_allclose(weights, [0.5, 0.5, 1.0])
+        self.assertAlmostEqual(float(weights.sum()), 2.0)
+
+    def test_missing_coverage_does_not_create_high_identity(self):
+        weights = calculate_identity_weights(["AAAA", "AA--"], 0.9)
+
+        np.testing.assert_allclose(weights, [1.0, 1.0])
+
+    def test_percentage_mode_uses_weighted_amino_acid_frequencies(self):
+        weighted, weights = calculate_logo_matrix(
+            ["AAAA", "AAAA", "GGGG"],
+            [0],
+            mode="pcts",
+            gap_mode="no_gap",
+            identity_threshold=0.9,
+        )
+        unweighted, _ = calculate_logo_matrix(
+            ["AAAA", "AAAA", "GGGG"],
+            [0],
+            mode="pcts",
+            gap_mode="no_gap",
+        )
+
+        aa_order = "ACDEFGHIKLMNPQRSTVWY"
+        self.assertAlmostEqual(weighted[0, aa_order.index("A")], 0.5)
+        self.assertAlmostEqual(weighted[0, aa_order.index("G")], 0.5)
+        self.assertAlmostEqual(unweighted[0, aa_order.index("A")], 2.0 / 3.0)
+        self.assertAlmostEqual(float(weights.sum()), 2.0)
+
+    def test_bits_mode_uses_effective_count_for_small_sample_correction(self):
+        sequences = ["AAAA"] * 63
+        weighted, weights = calculate_logo_matrix(
+            sequences,
+            [0],
+            mode="bits",
+            gap_mode="no_gap",
+            identity_threshold=0.9,
+        )
+        unweighted, _ = calculate_logo_matrix(
+            sequences,
+            [0],
+            mode="bits",
+            gap_mode="no_gap",
+        )
+
+        aa_order = "ACDEFGHIKLMNPQRSTVWY"
+        a_index = aa_order.index("A")
+        self.assertAlmostEqual(float(weights.sum()), 1.0)
+        self.assertAlmostEqual(weighted[0, a_index], 0.0)
+        self.assertGreater(unweighted[0, a_index], 4.0)
+
+    def test_numba_and_numpy_counts_match_for_edge_cases_and_thresholds(self):
+        sequences = [
+            "AAAAAAAAAA",
+            "AAAAAAAAAA",
+            "AAAAAAAAAG",
+            "AAAAAAAA--",
+            "AAAAAAAAXX",
+            "GGGGGGGGGG",
+            "----------",
+            "XXXXXXXXXX",
+        ]
+        encoded = _encode_standard_amino_acids(sequences)
+        multiplicities = np.array([2, 1, 3, 1, 2, 1, 4, 2], dtype=np.int64)
+
+        for threshold in (0.8, 0.9, 1.0):
+            with self.subTest(threshold=threshold):
+                expected = _calculate_identity_neighbour_counts_numpy(
+                    encoded,
+                    multiplicities,
+                    threshold,
+                    block_size=3,
+                )
+                actual, _ = logo_command.run_identity_neighbour_counts(
+                    encoded,
+                    multiplicities,
+                    threshold,
+                )
+                np.testing.assert_array_equal(actual, expected)
+
+    def test_numba_and_numpy_weights_match_for_seeded_alignment(self):
+        rng = np.random.default_rng(20260812)
+        amino_acids = np.array(list("ACDEFGHIKLMNPQRSTVWY"))
+        rows = rng.choice(amino_acids, size=(60, 80))
+        sequences = ["".join(row) for row in rows]
+        sequences.extend([sequences[0], sequences[0], sequences[1]])
+
+        accelerated = calculate_identity_weights(sequences, 0.9)
+        with mock.patch.object(logo_command, "NUMBA_AVAILABLE", False):
+            fallback = calculate_identity_weights(sequences, 0.9)
+
+        np.testing.assert_array_equal(accelerated, fallback)
+
+    def test_empty_and_singleton_weighting(self):
+        self.assertEqual(calculate_identity_weights([], 0.9).size, 0)
+        np.testing.assert_array_equal(
+            calculate_identity_weights(["ACDE"], 0.9),
+            [1.0],
+        )
+
+    def test_numba_unavailable_uses_exact_numpy_fallback(self):
+        with mock.patch.object(logo_command, "NUMBA_AVAILABLE", False):
+            weights, metadata = calculate_identity_weights(
+                ["AAAA", "AAAA", "GGGG"],
+                0.9,
+                return_metadata=True,
+            )
+
+        np.testing.assert_array_equal(weights, [0.5, 0.5, 1.0])
+        self.assertEqual(metadata["backend"], "numpy")
+        self.assertIn("not available", metadata["fallback_reason"])
+
+    def test_numba_error_uses_exact_numpy_fallback(self):
+        with mock.patch.object(
+            logo_command,
+            "run_identity_neighbour_counts",
+            side_effect=RuntimeError("forced kernel error"),
+        ):
+            weights, metadata = calculate_identity_weights(
+                ["AAAA", "AAAA", "GGGG"],
+                0.9,
+                return_metadata=True,
+            )
+
+        np.testing.assert_array_equal(weights, [0.5, 0.5, 1.0])
+        self.assertEqual(metadata["backend"], "numpy")
+        self.assertEqual(metadata["fallback_reason"], "forced kernel error")
+
+
+class LogoIdentityKernelThreadTests(unittest.TestCase):
+    def test_balanced_thread_selection_reserves_capacity(self):
+        cases = (
+            (1, 1, 1),
+            (2, 2, 1),
+            (4, 4, 2),
+            (20, 20, 18),
+        )
+        for configured, logical, expected in cases:
+            with self.subTest(configured=configured, logical=logical):
+                self.assertEqual(
+                    logo_command.choose_balanced_thread_count(
+                        configured,
+                        logical,
+                    ),
+                    expected,
+                )
+
+    def test_worker_restores_previous_numba_thread_setting(self):
+        encoded = np.array([[0, 0], [1, 1]], dtype=np.int8)
+        multiplicities = np.ones(2, dtype=np.int64)
+        expected_counts = np.ones(2, dtype=np.int64)
+
+        with (
+            mock.patch.object(
+                logo_command,
+                "get_num_threads",
+                return_value=20,
+            ),
+            mock.patch.object(
+                logo_command,
+                "set_num_threads",
+            ) as set_threads,
+            mock.patch.object(
+                logo_command.os,
+                "cpu_count",
+                return_value=20,
+            ),
+            mock.patch.object(
+                logo_command,
+                "_identity_neighbour_counts_kernel",
+                return_value=expected_counts,
+            ),
+        ):
+            counts, selected_threads = (
+                logo_command.run_identity_neighbour_counts(
+                    encoded,
+                    multiplicities,
+                    0.9,
+                )
+            )
+
+        np.testing.assert_array_equal(counts, expected_counts)
+        self.assertEqual(selected_threads, 18)
+        self.assertEqual(
+            set_threads.call_args_list,
+            [mock.call(18), mock.call(20)],
+        )
+
+    def test_worker_restores_threads_after_kernel_error(self):
+        with (
+            mock.patch.object(
+                logo_command,
+                "get_num_threads",
+                return_value=4,
+            ),
+            mock.patch.object(
+                logo_command,
+                "set_num_threads",
+            ) as set_threads,
+            mock.patch.object(
+                logo_command.os,
+                "cpu_count",
+                return_value=4,
+            ),
+            mock.patch.object(
+                logo_command,
+                "_identity_neighbour_counts_kernel",
+                side_effect=RuntimeError("kernel failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "kernel failed"):
+                logo_command.run_identity_neighbour_counts(
+                    np.zeros((1, 1), dtype=np.int8),
+                    np.ones(1, dtype=np.int64),
+                    0.9,
+                )
+
+        self.assertEqual(
+            set_threads.call_args_list,
+            [mock.call(2), mock.call(4)],
+        )
+
+
+class LogoSynchronousArtifactTests(unittest.TestCase):
+    @staticmethod
+    def make_payload(directory, filename="background_logo.svg"):
+        return {
+            "selected_seqs": ("AAAA", "AAAA", "GGGG"),
+            "valid_cols": (0,),
+            "plot_positions": (1,),
+            "mode": "pcts",
+            "gap_mode": "no_gap",
+            "identity_threshold": 0.9,
+            "filename": filename,
+            "color_scheme": "chemistry",
+            "logo_dir": directory,
+            "ref_id": "reference",
+        }
+
+    def test_artifact_renderer_writes_svg_without_qt_canvas(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.make_payload(directory, filename="artifact.svg")
+
+            result = logo_command._generate_logo_artifact(payload)
+
+            self.assertTrue(os.path.isfile(result["save_path"]))
+            self.assertGreater(os.path.getsize(result["save_path"]), 0)
+            self.assertIn("effective N 2.00", result["message"])
+
+if __name__ == "__main__":
+    unittest.main()
