@@ -197,9 +197,12 @@ class ShellTerminalLauncherTests(unittest.TestCase):
                 argv.index("repeat while busy of launchTab"),
             )
 
-    def test_generated_macos_apps_explain_terminal_automation(self):
+    def test_generated_macos_apps_open_command_file_without_apple_events(self):
         installer = (PROJECT_ROOT / "install.command").read_text(encoding="utf-8")
-        self.assertIn("<key>NSAppleEventsUsageDescription</key>", installer)
+        self.assertIn('exec /usr/bin/open -a Terminal', installer)
+        self.assertIn('Contents/Resources/start.command', installer)
+        self.assertIn('"$app_kind" --terminal-session', installer)
+        self.assertNotIn("NSAppleEventsUsageDescription", installer)
 
 
 if __name__ == "__main__":

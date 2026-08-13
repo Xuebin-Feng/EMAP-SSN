@@ -35,15 +35,26 @@ create_app_launcher() {
     local bundle_id="$3"
     local app_dir="$PROJECT_ROOT/${app_name}.app"
     local executable_dir="$app_dir/Contents/MacOS"
+    local resources_dir="$app_dir/Contents/Resources"
 
     rm -rf "$app_dir"
-    mkdir -p "$executable_dir"
+    mkdir -p "$executable_dir" "$resources_dir"
     cat > "$executable_dir/launcher" <<EOF
 #!/bin/bash
-PROJECT_ROOT=\$(cd "\$(dirname "\$0")/../../.." && pwd)
-exec "\$PROJECT_ROOT/src/bin/SSN_Desktop_Launcher.sh" "$app_kind"
+APP_ROOT=\$(cd "\$(dirname "\$0")/../.." && pwd)
+exec /usr/bin/open -a Terminal "\$APP_ROOT/Contents/Resources/start.command"
 EOF
     chmod +x "$executable_dir/launcher"
+
+    # Opening a .command document through Launch Services does not require the
+    # launcher bundle to automate Terminal with Apple Events. Terminal owns the
+    # resulting session and runs the normal terminal-session entry point.
+    cat > "$resources_dir/start.command" <<EOF
+#!/bin/bash
+PROJECT_ROOT=\$(cd "\$(dirname "\$0")/../../.." && pwd)
+exec "\$PROJECT_ROOT/src/bin/SSN_Desktop_Launcher.sh" "$app_kind" --terminal-session
+EOF
+    chmod +x "$resources_dir/start.command"
 
     cat > "$app_dir/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,8 +66,6 @@ EOF
     <key>CFBundleName</key><string>$app_name</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>$app_name opens Terminal temporarily to validate its environment and start the application.</string>
 </dict>
 </plist>
 EOF
