@@ -7,6 +7,14 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd) || exit 1
 APP_KIND="${1:-}"
 LAUNCH_MODE="${2:---open-terminal}"
+TERMINAL_LAUNCHER="$SCRIPT_DIR/SSN_Terminal_Launcher.sh"
+
+if [ ! -r "$TERMINAL_LAUNCHER" ]; then
+    printf 'Could not load terminal launcher: %s\n' "$TERMINAL_LAUNCHER" >&2
+    exit 1
+fi
+# shellcheck source=SSN_Terminal_Launcher.sh
+. "$TERMINAL_LAUNCHER"
 
 case "$APP_KIND" in
     viewer)
@@ -23,52 +31,11 @@ case "$APP_KIND" in
         ;;
 esac
 
-terminal_command() {
-    printf 'cd %q && %q %q --terminal-session' \
-        "$PROJECT_ROOT" "$0" "$APP_KIND"
-}
-
 open_startup_terminal() {
-    local command_text terminal escaped
-    command_text=$(terminal_command)
-
-    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-        escaped=${command_text//\\/\\\\}
-        escaped=${escaped//\"/\\\"}
-        osascript \
-            -e 'tell application "Terminal"' \
-            -e 'activate' \
-            -e 'set launchTab to do script ""' \
-            -e 'set launchWindow to front window' \
-            -e "do script \"$escaped\" in launchTab" \
-            -e 'repeat while busy of launchTab' \
-            -e 'delay 0.2' \
-            -e 'end repeat' \
-            -e 'try' \
-            -e 'close launchWindow' \
-            -e 'end try' \
-            -e 'end tell' >/dev/null
-        return $?
-    fi
-
-    for terminal in gnome-terminal konsole xfce4-terminal mate-terminal lxterminal kitty alacritty xterm x-terminal-emulator; do
-        command -v "$terminal" >/dev/null 2>&1 || continue
-        case "$terminal" in
-            gnome-terminal|kitty|alacritty)
-                "$terminal" -- bash -c "$command_text" >/dev/null 2>&1 &
-                ;;
-            konsole)
-                "$terminal" -e bash -c "$command_text" >/dev/null 2>&1 &
-                ;;
-            *)
-                "$terminal" -e bash -c "$command_text" >/dev/null 2>&1 &
-                ;;
-        esac
-        return 0
-    done
-
-    printf 'Could not locate a supported terminal emulator for %s.\n' "$APP_LABEL" >&2
-    return 1
+    ssn_launch_in_terminal \
+        --cwd "$PROJECT_ROOT" \
+        --title "$APP_LABEL" \
+        -- "$0" "$APP_KIND" --terminal-session
 }
 
 if [ "$LAUNCH_MODE" = "--open-terminal" ]; then

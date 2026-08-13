@@ -8,11 +8,24 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
 import time
+
+try:
+    from utilities.Terminal_Launcher import (
+        HoldMode,
+        TerminalUnavailableError,
+        launch_in_terminal,
+    )
+except ModuleNotFoundError:
+    # This monitor is also executed directly by the bootstrap launchers.
+    from Terminal_Launcher import (  # type: ignore[no-redef]
+        HoldMode,
+        TerminalUnavailableError,
+        launch_in_terminal,
+    )
 
 
 APP_SCRIPTS = {
@@ -37,58 +50,49 @@ def _console_python() -> str:
     return str(executable)
 
 
-def _error_command(log_path: Path) -> str:
-    quoted_log = shlex.quote(str(log_path))
-    return (
-        f"cat {quoted_log}; printf '\\n\\nSSN application failed. "
-        f"Log retained at: %s\\n' {quoted_log}; exec \"${{SHELL:-/bin/bash}}\" -l"
-    )
+_ERROR_DISPLAY_PROGRAM = """\
+from pathlib import Path
+import sys
+
+log_path = Path(sys.argv[1])
+print(log_path.read_text(encoding="utf-8", errors="replace"), end="")
+print(f"\\n\\nSSN application failed. Log retained at: {log_path}")
+"""
 
 
 def _open_error_terminal(log_path: Path, *, platform_name: str | None = None) -> bool:
-    platform_name = platform_name or sys.platform
-    if platform_name == "win32":
-        creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10)
-        command = (
-            f'title SSN Error & type "{log_path}" & echo. & echo. & '
-            f'echo SSN application failed. Log retained at: "{log_path}"'
-        )
-        subprocess.Popen(
-            ["cmd.exe", "/d", "/k", command],
-            creationflags=creationflags,
-            cwd=str(log_path.parent),
-        )
-        return True
-
-    command = _error_command(log_path)
-    if platform_name == "darwin":
-        escaped = command.replace("\\", "\\\\").replace('"', '\\"')
-        subprocess.Popen(
-            [
-                "osascript",
-                "-e", 'tell application "Terminal"',
-                "-e", "activate",
-                "-e", f'do script "{escaped}"',
-                "-e", "end tell",
-            ]
-        )
-        return True
-
-    terminals = (
-        "gnome-terminal", "konsole", "xfce4-terminal", "mate-terminal",
-        "lxterminal", "kitty", "alacritty", "xterm", "x-terminal-emulator",
+    launch_in_terminal(
+        [_console_python(), "-u", "-c", _ERROR_DISPLAY_PROGRAM, str(log_path)],
+        cwd=log_path.parent,
+        hold=HoldMode.ALWAYS,
+        title="SSN Error",
+        platform_name=platform_name,
     )
-    terminal = next((name for name in terminals if shutil.which(name)), None)
-    if terminal is None:
-        return False
-    if terminal in {"gnome-terminal", "kitty", "alacritty"}:
-        argv = [terminal, "--", "bash", "-c", command]
-    elif terminal == "konsole":
-        argv = [terminal, "-e", "bash", "-c", command]
-    else:
-        argv = [terminal, "-e", "bash", "-c", command]
-    subprocess.Popen(argv)
     return True
+
+
+def _report_terminal_failure(log_path: Path, error: Exception) -> None:
+    message = (
+        "SSN could not open a terminal to display the application failure. "
+        f"Review the retained log at {log_path}. Terminal error: {error}"
+    )
+    try:
+        with log_path.open("a", encoding="utf-8", newline="\n") as log_handle:
+            print(f"\n{message}", file=log_handle)
+    except OSError:
+        pass
+
+    try:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+
+        owns_application = QApplication.instance() is None
+        application = QApplication.instance() or QApplication([])
+        QMessageBox.critical(None, "SSN Application Failure", message)
+        if owns_application:
+            application.quit()
+    except Exception:
+        # The retained log is the final fallback if Qt itself cannot start.
+        pass
 
 
 def _wait_for_dismissal(path: Path, timeout: float = 3.0) -> bool:
@@ -155,8 +159,8 @@ def run_monitor(app_kind: str, state_dir: Path) -> int:
     if ready_seen and _wait_for_dismissal(dismissed_path):
         try:
             _open_error_terminal(log_path)
-        except OSError:
-            pass
+        except (OSError, TerminalUnavailableError) as error:
+            _report_terminal_failure(log_path, error)
     return return_code
 
 

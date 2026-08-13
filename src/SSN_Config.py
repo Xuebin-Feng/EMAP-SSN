@@ -17,12 +17,10 @@ import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with
 import html
 import os
 import re
-import shlex
-import shutil
-import subprocess
 import sys
 import tempfile
 import traceback
+from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -169,81 +167,17 @@ def _handoff_to_viewer(
     executable=None,
 ):
     """Launch the viewer while preserving each platform's terminal contract."""
-    platform_name = platform_name or sys.platform
     executable = executable or sys.executable
     project_root = os.path.abspath(project_root)
     viewer_script = os.path.join(project_root, "src", "SSN_Viewer.py")
-
-    if platform_name == "win32":
-        creationflags = (
-            subprocess.CREATE_NEW_CONSOLE
-            if hasattr(subprocess, "CREATE_NEW_CONSOLE")
-            else 0x10
-        )
-        return subprocess.Popen(
-            f'cmd.exe /c ""{executable}" src\\SSN_Viewer.py || pause"',
-            env=env,
-            creationflags=creationflags,
-            cwd=project_root,
-        )
-
-    if platform_name not in {"darwin", "linux"}:
-        raise RuntimeError(f"Unsupported viewer launch platform: {platform_name}")
-
-    launch_values = {
-        key: value
-        for key, value in env.items()
-        if key.startswith("SSN_") or key in {"QT_QPA_PLATFORM", "QT_API"}
-    }
-    env_prefix = " ".join(
-        f"{key}={shlex.quote(str(value))}" for key, value in launch_values.items()
+    return launch_in_terminal(
+        [executable, "-u", viewer_script],
+        cwd=project_root,
+        env=env,
+        hold=HoldMode.ON_ERROR,
+        title="SSN Viewer",
+        platform_name=platform_name,
     )
-    command = " ".join(
-        part
-        for part in (
-            "env",
-            env_prefix,
-            shlex.quote(executable),
-            "-u",
-            shlex.quote(viewer_script),
-        )
-        if part
-    )
-    shell_command = f"cd {shlex.quote(project_root)} && {command}"
-
-    if platform_name == "darwin":
-        escaped_command = shell_command.replace("\\", "\\\\").replace('"', '\\"')
-        return subprocess.Popen(
-            [
-                "osascript",
-                "-e", 'tell application "Terminal"',
-                "-e", "activate",
-                "-e", f'do script "{escaped_command}"',
-                "-e", "end tell",
-            ],
-            cwd=project_root,
-            env=env,
-        )
-
-    terminals = (
-        "gnome-terminal", "konsole", "xfce4-terminal", "mate-terminal",
-        "lxterminal", "kitty", "alacritty", "xterm", "x-terminal-emulator",
-    )
-    terminal = next((name for name in terminals if shutil.which(name)), None)
-    if terminal is None:
-        raise RuntimeError(
-            "No supported terminal emulator was found. Install gnome-terminal, "
-            "konsole, xfce4-terminal, xterm, or another supported terminal."
-        )
-
-    held_command = f"{shell_command}; status=$?; if [ $status -ne 0 ]; then printf '\\nViewer exited with code %s.\\n' $status; read -r -p 'Press Enter to close...' _; fi; exit $status"
-    if terminal in {"gnome-terminal", "kitty", "alacritty"}:
-        argv = [terminal, "--", "bash", "-c", held_command]
-    elif terminal == "konsole":
-        argv = [terminal, "--hold", "-e", "bash", "-c", held_command]
-    else:
-        argv = [terminal, "-e", "bash", "-c", held_command]
-    return subprocess.Popen(argv, cwd=project_root, env=env)
 
 
 def _create_viewer_settings_snapshot(settings):

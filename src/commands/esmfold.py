@@ -18,7 +18,12 @@ import Command_Engine
 import SSN_Config as cfg
 import SSN_Utils as utils
 import web_ui.esmfold_backend as esmfold_backend
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
+from utilities.Terminal_Launcher import (
+    HoldMode,
+    TerminalUnavailableError,
+    launch_in_terminal,
+)
 
 def print_help():
     print("""
@@ -139,8 +144,6 @@ def run(viewer, args):
     # 9. Save nodes to fold to a temporary JSON file and spawn background worker process
     import json
     import tempfile
-    import subprocess
-
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w", encoding="utf-8") as tmp:
         json.dump(nodes_to_fold, tmp, indent=2)
         tmp_path = tmp.name
@@ -156,74 +159,26 @@ def run(viewer, args):
     print("Launching local ESM3 3D structure prediction background worker in a separate console...")
     
     device_str = str(device)
-    
-    if sys.platform == "win32":
-        creation_flags = subprocess.CREATE_NEW_CONSOLE
-        cmd = [python_exe, abs_worker_script, tmp_path, abs_structures_dir, device_str]
-        subprocess.Popen(cmd, creationflags=creation_flags, cwd=project_root)
-    elif sys.platform == "darwin":
-        # macOS: AppleScript to activate Terminal.app and execute the script in a new window/tab.
-        escaped_project_root = project_root.replace('"', '\\"')
-        escaped_python = python_exe.replace('"', '\\"')
-        escaped_worker = abs_worker_script.replace('"', '\\"')
-        escaped_tmp = tmp_path.replace('"', '\\"')
-        escaped_structs = abs_structures_dir.replace('"', '\\"')
-        escaped_device = device_str.replace('"', '\\"')
-        
-        cmd_str = f'cd "{escaped_project_root}" && "{escaped_python}" "{escaped_worker}" "{escaped_tmp}" "{escaped_structs}" "{escaped_device}"'
-        escaped_cmd = cmd_str.replace('"', '\\"')
-        
-        subprocess.Popen([
-            "osascript",
-            "-e", 'tell application "Terminal"',
-            "-e", 'activate',
-            "-e", f'do script "{escaped_cmd}"',
-            "-e", 'end tell'
-        ])
-    else:
-        # Linux: Detect available terminal emulator and run command
-        import shutil
-        terminals = [
-            "gnome-terminal", "konsole", "xfce4-terminal", 
-            "mate-terminal", "lxterminal", "kitty", 
-            "alacritty", "xterm", "x-terminal-emulator"
-        ]
-        chosen_terminal = None
-        for term in terminals:
-            if shutil.which(term):
-                chosen_terminal = term
-                break
-        
-        escaped_project_root = project_root.replace('"', '\\"')
-        escaped_python = python_exe.replace('"', '\\"')
-        escaped_worker = abs_worker_script.replace('"', '\\"')
-        escaped_tmp = tmp_path.replace('"', '\\"')
-        escaped_structs = abs_structures_dir.replace('"', '\\"')
-        escaped_device = device_str.replace('"', '\\"')
-        
-        cmd_str = f'cd "{escaped_project_root}" && "{escaped_python}" "{escaped_worker}" "{escaped_tmp}" "{escaped_structs}" "{escaped_device}"'
-        
-        if chosen_terminal:
-            if chosen_terminal in ["gnome-terminal", "kitty", "alacritty"]:
-                subprocess.Popen([chosen_terminal, "--", "bash", "-c", cmd_str])
-            elif chosen_terminal == "konsole":
-                subprocess.Popen(["konsole", "-e", "bash", "-c", cmd_str])
-            else:
-                subprocess.Popen([chosen_terminal, "-e", f"bash -c '{cmd_str}'"])
-        else:
-            # Fallback to background process if no terminal emulator is found
-            cmd = [python_exe, abs_worker_script, tmp_path, abs_structures_dir, device_str]
-            subprocess.Popen(cmd, cwd=project_root)
-            try:
-                from PySide6.QtWidgets import QMessageBox
-                parent = getattr(viewer, 'main_window', None)
-                QMessageBox.warning(
-                    parent, "No Terminal Emulator Found",
-                    "Could not locate a terminal emulator (e.g. gnome-terminal, xterm). "
-                    "The structure prediction script has been launched in the background, but console progress output will not be visible."
-                )
-            except Exception:
-                print("Warning: Could not locate a terminal emulator. Script running in background.")
+    cmd = [python_exe, abs_worker_script, tmp_path, abs_structures_dir, device_str]
+    try:
+        launch_in_terminal(
+            cmd,
+            cwd=project_root,
+            hold=HoldMode.NEVER,
+            title="SSN ESMFold",
+        )
+    except (OSError, TerminalUnavailableError) as error:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        message = f"Could not launch the ESMFold worker in a terminal:\n{error}"
+        print(f"Error: {message}")
+        parent = getattr(viewer, 'main_window', None)
+        QMessageBox.critical(parent, "ESMFold Launch Error", message)
+        if hasattr(viewer, 'console_text'):
+            viewer.console_text.text = "Error: Could not launch the ESMFold terminal."
+        return
 
     # 10. Open Mol* web browser tab immediately
     esmfold_backend.open_esmfold_ui(viewer)
