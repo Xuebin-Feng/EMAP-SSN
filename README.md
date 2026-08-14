@@ -11,9 +11,9 @@ The **Embedding-based SSN Viewer (name: TBD)** is an interactive, high-performan
 ---
 ## ⚠️ Important Note
 
-1. **Cross-Platform Support**: Linux and Apple Silicon macOS support is currently under active development. Intel-based Macs are not supported.
+1. **Cross-Platform Support**: Host architecture, operating-system, and accelerator support is conditional. See [Compatibility](#-compatibility) before installation; Linux and Apple Silicon macOS support remains under active development.
 2. **Work in Progress**: This documentation and the repository structure are undergoing active updates.
-3. **Recommended Hardware**: An **NVIDIA GPU** is highly recommended for CUDA acceleration of embeddings and layout solvers. Intel Arc, AMD, and Apple Silicon GPUs are also supported via standard hardware acceleration backends. On macOS, only Apple Silicon Macs are supported.
+3. **Recommended Hardware**: A compatible **NVIDIA GPU** is highly recommended for CUDA acceleration of embeddings and layout solvers. Selected AMD and Intel devices and Apple Silicon GPUs can use the backends listed in [Compatibility](#-compatibility); every accelerator must pass runtime validation.
 
 ---
 
@@ -60,7 +60,127 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
 *   **Comprehensive Utilities Suite**: Centralized GUI in `SSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
-*   **Cross-Platform Hardware Acceleration**: Automatic detection and utilization of CUDA (NVIDIA), Apple Silicon, Intel Arc, or AMD GPUs to accelerate embedding generation and force-directed layouts.
+*   **Cross-Platform Hardware Acceleration**: Automatic eligibility checks and runtime validation for supported NVIDIA CUDA, AMD ROCm, Intel XPU, and Apple MPS configurations, with safe fallback to CPU.
+
+---
+
+## ✅ Compatibility
+
+*Compatibility snapshot: August 2026.* Compatibility is the intersection of
+the application detector, the pinned Python packages, the operating system,
+and the installed GPU driver. A device can be eligible for an installation
+attempt without being guaranteed to work; the installer records it as
+validated only after a tensor calculation succeeds on that device.
+
+The status terms used below are:
+
+- **Tested:** the application has been run on that operating-system family.
+- **Supported:** the current installer and pinned upstream binary matrix cover
+  the configuration.
+- **Provisional:** the detector can attempt it, but the configuration has not
+  been project-tested or is outside a fully validated upstream combination.
+- **Unsupported:** the current managed Python 3.12 dependency set cannot be
+  installed or the application deliberately excludes the configuration.
+
+### Operating systems and processor architectures
+
+| Platform | Status | Requirements and limits |
+| --- | --- | --- |
+| Windows x64 | Supported | CPU use requires Windows 10 version 1809 or newer. NVIDIA CUDA requires Windows 10 22H2 or Windows 11. Native AMD ROCm and Intel XPU require Windows 11; Windows 11 25H2 build 26200+ is required for the ROCm 7.14 profile. Windows 11 is recommended. |
+| Windows x86 (32-bit) | Unsupported | The pinned binary dependencies do not provide Win32 wheels. |
+| Windows ARM64 | Unsupported | Python 3.12 and `uv` exist for ARM64, but the pinned PyTorch 2.12.1 Python 3.12 CPU artifact and the CUDA, XPU, and ROCm builds used by this project do not provide a complete native ARM64 environment. Running the x64 environment under Windows emulation is not project-supported. |
+| Linux x86_64 | Tested on Ubuntu and Debian | Exact tested release numbers were not recorded. The pinned Qt wheel requires glibc 2.34 or newer; Ubuntu 22.04+ and Debian 12+ satisfy that baseline. The installer automates GUI system dependencies only on Debian-family systems. |
+| Other x86_64 Linux distributions | Provisional | Modern glibc-based distributions may work after their Qt/XCB/QtWebEngine packages are installed manually. Fedora, RHEL, SUSE, Arch, and other distributions have not been project-tested. Accelerator support remains subject to the narrower vendor tables below. |
+| Linux ARM64 and other Linux architectures | Unsupported | Some individual upstream packages publish ARM wheels, but the complete pinned application environment has not been resolved or project-tested on these architectures. |
+| macOS ARM64 | Supported | Apple Silicon only, macOS 14 or newer, using MPS or CPU. |
+| macOS x86_64 | Unsupported | PyTorch 2.12.1 used by this project does not provide the required Intel macOS runtime. |
+
+The operating-system baseline follows the pinned [Qt 6.11 platform
+matrix](https://doc.qt.io/qt-6/supported-platforms.html), the [official PyTorch
+wheel index](https://download.pytorch.org/whl/cpu/torch/), and the platform
+requirements linked below. "Tested" refers to this application, whereas a
+vendor listing alone does not constitute live application testing.
+
+### Accelerator support by platform
+
+| Accelerator | Windows x64 | Linux x86_64 | macOS ARM64 |
+| --- | --- | --- | --- |
+| CPU | Supported on Windows 10 version 1809+ and Windows 11 | Supported on the tested Ubuntu/Debian families; other distributions are provisional | Supported on macOS 14+ |
+| NVIDIA CUDA | CUDA 13.2 or CUDA 12.6 on Windows 10 22H2+/Windows 11 | CUDA 13.2 or CUDA 12.6; distribution and driver must support the selected runtime | Not supported |
+| AMD ROCm | Windows 11 only: ROCm 7.14 on 25H2 build 26200+, then ROCm 7.2.1 where eligible | Ubuntu only: ROCm 7.2 first, then ROCm 6.4 for the narrower fallback target set | Not supported |
+| Intel XPU | Windows 11 only for supported Arc/Core Ultra Arc devices | Supported only for the device/OS combinations below | Not supported |
+| Apple MPS | Not applicable | Not applicable | Supported on Apple Silicon with macOS 14+ |
+
+#### NVIDIA CUDA
+
+| Installer profile | Eligibility | Upstream binary coverage |
+| --- | --- | --- |
+| CUDA 13.2 | Every selected NVIDIA GPU must report compute capability 7.5 or newer and every driver must be version 580 or newer. | PyTorch 2.12 classifies CUDA 13.2 as experimental and publishes binaries for its listed Turing-and-newer architectures. Unlisted capability values remain provisional until runtime validation succeeds. |
+| CUDA 12.6 | Used when the CUDA 13.2 conditions are not met. The effective PyTorch binary floor is compute capability 5.0. | Covers the listed Maxwell, Pascal, Volta, Turing, Ampere, Ada, and Hopper capability generations. Devices below capability 5.0 fall back to CPU. |
+
+CUDA 12.x minor compatibility requires at least NVIDIA driver 525.60.13 on
+Linux or 528.33 on Windows; a current vendor driver is recommended. See the
+[PyTorch 2.12 support matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md),
+[current NVIDIA compute-capability table](https://developer.nvidia.com/cuda/gpus),
+[legacy capability table](https://developer.nvidia.com/cuda/gpus/legacy), and
+[CUDA 12.6 release notes](https://docs.nvidia.com/cuda/archive/12.6.0/cuda-toolkit-release-notes/index.html).
+
+#### AMD ROCm
+
+The application uses a pinned model-to-GFX snapshot and does not guess support
+for newly released hardware. The following are application eligibility targets,
+not a promise that every product with the same architecture will pass its
+driver and tensor validation:
+
+| Platform/profile | Eligible GFX targets | Additional requirements |
+| --- | --- | --- |
+| Windows ROCm 7.14 / PyTorch 2.12 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
+| Windows ROCm 7.2.1 / PyTorch 2.9.1 | `gfx1100`, `gfx1101`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 and AMD Software 26.2.2 or newer when the version can be detected. |
+| Linux ROCm 7.2 / PyTorch 2.12.1 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | A listed Ubuntu release, readable and writable `/dev/kfd`, and a matching target from `rocm_agent_enumerator` or `rocminfo`. |
+| Linux ROCm 6.4 / PyTorch 2.9.1 fallback | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1200`, `gfx1201` | Same Linux preflight requirements; attempted only after ROCm 7.2 fails. |
+
+The installer does not install the Linux kernel driver or system ROCm stack.
+Consult the [ROCm 7.14 matrix](https://rocm.docs.amd.com/en/docs-7.14.0/about/release-notes.html),
+[ROCm 7.2.1 Windows matrix](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html),
+and [ROCm 6.4 matrix](https://rocm.docs.amd.com/en/docs-6.4.3/compatibility/compatibility-matrix.html)
+for the matching operating system, driver, and hardware requirements.
+
+#### Intel XPU
+
+| Device family | Supported operating-system combinations |
+| --- | --- |
+| Intel Arc A-Series, Arc B-Series, and Core Ultra processors with Arc graphics | Windows 11; Ubuntu 24.04, 25.10, or 26.04 as admitted by the current application snapshot. Ubuntu 26.04 remains project-untested. |
+| Core Ultra Series 3 / Panther Lake with Arc graphics | Windows 11; Ubuntu 25.10 or 26.04. Ubuntu 26.04 remains project-untested. |
+| Intel Data Center GPU Max | Ubuntu 22.04, RHEL 9.2, or SLES 15. The non-Ubuntu combinations are upstream-listed but project-untested. |
+| Intel HD, UHD, Iris, and non-Arc integrated graphics | Not eligible for XPU; another accelerator or CPU is used. |
+
+The Intel driver must already be installed. See the [PyTorch Intel XPU
+matrix](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html) for the
+validated hardware and operating-system combinations.
+
+#### Apple MPS
+
+MPS is selected only when both macOS and the `arm64` architecture are detected.
+All Apple Silicon generations use the same eligibility rule and must pass the
+runtime tensor check; otherwise the environment falls back to CPU. See Apple's
+[PyTorch MPS requirements](https://developer.apple.com/metal/pytorch/).
+
+### Backend selection and limitations
+
+- Compatible discrete GPUs are preferred over integrated GPUs; NVIDIA, AMD,
+  and Intel are ordered within the same device class.
+- One backend-specific PyTorch build is installed per `.venv`. GPUs from
+  different vendors cannot be used simultaneously in the same environment.
+- Multiple validated NVIDIA or Intel devices can remain available to the
+  application's automatic benchmark. For mixed AMD integrated/discrete
+  systems, only the preferred GFX target is installed.
+- A failed installation or tensor validation advances to the next eligible
+  backend and ultimately to CPU.
+- The selected backend and validation results are stored in
+  `.venv/ssn_backend.json`. Hardware, driver, OS, requirements, or compatibility
+  revision changes invalidate the saved state. Run
+  `python src/Install_Dependencies.py --refresh-backend` inside the managed
+  environment to retry the full candidate ladder.
 
 ---
 
@@ -76,45 +196,10 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 
 2. **Set up the environment:**
 
-   The generated Viewer and Tools launchers create a Python 3.12 environment
-   and select one pinned PyTorch backend automatically. Detection is
-   device-specific: recognizing a GPU makes it *eligible* for an installation
-   attempt, while a tensor calculation on that device is required before it is
-   recorded as *validated*. Unsupported or failed candidates are skipped in
-   favor of the next compatible accelerator and, finally, the CPU build.
-
-   | Hardware | Automatic backend policy |
-   | --- | --- |
-   | NVIDIA | CUDA 13.2 when every selected GPU and the installed driver qualify; otherwise CUDA 12.6. |
-   | AMD on Windows 11 25H2 (build 26200+) | ROCm 7.14/PyTorch 2.12 first, then ROCm 7.2.1/PyTorch 2.9.1 when the GPU is present in both pinned support tables. |
-   | AMD on earlier Windows 11 | ROCm 7.2.1 only for GPUs in AMD's corresponding Radeon/Ryzen support table. Windows 10 does not receive a native ROCm candidate. |
-   | AMD on Linux | ROCm is attempted only for a mapped GFX target on a supported Ubuntu release when `/dev/kfd` is accessible; the installer does not install the system ROCm driver. |
-   | Intel | XPU only for supported Arc, Core Ultra with Arc, or Data Center GPU Max devices on a listed OS. Intel HD/UHD graphics fall back to another accelerator or CPU. |
-   | Apple | MPS on Apple Silicon only. Intel-based Macs are not supported. |
-
-   The compatibility snapshot follows AMD's [current ROCm installer matrix](https://rocm.docs.amd.com/en/develop/install/rocm.html),
-   [ROCm 7.2.1 Windows matrix](https://rocm.docs.amd.com/projects/radeon-ryzen/en/docs-7.2/docs/compatibility/compatibilityrad/windows/windows_compatibility.html),
-   and PyTorch's [Intel XPU matrix](https://docs.pytorch.org/docs/main/notes/get_start_xpu.html).
-   A newer GPU is deliberately treated as unsupported until it is added to the
-   pinned application table.
-
-   On multi-GPU computers, a compatible discrete GPU is preferred over an
-   integrated GPU, followed by NVIDIA, AMD, and Intel within the same device
-   class. Multiple validated NVIDIA or Intel devices remain available to the
-   application's automatic benchmark. For a heterogeneous AMD integrated plus
-   discrete configuration, only the preferred discrete GFX target is installed;
-   the integrated adapter is reported as ignored. One backend-specific PyTorch
-   build is installed per `.venv`, so GPUs from different vendors are not used
-   simultaneously.
-
-   The selected backend and per-device validation results are stored in
-   `.venv/ssn_backend.json`. Hardware, driver, OS, requirements, or compatibility
-   table changes invalidate that state automatically. To explicitly retry every
-   eligible backend, run `src/Install_Dependencies.py` inside the managed virtual
-   environment with `--refresh-backend`.
-
-   Apple Silicon installation requires macOS 14 or newer, matching the pinned
-   PyTorch wheel's deployment target.
+   The generated Viewer and Tools launchers create a managed Python 3.12
+   environment and automatically install and validate one pinned PyTorch
+   backend. Review [Compatibility](#-compatibility) for supported hosts,
+   accelerator profiles, drivers, and fallback behavior before continuing.
 
    * **🪟 Windows**:
      Double-click `install.bat` in the project root to generate Windows Shortcuts (`.lnk` files) in the project root and optionally on your Desktop.

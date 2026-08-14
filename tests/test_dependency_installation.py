@@ -144,6 +144,10 @@ class GPUDetectionTests(unittest.TestCase):
                 system="Linux", version="6.8", controllers=["AMD Radeon RX 7900 XTX"]
             )
         self.assertEqual(linux["backend"], "rocm72")
+        self.assertEqual(
+            [candidate["backend"] for candidate in linux["backend_candidates"]],
+            ["rocm72", "rocm64", "cpu"],
+        )
         with mock.patch.object(Detect_GPU.platform, "machine", return_value="arm64"), \
                 mock.patch.object(Detect_GPU.platform, "system", return_value="Darwin"), \
                 mock.patch.object(Detect_GPU.platform, "version", return_value="25.0"), \
@@ -192,6 +196,7 @@ class DependencyInstallerTests(unittest.TestCase):
             "cuda132": ("torch==2.12.1", "/cu132"),
             "xpu": ("torch==2.12.1", "/xpu"),
             "rocm72": ("torch==2.12.1", "/rocm7.2"),
+            "rocm64": ("torch==2.9.1", "/rocm6.4"),
         }
         for backend, (requirement, index_suffix) in cases.items():
             with self.subTest(backend=backend):

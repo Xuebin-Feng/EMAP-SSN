@@ -32,6 +32,7 @@ import Detect_GPU
 
 
 TORCH_VERSION = "2.12.1"
+LINUX_ROCM_64_TORCH_VERSION = "2.9.1"
 WINDOWS_ROCM_714_TORCH_VERSION = "2.12.0+rocm7.14.0"
 WINDOWS_ROCM_721_TORCH_VERSION = "2.9.1+rocm7.2.1"
 ESM_VERSION = "3.3.0"
@@ -46,6 +47,7 @@ PYTORCH_INDEXES = {
     "cuda132": "https://download.pytorch.org/whl/cu132",
     "xpu": "https://download.pytorch.org/whl/xpu",
     "rocm72": "https://download.pytorch.org/whl/rocm7.2",
+    "rocm64": "https://download.pytorch.org/whl/rocm6.4",
     "rocm714": "https://repo.amd.com/rocm/whl-multi-arch/",
 }
 ROCM_721_ROOT = "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1"
@@ -100,6 +102,15 @@ def _standard_spec(candidate: dict[str, Any]) -> BackendSpec:
         )
         torch_version = "2.9.1"
         description = f"Windows ROCm 7.2.1 ({gfx_target or 'supported target'})"
+    elif backend == "rocm64":
+        steps = (
+            InstallStep(
+                (f"torch=={LINUX_ROCM_64_TORCH_VERSION}",),
+                PYTORCH_INDEXES[backend],
+            ),
+        )
+        torch_version = LINUX_ROCM_64_TORCH_VERSION
+        description = f"Linux ROCm 6.4 ({gfx_target or 'supported target'})"
     else:
         descriptions = {
             "cuda132": "NVIDIA CUDA 13.2",
@@ -297,7 +308,7 @@ def _validation_program(spec: BackendSpec) -> str:
             if torch.__version__.split("+", 1)[0] != {spec.torch_version!r}:
                 raise RuntimeError("unexpected torch version: " + torch.__version__)
             backend = {spec.backend!r}
-            if backend in {{"cuda126", "cuda132", "rocm72", "rocm714", "rocm721"}}:
+            if backend in {{"cuda126", "cuda132", "rocm72", "rocm64", "rocm714", "rocm721"}}:
                 is_rocm = backend.startswith("rocm")
                 if is_rocm and not torch.version.hip:
                     raise RuntimeError("ROCm/HIP build metadata is missing")

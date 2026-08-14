@@ -28,7 +28,7 @@ import subprocess
 from typing import Any, Iterable
 
 
-COMPATIBILITY_REVISION = 4
+COMPATIBILITY_REVISION = 5
 CUDA_13_MIN_DRIVER = (580, 0)
 WINDOWS_11_MIN_BUILD = 22000
 WINDOWS_11_25H2_MIN_BUILD = 26200
@@ -51,6 +51,9 @@ AMD_GFX_PATTERNS = (
 ROCM_714_TARGETS = frozenset(target for target, _patterns in AMD_GFX_PATTERNS)
 ROCM_721_TARGETS = frozenset(
     {"gfx1201", "gfx1200", "gfx1100", "gfx1101", "gfx1150", "gfx1151", "gfx1152"}
+)
+LINUX_ROCM_64_TARGETS = frozenset(
+    {"gfx1201", "gfx1200", "gfx1100", "gfx1101", "gfx1030"}
 )
 INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152"})
 
@@ -479,8 +482,15 @@ def _evaluate_devices(
                     reasons.append(f"ROCm agents do not report the mapped target {target}.")
                 elif target in ROCM_714_TARGETS:
                     profiles = ["rocm72"]
+                    if target in LINUX_ROCM_64_TARGETS:
+                        profiles.append("rocm64")
                     status = "eligible" if rocm_targets else "provisional"
-                    reasons.append(f"Linux ROCm preflight accepted {target}.")
+                    device["profile_eligibility"] = {
+                        profile: status for profile in profiles
+                    }
+                    reasons.append(
+                        f"Linux ROCm preflight accepted {target} for: {', '.join(profiles)}."
+                    )
             else:
                 reasons.append("ROCm is not configured for this operating system.")
         elif vendor == "INTEL":
