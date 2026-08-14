@@ -48,7 +48,7 @@ def print_help(meta_dir):
           Downloads the metadata using the specified filename (defaults to .csv if 
           no extension is provided). Overwrites the file if it already exists.
       meta show/display <property_name>
-          Displays the selected property of a node in the top-right corner of the window
+          Displays the selected property above the bottom-right status indicators
           whenever a node is clicked.
       meta show/display clear/off
           Clears and removes the metadata property display.
@@ -146,7 +146,7 @@ def run(viewer, args):
                     super().__init__(
                         viewer=main_viewer,
                         name='meta_display',
-                        pos_fn=lambda size: (size[0] - 30, 60),
+                        pos_fn=lambda size: main_viewer._status_hud_position(2, size),
                         anchor_x='right',
                         anchor_y='bottom'
                     )

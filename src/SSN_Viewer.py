@@ -305,17 +305,13 @@ class MainViewer:
             "console_bg_radius": 10.0,    # Radius for the rounded corners (0.0 for sharp corners)
             "console_bg_padding_x": 20.0, # Fixed logical padding added to the end of the command box
             
-            # 4. Zoom Indicator Text (" View Width: XXX ") at bottom-right
-            "zoom_x_offset": 10.0,       # Distance from the right edge of the window
-            "zoom_y_offset": 55.0,       # Distance from the bottom edge of the window (original default)
-            "zoom_anchor_x": "right",
-            "zoom_anchor_y": "bottom",
-            
-            # 5. Hidden Nodes Indicator Text (" Hidden Nodes: X ") at bottom-right
-            "hidden_x_offset": 10.0,     # Distance from the right edge of the window
-            "hidden_y_offset": 30.0,     # Distance from the bottom edge of the window (original default)
-            "hidden_anchor_x": "right",
-            "hidden_anchor_y": "bottom"
+            # 4. Bottom-right status stack, from bottom to top:
+            #    Hidden Nodes, View Width, selected metadata property.
+            "status_x_offset": 10.0,       # Distance from the right edge of the window
+            "status_bottom_offset": 30.0,  # Distance from the bottom edge to Hidden Nodes
+            "status_line_spacing": 25.0,
+            "status_anchor_x": "right",
+            "status_anchor_y": "bottom"
         }
         
         self.input_buffer = ""
@@ -533,7 +529,7 @@ class MainViewer:
                 font-family: %(font)s;
                 font-size: 12pt;
                 font-weight: normal;
-                color: gray;
+                color: %(text_color)s;
                 background: transparent;
                 min-width: 45px;
             }
@@ -565,7 +561,7 @@ class MainViewer:
                 background: #e5e5e5;
                 border-color: #888888;
             }
-        """ % {"font": utils.UI_FONT_STACK})
+        """ % {"font": utils.UI_FONT_STACK, "text_color": cfg.TEXT_COLOR})
         
         self.position_slider_overlay()
         self.slider_overlay.show()
@@ -623,7 +619,7 @@ class MainViewer:
                 border: 1px solid #dcdcdc;
                 border-radius: 4px;
                 font-weight: bold;
-                color: #555555;
+                color: %(text_color)s;
             }
             QPushButton#toggleSidebarBtn:hover {
                 background-color: #f0f0f0;
@@ -637,7 +633,7 @@ class MainViewer:
                 border: 1px solid #dcdcdc;
                 border-radius: 6px;
                 font-weight: bold;
-                color: #0969da;
+                color: %(text_color)s;
                 font-family: %(font)s;
                 font-size: 10pt;
                 padding-left: 10px;
@@ -650,7 +646,7 @@ class MainViewer:
             QWidget#rightPanel QPushButton:pressed {
                 background-color: #e2f0fe;
             }
-        """ % {"font": utils.UI_FONT_STACK})
+        """ % {"font": utils.UI_FONT_STACK, "text_color": cfg.TEXT_COLOR})
         
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server
@@ -695,6 +691,19 @@ class MainViewer:
     def _tooltip_font_size_points(self):
         """Normalize the configurable tooltip size to its 96-DPI appearance."""
         return vispy_points_at_reference_dpi(cfg.TEXT_SIZE, self._canvas_dpi())
+
+    def _status_hud_position(self, line_index, size=None):
+        """Return one evenly-spaced position in the bottom-right HUD stack."""
+        if size is None:
+            size = self.canvas.size
+        cfg_hud = self.hud_layout
+        return (
+            size[0] - cfg_hud["status_x_offset"],
+            size[1] - (
+                cfg_hud["status_bottom_offset"]
+                + line_index * cfg_hud["status_line_spacing"]
+            ),
+        )
 
     def _apply_vispy_text_scaling(self):
         """Apply logical-pixel sizing to static and dynamically-created text."""
@@ -1632,10 +1641,10 @@ class MainViewer:
             bold=False, 
             face=self.vispy_ui_face,
             font_size=hud_font_size,
-            color='gray', 
-            pos=(self.canvas.size[0] - cfg_hud["zoom_x_offset"], self.canvas.size[1] - cfg_hud["zoom_y_offset"]), 
-            anchor_y=cfg_hud["zoom_anchor_y"], 
-            anchor_x=cfg_hud["zoom_anchor_x"], 
+            color=cfg.TEXT_COLOR,
+            pos=self._status_hud_position(1),
+            anchor_y=cfg_hud["status_anchor_y"],
+            anchor_x=cfg_hud["status_anchor_x"],
             parent=self.canvas.scene
         )
         
@@ -1644,10 +1653,10 @@ class MainViewer:
             bold=False, 
             face=self.vispy_ui_face,
             font_size=hud_font_size,
-            color='gray', 
-            pos=(self.canvas.size[0] - cfg_hud["hidden_x_offset"], self.canvas.size[1] - cfg_hud["hidden_y_offset"]), 
-            anchor_y=cfg_hud["hidden_anchor_y"], 
-            anchor_x=cfg_hud["hidden_anchor_x"], 
+            color=cfg.TEXT_COLOR,
+            pos=self._status_hud_position(0),
+            anchor_y=cfg_hud["status_anchor_y"],
+            anchor_x=cfg_hud["status_anchor_x"],
             parent=self.canvas.scene
         )
 
@@ -2061,17 +2070,17 @@ class MainViewer:
     
     def _update_hud_elements(self, event=None):
         """Updates the zoom indicator, hidden nodes count, and maintains the tooltip pixel gap."""
-        cfg_hud = self.hud_layout
-        
         panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
         panel_w = getattr(self, '_panel_w', 120) if panel_visible else 0
         effective_canvas_w = self.canvas.size[0] - panel_w
+        effective_size = (effective_canvas_w, self.canvas.size[1])
         
         # 1. Update Zoom Indicator (Visible World Width)
         if hasattr(self, 'zoom_text'):
             visible_width = self.view.camera.rect.width
             self.zoom_text.text = f"View Width: {visible_width:.1f}"
-            self.zoom_text.pos = (effective_canvas_w - cfg_hud["zoom_x_offset"], self.canvas.size[1] - cfg_hud["zoom_y_offset"]) 
+            self.zoom_text.color = cfg.TEXT_COLOR
+            self.zoom_text.pos = self._status_hud_position(1, effective_size)
 
         # 2. Update Hidden Nodes Indicator
         if hasattr(self, 'hidden_text') and hasattr(self, 'visible_mask'):
@@ -2080,8 +2089,8 @@ class MainViewer:
             if hidden_count > 0:
                 self.hidden_text.color = 'red'
             else:
-                self.hidden_text.color = 'gray'
-            self.hidden_text.pos = (effective_canvas_w - cfg_hud["hidden_x_offset"], self.canvas.size[1] - cfg_hud["hidden_y_offset"])
+                self.hidden_text.color = cfg.TEXT_COLOR
+            self.hidden_text.pos = self._status_hud_position(0, effective_size)
 
         # 3. Update Tooltip Distance
         if getattr(self, 'selected_node_idx', None) is not None and getattr(self, 'tooltip', None) and self.tooltip.text != "":
@@ -2249,7 +2258,11 @@ class MainViewer:
         )
 
     def on_resize(self, event): 
-        self._hud_timer.start()
+        # Resize events already run after VisPy has updated the canvas size and
+        # scene transforms. Refresh the HUD synchronously so pixel-anchored
+        # text follows the window instead of waiting for a Qt-backed timer,
+        # which can be starved during interactive window resizing.
+        self._update_hud_elements()
         if hasattr(self, 'slider_overlay'):
             self.position_slider_overlay()
         if hasattr(self, 'reposition_expand_btn'):

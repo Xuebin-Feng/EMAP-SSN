@@ -1,6 +1,6 @@
 # Embedding-based Sequence Similarity Network (SSN) Viewer
 
-[![Python Version](https://img.shields.io/badge/python-%3E3.10-blue.svg)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS%20(Apple%20Silicon)-lightgrey.svg)](https://github.com/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Framework PySide6](https://img.shields.io/badge/UI-PySide6-orange.svg)](https://doc.qt.io/qtforpython/)
@@ -19,9 +19,7 @@ The **Embedding-based SSN Viewer (name: TBD)** is an interactive, high-performan
 
 ## 📸 Overview
 
-The application streamlines the entire SSN pipeline—from generation to interactive analysis—within a single unified workflow. It supports both traditional sequence similarity methods (e.g., BLAST) and modern embedding-based language model algorithms. Beyond dynamic visual formatting, the viewer provides an interactive command console with specialized commands tailored for deep analysis of the protein sequence space (see `list_of_commands.docx` for a detailed command reference).
-
-![SSN Viewer UI Demonstration](docs/assets/ssn_viewer_demo.gif)
+The application streamlines the entire SSN pipeline—from generation to interactive analysis—within a single unified workflow. It supports both traditional sequence similarity methods (e.g., BLAST) and modern embedding-based language model algorithms. Beyond dynamic visual formatting, the viewer provides an interactive command console with specialized commands tailored for deep analysis of the protein sequence space (see the [Viewer Command Reference](docs/list_of_commands.html) for detailed usage and examples).
 
 ---
 ## 🖥️ Graphical User Interface
@@ -69,7 +67,12 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 ## ⚙️ Installation Steps
 
 1. **Clone the repository:**
-   Download or clone the repository to your computer.
+   Download the repository or clone it into a local project directory:
+
+   ```bash
+   git clone https://github.com/Xuebin-Feng/Embedding-based-SSN-and-Viewer.git Sequence_Similarity_Network_Viewer
+   cd Sequence_Similarity_Network_Viewer
+   ```
 
 2. **Set up the environment:**
 
@@ -115,10 +118,10 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 
    * **🪟 Windows**:
      Double-click `install.bat` in the project root to generate Windows Shortcuts (`.lnk` files) in the project root and optionally on your Desktop.
-     
+
      > [!TIP]
      > It is highly recommended to enable **Developer Mode** in your Windows Settings (Search for "Developer settings" in Windows). This allows symbolic links to be created without elevation, which is required by the Hugging Face `transformers` cache model download system to avoid duplicating file storage.
-     
+
      > [!IMPORTANT]
      > **Enable long path support.** Windows limits a full path to 260 characters by default, while Linux and macOS allow far longer. Generated outputs — predicted structure `.pdb` files in particular — are named after sequence headers, so a long header inside an already-deep project folder can exceed the limit and fail to write, even though the same run succeeds on Linux or macOS.
      >
@@ -129,27 +132,29 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
      > Alternatively, enable **Computer Configuration → Administrative Templates → System → Filesystem → "Enable Win32 long paths"** in the Group Policy Editor (`gpedit.msc`).
      >
      > If you cannot change this setting, keep the project close to the drive root (for example `C:\SSN\`) rather than nested under a long folder chain such as a synced OneDrive directory. Note that external binaries invoked by the pipeline, such as NCBI BLAST, may not be long-path aware regardless of this setting — a short project path is the most reliable option.
-     
+
    * **🍏 macOS (Apple Silicon only)**:
-     Double-click `install.command` in the project root to configure permissions for scripts in `src/bin/` and generate double-clickable `.command` launchers (`SSN_Viewer.command` and `SSN_Tools.command`) in the project root.
+     Open Terminal in the project root, make the installer executable, and run it:
+
+     ```bash
+     chmod +x install.sh
+     ./install.sh
+     ```
+
+     The shared installer detects macOS, configures permissions for scripts in `src/bin/`, and generates Finder-native `SSN Viewer.app` and `SSN Tools.app` launchers in the project root. The legacy `install.command` file remains only as a compatibility wrapper that forwards to `install.sh`.
 
      > [!IMPORTANT]
      > Only Apple Silicon Macs are supported. Intel-based Macs are not supported by the pinned PyTorch runtime.
-     
-     > [!NOTE]
-     > If you downloaded the project as a ZIP rather than cloning it, the executable permission is not preserved. Restore it with `chmod +x install.command` before double-clicking.
-     
+
    * **🐧 Linux**:
-     Clone the repository and run the installer directly. Git preserves the executable bit, so a normal `git clone` does not require a separate `chmod` step:
+     Open a terminal in the project root, make the installer executable, and run it:
+
      ```bash
-     git clone <repository-url>
-     cd Sequence_Similarity_Network_Viewer
+     chmod +x install.sh
      ./install.sh
      ```
-     On Ubuntu/Debian, the installer detects missing Qt xcb and QtWebEngine system libraries and offers to install them with `sudo apt`. These libraries cannot be installed by `pip` or `uv`.
 
-     > [!NOTE]
-     > ZIP archives do not reliably preserve Unix executable modes. If you downloaded a ZIP instead of using `git clone`, run `bash install.sh` (or restore the mode once with `chmod +x install.sh`).
+     On Ubuntu/Debian, the installer detects missing Qt xcb and QtWebEngine system libraries and offers to install them with `sudo apt`. These libraries cannot be installed by `pip` or `uv`.
 
      > [!NOTE]
      > On Fedora/RHEL, install the equivalent system libraries before launching:
@@ -159,6 +164,14 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
      > ```
 
      This will configure execution permissions and generate launchers (`SSN_Viewer` and `SSN_Tools`) as well as system `.desktop` application entries.
+
+3. **Launch the application:**
+
+   - **Windows:** Open `SSN_Viewer.lnk` or `SSN_Tools.lnk` from the project root or from the Desktop if you selected that installer option.
+   - **macOS:** Open `SSN Viewer.app` or `SSN Tools.app` from the project root.
+   - **Linux:** Run `./SSN_Viewer` or `./SSN_Tools`, or use the generated desktop application entries.
+
+   `SSN_Viewer` opens the configuration GUI first. Select the input files and layout settings there, then click **Save & Run** to save the settings and launch the visualization window. On the first application launch, the managed launcher creates `.venv`, installs the pinned dependencies, and validates the selected compute backend; later launches reuse that environment while it remains compatible.
 
 ### Additional language fonts
 
@@ -209,12 +222,12 @@ VisPy network labels remain limited to the bundled Noto Sans face.
 Sequence_Similarity_Network_Viewer/
 │
 ├── install.bat               # Windows installer (creates .lnk shortcuts)
-├── install.command           # macOS installer (creates double-clickable launchers)
-├── install.sh                # Linux installer (creates symlinks and desktop entries)
+├── install.command           # Legacy macOS compatibility wrapper for install.sh
+├── install.sh                # Linux/macOS installer with platform-specific launchers
 │
 ├── src/                      # Source code directory
 │   ├── SSN_Viewer.py         # Main PySide6 / VisPy desktop visualization application
-│   ├── SSN_Tools.py          # GUI & CLI utility for generating network data & computing layouts
+│   ├── SSN_Tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
 │   ├── SSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
 │   ├── SSN_Utils.py          # Shared utility functions (IO, math helper, parsing)
 │   │
@@ -228,15 +241,33 @@ Sequence_Similarity_Network_Viewer/
 │   ├── commands/             # Command modules for interactive viewer console
 │   ├── resources/            # Configuration and system prompts
 │   ├── tools/                # Executable processing scripts exposed by SSN_Tools
-│   │   └── tool_descriptions/# Markdown documentation displayed by the Tools GUI
+│   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
 │   ├── utilities/            # Shared hardware, HDF5, alignment, and FASTA helpers
 │   └── web_ui/               # Embedded web UI backend and interfaces
 │
-├── docs/                     # Documentation screenshots and descriptions
-├── Input_Files/              # Raw input sequence FASTA files
-├── Cache_Files/              # Cached layouts, metadata, splits, and lists
-├── Embeddings/               # Directory where ESM protein embeddings are cached
-└── Results/                  # Visual outputs, exported graphs, and layouts
+├── docs/                     # Screenshots, command reference, and metadata template
+│   └── list_of_commands.html # Interactive Viewer command reference
+│
+├── Input_Files/              # Viewer inputs and persisted launch settings
+│   ├── Sequence_Sets/        # Protein sequence sets and subsets (.fasta)
+│   ├── Multiple_Alignments/  # Full or sparse multiple-sequence alignments
+│   ├── Networks_EValues/    # Embedding- or BLAST-derived network files (.h5)
+│   └── viewer_settings.json  # Settings saved by the configuration GUI
+│
+├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
+│   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)
+│   ├── Meta_Data/            # Imported and exported node metadata
+│   ├── FASTA_Split/          # Extracted sequence subsets
+│   ├── Header_Lists/         # Reusable sequence-header cohorts
+│   ├── Structures/           # Predicted structures and viewer assets
+│   ├── Global_Path/          # Cached pairwise-alignment paths
+│   └── Align_Report/         # Pairwise-alignment reports
+│
+├── Embeddings/               # Protein-language-model embedding databases (.h5)
+└── Results/                  # User-facing exported analysis results
+    ├── Saved_Images/          # Viewer image exports
+    ├── Cluster_Label/         # Cluster and specificity reports
+    └── Sequence_Logos/        # Sequence-logo graphics
 ```
 
 ---

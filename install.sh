@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # =========================================================================
-# Linux Installation, Dependency Checks, and Launcher Support
+# Linux/macOS Installation, Dependency Checks, and Launcher Support
 # =========================================================================
 
 # The launcher scripts source this file for the shared dependency checks and
@@ -258,7 +258,82 @@ ssn_enable_desktop_failure_pause() {
     trap ssn_pause_after_desktop_failure EXIT
 }
 
-ssn_install() {
+ssn_create_macos_app_launcher() {
+    local project_root="$1"
+    local app_name="$2"
+    local app_kind="$3"
+    local bundle_id="$4"
+    local app_dir="$project_root/$app_name.app"
+    local executable_dir="$app_dir/Contents/MacOS"
+    local resources_dir="$app_dir/Contents/Resources"
+
+    rm -rf "$app_dir"
+    mkdir -p "$executable_dir" "$resources_dir"
+    cat > "$executable_dir/launcher" <<EOF
+#!/bin/bash
+APP_ROOT=\$(cd "\$(dirname "\$0")/../.." && pwd)
+exec /usr/bin/open -a Terminal "\$APP_ROOT/Contents/Resources/start.command"
+EOF
+    chmod +x "$executable_dir/launcher"
+
+    # Opening a .command document through Launch Services does not require the
+    # launcher bundle to automate Terminal with Apple Events. Terminal owns the
+    # resulting session and runs the normal terminal-session entry point.
+    cat > "$resources_dir/start.command" <<EOF
+#!/bin/bash
+PROJECT_ROOT=\$(cd "\$(dirname "\$0")/../../.." && pwd)
+exec "\$PROJECT_ROOT/src/bin/SSN_Desktop_Launcher.sh" "$app_kind" --terminal-session
+EOF
+    chmod +x "$resources_dir/start.command"
+
+    cat > "$app_dir/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>launcher</string>
+    <key>CFBundleIdentifier</key><string>$bundle_id</string>
+    <key>CFBundleName</key><string>$app_name</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+</dict>
+</plist>
+EOF
+}
+
+ssn_install_macos() {
+    local PROJECT_ROOT
+
+    PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || return 1
+    cd "$PROJECT_ROOT" || return 1
+
+    echo "Setting up launchers for SSN Viewer & SSN Tools on macOS..."
+    echo "Project root: $PROJECT_ROOT"
+
+    chmod +x src/bin/*.sh
+    echo "[OK] Configured execution permissions for scripts in src/bin/"
+
+    ssn_create_macos_app_launcher \
+        "$PROJECT_ROOT" "SSN Viewer" "viewer" "ca.utoronto.ssn.viewer"
+    ssn_create_macos_app_launcher \
+        "$PROJECT_ROOT" "SSN Tools" "tools" "ca.utoronto.ssn.tools"
+
+    # Remove generated legacy launchers; direct shell scripts remain available
+    # under src/bin, while Finder users launch the generated application bundles.
+    rm -f SSN_Viewer.command SSN_Tools.command SSN_Viewer SSN_Tools
+    echo "[OK] Created SSN Viewer.app and SSN Tools.app launchers with visible startup terminals."
+
+    echo ""
+    echo "To set a custom icon on macOS:"
+    echo "  1. Right-click on 'SSN Viewer.app' or 'SSN Tools.app' in Finder and select 'Get Info'."
+    echo "  2. Open the corresponding large logo in Preview (for example, 'src/bin/logos/viewer_logo_large.png' or 'src/bin/logos/tool_logo_large.png'), press Cmd+A, then Cmd+C to copy it."
+    echo "  3. Click the file icon thumbnail at the top-left of the 'Get Info' window and press Cmd+V to paste."
+
+    echo ""
+    echo "Setup Complete! You can now run SSN Viewer and Tools using the .app launchers in the project root."
+}
+
+ssn_install_linux() {
     local PROJECT_ROOT
     local VIEWER_ICON TOOL_ICON
     local install_dependencies install_menu install_desktop
@@ -353,6 +428,22 @@ EOF
 
     echo ""
     echo "Setup Complete! You can now run SSN Viewer and Tools using the launchers in the project root."
+}
+
+ssn_install() {
+    case "$(uname -s 2>/dev/null)" in
+        Darwin)
+            ssn_install_macos "$@"
+            ;;
+        Linux)
+            ssn_install_linux "$@"
+            ;;
+        *)
+            printf 'Unsupported operating system for install.sh: %s\n' \
+                "$(uname -s 2>/dev/null || printf 'unknown')" >&2
+            return 1
+            ;;
+    esac
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

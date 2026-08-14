@@ -659,7 +659,7 @@ if __name__ == "__main__":
                 "EDGE_WIDTH": "Line thickness (in pixels) of connection lines drawn between related sequence nodes.\nThinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships.",
                 "EDGE_ALPHA": "Opacity of network edge lines, ranging from 0.0 (fully transparent) to 1.0 (opaque).\nLower opacity reveals underlying node clustering and density in highly connected graphs.",
                 "TEXT_SIZE": "Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.\nAdjust to ensure labels remain legible without obstructing structural network features.",
-                "TEXT_COLOR": "Color of cluster labels and node text annotations in the viewer.\nCan be specified as a standard color name or hex code (e.g. 'grey', '#333333').",
+                "TEXT_COLOR": "Color of viewer HUD text, slider values, and control labels. The top interaction instruction remains gray, and a nonzero Hidden Nodes count remains red.\nCan be specified as a standard color name or hex code (e.g. 'grey', '#333333').",
                 "INITIAL_NODE_COLOR": "Baseline fill color applied to all nodes when the network is first loaded.\nServes as the default background color before custom cluster or metadata coloring is applied.",
                 "HOVER_COLOR": "Highlight color applied to a node and its adjacent connections on hover or selection.\nProvides high-contrast interactive visual feedback in the viewer.",
                 "CONNECTED_NODE_COLOR": "Border highlight color applied to neighboring nodes directly connected to the currently selected node.\nAllows easy visual inspection of the local network neighborhood topology.",

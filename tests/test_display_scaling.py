@@ -14,11 +14,14 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from PySide6 import QtCore
+import SSN_Config as cfg
 from SSN_Viewer import (
+    HUDDisplay,
     MainViewer,
     _configure_linux_vispy_platform,
     _contiguous_line_positions,
 )
+from commands import meta as meta_command
 
 
 class FakeSignal:
@@ -226,6 +229,84 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertIsNone(viewer._active_screen)
         self.assertEqual(viewer.canvas.native.screen_changed_calls, [])
         viewer._update_hud_elements.assert_called_once_with()
+
+    def test_resize_refreshes_hud_synchronously_without_timer(self):
+        viewer, _handle, _screen = self.make_viewer()
+        viewer._hud_timer = mock.Mock()
+        viewer.slider_overlay = object()
+
+        viewer.on_resize(mock.Mock())
+
+        viewer._update_hud_elements.assert_called_once_with()
+        viewer._hud_timer.start.assert_not_called()
+        viewer.position_slider_overlay.assert_called_once_with()
+        viewer.reposition_expand_btn.assert_called_once_with()
+
+    def test_bottom_right_status_positions_have_equal_line_spacing(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.hud_layout = {
+            "status_x_offset": 10.0,
+            "status_bottom_offset": 30.0,
+            "status_line_spacing": 25.0,
+        }
+        size = (1000.0, 800.0)
+
+        hidden_pos = viewer._status_hud_position(0, size)
+        view_width_pos = viewer._status_hud_position(1, size)
+        property_pos = viewer._status_hud_position(2, size)
+
+        self.assertEqual(hidden_pos[0], view_width_pos[0])
+        self.assertEqual(view_width_pos[0], property_pos[0])
+        self.assertEqual(hidden_pos[1] - view_width_pos[1], 25.0)
+        self.assertEqual(view_width_pos[1] - property_pos[1], 25.0)
+
+    def test_metadata_property_display_uses_status_line_above_view_width(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.hud_layout = {
+            "status_x_offset": 10.0,
+            "status_bottom_offset": 30.0,
+            "status_line_spacing": 25.0,
+        }
+        viewer.hud_displays = {}
+        viewer.metadata = {"Length": {"values": [125]}}
+        viewer.selected_node_idx = 0
+
+        with (
+            mock.patch.object(meta_command.os, "makedirs"),
+            mock.patch.object(meta_command.Command_Engine, "print_help"),
+            mock.patch.object(HUDDisplay, "show"),
+        ):
+            meta_command.run(viewer, ["display", "Length"])
+
+        display = viewer.hud_displays["meta_display"]
+        size = (1000.0, 800.0)
+        self.assertEqual(
+            display.pos_fn(size),
+            viewer._status_hud_position(2, size),
+        )
+
+    def test_zero_hidden_nodes_and_view_width_use_configured_text_color(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.hud_layout = {
+            "status_x_offset": 10.0,
+            "status_bottom_offset": 30.0,
+            "status_line_spacing": 25.0,
+        }
+        viewer.canvas = FakeCanvas(size=(1000, 800))
+        viewer.view = mock.Mock()
+        viewer.view.camera.rect.width = 250.0
+        viewer.zoom_text = mock.Mock()
+        viewer.hidden_text = mock.Mock()
+        viewer.visible_mask = np.ones(3, dtype=bool)
+        viewer.selected_node_idx = None
+        viewer.tooltip = None
+        viewer.hud_displays = {}
+        viewer.update_console_background = mock.Mock()
+
+        viewer._update_hud_elements()
+
+        self.assertEqual(viewer.zoom_text.color, cfg.TEXT_COLOR)
+        self.assertEqual(viewer.hidden_text.color, cfg.TEXT_COLOR)
 
     def test_display_diagnostics_print_only_when_signature_changes(self):
         viewer, handle, screen = self.make_viewer()

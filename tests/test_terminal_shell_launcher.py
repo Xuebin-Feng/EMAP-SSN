@@ -198,11 +198,16 @@ class ShellTerminalLauncherTests(unittest.TestCase):
             )
 
     def test_generated_macos_apps_open_command_file_without_apple_events(self):
-        installer = (PROJECT_ROOT / "install.command").read_text(encoding="utf-8")
+        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
         self.assertIn('exec /usr/bin/open -a Terminal', installer)
         self.assertIn('Contents/Resources/start.command', installer)
         self.assertIn('"$app_kind" --terminal-session', installer)
         self.assertNotIn("NSAppleEventsUsageDescription", installer)
+
+    def test_legacy_macos_installer_forwards_to_shared_installer(self):
+        wrapper = (PROJECT_ROOT / "install.command").read_text(encoding="utf-8")
+        self.assertIn('exec /bin/bash "$SCRIPT_DIR/install.sh" "$@"', wrapper)
+        self.assertNotIn("ssn_create_macos_app_launcher", wrapper)
 
 
 if __name__ == "__main__":
