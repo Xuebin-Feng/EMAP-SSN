@@ -20,7 +20,8 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 | CPU Worker Threads **`WORKERS`** | The number of CPU processes/threads allocated for parallel alignment calculations. |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score applied for local alignments. More negative values penalize gaps more heavily, resulting in fewer gaps. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score applied for global alignments. |
-| Processing Batch Size **`BATCH_SIZE`** | The number of sequence pairs processed in a single chunk before writing to disk. Larger batches maximize CPU core utilization but increase memory consumption. Can be set to a number or 'auto'. |
+| Processing Batch Size **`BATCH_SIZE`** | The integer number of sequence pairs processed in a single chunk before writing to disk. Larger batches can improve utilization but increase memory consumption. |
+| Compute Device **`DEVICE_SELECTION`** | Selects `auto` or a specific available CPU, CUDA, XPU, or MPS device for residue score-matrix construction. `auto` benchmarks representative pending pairs across candidate device/concurrency plans and falls back through the ranked plans if necessary. Dynamic-programming scoring remains on CPU. |
 
 ### 📤 Output
 
@@ -33,7 +34,9 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
     - `/g_len`: Global alignment lengths.
     - `/l_score`: Local alignment scores.
     - `/l_len`: Local alignment lengths.
+    - `/seq_lens`: Sanitized sequence lengths in header order.
     - `/headers`: Array of sequence headers.
+    - Attributes `model_name`, `embedding_checksum`, and `gap_penalties` for validation and compatible incremental reuse.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -41,8 +44,8 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 The alignment pipeline is executed in the following steps:
 
 1. **Global Embedding Pooling**:
-     For each protein sequence, its residue embeddings are pooled (either via mean or max pooling) to generate a single global sequence representation vector:
-     $$u_i = \text{mean}_{\text{residues}}(\text{emb}_i(\text{residue}))$$
+     For each protein sequence, its residue embeddings are pooled into one global representation vector. The current default is max pooling (`POOLING_METHOD="max"`; mean pooling remains supported internally):
+     $$u_i = \max_{\text{residues}}(\text{emb}_i(\text{residue}))$$
 
 2. **Edge Pre-filtering (Optional)**:
      If pre-filtering is enabled, all-vs-all cosine similarities are calculated on the CPU:
@@ -100,6 +103,9 @@ This script runs all-vs-all local sequence alignments using traditional amino ac
 | Substitution Matrix **`MATRIX`** | The amino acid substitution matrix used for traditional scoring during BLAST alignments (e.g., BLOSUM45, BLOSUM50, BLOSUM62, BLOSUM80, BLOSUM90, PAM30, PAM70, PAM250). |
 | BLAST Threads **`NUM_THREADS`** | The number of CPU threads allocated for BLASTP execution and parsing. |
 | Processing Batch Size **`BATCH_SIZE`** | The maximum number of parsed edges buffered or copied at once during both intermediate HDF5 writing and final network compilation. |
+| BLASTP Directory **`BLASTP_DIR`** | Optional directory containing `blastp` and `makeblastdb`. When blank, the tool searches `PATH` and supported platform installation locations. |
+
+BLASTP is currently run with a permissive fixed E-value cutoff of `1e300`, at most `1,000,000` target sequences per query, one HSP per target, and conditional composition-based statistics (`-comp_based_stats 2`). These are implementation constants rather than GUI fields.
 
 Intermediate query segments, BLAST databases, result files, and parser batches are stored automatically in a sequence-specific temporary folder inside the configured Network Directory.
 Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifest, substitution matrix, thread count, BLASTP version, query chunk, and source-result checksums still match. The temporary workspace is removed after the final network is validated and published successfully.
@@ -111,8 +117,9 @@ Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifes
 *   **Structure**:
     - `/i`: Source sequence node indices.
     - `/j`: Target sequence node indices.
-    - `/l_score`: Calculated $-\log_{10}(E_{\text{value}})$ scores.
+    - `/score`: Best reciprocal-deduplicated $-\log_{10}(E_{\text{value}})$ score for each undirected pair.
     - `/headers`: Array of sequence headers.
+    - Attributes `model_name="BLAST"` and `matrix`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -148,14 +155,14 @@ Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifes
 
 # 🔍 Parse BLAST Output (`Parse_BLAST_Output.py`)
 
-This script parses pre-computed, tab-separated tabular BLAST outfmt 6 output files and converts them into standard HDF5 network files. It automatically detects which columns contain sequence headers and E-value variables, performs E-value conversion, and filters out redundant alignment edges to build clean networks.
+This script parses pre-computed, whitespace-separated BLAST tabular output and converts it into a standard HDF5 E-value network. Query and subject identifiers must be the first two columns; the E-value column is detected automatically. Reciprocal and repeated hits are collapsed to the strongest undirected edge.
 
 ### 📥 Input
 
 #### Tabular BLAST Output File `INPUT_BLAST_TABULAR`
 *   **Format**: Tab-separated tabular values (`.txt`, `.tab`, `.tsv`).
 *   **Created By**: Externally run NCBI BLASTP command (`blastp -outfmt 6`).
-*   **Structure**: Output columns from `blastp -outfmt 6`. Must contain query ID, subject ID, and E-value columns.
+*   **Structure**: Query ID in column 1, subject ID in column 2, and an E-value column at column 3 or later. Standard `blastp -outfmt 6` is supported directly. Blank lines and `#` comments are ignored.
 
 ### ⚙️ Parameters
 
@@ -168,14 +175,15 @@ This script does not require additional configuration parameters.
 *   **Structure**:
     - `/i`: Source sequence node indices.
     - `/j`: Target sequence node indices.
-    - `/l_score`: Parsed $-\log_{10}(E_{\text{value}})$ scores.
+    - `/score`: Best parsed $-\log_{10}(E_{\text{value}})$ score for each undirected pair.
     - `/headers`: Array of sequence headers.
+    - Attributes `model_name="BLAST"` and `matrix="BLAST"`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
-1. **Automatic Column Detection**:
-     Scans the first 1000 lines of the tabular document using regular expressions to detect the column index $c_{\text{evalue}}$ that contains E-values (identifying scientific notations or exact 0.0 matches).
+1. **Column Mapping**:
+     Uses the first two fields as query and subject IDs. It scans up to the first 1000 valid rows and chooses the later column with the most scientific-notation or exact `0.0` matches as $c_{\text{evalue}}$. If no such column is detected, it falls back to standard outfmt-6 column 11 (zero-based index 10).
 
 2. **Header Index Resolution**:
      Constructs a header-to-index mapping dictionary dynamically as it reads lines.

@@ -59,6 +59,115 @@ SSN_WEBENGINE_PACKAGES=(
 )
 
 SSN_MISSING_PACKAGES=()
+SSN_SETUP_LOCK_OWNED=0
+SSN_SETUP_LOCK_DIR=""
+
+ssn_sanitize_managed_environment() {
+    # The managed interpreter must discover its own Python and Qt resources.
+    # Preserve PATH, Conda metadata, accelerator variables, display variables,
+    # and QT_QPA_PLATFORM, which is an intentional user-facing override.
+    unset PYTHONHOME PYTHONPATH
+    unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
+    unset QML_IMPORT_PATH QML2_IMPORT_PATH
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        unset DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
+    fi
+}
+
+ssn_setup_lock_path() {
+    printf '%s\n' "$1/Cache_Files/Launcher_State/dependency_setup.lock"
+}
+
+ssn_release_dependency_setup_lock() {
+    local owner_pid=""
+
+    [ "${SSN_SETUP_LOCK_OWNED:-0}" = "1" ] || return 0
+    [ -n "${SSN_SETUP_LOCK_DIR:-}" ] || return 0
+    if [ -r "$SSN_SETUP_LOCK_DIR/owner.pid" ]; then
+        IFS= read -r owner_pid <"$SSN_SETUP_LOCK_DIR/owner.pid" || owner_pid=""
+    fi
+    if [ "$owner_pid" = "$$" ] || [ -z "$owner_pid" ]; then
+        [ -z "$owner_pid" ] || rm -f -- "$SSN_SETUP_LOCK_DIR/owner.pid"
+        rmdir -- "$SSN_SETUP_LOCK_DIR" 2>/dev/null || true
+    fi
+    SSN_SETUP_LOCK_OWNED=0
+    SSN_SETUP_LOCK_DIR=""
+}
+
+ssn_acquire_dependency_setup_lock() {
+    local project_root="$1"
+    local lock_root lock_dir owner_pid owner_tmp
+    local wait_count=0 missing_owner_count=0 waiting_reported=0
+    local timeout_seconds="${SSN_SETUP_LOCK_TIMEOUT_SECONDS:-3600}"
+
+    case "$timeout_seconds" in
+        ''|*[!0-9]*) timeout_seconds=3600 ;;
+    esac
+
+    lock_root="$project_root/Cache_Files/Launcher_State"
+    lock_dir=$(ssn_setup_lock_path "$project_root") || return 1
+    mkdir -p "$lock_root" || return 1
+
+    while :; do
+        if mkdir "$lock_dir" 2>/dev/null; then
+            owner_tmp="$lock_dir/.owner.$$.tmp"
+            if ! printf '%s\n' "$$" >"$owner_tmp" ||
+                    ! mv -f -- "$owner_tmp" "$lock_dir/owner.pid"; then
+                rm -f -- "$owner_tmp"
+                rmdir -- "$lock_dir" 2>/dev/null || true
+                printf 'Could not record dependency setup lock ownership at: %s\n' "$lock_dir" >&2
+                return 1
+            fi
+            SSN_SETUP_LOCK_DIR="$lock_dir"
+            SSN_SETUP_LOCK_OWNED=1
+            return 0
+        fi
+
+        owner_pid=""
+        if [ -r "$lock_dir/owner.pid" ]; then
+            IFS= read -r owner_pid <"$lock_dir/owner.pid" || owner_pid=""
+        fi
+        case "$owner_pid" in
+            ''|*[!0-9]*)
+                missing_owner_count=$((missing_owner_count + 1))
+                if [ "$missing_owner_count" -ge 5 ]; then
+                    rm -f -- "$lock_dir/owner.pid" "$lock_dir"/.owner.*.tmp 2>/dev/null || true
+                    if rmdir -- "$lock_dir" 2>/dev/null; then
+                        printf 'Recovered an incomplete dependency setup lock.\n'
+                    fi
+                    missing_owner_count=0
+                fi
+                ;;
+            *)
+                missing_owner_count=0
+                if ! kill -0 "$owner_pid" 2>/dev/null; then
+                    rm -f -- "$lock_dir/owner.pid" "$lock_dir"/.owner.*.tmp 2>/dev/null || true
+                    if rmdir -- "$lock_dir" 2>/dev/null; then
+                        printf 'Recovered stale dependency setup lock from process %s.\n' "$owner_pid"
+                    fi
+                    continue
+                fi
+                if [ "$waiting_reported" -eq 0 ]; then
+                    printf 'Dependency setup is already running in process %s; waiting...\n' "$owner_pid"
+                    waiting_reported=1
+                fi
+                ;;
+        esac
+
+        if [ "$wait_count" -ge "$timeout_seconds" ]; then
+            printf 'Timed out waiting for dependency setup owned by process %s.\n' "${owner_pid:-unknown}" >&2
+            printf 'Lock retained at: %s\n' "$lock_dir" >&2
+            return 1
+        fi
+        sleep 1
+        wait_count=$((wait_count + 1))
+    done
+}
+
+ssn_wait_for_dependency_setup() {
+    ssn_acquire_dependency_setup_lock "$1" || return 1
+    ssn_release_dependency_setup_lock
+}
 
 ssn_is_debian_family_linux() {
     [ "$(uname -s 2>/dev/null)" = "Linux" ] &&
@@ -130,6 +239,8 @@ ssn_require_linux_gui_dependencies() {
 
 ssn_pause_after_desktop_failure() {
     local status=$?
+
+    ssn_release_dependency_setup_lock
 
     if [ "$status" -ne 0 ] && [ "${SSN_LAUNCHED_FROM_DESKTOP:-0}" = "1" ]; then
         printf '\nSSN did not start successfully. The error and any required install command are shown above.\n' >&2

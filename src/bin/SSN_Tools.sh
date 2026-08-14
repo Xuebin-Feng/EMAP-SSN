@@ -31,6 +31,7 @@ fi
 # shellcheck source=../../install.sh
 . "$PROJECT_ROOT/install.sh"
 LAUNCH_MODE="${1:-}"
+ssn_sanitize_managed_environment
 if [ "$LAUNCH_MODE" != "--check-only" ]; then
     ssn_enable_desktop_failure_pause
 fi
@@ -42,7 +43,7 @@ cd "$PROJECT_ROOT"
 # Qt6 is unreliable on the native Wayland platform plugin; xcb is the known-good
 # path. Only applied when the user has not chosen a platform themselves, so
 # `QT_QPA_PLATFORM=wayland ./SSN_Tools` still overrides this.
-if [ "$XDG_SESSION_TYPE" = "wayland" ] && [ -z "$QT_QPA_PLATFORM" ]; then
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -z "${QT_QPA_PLATFORM:-}" ]; then
     export QT_QPA_PLATFORM=xcb
 fi
 
@@ -66,32 +67,57 @@ else
     UV_EXE="$HOME/.local/bin/uv"
 fi
 
-# 2. Create or repair the managed virtual environment
+# 2. Validate, create, or repair the managed virtual environment
 VENV_PYTHON=".venv/bin/python"
-if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
-    if [ "$LAUNCH_MODE" = "--check-only" ]; then
+if [ "$LAUNCH_MODE" = "--check-only" ]; then
+    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
         exit 10
     fi
-    echo "Creating isolated local virtual environment (.venv)..."
-    "$UV_EXE" venv --clear --python 3.12 || exit 1
-fi
-
-if [ "$LAUNCH_MODE" = "--check-only" ]; then
     "$VENV_PYTHON" src/Install_Dependencies.py --check-only --uv-executable "$UV_EXE" --venv .venv
     exit $?
 fi
 
 if [ "$LAUNCH_MODE" = "--run-only" ]; then
+    ssn_wait_for_dependency_setup "$PROJECT_ROOT" || exit 1
+    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
+        printf 'Managed Python is unavailable; run setup before --run-only.\n' >&2
+        exit 10
+    fi
     exec "$VENV_PYTHON" src/SSN_Tools.py
 fi
 
-# 3. Resolve base, ESM, and hardware-specific PyTorch dependencies
-echo "Detecting hardware and synchronizing dependencies..."
-if ! "$VENV_PYTHON" src/Install_Dependencies.py --uv-executable "$UV_EXE" --venv .venv; then
-    echo "Dependency installation failed."
-    exit 1
+# Healthy direct launches take the same read-only fast path as desktop launches.
+environment_ready=0
+if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1 &&
+        "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
+            --uv-executable "$UV_EXE" --venv .venv; then
+    environment_ready=1
 fi
-echo ""
+
+if [ "$environment_ready" -ne 1 ]; then
+    ssn_acquire_dependency_setup_lock "$PROJECT_ROOT" || exit 1
+
+    # Another launcher may have completed setup while this process waited.
+    if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1 &&
+            "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
+                --uv-executable "$UV_EXE" --venv .venv; then
+        printf 'Dependency setup was completed by another launcher.\n'
+    else
+        if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
+            echo "Creating isolated local virtual environment (.venv)..."
+            "$UV_EXE" venv --clear --python 3.12 || exit 1
+        fi
+
+        # 3. Resolve base, ESM, and hardware-specific PyTorch dependencies.
+        echo "Detecting hardware and synchronizing dependencies..."
+        if ! "$VENV_PYTHON" src/Install_Dependencies.py --uv-executable "$UV_EXE" --venv .venv; then
+            echo "Dependency installation failed."
+            exit 1
+        fi
+        echo ""
+    fi
+    ssn_release_dependency_setup_lock
+fi
 
 if [ "$LAUNCH_MODE" = "--setup-only" ]; then
     exit 0

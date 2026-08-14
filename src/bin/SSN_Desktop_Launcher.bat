@@ -1,6 +1,7 @@
 @echo off
 REM Visible desktop startup terminal for SSN Config and SSN Tools.
 setlocal EnableDelayedExpansion
+call :SANITIZE_MANAGED_ENVIRONMENT
 
 set "APP_KIND=%~1"
 if /I "%APP_KIND%"=="viewer" (
@@ -85,3 +86,12 @@ echo The terminal will remain open. Diagnostic log:
 echo !STATE_DIR!\application.log
 pause
 exit /b 1
+
+:SANITIZE_MANAGED_ENVIRONMENT
+set "PYTHONHOME="
+set "PYTHONPATH="
+set "QT_PLUGIN_PATH="
+set "QT_QPA_PLATFORM_PLUGIN_PATH="
+set "QML_IMPORT_PATH="
+set "QML2_IMPORT_PATH="
+exit /b 0

@@ -9,6 +9,14 @@ APP_KIND="${1:-}"
 LAUNCH_MODE="${2:---open-terminal}"
 TERMINAL_LAUNCHER="$SCRIPT_DIR/SSN_Terminal_Launcher.sh"
 
+if [ ! -r "$PROJECT_ROOT/install.sh" ]; then
+    printf 'Could not load launcher support: %s\n' "$PROJECT_ROOT/install.sh" >&2
+    exit 1
+fi
+# shellcheck source=../../install.sh
+. "$PROJECT_ROOT/install.sh"
+ssn_sanitize_managed_environment
+
 if [ ! -r "$TERMINAL_LAUNCHER" ]; then
     printf 'Could not load terminal launcher: %s\n' "$TERMINAL_LAUNCHER" >&2
     exit 1

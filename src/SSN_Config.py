@@ -643,61 +643,62 @@ if __name__ == "__main__":
 
         def setup_tips(self):
             self.tip_db_keys = {
-                "NODE_FASTA_FILE": "The FASTA file representing the primary sequence set or subset to be visualized as nodes in the SSN.\nEnsure this file resides in the designated input directory and aligns with the selected network edges and alignments.",
-                "MSA_FILE": "The multiple sequence alignment file (.fasta, .h5, or _sparse.pkl) containing alignments for the sequence set.\nThis is required to calculate positional conservation, gaps, and occupancy thresholds during structural clustering.",
-                "INPUT_HDF5": "The core network or similarity matrix file (.h5) containing pair-wise sequence similarity metrics and edge list coordinates.\nMust contain similarity scores or alignment metrics for at least all sequences present in the active FASTA sequence set.",
-                "ALIGNMENT_SCORE": "(For embedding-based SSNs only) Specifies whether to use global alignment similarity scores or local alignment similarity scores.\nLocal alignment is recommended for multi-domain proteins, whereas global alignment is best for full-length comparisons.",
-                "NORM_MODE": "(For embedding-based SSNs only) Normalization strategy for pairwise sequence alignment scores.\nOptions include normalizing by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias.",
-                "ALIGNMENT_REFERENCE": "Substring from a sequence header to identify the reference sequence (e.g. wildtype or specific construct) in the alignment.\nThis sequence is used to calculate absolute relative positions and mapping offsets across the entire network.",
-                "ALIGNMENT_OFFSET": "Integer added to reference-anchored alignment positions. For example, an offset of 10 changes reference position 1 to 11.\nThe offset is applied only when the Alignment Reference ID resolves successfully.",
-                "SIMILARITY_THRESHOLD": "Minimum similarity score threshold (e.g. identity fraction, normalized score, or Log10 E-Value) required to retain an edge.\nEdges with scores below this value are filtered out and will not be rendered or computed in the physics simulation.",
-                "TOP_EDGE_PERCENT": "Alternative edge filtering method that automatically calculates a threshold to retain only the top N% of all possible edges.\nUseful for maintaining network connectivity and density without manually tuning raw similarity score thresholds (Overrides Similarity Threshold).",
-                "FILTER_MIN_OCCUPANCY": "Minimum percentage of non-gap characters required at an alignment column to retain it in the clustering calculations.\nColumns with occupancy below this percentage are treated as noise and are excluded to improve signal-to-noise ratio.",
-                "NODE_SIZE": "Visual parameter controlling the average render size of each sequence node in the network visualization window.\nAdjust this parameter to optimize visual density; smaller nodes are recommended for very large networks.",
-                "EDGE_WIDTH": "Visual parameter determining the thickness of the connection lines drawn between related sequence nodes in the network.\nThinner lines are recommended for dense networks to avoid visual cluttering, while thicker lines highlight strong relationships.",
-                "EDGE_ALPHA": "Visual parameter controlling the transparency of the network edge lines, ranging from 0.0 (fully transparent) to 1.0 (opaque).\nLower opacity helps reveal the underlying node distribution and cluster density in highly connected graphs.",
-                "TEXT_SIZE": "Font size used for rendering text labels on clusters or individual nodes in the visualizer window.\nAdjust this to make labels legible against the background without overlapping or obstructing structural features of the network.",
-                "TEXT_COLOR": "Color of standard text labels in the viewer. Can be specified as a standard web color name (e.g. 'grey', 'black') or hex code.\nChoose a color that contrasts well with your background to ensure readability of cluster annotations.",
-                "INITIAL_NODE_COLOR": "The default fill color applied to all nodes when the network is first loaded. This serves as the baseline node color before any custom coloring is applied.",
-                "HOVER_COLOR": "Highlight color applied to a node and its adjacent connections when hovering over it with the cursor, or when selected.\nThis color should be highly vibrant to give immediate interactive visual feedback to the user.",
-                "CONNECTED_NODE_COLOR": "Highlight color applied to the outer contour/border of nodes that are directly connected to the currently selected node.\nAllows easy visual identification of the local neighborhood network topology surrounding any selected node.",
-                "EDGE_COLOR": "Color of the standard connection lines (edges) drawn between similar nodes in the network plot.\nCan be specified as a standard color name or hex code; lighter colors are often preferred to reduce visual dominance of edges.",
-                "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node in the network visualization plot.\nTypically set to dark grey or black to cleanly separate adjacent nodes and enhance the depth of the visualization.",
-                "NODE_BOUNDARY_WIDTH": "Visual rendering parameter controlling the thickness of the outer border ring outline drawn around each sequence node.\nSetting this to a small non-zero value helps distinguish overlapping nodes in dense cluster regions.",
-                "PHYSICS_ENGINE": "Selects the simulation engine used to compute node coordinates: Molecular Dynamics or Monte Carlo (SGLD).\nMolecular Dynamics uses deterministic force integration, while Monte Carlo uses stochastic Langevin dynamics for escape from local minima.",
-                "LAYOUT_DEVICE_SELECTION": "Selects the device used for physics layout generation. Auto Benchmark compares CPU and every available accelerator separately for each populated layout size class.",
-                "SPRING_K": "Attractive spring constant controlling the magnitude of hookian tension pulling connected node pairs closer together.\nLarger values pull highly similar sequences into tighter, more compact clusters, which increases local network density.",
-                "COULOMB_K": "Repulsive constant controlling the electrostatic-like force pushing all nodes away from each other.\nLarger values push unrelated nodes and clusters apart, increasing separation distance between distinct sequence families.",
-                "COULOMB_CUTOFF": "Maximum distance threshold past which the repulsive force between unrelated nodes drops off completely to zero.\nLowering this cutoff speeds up calculation and prevents distant clusters from exerting unnecessary forces on each other.",
-                "DAMPING": "Frictional resistance coefficient applied to node velocities in the physics simulation to dissipate kinetic energy.\nValues near 1.0 allow smooth movement; values below 0.8 quickly freeze nodes, preventing oscillations and stabilizing the layout.",
-                "DT": "Timestep size for each numerical integration step of the physics simulation.\nSmaller timesteps increase layout calculation precision and stability, whereas larger timesteps speed up convergence but may cause erratic jitter.",
-                "MAX_STEPS": "The maximum number of physics iterations the simulation engine will run before forcing termination.\nEnsure this value is large enough to allow the network layout to settle and converge to a stable configuration.",
-                "RMSD_THRESHOLD": "Root Mean Square Deviation stopping threshold for early termination of the physics layout calculation.\nIf the average displacement of nodes between consecutive steps falls below this value, the simulation halts as converged.",
-                "PERCENTAGE_DROP_THRESHOLD": "Early termination criteria based on the percentage change of the moving average RMSD over the window size.\nIf the rate of layout change drops below this percentage (representing a plateau), the simulation terminates. Set to 0 to disable.",
-                "RMSD_WINDOW": "The number of simulation steps over which the moving average RMSD is calculated for plateau and convergence detection.\nLarger windows smooth out transient spikes in node velocities, ensuring that early termination is only triggered on true convergence.",
-                "ENABLE_PROGRESSIVE_SIMULATION": "Gradually lowers the similarity threshold in stages for massive connected components to prevent massive grid-lock.\nHelps resolve fine-grained sub-clusters in large, dense components. Disable if layout fails to converge.",
-                "PACKING_GEOMETRY": "Sets the boundary geometry for cluster layout packing. Options include Square and Circle.",
-                "PACKING_GRID_SIZE": "The base size of one grid square in the macro-grid layout packing.\nControls spacing and size scaling of packed independent components in the final network visualization.",
-                "SGLD_MIN_K": "Minimum number of nearest neighbors (K) to retain for each node during Monte Carlo / SGLD physics simulation.\nPrevents nodes in small or disconnected clusters from collapsing onto each other by maintaining a baseline neighborhood.",
-                "SGLD_K_PERCENT": "Fraction of total nodes used to compute the dynamic neighborhood size (K) for each node in Monte Carlo mode.\nSpecifically, K is set to max(SGLD_MIN_K, Fraction * total_nodes). Higher fractions preserve global structure but increase memory usage.",
-                "SGLD_START_TEMP": "Starting temperature for the Simulated Annealing schedule in Monte Carlo / SGLD mode.\nControls the initial stochastic thermal noise; higher temperatures allow nodes to escape local energy minima and resolve gridlocks.",
-                "SGLD_NOISE_SCALE": "Scaling factor for the stochastic Brownian noise term added to the node velocities in the SGLD simulation.\nLarger noise scales introduce more thermal random fluctuations, which can be adjusted to prevent premature layout freezing.",
-                "UMAP_MODE": "Enables the Uniform Manifold Approximation and Projection (UMAP) dimensionality reduction algorithm instead of a physics engine.\nUMAP is highly optimized for projecting complex high-dimensional sequence embeddings down to 2D coordinates.",
-                "UMAP_NEIGHBORS": "Size of the local neighborhood (k) used by the UMAP algorithm to learn the manifold structure of the sequence data.\nSmaller values preserve local sub-clusters, whereas larger values capture the global topological relationships between clusters.",
-                "UMAP_MIN_DIST": "Controls how tightly UMAP packs points together in the low-dimensional projection space (ranging from 0.0 to 1.0).\nLower values result in extremely tight, dense point clouds; larger values distribute points more evenly.",
-                "FASTA_DIR": "Directory containing the input FASTA files for sequence sets and subsets.\nFiles in this directory populate the Sequence Set dropdown in the Inputs tab.",
-                "MSA_DIR": "Directory containing multiple sequence alignment files (Fasta format, Sparse alignment pickle, or HDF5 alignment matrices).\nFiles in this directory populate the MSA dropdown in the Inputs tab.",
-                "HDF5_DIR": "Directory containing HDF5 files of pairwise sequence similarity scores and network edge coordinates.\nFiles in this directory populate the Network Edges dropdown in the Inputs tab.",
-                "SAVED_LAYOUT_DIR": "Directory where calculated 2D layout coordinate files and network metadata (.h5 format) are saved and loaded from.\nThis serves as the layout cache to avoid recalculating coordinate layouts when re-opening a network.",
-                "METADATA_DIR": "Directory where uploaded node metadata spreadsheet and CSV files are stored and retrieved from.",
-                "PRINT_SAVE_DIR": "Directory where high-resolution image snapshots (PDF, PNG, SVG) of the sequence similarity networks are exported.\nEnsure this path is writable and has sufficient disk space for vector graphic output.",
-                "FASTA_SPLIT_DIR": "Directory where dynamically split or extracted sequence subset FASTA files are temporarily stored.\nUsed by clustering tools when analyzing specific sub-clusters or regions of the network.",
-                "CLUSTER_LABEL_DIR": "Directory where exported cluster metadata, sequence IDs, and automatically generated label descriptions are saved.\nUseful for downstream annotation pipelines or manual network inspection.",
-                "HEADER_LIST_DIR": "Directory containing text files with lists of sequence headers matching specific network filtering or query criteria.\nUsed to keep track of interesting sequence cohorts identified in the visualizer.",
-                "LOGO_DIR": "Directory where exported sequence logos (representing positional consensus sequence conservation) are saved.\nTypically saved in PNG or vector format for research publication and presentation.",
-                "STRUCTURES_DIR": "Directory where ESMFold predicted 3D structures and PDB files are stored.",
-                "TARGET_CACHE_FILE": "Selects a specific saved network coordinate cache file from the target directory to load into the visualizer.\nAllows restoring previous layout configurations or comparing different layout iterations directly.",
-                "NEW_CACHE_NAME": "Specifies a custom filename when saving a new layout configuration iteration.\nOnly editable when the 'Selected Cache File' dropdown is set to '(New Layout Cache)'."
+                "NODE_FASTA_FILE": "Primary FASTA file containing sequences visualized as nodes in the SSN.\nMust match sequences present in the selected network edges and multiple alignments.",
+                "MSA_FILE": "Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.\nUsed to calculate positional conservation, gaps, and occupancy thresholds during analysis.",
+                "INPUT_HDF5": "Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.\nMust contain alignment metrics for at least all sequences present in the active sequence set.",
+                "ALIGNMENT_SCORE": "(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.\nLocal alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons.",
+                "NORM_MODE": "(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.\nNormalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias.",
+                "ALIGNMENT_REFERENCE": "Substring or ID from a sequence header to identify the reference sequence in the alignment.\nUsed to anchor absolute relative residue numbering and mapping offsets across the entire network.",
+                "ALIGNMENT_OFFSET": "Integer offset added to reference-anchored alignment residue positions (e.g. +10 shifts position 1 to 11).\nApplied only when the Alignment Reference ID resolves successfully in the alignment.",
+                "SIMILARITY_THRESHOLD": "Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.\nEdges below this cutoff are filtered out and excluded from physics simulation and rendering.",
+                "TOP_EDGE_PERCENT": "Alternative edge filter that retains only the top N% highest-scoring edges in the network.\nMaintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold).",
+                "FILTER_MIN_OCCUPANCY": "Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses.\nColumns with occupancy below this percentage are excluded from logo and conservation calculations.",
+                "TARGET_CACHE_FILE": "Selects a pre-computed 2D layout coordinate cache file (.h5) from the cache directory.\nInstantly restores previously computed node positions to bypass physics simulation.",
+                "NEW_CACHE_NAME": "Specifies a custom filename when saving a new layout configuration iteration.\nOnly editable when Selected Cache File is set to '(New Layout Cache)'.",
+                "NODE_SIZE": "Visual rendering diameter (in pixels) for each sequence node in the network plot.\nAdjust to optimize visual density; smaller node sizes are recommended for large networks.",
+                "EDGE_WIDTH": "Line thickness (in pixels) of connection lines drawn between related sequence nodes.\nThinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships.",
+                "EDGE_ALPHA": "Opacity of network edge lines, ranging from 0.0 (fully transparent) to 1.0 (opaque).\nLower opacity reveals underlying node clustering and density in highly connected graphs.",
+                "TEXT_SIZE": "Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.\nAdjust to ensure labels remain legible without obstructing structural network features.",
+                "TEXT_COLOR": "Color of cluster labels and node text annotations in the viewer.\nCan be specified as a standard color name or hex code (e.g. 'grey', '#333333').",
+                "INITIAL_NODE_COLOR": "Baseline fill color applied to all nodes when the network is first loaded.\nServes as the default background color before custom cluster or metadata coloring is applied.",
+                "HOVER_COLOR": "Highlight color applied to a node and its adjacent connections on hover or selection.\nProvides high-contrast interactive visual feedback in the viewer.",
+                "CONNECTED_NODE_COLOR": "Border highlight color applied to neighboring nodes directly connected to the currently selected node.\nAllows easy visual inspection of the local network neighborhood topology.",
+                "EDGE_COLOR": "Color of connection lines (edges) drawn between similar nodes in the network.\nLighter or neutral colors reduce edge dominance in dense network clusters.",
+                "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node.\nProvides visual contrast to cleanly separate adjacent and overlapping nodes.",
+                "NODE_BOUNDARY_WIDTH": "Stroke width (in pixels) of the outer border ring outline drawn around each node.\nSetting a non-zero width helps distinguish overlapping nodes in dense clusters.",
+                "LOW_RESOURCE_MODE": "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.\nSignificantly improves responsiveness and reduces rendering latency for large networks.",
+                "PHYSICS_ENGINE": "Selects the simulation engine for 2D layout: Molecular Dynamics or Monte Carlo (SGLD).\nMolecular Dynamics uses deterministic force integration; Monte Carlo uses stochastic Langevin sampling.",
+                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for physics layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark tests CPU and available accelerators separately for each layout size class.",
+                "SPRING_K": "Attractive Hookean spring constant pulling connected sequence nodes closer together.\nLarger values draw highly similar sequences into tighter, more compact clusters.",
+                "COULOMB_K": "Repulsive constant controlling the electrostatic-like force pushing all nodes apart.\nLarger values push unrelated nodes and clusters apart, increasing family separation.",
+                "COULOMB_CUTOFF": "Maximum spatial distance threshold beyond which node repulsive forces drop to zero.\nLower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.",
+                "DAMPING": "Frictional resistance coefficient applied to node velocities to dissipate kinetic energy.\nValues near 1.0 allow smooth movement; lower values freeze oscillations quickly.",
+                "DT": "Timestep size for each numerical integration step of the physics simulation.\nSmaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter.",
+                "MAX_STEPS": "Maximum number of physics iterations the simulation engine will run before terminating.\nEnsure this is large enough to allow node positions to settle into a stable configuration.",
+                "RMSD_THRESHOLD": "Root-Mean-Square Deviation convergence threshold for early simulation termination.\nIf average node displacement between consecutive steps falls below this value, layout halts as converged.",
+                "PERCENTAGE_DROP_THRESHOLD": "Early termination threshold based on the rate of RMSD change over the moving window.\nTerminates simulation when layout change plateaus (set to 0 to disable).",
+                "RMSD_WINDOW": "Number of simulation steps over which moving-average RMSD is calculated for plateau detection.\nSmoothes transient velocity spikes to ensure early termination triggers only on true convergence.",
+                "ENABLE_PROGRESSIVE_SIMULATION": "Progressively lowers the similarity threshold in stages for massive connected components.\nHelps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.",
+                "PACKING_GEOMETRY": "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window.",
+                "PACKING_GRID_SIZE": "Base grid square unit size used for macro-grid component packing.\nControls spacing and separation between packed independent clusters in the final layout.",
+                "SGLD_MIN_K": "Minimum number of nearest neighbors (K) retained per node in Monte Carlo / SGLD simulation.\nPrevents small or disconnected clusters from collapsing by maintaining a baseline neighborhood.",
+                "SGLD_K_PERCENT": "Fraction of component nodes used to set dynamic negative sampling size (K) in SGLD mode.\nCalculated as max(SGLD_MIN_K, Fraction * total_nodes) to balance global topology and memory.",
+                "SGLD_START_TEMP": "Starting temperature for Simulated Annealing in Monte Carlo / SGLD mode.\nHigher initial temperatures inject stochastic noise to help nodes escape local energy minima.",
+                "SGLD_NOISE_SCALE": "Scaling factor for stochastic Brownian noise added to node velocities in SGLD simulation.\nAdjusts random thermal fluctuations to prevent premature layout freezing.",
+                "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
+                "UMAP_NEIGHBORS": "Size of the local neighborhood (n_neighbors) used by UMAP to learn manifold topology.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
+                "UMAP_MIN_DIST": "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly.",
+                "FASTA_DIR": "Directory containing input FASTA files for sequence sets and subsets.\nPopulates the Sequence Set dropdown in the Inputs tab.",
+                "MSA_DIR": "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).\nPopulates the MSA dropdown in the Inputs tab.",
+                "HDF5_DIR": "Directory containing HDF5 pairwise sequence similarity scores and network edge files.\nPopulates the Network Edges dropdown in the Inputs tab.",
+                "SAVED_LAYOUT_DIR": "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks.",
+                "METADATA_DIR": "Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.\nUsed for custom node coloring, categorization, and annotation in the visualizer.",
+                "PRINT_SAVE_DIR": "Directory where high-resolution image snapshots and vector graphics (PDF, PNG, SVG) are exported.\nEnsure this path is writable with sufficient disk space for graphic outputs.",
+                "FASTA_SPLIT_DIR": "Directory where dynamically split or extracted sequence subset FASTA files are saved.\nUsed by sub-cluster extraction and downstream sequence analyses.",
+                "CLUSTER_LABEL_DIR": "Directory where exported cluster metadata, sequence IDs, and automated cluster labels are saved.\nUseful for downstream annotation pipelines and external inspection.",
+                "HEADER_LIST_DIR": "Directory containing text files with lists of sequence headers matching network query criteria.\nUsed to store and track sequence cohorts identified in the visualizer.",
+                "LOGO_DIR": "Directory where exported sequence logos representing consensus conservation are saved.\nOutputs PNG or vector graphics for publication and presentation.",
+                "STRUCTURES_DIR": "Directory where predicted 3D structures and PDB/mmCIF files are stored and loaded.\nUsed by the 3D structure viewer module for structural superposition and inspection."
             }
             
             self.tip_db = {}
@@ -1317,7 +1318,7 @@ if __name__ == "__main__":
             self.btn_stats = QPushButton("Compute Network Statistics")
             self.btn_stats.setStyleSheet("background-color: #2196F3; color: white;")
             self.btn_stats.clicked.connect(self.run_statistics)
-            
+
             self.btn_hist = QPushButton("Histogram")
             self.btn_hist.setStyleSheet("background-color: #9C27B0; color: white;")
             self.btn_hist.clicked.connect(self.run_histogram)
@@ -1333,7 +1334,11 @@ if __name__ == "__main__":
             
             self.lbl_cache_tracker = QLabel("Target Folder: None")
             self.lbl_cache_tracker.setStyleSheet("color: gray;")
-            self.lbl_cache_tracker.setWordWrap(True)
+            self.lbl_cache_tracker.setWordWrap(False)
+            self.lbl_cache_tracker.setMinimumWidth(0)
+            self.lbl_cache_tracker.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+            )
             
             btn_open_cache = QPushButton("📂")
             btn_open_cache.setFixedWidth(30)
@@ -1354,7 +1359,7 @@ if __name__ == "__main__":
                 
             btn_open_cache.clicked.connect(open_cache_folder)
             
-            cache_lay.addWidget(self.lbl_cache_tracker)
+            cache_lay.addWidget(self.lbl_cache_tracker, 1)
             cache_lay.addWidget(btn_open_cache)
             layout.addRow("", cache_container)
             
@@ -1473,7 +1478,7 @@ if __name__ == "__main__":
             fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), self.cb_fasta.currentText())
             hdf5_path = os.path.join(self.inputs["HDF5_DIR"].text(), self.cb_hdf5.currentText())
             
-            self.stat_display.setText("Computing... This may take a moment for large HDF5 networks.")
+            self.tip_panel.setText("Computing network statistics... This may take a moment for large HDF5 networks.")
             QApplication.processEvents()
             
             try:
@@ -1556,7 +1561,7 @@ if __name__ == "__main__":
                         scores = (raw_scores / denom).astype(np.float32)
                 
                 if len(scores) == 0:
-                    self.stat_display.setText("Warning: No valid edges found in the selected Fasta subset.")
+                    self.tip_panel.setText("Warning: No valid edges were found in the selected FASTA subset.")
                     return
                     
                 max_score = np.max(scores)
@@ -1608,9 +1613,10 @@ if __name__ == "__main__":
                          lines.append(f"{thresh:<10.1f} | {count:<10} | {pct:<9.2f}%")
                          
                 self.stat_display.setText("\n".join(lines))
-                
+                self.tip_panel.setText("Network statistics computed successfully.")
+
             except Exception as e:
-                self.stat_display.setText(f"Error during computation:\n{e}")
+                self.tip_panel.setText(f"Error during network statistics calculation: {e}")
 
         def run_histogram(self):
             import h5py
@@ -1620,7 +1626,7 @@ if __name__ == "__main__":
             fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), self.cb_fasta.currentText())
             hdf5_path = os.path.join(self.inputs["HDF5_DIR"].text(), self.cb_hdf5.currentText())
             
-            self.stat_display.setText("Computing score distribution... This may take a moment.")
+            self.tip_panel.setText("Computing score distribution... This may take a moment.")
             QApplication.processEvents()
             
             try:
@@ -1703,7 +1709,7 @@ if __name__ == "__main__":
                         scores = (raw_scores / denom).astype(np.float32)
                 
                 if len(scores) == 0:
-                    self.stat_display.setText("Warning: No valid edges found in the selected Fasta subset.")
+                    self.tip_panel.setText("Warning: No valid edges were found in the selected FASTA subset.")
                     return
                 
                 # Determine threshold based on top edge % override
@@ -1725,7 +1731,7 @@ if __name__ == "__main__":
                     if threshold is None:
                         threshold = 0.0
                 
-                self.stat_display.setText("Displaying score histogram...")
+                self.tip_panel.setText("Displaying score histogram...")
                 QApplication.processEvents()
                 
                 from SSN_Utils import build_score_histogram_figure
@@ -1744,10 +1750,10 @@ if __name__ == "__main__":
                     dialog.release_figure()
                     dialog.deleteLater()
                 
-                self.stat_display.setText("Histogram displayed successfully.")
-                
+                self.tip_panel.setText("Histogram displayed successfully.")
+
             except Exception as e:
-                self.stat_display.setText(f"Error during histogram generation:\n{e}")
+                self.tip_panel.setText(f"Error during histogram generation: {e}")
 
         def create_visuals_tab(self):
             tab = QWidget()

@@ -89,8 +89,8 @@ This script does not require additional configuration parameters.
      Iterates through the master HDF5 file's header dataset and filters out any sequence datasets not present in $H_{\text{target}}$:
      $$H_{\text{extract}} = H_{\text{target}} \cap H_{\text{master}}$$
 
-3. **Batch dataset extraction**:
-     Copies the multidimensional embedding datasets corresponding to **H<sub>extract</sub>** directly from the master HDF5 file without decompression or modifications.
+3. **Validated dataset extraction**:
+     Reads each selected residue-level embedding array, validates its dtype, shape, sequence length, and shared feature dimension, and writes it unchanged to the new database without model inference.
 
 4. **Metadata Serialization**:
      Writes and flushes the selected headers and stored sequences before copying embeddings. The output is marked complete only after dtype, shape, sequence length, and feature dimension validation.
@@ -118,30 +118,31 @@ This script performs incremental similarity network calculations. When new seque
 | Parameter | Description |
 | :--- | :--- |
 | Gap Penalties | Automatically inherited directly from the input network (`OLD_NETWORK`). |
-| CPU Worker Threads **`WORKERS`** | The number of CPU threads allocated for parallel alignment of new sequence pairs. |
+| CPU Workers **`WORKERS`** | CPU worker count for the CPU processing plan and a concurrency input for accelerator-plan tuning. The tool benchmarks available CPU/accelerator plans on representative pending pairs and falls back through successful plans if needed. |
 | Processing Batch Size **`BATCH_SIZE`** | The number of sequence alignments calculated per write block, minimizing memory consumption and optimizing file write performance. |
 
 ### 📤 Output
 
 #### Updated HDF5 Alignment Network
 *   **Format**: HDF5 (`.h5`).
-*   **Description**: Output network combining pre-existing edge scores with the newly aligned pairs.
+*   **Description**: Re-indexed alignment network containing `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`, plus `model_name`, `saving_mode`, `gap_penalties`, and `embedding_checksum` attributes. Existing gap penalties are mandatory and are inherited from `OLD_NETWORK`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
 1. **Mapping Setup**:
-     Let the old network headers be $H_{\text{old}} = \{h_1, \dots, h_N\}$ and the new embedding headers be $H_{\text{new}} = \{h'_1, \dots, h'_M\}$ (where $M > N$ and $H_{\text{old}} \subseteq H_{\text{new}}$).
+     Let the old network headers be $H_{\text{old}} = \{h_1, \dots, h_N\}$ and the new embedding headers be $H_{\text{new}} = \{h'_1, \dots, h'_M\}$. Cached edges are reusable only when both endpoint headers still occur in $H_{\text{new}}$.
      The script creates an index mapping dictionary to resolve old indices to new indices:
      $$\text{Map}_{\text{old} \to \text{new}}(i) = j \quad \text{such that} \quad h_i = h'_j$$
 
 2. **Edge Classification**:
      For all pairwise combinations in the new network (u, v) (where 0 ≤ u < v < M):
-     - **Case 1 (Pre-existing Pair)**: If both *u* and *v* exist in **H<sub>old</sub>**, the edge score is copied directly from the old network cache.
-     - **Case 2 (New Pair)**: If either *u* or *v* (or both) do not exist in **H<sub>old</sub>**, the pair is scheduled for active dynamic programming alignment.
+     - **Case 1 (Cached Pair)**: If the old network contains that exact header pair, its global/local scores and lengths are copied.
+     - **Case 2 (New Pair, Complete Old Network)**: If either endpoint is new, the pair is scheduled for active dynamic-programming alignment.
+     - **Case 3 (New Pair, Sparse Old Network)**: Mean-pooled embedding cosine similarity is compared with the lowest cosine similarity among reusable old edges. Only new pairs meeting that inherited threshold are aligned, preserving a sparse-network policy.
 
-3. **Incremental Multiprocessed Alignment**:
-     Sends the scheduled new pairs to parallel CPU workers. Each worker:
+3. **Incremental Alignment**:
+     Benchmarks available CPU/accelerator processing plans and sends scheduled new pairs through the best successful plan. Each pair:
      - Retrieves residue embeddings from the HDF5 database.
      - Calculates the normalized score matrix:
        $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
@@ -178,7 +179,8 @@ This script does not require additional configuration parameters.
 
 #### Extracted HDF5 Sub-Network Archive
 *   **Format**: HDF5 (`.h5`).
-*   **Description**: Contains whitelisted network edges (`i`, `j`, `g_score`, `l_score`, `headers`) re-indexed to match the subset.
+*   **Embedding-network schema**: Copies source attributes and writes re-indexed `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`. If the matching traceback-path file exists, a separately filtered `/headers` plus variable-length `/paths` file is also written.
+*   **BLAST/E-value schema**: Copies source attributes and writes re-indexed `/headers`, `/i`, `/j`, and `/score`; traceback extraction is skipped.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -200,6 +202,6 @@ This script does not require additional configuration parameters.
      $$j'_k = \text{Map}_{\text{master\_idx} \to \text{subset\_idx}}(j_k)$$
 
 4. **Output Assembly**:
-     Writes the filtered, re-indexed edges and their alignment scores (plus zlib-compressed traceback paths if available) to a compact standalone HDF5 network file.
+     Preserves the detected source schema: embedding score/length datasets and optional traceback paths for alignment networks, or the single `score` dataset for BLAST/E-value networks. Output names are derived from the whitelist FASTA basename and the source network's `model_name` metadata.
 
 </details>

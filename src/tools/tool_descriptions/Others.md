@@ -27,9 +27,9 @@ This script aligns two sequences using their residue-level language model embedd
 
 ### 📤 Output
 
-#### HTML Alignment Report
-*   **Format**: HTML document (`.html`).
-*   **Description**: Visual report showing aligned residue matching arrays, gap spaces, and target mapping positions.
+#### Alignment Result and Optional HTML Report
+*   **Console Output**: Always prints the alignment mode and score, input lengths, aligned residue strings, match marks, and any requested reference-to-target position mappings.
+*   **Optional File**: When **Generate Report** (`GENERATE_REPORT`) is enabled, writes a timestamped `PWA_Report_*.html` document to the configured report directory with the same alignment and highlighted mappings. No file is written when the toggle is disabled.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -88,8 +88,10 @@ This script queries a single sequence against an entire database using residue-l
 ### 📤 Output
 
 #### Embedding Search Results
-*   **Format**: spreadsheet table (`.csv` or `.xlsx`).
-*   **Description**: Ranked sheet listing sequence IDs, local/global alignment scores, and alignment lengths.
+*   **Text Report**: `Report_<name>.txt`, containing parameters and the full ranked hit table; the console shows at most the first 100 hits.
+*   **Excel Workbook**: `Report_<name>.xlsx`, with `Search Results` and `Search Parameters` sheets.
+*   **Optional FASTA**: When `GENERATE_FASTA` is enabled, `Hits_<name>.fasta` contains the query followed by ranked hit sequences.
+*   **Columns**: Rank, normalized score, raw alignment score, sequence length, alignment length, and header.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>

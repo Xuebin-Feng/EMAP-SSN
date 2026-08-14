@@ -25,6 +25,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 | Show Regression Plot **`SHOW_REGRESSION_PLOT`** | Toggle to show the diagnostic Isotonic Regression plot when using a sparse network. This visualizes the fit between mean embedding cosine distances and actual alignment scores. |
 | Alignment Scoring Type **`ALIGNMENT_SCORE`** | Select whether to construct the guide tree using 'global' or 'local' connectivity scores from the network. |
 | Score Normalization Mode **`NORMALIZATION_MODE`** | The normalization method applied to alignment scores (e.g., alignment_length, shorter_sequence, longer_sequence, average_sequence). Disabled for BLAST networks. |
+| Tree Building Method **`TREE_METHOD`** | `UPGMA (Fast)` uses average-linkage hierarchical clustering; `Neighbor-joining (Slow)` constructs a neighbor-joining tree from the same complete distance matrix. The selected method is used for deterministic and noise-perturbed trees. |
 | Noise-Perturbed Consensus Guide Tree **`BOOTSTRAP_TREE`** | Builds and averages randomly perturbed guide-tree replicates when enabled. This is a sensitivity ensemble, not classical bootstrap support. The existing setting key is retained for backward compatibility. |
 | Perturbed Tree Replicates **`NUM_TREES`** | The number of noise-perturbed replicate trees used to construct the consensus guide tree. |
 | Include Imputed Pairs in Final Consensus **`INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS`** | For an incomplete network, OFF averages cophenetic distances only for originally observed pairs and retains baseline regression-imputed values for missing pairs; ON replaces every pair with its replicate-averaged cophenetic distance. Imputed pairs participate in every replicate tree in both modes. Complete networks automatically use full consensus. |
@@ -69,7 +70,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
        This guarantees a fully populated distance matrix.
 
 5. **Noise-Perturbed Consensus Guide Tree Construction**:
-     Constructs guide trees using UPGMA or Neighbor-Joining. When `BOOTSTRAP_TREE` is enabled, the program generates `NUM_TREES` replicate trees using normalized additive Gaussian distance perturbations:
+     Constructs guide trees using the selected `TREE_METHOD` (average-linkage UPGMA or Neighbor-Joining). When `BOOTSTRAP_TREE` is enabled, the program generates `NUM_TREES` replicate trees using normalized additive Gaussian distance perturbations:
 
      $$D_{\max} = \max(S_{\text{norm}}) + 0.1$$
 
@@ -103,7 +104,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 
 # 📉 Sparse MSA Converter (`Sparse_MSA_Converter.py`)
 
-This script compresses multiple sequence alignments (MSAs) into compact HDF5 files. By converting amino acid strings to a SciPy Compressed Sparse Row (CSR) matrix representation and using space-efficient datasets, it reduces disk storage requirements by up to 95% while keeping sequence data fully readable.
+This script compresses multiple sequence alignments (MSAs) into compact HDF5 files. It validates and sanitizes the aligned FASTA, converts residue strings to a SciPy Compressed Sparse Row (CSR) matrix, writes lookup metadata, and then moves the successfully converted source FASTA into a `Full_Alignments` subdirectory.
 
 ### 📥 Input
 
@@ -121,13 +122,16 @@ This script compresses multiple sequence alignments (MSAs) into compact HDF5 fil
 ### 📤 Output
 
 #### Compressed Sparse MSA HDF5 File
-*   **Format**: HDF5 (`.h5`).
+*   **Format**: HDF5 (`.h5`) named `<input_basename>_sparse.h5` beside the selected alignment.
 *   **Structure**:
-    - `/data`: 1D array of character codes storing non-gap residue characters.
-    - `/indices`: CSR column index array.
-    - `/indptr`: CSR row pointers mapping sequences.
+    - `/matrix/data`: 1D array of integer residue codes for non-gap entries.
+    - `/matrix/indices`: CSR column index array.
+    - `/matrix/indptr`: CSR row pointers mapping sequences.
+    - `/matrix` attribute `shape`: Matrix row/column dimensions.
     - `/headers`: Array of sequence headers.
-    - `/shape`: Overall dimensions of the alignment.
+    - `/header_map`: JSON mapping of full and first-token headers to row indices.
+    - `/aa_map` and `/int_to_aa`: JSON residue-code lookup tables.
+    - Root attribute `shape`: Overall dimensions of the alignment.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -141,7 +145,7 @@ This script compresses multiple sequence alignments (MSAs) into compact HDF5 fil
      
      Using `uint8` data types compresses the file size by up to 95 percent.
 
-3. **HDF5 Serialization**:
-     Saves CSR indices, row pointers, values, headers, and column shapes to a compact `.h5` file.
+3. **Atomic HDF5 Serialization and Source Archival**:
+     Writes the CSR arrays, headers, mappings, and shape metadata to a temporary HDF5 file and atomically publishes it as `<input>_sparse.h5`. Only after publication succeeds is the original FASTA moved to `<MSA_DIR>/Full_Alignments/`. With `CONVERT_ALL` enabled, every top-level `*.fasta` file in `MSA_DIR` is processed this way.
 
 </details>

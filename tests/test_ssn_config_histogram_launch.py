@@ -127,6 +127,135 @@ class ViewerHandoffTests(unittest.TestCase):
 
 
 class OffscreenConfigIntegrationTests(unittest.TestCase):
+    def test_shared_status_tooltip_preserves_statistics_report(self):
+        script = textwrap.dedent(
+            f"""
+            import os
+            import pathlib
+            import runpy
+            import sys
+            import tempfile
+            from types import SimpleNamespace
+            from unittest import mock
+
+            import h5py
+            import numpy as np
+
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+            root = pathlib.Path({str(PROJECT_ROOT)!r})
+            src = root / "src"
+            sys.path.insert(0, str(src))
+
+            from utilities import Hardware_Utils  # preload torch before PySide6
+            from PySide6.QtWidgets import QApplication
+
+            with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
+                sys, "exit", return_value=None
+            ):
+                namespace = runpy.run_path(str(src / "SSN_Config.py"), run_name="__main__")
+
+            app = namespace["app"]
+            window = namespace["window"]
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                work = pathlib.Path(temp_dir)
+                fasta_path = work / "subset.fasta"
+                network_path = work / "network.h5"
+                fasta_path.write_text(">a\\nAAAA\\n>b\\nAAAT\\n", encoding="utf-8")
+                with h5py.File(network_path, "w") as hf:
+                    hf.create_dataset("headers", data=[b"a", b"b"])
+                    hf.create_dataset("score", data=np.asarray([4.0], dtype=np.float32))
+                    hf.create_dataset("i", data=np.asarray([0], dtype=np.int64))
+                    hf.create_dataset("j", data=np.asarray([1], dtype=np.int64))
+
+                window.inputs["FASTA_DIR"].setText(str(work))
+                window.inputs["HDF5_DIR"].setText(str(work))
+                window.cb_fasta.clear()
+                window.cb_fasta.addItem(fasta_path.name)
+                window.cb_hdf5.clear()
+                window.cb_hdf5.addItem(network_path.name)
+
+                manifest = SimpleNamespace(network_type="blast", model_name="BLAST")
+                method_globals = window.run_statistics.__globals__
+                cache_manifest = method_globals["cache_manifest"]
+
+                def validate_statistics(_hf):
+                    assert "Computing network statistics" in window.tip_panel.text()
+                    return manifest
+
+                with mock.patch.object(
+                    cache_manifest, "validate_network_schema", side_effect=validate_statistics
+                ):
+                    window.run_statistics()
+
+                report = window.stat_display.toPlainText()
+                assert "====== Network Statistics ======" in report
+                assert "Network statistics computed successfully." in window.tip_panel.text()
+
+                class FakeHistogramDialog:
+                    def __init__(self, figure, _parent):
+                        self.figure = figure
+
+                    def exec(self):
+                        assert "Displaying score histogram..." in window.tip_panel.text()
+                        return 0
+
+                    def release_figure(self):
+                        self.figure.clear()
+
+                    def deleteLater(self):
+                        pass
+
+                def validate_histogram(_hf):
+                    assert "Computing score distribution" in window.tip_panel.text()
+                    return manifest
+
+                with mock.patch.object(
+                    cache_manifest, "validate_network_schema", side_effect=validate_histogram
+                ), mock.patch.dict(
+                    method_globals, {{"ScoreHistogramDialog": FakeHistogramDialog}}
+                ):
+                    window.run_histogram()
+
+                assert window.stat_display.toPlainText() == report
+                assert "Histogram displayed successfully." in window.tip_panel.text()
+
+                with mock.patch("h5py.File", side_effect=OSError("unreadable network")):
+                    window.run_histogram()
+                assert window.stat_display.toPlainText() == report
+                assert "Error during histogram generation: unreadable network" in window.tip_panel.text()
+
+                with mock.patch("h5py.File", side_effect=OSError("unreadable network")):
+                    window.run_statistics()
+                assert window.stat_display.toPlainText() == report
+                assert (
+                    "Error during network statistics calculation: unreadable network"
+                    in window.tip_panel.text()
+                )
+
+            window.close()
+            app.processEvents()
+            print("SHARED_STATUS_TOOLTIP_OK")
+            """
+        )
+        env = os.environ.copy()
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=PROJECT_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+        )
+        self.assertIn("SHARED_STATUS_TOOLTIP_OK", completed.stdout)
+
     def test_dialog_and_save_run_lifecycle(self):
         script = textwrap.dedent(
             f"""

@@ -5,7 +5,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 ### 📥 Input
 
 #### Raw Sequence FASTA File `INPUT_FASTA`
-*   **Format**: Standard FASTA format (`.fasta`, `.fa`, `.txt`).
+*   **Format**: Standard protein FASTA (`.fasta`) selected from the configured Sequence Sets directory.
 *   **Created By**: User-provided raw protein sequence database.
 *   **Structure**:
     ```text
@@ -19,7 +19,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 
 | Parameter | Description |
 | :--- | :--- |
-| Overwrite **`OVER_WRITE`** | Toggle to overwrite the input FASTA file with the cleaned sequences. If disabled, saves to a new file with a `_clean.fasta` suffix. |
+| Overwrite **`OVER_WRITE`** | Toggle to atomically replace the input FASTA with the cleaned sequences. If disabled, saves a sibling file with a `_sanitized.fasta` suffix. An empty result is refused in overwrite mode. |
 | Enable Length Filter **`ENABLE_LENGTH_FILTER`** | Toggle to filter out sequences that do not meet the minimum or maximum length constraints. |
 | Minimum Sequence Length **`MIN_SEQ_LENGTH`** | The minimum sequence length (in amino acids) required to keep a sequence. |
 | Maximum Sequence Length **`MAX_SEQ_LENGTH`** | The maximum sequence length allowed. |
@@ -29,25 +29,26 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 
 #### Sanitized FASTA File
 *   **Format**: Standard FASTA (`.fasta`).
-*   **Description**: Contains cleaned sequences where headers are sanitized (special characters replaced with underscores) and invalid characters are removed.
+*   **Description**: Contains canonically sanitized, deduplicated sequences. Headers are made safe and globally unique; terminal sequence artifacts are trimmed and non-residue characters inside the retained sequence span are replaced with `X`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
 1. **Header Sanitization**:
-     Cleans header strings to make them safe for downstream pipeline tools. It replaces slashes, backslashes, colons, semi-colons, brackets, parentheses, spaces, and commas with underscores:
+     Converts square/curly brackets to parentheses, replaces `? * " # % @ $ / \` with underscores, collapses repeated underscores, and normalizes whitespace while preserving readable spaces:
      $$h_{\text{clean}} = \text{replace\_unsafe}(h_{\text{raw}})$$
 
 2. **Sequence Cleaning**:
-     Parses each sequence, converting it to uppercase and stripping out whitespace, asterisks (`*`), numbers, periods, and any characters outside the standard IUPAC amino acid set {A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y}:
-     $$s_{\text{clean}} = \{c \in s_{\text{raw}} \mid c \text{ is a standard amino acid}\}$$
+     Converts sequences to uppercase. The accepted residue alphabet is `ACDEFGHIKLMNPQRSTVWYBZJXUO`. Artifacts before the first and after the last accepted residue are trimmed; invalid characters inside that span are replaced one-for-one with `X`, preserving residue coordinates.
+
+     Records are then deduplicated by sanitized sequence. Identical sequences keep the longest deterministic header, and different sequences that collide on the same sanitized header receive collision-safe numeric suffixes.
 
 3. **Length and Substring Filtering**:
      If filtering is enabled, a sequence is discarded if:
      $$\text{Length}(s_{\text{clean}}) < \text{MIN\_SEQ\_LENGTH} \quad \text{or} \quad \text{Length}(s_{\text{clean}}) > \text{MAX\_SEQ\_LENGTH}$$
      
-     Or if the header contains the excluded substring:
-     $$\text{Substring} \subseteq h_{\text{clean}}$$
+     The case-sensitive header substring filter is applied to each raw header before canonical header sanitization:
+     $$\text{Substring} \subseteq h_{\text{raw}}$$
 
 4. **Serialization and Diagnostics**:
      Writes the sanitized sequences to the target FASTA file. It then analyzes the sequence length distribution and displays statistics (mean, median, standard deviation).
@@ -58,7 +59,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 
 # 🧬 Generate Embeddings (`Generate_Embeddings.py`)
 
-This script extracts sequence embeddings from pre-trained protein language models (like ESM-2, ESM-C, ProtBERT, or ProstT5). It maps residues to high-dimensional representation vectors and bundles them into HDF5 database files using compressed arrays to optimize speed and disk efficiency.
+This script extracts sequence embeddings from pre-trained protein language models (like ESM-2, ESM-C, ProtBERT, or ProstT5). It maps residues to high-dimensional representation vectors and stores them in metadata-first HDF5 databases using the selected `float16` or `float32` precision.
 
 ### 📥 Input
 
@@ -73,6 +74,7 @@ This script extracts sequence embeddings from pre-trained protein language model
 | :--- | :--- |
 | Model Name **`MODEL_NAME`** | The protein language model architecture to use and the label written into the output filename. Identifiers are always lower case (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `ankh_base`, `prot_bert`, `prost_t5`). |
 | Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`float16` or `float32`). `float16` is recommended to reduce disk space by 50% with negligible loss of accuracy. |
+| Compute Device **`DEVICE_SELECTION`** | `auto` benchmarks the available installer-validated CPU/accelerator candidates on representative sequence lengths and uses the fastest successful device, with ranked fallback if a runtime failure occurs. Selecting a specific CPU, CUDA, XPU, or MPS device pins generation to that device and reports an error instead of silently switching. |
 
 > **ESMC 6B API access:** Select `esmc_6b`; the plugin maps that filename-friendly label to Biohub's `esmc-6b-2024-12` API identifier. Store the token beside the plugin in the Git-ignored `src/resources/pLM_models/esmc_6b_api_key.json` file as `{"ESM_API_TOKEN": "your-token"}`. Future API plugins can follow the same `*_api_key.json` naming convention.
 
@@ -96,8 +98,7 @@ This script extracts sequence embeddings from pre-trained protein language model
      Downloads and caches model weights from Hugging Face. Loads the transformer model and tokenizes the input.
 
 3. **Hardware Target Selection**:
-     Checks system capabilities and assigns tensor operations to the optimal accelerator:
-     $$\text{Device} = \begin{cases} \text{cuda} & \text{if Nvidia GPU available} \\ \text{mps} & \text{if Apple Silicon available} \\ \text{cpu} & \text{otherwise} \end{cases}$$
+     Discovers installer-validated CPU, CUDA, Intel XPU, and Apple MPS devices. In `auto` mode, it benchmarks representative sanitized sequences on every available candidate, ranks successful devices, and can fall back to the next ranked device if embedding fails. A manually selected device is used exclusively.
 
 4. **Residue Embedding Generation**:
      For each sanitized sequence $s$:

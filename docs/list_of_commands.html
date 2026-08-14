@@ -666,6 +666,7 @@
             <div class="menu-category">Alignment</div>
             <ul class="menu-list" id="menu-aln-cmds">
                 <li class="menu-item" data-target="cmd-reference"><a href="#cmd-reference"><span>reference</span></a></li>
+                <li class="menu-item" data-target="cmd-offset"><a href="#cmd-offset"><span>offset</span> <span class="menu-item-badge badge-new">new</span></a></li>
                 <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span> <span class="menu-item-badge badge-new">new</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
             </ul>
@@ -819,7 +820,7 @@
                     <div class="syntax-content">zoom &lt;width&gt;</div>
                     <button class="copy-btn" onclick="copyText('zoom &lt;width&gt;', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Set the camera view width to exactly the specified numeric &lt;width&gt;+10% while keeping the current center point of the view intact</p>
+                <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>zoom 500</span><button class="copy-btn" onclick="copyText('zoom 500', this)">Copy</button></li>
@@ -839,7 +840,7 @@
                     <div class="syntax-content">save [filename / filename.h5]</div>
                     <button class="copy-btn" onclick="copyText('save [filename / filename.h5]', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Saves the current view to an HDF5 cache file. The cache file is associated with the current layout. If no filename is provided, it automatically generates an incrementing version number (e.g., _ver.01.h5, _ver.02.h5) in the target layout folder to prevent overwriting previous saves.</p>
+                <p><strong>Function:</strong> Atomically saves positions, colors, sizes, shapes, visibility, clusters, groups, and cache-manifest identity to an HDF5 layout cache. If no filename is provided, it creates the next available simple version name (for example, <code>version_00.h5</code>, then <code>version_01.h5</code>) in the active cache folder. A supplied name receives <code>.h5</code> when omitted and must be a safe basename.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>save</span><button class="copy-btn" onclick="copyText('save', this)">Copy</button></li>
@@ -857,8 +858,8 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">reset &lt;target_1&gt; [target_2] ... or &lt;target_1&gt; [target_2] ... reset</div>
-                    <button class="copy-btn" onclick="copyText('reset &lt;target_1&gt; [target_2] ... or &lt;target_1&gt; [target_2] ... reset', this)">Copy</button>
+                    <div class="syntax-content">reset &lt;target_1&gt; [target_2] ...</div>
+                    <button class="copy-btn" onclick="copyText('reset &lt;target_1&gt; [target_2] ...', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Reset selected properties to their initial states. Supported targets include:</p>
                 <div class="subheading">Supported Targets</div>
@@ -891,7 +892,7 @@
                     <div class="syntax-content">hide [expression]</div>
                     <button class="copy-btn" onclick="copyText('hide', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> hide the currently selected nodes and any edges connecting to them. The number of currently hidden nodes are shown at the bottom right of the screen. Note that the &ldquo;hide&rdquo; command does not really change the layout, meaning that it will not exclude hidden nodes from analyses.</p>
+                <p><strong>Function:</strong> Hides matching nodes and their displayed edges without deleting nodes, coordinates, sequences, metadata, clusters, or groups. Visibility-aware commands exclude hidden nodes; analyses that operate on stored subsets or alignment rows retain their own documented behavior.</p>
                 <div class="subheading">Arguments &amp; Modes</div>
                 <ul>
                     <li><strong>Without arguments:</strong> Immediately hides all currently selected nodes and their connected edges.</li>
@@ -923,7 +924,7 @@
                     <div class="syntax-content">undo   |   redo</div>
                     <button class="copy-btn" onclick="copyText('undo', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> redo and undo last actions. Most commands automatically save visual and physical viewer states to history prior to execution, allowing for instantaneous revert and reload.</p>
+                <p><strong>Function:</strong> <code>undo</code> restores the preceding saved visual/spatial state; <code>redo</code> reapplies a state that was undone. Commands that call the viewer state-saving hook participate in this history.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>undo</span><button class="copy-btn" onclick="copyText('undo', this)">Copy</button></li>
@@ -942,14 +943,14 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">run [filename]</div>
+                    <div class="syntax-content">run</div>
                     <button class="copy-btn" onclick="copyText('run', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Opens a file explorer to select a command script file (<code>.txt</code> or <code>.py</code>) and executes the commands in sequence.</p>
                 <div class="subheading">Execution Details</div>
                 <ul>
                     <li><strong>Python Scripts (<code>.py</code>):</strong> Executed in a subprocess using the active python environment. The script's standard output (stdout) is read and executed line-by-line in the viewer.</li>
-                    <li><strong>Text Files (<code>.txt</code>):</strong> Executed line-by-line. Comments starting with double slashes (<code>//</code>) are automatically ignored.</li>
+                    <li><strong>Text Files (<code>.txt</code>):</strong> Read line-by-line. Text after <code>//</code> is removed, so both full-line and trailing comments are ignored.</li>
                     <li><strong>Infinite Loop Protection:</strong> Recursive <code>run</code> calls inside a script are automatically ignored to prevent viewer freezes.</li>
                 </ul>
                 <div class="subheading">Examples</div>
@@ -977,6 +978,36 @@
                 <ul class="example-list">
                     <li class="example-item"><span>reference</span><button class="copy-btn" onclick="copyText('reference', this)">Copy</button></li>
                     <li class="example-item"><span>reference E1_RA</span><button class="copy-btn" onclick="copyText('reference E1_RA', this)">Copy</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-offset">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">offset</span>
+                        <span class="command-card-desc-title">&ndash; Alignment Numbering Offset</span>
+                    </div>
+                    <span class="badge badge-new">New</span>
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">offset [integer]</div>
+                    <button class="copy-btn" onclick="copyText('offset', this)">Copy</button>
+                </div>
+                <p><strong>Function:</strong> Reports or changes the current session's reference-anchored alignment numbering without changing alignment columns or sequence data. Displayed labels follow <code>displayed position = reference position + offset</code>; insertion labels retain their decimal suffixes.</p>
+                <div class="subheading">Requirements &amp; Scope</div>
+                <ul>
+                    <li><strong>Without arguments:</strong> Reports the configured offset and whether reference numbering is active.</li>
+                    <li><strong>With one integer:</strong> Applies a positive, negative, or zero offset. A loaded MSA and valid active reference are required.</li>
+                    <li><strong>Session-only:</strong> The command changes the running viewer. Configure Alignment Offset in SSN Config to set the value for future sessions.</li>
+                    <li><strong>Affected commands:</strong> Position-aware <code>query</code>, <code>label</code>, <code>logo</code>, and amino-acid expressions used by <code>color</code>, <code>select</code>, <code>group</code>, <code>hide</code>, and <code>spectrum</code>.</li>
+                </ul>
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>offset</span><button class="copy-btn" onclick="copyText('offset', this)">Copy</button></li>
+                    <li class="example-item"><span>offset 10</span><button class="copy-btn" onclick="copyText('offset 10', this)">Copy</button></li>
+                    <li class="example-item"><span>offset -5</span><button class="copy-btn" onclick="copyText('offset -5', this)">Copy</button></li>
+                    <li class="example-item"><span>offset 0</span><button class="copy-btn" onclick="copyText('offset 0', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1022,10 +1053,10 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">query [expression] &lt;positions&gt;</div>
+                    <div class="syntax-content">query [expression] &lt;positions | frequency_logic&gt;</div>
                     <button class="copy-btn" onclick="copyText('query', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The query command allows you to instantly interrogate the multiple sequence alignment (MSA) data directly from the viewer. It calculates the amino acid frequencies, consensus distributions, and gap percentages for specific column positions.</p>
+                <p><strong>Overview:</strong> Queries amino-acid distributions at explicit reference positions or searches all reference positions for residue-frequency criteria. Both modes can operate globally or on an expression-selected subset.</p>
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
@@ -1041,8 +1072,9 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>Positions:</strong> Specific columns inside brackets, supporting ranges and single positions (e.g., <code>[10-25]</code> or <code>[15,30,45]</code>).</li>
+                    <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last reference residue (for example, <code>[10,15.1,20-30,250-E]</code>).</li>
                     <li><strong>Insertions (Decimals):</strong> Insertion residues are marked using decimals (e.g., <code>106.1</code>, <code>106.2</code>). Querying <code>[106-107]</code> natively prints statistics for 106, 106.1, 106.2, and 107 in order.</li>
+                    <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. A single criterion can be written as <code>[K&gt;10%]</code>; multi-condition searches require parentheses around each criterion, for example <code>[(K&gt;10%) &amp; (R&gt;5%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1050,6 +1082,8 @@
                     <li class="example-item"><span>query [10, 15, 20-30]</span><button class="copy-btn" onclick="copyText('query [10, 15, 20-30]', this)">Copy</button></li>
                     <li class="example-item"><span>query P106 [150-160]</span><button class="copy-btn" onclick="copyText('query P106 [150-160]', this)">Copy</button></li>
                     <li class="example-item"><span>query {Length&gt;500} [10-20]</span><button class="copy-btn" onclick="copyText('query {Length>500} [10-20]', this)">Copy</button></li>
+                    <li class="example-item"><span>query [K&gt;10%]</span><button class="copy-btn" onclick="copyText('query [K>10%]', this)">Copy</button></li>
+                    <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%) &amp; (K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%) &amp; (K>5%)]', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1081,7 +1115,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header">Leiden (Default)</div>
                     <div class="collapsible-content">
-                        <p><strong>Mechanism:</strong> Optimizes network modularity and density. Highly efficient for massive networks and guarantees well-connected communities. Automatically leverages edge similarity scores as weights. Requires <code>leidenalg</code> and <code>igraph</code>.</p>
+                        <p><strong>Mechanism:</strong> Optimizes network modularity and density through the shared Leiden partition helper. Automatically leverages edge similarity scores as weights. Requires <code>graspologic-native</code>.</p>
                         <p><strong>Parameter:</strong> <em>Resolution</em> (Default: 1.0). Increasing this value forces the network to fracture into smaller, more numerous clusters.</p>
                         <p><strong>Usage:</strong> <code>cluster leiden 1.0 10</code> (or simply <code>cluster 1.0 10</code>)</p>
                     </div>
@@ -1091,7 +1125,7 @@
                     <div class="collapsible-header">MCL (Markov Clustering)</div>
                     <div class="collapsible-content">
                         <p><strong>Mechanism:</strong> Simulates random walks through the network, assuming that a random walker stays within a dense cluster rather than crossing a sparse boundary. Uses similarity scores as transition probabilities. Requires <code>markov_clustering</code> and <code>networkx</code>.</p>
-                        <p><strong>Parameter:</strong> <em>Inflation</em> (Default: 2.0). Controls rigidity of boundaries. Higher values (e.g. 4.0, 6.0) increase walking penalties, resulting in tighter, tighter clusters.</p>
+                        <p><strong>Parameter:</strong> <em>Inflation</em> (Default: 2.0). Controls boundary granularity. Higher values (e.g. 4.0, 6.0) generally produce tighter, more numerous clusters.</p>
                         <p><strong>Usage:</strong> <code>cluster mcl 2.0 10</code></p>
                     </div>
                 </div>
@@ -1298,7 +1332,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">label [target] [global_max] [cluster_min] [filename name]</div>
+                    <div class="syntax-content">label [clusters|groups] [gmax value] [cmin value] [filename]</div>
                     <button class="copy-btn" onclick="copyText('label', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
@@ -1315,9 +1349,10 @@
                     <li><strong>TARGET (Default: clusters):</strong> <code>clusters</code> (analyzes topology clusters and manual groups) or <code>groups</code> (skips clusters, analyzes only custom groups).</li>
                     <li><strong>OUTSIDE_MAX (gmax) [Default: 40%]:</strong> Maximum frequency of the subset's dominant residue among aligned sequences outside that cluster or group. Highlighted residues must occur in less than this percentage in the leave-subset-out background.</li>
                     <li><strong>CLUSTER_MIN (cmin) [Default: 98%]:</strong> Minimum consensus frequency. Highlighted residues must occur in at least this percentage inside the specific cluster or group.</li>
-                    <li><strong>FILENAME (optional):</strong> Output workbook basename. The <code>.xlsx</code> extension is added when omitted; without this option, the command uses <code>Label_Output_YYYYMMDD_HHMMSS.xlsx</code>.</li>
+                    <li><strong>FILENAME (optional):</strong> A single bare output workbook basename supplied as the final argument. The <code>.xlsx</code> extension is added when omitted; without a name, the command uses <code>Label_Output_YYYYMMDD_HHMMSS.xlsx</code>. Numeric or reserved-word filenames must include <code>.xlsx</code> to distinguish them from parameters.</li>
                     <li><strong>GLOBAL CONSERVATION (fixed at 97%):</strong> Residues exceeding 97% frequency globally are reported as universally conserved. This threshold is not user-configurable.</li>
                 </ul>
+                <p>Thresholds accept fractions or percentages. They can be positional in <code>gmax</code>, then <code>cmin</code> order (for example, <code>label 0.4 0.9</code>) or supplied as keyword/value pairs. Do not mix positional numbers after keyword parameters.</p>
 
                 <div class="subheading">Understanding the Excel Output</div>
                 <p>Output is written to <code>Results/Cluster_Label/</code> and contains two worksheets:</p>
@@ -1331,7 +1366,7 @@
                     <li class="example-item"><span>label</span><button class="copy-btn" onclick="copyText('label', this)">Copy</button></li>
                     <li class="example-item"><span>label 30% 90%</span><button class="copy-btn" onclick="copyText('label 30% 90%', this)">Copy</button></li>
                     <li class="example-item"><span>label groups cmin 90%</span><button class="copy-btn" onclick="copyText('label groups cmin 90%', this)">Copy</button></li>
-                    <li class="example-item"><span>label groups filename group_report</span><button class="copy-btn" onclick="copyText('label groups filename group_report', this)">Copy</button></li>
+                    <li class="example-item"><span>label groups group_report</span><button class="copy-btn" onclick="copyText('label groups group_report', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1421,26 +1456,28 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">meta [filename]  |  meta  |  meta show &lt;property_name&gt;  |  meta download [filename] [expression]</div>
+                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt;  |  meta show &lt;property_name&gt;  |  meta download [filename]</div>
                     <button class="copy-btn" onclick="copyText('meta', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Manages node metadata by allowing users to upload Excel/CSV tables, display metadata in the HUD, or download/export metadata subsets based on logical expressions.</p>
+                <p><strong>Function:</strong> Opens the browser metadata editor, loads Excel/CSV metadata into the current session, controls the clicked-node HUD property, or exports the complete current session metadata.</p>
                 
                 <div class="subheading">Subcommands &amp; Usage</div>
                 <ul>
-                    <li><strong><code>meta [filename]</code> / <code>meta</code> (No Arguments):</strong> If a file path or name is provided (e.g., <code>meta metadata.xlsx</code>), it loads that Excel or CSV metadata file directly from disk without opening any GUI popup. If called with no arguments, it opens a file explorer dialog explorer to select metadata files manually. Files must contain sequence headers in the first column, property names in the first row, and property types (number/text) in the second row.</li>
+                    <li><strong><code>meta</code> (no arguments):</strong> Opens the viewer's HTML5 metadata spreadsheet page in the default browser and registers its sidebar shortcut.</li>
+                    <li><strong><code>meta &lt;filename&gt;</code>, <code>meta upload &lt;filename&gt;</code>, or <code>meta import &lt;filename&gt;</code>:</strong> Loads and merges <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> metadata. Paths may be absolute, relative, or names inside the configured metadata directory; supported extensions are tried when omitted. Input tables use sequence headers in the first column, property names in the first row, and property types in the second row.</li>
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>:</strong> Activates a HUD text box in the bottom-right corner of the viewer displaying the value of the specified property when a node is clicked.</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>:</strong> Deactivates and hides the metadata property HUD.</li>
-                    <li><strong><code>meta retrieve / download / export [filename] [expression]</code>:</strong> Exports session metadata to an Excel or CSV file in the metadata cache directory, optionally filtered by a logical expression. If no filename is provided, opens a save file dialog.</li>
+                    <li><strong><code>meta retrieve|download|export [filename]</code>:</strong> Exports all current session metadata to the configured metadata directory. With no filename, chooses the next free <code>metadata.csv</code>, <code>metadata1.csv</code>, and so on. An explicit filename defaults to <code>.csv</code> when it has no extension and overwrites an existing file. This subcommand does not accept an expression filter.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>meta</span><button class="copy-btn" onclick="copyText('meta', this)">Copy</button></li>
+                    <li class="example-item"><span>meta metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta metadata.xlsx', this)">Copy</button></li>
                     <li class="example-item"><span>meta show Organism</span><button class="copy-btn" onclick="copyText('meta show Organism', this)">Copy</button></li>
                     <li class="example-item"><span>meta show clear</span><button class="copy-btn" onclick="copyText('meta show clear', this)">Copy</button></li>
-                    <li class="example-item"><span>meta download {Length>500}</span><button class="copy-btn" onclick="copyText('meta download {{Length>500}}', this)">Copy</button></li>
-                    <li class="example-item"><span>meta export selected_meta.xlsx #cluster_1#</span><button class="copy-btn" onclick="copyText('meta export selected_meta.xlsx #cluster_1#', this)">Copy</button></li>
+                    <li class="example-item"><span>meta download</span><button class="copy-btn" onclick="copyText('meta download', this)">Copy</button></li>
+                    <li class="example-item"><span>meta export session_metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta export session_metadata.xlsx', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1576,7 +1613,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>No Arguments:</strong> Opens the Agent Web UI in the default browser at <code>http://localhost:8000/agent.html</code>.</li>
+                    <li><strong>No Arguments:</strong> Opens <code>/agent.html</code> on the viewer's active web server in the default browser. The host and port come from the running viewer rather than a fixed URL.</li>
                     <li><strong>&lt;Model Custom Name&gt; (Mandatory Brackets):</strong> Enclosed in <code>&lt;&gt;</code> brackets, this activates the agent and loads the specified model custom name (e.g. <code>agent &lt;Gemini API&gt;</code>).</li>
                     <li><strong>off / deactivate:</strong> Deactivates the LLM agent and unloads the active model.</li>
                     <li><strong>&quot;message&quot; / message:</strong> Forwards the query directly to the LLM agent. If the agent isn't turned on, it will automatically load the first model card in your list.</li>

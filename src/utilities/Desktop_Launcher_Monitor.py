@@ -33,6 +33,26 @@ APP_SCRIPTS = {
     "tools": Path("src") / "SSN_Tools.py",
 }
 
+_MANAGED_ENVIRONMENT_PATH_OVERRIDES = (
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "QT_PLUGIN_PATH",
+    "QT_QPA_PLATFORM_PLUGIN_PATH",
+    "QML_IMPORT_PATH",
+    "QML2_IMPORT_PATH",
+)
+
+
+def _sanitize_managed_environment(environment, *, platform_name=None):
+    """Remove inherited paths that can redirect the managed Python/Qt stack."""
+    platform_name = platform_name or sys.platform
+    for name in _MANAGED_ENVIRONMENT_PATH_OVERRIDES:
+        environment.pop(name, None)
+    if platform_name == "darwin":
+        environment.pop("DYLD_LIBRARY_PATH", None)
+        environment.pop("DYLD_FRAMEWORK_PATH", None)
+    return environment
+
 
 def _apply_linux_qt_platform_policy(environment, *, platform_name=None):
     """Prefer XWayland for Qt/OpenGL when a desktop launch bypasses the shell."""
@@ -136,7 +156,8 @@ def run_monitor(app_kind: str, state_dir: Path) -> int:
     log_path = state_dir / "application.log"
     state_dir.mkdir(parents=True, exist_ok=True)
 
-    env = _apply_linux_qt_platform_policy(os.environ.copy())
+    env = _sanitize_managed_environment(os.environ.copy())
+    env = _apply_linux_qt_platform_policy(env)
     env["SSN_GUI_READY_FILE"] = str(ready_path)
     return_code = 1
     try:
