@@ -12,14 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import sys
+import json
+
+
+def _configure_linux_vispy_platform(
+    environment=None,
+    platform_name=sys.platform,
+):
+    """Route VisPy through XWayland before Qt/OpenGL is imported.
+
+    On affected Linux systems Qt's native Wayland plugin creates an OpenGL ES
+    context while VisPy 0.16 compiles desktop GLSL 1.20 shaders.  XCB creates
+    the compatible desktop OpenGL context.  Preserve non-window platforms
+    such as ``offscreen`` for tests and headless use.
+    """
+    environment = os.environ if environment is None else environment
+    if not str(platform_name).startswith('linux'):
+        return False
+
+    selected_platform = environment.get("QT_QPA_PLATFORM", "").lower()
+    wayland_session = environment.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    native_wayland_selected = selected_platform.startswith("wayland")
+    if native_wayland_selected or (wayland_session and not selected_platform):
+        environment["QT_QPA_PLATFORM"] = "xcb"
+        return True
+    return False
+
+
+# This must run before torch, VisPy, or PySide6 can initialize Qt/OpenGL.
+_configure_linux_vispy_platform()
+
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 try:
     import torch  # Pre-load to prevent DLL initialization conflicts between PyTorch and PySide6/OpenGL
 except Exception:
     pass
-import sys
-import os
-import json
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # Ensure src/ (the directory containing all project modules) is on sys.path.
@@ -151,6 +180,19 @@ def _apply_safe_rectangle_geometry(rectangle, center, width, height, radius):
     rectangle.radius = radius
 
     return width, height, radius
+
+
+def _contiguous_line_positions(positions):
+    """Normalize VisPy line vertices before uploading them to the GPU."""
+    result = np.ascontiguousarray(positions, dtype=np.float32)
+    if result.ndim != 2 or result.shape[1] not in (2, 3):
+        raise ValueError(
+            "Line positions must have shape (N, 2) or (N, 3); "
+            f"received {result.shape}."
+        )
+    if not np.isfinite(result).all():
+        raise ValueError("Line positions contain NaN or infinite values.")
+    return result
 
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
@@ -345,6 +387,10 @@ class MainViewer:
         
         # --- 3. Setup Window & Canvas ---
         self.canvas = scene.SceneCanvas(keys=None, show=False, title="SSN Viewer (Live)", bgcolor='white')
+        # Keep the complete traceback available if a future VisPy draw
+        # callback fails; the default logarithmic reminders hide the cause
+        # after the first occurrence.
+        self.canvas.events.draw.print_callback_errors = 'first'
         qapp = QtWidgets.QApplication.instance()
         if qapp:
             try:
@@ -1277,10 +1323,12 @@ class MainViewer:
                 # Fetch custom edge color, fallback to black
                 edge_rgba = list(mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000')))
                 edge_rgba[3] = cfg.EDGE_ALPHA # Apply transparency
-                
+
+                edge_positions = _contiguous_line_positions(edge_coords)
                 self.line_visual = scene.visuals.Line(
-                    pos=np.array(edge_coords), connect='segments', 
-                    color=tuple(edge_rgba), width=cfg.EDGE_WIDTH, parent=self.view.scene
+                    pos=edge_positions, connect='segments',
+                    color=tuple(edge_rgba), width=cfg.EDGE_WIDTH,
+                    parent=self.view.scene, name='network_edges',
                 )
                 self.line_visual.set_gl_state('translucent', depth_test=False)
                 if getattr(cfg, 'UMAP_MODE', False):
@@ -1308,7 +1356,10 @@ class MainViewer:
         )
 
         # ---> NEW: Visuals for Selection Feedback <---
-        self.selection_box = scene.visuals.Line(color='black', method='gl', parent=self.view.scene)
+        self.selection_box = scene.visuals.Line(
+            color='black', method='gl',
+            parent=self.view.scene, name='selection_box',
+        )
         self.selection_box.visible = False
         
         self.selection_highlight = scene.visuals.Markers(parent=self.view.scene)
@@ -1403,7 +1454,9 @@ class MainViewer:
             
             if len(active_edges) > 0:
                 self.line_visual.visible = True
-                edge_coords = self.pos[active_edges].reshape(-1, 2)
+                edge_coords = _contiguous_line_positions(
+                    self.pos[active_edges].reshape(-1, 2)
+                )
                 self.line_visual.set_data(pos=edge_coords)
             else:
                 self.line_visual.visible = False # Prevents Vispy crash on empty arrays
@@ -1851,7 +1904,9 @@ class MainViewer:
                 # Clicked empty space: Store the current state, DO NOT clear yet
                 self._pre_drag_selection = set(self.selected_indices)
                 self.is_box_selecting = True
-                self.selection_box.set_data(pos=np.zeros((5, 2)))
+                self.selection_box.set_data(
+                    pos=np.zeros((5, 2), dtype=np.float32),
+                )
                 self.selection_box.visible = True
                 
             event.handled = True 
@@ -2104,31 +2159,21 @@ class MainViewer:
         self._schedule_display_refresh()
 
     def _schedule_display_refresh(self):
-        """Collapse related Qt display notifications into one layout pass."""
+        """Debounce display notifications until Qt's GL transition settles."""
         if getattr(self, '_display_refresh_pending', False):
             return
         self._display_refresh_pending = True
-        QtCore.QTimer.singleShot(0, self._refresh_display_layout)
+        QtCore.QTimer.singleShot(100, self._refresh_display_layout)
 
     def _refresh_display_layout(self):
-        """Refresh VisPy's framebuffer and all logical-pixel overlays."""
+        """Refresh logical overlays after Qt/VisPy update the framebuffer."""
         self._display_refresh_pending = False
         canvas = getattr(self, 'canvas', None)
-        native_canvas = getattr(canvas, 'native', None) if canvas is not None else None
 
-        if native_canvas is not None:
-            try:
-                screen_changed = getattr(native_canvas, 'screen_changed', None)
-                if callable(screen_changed):
-                    screen_changed(getattr(self, '_active_screen', None))
-                else:
-                    resize_gl = getattr(native_canvas, 'resizeGL', None)
-                    width = native_canvas.width()
-                    height = native_canvas.height()
-                    if callable(resize_gl) and width > 0 and height > 0:
-                        resize_gl(width, height)
-            except Exception as e:
-                print(f"Warning: Could not refresh VisPy display scaling: {e}")
+        # QOpenGLWidget owns resizeGL and invokes it with a current context.
+        # VisPy's Qt backend is already connected to the native window's
+        # screenChanged signal. Calling either method manually here happens
+        # outside paintGL and can race context migration between monitors.
 
         for method_name in (
             '_apply_vispy_text_scaling',
@@ -2176,6 +2221,8 @@ class MainViewer:
             )
             logical_size = tuple(canvas.size)
             physical_size = tuple(canvas.physical_size)
+            qapp = QtWidgets.QApplication.instance()
+            qt_platform = qapp.platformName() if qapp is not None else "unknown"
         except Exception as e:
             print(f"Warning: Could not read display information: {e}")
             return
@@ -2186,6 +2233,7 @@ class MainViewer:
             round(dpr, 6),
             logical_size,
             physical_size,
+            qt_platform,
         )
         if signature == getattr(self, '_last_display_signature', None):
             return
@@ -2195,6 +2243,7 @@ class MainViewer:
             "Display: "
             f"{screen_name} | geometry={screen_geometry[2]}x{screen_geometry[3]} "
             f"at ({screen_geometry[0]}, {screen_geometry[1]}) | DPR={dpr:g} | "
+            f"Qt platform={qt_platform} | "
             f"canvas logical={logical_size[0]}x{logical_size[1]} | "
             f"physical={physical_size[0]}x{physical_size[1]}"
         )
@@ -2419,8 +2468,10 @@ class MainViewer:
             
             rect_pts = np.array([
                 [x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]
-            ])
-            self.selection_box.set_data(pos=rect_pts)
+            ], dtype=np.float32)
+            self.selection_box.set_data(
+                pos=rect_pts,
+            )
             
             # --- Dynamic Highlighting Math ---
             if not getattr(cfg, 'LOW_RESOURCE_MODE', False):

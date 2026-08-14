@@ -3,6 +3,8 @@ import sys
 import unittest
 from unittest import mock
 
+import numpy as np
+
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -12,7 +14,11 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from PySide6 import QtCore
-from SSN_Viewer import MainViewer
+from SSN_Viewer import (
+    MainViewer,
+    _configure_linux_vispy_platform,
+    _contiguous_line_positions,
+)
 
 
 class FakeSignal:
@@ -124,10 +130,11 @@ class FakeCanvas:
 class DisplayScalingTests(unittest.TestCase):
     def setUp(self):
         self.queued_callbacks = []
+        self.queued_delays = []
         self.timer_patch = mock.patch.object(
             QtCore.QTimer,
             "singleShot",
-            side_effect=lambda delay, callback: self.queued_callbacks.append(callback),
+            side_effect=self.queue_callback,
         )
         self.timer_patch.start()
 
@@ -137,6 +144,10 @@ class DisplayScalingTests(unittest.TestCase):
     def drain_callbacks(self):
         while self.queued_callbacks:
             self.queued_callbacks.pop(0)()
+
+    def queue_callback(self, delay, callback):
+        self.queued_delays.append(delay)
+        self.queued_callbacks.append(callback)
 
     @staticmethod
     def make_viewer(screen=None, handle_available=True):
@@ -152,6 +163,7 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.canvas = FakeCanvas()
         viewer.position_slider_overlay = mock.Mock()
         viewer.reposition_expand_btn = mock.Mock()
+        viewer._apply_vispy_text_scaling = mock.Mock()
         viewer._update_hud_elements = mock.Mock()
         viewer._print_display_diagnostics = mock.Mock()
         return viewer, handle, screen
@@ -167,10 +179,12 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertEqual(len(screen.geometryChanged.slots), 1)
         self.assertTrue(viewer._display_refresh_pending)
         self.assertEqual(len(self.queued_callbacks), 1)
+        self.assertEqual(self.queued_delays, [100])
 
         self.drain_callbacks()
 
-        self.assertEqual(viewer.canvas.native.screen_changed_calls, [screen])
+        self.assertEqual(viewer.canvas.native.screen_changed_calls, [])
+        viewer._apply_vispy_text_scaling.assert_called_once_with()
         viewer.position_slider_overlay.assert_called_once_with()
         viewer.reposition_expand_btn.assert_called_once_with()
         viewer._update_hud_elements.assert_called_once_with()
@@ -181,8 +195,6 @@ class DisplayScalingTests(unittest.TestCase):
         viewer, handle, old_screen = self.make_viewer()
         viewer._initialize_display_tracking()
         self.drain_callbacks()
-        viewer.canvas.native.screen_changed_calls.clear()
-
         new_screen = FakeScreen(
             "Retina display",
             geometry=FakeGeometry(1920, 0, 1512, 982),
@@ -198,13 +210,13 @@ class DisplayScalingTests(unittest.TestCase):
 
         self.drain_callbacks()
 
-        self.assertEqual(viewer.canvas.native.screen_changed_calls, [new_screen])
-        self.assertEqual(viewer.canvas.physical_size, (1600.0, 1200.0))
+        self.assertEqual(viewer.canvas.native.screen_changed_calls, [])
+        self.assertEqual(viewer.canvas.physical_size, (800.0, 600.0))
 
         old_screen.logicalDotsPerInchChanged.emit(96.0)
         self.assertEqual(self.queued_callbacks, [])
 
-    def test_missing_window_handle_keeps_resize_fallback_available(self):
+    def test_missing_window_handle_still_refreshes_logical_overlays(self):
         viewer, handle, screen = self.make_viewer(handle_available=False)
 
         viewer._initialize_display_tracking()
@@ -212,7 +224,7 @@ class DisplayScalingTests(unittest.TestCase):
 
         self.assertIsNone(handle)
         self.assertIsNone(viewer._active_screen)
-        self.assertEqual(viewer.canvas.native.screen_changed_calls, [None])
+        self.assertEqual(viewer.canvas.native.screen_changed_calls, [])
         viewer._update_hud_elements.assert_called_once_with()
 
     def test_display_diagnostics_print_only_when_signature_changes(self):
@@ -233,6 +245,36 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertEqual(print_mock.call_count, 2)
         self.assertIn("DPR=1", print_mock.call_args_list[0].args[0])
         self.assertIn("DPR=2", print_mock.call_args_list[1].args[0])
+        self.assertIn("Qt platform=", print_mock.call_args_list[0].args[0])
+
+    def test_native_wayland_is_replaced_before_vispy_import(self):
+        automatic = {"XDG_SESSION_TYPE": "wayland"}
+        explicit = {
+            "XDG_SESSION_TYPE": "wayland",
+            "QT_QPA_PLATFORM": "wayland",
+        }
+        headless = {
+            "XDG_SESSION_TYPE": "wayland",
+            "QT_QPA_PLATFORM": "offscreen",
+        }
+
+        self.assertTrue(_configure_linux_vispy_platform(automatic, "linux"))
+        self.assertTrue(_configure_linux_vispy_platform(explicit, "linux"))
+        self.assertFalse(_configure_linux_vispy_platform(headless, "linux"))
+        self.assertEqual(automatic["QT_QPA_PLATFORM"], "xcb")
+        self.assertEqual(explicit["QT_QPA_PLATFORM"], "xcb")
+        self.assertEqual(headless["QT_QPA_PLATFORM"], "offscreen")
+
+    def test_line_positions_are_finite_contiguous_float32(self):
+        source = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)[:, ::-1]
+        result = _contiguous_line_positions(source)
+
+        self.assertEqual(result.dtype, np.float32)
+        self.assertTrue(result.flags.c_contiguous)
+        np.testing.assert_array_equal(result, [[2.0, 1.0], [4.0, 3.0]])
+
+        with self.assertRaisesRegex(ValueError, "NaN or infinite"):
+            _contiguous_line_positions([[0.0, float("nan")]])
 
 
 if __name__ == "__main__":

@@ -186,11 +186,8 @@ VisPy network labels remain limited to the bundled Noto Sans face.
 
 ## 🔧 Linux Troubleshooting
 
-* **Blank or black 3D canvas on a Wayland session.**
-  The launchers set `QT_QPA_PLATFORM=xcb` automatically on Wayland, because the OpenGL canvas is unreliable on the native Wayland platform plugin. To opt back into native Wayland, set the variable yourself before launching:
-  ```bash
-  QT_QPA_PLATFORM=wayland ./SSN_Viewer
-  ```
+* **Blank, black, or repeatedly failing 3D canvas on a Wayland session.**
+  The Viewer forces `QT_QPA_PLATFORM=xcb` before importing Qt/VisPy. On affected Linux drivers, Qt's native Wayland plugin supplies an OpenGL ES context while VisPy compiles desktop GLSL shaders, producing repeated `Error drawing visual` messages. XWayland/XCB supplies the compatible desktop OpenGL context; the installer includes its required Ubuntu/Debian libraries.
 
 * **The application closes immediately when launched from a desktop icon.**
   The Ubuntu/Debian launchers now check the Qt/XCB libraries before startup and print the exact `sudo apt install` command for anything missing. If any later startup step fails, a desktop-launched terminal remains open until you press Enter so the original error stays visible.

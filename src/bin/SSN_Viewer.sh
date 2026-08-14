@@ -41,10 +41,12 @@ cd "$PROJECT_ROOT"
 
 # 0. Prefer XWayland on Wayland sessions. The vispy OpenGL canvas hosted inside
 # Qt6 is unreliable on the native Wayland platform plugin; xcb is the known-good
-# path. Only applied when the user has not chosen a platform themselves, so
-# `QT_QPA_PLATFORM=wayland ./SSN_Viewer` still overrides this.
-if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -z "${QT_QPA_PLATFORM:-}" ]; then
-    export QT_QPA_PLATFORM=xcb
+# path. VisPy 0.16's desktop GLSL shaders do not compile in the OpenGL ES
+# context exposed by the affected native Wayland driver.
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+    case "${QT_QPA_PLATFORM:-}" in
+        ""|wayland*) export QT_QPA_PLATFORM=xcb ;;
+    esac
 fi
 
 # On Ubuntu/Debian, fail with an exact apt command before Qt attempts to load
