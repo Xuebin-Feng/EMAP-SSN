@@ -41,6 +41,12 @@ parts/
 sdist/
 var/
 wheels/
+!src/resources/wheels/
+src/resources/wheels/*
+!src/resources/wheels/esm-3.3.0-runtime-requirements.txt
+!src/resources/wheels/LICENSE.transformers
+!src/resources/wheels/transformers-4.57.6+biohub.3a8956f.patch
+!src/resources/wheels/transformers-4.57.6+biohub.3a8956f-py3-none-any.whl
 
 share/python-wheels/
 .installed.cfg

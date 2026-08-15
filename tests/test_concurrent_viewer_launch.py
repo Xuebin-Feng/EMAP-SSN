@@ -33,7 +33,7 @@ class DependencyReadinessTests(unittest.TestCase):
             state = {"active_backend": {"backend": "cpu"}}
             active = object()
             with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
-                    mock.patch.object(Install_Dependencies, "verify_esm_wheel"), \
+                    mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
                     mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
                     mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
@@ -41,15 +41,25 @@ class DependencyReadinessTests(unittest.TestCase):
                     mock.patch.object(Install_Dependencies, "_state_matches", return_value=True), \
                     mock.patch.object(Install_Dependencies, "_backend_from_state", return_value=active), \
                     mock.patch.object(Install_Dependencies, "validate_backend", return_value={"devices": []}), \
-                    mock.patch.object(Install_Dependencies, "_installed_version", return_value=Install_Dependencies.ESM_VERSION), \
-                    mock.patch.object(Install_Dependencies, "_run", return_value=completed) as run:
+                    mock.patch.object(
+                        Install_Dependencies,
+                        "_installed_version",
+                        side_effect=lambda _python, package: (
+                            Install_Dependencies.TRANSFORMERS_VERSION
+                            if package == "transformers"
+                            else Install_Dependencies.ESM_VERSION
+                        ),
+                    ), mock.patch.object(
+                        Install_Dependencies, "validate_package_consistency", return_value=True
+                    ) as consistency, mock.patch.object(
+                        Install_Dependencies, "validate_esm_stack", return_value=True
+                    ):
                 ready = Install_Dependencies.environment_is_ready(
                     project_root=root, venv=root, uv_executable="uv"
                 )
 
         self.assertTrue(ready)
-        self.assertIn("check", run.call_args.args[0])
-        self.assertNotIn("install", run.call_args.args[0])
+        consistency.assert_called_once_with("uv", python)
 
     def test_changed_state_requires_setup(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -57,7 +67,7 @@ class DependencyReadinessTests(unittest.TestCase):
             python = root / "python"
             python.touch()
             with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
-                    mock.patch.object(Install_Dependencies, "verify_esm_wheel"), \
+                    mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
                     mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
                     mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \

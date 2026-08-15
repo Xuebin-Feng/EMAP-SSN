@@ -20,6 +20,7 @@ attribution banner; the underlying upstream body is otherwise unchanged.
 | Component | Version | License | Location | License text |
 |---|---|---|---|---|
 | [ESM](https://github.com/evolutionaryscale/esm) | 3.3.0, source commit `c94ed8d763bbd7088b296949e5b401e8ea12073a` | MIT | `src/resources/wheels/esm-3.3.0-py3-none-any.whl` | [`LICENSE.esm`](src/resources/wheels/LICENSE.esm) |
+| [Biohub Transformers](https://github.com/Biohub/transformers) | 4.57.6+biohub.3a8956f, source commit `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf` | Apache-2.0 | `src/resources/wheels/transformers-4.57.6+biohub.3a8956f-py3-none-any.whl` | [`LICENSE.transformers`](src/resources/wheels/LICENSE.transformers) |
 | [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT | `src/resources/esmfold/molstar.js`, `molstar.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar) |
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
@@ -35,9 +36,14 @@ attribution banner; the underlying upstream body is otherwise unchanged.
 - ESM: the unmodified `py3-none-any` wheel was built from the upstream commit
   where the MIT relicense landed. Its SHA-256 is
   `d5e412470877fa2e21c36b40a52cdf1bef5664234654355dc2a35bb8cd2f4d82`;
-  `src/resources/wheels/manifest.json` records its size and provenance. The
-  wheel pins Chan Zuckerberg Biohub's Apache-2.0 Transformers fork at commit
-  `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`.
+  `src/resources/wheels/manifest.json` records its size and provenance.
+- Biohub Transformers: the bundled `py3-none-any` wheel is from commit
+  `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`, based on Hugging Face commit
+  `753d61104116eefc8ffc977327b441ee0c8d599f`. The only patch changes the
+  package version from `4.57.6` to `4.57.6+biohub.3a8956f`. Its SHA-256 is
+  `74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b`;
+  the patch, build recipe, source commits, size, and license are recorded under
+  `src/resources/wheels/`.
 - Tabulator: Copyright (c) 2015-2024 Oli Folkerd. Vendored 2026-07-07.
 - marked: Copyright (c) 2018+, MarkedJS; Copyright (c) 2011-2018, Christopher
   Jeffrey. Vendored 2026-08-06. **Version note:** the page previously loaded an
@@ -114,8 +120,8 @@ a remote inference API, and the agent calls whichever LLM endpoint is configured
 
 ## 3. Python dependencies
 
-Installed at runtime via `pip`/`uv`; except for the ESM wheel identified in
-section 1, these packages are not redistributed by this project. As of the
+Installed at runtime via `pip`/`uv`; except for the ESM and Biohub Transformers
+wheels identified in section 1, these packages are not redistributed by this project. As of the
 PySide6 and graspologic-native migrations there are **no
 strong-copyleft dependencies remaining**; what is left is weak/file-level
 copyleft, which imposes obligations only on those packages' own files. This set
@@ -135,9 +141,10 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | graspologic-native | MIT (Copyright (c) Microsoft Corporation) |
 | biopython | Biopython License (BSD-style) |
 | esm 3.3.0 wheel | MIT — bundled as documented in section 1 |
+| Biohub Transformers 4.57.6+biohub.3a8956f wheel | Apache-2.0 — bundled as documented in section 1 |
 | torch | BSD-3-Clause — CPU, CUDA, XPU, Linux ROCm, or Windows ROCm build selected at installation |
 | AMD ROCm 7.14 runtime wheel components | MIT — downloaded dynamically from AMD's official index only for supported Windows AMD GPUs |
-| Biohub Transformers fork, accelerate | Apache-2.0 |
+| accelerate | Apache-2.0 |
 | numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown | BSD-3-Clause |
 | numba | BSD-2-Clause |

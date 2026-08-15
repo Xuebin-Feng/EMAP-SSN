@@ -379,7 +379,8 @@ License, and [NOTICE](NOTICE) for required attributions.
 
 ### Third-party components
 
-This repository bundles the MIT-licensed ESM wheel, Mol*, and Tabulator, depends
+This repository bundles the MIT-licensed ESM wheel, the Apache-2.0 Biohub
+Transformers wheel, Mol*, and Tabulator, depends
 on Python packages under a range of licenses, and can load
 protein-language-model weights governed by their own terms. A full inventory,
 including which components are redistributed and which are merely required at
@@ -396,10 +397,13 @@ separately and are not included in this source repository. Any future executable
 or installer that redistributes Qt binaries needs a separate LGPL compliance
 review.
 
-The repository bundles an unmodified ESM 3.3.0 wheel built from the upstream
-MIT-licensed source commit. Its source commit, SHA-256, and adjacent license are
-recorded under `src/resources/wheels/`; model weights remain separately
-downloaded and retain their publishers' licenses. See sections 1 and 5 of
+The repository bundles an unmodified ESM 3.3.0 wheel and a reproducible Biohub
+Transformers wheel labeled `4.57.6+biohub.3a8956f`. Their source commits,
+SHA-256 values, build documentation, and adjacent licenses are recorded under
+`src/resources/wheels/`. Installation does not clone the Biohub repository, but
+it is not fully offline: ordinary PyPI dependencies, the selected PyTorch build,
+and model weights remain separately downloaded. Model weights retain their
+publishers' licenses. See sections 1 and 5 of
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 Before publishing a release, confirm that copyright ownership and release

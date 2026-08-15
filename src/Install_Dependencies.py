@@ -18,15 +18,18 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from email.parser import Parser
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
 import textwrap
 from typing import Any, Iterable
+import zipfile
 
 import Detect_GPU
 
@@ -37,8 +40,10 @@ WINDOWS_ROCM_714_TORCH_VERSION = "2.12.0+rocm7.14.0"
 WINDOWS_ROCM_721_TORCH_VERSION = "2.9.1+rocm7.2.1"
 ESM_VERSION = "3.3.0"
 ESM_WHEEL_SHA256 = "d5e412470877fa2e21c36b40a52cdf1bef5664234654355dc2a35bb8cd2f4d82"
+TRANSFORMERS_VERSION = "4.57.6+biohub.3a8956f"
+TRANSFORMERS_WHEEL_SHA256 = "74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b"
 STATE_FILENAME = "ssn_backend.json"
-STATE_SCHEMA = 3
+STATE_SCHEMA = 4
 SETUP_REQUIRED_EXIT = 10
 
 PYTORCH_INDEXES = {
@@ -187,7 +192,17 @@ def torch_install_command(uv_executable: str, python: Path, spec: BackendSpec) -
 
 
 def esm_install_command(uv_executable: str, python: Path, wheel: Path) -> list[str]:
+    return _uv_prefix(uv_executable, python) + ["--no-deps", str(wheel)]
+
+
+def transformers_install_command(uv_executable: str, python: Path, wheel: Path) -> list[str]:
     return _uv_prefix(uv_executable, python) + [str(wheel)]
+
+
+def esm_runtime_install_command(
+    uv_executable: str, python: Path, requirements: Path
+) -> list[str]:
+    return _uv_prefix(uv_executable, python) + ["-r", str(requirements)]
 
 
 def _run(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -225,12 +240,110 @@ def hardware_fingerprint(report: dict[str, Any]) -> str:
     return _stable_hash(material)
 
 
-def verify_esm_wheel(wheel: Path) -> None:
+def _wheel_metadata(wheel: Path) -> tuple[Any, set[str]]:
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+            metadata_files = [name for name in names if name.endswith(".dist-info/METADATA")]
+            if len(metadata_files) != 1:
+                raise ValueError(f"Expected one METADATA file in {wheel.name}.")
+            metadata = Parser().parsestr(archive.read(metadata_files[0]).decode("utf-8"))
+    except (OSError, UnicodeError, zipfile.BadZipFile, KeyError) as error:
+        raise ValueError(f"Bundled wheel is unreadable: {wheel}: {error}") from error
+    return metadata, names
+
+
+def _verify_wheel(
+    wheel: Path, *, package: str, version: str, sha256: str,
+    required_members: Iterable[str] = (),
+) -> Any:
     if not wheel.is_file():
-        raise FileNotFoundError(f"Bundled ESM wheel is missing: {wheel}")
+        raise FileNotFoundError(f"Bundled {package} wheel is missing: {wheel}")
     actual = _sha256(wheel)
-    if actual != ESM_WHEEL_SHA256:
-        raise ValueError(f"Bundled ESM wheel checksum mismatch: expected {ESM_WHEEL_SHA256}, got {actual}.")
+    if actual != sha256:
+        raise ValueError(
+            f"Bundled {package} wheel checksum mismatch: expected {sha256}, got {actual}."
+        )
+    metadata, names = _wheel_metadata(wheel)
+    if metadata.get("Name", "").lower() != package.lower():
+        raise ValueError(f"Bundled wheel reports the wrong package name: {metadata.get('Name')!r}.")
+    if metadata.get("Version") != version:
+        raise ValueError(
+            f"Bundled {package} wheel reports version {metadata.get('Version')!r}; expected {version!r}."
+        )
+    missing = [member for member in required_members if member not in names]
+    if missing:
+        raise ValueError(f"Bundled {package} wheel is missing required modules: {', '.join(missing)}.")
+    return metadata
+
+
+def verify_esm_wheel(wheel: Path) -> Any:
+    return _verify_wheel(
+        wheel, package="esm", version=ESM_VERSION, sha256=ESM_WHEEL_SHA256,
+        required_members=("esm/__init__.py",),
+    )
+
+
+def verify_transformers_wheel(wheel: Path) -> Any:
+    return _verify_wheel(
+        wheel, package="transformers", version=TRANSFORMERS_VERSION,
+        sha256=TRANSFORMERS_WHEEL_SHA256,
+        required_members=(
+            "transformers/__init__.py",
+            "transformers/models/esmc/configuration_esmc.py",
+            "transformers/models/esmfold2/configuration_esmfold2.py",
+        ),
+    )
+
+
+def _requirement_name(requirement: str) -> str:
+    match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", requirement)
+    return match.group(1).lower().replace("_", "-") if match else ""
+
+
+def esm_runtime_requirements_from_wheel(wheel: Path) -> tuple[str, ...]:
+    metadata = verify_esm_wheel(wheel)
+    return tuple(
+        requirement
+        for requirement in metadata.get_all("Requires-Dist", [])
+        if _requirement_name(requirement) not in {"torch", "transformers"}
+    )
+
+
+def _requirements_entries(path: Path) -> tuple[str, ...]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Bundled ESM runtime requirements are missing: {path}")
+    return tuple(
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def verify_esm_runtime_requirements(wheel: Path, requirements: Path) -> None:
+    expected = esm_runtime_requirements_from_wheel(wheel)
+    actual = _requirements_entries(requirements)
+    if actual != expected:
+        raise ValueError(
+            "Bundled ESM runtime requirements do not match the verified ESM wheel metadata."
+        )
+
+
+def verify_bundled_artifacts(
+    esm_wheel: Path, transformers_wheel: Path, runtime_requirements: Path
+) -> None:
+    verify_esm_wheel(esm_wheel)
+    verify_transformers_wheel(transformers_wheel)
+    verify_esm_runtime_requirements(esm_wheel, runtime_requirements)
+
+
+def _bundled_paths(project_root: Path) -> tuple[Path, Path, Path]:
+    wheels = project_root / "src" / "resources" / "wheels"
+    return (
+        wheels / f"esm-{ESM_VERSION}-py3-none-any.whl",
+        wheels / f"transformers-{TRANSFORMERS_VERSION}-py3-none-any.whl",
+        wheels / f"esm-{ESM_VERSION}-runtime-requirements.txt",
+    )
 
 
 def read_state(path: Path) -> dict[str, Any] | None:
@@ -272,6 +385,12 @@ def _state_profile(
         "requirements_sha256": _sha256(requirements),
         "esm_version": ESM_VERSION,
         "esm_wheel_sha256": ESM_WHEEL_SHA256,
+        "transformers_version": TRANSFORMERS_VERSION,
+        "transformers_wheel_sha256": TRANSFORMERS_WHEEL_SHA256,
+        "esm_runtime_requirements_sha256": _sha256(
+            requirements.parent / "resources" / "wheels"
+            / f"esm-{ESM_VERSION}-runtime-requirements.txt"
+        ),
         "validated_devices": [],
         "ignored_devices": [],
         "attempts": [],
@@ -448,6 +567,47 @@ def _installed_version(python: Path, package: str) -> str | None:
     return completed.stdout.strip() if completed.returncode == 0 else None
 
 
+def _esm_stack_program() -> str:
+    return textwrap.dedent(
+        f"""
+        import importlib.metadata as metadata
+        import esm
+        from transformers.models.esmc.configuration_esmc import ESMCConfig
+        from transformers.models.esmc.modeling_esmc import ESMCModel
+        from transformers.models.esmfold2.configuration_esmfold2 import ESMFold2Config
+        from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model
+
+        assert metadata.version("esm") == {ESM_VERSION!r}
+        assert metadata.version("transformers") == {TRANSFORMERS_VERSION!r}
+        assert ESMCConfig.model_type == "esmc"
+        assert ESMFold2Config.model_type == "esmfold2"
+        assert ESMCModel is not None and ESMFold2Model is not None
+        """
+    ).strip()
+
+
+def validate_esm_stack(python: Path) -> bool:
+    completed = _run(
+        [str(python), "-X", "utf8", "-c", _esm_stack_program()], capture=True
+    )
+    if completed.returncode == 0:
+        return True
+    detail = completed.stderr.strip() or completed.stdout.strip() or "import smoke test failed"
+    print(f"ESM/Transformers import validation failed: {detail}", file=sys.stderr)
+    return False
+
+
+def validate_package_consistency(uv_executable: str, python: Path) -> bool:
+    completed = _run(
+        [uv_executable, "pip", "check", "--python", str(python)], capture=True
+    )
+    if completed.returncode == 0:
+        return True
+    detail = completed.stderr.strip() or completed.stdout.strip() or "uv pip check failed"
+    print(f"Installed package consistency failed: {detail}", file=sys.stderr)
+    return False
+
+
 def install_backend(uv_executable: str, python: Path, spec: BackendSpec) -> dict[str, Any] | None:
     if not remove_backend_packages(uv_executable, python):
         return None
@@ -471,6 +631,12 @@ def _state_matches(
         and state.get("requirements_sha256") == _sha256(requirements)
         and state.get("esm_version") == ESM_VERSION
         and state.get("esm_wheel_sha256") == ESM_WHEEL_SHA256
+        and state.get("transformers_version") == TRANSFORMERS_VERSION
+        and state.get("transformers_wheel_sha256") == TRANSFORMERS_WHEEL_SHA256
+        and state.get("esm_runtime_requirements_sha256") == _sha256(
+            requirements.parent / "resources" / "wheels"
+            / f"esm-{ESM_VERSION}-runtime-requirements.txt"
+        )
         and state.get("requested_candidates") == _spec_payloads(specs)
     )
 
@@ -486,8 +652,8 @@ def install(
 ) -> int:
     python = venv_python(venv)
     requirements = project_root / "src" / "requirements.txt"
-    wheel = project_root / "src" / "resources" / "wheels" / f"esm-{ESM_VERSION}-py3-none-any.whl"
-    verify_esm_wheel(wheel)
+    esm_wheel, transformers_wheel, runtime_requirements = _bundled_paths(project_root)
+    verify_bundled_artifacts(esm_wheel, transformers_wheel, runtime_requirements)
 
     report = Detect_GPU.detect_hardware()
     specs = backend_specs(report)
@@ -503,13 +669,21 @@ def install(
             print(f"Ignoring {item.get('name')}: {item.get('reason')}")
 
     base_command = base_install_command(uv_executable, python, requirements)
-    esm_command = esm_install_command(uv_executable, python, wheel)
+    transformers_command = transformers_install_command(
+        uv_executable, python, transformers_wheel
+    )
+    runtime_command = esm_runtime_install_command(
+        uv_executable, python, runtime_requirements
+    )
+    esm_command = esm_install_command(uv_executable, python, esm_wheel)
     if dry_run:
         print(f"Dry run base: {shlex.join(base_command)}")
         for position, spec in enumerate(specs, 1):
             print(f"Dry run candidate {position}: {spec.description}")
             for command in backend_install_commands(uv_executable, python, spec):
                 print(f"  {shlex.join(command)}")
+        print(f"Dry run Transformers: {shlex.join(transformers_command)}")
+        print(f"Dry run ESM runtime dependencies: {shlex.join(runtime_command)}")
         print(f"Dry run ESM: {shlex.join(esm_command)}")
         return 0
 
@@ -546,9 +720,25 @@ def install(
         print("No PyTorch backend, including CPU, could be installed and validated.", file=sys.stderr)
         return 1
 
-    esm_ready = state_matches and _installed_version(python, "esm") == ESM_VERSION
-    if not esm_ready and _run(esm_command).returncode != 0:
-        print("Bundled ESM wheel installation failed.", file=sys.stderr)
+    esm_ready = (
+        state_matches
+        and _installed_version(python, "transformers") == TRANSFORMERS_VERSION
+        and _installed_version(python, "esm") == ESM_VERSION
+        and validate_esm_stack(python)
+    )
+    if not esm_ready:
+        if _run(transformers_command).returncode != 0:
+            print("Bundled Biohub Transformers wheel installation failed.", file=sys.stderr)
+            return 1
+        if _run(runtime_command).returncode != 0:
+            print("ESM runtime dependency installation failed.", file=sys.stderr)
+            return 1
+        if _run(esm_command).returncode != 0:
+            print("Bundled ESM wheel installation failed.", file=sys.stderr)
+            return 1
+    if not validate_package_consistency(uv_executable, python):
+        return 1
+    if not validate_esm_stack(python):
         return 1
 
     active_devices = validation.get("validated_devices", [])
@@ -559,6 +749,9 @@ def install(
         "requirements_sha256": _sha256(requirements),
         "esm_version": ESM_VERSION,
         "esm_wheel_sha256": ESM_WHEEL_SHA256,
+        "transformers_version": TRANSFORMERS_VERSION,
+        "transformers_wheel_sha256": TRANSFORMERS_WHEEL_SHA256,
+        "esm_runtime_requirements_sha256": _sha256(runtime_requirements),
         "requested_candidates": _spec_payloads(specs),
         "active_backend": _spec_payloads((active,))[0],
         "validated_devices": active_devices,
@@ -575,6 +768,8 @@ def install(
     write_state(state_path, payload, final_report)
     print(f"Dependency environment is ready ({active.description}).")
     print(f"Validated runtime devices: {len(active_devices)}")
+    print(f"Bundled Transformers version: {TRANSFORMERS_VERSION}")
+    print(f"Bundled ESM version: {ESM_VERSION}")
     return 0
 
 
@@ -584,18 +779,16 @@ def environment_is_ready(
     """Check launcher readiness without installing or changing the environment."""
     python = venv_python(venv)
     requirements = project_root / "src" / "requirements.txt"
-    wheel = (
-        project_root / "src" / "resources" / "wheels"
-        / f"esm-{ESM_VERSION}-py3-none-any.whl"
-    )
+    esm_wheel, transformers_wheel, runtime_requirements = _bundled_paths(project_root)
     if not python.is_file():
         print(f"Environment is not ready: {python} is missing.", file=sys.stderr)
         return False
 
     try:
         print(f"Managed Python: {python}")
-        verify_esm_wheel(wheel)
-        print(f"Bundled ESM wheel: verified ({wheel.name})")
+        verify_bundled_artifacts(esm_wheel, transformers_wheel, runtime_requirements)
+        print(f"Bundled Transformers wheel: verified ({transformers_wheel.name})")
+        print(f"Bundled ESM wheel: verified ({esm_wheel.name})")
         report = Detect_GPU.detect_hardware()
         specs = backend_specs(report)
         fingerprint = hardware_fingerprint(report)
@@ -624,29 +817,32 @@ def environment_is_ready(
         if active is None or validation is None:
             print("Environment is not ready: runtime backend validation failed.", file=sys.stderr)
             return False
+        if _installed_version(python, "transformers") != TRANSFORMERS_VERSION:
+            print(
+                "Environment is not ready: bundled Biohub Transformers version is missing.",
+                file=sys.stderr,
+            )
+            return False
         if _installed_version(python, "esm") != ESM_VERSION:
             print("Environment is not ready: bundled ESM version is missing.", file=sys.stderr)
             return False
-        check = _run(
-            [uv_executable, "pip", "check", "--python", str(python)],
-            capture=True,
-        )
-        if check.returncode != 0:
+        if not validate_package_consistency(uv_executable, python):
             print("Environment is not ready: installed packages are inconsistent.", file=sys.stderr)
+            return False
+        if not validate_esm_stack(python):
+            print("Environment is not ready: ESM import validation failed.", file=sys.stderr)
             return False
         print("Installed package consistency: passed")
     except (FileNotFoundError, ValueError, OSError) as error:
         print(f"Environment readiness check failed: {error}", file=sys.stderr)
         return False
 
-    check_output = getattr(check, "stdout", "")
-    if isinstance(check_output, str) and check_output.strip():
-        print(check_output.strip())
     print(f"Dependency environment is ready ({active_label}).")
     print(
         "Validated runtime devices: "
         f"{len(validation.get('validated_devices', validation.get('devices', [])))}"
     )
+    print(f"Bundled Transformers version: {TRANSFORMERS_VERSION}")
     print(f"Bundled ESM version: {ESM_VERSION}")
     return True
 

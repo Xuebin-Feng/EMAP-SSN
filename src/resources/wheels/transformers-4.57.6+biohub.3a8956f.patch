@@ -1,0 +1,26 @@
+diff --git a/setup.py b/setup.py
+index c54ca71e3..c1148f385 100644
+--- a/setup.py
++++ b/setup.py
+@@ -461,7 +461,7 @@ install_requires = [
+ 
+ setup(
+     name="transformers",
+-    version="4.57.6",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
++    version="4.57.6+biohub.3a8956f",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
+     author="The Hugging Face team (past and future) with the help of all our contributors (https://github.com/huggingface/transformers/graphs/contributors)",
+     author_email="transformers@huggingface.co",
+     description="State-of-the-art Machine Learning for JAX, PyTorch and TensorFlow",
+diff --git a/src/transformers/__init__.py b/src/transformers/__init__.py
+index 181ca3b0c..ca69fcdae 100755
+--- a/src/transformers/__init__.py
++++ b/src/transformers/__init__.py
+@@ -18,7 +18,7 @@
+ # to defer the actual importing for when the objects are requested. This way `import transformers` provides the names
+ # in the namespace without actually importing anything (and especially none of the backends).
+ 
+-__version__ = "4.57.6"
++__version__ = "4.57.6+biohub.3a8956f"
+ 
+ from pathlib import Path
+ from typing import TYPE_CHECKING

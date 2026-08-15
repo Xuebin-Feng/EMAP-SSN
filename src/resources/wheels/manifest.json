@@ -15,6 +15,26 @@
       "license": "MIT",
       "license_file": "LICENSE.esm",
       "notes": "Unmodified wheel built from the upstream MIT-licensed source commit."
+    },
+    {
+      "filename": "transformers-4.57.6+biohub.3a8956f-py3-none-any.whl",
+      "package": "transformers",
+      "version": "4.57.6+biohub.3a8956f",
+      "upstream_version": "4.57.6",
+      "python_tag": "py3",
+      "requires_python": ">=3.9.0",
+      "platform_tag": "any",
+      "size": 12139612,
+      "sha256": "74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b",
+      "source_repository": "https://github.com/Biohub/transformers",
+      "source_commit": "3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf",
+      "upstream_repository": "https://github.com/huggingface/transformers",
+      "upstream_base_commit": "753d61104116eefc8ffc977327b441ee0c8d599f",
+      "source_date_epoch": 1779863841,
+      "version_patch": "transformers-4.57.6+biohub.3a8956f.patch",
+      "license": "Apache-2.0",
+      "license_file": "LICENSE.transformers",
+      "notes": "Biohub source with only the documented local-version packaging patch applied."
     }
   ]
 }

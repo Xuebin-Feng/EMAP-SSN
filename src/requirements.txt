@@ -46,7 +46,8 @@ tqdm==4.70.0
 umap-learn==0.5.12
 vispy==0.16.2
 
-# ESM, its dependencies (including accelerate and the exact Biohub Transformers
-# fork), and the platform-specific PyTorch build are installed by
-# Install_Dependencies.py. Keep them out of this shared file so the generic
-# resolver cannot download or replace the selected accelerator backend.
+# The bundled ESM and Biohub Transformers wheels, ESM's other runtime
+# dependencies (including accelerate), and the platform-specific PyTorch build
+# are installed in a controlled order by Install_Dependencies.py. Keep them out
+# of this shared file so the generic resolver cannot download or replace either
+# verified wheel or the selected accelerator backend.

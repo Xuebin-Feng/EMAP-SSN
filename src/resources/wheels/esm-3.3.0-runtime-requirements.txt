@@ -1,0 +1,24 @@
+# Derived from every Requires-Dist entry in the verified ESM 3.3.0 wheel.
+# torch and transformers are deliberately excluded because the installer
+# supplies the validated backend and bundled Biohub Transformers wheel first.
+ipython
+einops
+biotite>=1.0.0
+rdkit
+msgpack-numpy
+biopython
+scikit-learn
+brotli
+attrs
+pandas
+cloudpathlib
+httpx
+tenacity
+zstd
+ipywidgets
+py3dmol
+pydssp
+boto3
+pygtrie
+dna_features_viewer
+accelerate

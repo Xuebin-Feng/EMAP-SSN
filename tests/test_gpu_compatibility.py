@@ -335,7 +335,7 @@ class InstallerProfileTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder, \
             mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_esm_wheel"), \
+            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
             mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
             mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
             mock.patch.object(Install_Dependencies, "install_backend", side_effect=[None, validation]) as install_backend, \
@@ -370,7 +370,7 @@ class InstallerProfileTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder, \
             mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_esm_wheel"), \
+            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
             mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
             mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
             mock.patch.object(Install_Dependencies, "install_backend", side_effect=[None, validation]) as install_backend, \
@@ -416,7 +416,7 @@ class InstallerProfileTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as folder, \
             mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_esm_wheel"), \
+            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
             mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
             mock.patch("builtins.print") as printer:
             result = Install_Dependencies.install(project_root=ROOT, venv=Path(folder), uv_executable="uv", dry_run=True)
@@ -442,7 +442,7 @@ class InstallerProfileTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as folder, \
             mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_esm_wheel"), \
+            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
             mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
             mock.patch("builtins.print") as printer:
             result = Install_Dependencies.install(

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from contextlib import redirect_stdout
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -165,6 +166,17 @@ class GPUDetectionTests(unittest.TestCase):
 
 
 class DependencyInstallerTests(unittest.TestCase):
+    def _cpu_report(self):
+        return detected_report(
+            backend_candidates=[{
+                "backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]
+            }],
+            compatibility_revision=Detect_GPU.COMPATIBILITY_REVISION,
+            platform="windows",
+            os="Windows",
+            devices=[],
+        )
+
     def test_subprocess_commands_are_not_echoed(self):
         success = mock.Mock(returncode=0, stdout="", stderr="")
         output = io.StringIO()
@@ -187,6 +199,15 @@ class DependencyInstallerTests(unittest.TestCase):
             self.assertTrue(Install_Dependencies.validate_backend(Path("python"), spec))
 
         self.assertEqual(output.getvalue(), "")
+
+    def test_esm_import_smoke_test_forces_utf8_mode(self):
+        success = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(
+            Install_Dependencies, "_run", return_value=success
+        ) as run:
+            self.assertTrue(Install_Dependencies.validate_esm_stack(Path("python")))
+        command = run.call_args.args[0]
+        self.assertEqual(command[1:3], ["-X", "utf8"])
 
     def test_backend_commands_use_exact_versions_and_indexes(self):
         python = Path(".venv/Scripts/python.exe")
@@ -245,9 +266,215 @@ class DependencyInstallerTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(Install_Dependencies._is_backend_package(name))
 
-    def test_esm_wheel_matches_declared_hash(self):
-        wheel = ROOT / "src" / "resources" / "wheels" / "esm-3.3.0-py3-none-any.whl"
-        Install_Dependencies.verify_esm_wheel(wheel)
+    def test_bundled_wheels_match_manifest_hashes_metadata_licenses_and_modules(self):
+        wheels = ROOT / "src" / "resources" / "wheels"
+        manifest = json.loads((wheels / "manifest.json").read_text(encoding="utf-8"))
+        artifacts = {item["package"]: item for item in manifest["artifacts"]}
+        expected = {
+            "esm": (
+                "esm-3.3.0-py3-none-any.whl",
+                Install_Dependencies.ESM_VERSION,
+                Install_Dependencies.ESM_WHEEL_SHA256,
+                "MIT",
+            ),
+            "transformers": (
+                "transformers-4.57.6+biohub.3a8956f-py3-none-any.whl",
+                Install_Dependencies.TRANSFORMERS_VERSION,
+                Install_Dependencies.TRANSFORMERS_WHEEL_SHA256,
+                "Apache-2.0",
+            ),
+        }
+        for package, (filename, version, sha256, license_name) in expected.items():
+            with self.subTest(package=package):
+                artifact = artifacts[package]
+                wheel = wheels / filename
+                self.assertEqual(artifact["filename"], filename)
+                self.assertEqual(artifact["version"], version)
+                self.assertEqual(artifact["sha256"], sha256)
+                self.assertEqual(artifact["license"], license_name)
+                self.assertEqual(artifact["size"], wheel.stat().st_size)
+                self.assertEqual(hashlib.sha256(wheel.read_bytes()).hexdigest(), sha256)
+                license_text = (wheels / artifact["license_file"]).read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn("permission", license_text.lower())
+
+        esm_metadata = Install_Dependencies.verify_esm_wheel(
+            wheels / expected["esm"][0]
+        )
+        transformers_metadata = Install_Dependencies.verify_transformers_wheel(
+            wheels / expected["transformers"][0]
+        )
+        self.assertEqual(esm_metadata["Version"], Install_Dependencies.ESM_VERSION)
+        self.assertEqual(
+            transformers_metadata["Version"], Install_Dependencies.TRANSFORMERS_VERSION
+        )
+        self.assertEqual(transformers_metadata["License"], "Apache 2.0 License")
+        self.assertEqual(artifacts["transformers"]["upstream_version"], "4.57.6")
+        self.assertEqual(
+            artifacts["transformers"]["source_commit"],
+            "3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf",
+        )
+
+    def test_esm_runtime_requirements_exactly_follow_verified_wheel_metadata(self):
+        esm_wheel, _, requirements = Install_Dependencies._bundled_paths(ROOT)
+        metadata = Install_Dependencies.verify_esm_wheel(esm_wheel)
+        all_requirements = tuple(metadata.get_all("Requires-Dist", []))
+        expected = tuple(
+            value
+            for value in all_requirements
+            if Install_Dependencies._requirement_name(value)
+            not in {"torch", "transformers"}
+        )
+        actual = Install_Dependencies._requirements_entries(requirements)
+        self.assertEqual(actual, expected)
+        excluded = {
+            Install_Dependencies._requirement_name(value)
+            for value in all_requirements
+            if value not in actual
+        }
+        self.assertEqual(excluded, {"torch", "transformers"})
+        Install_Dependencies.verify_esm_runtime_requirements(esm_wheel, requirements)
+
+    def test_install_order_uses_transformers_dependencies_then_esm_no_deps(self):
+        report = self._cpu_report()
+        success = mock.Mock(returncode=0, stdout="", stderr="")
+        commands = []
+        events = []
+
+        def run(command, **_kwargs):
+            commands.append(command)
+            events.append(" ".join(str(part) for part in command))
+            return success
+
+        def install_backend(*_args):
+            events.append("BACKEND")
+            return True
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Install_Dependencies, "venv_python", return_value=Path(sys.executable)
+        ), mock.patch.object(
+            Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report
+        ), mock.patch.object(
+            Install_Dependencies, "_run", side_effect=run
+        ), mock.patch.object(
+            Install_Dependencies, "install_backend", side_effect=install_backend
+        ), mock.patch.object(
+            Install_Dependencies, "_installed_version", return_value="4.57.6"
+        ), mock.patch.object(Install_Dependencies, "write_state"):
+            code = Install_Dependencies.install(
+                project_root=ROOT, venv=Path(temp_dir), uv_executable="uv"
+            )
+
+        self.assertEqual(code, 0)
+        joined = [" ".join(str(part) for part in command) for command in commands]
+        positions = {
+            "base": next(i for i, value in enumerate(events) if str(ROOT / "src" / "requirements.txt") in value),
+            "backend": events.index("BACKEND"),
+            "transformers": next(i for i, value in enumerate(events) if "transformers-4.57.6+biohub" in value),
+            "runtime": next(i for i, value in enumerate(events) if "esm-3.3.0-runtime-requirements.txt" in value),
+            "esm": next(i for i, value in enumerate(events) if "esm-3.3.0-py3-none-any.whl" in value),
+            "check": next(i for i, value in enumerate(events) if "pip check" in value),
+        }
+        self.assertEqual(list(positions.values()), sorted(positions.values()))
+        transformers_command = next(
+            command for command in commands
+            if "transformers-4.57.6+biohub" in " ".join(str(part) for part in command)
+        )
+        esm_command = next(
+            command for command in commands
+            if "esm-3.3.0-py3-none-any.whl" in " ".join(str(part) for part in command)
+        )
+        self.assertNotIn("--no-deps", transformers_command)
+        self.assertIn("--no-deps", esm_command)
+        self.assertLess(esm_command.index("--no-deps"), len(esm_command) - 1)
+
+    def test_dry_run_names_local_wheels_without_biohub_git_url(self):
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Install_Dependencies, "venv_python", return_value=Path(sys.executable)
+        ), mock.patch.object(
+            Install_Dependencies.Detect_GPU,
+            "detect_hardware",
+            return_value=self._cpu_report(),
+        ), redirect_stdout(output):
+            code = Install_Dependencies.install(
+                project_root=ROOT,
+                venv=Path(temp_dir),
+                uv_executable="uv",
+                dry_run=True,
+            )
+        text = output.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("transformers-4.57.6+biohub.3a8956f-py3-none-any.whl", text)
+        self.assertIn("esm-3.3.0-py3-none-any.whl", text)
+        self.assertIn("--no-deps", text)
+        self.assertNotIn("github.com/Biohub/transformers", text)
+
+    def test_missing_or_corrupt_bundle_fails_before_any_install_command(self):
+        errors = (
+            FileNotFoundError("Bundled transformers wheel is missing"),
+            ValueError("Bundled transformers wheel checksum mismatch"),
+        )
+        for error in errors:
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temp_dir, \
+                    mock.patch.object(Install_Dependencies, "venv_python", return_value=Path(sys.executable)), \
+                    mock.patch.object(Install_Dependencies, "verify_bundled_artifacts", side_effect=error), \
+                    mock.patch.object(Install_Dependencies, "_run") as run:
+                with self.assertRaises(type(error)):
+                    Install_Dependencies.install(
+                        project_root=ROOT, venv=Path(temp_dir), uv_executable="uv"
+                    )
+                run.assert_not_called()
+
+    def test_wrong_transformers_metadata_version_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wheel = Path(temp_dir) / "transformers.whl"
+            wheel.touch()
+            members = {
+                "transformers/__init__.py",
+                "transformers/models/esmc/configuration_esmc.py",
+                "transformers/models/esmfold2/configuration_esmfold2.py",
+            }
+            metadata = {"Name": "transformers", "Version": "4.57.6"}
+            with mock.patch.object(
+                Install_Dependencies,
+                "_sha256",
+                return_value=Install_Dependencies.TRANSFORMERS_WHEEL_SHA256,
+            ), mock.patch.object(
+                Install_Dependencies, "_wheel_metadata", return_value=(metadata, members)
+            ):
+                with self.assertRaisesRegex(ValueError, "reports version"):
+                    Install_Dependencies.verify_transformers_wheel(wheel)
+
+    def test_state_schema_versions_hashes_and_runtime_requirements_invalidate(self):
+        report = self._cpu_report()
+        specs = Install_Dependencies.backend_specs(report)
+        requirements = ROOT / "src" / "requirements.txt"
+        state = Install_Dependencies._state_profile(specs[0], requirements)
+        state.update({
+            "hardware_fingerprint": Install_Dependencies.hardware_fingerprint(report),
+            "requested_candidates": Install_Dependencies._spec_payloads(specs),
+        })
+        fingerprint = Install_Dependencies.hardware_fingerprint(report)
+        self.assertTrue(
+            Install_Dependencies._state_matches(state, specs, fingerprint, requirements)
+        )
+        mutations = {
+            "schema": 3,
+            "transformers_version": "4.57.6",
+            "transformers_wheel_sha256": "0" * 64,
+            "esm_runtime_requirements_sha256": "0" * 64,
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                changed = dict(state)
+                changed[field] = value
+                self.assertFalse(
+                    Install_Dependencies._state_matches(
+                        changed, specs, fingerprint, requirements
+                    )
+                )
 
     def test_failed_accelerator_install_falls_back_to_cpu(self):
         report = detected_report(
