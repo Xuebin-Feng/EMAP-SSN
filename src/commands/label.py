@@ -151,7 +151,8 @@ def print_help():
       NAME                 : Optional final XLSX filename. '.xlsx' is added if
                             omitted. Numeric or reserved names must include the
                             extension, for example '0.4.xlsx' or 'groups.xlsx'.
-                            The default remains Label_Output_YYYYMMDD_HHMMSS.xlsx.
+                            An existing custom filename is replaced. Automatic
+                            names use a numeric suffix instead of overwriting.
 
     Fixed behavior:
       Globally conserved residues are reported when their frequency is greater
@@ -822,8 +823,11 @@ def _run_label_artifact(viewer, args):
         out_path = os.path.abspath(viewer._label_output_path)
         out_dir = os.path.dirname(out_path)
         out_filename = os.path.basename(out_path)
+        allow_overwrite = bool(
+            getattr(viewer, "_label_allow_overwrite", False)
+        )
         if not os.path.exists(out_dir): os.makedirs(out_dir)
-        if os.path.exists(out_path):
+        if not allow_overwrite and os.path.exists(out_path):
             raise FileExistsError(f"Output file already exists: {out_path}")
 
         global_list = []
@@ -1249,7 +1253,7 @@ def _run_label_artifact(viewer, args):
             os.close(file_descriptor)
             try:
                 wb.save(partial_path)
-                if os.path.exists(out_path):
+                if not allow_overwrite and os.path.exists(out_path):
                     raise FileExistsError(
                         f"Output file already exists: {out_path}"
                     )
@@ -1364,6 +1368,7 @@ def run(viewer, args):
         getattr(cfg, "CLUSTER_LABEL_DIR", os.path.join("Results", "Cluster_Label"))
     )
     requested_filename = parameters["requested_filename"]
+    allow_overwrite = requested_filename is not None
     if requested_filename is None:
         generated = (
             "Label_Output_"
@@ -1380,12 +1385,6 @@ def run(viewer, args):
         output_path = os.path.abspath(
             os.path.join(output_directory, output_filename)
         )
-        if os.path.exists(output_path):
-            _report_label_error(
-                viewer,
-                f"Output file already exists: {output_path}",
-            )
-            return
         if scheduler.is_output_path_reserved(output_path):
             _report_label_error(
                 viewer,
@@ -1443,6 +1442,7 @@ def run(viewer, args):
         _label_network_metadata=network_metadata,
         _label_offset_display=utils.get_alignment_offset_display(viewer),
         _label_output_path=output_path,
+        _label_allow_overwrite=allow_overwrite,
     )
     envelope = _LabelJobEnvelope(snapshot, tuple(args))
     try:
@@ -1452,6 +1452,7 @@ def run(viewer, args):
             payload=envelope,
             worker=_execute_label_envelope,
             output_path=output_path,
+            allow_overwrite=allow_overwrite,
         )
     except (FileExistsError, RuntimeError) as error:
         _report_label_error(viewer, error)

@@ -317,7 +317,11 @@ class LogoIdentityKernelThreadTests(unittest.TestCase):
 
 class LogoSynchronousArtifactTests(unittest.TestCase):
     @staticmethod
-    def make_payload(directory, filename="background_logo.svg"):
+    def make_payload(
+        directory,
+        filename="background_logo.svg",
+        allow_overwrite=False,
+    ):
         return {
             "selected_seqs": ("AAAA", "AAAA", "GGGG"),
             "valid_cols": (0,),
@@ -328,6 +332,7 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
             "filename": filename,
             "color_scheme": "chemistry",
             "logo_dir": directory,
+            "allow_overwrite": allow_overwrite,
             "ref_id": "reference",
         }
 
@@ -352,6 +357,64 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
                 [],
             )
 
+    def test_artifact_renderer_overwrites_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.make_payload(
+                directory,
+                filename="overwrite.svg",
+                allow_overwrite=True,
+            )
+            out_file = os.path.join(directory, "overwrite.svg")
+            with open(out_file, "wb") as f:
+                f.write(b"old content")
+
+            result = logo_command._generate_logo_artifact(payload)
+
+            self.assertEqual(result["save_path"], out_file)
+            self.assertTrue(os.path.isfile(out_file))
+            with open(out_file, "rb") as f:
+                content = f.read()
+            self.assertNotEqual(content, b"old content")
+            self.assertGreater(len(content), 0)
+
+    def test_artifact_renderer_rejects_existing_file_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.make_payload(directory, filename="protected.svg")
+            out_file = os.path.join(directory, "protected.svg")
+            with open(out_file, "wb") as output:
+                output.write(b"existing content")
+
+            with self.assertRaisesRegex(FileExistsError, "already exists"):
+                logo_command._generate_logo_artifact(payload)
+
+            with open(out_file, "rb") as output:
+                self.assertEqual(output.read(), b"existing content")
+
+    def test_renderer_preserves_file_created_during_protected_render(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.make_payload(directory, filename="protected.svg")
+            out_file = os.path.join(directory, "protected.svg")
+
+            def save_and_create_competing_output(_figure, partial_path, **_kwargs):
+                with open(partial_path, "wb") as output:
+                    output.write(b"rendered content")
+                with open(out_file, "wb") as output:
+                    output.write(b"competing content")
+
+            with mock.patch(
+                "matplotlib.figure.Figure.savefig",
+                autospec=True,
+                side_effect=save_and_create_competing_output,
+            ):
+                with self.assertRaisesRegex(FileExistsError, "already exists"):
+                    logo_command._generate_logo_artifact(payload)
+
+            with open(out_file, "rb") as output:
+                self.assertEqual(output.read(), b"competing content")
+            self.assertEqual(
+                [name for name in os.listdir(directory) if ".partial" in name],
+                [],
+            )
 
 class CapturingScheduler:
     def __init__(self):
@@ -430,6 +493,58 @@ class LogoSnapshotTests(unittest.TestCase):
             self.assertEqual(payload["selected_seqs"], ("AAAA",))
             self.assertEqual(payload["valid_cols"], (0,))
             self.assertEqual(payload["plot_positions"], (1,))
+
+    def test_run_scopes_overwrite_to_explicit_filename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            existing_file = os.path.join(directory, "custom_logo.svg")
+            with open(existing_file, "wb") as f:
+                f.write(b"previous_content")
+
+            alignment_rows = MultipleSeqAlignment(
+                [
+                    SeqRecord(Seq("AAAA"), id="node0"),
+                ]
+            )
+            alignment = SimpleNamespace(
+                aln=alignment_rows,
+                viewer_to_aln=np.array([0]),
+                col_to_label={0: "1", 1: "2", 2: "3", 3: "4"},
+                label_to_col={"1": 0, "2": 1, "3": 2, "4": 3},
+                has_reference=True,
+            )
+            scheduler = CapturingScheduler()
+            viewer = SimpleNamespace(
+                alignment=alignment,
+                full_headers=["node0"],
+                selected_indices=[0],
+                cluster_labels=None,
+                group_labels=None,
+                active_reference="node0",
+                console_text=SimpleNamespace(text=""),
+                background_job_scheduler=scheduler,
+            )
+
+            with mock.patch.object(logo_command.cfg, "LOGO_DIR", directory), \
+                    mock.patch.object(
+                        logo_command.cfg,
+                        "HEADER_LIST_DIR",
+                        directory,
+                    ):
+                logo_command.run(viewer, ["[1]", "custom_logo.svg"])
+                explicit_job = scheduler.job
+                logo_command.run(viewer, ["[1]"])
+                automatic_job = scheduler.job
+
+            self.assertIsNotNone(explicit_job)
+            self.assertEqual(explicit_job["command_name"], "logo")
+            self.assertEqual(explicit_job["output_path"], existing_file)
+            self.assertTrue(explicit_job["allow_overwrite"])
+            self.assertTrue(explicit_job["payload"]["allow_overwrite"])
+            self.assertIsNotNone(automatic_job)
+            self.assertFalse(automatic_job["allow_overwrite"])
+            self.assertFalse(automatic_job["payload"]["allow_overwrite"])
+            self.assertEqual(viewer.console_text.text, "")
+
 
 if __name__ == "__main__":
     unittest.main()

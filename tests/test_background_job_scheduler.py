@@ -198,6 +198,46 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             self.assertTrue(wait_for(lambda: scheduler.queue_depth == 0))
         scheduler.shutdown()
 
+    def test_allow_overwrite_permits_existing_file_but_rejects_reserved_path(self):
+        viewer = ViewerStub()
+        scheduler = BackgroundJobScheduler(viewer)
+        release = threading.Event()
+
+        def worker(_payload):
+            release.wait(1.0)
+            return {"message": "done", "save_path": "ignored"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            existing = os.path.join(directory, "existing.svg")
+            with open(existing, "wb") as output:
+                output.write(b"present")
+
+            # With allow_overwrite=True, enqueuing with an existing file on disk succeeds
+            job_id = scheduler.enqueue(
+                "logo",
+                "existing",
+                None,
+                worker,
+                existing,
+                allow_overwrite=True,
+            )
+            self.assertEqual(job_id, 1)
+
+            # Concurrent reservation for the same path is still rejected even if allow_overwrite=True
+            with self.assertRaises(FileExistsError):
+                scheduler.enqueue(
+                    "logo",
+                    "existing",
+                    None,
+                    worker,
+                    existing,
+                    allow_overwrite=True,
+                )
+
+            release.set()
+            self.assertTrue(wait_for(lambda: scheduler.queue_depth == 0))
+        scheduler.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()

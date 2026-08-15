@@ -441,7 +441,8 @@ def _generate_logo_artifact(payload):
     save_path = os.path.abspath(
         payload.get("output_path") or os.path.join(logo_dir, filename)
     )
-    if os.path.exists(save_path):
+    allow_overwrite = bool(payload.get("allow_overwrite", False))
+    if not allow_overwrite and os.path.exists(save_path):
         raise FileExistsError(f"Output file already exists: {save_path}")
 
     fig_width = max(6, len(plot_positions) * 0.5 + 1)
@@ -499,7 +500,7 @@ def _generate_logo_artifact(payload):
             dpi=600,
             bbox_inches='tight',
         )
-        if os.path.exists(save_path):
+        if not allow_overwrite and os.path.exists(save_path):
             raise FileExistsError(f"Output file already exists: {save_path}")
         os.replace(partial_path, save_path)
         partial_path = None
@@ -885,12 +886,6 @@ def run(viewer, args):
         )
     else:
         output_path = os.path.abspath(os.path.join(logo_dir, filename))
-        if os.path.exists(output_path):
-            Command_Engine.print_help(
-                viewer,
-                f"Logo generation failed: Output file already exists: {output_path}",
-            )
-            return
         if scheduler.is_output_path_reserved(output_path):
             Command_Engine.print_help(
                 viewer,
@@ -898,6 +893,7 @@ def run(viewer, args):
                 f"background job: {output_path}",
             )
             return
+    allow_overwrite = not automatic_filename
 
     payload = {
         "selected_seqs": tuple(selected_seqs),
@@ -910,6 +906,7 @@ def run(viewer, args):
         "color_scheme": color_scheme,
         "logo_dir": logo_dir,
         "output_path": output_path,
+        "allow_overwrite": allow_overwrite,
         "ref_id": ref_id,
     }
     try:
@@ -919,6 +916,7 @@ def run(viewer, args):
             payload=payload,
             worker=_generate_logo_artifact,
             output_path=output_path,
+            allow_overwrite=allow_overwrite,
         )
     except (FileExistsError, RuntimeError) as exc:
         Command_Engine.print_help(viewer, f"Logo generation failed: {exc}")

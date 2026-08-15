@@ -95,6 +95,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         payload,
         worker,
         output_path,
+        allow_overwrite=False,
     ):
         """Reserve an output and append one immutable job to the FIFO queue."""
         output_path = os.path.abspath(os.fspath(output_path))
@@ -102,7 +103,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         with self._lock:
             if not self._accepting:
                 raise RuntimeError("The background job scheduler is shutting down.")
-            if os.path.exists(output_path):
+            if not allow_overwrite and os.path.exists(output_path):
                 raise FileExistsError(f"Output file already exists: {output_path}")
             if output_key in self._reserved_output_paths:
                 raise FileExistsError(

@@ -163,6 +163,51 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 worksheet = workbook[sheet_name]
                 self.assertIsNotNone(find_row(worksheet, "Global Conserved (>97%)"))
 
+    def test_custom_filename_overwrites_existing_workbook(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory, "overwrite_report.xlsx")
+            output_path.write_bytes(b"previous content")
+
+            viewer = self.run_label(directory, ["overwrite_report"])
+
+            self.assertIn(str(output_path), viewer.console_text.text)
+            self.assertNotEqual(output_path.read_bytes(), b"previous content")
+            workbook = openpyxl.load_workbook(output_path)
+            self.assertIn("Meta Data", workbook.sheetnames)
+            self.assertEqual(
+                [path for path in Path(directory).iterdir() if ".partial" in path.name],
+                [],
+            )
+
+    def test_automatic_output_created_during_render_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory, "automatic.xlsx")
+
+            def save_and_create_competing_output(
+                _workbook,
+                partial_path,
+            ):
+                Path(partial_path).write_bytes(b"rendered content")
+                output_path.write_bytes(b"competing content")
+
+            with mock.patch.object(
+                label,
+                "_available_automatic_output",
+                return_value=(output_path.name, str(output_path)),
+            ), mock.patch(
+                "openpyxl.workbook.workbook.Workbook.save",
+                autospec=True,
+                side_effect=save_and_create_competing_output,
+            ):
+                viewer = self.run_label(directory, [])
+
+            self.assertIn("already exists", viewer.console_text.text)
+            self.assertEqual(output_path.read_bytes(), b"competing content")
+            self.assertEqual(
+                [path for path in Path(directory).iterdir() if ".partial" in path.name],
+                [],
+            )
+
     def test_bare_filename_is_allowed_after_keyword_parameters(self):
         with tempfile.TemporaryDirectory() as directory:
             self.run_label(directory, ["cmin", "90%", "keyword_report"])
@@ -366,6 +411,9 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                         return_value=metadata,
                     ):
                 label.run(viewer, ["snapshot_report"])
+                explicit_job = scheduler.job
+                label.run(viewer, [])
+                automatic_job = scheduler.job
 
             alignment.aln[0].seq = Seq("G")
             alignment.col_to_label[0] = "99"
@@ -374,13 +422,19 @@ class LabelWorkbookPercentTests(unittest.TestCase):
             viewer.active_reference = "node2"
             viewer.alignment_offset = 99
 
-            snapshot = scheduler.job["payload"].viewer_snapshot
+            snapshot = explicit_job["payload"].viewer_snapshot
             self.assertEqual(str(snapshot.alignment.aln[0].seq), "A")
             self.assertEqual(snapshot.alignment.col_to_label, {0: "1"})
             self.assertEqual(snapshot.cluster_labels, (0, 0, 1, -1))
             self.assertEqual(snapshot.group_labels[0], frozenset({"GroupA"}))
             self.assertEqual(snapshot.active_reference, "node0")
             self.assertEqual(snapshot.alignment_offset, 7)
+            self.assertTrue(explicit_job["allow_overwrite"])
+            self.assertTrue(snapshot._label_allow_overwrite)
+            self.assertFalse(automatic_job["allow_overwrite"])
+            self.assertFalse(
+                automatic_job["payload"].viewer_snapshot._label_allow_overwrite
+            )
 
 
 if __name__ == "__main__":
