@@ -56,6 +56,11 @@ def print_help():
       [EXPRESSION]            - (Optional) Logical expression to select which nodes are colored.
                                 If omitted, all nodes in the network are colored.
 
+    Selection Validation:
+      Referenced clusters, groups, alignment positions, metadata properties, and
+      files must exist. Invalid references abort before colors are changed.
+      A valid expression may match zero nodes.
+
     Examples:
       spectrum prop:Length
       spectrum property:Length color:plasma
@@ -171,7 +176,7 @@ def run(viewer, args):
                 getattr(viewer, 'alignment', None), metadata=viewer.metadata
             )
         except Exception as e:
-            Command_Engine.print_help(viewer, f"Error parsing expression '{expr}': {e}")
+            Command_Engine.report_selection_error(viewer, expr, e, "Spectrum")
             return
     else:
         mask = np.ones(viewer.n_nodes, dtype=bool)

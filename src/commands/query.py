@@ -69,6 +69,11 @@ def print_help():
     Logic Operators:
       & (AND), | (OR), ! (NOT), ^ (XOR)
 
+    Selection Validation:
+      Referenced clusters, groups, alignment positions, metadata properties, and
+      files must exist. Invalid references abort the query. A valid selection
+      expression may match zero nodes.
+
     Examples:
       query [10, 15, 20-30]                         (Queries pos 10, 15, and 20 to 30)
       query [K>10%]                                 (Finds positions where Lysine > 10%)
@@ -181,8 +186,7 @@ def run(viewer, args):
         try:
             mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
         except Exception as e:
-            viewer.console_text.text = f"Query Logic Error: {e}"
-            print(f"Error parsing subset logic '{expr}': {e}")
+            Command_Engine.report_selection_error(viewer, expr, e, "Query")
             return
             
         valid_nodes = np.where(mask)[0]

@@ -54,6 +54,11 @@ def print_help():
       6. UI Selection: $sele$    (Explicitly targets selected nodes)
       7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
 
+    Validation:
+      Referenced clusters, groups, alignment positions, metadata properties, and
+      files must exist in the current SSN. Invalid references abort the command
+      without changing the selection. A valid expression may match zero nodes.
+
     Examples:
       select P106                       (Selects only P106 nodes)
       select add "ATA"                  (Adds nodes with "ATA" to selection)
@@ -213,8 +218,7 @@ def run(viewer, args):
         visible_indices = set(np.where(viewer.visible_mask)[0].tolist())
         new_indices = set(np.where(mask)[0].tolist()).intersection(visible_indices)
     except Exception as e:
-        viewer.console_text.text = f"Selection Error: {e}"
-        print(f"\nError processing '{expr}': {e}")
+        Command_Engine.report_selection_error(viewer, expr, e, "Selection")
         return
 
     current_selection = set(getattr(viewer, 'selected_indices', []))

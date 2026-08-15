@@ -19,6 +19,227 @@ import os
 import SSN_Config as cfg
 
 
+class SelectionExpressionError(ValueError):
+    """Raised when a Boolean selection expression is invalid."""
+
+
+class SelectionContextError(SelectionExpressionError):
+    """Raised when an expression references data absent from the current SSN."""
+
+
+_METADATA_QUERY_PATTERN = re.compile(
+    r'^([a-zA-Z0-9_\-]+)\s*(>=|<=|!=|==|>|<|=)\s*(.*)$'
+)
+_SUGGESTION_LIMIT = 10
+
+
+def _format_available(values, label):
+    """Return a stable, bounded list of currently available expression targets."""
+    cleaned = []
+    seen = set()
+    for value in values:
+        display = str(value)
+        key = display.lower()
+        if key not in seen:
+            seen.add(key)
+            cleaned.append(display)
+
+    cleaned.sort(key=lambda value: value.lower())
+    if not cleaned:
+        return f"No {label} are currently available."
+
+    displayed = cleaned[:_SUGGESTION_LIMIT]
+    suffix = ""
+    if len(cleaned) > _SUGGESTION_LIMIT:
+        suffix = f" ... (+{len(cleaned) - _SUGGESTION_LIMIT} more)"
+    return f"Available {label}: {', '.join(displayed)}{suffix}"
+
+
+def _selection_file_path(target):
+    """Resolve an @file@ selection target to its configured header-list path."""
+    file_name = target.strip()
+    if file_name.lower().startswith('[ncbi]'):
+        file_name = file_name[6:]
+    elif file_name.lower().startswith('[pdb]'):
+        file_name = file_name[5:]
+
+    header_dir = getattr(
+        cfg,
+        'HEADER_LIST_DIR',
+        os.path.join("Input_Files", "Header_Lists"),
+    )
+    if file_name.lower().endswith(('.fasta', '.txt')):
+        return os.path.join(header_dir, file_name), header_dir
+    return os.path.join(header_dir, file_name + ".txt"), header_dir
+
+
+def _validate_file_target(target):
+    load_path, header_dir = _selection_file_path(target)
+    if not os.path.isfile(load_path):
+        raise SelectionContextError(
+            f"Selection file '{os.path.basename(load_path)}' does not exist.\n"
+            f"Expected location: {header_dir}"
+        )
+
+
+def _validate_label_target(cluster_labels, group_labels, target):
+    target_name = target.strip()
+    target_lower = target_name.lower()
+
+    if target_lower == "noise":
+        if cluster_labels is None:
+            raise SelectionContextError(
+                "Noise cannot be selected because clusters have not been defined.\n"
+                "Run the cluster command first."
+            )
+        cluster_values = np.asarray(cluster_labels)
+        if not np.any(cluster_values == -1):
+            available = [
+                f"cluster_{int(cluster_id)}"
+                for cluster_id in np.unique(cluster_values)
+                if int(cluster_id) != -1
+            ]
+            raise SelectionContextError(
+                "Noise does not exist in the current clustering.\n"
+                + _format_available(available, "clusters")
+            )
+        return
+
+    cluster_match = re.fullmatch(r'cluster_(\d+)', target_lower)
+    if cluster_match:
+        requested_id = int(cluster_match.group(1))
+        if cluster_labels is None:
+            raise SelectionContextError(
+                f"Cluster 'cluster_{requested_id}' cannot be selected because clusters "
+                "have not been defined.\nRun the cluster command first."
+            )
+        cluster_values = np.asarray(cluster_labels)
+        if not np.any(cluster_values == requested_id):
+            available = [
+                "noise" if int(cluster_id) == -1 else f"cluster_{int(cluster_id)}"
+                for cluster_id in np.unique(cluster_values)
+            ]
+            raise SelectionContextError(
+                f"Cluster 'cluster_{requested_id}' does not exist in the current SSN.\n"
+                + _format_available(available, "clusters")
+            )
+        return
+
+    available_groups = []
+    if group_labels is not None:
+        for groups in group_labels:
+            if groups:
+                available_groups.extend(str(group_name) for group_name in groups)
+
+    group_lookup = {group_name.lower() for group_name in available_groups}
+    if target_lower not in group_lookup:
+        raise SelectionContextError(
+            f"Group '{target_name}' does not exist in the current SSN.\n"
+            + _format_available(available_groups, "groups")
+        )
+
+
+def _validate_aa_target(alignment, target_aa, target_pos_label):
+    predicate = f"{target_aa}{target_pos_label}"
+    if not re.fullmatch(r'\d+(?:\.\d+)?', target_pos_label):
+        raise SelectionExpressionError(
+            f"Alignment position '{target_pos_label}' in predicate '{predicate}' is "
+            "not a valid integer or insertion-position label."
+        )
+    if alignment is None or getattr(alignment, 'aln', None) is None:
+        raise SelectionContextError(
+            f"Amino-acid predicate '{predicate}' cannot be evaluated because no "
+            "alignment is loaded."
+        )
+
+    label_to_col = getattr(alignment, 'label_to_col', None) or {}
+    if target_pos_label not in label_to_col:
+        ordered_labels = []
+        col_to_label = getattr(alignment, 'col_to_label', None) or {}
+        if isinstance(col_to_label, dict):
+            ordered_labels = [col_to_label[key] for key in sorted(col_to_label)]
+        if not ordered_labels:
+            ordered_labels = list(label_to_col.keys())
+        raise SelectionContextError(
+            f"Alignment position '{target_pos_label}' in predicate '{predicate}' "
+            "does not exist in the current displayed numbering.\n"
+            + _format_available(ordered_labels, "alignment positions")
+        )
+
+
+def _validate_metadata_target(metadata, target):
+    if not metadata:
+        raise SelectionContextError(
+            "Metadata predicate cannot be evaluated because no metadata is loaded."
+        )
+
+    match = _METADATA_QUERY_PATTERN.fullmatch(target.strip())
+    if not match:
+        raise SelectionExpressionError(
+            f"Invalid metadata predicate '{{{target}}}'. Use '{{PropertyOperatorValue}}', "
+            "for example '{{Length>500}}'."
+        )
+
+    key, operator, value_text = match.groups()
+    value_text = value_text.strip()
+    if not value_text:
+        raise SelectionExpressionError(
+            f"Metadata predicate '{{{target}}}' is missing a comparison value."
+        )
+
+    metadata_key = next(
+        (candidate for candidate in metadata if candidate.lower() == key.lower()),
+        None,
+    )
+    if metadata_key is None:
+        raise SelectionContextError(
+            f"Metadata property '{key}' does not exist in the current SSN.\n"
+            + _format_available(metadata.keys(), "metadata properties")
+        )
+
+    property_type = metadata[metadata_key].get("type")
+    if property_type == "number":
+        try:
+            float(value_text)
+            return
+        except ValueError:
+            if operator in ('=', '==') and '-' in value_text:
+                range_parts = value_text.split('-', 1)
+                try:
+                    float(range_parts[0].strip())
+                    float(range_parts[1].strip())
+                    return
+                except ValueError:
+                    pass
+            raise SelectionExpressionError(
+                f"Value '{value_text}' is not numeric for metadata property "
+                f"'{metadata_key}'."
+            )
+
+    if property_type == "text":
+        if operator not in ('=', '==', '!='):
+            raise SelectionExpressionError(
+                f"Operator '{operator}' is not supported for text metadata property "
+                f"'{metadata_key}'. Use '=', '==', or '!='."
+            )
+        return
+
+    raise SelectionExpressionError(
+        f"Metadata property '{metadata_key}' has unsupported type '{property_type}'."
+    )
+
+
+def report_selection_error(viewer, expression, error, operation="Selection"):
+    """Report a concise HUD error and detailed terminal diagnostics."""
+    error_lines = str(error).splitlines() or [str(error)]
+    message_lines = [f"{operation} error: {error_lines[0]}"]
+    message_lines.extend(error_lines[1:])
+    if expression:
+        message_lines.append(f"Expression: {expression}")
+    message_lines.append("Operation aborted; no changes were applied.")
+    print_help(viewer, "\n".join(message_lines))
+
+
 class _LogicMask:
     """Three-state boolean mask used to preserve unknown AA predicates."""
 
@@ -138,13 +359,7 @@ def evaluate_file_mask(full_headers, target):
         is_pdb_mode = True
         file_name = file_name[5:]
         
-    header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-    
-    # 1. Path Resolution (.fasta, .txt, or default to .txt)
-    if file_name.lower().endswith('.fasta') or file_name.lower().endswith('.txt'):
-        load_path = os.path.join(header_dir, file_name)
-    else:
-        load_path = os.path.join(header_dir, file_name + ".txt")
+    load_path, header_dir = _selection_file_path(target)
         
     if not os.path.isfile(load_path):
         print(f"Warning: Could not find file '{os.path.basename(load_path)}' in {header_dir}")
@@ -287,8 +502,7 @@ def evaluate_metadata_mask(full_headers, metadata, target):
 
     # Regex to extract Property, Operator, and Value
     # Supports operators: >=, <=, !=, ==, >, <, =
-    pattern = re.compile(r'^([a-zA-Z0-9_\-]+)\s*(>=|<=|!=|==|>|<|=)\s*(.*)$')
-    match = pattern.match(target.strip())
+    match = _METADATA_QUERY_PATTERN.match(target.strip())
     if not match:
         print(f"Warning: Invalid metadata query format '{target}'. Use 'KeyOperatorValue' (e.g. 'Length>500').")
         return mask
@@ -370,6 +584,9 @@ def evaluate_metadata_mask(full_headers, metadata, target):
 
 def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, cluster_labels=None, group_labels=None, alignment=None, metadata=None):
     """Tokenizes and evaluates complex boolean logic expressions with explicit syntax."""
+    if not isinstance(expr, str) or not expr.strip():
+        raise SelectionExpressionError("Boolean selection expression is empty.")
+
     masks = {}
     mask_idx = 0
     
@@ -387,6 +604,7 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 2. Files: @file_name@
     def file_repl(match):
         nonlocal mask_idx
+        _validate_file_target(match.group(1))
         masks[f'M_{mask_idx}'] = _LogicMask.known(
             evaluate_file_mask(full_headers, match.group(1))
         )
@@ -398,6 +616,7 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 2.5. Metadata: {key op val}
     def metadata_repl(match):
         nonlocal mask_idx
+        _validate_metadata_target(metadata, match.group(1))
         masks[f'M_{mask_idx}'] = _LogicMask.known(
             evaluate_metadata_mask(full_headers, metadata, match.group(1))
         )
@@ -409,6 +628,7 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     # 3. Labels (Clusters/Groups): #label_name#
     def label_repl(match):
         nonlocal mask_idx
+        _validate_label_target(cluster_labels, group_labels, match.group(1))
         masks[f'M_{mask_idx}'] = _LogicMask.known(
             evaluate_label_mask(full_headers, cluster_labels, group_labels, match.group(1))
         )
@@ -424,6 +644,7 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
             return match.group(0)
         aa = match.group(1)
         pos = match.group(2)
+        _validate_aa_target(alignment, aa, pos)
         aa_mask = evaluate_aa_mask(
             full_headers,
             alignment,
@@ -445,10 +666,22 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
     try:
         result = eval(final_expr, {"__builtins__": {}}, {"masks": masks})
         if isinstance(result, _LogicMask):
-            return result.to_bool()
-        return np.asarray(result, dtype=bool)
-    except Exception as e:
-        raise ValueError(f"Invalid logic expression: {final_expr}. Ensure no spaces exist inside the logic.")
+            result_mask = result.to_bool()
+        else:
+            result_mask = np.asarray(result, dtype=bool)
+        if result_mask.shape != (len(full_headers),):
+            raise SelectionExpressionError(
+                "Boolean expression did not resolve to one selection value per SSN "
+                "node. Check for empty or malformed targets."
+            )
+        return result_mask
+    except SelectionExpressionError:
+        raise
+    except Exception as error:
+        raise SelectionExpressionError(
+            f"Invalid Boolean expression '{expr}'. Ensure operators and parentheses "
+            "are complete and do not place spaces inside individual predicates."
+        ) from error
 
 def print_help(viewer, msg):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""

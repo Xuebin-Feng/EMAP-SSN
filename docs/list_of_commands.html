@@ -804,6 +804,11 @@
                     <li><strong>^ (XOR):</strong> <code>#cluster_1#^P106</code> (Exclusive OR - either in cluster 1 or has Proline at 106, but not both).</li>
                     <li><strong>() (Grouping):</strong> Parentheses can be used to enforce order of operations, e.g., <code>!(#cluster_1#|#cluster_2#)</code>.</li>
                 </ul>
+                <div class="callout">
+                    <div class="callout-title">Strict Context Validation</div>
+                    <p>Before an expression is applied, the interpreter verifies that every referenced cluster, noise label, custom group, displayed alignment position, metadata property, and header-list file exists in the current SSN context. Metadata comparisons must also use a value and operator compatible with the property type.</p>
+                    <p>If any reference or predicate is invalid, the entire submitted command is aborted and no network changes are applied. A concise error appears in the command overlay, while the terminal includes the expression and available valid targets. An existing target that legitimately matches zero nodes is not an expression error.</p>
+                </div>
             </div>
 
 <div class="section-divider" id="sec-core">Core Commands</div>
@@ -1294,6 +1299,7 @@
                 </div>
                 <p><strong>Overview:</strong> The select command bridges the gap between visual intuition and rigorous mathematical querying. While you can always select nodes by right-clicking or dragging a box with your mouse, the select tool allows you to instantly highlight thousands of specific nodes using the Common Expression Interpreter. It features powerful modifiers to combine mathematical queries with your manual mouse selections, as well as export capabilities.</p>
                 <p><em>* Note: This command only applies to and selects visible nodes.</em></p>
+                <p><em>* Invalid context references abort without changing the current selection; valid expressions that match zero visible nodes retain the normal behavior of the selected mode.</em></p>
                 
                 <div class="subheading">Selection Modes</div>
                 <ul>

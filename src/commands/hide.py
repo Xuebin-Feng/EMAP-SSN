@@ -25,6 +25,9 @@ def run(viewer, args):
                "  Without arguments: Immediately hides all currently selected nodes and their connected edges.\n"
                "  With 'single' or 'free': Hides all visible nodes that have no active edges at the current similarity threshold.\n"
                "  With EXPRESSION: Hides all visible nodes matching the logical expression.\n\n"
+               "Validation:\n"
+               "  Referenced clusters, groups, alignment positions, metadata properties, and files must exist.\n"
+               "  An invalid reference aborts without hiding nodes; a valid expression may match zero nodes.\n\n"
                "To unhide nodes, use the `reset hide` command.")
         Command_Engine.print_help(viewer, msg)
         return
@@ -116,8 +119,7 @@ def run(viewer, args):
                 metadata=getattr(viewer, 'metadata', None)
             )
         except Exception as e:
-            msg = f"Error processing expression '{expr}': {e}"
-            Command_Engine.print_help(viewer, msg)
+            Command_Engine.report_selection_error(viewer, expr, e, "Hide")
             return
 
         previous_visible = viewer.visible_mask.copy()

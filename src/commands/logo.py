@@ -628,6 +628,11 @@ def print_help():
                        Applies weighted frequencies to both modes
                        and effective-sample correction to bits mode.
 
+    Selection Validation:
+      Referenced clusters, groups, alignment positions, metadata properties, and
+      files must exist. Invalid references abort before a logo job is submitted.
+      A valid expression may match zero nodes.
+
     Examples:
       logo [10-20]                        (Logos pos 10-20 for selected or all nodes)
       logo #cluster_1# [1,5] pcts no_gap  (Percentage logo ignoring gaps for pos 1 and 5)
@@ -794,11 +799,19 @@ def run(viewer, args):
     viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
     
     try:
-        mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None))
+        mask = Command_Engine.parse_advanced_expression(
+            expr,
+            viewer_to_aln,
+            valid_indices,
+            viewer.full_headers,
+            getattr(viewer, 'cluster_labels', None),
+            getattr(viewer, 'group_labels', None),
+            getattr(viewer, 'alignment', None),
+            metadata=getattr(viewer, 'metadata', None),
+        )
         selected_nodes = np.where(mask)[0]
     except Exception as e:
-        msg = f"Expression Error: {e}"
-        viewer.console_text.text = msg
+        Command_Engine.report_selection_error(viewer, expr, e, "Logo")
         return
         
     if len(selected_nodes) == 0:

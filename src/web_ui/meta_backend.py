@@ -775,16 +775,25 @@ def download_metadata(viewer, filepath, expr=None):
             
             viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
             
-            mask = Command_Engine.parse_advanced_expression(
-                expr_cleaned,
-                viewer_to_aln,
-                valid_indices,
-                viewer.full_headers,
-                getattr(viewer, 'cluster_labels', None),
-                getattr(viewer, 'group_labels', None),
-                getattr(viewer, 'alignment', None),
-                metadata=viewer.metadata
-            )
+            try:
+                mask = Command_Engine.parse_advanced_expression(
+                    expr_cleaned,
+                    viewer_to_aln,
+                    valid_indices,
+                    viewer.full_headers,
+                    getattr(viewer, 'cluster_labels', None),
+                    getattr(viewer, 'group_labels', None),
+                    getattr(viewer, 'alignment', None),
+                    metadata=viewer.metadata
+                )
+            except Command_Engine.SelectionExpressionError as error:
+                Command_Engine.report_selection_error(
+                    viewer,
+                    expr,
+                    error,
+                    "Metadata export",
+                )
+                return False
             
             if np.sum(mask) == 0:
                 Command_Engine.print_help(viewer, f"Error: No nodes matched the expression '{expr}'.")

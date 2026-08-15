@@ -52,6 +52,11 @@ def print_help():
     Logic Operators:
       & (AND), | (OR), ! (NOT), ^ (XOR)
 
+    Validation:
+      Referenced clusters, groups, alignment positions, metadata properties, and
+      files must exist. If any expression is invalid, no assignments are applied.
+      A valid expression may match zero nodes.
+
     Examples:
       color red x2 triangle             (Modifies currently selected nodes)
       color P106 red                    (Colors nodes with Proline at pos 106 red)
@@ -186,41 +191,49 @@ def run(viewer, args):
     stats = []
     state_saved = False  # <--- NEW FLAG
 
-    # Ensure shape array exists internally before assignment
-    if not hasattr(viewer, 'current_shapes'):
-        viewer.current_shapes = np.full(viewer.n_nodes, 'disc', dtype=object)
-
+    evaluated_assignments = []
     for expr, color_str, scale_val, shape_val in assignments:
         if expr:
             expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
         try:
             mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
-            count = np.sum(mask)
-            
-            if count > 0:
-                # ---> NEW: Save state only once, and only if a match is actually found
-                if not state_saved:
-                    viewer._save_state()
-                    state_saved = True
-                    
-                if color_str:
-                    try: new_rgba = mcolors.to_rgba(color_str)
-                    except: new_rgba = utils.hex_to_rgba(color_str)
-                    viewer.current_colors[mask] = new_rgba
-                    
-                if scale_val: viewer.current_sizes[mask] = cfg.NODE_SIZE * scale_val
-                if shape_val: viewer.current_shapes[mask] = shape_val
-                    
-                total_modified += count
-                
-                labels = []
-                if color_str: labels.append(color_str)
-                if scale_val: labels.append(f"x{scale_val}")
-                if shape_val: labels.append(shape_val)
-                stats.append(f"{count} nodes ({', '.join(labels)})")
-                
         except Exception as e:
-            print(f"Error processing '{expr}': {e}")
+            Command_Engine.report_selection_error(viewer, expr, e, "Color")
+            return
+
+        evaluated_assignments.append(
+            (expr, color_str, scale_val, shape_val, mask, int(np.sum(mask)))
+        )
+
+    # Evaluation above is intentionally side-effect free so a bad later
+    # expression cannot leave earlier assignments partially applied.
+    if not hasattr(viewer, 'current_shapes'):
+        viewer.current_shapes = np.full(viewer.n_nodes, 'disc', dtype=object)
+
+    for expr, color_str, scale_val, shape_val, mask, count in evaluated_assignments:
+        if count <= 0:
+            continue
+
+        # Save state only once, and only if a match is actually found.
+        if not state_saved:
+            viewer._save_state()
+            state_saved = True
+
+        if color_str:
+            try: new_rgba = mcolors.to_rgba(color_str)
+            except: new_rgba = utils.hex_to_rgba(color_str)
+            viewer.current_colors[mask] = new_rgba
+
+        if scale_val: viewer.current_sizes[mask] = cfg.NODE_SIZE * scale_val
+        if shape_val: viewer.current_shapes[mask] = shape_val
+
+        total_modified += count
+
+        labels = []
+        if color_str: labels.append(color_str)
+        if scale_val: labels.append(f"x{scale_val}")
+        if shape_val: labels.append(shape_val)
+        stats.append(f"{count} nodes ({', '.join(labels)})")
             
     if total_modified > 0:
         viewer.update_nodes()

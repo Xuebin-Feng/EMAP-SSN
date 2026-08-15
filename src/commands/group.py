@@ -46,6 +46,11 @@ def print_help():
       6. UI Selection: $sele$    (Explicitly targets selected nodes)
       7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
 
+    Validation:
+      Referenced clusters, groups, alignment positions, metadata properties, and
+      files must exist. If any expression is invalid, no groups are applied.
+      A valid expression may match zero nodes.
+
     Commands:
       list          - Prints current group statistics to the console.
       remove/delete - Deletes the specified group(s) entirely.
@@ -170,22 +175,27 @@ def run(viewer, args):
         # Update Regex to match $sele$ exactly
         args = [re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', arg, flags=re.IGNORECASE) for arg in args]
 
-    # Initialize group sets if they don't exist
-    if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
-        viewer.group_labels = [set() for _ in range(viewer.n_nodes)]
-
     # Prepare mapping for boolean logic evaluations
     viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
     
     total_modified = 0
     stats = []
-    state_saved = False
     warnings_issued = []
 
     # Reserved keywords that cannot be used as group names
     reserved_words = {"noise", "reset", "remove", "delete", "list", "help"}
 
-    # Process pairs
+    current_group_labels = getattr(viewer, 'group_labels', None)
+    if current_group_labels is None:
+        staged_group_labels = [set() for _ in range(viewer.n_nodes)]
+    else:
+        staged_group_labels = [set(groups) for groups in current_group_labels]
+
+    evaluated_pairs = []
+
+    # Preflight every pair against staged labels. This preserves sequential
+    # define-then-use behavior without mutating the viewer until all expressions
+    # have been validated.
     for i in range(0, len(args), 2):
         expr = args[i]
         raw_name = args[i+1]
@@ -211,25 +221,30 @@ def run(viewer, args):
         if expr:
             expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
         try:
-            mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
-            count = np.sum(mask)
-            
+            mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), staged_group_labels, getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
+            count = int(np.sum(mask))
+
             if count > 0:
-                # Save state only once, and only if a match is actually found
-                if not state_saved:
-                    viewer._save_state()
-                    state_saved = True
-                
-                # Apply the group label to matching nodes
-                matching_indices = np.where(mask)[0]
-                for idx in matching_indices:
-                    viewer.group_labels[idx].add(name)
-                    
-                total_modified += count
-                stats.append(f"{count} nodes -> '{name}'")
-                
+                for idx in np.where(mask)[0]:
+                    staged_group_labels[idx].add(name)
+
+            evaluated_pairs.append((name, mask, count))
         except Exception as e:
-            print(f"Error processing '{expr}': {e}")
+            Command_Engine.report_selection_error(viewer, expr, e, "Group")
+            return
+
+    if any(count > 0 for _, _, count in evaluated_pairs):
+        viewer._save_state()
+        if current_group_labels is None:
+            viewer.group_labels = [set() for _ in range(viewer.n_nodes)]
+
+        for name, mask, count in evaluated_pairs:
+            if count <= 0:
+                continue
+            for idx in np.where(mask)[0]:
+                viewer.group_labels[idx].add(name)
+            total_modified += count
+            stats.append(f"{count} nodes -> '{name}'")
             
     if total_modified > 0:
         viewer.update_nodes()
