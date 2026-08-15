@@ -61,6 +61,35 @@ def get_cluster_color_map(cluster_ids):
         return {cid: combined_colors[idx % len(combined_colors)] for idx, cid in enumerate(sorted_clusters)}
     return {}
 
+
+def renumber_clusters_by_size(labels):
+    """Return 1-based cluster IDs ordered by size with stable tie-breaking."""
+    labels = np.asarray(labels)
+    renumbered = np.full(labels.shape, -1, dtype=int)
+    clustered_mask = labels != -1
+    if not np.any(clustered_mask):
+        return renumbered
+
+    clustered_labels = labels[clustered_mask]
+    _cluster_ids, inverse, counts = np.unique(
+        clustered_labels,
+        return_inverse=True,
+        return_counts=True,
+    )
+
+    member_indices = np.flatnonzero(clustered_mask)
+    minimum_member_indices = np.full(len(counts), labels.size, dtype=int)
+    np.minimum.at(minimum_member_indices, inverse, member_indices)
+
+    # np.lexsort uses the final key as primary: largest size first, then the
+    # lowest member node index for deterministic equal-size ordering.
+    size_order = np.lexsort((minimum_member_indices, -counts))
+    new_ids = np.empty(len(counts), dtype=int)
+    new_ids[size_order] = np.arange(1, len(counts) + 1, dtype=int)
+    renumbered[clustered_mask] = new_ids[inverse]
+    return renumbered
+
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -97,6 +126,10 @@ def print_help():
       [MIN_SIZE]    (Optional) Minimum Cluster Size (Integer).
                     - Groups smaller than this are designated as 'Noise' (Cluster -1).
                     - Default: 10
+
+    Cluster numbering:
+      Retained clusters are numbered from largest to smallest. Equal-size
+      clusters are ordered by their lowest member node index.
     """)
 
 def run(viewer, args):
@@ -318,6 +351,9 @@ def run(viewer, args):
         labels = utils.leiden_partition(
             n_nodes, edges, weights, resolution, min_sz, seed=42
         )
+
+    # Canonicalize IDs across every clustering mode without changing membership.
+    labels = renumber_clusters_by_size(labels)
 
     # --- 6. Update Viewer ---
     
