@@ -69,6 +69,7 @@ import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
 import Cache_Manifest as cache_manifest
+from Background_Job_Scheduler import BackgroundJobScheduler
 from utilities.FASTA_Sanitization import (
     load_sanitized_fasta,
     write_fasta_atomic,
@@ -442,6 +443,13 @@ class MainViewer:
         # --- 4. Draw Initial State ---
         self.draw_network()
         self.create_hud()
+        self.background_job_scheduler = BackgroundJobScheduler(self)
+        if hasattr(self.canvas.events, "close"):
+            self.canvas.events.close.connect(
+                lambda _event: self.background_job_scheduler.shutdown()
+            )
+        if qapp:
+            qapp.aboutToQuit.connect(self.background_job_scheduler.shutdown)
         
         # 1. Find the extreme coordinates of the final grid
         min_x, min_y = np.min(self.pos[:, :2], axis=0)

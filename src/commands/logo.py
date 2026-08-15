@@ -14,6 +14,7 @@
 
 import os
 import re
+import tempfile
 import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import SSN_Config as cfg
@@ -437,13 +438,18 @@ def _generate_logo_artifact(payload):
 
     logo_dir = payload["logo_dir"]
     os.makedirs(logo_dir, exist_ok=True)
-    save_path = os.path.join(logo_dir, filename)
+    save_path = os.path.abspath(
+        payload.get("output_path") or os.path.join(logo_dir, filename)
+    )
+    if os.path.exists(save_path):
+        raise FileExistsError(f"Output file already exists: {save_path}")
 
     fig_width = max(6, len(plot_positions) * 0.5 + 1)
     fig = Figure(figsize=(fig_width, 4))
     FigureCanvasAgg(fig)
     ax = fig.subplots()
 
+    partial_path = None
     try:
         logo = logomaker.Logo(dataframe, ax=ax, color_scheme=payload["color_scheme"])
 
@@ -479,14 +485,31 @@ def _generate_logo_artifact(payload):
         _configure_logo_y_axis(ax, mode, gap_mode)
 
         fig.tight_layout()
+        suffix = os.path.splitext(filename)[1].lower()
+        file_descriptor, partial_path = tempfile.mkstemp(
+            prefix=f".{os.path.splitext(filename)[0]}.",
+            suffix=f".partial{suffix}",
+            dir=logo_dir,
+        )
+        os.close(file_descriptor)
         fig.savefig(
-            save_path,
+            partial_path,
+            format=suffix.lstrip("."),
             transparent=filename.lower().endswith('.png'),
             dpi=600,
             bbox_inches='tight',
         )
+        if os.path.exists(save_path):
+            raise FileExistsError(f"Output file already exists: {save_path}")
+        os.replace(partial_path, save_path)
+        partial_path = None
     finally:
         fig.clear()
+        if partial_path and os.path.exists(partial_path):
+            try:
+                os.remove(partial_path)
+            except OSError:
+                pass
 
     message = f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes"
     if identity_threshold is not None:
@@ -500,6 +523,33 @@ def _generate_logo_artifact(payload):
         "save_path": save_path,
         "effective_sequence_count": effective_sequence_count,
     }
+
+
+def _normalize_logo_filename(filename):
+    """Return a safe SVG/PNG basename for the configured logo directory."""
+    filename = str(filename).strip()
+    if not filename:
+        raise ValueError("Filename cannot be empty.")
+    if filename in {".", ".."} or "/" in filename or "\\" in filename:
+        raise ValueError("Filename must not include a directory or path separators.")
+    if re.search(r'[<>:"|?*\x00-\x1f]', filename):
+        raise ValueError(f"Filename contains unsupported characters: '{filename}'.")
+    if not filename.lower().endswith((".png", ".svg")):
+        filename += ".svg"
+    return filename
+
+
+def _available_automatic_filename(scheduler, directory, filename):
+    """Add a stable numeric suffix when a generated timestamp is occupied."""
+    stem, suffix = os.path.splitext(filename)
+    candidate = filename
+    index = 2
+    while True:
+        path = os.path.abspath(os.path.join(directory, candidate))
+        if not os.path.exists(path) and not scheduler.is_output_path_reserved(path):
+            return candidate, path
+        candidate = f"{stem}_{index}{suffix}"
+        index += 1
 
 
 def resolve_reference_columns(alignment, requested_positions, ref_seq_str):
@@ -550,6 +600,9 @@ def print_help():
     Description:
       Generates a high-resolution SVG or PNG sequence logo for a targeted subset of nodes.
       Output is automatically saved to your 'Results/Sequence_Logos/' directory.
+      Label and logo jobs share one sequential background queue. Selection,
+      aligned sequences, mapped positions, and rendering options are captured
+      when the command is submitted.
 
       * QUICK USE: If no expression is provided, the command automatically targets 
         the nodes currently selected in the viewer. If no nodes are selected, it 
@@ -660,19 +713,25 @@ def run(viewer, args):
     # 3. Handle Ambiguity & Assign Filename/Expression
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"logo_{timestamp}.svg"
+    automatic_filename = True
     expr = "$sele$" 
     
     if len(args) == 1:
         if args[0].lower().endswith(('.png', '.svg')) or args[0].startswith('['): 
             filename = args[0]
+            automatic_filename = False
         else:
             expr = args[0]
     elif len(args) >= 2:
         filename = args.pop(-1)
+        automatic_filename = False
         expr = "".join(args)
 
-    if not filename.lower().endswith(('.png', '.svg')):
-        filename += ".svg"
+    try:
+        filename = _normalize_logo_filename(filename)
+    except ValueError as exc:
+        Command_Engine.print_help(viewer, f"Error: {exc}")
+        return
 
     # ---> NEW LOGIC: Smart Fallback to ALL Nodes <---
     if expr == "$sele$" and not getattr(viewer, 'selected_indices', []):
@@ -795,8 +854,38 @@ def run(viewer, args):
         viewer.console_text.text = msg
         return
 
-    # 9. Generate and save the logo synchronously.
+    # 9. Freeze the selected data and submit one background artifact job.
     logo_dir = getattr(cfg, 'LOGO_DIR', os.path.join("Results", "Sequence_Logos"))
+    scheduler = getattr(viewer, "background_job_scheduler", None)
+    if scheduler is None:
+        Command_Engine.print_help(
+            viewer,
+            "Logo generation failed: the background job scheduler is unavailable.",
+        )
+        return
+
+    if automatic_filename:
+        filename, output_path = _available_automatic_filename(
+            scheduler,
+            logo_dir,
+            filename,
+        )
+    else:
+        output_path = os.path.abspath(os.path.join(logo_dir, filename))
+        if os.path.exists(output_path):
+            Command_Engine.print_help(
+                viewer,
+                f"Logo generation failed: Output file already exists: {output_path}",
+            )
+            return
+        if scheduler.is_output_path_reserved(output_path):
+            Command_Engine.print_help(
+                viewer,
+                "Logo generation failed: Output file is already reserved by a "
+                f"background job: {output_path}",
+            )
+            return
+
     payload = {
         "selected_seqs": tuple(selected_seqs),
         "valid_cols": tuple(valid_cols),
@@ -807,21 +896,16 @@ def run(viewer, args):
         "filename": filename,
         "color_scheme": color_scheme,
         "logo_dir": logo_dir,
+        "output_path": output_path,
         "ref_id": ref_id,
     }
     try:
-        artifact = _generate_logo_artifact(payload)
-        if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = artifact["message"]
-        if hasattr(viewer, 'update_console_background'):
-            viewer.update_console_background()
-        print(f"\nSuccess! {artifact['message']}")
-    except ImportError as exc:
-        msg = (
-            "Logo generation failed because a required plotting package "
-            f"is unavailable: {exc}"
+        scheduler.enqueue(
+            command_name="logo",
+            description=f"logo -> {filename}",
+            payload=payload,
+            worker=_generate_logo_artifact,
+            output_path=output_path,
         )
-        Command_Engine.print_help(viewer, msg)
-    except Exception as exc:
-        msg = f"Logo generation failed: {exc}"
-        Command_Engine.print_help(viewer, msg)
+    except (FileExistsError, RuntimeError) as exc:
+        Command_Engine.print_help(viewer, f"Logo generation failed: {exc}")

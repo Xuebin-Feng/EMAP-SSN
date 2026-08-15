@@ -104,18 +104,21 @@ Available CLI commands:
     - With no target, or with `clusters`, exports every non-noise topology cluster and requires prior clustering. `group`/`groups` exports every defined custom group. One or more `group:<GROUP_NAME>` targets export only those named groups.
     - Files are written to the viewer's organized `Cache_Files/FASTA_Split/` hierarchy. This command chooses artifact names from cluster/group labels and does not accept a custom output filename.
 
-20. `label [clusters|groups] [gmax VALUE] [cmin VALUE] [FILENAME]`
+20. `label [clusters|groups] [gmax VALUE] [cmin VALUE] [IDENTITY] [FILENAME]`
     - Performs legacy differential sequence analysis and writes an XLSX workbook under `Results/Cluster_Label/`. It requires a loaded MSA and a valid active reference.
     - `clusters` is the default and analyzes all defined topology clusters plus custom groups; `groups` restricts analysis to custom groups.
     - `gmax` is the maximum outside-subset frequency allowed for a subset's dominant residue and defaults to `40%`. `cmin` is the minimum within-subset residue frequency and defaults to `98%`. Values accept decimal fractions or percentages. Global conservation is reported above a fixed `97%` threshold.
-    - Thresholds may be given as keyword/value pairs or positionally in gmax-then-cmin order, but positional thresholds must not follow keyword use. An optional final bare XLSX basename controls the report name; do not invent a `filename` keyword. The workbook includes subset statistics, occupancy statistics, reference identity, and alignment-offset metadata.
+    - Optional identity-neighbor reweighting is off by default. Enable it with `id 0.9`, `id 90`, or `id 90%`; alternatively, a third positional number after gmax and cmin is identity. The first two positional numbers retain their gmax-then-cmin meanings, and positional thresholds must not follow keyword use.
+    - Identity weights are calculated once across the complete aligned MSA and applied to global, subset, and outside-background residue frequencies and occupancy. Identity-enabled workbooks add Effective N while raw counts, proportions, and length statistics remain unweighted; omitted identity preserves the historical workbook layout.
+    - An optional final bare XLSX basename controls the report name; do not invent a `filename` keyword. The workbook includes subset statistics, occupancy statistics, reference identity, and alignment-offset metadata.
+    - Calculation and workbook generation are queued in the viewer's shared sequential background scheduler. The command snapshots its alignment, mappings, cluster/group memberships, reference/offset, parameters, and output metadata when submitted; later viewer changes do not alter the queued report.
 
 21. `logo [EXPRESSION] <POSITIONS> [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]`
     - Generates a sequence-logo SVG or PNG under `Results/Sequence_Logos/`. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels.
     - If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. Arguments may appear in nearly any order, but the last otherwise-unrecognized token is treated as FILENAME.
     - MODE is `bits` by default or `pcts`/`percentages`. GAP_MODE is `with_gap` by default, which scales total height by occupancy, or `no_gap`.
     - COLOR_SCHEME may be a supported standalone preset or `color=SCHEME`/`scheme=SCHEME`; the default is `chemistry`. IDENTITY optionally enables sequence-redundancy weighting and accepts a fraction, percentage points, or a percent token; weighting is off when omitted.
-    - Generation runs in the background, and only one logo job may run at a time.
+    - Generation uses the same sequential background scheduler as `label`. Selection, aligned sequences, mapped positions, reference, and rendering options are snapshotted when submitted; later viewer changes do not alter the queued logo.
 
 22. `print [FILENAME] [MODIFIERS]`
     - Exports an image under `Results/Saved_Images/`. With no filename it creates a timestamped PNG of the current view; a supplied name receives the appropriate extension when absent.

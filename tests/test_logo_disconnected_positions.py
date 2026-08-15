@@ -2,9 +2,13 @@ import os
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
+from Bio.Align import MultipleSeqAlignment
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -336,6 +340,96 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(result["save_path"]))
             self.assertGreater(os.path.getsize(result["save_path"]), 0)
             self.assertIn("effective N 2.00", result["message"])
+
+    def test_atomic_renderer_removes_partial_file_after_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.make_payload(directory, filename="atomic.svg")
+
+            logo_command._generate_logo_artifact(payload)
+
+            self.assertEqual(
+                [name for name in os.listdir(directory) if ".partial" in name],
+                [],
+            )
+
+
+class CapturingScheduler:
+    def __init__(self):
+        self.job = None
+
+    def is_output_path_reserved(self, _path):
+        return False
+
+    def enqueue(self, **job):
+        self.job = job
+        return 1
+
+
+class LogoSnapshotTests(unittest.TestCase):
+    def test_automatic_filename_uses_deterministic_numeric_suffix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = os.path.join(directory, "logo_stamp.svg")
+            second = os.path.join(directory, "logo_stamp_2.svg")
+            with open(first, "wb") as output:
+                output.write(b"existing")
+            scheduler = CapturingScheduler()
+            scheduler.is_output_path_reserved = lambda path: (
+                os.path.normcase(os.path.abspath(path))
+                == os.path.normcase(os.path.abspath(second))
+            )
+
+            filename, path = logo_command._available_automatic_filename(
+                scheduler,
+                directory,
+                "logo_stamp.svg",
+            )
+
+            self.assertEqual(filename, "logo_stamp_3.svg")
+            self.assertEqual(path, os.path.join(directory, filename))
+
+    def test_enqueued_logo_keeps_invocation_time_selection_and_sequences(self):
+        with tempfile.TemporaryDirectory() as directory:
+            alignment_rows = MultipleSeqAlignment(
+                [
+                    SeqRecord(Seq("AAAA"), id="node0"),
+                    SeqRecord(Seq("CCCC"), id="node1"),
+                ]
+            )
+            alignment = SimpleNamespace(
+                aln=alignment_rows,
+                viewer_to_aln=np.array([0, 1]),
+                col_to_label={0: "1", 1: "2", 2: "3", 3: "4"},
+                label_to_col={"1": 0, "2": 1, "3": 2, "4": 3},
+                has_reference=True,
+            )
+            scheduler = CapturingScheduler()
+            viewer = SimpleNamespace(
+                alignment=alignment,
+                full_headers=["node0", "node1"],
+                selected_indices=[0],
+                cluster_labels=None,
+                group_labels=None,
+                active_reference="node0",
+                console_text=SimpleNamespace(text=""),
+                background_job_scheduler=scheduler,
+            )
+
+            with mock.patch.object(logo_command.cfg, "LOGO_DIR", directory), \
+                    mock.patch.object(
+                        logo_command.cfg,
+                        "HEADER_LIST_DIR",
+                        directory,
+                    ):
+                logo_command.run(viewer, ["[1]", "snapshot.svg"])
+
+            viewer.selected_indices[:] = [1]
+            alignment_rows[0].seq = Seq("GGGG")
+            alignment.label_to_col["1"] = 3
+
+            payload = scheduler.job["payload"]
+            self.assertEqual(payload["selected_seqs"], ("AAAA",))
+            self.assertEqual(payload["valid_cols"], (0,))
+            self.assertEqual(payload["plot_positions"], (1,))
 
 if __name__ == "__main__":
     unittest.main()

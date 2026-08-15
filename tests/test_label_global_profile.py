@@ -15,6 +15,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from commands.label import (
+    _calculate_weighted_frequencies,
     _format_global_amino_acid_profile,
     _get_amino_acid_counts,
     _get_amino_acid_frequencies,
@@ -134,6 +135,63 @@ class LabelGlobalProfileTests(unittest.TestCase):
         self.assertEqual(
             _get_amino_acid_counts(alignment, 0),
             {"R": 2, "H": 1},
+        )
+
+    def test_weighted_frequency_stats_match_for_dense_and_sparse_alignments(self):
+        dense_alignment = MultipleSeqAlignment(
+            [
+                SeqRecord(Seq("A-"), id="a_gap"),
+                SeqRecord(Seq("AA"), id="a_full"),
+                SeqRecord(Seq("CA"), id="c_full"),
+            ]
+        )
+        sparse_alignment = SparseAlignmentStub(
+            np.array([[1, 0], [1, 1], [2, 1]], dtype=np.uint8),
+            {1: "A", 2: "C"},
+        )
+        mapping = {0: "1", 1: "2"}
+        weights = np.array([0.5, 0.5, 1.0])
+
+        dense_stats, dense_counts = _calculate_weighted_frequencies(
+            dense_alignment,
+            mapping,
+            weights,
+        )
+        sparse_stats, sparse_counts = _calculate_weighted_frequencies(
+            sparse_alignment,
+            mapping,
+            weights,
+        )
+
+        self.assertEqual(dense_stats.keys(), sparse_stats.keys())
+        for label in mapping.values():
+            self.assertEqual(dense_stats[label][0], sparse_stats[label][0])
+            np.testing.assert_allclose(dense_stats[label][1:], sparse_stats[label][1:])
+            self.assertEqual(dense_counts[label].keys(), sparse_counts[label].keys())
+            for amino_acid in dense_counts[label]:
+                self.assertAlmostEqual(
+                    dense_counts[label][amino_acid],
+                    sparse_counts[label][amino_acid],
+                )
+
+        self.assertEqual(dense_stats["1"][0], "A")
+        self.assertAlmostEqual(dense_stats["1"][1], 0.5)
+        self.assertAlmostEqual(dense_stats["1"][2], 1.0)
+        self.assertAlmostEqual(dense_stats["2"][1], 0.75)
+        self.assertAlmostEqual(dense_stats["2"][2], 0.75)
+
+    def test_weighted_outside_frequency_uses_exact_fractional_subset_count(self):
+        self.assertTrue(
+            _is_subset_specific_residue(
+                "R",
+                subset_frequency=0.4,
+                subset_size=1.0,
+                global_counts={"R": 0.5},
+                global_size=2.0,
+                cluster_min=0.4,
+                global_max=0.2,
+                subset_count=0.4,
+            )
         )
 
 

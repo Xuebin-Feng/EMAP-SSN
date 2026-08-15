@@ -16,10 +16,12 @@ import Command_Engine
 import os
 import glob
 import re
-import traceback
 import datetime
+import tempfile
 import numpy as np
 from collections import Counter
+from dataclasses import dataclass
+from types import SimpleNamespace
 import matplotlib
 matplotlib.use('Agg')
 
@@ -27,16 +29,94 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 from Bio import AlignIO
 from Bio.Align import MultipleSeqAlignment 
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Cache_Manifest as cache_manifest
 try:
     import commands.cluster as cluster_cmd
+    import commands.logo as logo_cmd
 except ImportError:
     import cluster as cluster_cmd
+    import logo as logo_cmd
 
 
 GLOBAL_CONSERVATION_THRESHOLD = 0.97
+
+
+class _FrozenSparseAlignment:
+    """Detached read-only copy of the sparse alignment data needed by label."""
+
+    def __init__(self, alignment):
+        self.matrix = alignment.matrix.copy()
+        self.int_to_aa = dict(alignment.int_to_aa)
+        self.headers = tuple(getattr(alignment, "headers", ()))
+        self.n_seqs, self.n_cols = self.matrix.shape
+
+    def __len__(self):
+        return self.n_seqs
+
+    def __getitem__(self, index):
+        row = self.matrix[index].toarray()[0]
+        sequence = "".join(
+            self.int_to_aa.get(int(value), "-") if value != 0 else "-"
+            for value in row
+        )
+        description = (
+            self.headers[index] if index < len(self.headers) else f"row_{index}"
+        )
+        return SeqRecord(
+            Seq(sequence),
+            id=description.split()[0],
+            description=description,
+        )
+
+    def __iter__(self):
+        for index in range(self.n_seqs):
+            yield self[index]
+
+    def get_alignment_length(self):
+        return self.n_cols
+
+
+class _FrozenAlignmentManager:
+    def __init__(self, alignment, viewer_to_aln=None):
+        source = alignment.aln
+        if hasattr(source, "matrix"):
+            self.aln = _FrozenSparseAlignment(source)
+        else:
+            self.aln = MultipleSeqAlignment(
+                [
+                    SeqRecord(
+                        Seq(str(record.seq)),
+                        id=record.id,
+                        name=record.name,
+                        description=record.description,
+                    )
+                    for record in source
+                ]
+            )
+        self.col_to_label = dict(alignment.col_to_label)
+        self.label_to_col = dict(alignment.label_to_col)
+        self.has_reference = bool(getattr(alignment, "has_reference", False))
+        self.resolved_ref_full = getattr(alignment, "resolved_ref_full", None)
+        if viewer_to_aln is None:
+            viewer_to_aln = getattr(alignment, "viewer_to_aln", ())
+        self.viewer_to_aln = np.asarray(viewer_to_aln, dtype=int).copy()
+        self.viewer_to_aln.setflags(write=False)
+
+@dataclass(frozen=True)
+class _LabelJobEnvelope:
+    viewer_snapshot: object
+    args: tuple
+
+
+def _setting(viewer, name, default=None):
+    settings = getattr(viewer, "_label_settings", None)
+    if settings is not None and name in settings:
+        return settings[name]
+    return getattr(cfg, name, default)
 
 
 def print_help():
@@ -51,7 +131,7 @@ def print_help():
       1. A Multiple Sequence Alignment (MSA) must be loaded.
       2. A Reference Sequence must be set (use the 'reference' command).
 
-    Usage: label [TARGET] [GLOBAL_MAX] [CLUSTER_MIN] [NAME]
+    Usage: label [TARGET] [GLOBAL_MAX] [CLUSTER_MIN] [IDENTITY] [NAME]
        or: label [TARGET] [key value] [<key 2> <value 2> ...] [NAME]
 
     Targets (Default: clusters):
@@ -64,6 +144,10 @@ def print_help():
                             that subset to be considered "Subset Specific".
       cmin (Cluster Min)  : Default 98%. Min frequency a residue must have WITHIN 
                             a subset to be reported as conserved.
+      id (Identity)       : Optional sequence-redundancy threshold. Equivalent
+                            forms: 0.9, 90, or 90%. Reweighting is OFF unless
+                            supplied. Without the 'id' keyword, identity must be
+                            the third positional number after gmax and cmin.
       NAME                 : Optional final XLSX filename. '.xlsx' is added if
                             omitted. Numeric or reserved names must include the
                             extension, for example '0.4.xlsx' or 'groups.xlsx'.
@@ -72,16 +156,20 @@ def print_help():
     Fixed behavior:
       Globally conserved residues are reported when their frequency is greater
       than 97% across all aligned sequences. This threshold is not configurable.
+      Label and logo jobs share one sequential background queue. Alignment,
+      memberships, reference numbering, and parameters are captured on submission.
 
     Examples:
       label                       (Uses gmax=40%, cmin=98%, and timestamp naming)
       label 0.4 0.9               (Positional: gmax=40%, cmin=90%)
+      label id 90%                 (Uses default gmax/cmin and 90% identity weights)
+      label 0.4 0.9 90% report    (Sets gmax, cmin, identity, and filename)
       label groups cmin 90%       (Keyword: Analyzes groups, sets cmin to 90%)
       label groups report         (Writes report.xlsx)
       label 0.4 0.9 report        (Sets thresholds and writes report.xlsx)
       
-    Note: Do not mix positional numbers after using keywords. A custom filename
-          must be the final argument.
+    Note: Do not mix positional numbers after using keywords. The first two
+          positional numbers remain gmax and cmin. A custom filename must be final.
     """)
 
 def parse_percentage(val_str):
@@ -106,9 +194,104 @@ def _normalize_output_filename(filename):
         filename += ".xlsx"
     return filename
 
-def get_sequence_stats(aln):
+
+def _parse_label_arguments(args):
+    """Parse label arguments without reading or mutating viewer state."""
+    valid_keys = {
+        "gmax", "global_max", "g_max",
+        "cmin", "cluster_min", "c_min",
+        "id",
+    }
+    fixed_keys = {"gmin", "global_min", "g_min"}
+    valid_targets = {"cluster", "clusters", "group", "groups"}
+    forced_target = "clusters"
+    requested_filename = None
+    positional_args = []
+    keyword_args = {}
+    keyword_mode = False
+
+    index = 0
+    while index < len(args):
+        raw_argument = args[index]
+        argument = raw_argument.lower()
+        if argument in valid_targets:
+            forced_target = (
+                "clusters" if argument in {"cluster", "clusters"} else "groups"
+            )
+            index += 1
+            continue
+        if argument in fixed_keys:
+            raise ValueError(
+                "gmin is fixed at 97% and cannot be set by the label command."
+            )
+        if argument in valid_keys:
+            keyword_mode = True
+            if index + 1 >= len(args):
+                raise ValueError(f"Missing numerical value for '{argument}'.")
+            if argument in {"gmax", "global_max", "g_max"}:
+                key_name = "gmax"
+            elif argument in {"cmin", "cluster_min", "c_min"}:
+                key_name = "cmin"
+            else:
+                key_name = "id"
+            value_text = args[index + 1]
+            if key_name == "id":
+                value = logo_cmd.parse_identity_threshold(value_text)
+            else:
+                value = parse_percentage(value_text)
+                if value is None:
+                    raise ValueError(
+                        f"Invalid percentage '{value_text}' for '{argument}'."
+                    )
+            if key_name in keyword_args:
+                raise ValueError(f"Duplicate assignment for '{key_name}'.")
+            keyword_args[key_name] = value
+            index += 2
+            continue
+
+        parsed_value = parse_percentage(argument)
+        if parsed_value is not None:
+            if keyword_mode:
+                raise ValueError(
+                    f"Ambiguous input. Positional argument '{argument}' found "
+                    "after keywords."
+                )
+            positional_args.append((raw_argument, parsed_value))
+            index += 1
+            continue
+
+        if requested_filename is not None:
+            raise ValueError("Provide only one custom output filename.")
+        if index != len(args) - 1:
+            raise ValueError("A custom output filename must be the final argument.")
+        requested_filename = _normalize_output_filename(raw_argument)
+        index += 1
+
+    positional_keys = ("gmax", "cmin", "id")
+    if len(positional_args) > len(positional_keys):
+        raise ValueError("Too many positional numerical arguments.")
+    for position, (raw_value, parsed_value) in enumerate(positional_args):
+        key_name = positional_keys[position]
+        if key_name in keyword_args:
+            raise ValueError(
+                f"Ambiguous input. '{key_name}' defined both positionally and "
+                "via keyword."
+            )
+        if key_name == "id":
+            parsed_value = logo_cmd.parse_identity_threshold(raw_value)
+        keyword_args[key_name] = parsed_value
+
+    return {
+        "global_max": keyword_args.get("gmax", 0.40),
+        "cluster_min": keyword_args.get("cmin", 0.98),
+        "identity_threshold": keyword_args.get("id"),
+        "forced_target": forced_target,
+        "requested_filename": requested_filename,
+    }
+
+def get_sequence_stats(aln, gap_chars=None):
     lengths = []
-    gap_chars = set(cfg.GAP_CHARS)
+    gap_chars = set(cfg.GAP_CHARS if gap_chars is None else gap_chars)
     for record in aln:
         seq_str = str(record.seq)
         ungapped_len = sum(1 for c in seq_str if c not in gap_chars)
@@ -118,21 +301,42 @@ def get_sequence_stats(aln):
     return int(np.min(arr)), int(np.max(arr)), np.mean(arr), np.std(arr)
 
 
-def _get_amino_acid_counts(aln, col_idx):
+def _get_amino_acid_counts(aln, col_idx, weights=None, gap_chars=None):
     """Return non-gap amino-acid counts for one alignment column."""
+    gap_chars = frozenset(cfg.GAP_CHARS if gap_chars is None else gap_chars)
+    if weights is not None:
+        weights = np.asarray(weights, dtype=float)
+        if len(weights) != len(aln):
+            raise ValueError("Sequence weights must match the alignment row count.")
+
+        aa_counts = {}
+        if hasattr(aln, 'matrix'):
+            column = aln.matrix.getcol(col_idx).tocoo()
+            for row_idx, aa_int in zip(column.row, column.data):
+                aa = aln.int_to_aa.get(int(aa_int), 'X')
+                if aa not in gap_chars:
+                    aa = str(aa).upper()
+                    aa_counts[aa] = aa_counts.get(aa, 0.0) + float(weights[row_idx])
+        else:
+            for row_idx, record in enumerate(aln):
+                aa = str(record.seq[col_idx]).upper()
+                if aa not in gap_chars:
+                    aa_counts[aa] = aa_counts.get(aa, 0.0) + float(weights[row_idx])
+        return aa_counts
+
     if hasattr(aln, 'matrix'):
         counts = Counter(aln.matrix[:, col_idx].data)
         aa_counts = {}
         for aa_int, count in counts.items():
             aa = aln.int_to_aa.get(aa_int, 'X')
-            if aa not in cfg.GAP_CHARS:
+            if aa not in gap_chars:
                 aa_counts[aa] = aa_counts.get(aa, 0) + count
     else:
         raw_counts = Counter(record.seq[col_idx].upper() for record in aln)
         aa_counts = {
             aa: count
             for aa, count in raw_counts.items()
-            if aa not in cfg.GAP_CHARS
+            if aa not in gap_chars
         }
 
     return {
@@ -141,21 +345,39 @@ def _get_amino_acid_counts(aln, col_idx):
     }
 
 
-def _get_amino_acid_frequencies(aln, col_idx):
+def _get_amino_acid_frequencies(
+    aln, col_idx, weights=None, gap_chars=None
+):
     """Return occupancy-diluted, non-gap amino-acid frequencies for one column."""
-    n_seqs = len(aln)
-    if n_seqs == 0:
+    denominator = (
+        float(np.asarray(weights, dtype=float).sum())
+        if weights is not None
+        else float(len(aln))
+    )
+    if denominator <= 0.0:
         return {}
     return {
-        aa: count / n_seqs
-        for aa, count in _get_amino_acid_counts(aln, col_idx).items()
+        aa: count / denominator
+        for aa, count in _get_amino_acid_counts(
+            aln,
+            col_idx,
+            weights=weights,
+            gap_chars=gap_chars,
+        ).items()
     }
 
 
-def _format_global_amino_acid_profile(aln, col_idx, frequencies=None):
+def _format_global_amino_acid_profile(
+    aln, col_idx, frequencies=None, weights=None, gap_chars=None
+):
     """Format a non-gap column profile using query.py's reporting semantics."""
     if frequencies is None:
-        frequencies = _get_amino_acid_frequencies(aln, col_idx)
+        frequencies = _get_amino_acid_frequencies(
+            aln,
+            col_idx,
+            weights=weights,
+            gap_chars=gap_chars,
+        )
 
     profile = []
     for aa, frequency in frequencies.items():
@@ -169,6 +391,49 @@ def _format_global_amino_acid_profile(aln, col_idx, frequencies=None):
     return " | ".join(f"{aa} {percentage:>5.1f}%" for aa, percentage in profile)
 
 
+def _calculate_weighted_frequencies(aln, mapping, weights, gap_chars=None):
+    """Return weighted consensus statistics and residue counts by display label."""
+    weights = np.asarray(weights, dtype=float)
+    if len(weights) != len(aln):
+        raise ValueError("Sequence weights must match the alignment row count.")
+
+    total_weight = float(weights.sum())
+    stats = {}
+    counts_by_label = {}
+    if total_weight <= 0.0:
+        return stats, counts_by_label
+
+    try:
+        alignment_length = aln.get_alignment_length()
+    except AttributeError:
+        alignment_length = aln.matrix.shape[1]
+
+    for col_idx, label in mapping.items():
+        if col_idx < 0 or col_idx >= alignment_length:
+            continue
+        counts = _get_amino_acid_counts(
+            aln,
+            col_idx,
+            weights=weights,
+            gap_chars=gap_chars,
+        )
+        counts_by_label[label] = counts
+        non_gap_weight = float(sum(counts.values()))
+        occupancy = non_gap_weight / total_weight
+        if not counts:
+            stats[label] = ('-', 0.0, 0.0)
+            continue
+
+        consensus_aa, consensus_count = max(counts.items(), key=lambda item: item[1])
+        stats[label] = (
+            consensus_aa,
+            float(consensus_count) / total_weight,
+            occupancy,
+        )
+
+    return stats, counts_by_label
+
+
 def _is_subset_specific_residue(
     subset_aa,
     subset_frequency,
@@ -177,6 +442,7 @@ def _is_subset_specific_residue(
     global_size,
     cluster_min,
     global_max,
+    subset_count=None,
 ):
     """Apply cmin and compare gmax against the leave-subset-out background."""
     if subset_frequency < cluster_min:
@@ -186,11 +452,16 @@ def _is_subset_specific_residue(
     if outside_size <= 0:
         return False
 
-    subset_count = int(round(subset_frequency * subset_size))
+    if subset_count is None:
+        # Preserve the historical integer-count reconstruction when weighting is off.
+        subset_count = int(round(subset_frequency * subset_size))
+    else:
+        subset_count = float(subset_count)
     global_count = global_counts.get(str(subset_aa).upper(), 0)
     outside_count = global_count - subset_count
-    if outside_count < 0:
+    if outside_count < -1e-12:
         return False
+    outside_count = max(0.0, outside_count)
 
     outside_frequency = outside_count / outside_size
     return outside_frequency < global_max
@@ -205,6 +476,8 @@ def _append_workbook_metadata(
     network_node_count=None,
     aligned_node_count=None,
     excluded_node_count=None,
+    identity_threshold=None,
+    effective_sequence_count=None,
 ):
     worksheet.append([f"Filename: {out_filename}"])
     worksheet.append([f"Reference: {ref_display}"])
@@ -213,12 +486,15 @@ def _append_workbook_metadata(
         worksheet.append([f"Network Nodes: {network_node_count}"])
         worksheet.append([f"Aligned Nodes: {aligned_node_count}"])
         worksheet.append([f"Excluded Unaligned Nodes: {excluded_node_count}"])
+    if identity_threshold is not None:
+        worksheet.append([f"Identity Threshold: {identity_threshold * 100:g}%"])
+        worksheet.append([f"Global Effective N: {effective_sequence_count:.2f}"])
     worksheet.append([f"Global Conserved (>{int(GLOBAL_CONSERVATION_THRESHOLD * 100)}%)"])
     worksheet.append(global_list if global_list else ["None"])
     worksheet.append([])
 
 
-def run(viewer, args):
+def _run_label_artifact(viewer, args):
     if args and args[0].lower() == 'reset':
         Command_Engine.execute_reset(viewer, ["clusters"])
         return
@@ -253,119 +529,12 @@ def run(viewer, args):
                 viewer.console_text.text = "Help information printed to the terminal"
             return
 
-        # --- Parameters ---
-        global_max = 0.40
-        cluster_min = 0.98
-        forced_target = "clusters"
-        requested_filename = None
-
-        valid_keys = {"gmax", "global_max", "g_max", "cmin", "cluster_min", "c_min"}
-        fixed_keys = {"gmin", "global_min", "g_min"}
-        valid_targets = {"cluster", "clusters", "group", "groups"}
-        
-        positional_args = []
-        keyword_args = {}
-        keyword_mode = False
-        
-        i = 0
-        while i < len(args):
-            arg = args[i].lower()
-                
-            # Catch targets anywhere in the command
-            if arg in valid_targets:
-                forced_target = "clusters" if arg in ["cluster", "clusters"] else "groups"
-                i += 1
-                continue
-
-            if arg in fixed_keys:
-                msg = "Error: gmin is fixed at 97% and cannot be set by the label command."
-                viewer.console_text.text = msg
-                print(msg)
-                return
-
-            # Catch space-separated keywords
-            if arg in valid_keys:
-                keyword_mode = True
-                if i + 1 >= len(args):
-                    msg = f"Error: Missing numerical value for '{arg}'."
-                    viewer.console_text.text = msg
-                    print(msg)
-                    return
-                
-                val_str = args[i+1]
-                val = parse_percentage(val_str)
-                if val is None:
-                    msg = f"Error: Invalid percentage '{val_str}' for '{arg}'."
-                    viewer.console_text.text = msg
-                    print(msg)
-                    return
-                
-                # Standardize key names
-                if arg in ["gmax", "global_max", "g_max"]: key_name = "gmax"
-                elif arg in ["cmin", "cluster_min", "c_min"]: key_name = "cmin"
-                
-                if key_name in keyword_args:
-                    msg = f"Error: Duplicate assignment for '{key_name}'."
-                    viewer.console_text.text = msg
-                    print(msg)
-                    return
-                    
-                keyword_args[key_name] = val
-                i += 2
-                continue
-                
-            # Numeric tokens retain their historical positional gmax/cmin meaning.
-            val = parse_percentage(arg)
-            if val is not None:
-                if keyword_mode:
-                    msg = f"Error: Ambiguous input. Positional argument '{arg}' found after keywords."
-                    viewer.console_text.text = msg
-                    print(msg)
-                    return
-                positional_args.append(val)
-                i += 1
-                continue
-
-            # One non-numeric final token is the custom output basename.
-            if requested_filename is not None:
-                msg = "Error: Provide only one custom output filename."
-                viewer.console_text.text = msg
-                print(msg)
-                return
-            if i != len(args) - 1:
-                msg = "Error: A custom output filename must be the final argument."
-                viewer.console_text.text = msg
-                print(msg)
-                return
-            try:
-                requested_filename = _normalize_output_filename(args[i])
-            except ValueError as exc:
-                msg = f"Error: {exc}"
-                viewer.console_text.text = msg
-                print(msg)
-                return
-            i += 1
-
-        # Map positionals strictly to order: 1. gmax, 2. cmin
-        pos_map = ["gmax", "cmin"]
-        if len(positional_args) > 2:
-            msg = "Error: Too many positional numerical arguments."
-            viewer.console_text.text = msg
-            print(msg)
-            return
-            
-        for idx, p_val in enumerate(positional_args):
-            target_key = pos_map[idx]
-            if target_key in keyword_args:
-                msg = f"Error: Ambiguous input. '{target_key}' defined both positionally and via keyword."
-                viewer.console_text.text = msg
-                print(msg)
-                return
-            keyword_args[target_key] = p_val
-            
-        # Apply final parsed variables (falling back to defaults)
-        global_max = keyword_args.get("gmax", 0.40)
-        cluster_min = keyword_args.get("cmin", 0.98)
+        parameters = _parse_label_arguments(args)
+        global_max = parameters["global_max"]
+        cluster_min = parameters["cluster_min"]
+        identity_threshold = parameters["identity_threshold"]
+        forced_target = parameters["forced_target"]
+        requested_filename = parameters["requested_filename"]
 
         # --- Validations ---
         if forced_target == "clusters" and viewer.cluster_labels is None:
@@ -380,22 +549,62 @@ def run(viewer, args):
 
         # --- 1. Global Statistics ---
         print("Calculating Global Stats...")
-        offset_display = utils.get_alignment_offset_display(viewer)
+        gap_chars = frozenset(_setting(viewer, "GAP_CHARS", ("-", ".")))
+        if hasattr(viewer, "_label_offset_display"):
+            offset_display = viewer._label_offset_display
+        else:
+            offset_display = utils.get_alignment_offset_display(viewer)
         print(f"Alignment Offset: {offset_display}")
-        g_stats = viewer.alignment.calculate_frequencies(viewer.alignment.col_to_label)
         total_global_seqs = len(viewer.alignment.aln)
         total_network_nodes = getattr(viewer, 'n_nodes', len(viewer.full_headers))
         excluded_unaligned_nodes = total_network_nodes - total_global_seqs
-        g_min, g_max, g_avg, g_std = get_sequence_stats(viewer.alignment.aln)
+        g_min, g_max, g_avg, g_std = get_sequence_stats(
+            viewer.alignment.aln,
+            gap_chars=gap_chars,
+        )
 
-        global_count_cache = {}
+        global_weights = None
+        if identity_threshold is None:
+            total_global_effective_n = float(total_global_seqs)
+            g_stats, _ = _calculate_weighted_frequencies(
+                viewer.alignment.aln,
+                viewer.alignment.col_to_label,
+                np.ones(total_global_seqs, dtype=float),
+                gap_chars=gap_chars,
+            )
+            global_count_cache = {}
+        else:
+            print(
+                "Calculating global identity-neighbour weights at "
+                f"{identity_threshold * 100:g}%..."
+            )
+            global_sequences = [
+                str(record.seq).upper() for record in viewer.alignment.aln
+            ]
+            global_weights = logo_cmd.calculate_identity_weights(
+                global_sequences,
+                identity_threshold,
+                report_backend=True,
+            )
+            total_global_effective_n = float(global_weights.sum())
+            g_stats, global_count_cache = _calculate_weighted_frequencies(
+                viewer.alignment.aln,
+                viewer.alignment.col_to_label,
+                global_weights,
+                gap_chars=gap_chars,
+            )
+
         global_frequency_cache = {}
 
         def get_global_counts(label):
             if label not in global_count_cache:
                 col_idx = viewer.alignment.label_to_col.get(label)
                 global_count_cache[label] = (
-                    _get_amino_acid_counts(viewer.alignment.aln, col_idx)
+                    _get_amino_acid_counts(
+                        viewer.alignment.aln,
+                        col_idx,
+                        gap_chars=gap_chars,
+                    )
                     if col_idx is not None
                     else {}
                 )
@@ -404,33 +613,37 @@ def run(viewer, args):
         def get_global_frequencies(label):
             if label not in global_frequency_cache:
                 global_frequency_cache[label] = {
-                    aa: count / total_global_seqs
+                    aa: count / total_global_effective_n
                     for aa, count in get_global_counts(label).items()
-                } if total_global_seqs else {}
+                } if total_global_effective_n > 0.0 else {}
             return global_frequency_cache[label]
 
         # --- 2. Resolve Base Directories ---
-        fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
-        fasta_base = os.path.splitext(os.path.basename(fasta_file))[0] if fasta_file else getattr(cfg, 'SEQUENCE_SET', 'Network')
-        metadata = cache_manifest.validate_network_schema(cfg.INPUT_HDF5)
+        fasta_file = _setting(viewer, 'NODE_FASTA_FILE', None)
+        fasta_base = os.path.splitext(os.path.basename(fasta_file))[0] if fasta_file else _setting(viewer, 'SEQUENCE_SET', 'Network')
+        metadata = getattr(viewer, "_label_network_metadata", None)
+        if metadata is None:
+            metadata = cache_manifest.validate_network_schema(
+                _setting(viewer, 'INPUT_HDF5')
+            )
         model_label = re.sub(
             r'[<>:"/\\|?*]', "_", metadata.model_name
         )
         lvl1_name = f"{fasta_base}_[{model_label}]"
         is_blast = metadata.network_type == "blast"
         if not is_blast:
-            norm_m = getattr(cfg, 'NORM_MODE', None)
+            norm_m = _setting(viewer, 'NORM_MODE', None)
             if norm_m: lvl1_name += f"_{norm_m}"
-            score_m = getattr(cfg, 'ALIGNMENT_SCORE', None)
+            score_m = _setting(viewer, 'ALIGNMENT_SCORE', None)
             if score_m: lvl1_name += f"_{score_m}"
             
         lvl2_name_base = ""
-        top_val = getattr(cfg, 'TOP_EDGE_PERCENT', None)
+        top_val = _setting(viewer, 'TOP_EDGE_PERCENT', None)
         if top_val is not None and str(top_val).strip() != "None":
             try: lvl2_name_base += f"Top{float(top_val)}Pct"
             except: pass
         else:
-            thresh = getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0)
+            thresh = _setting(viewer, 'SIMILARITY_THRESHOLD', 0.0)
             try: lvl2_name_base += f"Score{float(thresh)}"
             except: pass
             
@@ -467,11 +680,15 @@ def run(viewer, args):
                     found_cid = aln_idx_to_cid[i]
                     if found_cid != -1:
                         if found_cid not in clusters_records: clusters_records[found_cid] = []
-                        clusters_records[found_cid].append(record)
+                        clusters_records[found_cid].append((i, record))
             
             for cid in sorted(clusters_records.keys()):
-                sub_aln = MultipleSeqAlignment(clusters_records[cid])
-                tasks.append(('cluster', cid, sub_aln, viewer.alignment.col_to_label))
+                indexed_records = clusters_records[cid]
+                sub_aln = MultipleSeqAlignment([record for _, record in indexed_records])
+                aln_indices = np.asarray([idx for idx, _ in indexed_records], dtype=int)
+                tasks.append((
+                    'cluster', cid, sub_aln, viewer.alignment.col_to_label, aln_indices
+                ))
         
         # Group splitting
         if getattr(viewer, 'group_labels', None):
@@ -488,28 +705,57 @@ def run(viewer, args):
                 if i in aln_idx_to_groups:
                     for g_name in aln_idx_to_groups[i]:
                         if g_name not in groups_records: groups_records[g_name] = []
-                        groups_records[g_name].append(record)
+                        groups_records[g_name].append((i, record))
             
             for g_name in sorted(groups_records.keys()):
-                sub_aln = MultipleSeqAlignment(groups_records[g_name])
-                tasks.append(('group', g_name, sub_aln, viewer.alignment.col_to_label))
+                indexed_records = groups_records[g_name]
+                sub_aln = MultipleSeqAlignment([record for _, record in indexed_records])
+                aln_indices = np.asarray([idx for idx, _ in indexed_records], dtype=int)
+                tasks.append((
+                    'group', g_name, sub_aln, viewer.alignment.col_to_label, aln_indices
+                ))
 
         # --- 4. Process Tasks ---
         master_labels = set()
         cluster_results = []
         
         # Build color map for topology clusters using cluster_cmd
-        cluster_ids = [entity_id for entity_type, entity_id, _, _ in tasks if entity_type == 'cluster']
+        cluster_ids = [
+            entity_id
+            for entity_type, entity_id, _, _, _ in tasks
+            if entity_type == 'cluster'
+        ]
         cluster_color_map = cluster_cmd.get_cluster_color_map(cluster_ids)
 
-        for entity_type, entity_id, c_aln, c_map in tasks:
+        for entity_type, entity_id, c_aln, c_map, aln_indices in tasks:
             try:
                 # Calculate sequence stats
                 c_size = len(c_aln)
-                c_min_len, c_max_len, c_avg_len, c_std_len = get_sequence_stats(c_aln)
+                c_min_len, c_max_len, c_avg_len, c_std_len = get_sequence_stats(
+                    c_aln,
+                    gap_chars=gap_chars,
+                )
 
-                # Calculate Residue Frequencies (using global map implicitly)
-                c_stats = viewer.alignment.calculate_frequencies(c_map, exclude=[], aln=c_aln)
+                # Calculate residue frequencies. Identity-enabled subsets retain
+                # their rows' globally calculated weights.
+                if global_weights is None:
+                    c_effective_n = float(c_size)
+                    c_stats, _ = _calculate_weighted_frequencies(
+                        c_aln,
+                        c_map,
+                        np.ones(c_size, dtype=float),
+                        gap_chars=gap_chars,
+                    )
+                    c_counts_by_label = None
+                else:
+                    c_weights = global_weights[aln_indices]
+                    c_effective_n = float(c_weights.sum())
+                    c_stats, c_counts_by_label = _calculate_weighted_frequencies(
+                        c_aln,
+                        c_map,
+                        c_weights,
+                        gap_chars=gap_chars,
+                    )
                 c_dict = {}
                 c_occ_dict = {} 
                 
@@ -523,11 +769,16 @@ def run(viewer, args):
                     if _is_subset_specific_residue(
                         c_aa,
                         c_freq,
-                        c_size,
+                        c_effective_n,
                         get_global_counts(lbl),
-                        total_global_seqs,
+                        total_global_effective_n,
                         cluster_min,
                         global_max,
+                        subset_count=(
+                            c_counts_by_label.get(lbl, {}).get(str(c_aa).upper(), 0.0)
+                            if c_counts_by_label is not None
+                            else None
+                        ),
                     ):
                         c_dict[lbl] = {"text": f"{c_aa}{lbl}", "occ": c_occ}
                         master_labels.add(lbl)
@@ -553,6 +804,7 @@ def run(viewer, args):
                     "name": name_str,
                     "sort_key": sort_key,
                     "count": c_size,
+                    "effective_n": c_effective_n,
                     "hex": hex_code,
                     "min": c_min_len,
                     "max": c_max_len,
@@ -567,21 +819,12 @@ def run(viewer, args):
                 continue
 
         # --- 5. Export XLSX ---
-        out_dir = cfg.CLUSTER_LABEL_DIR
+        out_path = os.path.abspath(viewer._label_output_path)
+        out_dir = os.path.dirname(out_path)
+        out_filename = os.path.basename(out_path)
         if not os.path.exists(out_dir): os.makedirs(out_dir)
-        
-        # Preserve timestamp naming unless the user explicitly supplies a basename.
-        if requested_filename is None:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_filename = f"Label_Output_{timestamp}.xlsx"
-        else:
-            out_filename = requested_filename
-        out_path = os.path.join(out_dir, out_filename)
         if os.path.exists(out_path):
-            msg = f"Error: Output file already exists: {out_path}"
-            viewer.console_text.text = msg
-            print(msg)
-            return
+            raise FileExistsError(f"Output file already exists: {out_path}")
 
         global_list = []
         for lbl in utils.sort_labels(g_stats.keys()):
@@ -600,13 +843,13 @@ def run(viewer, args):
         )
         
         # Prepare Metadata details
-        fasta_file = getattr(cfg, 'NODE_FASTA_FILE', None)
-        fasta_name = os.path.basename(fasta_file) if fasta_file else getattr(cfg, 'SEQUENCE_SET', 'N/A')
+        fasta_file = _setting(viewer, 'NODE_FASTA_FILE', None)
+        fasta_name = os.path.basename(fasta_file) if fasta_file else _setting(viewer, 'SEQUENCE_SET', 'N/A')
         
-        network_file = getattr(cfg, 'INPUT_HDF5', None)
+        network_file = _setting(viewer, 'INPUT_HDF5', None)
         network_name = os.path.basename(network_file) if network_file else "N/A"
         
-        msa_file = getattr(cfg, 'MSA_FILE', None)
+        msa_file = _setting(viewer, 'MSA_FILE', None)
         alignment_name = os.path.basename(msa_file) if msa_file else "N/A"
         
         if forced_target == "clusters" and getattr(viewer, 'last_cluster_params', None):
@@ -621,9 +864,10 @@ def run(viewer, args):
 
         label_params = (
             f"gmax_outside={int(global_max*100)}%, cmin={int(cluster_min*100)}%, "
-            f"global_conservation_threshold={int(GLOBAL_CONSERVATION_THRESHOLD*100)}% (fixed), "
             f"target={forced_target}"
         )
+        if identity_threshold is not None:
+            label_params += f", identity={identity_threshold * 100:g}%"
 
         try:
             import openpyxl
@@ -661,6 +905,8 @@ def run(viewer, args):
             ws_meta.append(["Alignment Name", alignment_name])
             ws_meta.append(["Network Nodes", total_network_nodes])
             ws_meta.append(["Aligned Nodes", total_global_seqs])
+            if identity_threshold is not None:
+                ws_meta.append(["Global Effective N", total_global_effective_n])
             ws_meta.append(["Excluded Unaligned Nodes", excluded_unaligned_nodes])
             ws_meta.append(["Label Parameters", label_params])
             
@@ -673,13 +919,21 @@ def run(viewer, args):
             ws_meta.column_dimensions['A'].width = 25
             ws_meta.column_dimensions['B'].width = 50
 
-            percent_column = 2
-            hex_color_column = 4
-            position_start_column = 10
+            effective_percent_column = 2 if identity_threshold is not None else None
+            percent_column = 3 if identity_threshold is not None else 2
+            effective_n_column = 4 if identity_threshold is not None else None
+            hex_color_column = 6 if identity_threshold is not None else 4
+            position_start_column = 12 if identity_threshold is not None else 10
             percent_number_format = "0.00%"
+            effective_n_number_format = "0.00"
 
             def node_fraction(count):
                 return count / total_network_nodes if total_network_nodes else 0.0
+
+            def effective_fraction(effective_n):
+                if total_global_effective_n <= 0.0:
+                    return 0.0
+                return effective_n / total_global_effective_n
 
             # ==========================================
             # TAB 2: Subset Specific Matrix
@@ -697,11 +951,22 @@ def run(viewer, args):
                 total_network_nodes,
                 total_global_seqs,
                 excluded_unaligned_nodes,
+                identity_threshold,
+                total_global_effective_n,
             )
             
             # Write Headers 
             ws1.append(["Subset Specific Matrix"])
-            headers1 = ["Subset Name", "Percent", "Count", "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""] + [f"#{c}" for c in sorted_cols]
+            if identity_threshold is not None:
+                headers1 = [
+                    "Subset Name", "Effective Percent", "Percent",
+                    "Effective N", "Count N",
+                ]
+            else:
+                headers1 = ["Subset Name", "Percent", "Count"]
+            headers1 += [
+                "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""
+            ] + [f"#{c}" for c in sorted_cols]
             ws1.append(headers1)
             
             try:
@@ -715,16 +980,22 @@ def run(viewer, args):
                 return PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
 
             # Write Global Row 
-            global_freq_row1 = [
-                "Global Stats", 
-                node_fraction(total_global_seqs),
-                total_global_seqs, 
-                "-",
-                g_min, 
-                g_max, 
-                round(g_avg, 1), 
-                round(g_std, 1),
-                ""
+            if identity_threshold is not None:
+                global_freq_row1 = [
+                    "Global Stats",
+                    effective_fraction(total_global_effective_n),
+                    node_fraction(total_global_seqs),
+                    total_global_effective_n,
+                    total_global_seqs,
+                ]
+            else:
+                global_freq_row1 = [
+                    "Global Stats",
+                    node_fraction(total_global_seqs),
+                    total_global_seqs,
+                ]
+            global_freq_row1 += [
+                "-", g_min, g_max, round(g_avg, 1), round(g_std, 1), ""
             ]
             
             g_occ_dict1 = {}
@@ -737,6 +1008,7 @@ def run(viewer, args):
                             viewer.alignment.aln,
                             col_idx,
                             frequencies=get_global_frequencies(col),
+                            gap_chars=gap_chars,
                         )
                     )
                     g_occ_dict1[col] = g_occ
@@ -745,7 +1017,15 @@ def run(viewer, args):
                     
             ws1.append(global_freq_row1)
             g_row_idx1 = ws1.max_row
+            if effective_percent_column is not None:
+                ws1.cell(
+                    row=g_row_idx1, column=effective_percent_column
+                ).number_format = percent_number_format
             ws1.cell(row=g_row_idx1, column=percent_column).number_format = percent_number_format
+            if effective_n_column is not None:
+                ws1.cell(
+                    row=g_row_idx1, column=effective_n_column
+                ).number_format = effective_n_number_format
             
             for c_idx, col in enumerate(sorted_cols):
                 if col in g_occ_dict1:
@@ -760,16 +1040,23 @@ def run(viewer, args):
                 if last_type == 'cluster' and res['type'] == 'group':
                     ws1.append([]) # Blank row separating Clusters and Groups
                 last_type = res['type']
-                row1 = [
-                    res['name'], 
-                    node_fraction(res['count']),
-                    res['count'], 
-                    res['hex'],
-                    res['min'],
-                    res['max'],
-                    round(res['avg'], 1),
-                    round(res['std'], 1),
-                    ""
+                if identity_threshold is not None:
+                    row1 = [
+                        res['name'],
+                        effective_fraction(res['effective_n']),
+                        node_fraction(res['count']),
+                        res['effective_n'],
+                        res['count'],
+                    ]
+                else:
+                    row1 = [
+                        res['name'],
+                        node_fraction(res['count']),
+                        res['count'],
+                    ]
+                row1 += [
+                    res['hex'], res['min'], res['max'], round(res['avg'], 1),
+                    round(res['std'], 1), ""
                 ]
                 
                 row_occs1 = {}
@@ -786,7 +1073,15 @@ def run(viewer, args):
                         
                 ws1.append(row1)
                 current_row1 = ws1.max_row
+                if effective_percent_column is not None:
+                    ws1.cell(
+                        row=current_row1, column=effective_percent_column
+                    ).number_format = percent_number_format
                 ws1.cell(row=current_row1, column=percent_column).number_format = percent_number_format
+                if effective_n_column is not None:
+                    ws1.cell(
+                        row=current_row1, column=effective_n_column
+                    ).number_format = effective_n_number_format
                 
                 if res['hex'] != "-":
                     hex_val = res['hex'].replace("#", "").upper()
@@ -811,11 +1106,22 @@ def run(viewer, args):
                 total_network_nodes,
                 total_global_seqs,
                 excluded_unaligned_nodes,
+                identity_threshold,
+                total_global_effective_n,
             )
             
             # Write Headers 
             ws2.append(["Occupancy Matrix"])
-            headers2 = ["Subset Name", "Percent", "Count", "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""] + [f"#{c}" for c in all_occ_labels]
+            if identity_threshold is not None:
+                headers2 = [
+                    "Subset Name", "Effective Percent", "Percent",
+                    "Effective N", "Count N",
+                ]
+            else:
+                headers2 = ["Subset Name", "Percent", "Count"]
+            headers2 += [
+                "Hex Color", "Min Len", "Max Len", "Avg Len", "Std Dev", ""
+            ] + [f"#{c}" for c in all_occ_labels]
             ws2.append(headers2)
             
             try:
@@ -829,16 +1135,22 @@ def run(viewer, args):
                 return PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
 
             # Write Global Row 
-            global_freq_row2 = [
-                "Global Stats", 
-                node_fraction(total_global_seqs),
-                total_global_seqs, 
-                "-",
-                g_min, 
-                g_max, 
-                round(g_avg, 1), 
-                round(g_std, 1),
-                ""
+            if identity_threshold is not None:
+                global_freq_row2 = [
+                    "Global Stats",
+                    effective_fraction(total_global_effective_n),
+                    node_fraction(total_global_seqs),
+                    total_global_effective_n,
+                    total_global_seqs,
+                ]
+            else:
+                global_freq_row2 = [
+                    "Global Stats",
+                    node_fraction(total_global_seqs),
+                    total_global_seqs,
+                ]
+            global_freq_row2 += [
+                "-", g_min, g_max, round(g_avg, 1), round(g_std, 1), ""
             ]
             
             g_occ_dict2 = {}
@@ -851,7 +1163,15 @@ def run(viewer, args):
                     
             ws2.append(global_freq_row2)
             g_row_idx2 = ws2.max_row
+            if effective_percent_column is not None:
+                ws2.cell(
+                    row=g_row_idx2, column=effective_percent_column
+                ).number_format = percent_number_format
             ws2.cell(row=g_row_idx2, column=percent_column).number_format = percent_number_format
+            if effective_n_column is not None:
+                ws2.cell(
+                    row=g_row_idx2, column=effective_n_column
+                ).number_format = effective_n_number_format
             
             for c_idx, col in enumerate(all_occ_labels):
                 col_letter_idx = c_idx + position_start_column
@@ -865,16 +1185,23 @@ def run(viewer, args):
                 if last_type == 'cluster' and res['type'] == 'group':
                     ws2.append([]) # Blank row separating Clusters and Groups
                 last_type = res['type']
-                row2 = [
-                    res['name'], 
-                    node_fraction(res['count']),
-                    res['count'], 
-                    res['hex'],
-                    res['min'],
-                    res['max'],
-                    round(res['avg'], 1),
-                    round(res['std'], 1),
-                    ""
+                if identity_threshold is not None:
+                    row2 = [
+                        res['name'],
+                        effective_fraction(res['effective_n']),
+                        node_fraction(res['count']),
+                        res['effective_n'],
+                        res['count'],
+                    ]
+                else:
+                    row2 = [
+                        res['name'],
+                        node_fraction(res['count']),
+                        res['count'],
+                    ]
+                row2 += [
+                    res['hex'], res['min'], res['max'], round(res['avg'], 1),
+                    round(res['std'], 1), ""
                 ]
                 
                 row_occs2 = {}
@@ -884,7 +1211,15 @@ def run(viewer, args):
                         
                 ws2.append(row2)
                 current_row2 = ws2.max_row
+                if effective_percent_column is not None:
+                    ws2.cell(
+                        row=current_row2, column=effective_percent_column
+                    ).number_format = percent_number_format
                 ws2.cell(row=current_row2, column=percent_column).number_format = percent_number_format
+                if effective_n_column is not None:
+                    ws2.cell(
+                        row=current_row2, column=effective_n_column
+                    ).number_format = effective_n_number_format
                 
                 if res['hex'] != "-":
                     hex_val = res['hex'].replace("#", "").upper()
@@ -900,18 +1235,223 @@ def run(viewer, args):
 
             ws1.column_dimensions['A'].width = col_a_width
             ws2.column_dimensions['A'].width = col_a_width
-            ws1.column_dimensions['B'].width = 10
-            ws2.column_dimensions['B'].width = 10
+            ws1.column_dimensions['B'].width = 18 if identity_threshold is not None else 10
+            ws2.column_dimensions['B'].width = 18 if identity_threshold is not None else 10
+            if identity_threshold is not None:
+                ws1.column_dimensions['C'].width = 10
+                ws2.column_dimensions['C'].width = 10
 
-            wb.save(out_path)
+            file_descriptor, partial_path = tempfile.mkstemp(
+                prefix=f".{os.path.splitext(out_filename)[0]}.",
+                suffix=".partial.xlsx",
+                dir=out_dir,
+            )
+            os.close(file_descriptor)
+            try:
+                wb.save(partial_path)
+                if os.path.exists(out_path):
+                    raise FileExistsError(
+                        f"Output file already exists: {out_path}"
+                    )
+                os.replace(partial_path, out_path)
+                partial_path = None
+            finally:
+                if partial_path and os.path.exists(partial_path):
+                    try:
+                        os.remove(partial_path)
+                    except OSError:
+                        pass
             
             msg = f"Exported to {out_path}"
             viewer.console_text.text = msg
             print(msg)
-            utils.open_in_file_manager(out_dir)
+            return {
+                "message": msg,
+                "save_path": out_path,
+                "reveal_directory": out_dir,
+            }
         except Exception as e:
             viewer.console_text.text = f"IO Error: {e}"
+            raise
 
     except Exception as e:
         viewer.console_text.text = f"Error: {e}"
-        traceback.print_exc()
+        raise
+
+
+def _available_automatic_output(scheduler, directory, filename):
+    stem, suffix = os.path.splitext(filename)
+    candidate = filename
+    index = 2
+    while True:
+        path = os.path.abspath(os.path.join(directory, candidate))
+        if not os.path.exists(path) and not scheduler.is_output_path_reserved(path):
+            return candidate, path
+        candidate = f"{stem}_{index}{suffix}"
+        index += 1
+
+
+def _execute_label_envelope(envelope):
+    result = _run_label_artifact(
+        envelope.viewer_snapshot,
+        list(envelope.args),
+    )
+    if not isinstance(result, dict):
+        message = getattr(envelope.viewer_snapshot.console_text, "text", "")
+        raise RuntimeError(message or "Label generation did not produce an artifact.")
+    return result
+
+
+def _report_label_error(viewer, error):
+    message = f"Error: {error}"
+    if hasattr(viewer, "console_text"):
+        viewer.console_text.text = message
+    if hasattr(viewer, "update_console_background"):
+        viewer.update_console_background()
+    print(message)
+
+
+def run(viewer, args):
+    """Validate and snapshot label inputs before enqueuing the heavy work."""
+    if args and args[0].lower() == "reset":
+        Command_Engine.execute_reset(viewer, ["clusters"])
+        return
+
+    alignment = getattr(viewer, "alignment", None)
+    if alignment is None or alignment.aln is None:
+        _report_label_error(viewer, "Global Alignment not loaded.")
+        return
+    if len(alignment.aln) == 0:
+        _report_label_error(
+            viewer,
+            "The selected MSA contains no aligned rows for the current network. "
+            "Label analysis is unavailable.",
+        )
+        return
+    if not getattr(alignment, "has_reference", False):
+        _report_label_error(
+            viewer,
+            "No active alignment reference. Use 'reference <ID>' with a node "
+            "present in the current MSA.",
+        )
+        return
+    if args and args[0].lower() in {"help", "-h", "-?"}:
+        print_help()
+        if hasattr(viewer, "console_text"):
+            viewer.console_text.text = "Help information printed to the terminal"
+        return
+
+    try:
+        parameters = _parse_label_arguments(args)
+    except ValueError as error:
+        _report_label_error(viewer, error)
+        return
+
+    forced_target = parameters["forced_target"]
+    if forced_target == "clusters" and getattr(viewer, "cluster_labels", None) is None:
+        _report_label_error(viewer, "Run 'cluster' first.")
+        return
+    if forced_target == "groups" and getattr(viewer, "group_labels", None) is None:
+        _report_label_error(viewer, "No groups defined.")
+        return
+
+    scheduler = getattr(viewer, "background_job_scheduler", None)
+    if scheduler is None:
+        _report_label_error(viewer, "The background job scheduler is unavailable.")
+        return
+
+    output_directory = os.path.abspath(
+        getattr(cfg, "CLUSTER_LABEL_DIR", os.path.join("Results", "Cluster_Label"))
+    )
+    requested_filename = parameters["requested_filename"]
+    if requested_filename is None:
+        generated = (
+            "Label_Output_"
+            + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            + ".xlsx"
+        )
+        output_filename, output_path = _available_automatic_output(
+            scheduler,
+            output_directory,
+            generated,
+        )
+    else:
+        output_filename = requested_filename
+        output_path = os.path.abspath(
+            os.path.join(output_directory, output_filename)
+        )
+        if os.path.exists(output_path):
+            _report_label_error(
+                viewer,
+                f"Output file already exists: {output_path}",
+            )
+            return
+        if scheduler.is_output_path_reserved(output_path):
+            _report_label_error(
+                viewer,
+                f"Output file is already reserved by a background job: {output_path}",
+            )
+            return
+
+    try:
+        network_metadata = cache_manifest.validate_network_schema(cfg.INPUT_HDF5)
+        viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
+        frozen_alignment = _FrozenAlignmentManager(alignment, viewer_to_aln)
+    except Exception as error:
+        _report_label_error(viewer, f"Could not snapshot label inputs: {error}")
+        return
+
+    group_labels = getattr(viewer, "group_labels", None)
+    if group_labels is not None:
+        group_labels = tuple(
+            frozenset(groups) if groups else frozenset()
+            for groups in group_labels
+        )
+    cluster_labels = getattr(viewer, "cluster_labels", None)
+    if cluster_labels is not None:
+        cluster_labels = tuple(cluster_labels)
+
+    settings = {
+        name: getattr(cfg, name, default)
+        for name, default in (
+            ("NODE_FASTA_FILE", None),
+            ("SEQUENCE_SET", "Network"),
+            ("INPUT_HDF5", None),
+            ("MSA_FILE", None),
+            ("NORM_MODE", None),
+            ("ALIGNMENT_SCORE", None),
+            ("TOP_EDGE_PERCENT", None),
+            ("SIMILARITY_THRESHOLD", 0.0),
+            ("GAP_CHARS", ("-", ".")),
+        )
+    }
+    snapshot = SimpleNamespace(
+        alignment=frozen_alignment,
+        active_reference=getattr(viewer, "active_reference", None),
+        alignment_offset=getattr(viewer, "alignment_offset", 0),
+        full_headers=tuple(getattr(viewer, "full_headers", ())),
+        n_nodes=int(getattr(viewer, "n_nodes", len(getattr(viewer, "full_headers", ())))),
+        cluster_labels=cluster_labels,
+        group_labels=group_labels,
+        last_cluster_params=(
+            tuple(viewer.last_cluster_params)
+            if getattr(viewer, "last_cluster_params", None)
+            else None
+        ),
+        console_text=SimpleNamespace(text=""),
+        _label_settings=settings,
+        _label_network_metadata=network_metadata,
+        _label_offset_display=utils.get_alignment_offset_display(viewer),
+        _label_output_path=output_path,
+    )
+    envelope = _LabelJobEnvelope(snapshot, tuple(args))
+    try:
+        scheduler.enqueue(
+            command_name="label",
+            description=f"label -> {output_filename}",
+            payload=envelope,
+            worker=_execute_label_envelope,
+            output_path=output_path,
+        )
+    except (FileExistsError, RuntimeError) as error:
+        _report_label_error(viewer, error)

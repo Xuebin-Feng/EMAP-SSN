@@ -1332,10 +1332,11 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">label [clusters|groups] [gmax value] [cmin value] [filename]</div>
+                    <div class="syntax-content">label [clusters|groups] [gmax value] [cmin value] [identity] [filename]</div>
                     <button class="copy-btn" onclick="copyText('label', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
+                <p>Label calculation and workbook generation run in the viewer's shared background-job queue. The command captures its alignment mapping, cluster/group memberships, reference numbering, parameters, and output metadata when submitted, so later viewer changes do not alter a queued report. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and terminal.</p>
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
@@ -1349,22 +1350,27 @@
                     <li><strong>TARGET (Default: clusters):</strong> <code>clusters</code> (analyzes topology clusters and manual groups) or <code>groups</code> (skips clusters, analyzes only custom groups).</li>
                     <li><strong>OUTSIDE_MAX (gmax) [Default: 40%]:</strong> Maximum frequency of the subset's dominant residue among aligned sequences outside that cluster or group. Highlighted residues must occur in less than this percentage in the leave-subset-out background.</li>
                     <li><strong>CLUSTER_MIN (cmin) [Default: 98%]:</strong> Minimum consensus frequency. Highlighted residues must occur in at least this percentage inside the specific cluster or group.</li>
+                    <li><strong>IDENTITY (id) [Default: off]:</strong> Optional sequence-redundancy threshold, accepted as a fraction or percentage such as <code>id 0.9</code>, <code>id 90</code>, or <code>id 90%</code>. The command calculates logo-style identity-neighbor weights once across the aligned MSA and applies them consistently to global, subset, and outside-background residue frequencies and occupancy.</li>
                     <li><strong>FILENAME (optional):</strong> A single bare output workbook basename supplied as the final argument. The <code>.xlsx</code> extension is added when omitted; without a name, the command uses <code>Label_Output_YYYYMMDD_HHMMSS.xlsx</code>. Numeric or reserved-word filenames must include <code>.xlsx</code> to distinguish them from parameters.</li>
                     <li><strong>GLOBAL CONSERVATION (fixed at 97%):</strong> Residues exceeding 97% frequency globally are reported as universally conserved. This threshold is not user-configurable.</li>
                 </ul>
-                <p>Thresholds accept fractions or percentages. They can be positional in <code>gmax</code>, then <code>cmin</code> order (for example, <code>label 0.4 0.9</code>) or supplied as keyword/value pairs. Do not mix positional numbers after keyword parameters.</p>
+                <p>Thresholds accept fractions or percentages. The first two positional numbers remain <code>gmax</code> and <code>cmin</code>; an optional third positional number is identity (for example, <code>label 0.4 0.9 90%</code>). Use <code>id VALUE</code> to enable identity weighting while retaining default or keyword-based <code>gmax</code>/<code>cmin</code>. Do not mix positional numbers after keyword parameters.</p>
 
                 <div class="subheading">Understanding the Excel Output</div>
-                <p>Output is written to <code>Results/Cluster_Label/</code> and contains two worksheets:</p>
+                <p>Output is written to <code>Results/Cluster_Label/</code> and contains three worksheets:</p>
                 <ul>
+                    <li><strong>Meta Data:</strong> Records network, alignment, clustering, and label parameters. Identity-enabled reports also record global effective N immediately after the aligned-node count.</li>
                     <li><strong>Subset Stats (SDP Matrix):</strong> Lists clusters/groups in rows and alignment positions in columns. Displays conserved amino acids colored by gap-occupancy.</li>
                     <li><strong>Occupancy Stats:</strong> Provides gap-occupancy percentages for every position, highlighted in green. Useful for identifying insertion/deletion variations across subfamilies.</li>
                 </ul>
+                <p>When identity weighting is enabled, both statistics sheets add an <code>Effective N</code> column. Raw Count, Percent, and sequence-length statistics remain unweighted. Without an identity value, the workbook layout and calculations retain their historical behavior.</p>
 
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>label</span><button class="copy-btn" onclick="copyText('label', this)">Copy</button></li>
                     <li class="example-item"><span>label 30% 90%</span><button class="copy-btn" onclick="copyText('label 30% 90%', this)">Copy</button></li>
+                    <li class="example-item"><span>label id 90%</span><button class="copy-btn" onclick="copyText('label id 90%', this)">Copy</button></li>
+                    <li class="example-item"><span>label 0.4 0.9 90% weighted_report</span><button class="copy-btn" onclick="copyText('label 0.4 0.9 90% weighted_report', this)">Copy</button></li>
                     <li class="example-item"><span>label groups cmin 90%</span><button class="copy-btn" onclick="copyText('label groups cmin 90%', this)">Copy</button></li>
                     <li class="example-item"><span>label groups group_report</span><button class="copy-btn" onclick="copyText('label groups group_report', this)">Copy</button></li>
                 </ul>
@@ -1568,7 +1574,7 @@
                     <button class="copy-btn" onclick="copyText('logo', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The logo command generates publication-ready sequence logos (in vector .svg or transparent .png format) to visually represent amino acid conservation across a specific subset of your network. By combining this tool with the Common Expression Interpreter, you can instantly compare the binding motifs, active sites, or structural variations of different protein sub-families directly from the viewer.</p>
-                <p>Logo calculation and file generation run in a background worker so the viewer remains interactive. Exact redundancy calculations use a balanced parallel Numba kernel when available and fall back to NumPy otherwise. One logo job can run at a time; completion or failure is reported in the command overlay and terminal.</p>
+                <p>Logo calculation and file generation run in the viewer's shared background-job queue so the viewer remains interactive. The selected aligned sequences, mapped positions, reference, and rendering options are captured when the command is submitted. Exact redundancy calculations use a balanced parallel Numba kernel when available and fall back to NumPy otherwise. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and terminal.</p>
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
