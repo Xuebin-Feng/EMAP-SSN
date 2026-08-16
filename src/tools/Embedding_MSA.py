@@ -57,6 +57,7 @@ Algorithm:
 """
 # %% --- Imports ---
 import os
+import time
 
 try:
     from tools import _bootstrap
@@ -104,6 +105,7 @@ TREE_METHOD = "UPGMA (Fast)" # (UPGMA (Fast), Neighbor-joining (Slow))
 BOOTSTRAP_TREE = True
 NUM_TREES = 100             
 NOISE_SCALE = 0.02          
+RANDOM_SEED = 42
 INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS = False
 
 # --- DIRECTORY DEFAULTS ---
@@ -338,6 +340,12 @@ def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noi
     del baseline_dist
     
     return Z
+
+
+def generate_bootstrap_seeds(num_trees):
+    """Generate the reproducible per-replicate seeds used by bootstrap workers."""
+    rng = np.random.default_rng(RANDOM_SEED)
+    return rng.integers(0, int(1e9), size=num_trees)
 
 def load_fasta_map(filepath):
     print(f"Loading sequences from {filepath}...")
@@ -860,9 +868,32 @@ def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
+def report_processing_times(
+    total_processing_seconds,
+    tree_building_seconds,
+    cluster_merging_seconds,
+):
+    """Print a compact, human-readable timing summary for a completed MSA run."""
+    def format_duration(seconds):
+        seconds = max(0.0, float(seconds))
+        hours, remainder = divmod(seconds, 3600.0)
+        minutes, seconds = divmod(remainder, 60.0)
+        if hours >= 1.0:
+            return f"{int(hours)}h {int(minutes)}m {seconds:.2f}s"
+        if minutes >= 1.0:
+            return f"{int(minutes)}m {seconds:.2f}s"
+        return f"{seconds:.2f}s"
+
+    print("\n--- Processing Time Summary ---")
+    print(f"Total processing time: {format_duration(total_processing_seconds)}")
+    print(f"Tree building time: {format_duration(tree_building_seconds)}")
+    print(f"Cluster merging time: {format_duration(cluster_merging_seconds)}")
+
+
 def run_msa_builder():
     global FULL_INPUT_FASTA, FULL_INPUT_EMBED, FULL_INPUT_NETWORK
     global OUTPUT_FASTA, _seq_set, _model_name
+    total_processing_started = time.perf_counter()
 
     # Linux defaults to fork, which is unsafe here: the bootstrap pool is
     # created after torch and the memmapped edge arrays are live. Windows and
@@ -1168,6 +1199,7 @@ def run_msa_builder():
         # ==========================================
 
     # 8. BUILD CONSENSUS TREE
+    tree_building_started = time.perf_counter()
     condensed_size = int(num_seqs * (num_seqs - 1) / 2)
     
     if is_sparse and iso_reg is not None and cos_sim_mat is not None:
@@ -1254,7 +1286,7 @@ def run_msa_builder():
             mm_j_main = np.memmap(edge_j_path, dtype=np.int32, mode="r", shape=(num_edges,))
             C_accum_sparse = np.zeros(num_edges, dtype=np.float32)
 
-        seeds = np.random.randint(0, int(1e9), size=NUM_TREES)
+        seeds = generate_bootstrap_seeds(NUM_TREES)
         
         worker_func = partial(compute_single_tree_worker, 
                               num_seqs=num_seqs, 
@@ -1317,6 +1349,7 @@ def run_msa_builder():
     # --- CLEANUP ---
     del D_final_cond 
     gc.collect()
+    tree_building_seconds = time.perf_counter() - tree_building_started
 
     # 9. INITIALIZE CLUSTERS (No embeddings loaded here!)
     print("Initializing clusters...")
@@ -1331,6 +1364,7 @@ def run_msa_builder():
 
     # 10. PROGRESSIVE ALIGNMENT
     print(f"Aligning {num_seqs} sequences...")
+    cluster_merging_started = time.perf_counter()
     for iteration, link in enumerate(tqdm(linkage_matrix, desc="Merging Clusters")):
         idx_a = int(link[0])
         idx_b = int(link[1])
@@ -1369,6 +1403,7 @@ def run_msa_builder():
         del emb_b
         del cluster_a
         del cluster_b
+    cluster_merging_seconds = time.perf_counter() - cluster_merging_started
 
     # 11. SAVE
     final_cluster = clusters[num_seqs + len(linkage_matrix) - 1]
@@ -1379,6 +1414,12 @@ def run_msa_builder():
             header = valid_headers[original_idx]
             f.write(f">{header}\n{seq_str}\n")
     print("Done!")
+    total_processing_seconds = time.perf_counter() - total_processing_started
+    report_processing_times(
+        total_processing_seconds,
+        tree_building_seconds,
+        cluster_merging_seconds,
+    )
 
 if __name__ == "__main__":
     run_msa_builder()

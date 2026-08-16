@@ -1,7 +1,9 @@
+import io
 import os
 import pathlib
 import sys
 import unittest
+from contextlib import redirect_stdout
 from unittest import mock
 
 
@@ -103,6 +105,34 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
     def test_noncanonical_embedding_name_uses_stem_fallback(self):
         resolved = self.resolve(input_embed="custom_embeddings.h5")
         self.assertEqual(resolved["sequence_set"], "custom")
+
+    def test_processing_time_summary_is_human_readable(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            Embedding_MSA.report_processing_times(
+                total_processing_seconds=3661.5,
+                tree_building_seconds=65.25,
+                cluster_merging_seconds=0.5,
+            )
+
+        self.assertEqual(
+            output.getvalue().strip().splitlines(),
+            [
+                "--- Processing Time Summary ---",
+                "Total processing time: 1h 1m 1.50s",
+                "Tree building time: 1m 5.25s",
+                "Cluster merging time: 0.50s",
+            ],
+        )
+
+    def test_bootstrap_seeds_are_reproducible_and_use_fixed_seed(self):
+        first = Embedding_MSA.generate_bootstrap_seeds(5)
+        second = Embedding_MSA.generate_bootstrap_seeds(5)
+
+        self.assertEqual(first.tolist(), second.tolist())
+        with mock.patch.object(Embedding_MSA, "RANDOM_SEED", 43):
+            changed = Embedding_MSA.generate_bootstrap_seeds(5)
+        self.assertNotEqual(first.tolist(), changed.tolist())
 
 
 if __name__ == "__main__":

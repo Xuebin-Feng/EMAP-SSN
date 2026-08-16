@@ -139,9 +139,9 @@ def print_help():
       groups   : Analyzes ONLY custom groups (topology clusters not required).
 
     Arguments (Accepts decimals '0.4' or percentages '40%'):
-      gmax (Outside Max)  : Default 40%. Max frequency the subset's dominant
-                            residue can have among all aligned sequences OUTSIDE
-                            that subset to be considered "Subset Specific".
+      gmax (Outside Max)  : Default 40%. Max frequency a conserved residue can
+                            have outside the union of all analyzed subsets where
+                            that same residue meets cmin at the same position.
       cmin (Cluster Min)  : Default 98%. Min frequency a residue must have WITHIN 
                             a subset to be reported as conserved.
       id (Identity)       : Optional sequence-redundancy threshold. Equivalent
@@ -155,6 +155,11 @@ def print_help():
                             names use a numeric suffix instead of overwriting.
 
     Fixed behavior:
+      Every amino acid meeting cmin is evaluated. Conserved subsets sharing the
+      same amino acid and position use one deduplicated exclusion union; if that
+      union leaves no outside sequences, the residue is not subset specific.
+      Multiple passing amino acids share one workbook cell (for example,
+      "Y120 | F120") in descending subset-frequency order.
       Globally conserved residues are reported when their frequency is greater
       than 97% across all aligned sequences. This threshold is not configurable.
       Label and logo jobs share one sequential background queue. Alignment,
@@ -435,6 +440,73 @@ def _calculate_weighted_frequencies(aln, mapping, weights, gap_chars=None):
     return stats, counts_by_label
 
 
+def _get_indexed_amino_acid_count(
+    aln,
+    col_idx,
+    amino_acid,
+    row_indices,
+    weights=None,
+):
+    """Return one residue's count across a deduplicated set of alignment rows."""
+    row_indices = np.unique(np.asarray(row_indices, dtype=int))
+    if row_indices.size == 0:
+        return 0.0
+    if row_indices[0] < 0 or row_indices[-1] >= len(aln):
+        raise IndexError("Alignment row index is outside the available alignment.")
+
+    if weights is None:
+        selected_weights = np.ones(row_indices.size, dtype=float)
+    else:
+        weights = np.asarray(weights, dtype=float)
+        if len(weights) != len(aln):
+            raise ValueError("Sequence weights must match the alignment row count.")
+        selected_weights = weights[row_indices]
+
+    target = str(amino_acid).upper()
+    if hasattr(aln, "matrix"):
+        encoded = aln.matrix[row_indices].getcol(col_idx).toarray().ravel()
+        matching_codes = {
+            int(code)
+            for code, residue in aln.int_to_aa.items()
+            if str(residue).upper() == target
+        }
+        matches = np.fromiter(
+            (int(value) in matching_codes for value in encoded),
+            dtype=bool,
+            count=row_indices.size,
+        )
+    else:
+        matches = np.fromiter(
+            (
+                str(aln[int(row_idx)].seq[col_idx]).upper() == target
+                for row_idx in row_indices
+            ),
+            dtype=bool,
+            count=row_indices.size,
+        )
+    return float(selected_weights[matches].sum())
+
+
+def _calculate_outside_frequency(
+    amino_acid,
+    global_counts,
+    global_size,
+    excluded_count,
+    excluded_size,
+):
+    """Return the residue frequency after excluding a union of conserved subsets."""
+    outside_size = float(global_size) - float(excluded_size)
+    if outside_size <= 1e-12:
+        return None
+
+    global_count = float(global_counts.get(str(amino_acid).upper(), 0.0))
+    outside_count = global_count - float(excluded_count)
+    if outside_count < -1e-12:
+        return None
+    outside_count = max(0.0, outside_count)
+    return outside_count / outside_size
+
+
 def _is_subset_specific_residue(
     subset_aa,
     subset_frequency,
@@ -445,12 +517,8 @@ def _is_subset_specific_residue(
     global_max,
     subset_count=None,
 ):
-    """Apply cmin and compare gmax against the leave-subset-out background."""
+    """Apply cmin and preserve the historical single-subset gmax calculation."""
     if subset_frequency < cluster_min:
-        return False
-
-    outside_size = global_size - subset_size
-    if outside_size <= 0:
         return False
 
     if subset_count is None:
@@ -458,14 +526,30 @@ def _is_subset_specific_residue(
         subset_count = int(round(subset_frequency * subset_size))
     else:
         subset_count = float(subset_count)
-    global_count = global_counts.get(str(subset_aa).upper(), 0)
-    outside_count = global_count - subset_count
-    if outside_count < -1e-12:
-        return False
-    outside_count = max(0.0, outside_count)
+    outside_frequency = _calculate_outside_frequency(
+        subset_aa,
+        global_counts,
+        global_size,
+        subset_count,
+        subset_size,
+    )
+    return outside_frequency is not None and outside_frequency < global_max
 
-    outside_frequency = outside_count / outside_size
-    return outside_frequency < global_max
+
+def _format_statistics_summary(
+    network_node_count,
+    aligned_node_count,
+    excluded_node_count,
+    effective_sequence_count=None,
+):
+    """Format the compact workbook statistics metadata value."""
+    if effective_sequence_count is None:
+        effective_sequence_count = aligned_node_count
+    effective_display = f"{float(effective_sequence_count):.2f}".rstrip("0").rstrip(".")
+    return (
+        f"Aligned {aligned_node_count} of {network_node_count} | "
+        f"Excluded {excluded_node_count} | Effective {effective_display}"
+    )
 
 
 def _append_workbook_metadata(
@@ -484,12 +568,15 @@ def _append_workbook_metadata(
     worksheet.append([f"Reference: {ref_display}"])
     worksheet.append([f"Alignment Offset: {offset_display}"])
     if network_node_count is not None:
-        worksheet.append([f"Network Nodes: {network_node_count}"])
-        worksheet.append([f"Aligned Nodes: {aligned_node_count}"])
-        worksheet.append([f"Excluded Unaligned Nodes: {excluded_node_count}"])
+        statistics_summary = _format_statistics_summary(
+            network_node_count,
+            aligned_node_count,
+            excluded_node_count,
+            effective_sequence_count,
+        )
+        worksheet.append([f"Statistics: {statistics_summary}"])
     if identity_threshold is not None:
         worksheet.append([f"Identity Threshold: {identity_threshold * 100:g}%"])
-        worksheet.append([f"Global Effective N: {effective_sequence_count:.2f}"])
     worksheet.append([f"Global Conserved (>{int(GLOBAL_CONSERVATION_THRESHOLD * 100)}%)"])
     worksheet.append(global_list if global_list else ["None"])
     worksheet.append([])
@@ -719,6 +806,8 @@ def _run_label_artifact(viewer, args):
         # --- 4. Process Tasks ---
         master_labels = set()
         cluster_results = []
+        candidate_pools = {}
+        candidate_amino_acids = {}
         
         # Build color map for topology clusters using cluster_cmd
         cluster_ids = [
@@ -737,52 +826,23 @@ def _run_label_artifact(viewer, args):
                     gap_chars=gap_chars,
                 )
 
-                # Calculate residue frequencies. Identity-enabled subsets retain
-                # their rows' globally calculated weights.
+                # Calculate complete residue counts and frequencies. Identity-
+                # enabled subsets retain their rows' globally calculated weights.
                 if global_weights is None:
-                    c_effective_n = float(c_size)
-                    c_stats, _ = _calculate_weighted_frequencies(
-                        c_aln,
-                        c_map,
-                        np.ones(c_size, dtype=float),
-                        gap_chars=gap_chars,
-                    )
-                    c_counts_by_label = None
+                    c_weights = np.ones(c_size, dtype=float)
                 else:
                     c_weights = global_weights[aln_indices]
-                    c_effective_n = float(c_weights.sum())
-                    c_stats, c_counts_by_label = _calculate_weighted_frequencies(
-                        c_aln,
-                        c_map,
-                        c_weights,
-                        gap_chars=gap_chars,
-                    )
-                c_dict = {}
-                c_occ_dict = {} 
-                
-                for lbl in utils.sort_labels(c_stats.keys()):
-                    if lbl not in c_stats: continue
-                    c_aa, c_freq, c_occ = c_stats[lbl]
-                    
-                    c_occ_dict[lbl] = c_occ 
-                    if lbl not in g_stats:
-                        continue
-                    if _is_subset_specific_residue(
-                        c_aa,
-                        c_freq,
-                        c_effective_n,
-                        get_global_counts(lbl),
-                        total_global_effective_n,
-                        cluster_min,
-                        global_max,
-                        subset_count=(
-                            c_counts_by_label.get(lbl, {}).get(str(c_aa).upper(), 0.0)
-                            if c_counts_by_label is not None
-                            else None
-                        ),
-                    ):
-                        c_dict[lbl] = {"text": f"{c_aa}{lbl}", "occ": c_occ}
-                        master_labels.add(lbl)
+                c_effective_n = float(c_weights.sum())
+                c_stats, c_counts_by_label = _calculate_weighted_frequencies(
+                    c_aln,
+                    c_map,
+                    c_weights,
+                    gap_chars=gap_chars,
+                )
+                c_occ_dict = {
+                    lbl: c_stats[lbl][2]
+                    for lbl in utils.sort_labels(c_stats.keys())
+                }
                 
                 # Format Output Styling
                 if entity_type == 'cluster':
@@ -799,7 +859,7 @@ def _run_label_artifact(viewer, args):
                     # Sort groups by count descending (-c_size), then alphabetically
                     sort_key = (1, -c_size, str(entity_id))
 
-                cluster_results.append({
+                result = {
                     "type": entity_type,
                     "id": entity_id,
                     "name": name_str,
@@ -811,13 +871,91 @@ def _run_label_artifact(viewer, args):
                     "max": c_max_len,
                     "avg": c_avg_len,
                     "std": c_std_len,
-                    "data": c_dict,
+                    "data": {},
                     "occ_data": c_occ_dict
-                })
+                }
+                cluster_results.append(result)
+
+                # First pass: collect every amino acid meeting cmin. The shared
+                # outside background is resolved only after every subset is known.
+                if c_effective_n > 0.0:
+                    for lbl in utils.sort_labels(c_counts_by_label.keys()):
+                        if lbl not in g_stats:
+                            continue
+                        for amino_acid, count in sorted(
+                            c_counts_by_label[lbl].items()
+                        ):
+                            frequency = float(count) / c_effective_n
+                            if frequency < cluster_min:
+                                continue
+                            amino_acid = str(amino_acid).upper()
+                            candidate_pools.setdefault(
+                                (lbl, amino_acid), []
+                            ).append({
+                                "result": result,
+                                "frequency": frequency,
+                                "aln_indices": aln_indices,
+                            })
+                            candidate_amino_acids.setdefault(lbl, set()).add(
+                                amino_acid
+                            )
                     
             except Exception as e: 
                 print(f"Skipping {entity_type} {entity_id} due to error: {e}")
                 continue
+
+        # Second pass: for each conserved position/residue pair, exclude the
+        # deduplicated union of all qualifying cluster/group memberships.
+        candidate_labels = utils.sort_labels(candidate_amino_acids.keys())
+        for lbl in candidate_labels:
+            amino_acids = sorted(candidate_amino_acids[lbl])
+            col_idx = viewer.alignment.label_to_col.get(lbl)
+            if col_idx is None:
+                continue
+            for amino_acid in amino_acids:
+                candidates = candidate_pools[(lbl, amino_acid)]
+                excluded_indices = np.unique(np.concatenate([
+                    candidate["aln_indices"] for candidate in candidates
+                ]))
+                if global_weights is None:
+                    excluded_size = float(excluded_indices.size)
+                else:
+                    excluded_size = float(global_weights[excluded_indices].sum())
+                excluded_count = _get_indexed_amino_acid_count(
+                    viewer.alignment.aln,
+                    col_idx,
+                    amino_acid,
+                    excluded_indices,
+                    weights=global_weights,
+                )
+                outside_frequency = _calculate_outside_frequency(
+                    amino_acid,
+                    get_global_counts(lbl),
+                    total_global_effective_n,
+                    excluded_count,
+                    excluded_size,
+                )
+                if outside_frequency is None or outside_frequency >= global_max:
+                    continue
+
+                master_labels.add(lbl)
+                for candidate in candidates:
+                    candidate["result"]["data"].setdefault(lbl, []).append((
+                        amino_acid,
+                        candidate["frequency"],
+                    ))
+
+        # One subset-position cell may contain multiple independently passing
+        # amino acids. Sort by subset frequency, then residue code for stability.
+        for result in cluster_results:
+            for lbl, entries in list(result["data"].items()):
+                entries.sort(key=lambda item: (-item[1], item[0]))
+                result["data"][lbl] = {
+                    "text": " | ".join(
+                        f"{amino_acid}{lbl}" for amino_acid, _frequency in entries
+                    ),
+                    "occ": result["occ_data"].get(lbl, 0.0),
+                }
 
         # --- 5. Export XLSX ---
         out_path = os.path.abspath(viewer._label_output_path)
@@ -907,12 +1045,16 @@ def _run_label_artifact(viewer, args):
             ws_meta.append(["Fasta Name", fasta_name])
             ws_meta.append(["Network Name", network_name])
             ws_meta.append(["Alignment Name", alignment_name])
-            ws_meta.append(["Network Nodes", total_network_nodes])
-            ws_meta.append(["Aligned Nodes", total_global_seqs])
-            if identity_threshold is not None:
-                ws_meta.append(["Global Effective N", total_global_effective_n])
-            ws_meta.append(["Excluded Unaligned Nodes", excluded_unaligned_nodes])
             ws_meta.append(["Label Parameters", label_params])
+            ws_meta.append([
+                "Statistics",
+                _format_statistics_summary(
+                    total_network_nodes,
+                    total_global_seqs,
+                    excluded_unaligned_nodes,
+                    total_global_effective_n,
+                ),
+            ])
             
             # Style header row for Meta Data tab
             header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")

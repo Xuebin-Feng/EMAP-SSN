@@ -15,10 +15,12 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from commands.label import (
+    _calculate_outside_frequency,
     _calculate_weighted_frequencies,
     _format_global_amino_acid_profile,
     _get_amino_acid_counts,
     _get_amino_acid_frequencies,
+    _get_indexed_amino_acid_count,
     _is_subset_specific_residue,
 )
 
@@ -193,6 +195,80 @@ class LabelGlobalProfileTests(unittest.TestCase):
                 subset_count=0.4,
             )
         )
+
+    def test_shared_outside_frequency_uses_union_counts(self):
+        self.assertEqual(
+            _calculate_outside_frequency(
+                "Y",
+                global_counts={"Y": 4},
+                global_size=6,
+                excluded_count=4,
+                excluded_size=4,
+            ),
+            0.0,
+        )
+
+    def test_shared_outside_frequency_rejects_empty_background(self):
+        self.assertIsNone(
+            _calculate_outside_frequency(
+                "Y",
+                global_counts={"Y": 4},
+                global_size=4,
+                excluded_count=4,
+                excluded_size=4,
+            )
+        )
+
+    def test_gmax_remains_a_strict_upper_bound(self):
+        outside_frequency = _calculate_outside_frequency(
+            "Y",
+            global_counts={"Y": 2},
+            global_size=4,
+            excluded_count=1,
+            excluded_size=2,
+        )
+        self.assertEqual(outside_frequency, 0.5)
+        self.assertFalse(outside_frequency < 0.5)
+
+    def test_indexed_counts_deduplicate_rows_and_preserve_weights(self):
+        alignment = MultipleSeqAlignment(
+            [
+                SeqRecord(Seq("Y"), id="y1"),
+                SeqRecord(Seq("Y"), id="y2"),
+                SeqRecord(Seq("A"), id="a1"),
+            ]
+        )
+        count = _get_indexed_amino_acid_count(
+            alignment,
+            0,
+            "Y",
+            [0, 1, 1],
+            weights=np.array([0.5, 0.25, 1.0]),
+        )
+        self.assertAlmostEqual(count, 0.75)
+
+    def test_indexed_counts_match_for_dense_and_sparse_alignments(self):
+        dense_alignment = MultipleSeqAlignment(
+            [
+                SeqRecord(Seq("Y"), id="y1"),
+                SeqRecord(Seq("A"), id="a1"),
+                SeqRecord(Seq("Y"), id="y2"),
+            ]
+        )
+        sparse_alignment = SparseAlignmentStub(
+            np.array([[1], [2], [1]], dtype=np.uint8),
+            {1: "Y", 2: "A"},
+        )
+        weights = np.array([0.5, 1.0, 0.25])
+
+        dense_count = _get_indexed_amino_acid_count(
+            dense_alignment, 0, "Y", [0, 2], weights=weights
+        )
+        sparse_count = _get_indexed_amino_acid_count(
+            sparse_alignment, 0, "Y", [0, 2], weights=weights
+        )
+        self.assertAlmostEqual(dense_count, 0.75)
+        self.assertAlmostEqual(sparse_count, dense_count)
 
 
 if __name__ == "__main__":

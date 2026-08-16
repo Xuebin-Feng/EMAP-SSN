@@ -1354,8 +1354,8 @@
                 <div class="subheading">Targets &amp; Parameters</div>
                 <ul>
                     <li><strong>TARGET (Default: clusters):</strong> <code>clusters</code> (analyzes topology clusters and manual groups) or <code>groups</code> (skips clusters, analyzes only custom groups).</li>
-                    <li><strong>OUTSIDE_MAX (gmax) [Default: 40%]:</strong> Maximum frequency of the subset's dominant residue among aligned sequences outside that cluster or group. Highlighted residues must occur in less than this percentage in the leave-subset-out background.</li>
-                    <li><strong>CLUSTER_MIN (cmin) [Default: 98%]:</strong> Minimum consensus frequency. Highlighted residues must occur in at least this percentage inside the specific cluster or group.</li>
+                    <li><strong>OUTSIDE_MAX (gmax) [Default: 40%]:</strong> Maximum frequency of a conserved residue outside the deduplicated union of all analyzed subsets where that same amino acid meets <code>cmin</code> at the same position. Every qualifying subset is reported when the shared outside frequency is below this value. A candidate is not reported when its exclusion union leaves no outside sequences.</li>
+                    <li><strong>CLUSTER_MIN (cmin) [Default: 98%]:</strong> Minimum gap-diluted amino-acid frequency inside a cluster or group. Every amino acid occurring at or above this frequency is evaluated, rather than only the dominant residue.</li>
                     <li><strong>IDENTITY (id) [Default: off]:</strong> Optional sequence-redundancy threshold, accepted as a fraction or percentage such as <code>id 0.9</code>, <code>id 90</code>, or <code>id 90%</code>. The command calculates logo-style identity-neighbor weights once across the aligned MSA and applies them consistently to global, subset, and outside-background residue frequencies and occupancy.</li>
                     <li><strong>FILENAME (optional):</strong> A single bare output workbook basename supplied as the final argument. The <code>.xlsx</code> extension is added when omitted; without a name, the command uses <code>Label_Output_YYYYMMDD_HHMMSS.xlsx</code>. Numeric or reserved-word filenames must include <code>.xlsx</code> to distinguish them from parameters.</li>
                     <li><strong>GLOBAL CONSERVATION (fixed at 97%):</strong> Residues exceeding 97% frequency globally are reported as universally conserved. This threshold is not user-configurable.</li>
@@ -1365,8 +1365,8 @@
                 <div class="subheading">Understanding the Excel Output</div>
                 <p>Output is written to <code>Results/Cluster_Label/</code> and contains three worksheets:</p>
                 <ul>
-                    <li><strong>Meta Data:</strong> Records network, alignment, clustering, and label parameters. Identity-enabled reports also record global effective N immediately after the aligned-node count.</li>
-                    <li><strong>Subset Stats (SDP Matrix):</strong> Lists clusters/groups in rows and alignment positions in columns. Displays conserved amino acids colored by gap-occupancy.</li>
+                    <li><strong>Meta Data:</strong> Records network, alignment, clustering, and label parameters. A compact Statistics value reports <code>Aligned N of N | Excluded N | Effective N</code>; without identity reweighting, Effective equals the aligned count.</li>
+                    <li><strong>Subset Stats (SDP Matrix):</strong> Lists clusters/groups in rows and alignment positions in columns. Displays conserved amino acids colored by gap-occupancy. If multiple amino acids independently pass at one subset-position, the cell joins them in descending subset-frequency order, for example <code>Y120 | F120</code>.</li>
                     <li><strong>Occupancy Stats:</strong> Provides gap-occupancy percentages for every position, highlighted in green. Useful for identifying insertion/deletion variations across subfamilies.</li>
                 </ul>
                 <p>When identity weighting is enabled, both statistics sheets add an <code>Effective N</code> column. Raw Count, Percent, and sequence-length statistics remain unweighted. Without an identity value, the workbook layout and calculations retain their historical behavior.</p>
