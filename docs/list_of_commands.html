@@ -1422,27 +1422,29 @@
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
-                        <span class="command-card-desc-title">&ndash; Local ESM3 3D Structure Prediction Tool</span>
+                        <span class="command-card-desc-title">&ndash; Local or Biohub ESM3 Structure Prediction</span>
                         <span class="badge badge-ext">external</span>
                         <span class="badge badge-new">new</span>
                     </div>
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">esmfold [multi / help]</div>
+                    <div class="syntax-content">esmfold [large] [multi]  |  esmfold help</div>
                     <button class="copy-btn" onclick="copyText('esmfold', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The esmfold command triggers local 3D protein structure prediction using the EvolutionaryScale ESM3 1.4B open-weights model (<code>biohub/esm3-sm-open-v1</code>). It automates sequence folding, registers a new "🧬 Fold View" sidebar button in the viewer, and launches a web-based Mol* 3D structure visualizer in the default browser.</p>
+                <p><strong>Overview:</strong> The esmfold command predicts protein structures locally with the EvolutionaryScale ESM3 1.4B open-weights model (<code>biohub/esm3-sm-open-v1</code>) or remotely through Biohub with the configured ESM3 model. It registers the "🧬 Fold View" sidebar button and launches a web-based Mol* 3D structure visualizer in the default browser.</p>
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>No Arguments:</strong> Folds the currently selected node (only if exactly 1 node is selected). Spawns a background console window running the prediction, and opens the Mol* viewer.</li>
+                    <li><strong>No Arguments:</strong> Folds one selected node locally. With no selection, registers the Fold View button and opens Mol* without launching a prediction.</li>
                     <li><strong>multi:</strong> Folds all currently selected nodes sequentially in the background console.</li>
+                    <li><strong>large:</strong> Folds one selected node remotely using the model in <code>src/resources/Biohub_API.json</code>. Combine with <code>multi</code> in either order for a sequential remote batch.</li>
                     <li><strong>help:</strong> Prints CLI help and usage instructions.</li>
                 </ul>
 
                 <div class="subheading">Hardware &amp; System Integration</div>
                 <ul>
                     <li><strong>GPU Acceleration:</strong> Automatically detects and utilizes CUDA, Apple Metal (MPS), or fallback CPU devices.</li>
+                    <li><strong>Biohub Mode:</strong> Remote inference bypasses local hardware selection, keeps local and remote PDB files separate, and prompts for a hidden shared API token in the worker terminal on first use.</li>
                     <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the PyQt viewer.</li>
                     <li><strong>Mol* Interface:</strong> Hosts a web server that loads the predicted structure in a rich interactive 3D viewer.</li>
                 </ul>
@@ -1451,6 +1453,8 @@
                 <ul class="example-list">
                     <li class="example-item"><span>esmfold</span><button class="copy-btn" onclick="copyText('esmfold', this)">Copy</button></li>
                     <li class="example-item"><span>esmfold multi</span><button class="copy-btn" onclick="copyText('esmfold multi', this)">Copy</button></li>
+                    <li class="example-item"><span>esmfold large</span><button class="copy-btn" onclick="copyText('esmfold large', this)">Copy</button></li>
+                    <li class="example-item"><span>esmfold large multi</span><button class="copy-btn" onclick="copyText('esmfold large multi', this)">Copy</button></li>
                     <li class="example-item"><span>esmfold help</span><button class="copy-btn" onclick="copyText('esmfold help', this)">Copy</button></li>
                 </ul>
             </section>

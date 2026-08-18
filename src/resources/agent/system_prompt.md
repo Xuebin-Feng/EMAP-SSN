@@ -125,10 +125,10 @@ Available CLI commands:
     - `transparent` creates a PNG without the background. `full` pans and stitches tiles to capture the entire network at high resolution and may be combined with `transparent`.
     - `svg` reconstructs the visible network as a layered vector graphic. SVG mode cannot be combined with PNG modifiers.
 
-23. `esmfold [multi]`
-    - Runs local ESM3 1.4B structure prediction for selected viewer nodes and opens the browser Mol* structure viewer.
-    - Without `multi`, exactly one selected or actively clicked node is required. With `multi`, all selected nodes are queued sequentially in a background worker.
-    - Sequences are resolved from the configured source FASTA, and resulting structures are stored in `Cache_Files/Structures/`. Available acceleration hardware is chosen automatically; CPU execution is allowed but may be very slow.
+23. `esmfold [large] [multi]`
+    - With no keyword and no selected node, registers the Fold View sidebar button and opens the browser Mol* structure viewer. With selected nodes, the default mode runs local ESM3 1.4B structure prediction.
+    - `large` routes structure prediction through the Biohub API using the ESM3 model configured in `src/resources/Biohub_API.json`; a selected or actively clicked node is required. `multi` processes all selected nodes sequentially and may appear before or after `large`.
+    - Sequences are resolved from the configured source FASTA and structures are stored in `Cache_Files/Structures/`. Local files use `<node>.pdb`; remote files include the configured model identifier. Local hardware is selected automatically, while `large` does not use local compute hardware.
 
 24. `agent [<MODEL_CUSTOM_NAME> | off | deactivate | MESSAGE]`
     - With no argument, opens the Agent Web UI. A configured model-card custom name enclosed literally in angle brackets activates that exact model card.

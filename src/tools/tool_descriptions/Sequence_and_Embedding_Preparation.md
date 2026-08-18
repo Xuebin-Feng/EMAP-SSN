@@ -76,7 +76,7 @@ This script extracts sequence embeddings from pre-trained protein language model
 | Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`float16` or `float32`). `float16` is recommended to reduce disk space by 50% with negligible loss of accuracy. |
 | Compute Device **`DEVICE_SELECTION`** | `auto` benchmarks the available installer-validated CPU/accelerator candidates on representative sequence lengths and uses the fastest successful device, with ranked fallback if a runtime failure occurs. Selecting a specific CPU, CUDA, XPU, or MPS device pins generation to that device and reports an error instead of silently switching. |
 
-> **ESMC 6B API access:** Select `esmc_6b`; the plugin maps that filename-friendly label to Biohub's `esmc-6b-2024-12` API identifier. Store the token beside the plugin in the Git-ignored `src/resources/pLM_models/esmc_6b_api_key.json` file as `{"ESM_API_TOKEN": "your-token"}`. Future API plugins can follow the same `*_api_key.json` naming convention.
+> **Shared Biohub API access:** Select `esmc_6b`; the plugin maps that filename-friendly label to Biohub's `esmc-6b-2024-12` API identifier. On first use, the `Generate_Embeddings.py` terminal prompts for a hidden token and stores it in the Git-ignored `src/resources/Biohub_API.json`. The same token and optional `ESM_API_URL` are shared with `esmfold large`, whose worker terminal uses the same hidden prompt when the shared file and `ESM_API_KEY` environment variable are absent.
 
 ### 📤 Output
 

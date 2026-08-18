@@ -27,14 +27,19 @@ from utilities.Terminal_Launcher import (
 
 def print_help():
     print("""
-    Local ESM3 3D Structure Prediction
-    ==================================
+    ESM3 3D Structure Prediction
+    ============================
     Usage:
       esmfold
-          Folds the currently selected node (only if exactly 1 node is selected) using ESM3 1.4B (biohub/esm3-sm-open-v1).
-          Registers the sidebar button "🧬 Fold View" and opens the Mol* viewer in the browser.
+          With exactly 1 node selected, folds it using ESM3 1.4B (biohub/esm3-sm-open-v1).
+          With no node selected, registers the sidebar button "🧬 Fold View" and opens the Mol* viewer in the browser.
       esmfold multi
           Folds all currently selected nodes sequentially using ESM3 1.4B (biohub/esm3-sm-open-v1).
+      esmfold large
+          Folds exactly 1 selected node through the Biohub API using the ESM3 model configured in Biohub_API.json.
+      esmfold large multi
+      esmfold multi large
+          Folds all selected nodes sequentially through the configured Biohub ESM3 API model.
       esmfold help
           Displays this help message.
     """)
@@ -43,6 +48,35 @@ def sanitize_filename(name):
     import re
     # Replace any character that is not alphanumeric, a dash, dot, or underscore with '_'
     return re.sub(r'[^a-zA-Z0-9_\-\.]', '_', name)
+
+
+def _set_console_text(viewer, message):
+    if hasattr(viewer, 'console_text'):
+        viewer.console_text.text = message
+
+
+def _report_usage_error(viewer, message):
+    print(f"Error: {message}")
+    print("Usage: esmfold [large] [multi]")
+    _set_console_text(viewer, f"Error: {message}")
+
+
+def _parse_options(viewer, args):
+    normalized = [str(argument).lower() for argument in args]
+    allowed = {"large", "multi"}
+    unknown = [argument for argument in normalized if argument not in allowed]
+    if unknown:
+        _report_usage_error(viewer, f"Unknown esmfold keyword: {unknown[0]}")
+        return None
+    duplicates = sorted({argument for argument in normalized if normalized.count(argument) > 1})
+    if duplicates:
+        _report_usage_error(viewer, f"Duplicate esmfold keyword: {duplicates[0]}")
+        return None
+    return {
+        "large": "large" in normalized,
+        "multi": "multi" in normalized,
+    }
+
 
 def run(viewer, args):
     import warnings
@@ -56,10 +90,18 @@ def run(viewer, args):
 
     # 2. Help & Usage Check
     if args and args[0].lower() in ['help', '-h', '--help']:
+        if len(args) != 1:
+            _report_usage_error(viewer, "Help cannot be combined with other keywords.")
+            return
         print_help()
-        if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+        _set_console_text(viewer, "Help information printed to the terminal")
         return
+
+    options = _parse_options(viewer, args)
+    if options is None:
+        return
+    is_large = options["large"]
+    is_multi = options["multi"]
 
     # 3. Determine selected nodes
     selected_indices = getattr(viewer, 'selected_indices', [])
@@ -69,34 +111,39 @@ def run(viewer, args):
             selected_indices = [node_idx]
 
     if not selected_indices:
+        if not args:
+            esmfold_backend.register(viewer)
+            esmfold_backend.open_esmfold_ui(viewer, force=True)
+            return
+
         print("Error: No nodes selected. Please select a node in the visualizer first.")
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Error: No nodes selected."
         return
 
     # 4. Check for multiple selections vs "multi" command flag
-    is_multi = len(args) >= 1 and args[0].lower() == 'multi'
     if len(selected_indices) > 1 and not is_multi:
         print("Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Error: Multiple nodes selected. Use 'esmfold multi'."
         return
 
-    # 5. Check Hardware & VRAM via Hardware_Utils
-    try:
-        from utilities import Hardware_Utils
-        import torch
-    except ImportError:
-        print("Error: PyTorch or Hardware_Utils could not be imported.")
-        if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Error: PyTorch/Hardware_Utils missing"
-        return
+    # 5. Select hardware only for local inference. Biohub runs remotely.
+    device_str = None
+    if not is_large:
+        try:
+            from utilities import Hardware_Utils
+            import torch
+        except ImportError:
+            print("Error: PyTorch or Hardware_Utils could not be imported.")
+            _set_console_text(viewer, "Error: PyTorch/Hardware_Utils missing")
+            return
 
-    device = Hardware_Utils.get_optimal_device()
-    device_str = str(device)
-    print(f"Optimal device selected: {device_str}")
-    if device.type == 'cpu':
-        print("Warning: Running local ESM3 on CPU will be extremely slow.")
+        device = Hardware_Utils.get_optimal_device()
+        device_str = str(device)
+        print(f"Optimal device selected: {device_str}")
+        if device.type == 'cpu':
+            print("Warning: Running local ESM3 on CPU will be extremely slow.")
 
     # 6. Parse sequences from FASTA subset/main database
     if not hasattr(viewer, 'sequences_map'):
@@ -156,16 +203,27 @@ def run(viewer, args):
     abs_structures_dir = os.path.abspath(structures_dir)
     abs_worker_script = os.path.abspath(worker_script)
 
-    print("Launching local ESM3 3D structure prediction background worker in a separate console...")
-    
-    device_str = str(device)
-    cmd = [python_exe, abs_worker_script, tmp_path, abs_structures_dir, device_str]
+    if is_large:
+        print("Launching Biohub ESM3 structure prediction worker in a separate console...")
+        cmd = [
+            python_exe,
+            abs_worker_script,
+            tmp_path,
+            abs_structures_dir,
+            "--mode",
+            "large",
+        ]
+        terminal_title = "SSN ESMFold Large"
+    else:
+        print("Launching local ESM3 3D structure prediction background worker in a separate console...")
+        cmd = [python_exe, abs_worker_script, tmp_path, abs_structures_dir, device_str]
+        terminal_title = "SSN ESMFold"
     try:
         launch_in_terminal(
             cmd,
             cwd=project_root,
             hold=HoldMode.NEVER,
-            title="SSN ESMFold",
+            title=terminal_title,
         )
     except (OSError, TerminalUnavailableError) as error:
         try:
@@ -182,5 +240,8 @@ def run(viewer, args):
 
     # 10. Open Mol* web browser tab immediately
     esmfold_backend.open_esmfold_ui(viewer)
-    if hasattr(viewer, 'console_text'):
-        viewer.console_text.text = f"Spawning separate console to fold {len(nodes_to_fold)} structure(s)..."
+    mode_label = "Biohub ESM3" if is_large else "local ESM3"
+    _set_console_text(
+        viewer,
+        f"Spawning separate console to fold {len(nodes_to_fold)} structure(s) with {mode_label}...",
+    )

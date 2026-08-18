@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-import os
+import getpass
 import re
 import time
 import warnings
 
 import numpy as np
+from resources import Biohub_API
 
 
 SUPPORTED_MODELS = ["esmc_6b"]
@@ -37,45 +37,18 @@ API_MODEL_MAPPINGS = {
     "esmc_6b": "esmc-6b-2024-12",
 }
 
-DEFAULT_API_URL = "https://biohub.ai"
 MAX_API_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 5
 
-API_KEYS_FILE = os.path.join(
-    os.path.dirname(__file__),
-    "esmc_6b_api_key.json",
-)
 
-
-def _load_api_settings():
-    """Load the ESM API token without keeping credentials in tracked source code."""
-    settings = {}
-    if os.path.exists(API_KEYS_FILE):
-        try:
-            with open(API_KEYS_FILE, "r", encoding="utf-8") as handle:
-                settings = json.load(handle)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Could not read valid JSON from the ESM API key file: {API_KEYS_FILE}"
-            ) from exc
-
-        if not isinstance(settings, dict):
-            raise ValueError(
-                f"ESM API key file must contain a JSON object: {API_KEYS_FILE}"
-            )
-
-    token = settings.get("ESM_API_TOKEN")
-    if not token:
-        token = os.environ.get("ESM_API_KEY")
-
-    if not token or not str(token).strip():
-        raise ValueError(
-            "ESMC 6B requires an API token. Add ESM_API_TOKEN to "
-            f"'{API_KEYS_FILE}' or set the ESM_API_KEY environment variable."
+def _terminal_token_prompt(replacement=False):
+    action = "Replacement" if replacement else "Biohub"
+    try:
+        return getpass.getpass(
+            f"{action} API token (input hidden; press Enter to cancel): "
         )
-
-    api_url = settings.get("ESM_API_URL", DEFAULT_API_URL)
-    return str(token).strip(), str(api_url).strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
 
 
 def load_model(model_name, device):
@@ -89,16 +62,23 @@ def load_model(model_name, device):
             f"No Biohub API model mapping is configured for '{model_name}'."
         ) from exc
 
-    token, api_url = _load_api_settings()
+    settings = Biohub_API.load_api_settings(
+        prompt_callback=lambda: _terminal_token_prompt(False),
+    )
+    token = settings["ESM_API_TOKEN"]
+    api_url = settings["ESM_API_URL"]
     print(
         f"Initializing remote {model_name} ({api_model_name}) API client at {api_url} "
         "(remote inference; no local device is used)..."
     )
-    return ESMCForgeInferenceClient(
+    client = ESMCForgeInferenceClient(
         model=api_model_name,
         url=api_url,
         token=token,
     )
+    client._ssn_biohub_settings = settings
+    client._ssn_auth_refresh_attempted = False
+    return client
 
 
 def _clean_sequence(seq):
@@ -126,6 +106,9 @@ def _request_embedding(seq, client, target_dtype):
 
         protein_tensor = client.encode(ESMProtein(sequence=seq))
         if isinstance(protein_tensor, ESMProteinError):
+            status = Biohub_API.authentication_status(protein_tensor)
+            if status is not None:
+                raise Biohub_API.BiohubAuthenticationError(status)
             raise RuntimeError(
                 f"API encode error (code {protein_tensor.error_code}): "
                 f"{protein_tensor.error_msg}"
@@ -137,6 +120,9 @@ def _request_embedding(seq, client, target_dtype):
         )
 
     if isinstance(logits, ESMProteinError):
+        status = Biohub_API.authentication_status(logits)
+        if status is not None:
+            raise Biohub_API.BiohubAuthenticationError(status)
         raise RuntimeError(
             f"API logits error (code {logits.error_code}): {logits.error_msg}"
         )
@@ -185,7 +171,34 @@ def get_embedding(seq, model_obj, device, target_dtype):
     last_error = None
     for attempt in range(1, MAX_API_ATTEMPTS + 1):
         try:
-            return _request_embedding(cleaned_seq, model_obj, target_dtype)
+            while True:
+                try:
+                    return _request_embedding(cleaned_seq, model_obj, target_dtype)
+                except Biohub_API.BiohubAuthenticationError as auth_error:
+                    if getattr(model_obj, "_ssn_auth_refresh_attempted", False):
+                        raise Biohub_API.BiohubAuthenticationError(
+                            auth_error.error_code,
+                            "Biohub rejected the API token after one replacement attempt.",
+                        ) from auth_error
+                    model_obj._ssn_auth_refresh_attempted = True
+                    print(
+                        "\nBiohub rejected the saved API token. "
+                        "Enter a replacement to retry once."
+                    )
+                    settings = getattr(model_obj, "_ssn_biohub_settings", None)
+                    if settings is None:
+                        settings = Biohub_API.load_api_settings()
+                    refreshed = Biohub_API.refresh_api_token(
+                        settings,
+                        lambda: _terminal_token_prompt(True),
+                    )
+                    model_obj._ssn_biohub_settings = refreshed
+                    Biohub_API.update_client_token(
+                        model_obj,
+                        refreshed["ESM_API_TOKEN"],
+                    )
+        except Biohub_API.BiohubAuthenticationError:
+            raise
         except Exception as exc:
             last_error = exc
             if attempt == MAX_API_ATTEMPTS:
