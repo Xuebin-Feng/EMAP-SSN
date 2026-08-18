@@ -572,6 +572,26 @@ def resolve_relative_cache_path(saved_layout_dir, relative_path):
     return candidate
 
 
+def validate_node_render_order(values, node_count):
+    """Return a validated low-to-high node permutation."""
+    import numpy as np
+
+    order = np.asarray(values)
+    if order.ndim != 1 or len(order) != node_count:
+        raise CacheManifestError(
+            "Cache node render order must contain exactly one entry per node."
+        )
+    if not np.issubdtype(order.dtype, np.integer):
+        raise CacheManifestError("Cache node render order must contain integers.")
+
+    normalized = order.astype(np.int32, copy=False)
+    if not np.array_equal(np.sort(normalized), np.arange(node_count, dtype=np.int32)):
+        raise CacheManifestError(
+            "Cache node render order must be a permutation of all node indices."
+        )
+    return normalized
+
+
 def validate_cache_hdf5(hf, expected_headers, manifest_id):
     """Validate one selected cache before any cached state is applied."""
     import numpy as np
@@ -605,6 +625,8 @@ def validate_cache_hdf5(hf, expected_headers, manifest_id):
             raise CacheManifestError(
                 f"Cache dataset '{dataset_name}' does not match the node count."
             )
+    if "node_render_order" in hf:
+        validate_node_render_order(hf["node_render_order"][:], node_count)
     if "metadata" in hf:
         for property_name, dataset in hf["metadata"].items():
             if len(dataset) != node_count:

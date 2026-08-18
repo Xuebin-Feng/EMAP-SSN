@@ -59,7 +59,10 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         self.viewer = viewer
         self.event_queues = []
         self.queues_lock = threading.Lock()
-        self.static_routes = {}  # prefix -> local_dir (registered by dynamic backends)
+        registry = getattr(viewer, "web_plugin_registry", None)
+        self.static_routes = (
+            registry.static_routes if registry is not None else {}
+        )
 
         # Vendored fonts are a shared resource rather than one panel's asset, so
         # they are registered here instead of by an individual backend. This

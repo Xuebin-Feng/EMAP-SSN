@@ -14,6 +14,7 @@ Available CLI commands:
    - Changes one or more visual attributes of matching nodes. COLOR accepts a recognized color name or hexadecimal color; xSCALE is a multiplicative node-size factor prefixed with `x`; SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
    - Color, scale, and shape are independent and optional, but each target must have at least one attribute change. Do not add an attribute the user did not request.
    - If attributes are provided without an expression, the current mouse selection is targeted. Multiple expression-and-attribute assignments may be chained in one command.
+   - All nodes modified by one invocation are promoted as one render group ordered by stable node index; later invocations render above earlier groups.
 
 2. `select [MODE] <EXPRESSION> | select invert | select save <FILENAME>`
    - Selects only currently visible nodes. MODE may appear before or after the expression.
@@ -27,8 +28,8 @@ Available CLI commands:
    - Use `reset hide` to make hidden nodes visible again.
 
 4. `reset <TARGET_1> [TARGET_2 ...]`
-   - Resets any requested combination of `colors`, `sizes`, `shapes`, `clusters`, `groups`, `hide`/`hidden`, and `network`; singular and plural visual target names are accepted.
-   - Visual targets restore configured defaults, cluster/group targets clear those labels, hide restores visibility, and network restores layout positions to the original or most recently saved baseline.
+   - Resets any requested combination of `colors`, `sizes`, `shapes`, `clusters`, `groups`, `hide`/`hidden`, `network`, and `order`/`layer`; singular and plural target names are accepted.
+   - Visual targets restore configured defaults, cluster/group targets clear those labels, hide restores visibility, network restores layout positions to the original or most recently saved baseline, and order/layer restores persistent node rendering to index order without clearing active focus.
    - The command name must precede all targets.
 
 5. `zoom <WIDTH>`
@@ -42,7 +43,7 @@ Available CLI commands:
    - Reapplies the viewer state most recently removed by `undo`. It has no effect when there is no undone state available to reapply.
 
 8. `save [FILENAME]`
-   - Saves an HDF5 layout-cache snapshot containing headers, positions, colors, sizes, shapes, visibility, clusters, groups, metadata, and registered cacheable attributes.
+   - Saves an HDF5 layout-cache snapshot containing headers, positions, colors, sizes, shapes, visibility, persistent node render order, clusters, groups, metadata, and registered cacheable attributes.
    - FILENAME is a cache filename, not an arbitrary output path. `.h5` is added when omitted. Without a filename, the next available versioned cache filename is generated.
    - A successful save establishes the saved positions as the new layout-reset baseline.
 
@@ -67,8 +68,9 @@ Available CLI commands:
     - Exact full headers map alignment rows to viewer nodes. Nodes absent from the MSA remain visible but are excluded from alignment-dependent calculations; a parseable partial or zero-overlap alignment is allowed.
     - A malformed or unreadable file fails without replacing the previously active alignment.
 
-13. `query [EXPRESSION] <POSITIONS_OR_FREQUENCY_LOGIC>`
-    - Requires a loaded MSA and exactly one literal bracketed argument. If EXPRESSION is omitted, the current selection is queried; when there is no selection, all mapped nodes are queried.
+13. `query EXPRESSION [POSITIONS_OR_FREQUENCY_LOGIC] | query [POSITIONS_OR_FREQUENCY_LOGIC]`
+    - Requires a loaded MSA and exactly one literal bracketed argument containing the positions or frequency logic. EXPRESSION uses the shared expression language and must remain outside the square brackets. For example, use `query #cluster_N#&!#GROUP_NAME# [POSITION]`, never `query [#cluster_N#&!#GROUP_NAME#] [POSITION]`.
+    - If EXPRESSION is omitted, the current selection is queried; when there is no selection, all mapped nodes are queried.
     - Position-breakdown mode accepts a literal bracketed comma-separated list of positions and ranges. Reference labels may be integers or decimal insertion labels; `E` and `END` denote the last mapped position and may terminate a range.
     - Frequency-search mode accepts literal bracketed residue-frequency comparisons joined by `&`, `|`, `!`, and `^`. Comparisons support `<`, `<=`, `>`, and `>=`; thresholds may be decimal fractions or percentages; residues are one-letter codes and gaps are `GAP` or `_`. Parenthesize individual comparisons when combining them.
     - Reports residue distributions or matching positions to the terminal together with alignment, reference, offset, and subset context; it does not modify viewer state.
@@ -87,6 +89,7 @@ Available CLI commands:
     - Colors visible nodes by values from a loaded numerical metadata property. `property:` aliases `prop:`, and `color:` aliases `scheme:`; argument order is flexible.
     - If EXPRESSION is omitted, all visible nodes are targeted. Text properties are invalid for spectrum coloring, and nodes lacking a usable numerical value are not assigned a gradient value.
     - The default Matplotlib color scheme is `coolwarm`. A valid Matplotlib colormap name may be supplied; an unrecognized scheme falls back to the default.
+    - All nodes colored by one invocation, including invalid-value nodes colored gray, are promoted as one node-index-ordered render group.
 
 17. `meta | meta [upload|import] <FILENAME> | meta show <PROPERTY_NAME> | meta download [FILENAME]`
     - `meta` opens the browser metadata spreadsheet and registers its sidebar shortcut.
@@ -139,7 +142,8 @@ Shared expression language:
 - Amino-acid state at a mapped position: `[AA][POSITION]`, where AA is a standard one-letter amino-acid code and `_` means a gap. POSITION uses the active alignment numbering and offset.
 - Header text: `"TEXT"`; `*` may be used as a wildcard inside the quoted text.
 - Header-list file: `@[FILE]@`; identifier extraction modes are `@[NCBI][FILE]@` and `@[PDB][FILE]@`.
-- Cluster or group label: `#[LABEL]#`; this includes the special noise label when present.
+- Topology cluster: `#cluster_N#`, where `N` is the cluster number. Natural-language references such as "cluster N" must be normalized to this full label; never shorten a topology cluster to `#N#`.
+- Custom group: `#GROUP_NAME#`, using the group's defined name exactly. The special topology-noise label is `#noise#` when present.
 - Current mouse selection: `$sele$`.
 - Metadata comparison: `{PROPERTY OP VALUE}` using the viewer's property name and a supported equality, inequality, or numeric comparison operator. Wildcards may be used for text matching.
 - Boolean operators: `&` for AND, `|` for OR, `!` for NOT, and `^` for XOR. Parentheses may group subexpressions.

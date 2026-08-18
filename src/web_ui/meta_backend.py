@@ -20,6 +20,7 @@ from PySide6 import QtWidgets, QtCore, QtGui
 import Command_Engine
 import SSN_Utils as utils
 import SSN_Config as cfg
+from web_ui.Plugin_Manager import ensure_registry
 
 class MetadataTableModel(QtCore.QAbstractTableModel):
     """High-performance table model backed directly by viewer.metadata arrays."""
@@ -532,8 +533,37 @@ def handle_export_metadata(viewer, data):
     except Exception as e:
         print(f"Error picking file for metadata export: {e}")
 
-def register(viewer):
-    """Registers the Metadata button in the sidebar, persists it, and registers web action handlers."""
+def _extend_initial_web_state(viewer, state):
+    state["columns"] = ["Node ID"] + list(viewer.metadata.keys())
+    state["types"] = {
+        key: entry["type"] for key, entry in viewer.metadata.items()
+    }
+    return state
+
+
+def register_backend(registry, viewer):
+    """Register Metadata web capabilities without changing sidebar state."""
+    registry.register_action("meta", "select", lambda data: None)
+    registry.register_action(
+        "meta", "edit_cell", lambda data: handle_edit_cell(viewer, data)
+    )
+    registry.register_action(
+        "meta", "import_metadata", lambda data: handle_import_metadata(viewer, data)
+    )
+    registry.register_action(
+        "meta", "export_metadata", lambda data: handle_export_metadata(viewer, data)
+    )
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    registry.register_static_route(
+        "meta", "/meta_resource/", os.path.join(src_dir, "resources", "meta")
+    )
+    registry.register_state_provider(
+        "meta", "metadata_columns", _extend_initial_web_state
+    )
+
+
+def activate(viewer):
+    """Show and persist the Metadata UI while preserving current behavior."""
     # Intercept mouse press to broadcast left-click node highlights & clear multi-highlights
     if hasattr(viewer, 'on_mouse_press') and not hasattr(viewer, "_on_mouse_press_patched_meta"):
         orig_on_mouse_press = viewer.on_mouse_press
@@ -550,21 +580,6 @@ def register(viewer):
         viewer.on_mouse_press = wrapped_on_mouse_press
         viewer._on_mouse_press_patched_meta = True
 
-    # 1. Register web action handlers
-    if not hasattr(viewer, "web_action_handlers"):
-        viewer.web_action_handlers = {}
-    viewer.web_action_handlers["select"] = lambda data: None  # Vispy selection is filtered locally now
-    viewer.web_action_handlers["edit_cell"] = lambda data: handle_edit_cell(viewer, data)
-    viewer.web_action_handlers["import_metadata"] = lambda data: handle_import_metadata(viewer, data)
-    viewer.web_action_handlers["export_metadata"] = lambda data: handle_export_metadata(viewer, data)
-
-    # 2. Register static route mapping for webserver
-    if hasattr(viewer, "web_server") and viewer.web_server:
-        _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        local_dir = os.path.join(_SRC_DIR, "resources", "meta")
-        viewer.web_server.static_routes["/meta_resource/"] = local_dir
-
-    # 2. Add the sidebar button
     if hasattr(viewer, 'add_sidebar_button'):
         viewer.add_sidebar_button(
             name="metaDataBtn",
@@ -577,18 +592,13 @@ def register(viewer):
         if "meta" not in viewer.sidebar_buttons_to_persist:
             viewer.sidebar_buttons_to_persist.append("meta")
 
-    # 3. Patch get_initial_web_state to include all columns (including Length) and not filter them
-    if not hasattr(viewer, "_get_web_state_patched_meta"):
-        original = viewer.get_initial_web_state
-        def patched():
-            state = original()
-            if isinstance(state, dict):
-                state = dict(state)
-                state["columns"] = ["Node ID"] + list(viewer.metadata.keys())
-                state["types"] = {k: entry["type"] for k, entry in viewer.metadata.items()}
-            return state
-        viewer.get_initial_web_state = patched
-        viewer._get_web_state_patched_meta = True
+
+def register(viewer):
+    """Compatibility wrapper: ensure backend registration, then activate its UI."""
+    registry = ensure_registry(viewer)
+    register_backend(registry, viewer)
+    registry.registered_plugins.add("meta")
+    return activate(viewer)
 
 
 def upload_metadata(viewer, file_paths):

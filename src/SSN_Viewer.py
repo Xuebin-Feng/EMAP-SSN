@@ -195,6 +195,34 @@ def _contiguous_line_positions(positions):
         raise ValueError("Line positions contain NaN or infinite values.")
     return result
 
+
+def _topmost_nearest_visible_node_index(
+    positions,
+    visible_mask,
+    point,
+    visible_draw_order=None,
+):
+    """Return the nearest visible node, preferring the later-drawn node on ties."""
+    if visible_draw_order is None:
+        visible_indices = np.flatnonzero(visible_mask)
+    else:
+        candidate_order = np.asarray(visible_draw_order, dtype=np.int64)
+        valid = (candidate_order >= 0) & (candidate_order < len(positions))
+        visible_indices = candidate_order[valid]
+        visible_indices = visible_indices[visible_mask[visible_indices]]
+    if visible_indices.size == 0:
+        return None
+
+    # With depth testing disabled, later entries are drawn over earlier entries,
+    # so search the submitted order in reverse to make exact distance ties match
+    # the visual stacking order.
+    topmost_first = visible_indices[::-1]
+    distances = np.linalg.norm(
+        positions[topmost_first, :2] - np.asarray(point)[:2],
+        axis=1,
+    )
+    return int(topmost_first[np.argmin(distances)])
+
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
 # Users can add custom attributes to be initialized on the viewer at startup
@@ -267,7 +295,9 @@ class MainViewer:
     def __init__(self):
         # --- 1. Viewer State ---
         self.console_mode = False
-        self.web_action_handlers = {}
+        from web_ui.Plugin_Manager import WebPluginRegistry
+        self.web_plugin_registry = WebPluginRegistry(self)
+        self.web_action_handlers = self.web_plugin_registry.actions
         self.vispy_ui_face = VISPY_FALLBACK_FACE
         self.vispy_monospace_face = VISPY_FALLBACK_FACE
         self._display_window_handle = None
@@ -660,9 +690,18 @@ class MainViewer:
         from web_ui import Web_Server
         self.communicator = Web_Server.QtCommunicator(self)
         
-        # Initialize background WebServer
+        # Discover bundled web plugins before the server begins accepting requests.
         self.web_server = None
         self.web_server_url = None
+        self.web_plugin_manager = None
+        try:
+            from web_ui.Plugin_Manager import WebPluginManager
+            self.web_plugin_manager = WebPluginManager(self)
+            self.web_plugin_manager.discover_and_register()
+        except Exception as error:
+            print(f"Web plugin discovery failed: {error}")
+
+        # Initialize background WebServer
         self.start_web_server()
         
         # Run persistent sidebar button registration commands
@@ -947,6 +986,10 @@ class MainViewer:
                             raw_shapes = hf["shapes"][:]
                             self.current_shapes = np.array([s.decode('utf-8') if isinstance(s, bytes) else s for s in raw_shapes], dtype=object)
                         if "visible_mask" in hf: self.visible_mask = hf["visible_mask"][:]
+                        if "node_render_order" in hf:
+                            self.node_render_order = cache_manifest.validate_node_render_order(
+                                hf["node_render_order"][:], self.n_nodes
+                            ).copy()
                         if "cluster_labels" in hf: self.cluster_labels = hf["cluster_labels"][:]
                         
                         # --- Load Metadata from Cache ---
@@ -980,7 +1023,7 @@ class MainViewer:
                         CORE_DATASETS = {
                             "headers", "positions", "colors", "sizes", "shapes", 
                             "visible_mask", "cluster_labels", "group_labels", "metadata",
-                            "connectivity", "edge_scores"
+                            "connectivity", "edge_scores", "node_render_order"
                         }
                         for key in hf.keys():
                             if key not in CORE_DATASETS:
@@ -1169,6 +1212,8 @@ class MainViewer:
         if not hasattr(self, 'current_sizes'): self.current_sizes = np.full(self.n_nodes, cfg.NODE_SIZE, dtype=np.float32)
         if not hasattr(self, 'current_shapes'): self.current_shapes = np.full(self.n_nodes, 'disc', dtype=object)
         if not hasattr(self, 'visible_mask'): self.visible_mask = np.ones(self.n_nodes, dtype=bool)
+        if not hasattr(self, 'node_render_order'):
+            self.node_render_order = np.arange(self.n_nodes, dtype=np.int32)
         if not hasattr(self, 'redo_stack'): self.redo_stack = []
         if not hasattr(self, 'selected_indices'): self.selected_indices = []
         if not hasattr(self, 'cluster_labels'): self.cluster_labels = None
@@ -1221,6 +1266,7 @@ class MainViewer:
             'colors': self.current_colors.copy() if hasattr(self, 'current_colors') else None,
             'sizes': self.current_sizes.copy() if hasattr(self, 'current_sizes') else None,
             'shapes': self.current_shapes.copy() if hasattr(self, 'current_shapes') else None,
+            'node_render_order': self.node_render_order.copy() if hasattr(self, 'node_render_order') else None,
             'clusters': self.cluster_labels.copy() if getattr(self, 'cluster_labels', None) is not None else None,
             'groups': [g.copy() for g in self.group_labels] if getattr(self, 'group_labels', None) is not None else None,
             'last_cluster_params': self.last_cluster_params if getattr(self, 'last_cluster_params', None) is not None else None,
@@ -1235,6 +1281,12 @@ class MainViewer:
         if state['colors'] is not None: self.current_colors = state['colors'].copy()
         if state['sizes'] is not None: self.current_sizes = state['sizes'].copy()
         if state['shapes'] is not None: self.current_shapes = state['shapes'].copy()
+        if state.get('node_render_order') is not None:
+            self.node_render_order = cache_manifest.validate_node_render_order(
+                state['node_render_order'], self.n_nodes
+            ).copy()
+        else:
+            self.node_render_order = np.arange(self.n_nodes, dtype=np.int32)
         
         if state['clusters'] is not None: 
             self.cluster_labels = state['clusters'].copy()
@@ -1353,11 +1405,9 @@ class MainViewer:
         else:
             self.line_visual = None
             
-        self.left_click_highlight = scene.visuals.Markers(parent=self.view.scene)
-        self.left_click_highlight.set_data(pos=np.array([[0.0, 0.0]], dtype=np.float32))
-        self.left_click_highlight.set_gl_state('translucent', depth_test=False)
-        self.left_click_highlight.visible = False
-
+        # Left-click rings are interleaved into this marker visual immediately
+        # before their nodes so their layer relationship remains exact.
+        self.left_click_highlight = None
         self.markers = scene.visuals.Markers(parent=self.view.scene)
         self.update_nodes()
         
@@ -1478,6 +1528,148 @@ class MainViewer:
             else:
                 self.line_visual.visible = False # Prevents Vispy crash on empty arrays
 
+    def promote_nodes(self, indices):
+        """Move one node group to the top of the persistent render order."""
+        values = np.asarray(indices)
+        if values.dtype == np.bool_:
+            if values.ndim != 1 or len(values) != self.n_nodes:
+                raise ValueError("Node promotion mask must match the node count.")
+            promoted = np.flatnonzero(values)
+        else:
+            promoted = values.astype(np.int64, copy=False).reshape(-1)
+
+        promoted = np.unique(promoted)
+        if promoted.size == 0:
+            return False
+        if np.any(promoted < 0) or np.any(promoted >= self.n_nodes):
+            raise ValueError("Node promotion indices are outside the network.")
+
+        current_order = getattr(self, 'node_render_order', None)
+        if current_order is None:
+            current_order = np.arange(self.n_nodes, dtype=np.int32)
+        else:
+            current_order = cache_manifest.validate_node_render_order(
+                current_order, self.n_nodes
+            )
+
+        keep_mask = ~np.isin(current_order, promoted)
+        new_order = np.concatenate(
+            (current_order[keep_mask], np.sort(promoted))
+        ).astype(np.int32, copy=False)
+        changed = not np.array_equal(new_order, current_order)
+        self.node_render_order = new_order
+        return changed
+
+    def _valid_node_indices(self, values):
+        """Return unique in-range node indices as an ascending array."""
+        if values is None:
+            return np.empty(0, dtype=np.int32)
+        array = np.asarray(list(values) if isinstance(values, set) else values)
+        if array.size == 0:
+            return np.empty(0, dtype=np.int32)
+        indices = np.unique(array.astype(np.int64, copy=False).reshape(-1))
+        valid = (indices >= 0) & (indices < self.n_nodes)
+        return indices[valid].astype(np.int32, copy=False)
+
+    def _selected_node_indices(self):
+        """Return command and box-selected node indices."""
+        return self._valid_node_indices(getattr(self, 'selected_indices', None))
+
+    def _left_click_node_indices(self):
+        """Return ordinary and metadata-driven left-click highlights."""
+        highlight_parts = []
+        highlighted = self._valid_node_indices(
+            getattr(self, 'left_click_highlight_indices', None)
+        )
+        if len(highlighted):
+            highlight_parts.append(highlighted)
+
+        clicked_index = getattr(self, 'selected_node_idx', None)
+        if clicked_index is not None:
+            highlight_parts.append(np.array([clicked_index], dtype=np.int64))
+
+        if not highlight_parts:
+            return np.empty(0, dtype=np.int32)
+        return self._valid_node_indices(np.concatenate(highlight_parts))
+
+    def _connected_node_identification_enabled(self, boundary_rgba=None, connected_rgba=None):
+        """Return whether connected-node border and ordering work is enabled."""
+        import matplotlib.colors as mcolors
+
+        if boundary_rgba is None:
+            boundary_rgba = mcolors.to_rgba(
+                getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000')
+            )
+        if connected_rgba is None:
+            connected_rgba = mcolors.to_rgba(
+                getattr(cfg, 'CONNECTED_NODE_COLOR', '#ff0000')
+            )
+        return tuple(boundary_rgba) != tuple(connected_rgba)
+
+    def _connected_to_selected_indices(self, selected):
+        """Return nodes adjacent to selected nodes in the complete topology."""
+        cache_key = (id(self.edges), tuple(np.asarray(selected).tolist()))
+        if getattr(self, '_render_order_neighbor_cache_key', None) == cache_key:
+            return self._render_order_neighbor_cache.copy()
+        if len(selected) == 0 or len(self.edges) == 0:
+            connected = np.empty(0, dtype=np.int32)
+        else:
+            touches_selection = np.isin(self.edges[:, 0], selected) | np.isin(
+                self.edges[:, 1], selected
+            )
+            connected = np.unique(self.edges[touches_selection].reshape(-1))
+            connected = connected[~np.isin(connected, selected)]
+            connected = connected.astype(np.int32, copy=False)
+        self._render_order_neighbor_cache_key = cache_key
+        self._render_order_neighbor_cache = connected.copy()
+        return connected
+
+    def visible_node_render_order(self, identify_connected=None):
+        """Return the effective low-to-high order for currently visible nodes."""
+        base_order = getattr(self, 'node_render_order', None)
+        if base_order is None:
+            base_order = np.arange(self.n_nodes, dtype=np.int32)
+        else:
+            base_order = np.asarray(base_order, dtype=np.int32)
+            if base_order.ndim != 1 or len(base_order) != self.n_nodes:
+                raise ValueError("Node render order does not match the node count.")
+
+        visible = np.asarray(self.visible_mask, dtype=bool)
+        selected = self._selected_node_indices()
+        left_clicked = self._left_click_node_indices()
+
+        selected = selected[visible[selected]]
+        left_clicked = left_clicked[visible[left_clicked]]
+        selected_for_connections = selected
+        if len(left_clicked):
+            selected = selected[~np.isin(selected, left_clicked)]
+
+        if identify_connected is None:
+            identify_connected = self._connected_node_identification_enabled()
+        if identify_connected and len(selected_for_connections):
+            connected = self._connected_to_selected_indices(
+                selected_for_connections
+            )
+            connected = connected[visible[connected]]
+            if len(left_clicked):
+                connected = connected[~np.isin(connected, left_clicked)]
+        else:
+            connected = np.empty(0, dtype=np.int32)
+
+        elevated = np.zeros(self.n_nodes, dtype=bool)
+        elevated[connected] = True
+        elevated[selected] = True
+        elevated[left_clicked] = True
+        remaining = base_order[visible[base_order] & ~elevated[base_order]]
+        return np.concatenate(
+            (
+                remaining,
+                np.sort(connected),
+                np.sort(selected),
+                np.sort(left_clicked),
+            )
+        ).astype(np.int32, copy=False)
+
     def update_nodes(self):
         colors = self.current_colors.copy()
         import matplotlib.colors as mcolors
@@ -1489,6 +1681,10 @@ class MainViewer:
         
         # ---> FIXED: Fetch custom boundary color, fallback to black
         bound_rgba = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
+        conn_rgba = mcolors.to_rgba(getattr(cfg, 'CONNECTED_NODE_COLOR', '#ff0000'))
+        identify_connected = self._connected_node_identification_enabled(
+            bound_rgba, conn_rgba
+        )
         
         edge_colors = np.zeros((self.n_nodes, 4), dtype=np.float32)
         edge_colors[:] = bound_rgba 
@@ -1499,96 +1695,74 @@ class MainViewer:
         
         if getattr(self, 'selected_indices', None) is not None and len(self.selected_indices) > 0:
             hover_rgba = mcolors.to_rgba(cfg.HOVER_COLOR)
-            conn_rgba = mcolors.to_rgba(getattr(cfg, 'CONNECTED_NODE_COLOR', '#ff0000'))
-            
-            # Cache the neighbor computation because np.isin is expensive and selected_indices don't change during drag
-            current_sel_tuple = tuple(self.selected_indices)
-            if getattr(self, '_last_selected_tuple', None) != current_sel_tuple:
-                self._last_selected_tuple = current_sel_tuple
-                
-                # Find neighbors using fast NumPy masking
-                selected_arr = np.array(self.selected_indices)
-                mask_u = np.isin(self.edges[:, 0], selected_arr)
-                mask_v = np.isin(self.edges[:, 1], selected_arr)
-                
-                # XOR mask correctly isolates edges where exactly one side is selected
-                # meaning the other side must be a neighbor.
-                valid_edge_mask = mask_u ^ mask_v
-                connected_edges = self.edges[valid_edge_mask]
-                
-                # Extract unique neighbors that aren't themselves selected
-                self._cached_neighbors = np.unique(connected_edges[~np.isin(connected_edges, selected_arr)])
-                
-            neighbor_indices = self._cached_neighbors
-            
-            if len(neighbor_indices) > 0:
-                edge_colors[neighbor_indices] = conn_rgba
-                edge_widths[neighbor_indices] = 2.0
+
+            if identify_connected:
+                selected = self._selected_node_indices()
+                neighbor_indices = self._connected_to_selected_indices(selected)
+                if len(neighbor_indices) > 0:
+                    edge_colors[neighbor_indices] = conn_rgba
+                    edge_widths[neighbor_indices] = 2.0
                 
             edge_colors[self.selected_indices] = hover_rgba
             edge_widths[self.selected_indices] = 2.0
         
-       # ---> NEW: Filter data by visibility mask <---
-        vis = self.visible_mask
-        if not np.any(vis):
+        # Submit every node attribute in the same effective low-to-high order.
+        draw_order = self.visible_node_render_order(
+            identify_connected=identify_connected
+        )
+        self._submitted_visible_node_order = draw_order.copy()
+        if len(draw_order) == 0:
+            self._submitted_marker_node_order = np.empty(0, dtype=np.int32)
+            self._submitted_marker_ring_mask = np.empty(0, dtype=bool)
             self.markers.visible = False
         else:
             self.markers.visible = True
-            
-            # Safely extract array and handle single float cases
-            safe_sizes = sizes[vis] if isinstance(sizes, np.ndarray) else sizes
+
+            # A clicked node's enlarged translucent ring and the node itself
+            # must share one draw call. Interleave each ring directly before
+            # its node; separate VisPy visuals can only be layered as wholes.
+            left_clicked = self._left_click_node_indices()
+            if len(left_clicked):
+                ring_before = np.isin(draw_order, left_clicked)
+            else:
+                ring_before = np.zeros(len(draw_order), dtype=bool)
+            marker_count = len(draw_order) + int(np.count_nonzero(ring_before))
+            marker_node_order = np.empty(marker_count, dtype=np.int32)
+            marker_ring_mask = np.zeros(marker_count, dtype=bool)
+
+            node_slots = np.arange(len(draw_order)) + np.cumsum(ring_before)
+            marker_node_order[node_slots] = draw_order
+            ring_slots = node_slots[ring_before] - 1
+            marker_node_order[ring_slots] = draw_order[ring_before]
+            marker_ring_mask[ring_slots] = True
+
+            self._submitted_marker_node_order = marker_node_order.copy()
+            self._submitted_marker_ring_mask = marker_ring_mask.copy()
+
+            marker_face_colors = colors[marker_node_order].copy()
+            marker_edge_colors = edge_colors[marker_node_order].copy()
+            marker_edge_widths = edge_widths[marker_node_order].copy()
+            if isinstance(sizes, np.ndarray):
+                marker_sizes = sizes[marker_node_order].copy()
+            else:
+                marker_sizes = np.full(marker_count, sizes, dtype=np.float32)
+
+            if len(ring_slots):
+                marker_face_colors[ring_slots, 3] *= 0.5
+                marker_edge_colors[ring_slots] = 0.0
+                marker_edge_widths[ring_slots] = 0.0
+                marker_sizes[ring_slots] *= 2.0
             
             self.markers.set_data(
-                pos=self.pos[vis], 
-                face_color=colors[vis], 
-                edge_color=edge_colors[vis], 
-                size=safe_sizes, 
-                edge_width=edge_widths[vis],
-                symbol=shapes[vis].tolist() 
+                pos=self.pos[marker_node_order],
+                face_color=marker_face_colors,
+                edge_color=marker_edge_colors,
+                size=marker_sizes,
+                edge_width=marker_edge_widths,
+                symbol=shapes[marker_node_order].tolist()
             )
         self.markers.set_gl_state('translucent', depth_test=False)
-        
-        # ---> NEW: Update left-click background highlight if active <---
-        if getattr(self, 'left_click_highlight', None) is not None:
-            indices_to_highlight = []
-            if getattr(self, 'left_click_highlight_indices', None):
-                indices_to_highlight = [idx for idx in self.left_click_highlight_indices if self.visible_mask[idx]]
-            elif getattr(self, 'selected_node_idx', None) is not None:
-                sel_idx = self.selected_node_idx
-                if self.visible_mask[sel_idx]:
-                    indices_to_highlight = [sel_idx]
-            
-            if len(indices_to_highlight) > 0:
-                pos_list = []
-                color_list = []
-                size_list = []
-                symbol_list = []
-                for idx in indices_to_highlight:
-                    shape = shapes[idx] if isinstance(shapes, np.ndarray) else shapes
-                    node_size = sizes[idx] if isinstance(sizes, np.ndarray) else sizes
-                    enlarged_size = node_size * 2.0
-                    
-                    node_color = colors[idx]
-                    highlight_color = node_color.copy()
-                    highlight_color[3] = highlight_color[3] * 0.5
-                    
-                    pos_list.append(self.pos[idx])
-                    color_list.append(highlight_color)
-                    size_list.append(enlarged_size)
-                    symbol_list.append(shape)
-                
-                self.left_click_highlight.set_data(
-                    pos=np.array(pos_list, dtype=np.float32),
-                    face_color=np.array(color_list, dtype=np.float32),
-                    edge_color=np.zeros((len(pos_list), 4), dtype=np.float32),
-                    size=np.array(size_list, dtype=np.float32),
-                    edge_width=np.zeros(len(pos_list), dtype=np.float32),
-                    symbol=symbol_list
-                )
-                self.left_click_highlight.visible = True
-            else:
-                self.left_click_highlight.visible = False
-                
+
         self.canvas.update()
         
         # ---> NEW: Force HUD to instantly sync whenever visual state changes
@@ -1885,12 +2059,16 @@ class MainViewer:
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
-            dists = np.linalg.norm(self.pos[:, :2] - mouse_world, axis=1)
-            dists[~self.visible_mask] = np.inf
-            nearest_idx = np.argmin(dists)
-            
-            node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-            screen_dist = np.linalg.norm(node_screen_pos - event.pos)
+            nearest_idx = _topmost_nearest_visible_node_index(
+                self.pos,
+                self.visible_mask,
+                mouse_world,
+                getattr(self, '_submitted_visible_node_order', None),
+            )
+            screen_dist = np.inf
+            if nearest_idx is not None:
+                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
+                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
             is_node_clicked = screen_dist < cfg.NODE_SIZE
             self.drag_start_mouse = mouse_world
@@ -1935,12 +2113,16 @@ class MainViewer:
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
-            dists = np.linalg.norm(self.pos[:, :2] - mouse_world, axis=1)
-            dists[~self.visible_mask] = np.inf
-            nearest_idx = np.argmin(dists)
-            
-            node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-            screen_dist = np.linalg.norm(node_screen_pos - event.pos)
+            nearest_idx = _topmost_nearest_visible_node_index(
+                self.pos,
+                self.visible_mask,
+                mouse_world,
+                getattr(self, '_submitted_visible_node_order', None),
+            )
+            screen_dist = np.inf
+            if nearest_idx is not None:
+                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
+                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
             if screen_dist < (cfg.NODE_SIZE / 1.5):
                 full_header = self.full_headers[nearest_idx]
@@ -1967,12 +2149,16 @@ class MainViewer:
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
-            dists = np.linalg.norm(self.pos[:, :2] - mouse_world, axis=1)
-            dists[~self.visible_mask] = np.inf
-            nearest_idx = np.argmin(dists)
-            
-            node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-            screen_dist = np.linalg.norm(node_screen_pos - event.pos)
+            nearest_idx = _topmost_nearest_visible_node_index(
+                self.pos,
+                self.visible_mask,
+                mouse_world,
+                getattr(self, '_submitted_visible_node_order', None),
+            )
+            screen_dist = np.inf
+            if nearest_idx is not None:
+                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
+                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
             if screen_dist < (cfg.NODE_SIZE / 1.5):
                 full_header = self.full_headers[nearest_idx]
@@ -2022,12 +2208,16 @@ class MainViewer:
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
-            dists = np.linalg.norm(self.pos[:, :2] - mouse_world, axis=1)
-            dists[~self.visible_mask] = np.inf
-            nearest_idx = np.argmin(dists)
-            
-            node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-            screen_dist = np.linalg.norm(node_screen_pos - event.pos)
+            nearest_idx = _topmost_nearest_visible_node_index(
+                self.pos,
+                self.visible_mask,
+                mouse_world,
+                getattr(self, '_submitted_visible_node_order', None),
+            )
+            screen_dist = np.inf
+            if nearest_idx is not None:
+                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
+                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
             # If clicked within the node's radius, highlight the node and print full header
             if screen_dist < cfg.NODE_SIZE:
@@ -2411,7 +2601,7 @@ class MainViewer:
         return rows
 
     def get_initial_web_state(self):
-        return {
+        state = {
             "rows": self.get_serializable_metadata(),
             "columns": ["Node ID"] + [k for k in self.metadata.keys() if k.lower() != "length"],
             "selected_indices": self.selected_indices,
@@ -2420,6 +2610,10 @@ class MainViewer:
             "llm_backend": getattr(self, 'llm_backend', None),
             "llm_model_name": getattr(self, 'llm_model_name', "Unknown")
         }
+        registry = getattr(self, "web_plugin_registry", None)
+        if registry is not None:
+            return registry.apply_state_providers(state)
+        return state
 
     def on_mouse_wheel(self, event):
         self._hud_timer.start()
@@ -2524,12 +2718,16 @@ class MainViewer:
 
         # ---> 4. HOVER EFFECT <---
         if not self.console_mode and not event.buttons: 
-            dists = np.linalg.norm(self.pos[:, :2] - mouse_world, axis=1)
-            dists[~self.visible_mask] = np.inf
-            nearest_idx = np.argmin(dists)
-            
-            node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-            screen_dist = np.linalg.norm(node_screen_pos - event.pos)
+            nearest_idx = _topmost_nearest_visible_node_index(
+                self.pos,
+                self.visible_mask,
+                mouse_world,
+                getattr(self, '_submitted_visible_node_order', None),
+            )
+            screen_dist = np.inf
+            if nearest_idx is not None:
+                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
+                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
             if screen_dist < (cfg.NODE_SIZE / 1.5):
                 if getattr(self, 'hovered_node_idx', None) != nearest_idx:

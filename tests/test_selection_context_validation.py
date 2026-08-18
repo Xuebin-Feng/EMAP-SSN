@@ -191,6 +191,7 @@ class AtomicCommandTests(unittest.TestCase):
             selected_indices=[],
             console_text=SimpleNamespace(text=""),
             _save_state=mock.Mock(),
+            promote_nodes=mock.Mock(),
             update_nodes=mock.Mock(),
             update_selection_visual=mock.Mock(),
             update_edges=mock.Mock(),
@@ -211,6 +212,7 @@ class AtomicCommandTests(unittest.TestCase):
         np.testing.assert_array_equal(viewer.current_sizes, original_sizes)
         self.assertFalse(hasattr(viewer, "current_shapes"))
         viewer._save_state.assert_not_called()
+        viewer.promote_nodes.assert_not_called()
         viewer.update_nodes.assert_not_called()
 
     def test_group_does_not_apply_earlier_pair_when_later_pair_is_invalid(self):

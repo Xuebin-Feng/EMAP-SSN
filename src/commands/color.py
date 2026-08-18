@@ -190,6 +190,7 @@ def run(viewer, args):
     total_modified = 0
     stats = []
     state_saved = False  # <--- NEW FLAG
+    modified_nodes = np.zeros(viewer.n_nodes, dtype=bool)
 
     evaluated_assignments = []
     for expr, color_str, scale_val, shape_val in assignments:
@@ -227,6 +228,7 @@ def run(viewer, args):
         if scale_val: viewer.current_sizes[mask] = cfg.NODE_SIZE * scale_val
         if shape_val: viewer.current_shapes[mask] = shape_val
 
+        modified_nodes |= mask
         total_modified += count
 
         labels = []
@@ -236,6 +238,7 @@ def run(viewer, args):
         stats.append(f"{count} nodes ({', '.join(labels)})")
             
     if total_modified > 0:
+        viewer.promote_nodes(modified_nodes)
         viewer.update_nodes()
         msg = f"Applied: {'; '.join(stats)}"
         viewer.console_text.text = msg

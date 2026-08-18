@@ -17,32 +17,42 @@ import json
 import SSN_Utils as utils
 import SSN_Config as cfg
 import webbrowser
+from web_ui.Plugin_Manager import ensure_registry
 
-def register(viewer):
-    """
-    Registers custom action handlers and maps static routes for the local ESMFold
-    structure prediction and Mol* visualization tool.
-    """
-    if not hasattr(viewer, "web_action_handlers"):
-        viewer.web_action_handlers = {}
-        
-    viewer.web_action_handlers["save_molstar_session"] = lambda data: handle_save_session(viewer, data)
-    viewer.web_action_handlers["load_molstar_session"] = lambda data: handle_load_session(viewer, data)
-    viewer.web_action_handlers["structure_folded"] = lambda data: handle_structure_folded(viewer, data)
-    viewer.web_action_handlers["console_debug_err"] = lambda data: handle_console_debug_err(viewer, data)
-    
-    # Register the static route for structures in the Web Server
-    if hasattr(viewer, "web_server") and viewer.web_server:
-        structures_dir = getattr(cfg, 'STRUCTURES_DIR', os.path.join("Cache_Files", "Structures"))
-        os.makedirs(structures_dir, exist_ok=True)
-        viewer.web_server.static_routes["/structures/"] = structures_dir
-        
-        # Register the static route for esmfold assets
-        _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        esmfold_resources_dir = os.path.join(_SRC_DIR, "resources", "esmfold")
-        viewer.web_server.static_routes["/esmfold/"] = esmfold_resources_dir
-        
-    # Register the sidebar button
+def register_backend(registry, viewer):
+    """Register Mol* web capabilities without changing sidebar state."""
+    registry.register_action(
+        "esmfold",
+        "save_molstar_session",
+        lambda data: handle_save_session(viewer, data),
+    )
+    registry.register_action(
+        "esmfold",
+        "load_molstar_session",
+        lambda data: handle_load_session(viewer, data),
+    )
+    registry.register_action(
+        "esmfold",
+        "structure_folded",
+        lambda data: handle_structure_folded(viewer, data),
+    )
+    registry.register_action(
+        "esmfold",
+        "console_debug_err",
+        lambda data: handle_console_debug_err(viewer, data),
+    )
+    structures_dir = getattr(
+        cfg, "STRUCTURES_DIR", os.path.join("Cache_Files", "Structures")
+    )
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    registry.register_static_route("esmfold", "/structures/", structures_dir)
+    registry.register_static_route(
+        "esmfold", "/esmfold/", os.path.join(src_dir, "resources", "esmfold")
+    )
+
+
+def activate(viewer):
+    """Show the Fold View sidebar entry without creating output directories."""
     if hasattr(viewer, 'add_sidebar_button'):
         viewer.add_sidebar_button(
             "fold_view_btn",
@@ -50,6 +60,14 @@ def register(viewer):
             lambda: open_esmfold_ui(viewer, force=True),
             "Open ESMFold & Mol* structure viewer"
         )
+
+
+def register(viewer):
+    """Compatibility wrapper: ensure backend registration, then activate its UI."""
+    registry = ensure_registry(viewer)
+    register_backend(registry, viewer)
+    registry.registered_plugins.add("esmfold")
+    return activate(viewer)
 
 def open_esmfold_ui(viewer, force=False):
     """Opens the local Mol* page in the user's default browser."""

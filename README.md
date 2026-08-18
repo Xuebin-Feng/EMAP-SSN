@@ -329,6 +329,7 @@ Sequence_Similarity_Network_Viewer/
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
 │   ├── utilities/            # Shared hardware, HDF5, alignment, and FASTA helpers
 │   └── web_ui/               # Embedded web UI backend and interfaces
+│       └── plugins/          # Auto-discovered bundled web-utility descriptors
 │
 ├── docs/                     # Screenshots, command reference, and metadata template
 │   └── list_of_commands.html # Interactive Viewer command reference
@@ -360,6 +361,10 @@ Sequence_Similarity_Network_Viewer/
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to open Issues or submit Pull Requests to enhance computational efficiency, layout performance, UI responsiveness, or commands for analyses.
+
+Bundled browser utilities use a validated startup-discovery contract. See the
+[web-utility plugin development guide](docs/web_plugin_development.md) for the
+manifest, registration, activation, and failure-isolation rules.
 
 ## 📄 License
 

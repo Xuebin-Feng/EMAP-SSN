@@ -233,6 +233,7 @@ def run(viewer, args):
         viewer.current_colors[nan_mask] = (0.7, 0.7, 0.7, 1.0)
 
     # Update viewer
+    viewer.promote_nodes(mask)
     viewer.update_nodes()
 
     # Automatically invoke "meta display" to show the property used for the spectrum

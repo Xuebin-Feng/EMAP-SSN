@@ -36,6 +36,7 @@ if _SRC_DIR not in sys.path:
 
 import Command_Engine
 from PySide6 import QtCore
+from web_ui.Plugin_Manager import ensure_registry
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 
@@ -619,41 +620,36 @@ def handle_clear_history(viewer, data):
     viewer.llm_history = []
     save_agent_history(viewer)
 
-def register(viewer):
-    """Registers the Agent button in the viewer sidebar and patches get_initial_web_state."""
-    # 1. Register web action handlers
-    if not hasattr(viewer, "web_action_handlers"):
-        viewer.web_action_handlers = {}
-    viewer.web_action_handlers["agent_query"] = lambda data: handle_agent_query(viewer, data)
-    viewer.web_action_handlers["set_backend"] = lambda data: handle_set_backend(viewer, data)
-    viewer.web_action_handlers["save_model_cards"] = lambda data: handle_save_model_cards(viewer, data)
-    viewer.web_action_handlers["clear_history"] = lambda data: handle_clear_history(viewer, data)
+def _extend_initial_web_state(viewer, state):
+    viewer.llm_history = load_agent_history(viewer)
+    state["llm_history"] = viewer.llm_history
+    return state
 
-    # Load agent history if not yet loaded
-    if not hasattr(viewer, "llm_history") or not viewer.llm_history:
-        viewer.llm_history = load_agent_history(viewer)
 
-    # 2. Register static route mapping for webserver
-    if hasattr(viewer, "web_server") and viewer.web_server:
-        local_dir = os.path.join(_SRC_DIR, "resources", "agent")
-        viewer.web_server.static_routes["/agent_resource/"] = local_dir
+def register_backend(registry, viewer):
+    """Register Agent web capabilities without changing sidebar state."""
+    registry.register_action(
+        "agent", "agent_query", lambda data: handle_agent_query(viewer, data)
+    )
+    registry.register_action(
+        "agent", "set_backend", lambda data: handle_set_backend(viewer, data)
+    )
+    registry.register_action(
+        "agent", "save_model_cards", lambda data: handle_save_model_cards(viewer, data)
+    )
+    registry.register_action(
+        "agent", "clear_history", lambda data: handle_clear_history(viewer, data)
+    )
+    registry.register_static_route(
+        "agent",
+        "/agent_resource/",
+        os.path.join(_SRC_DIR, "resources", "agent"),
+    )
+    registry.register_state_provider("agent", "history", _extend_initial_web_state)
 
-    # Patch get_initial_web_state to inject llm_history for the browser UI
-    if not hasattr(viewer, "_get_web_state_patched"):
-        original = viewer.get_initial_web_state
 
-        def patched():
-            state = original()
-            if isinstance(state, dict):
-                state = dict(state)
-                viewer.llm_history = load_agent_history(viewer)
-                state["llm_history"] = viewer.llm_history
-            return state
-
-        viewer.get_initial_web_state  = patched
-        viewer._get_web_state_patched = True
-
-    # Add the sidebar button
+def activate(viewer):
+    """Show the Agent sidebar entry without eagerly reading chat history."""
     if hasattr(viewer, "add_sidebar_button"):
         viewer.add_sidebar_button(
             name="agentBtn",
@@ -661,3 +657,11 @@ def register(viewer):
             callback=viewer.open_agent_ui,
             tooltip="Open AI Agent Chat Console in browser"
         )
+
+
+def register(viewer):
+    """Compatibility wrapper: ensure backend registration, then activate its UI."""
+    registry = ensure_registry(viewer)
+    register_backend(registry, viewer)
+    registry.registered_plugins.add("agent")
+    return activate(viewer)

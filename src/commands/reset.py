@@ -13,6 +13,17 @@
 # limitations under the License.
 
 import Command_Engine
+import numpy as np
+
+
+def reset_node_render_order(viewer):
+    """Restore the persistent node layer to stable internal-index order."""
+    identity_order = np.arange(viewer.n_nodes, dtype=np.int32)
+    changed = not np.array_equal(
+        getattr(viewer, 'node_render_order', identity_order), identity_order
+    )
+    viewer.node_render_order = identity_order
+    return changed
 
 def run(viewer, args):
     Command_Engine.execute_reset(viewer, args)

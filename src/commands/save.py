@@ -23,7 +23,7 @@ import Cache_Manifest as cache_manifest
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\nExamples:\n  save\n  save my_layout.h5"
+        msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, render order, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\nExamples:\n  save\n  save my_layout.h5"
         Command_Engine.print_help(viewer, msg)
         return
         
@@ -69,6 +69,11 @@ def run(viewer, args):
                 hf.attrs["base_node_size"] = cfg.NODE_SIZE
             if hasattr(viewer, 'current_shapes'): hf.create_dataset("shapes", data=np.array(viewer.current_shapes, dtype=object), dtype=dt_str, compression="gzip")
             if hasattr(viewer, 'visible_mask'): hf.create_dataset("visible_mask", data=viewer.visible_mask, compression="gzip")
+            if hasattr(viewer, 'node_render_order'):
+                render_order = cache_manifest.validate_node_render_order(
+                    viewer.node_render_order, len(viewer.full_headers)
+                )
+                hf.create_dataset("node_render_order", data=render_order, compression="gzip")
             if getattr(viewer, 'cluster_labels', None) is not None: hf.create_dataset("cluster_labels", data=viewer.cluster_labels, compression="gzip")
             
             if hasattr(viewer, 'group_labels'):
@@ -96,7 +101,7 @@ def run(viewer, args):
                             CORE_DATASETS = {
                                 "headers", "positions", "colors", "sizes", "shapes", 
                                 "visible_mask", "cluster_labels", "group_labels", "metadata",
-                                "connectivity", "edge_scores"
+                                "connectivity", "edge_scores", "node_render_order"
                             }
                             if attr_name in CORE_DATASETS:
                                 continue

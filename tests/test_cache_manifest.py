@@ -234,6 +234,17 @@ class ManifestDiscoveryTests(unittest.TestCase):
 
 
 class CachePathAndHdf5Tests(unittest.TestCase):
+    def test_node_render_order_requires_complete_integer_permutation(self):
+        np.testing.assert_array_equal(
+            Cache_Manifest.validate_node_render_order([2, 0, 1], 3),
+            [2, 0, 1],
+        )
+        for invalid in ([0, 0, 2], [0, 1, 3], [0, 1], [0.0, 1.0, 2.0]):
+            with self.subTest(invalid=invalid), self.assertRaises(
+                Cache_Manifest.CacheManifestError
+            ):
+                Cache_Manifest.validate_node_render_order(invalid, 3)
+
     def test_relative_cache_path_round_trip_and_traversal_rejection(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = pathlib.Path(temp_dir)
@@ -326,6 +337,7 @@ class InteractiveSaveTests(unittest.TestCase):
                 full_headers=["A", "B"],
                 pos=np.zeros((2, 2), dtype=np.float32),
                 original_pos=np.ones((2, 2), dtype=np.float32),
+                node_render_order=np.array([1, 0], dtype=np.int32),
             )
 
             with mock.patch.object(
@@ -342,6 +354,9 @@ class InteractiveSaveTests(unittest.TestCase):
                     cache.attrs["cache_manifest_id"], manifest["manifest_id"]
                 )
                 np.testing.assert_array_equal(cache["positions"][:], viewer.pos)
+                np.testing.assert_array_equal(
+                    cache["node_render_order"][:], viewer.node_render_order
+                )
             np.testing.assert_array_equal(viewer.original_pos, viewer.pos)
 
     def test_unsafe_interactive_filename_is_rejected(self):
@@ -446,6 +461,7 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
                 created.full_headers, ["Alpha_Beta", "Gamma_Delta"]
             )
             self.assertEqual(created.sequences_map["Alpha_Beta"], "AA")
+            np.testing.assert_array_equal(created.node_render_order, [0, 1])
 
             cache_path = layout_root / "target" / "layout.h5"
             manifest_path = (
@@ -465,11 +481,17 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
                     cache.attrs["cache_manifest_id"], manifest["manifest_id"]
                 )
 
+            with h5py.File(cache_path, "r+") as cache:
+                cache.create_dataset(
+                    "node_render_order", data=np.asarray([1, 0], dtype=np.int32)
+                )
+
             settings["TARGET_CACHE_MODE"] = "existing"
             with mock.patch.multiple(SSN_Viewer.cfg, **settings):
                 loaded = SSN_Viewer.MainViewer.__new__(SSN_Viewer.MainViewer)
                 loaded.load_and_simulate()
             np.testing.assert_allclose(loaded.pos, expected_positions)
+            np.testing.assert_array_equal(loaded.node_render_order, [1, 0])
 
 
 if __name__ == "__main__":

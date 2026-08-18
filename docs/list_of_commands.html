@@ -845,7 +845,7 @@
                     <div class="syntax-content">save [filename / filename.h5]</div>
                     <button class="copy-btn" onclick="copyText('save [filename / filename.h5]', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Atomically saves positions, colors, sizes, shapes, visibility, clusters, groups, and cache-manifest identity to an HDF5 layout cache. If no filename is provided, it creates the next available simple version name (for example, <code>version_00.h5</code>, then <code>version_01.h5</code>) in the active cache folder. A supplied name receives <code>.h5</code> when omitted and must be a safe basename.</p>
+                <p><strong>Function:</strong> Atomically saves positions, colors, sizes, shapes, visibility, persistent node render order, clusters, groups, and cache-manifest identity to an HDF5 layout cache. If no filename is provided, it creates the next available simple version name (for example, <code>version_00.h5</code>, then <code>version_01.h5</code>) in the active cache folder. A supplied name receives <code>.h5</code> when omitted and must be a safe basename.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>save</span><button class="copy-btn" onclick="copyText('save', this)">Copy</button></li>
@@ -876,11 +876,13 @@
 <li><code>group / groups</code>: Clears all custom group label sets assigned to nodes.</li>
 <li><code>hide / hidden</code>: Unhides all hidden nodes by setting the entire visibility mask back to True.</li>
 <li><code>network / networks</code>: Snaps all node positions back to the original starting layout coordinates (or the state loaded from the last .h5 save).</li>
+<li><code>order / orders / layer / layers</code>: Restores the persistent node rendering order to internal node-index order. Active selected or clicked nodes and their neighbors remain temporarily elevated until focus is cleared.</li>
                 </ul>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>reset colors sizes</span><button class="copy-btn" onclick="copyText('reset colors sizes', this)">Copy</button></li>
                     <li class="example-item"><span>reset network hide</span><button class="copy-btn" onclick="copyText('reset network hide', this)">Copy</button></li>
+                    <li class="example-item"><span>reset order</span><button class="copy-btn" onclick="copyText('reset order', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1228,6 +1230,7 @@
                     <li><strong>Implicit UI Targeting (Quick Route):</strong> If nodes are selected in the viewer with the mouse, you do not need to write an expression. Simply typing <code>color red x2</code> will apply styling directly to your selection.</li>
                     <li><strong>Chaining Commands:</strong> You can style multiple subsets in a single rapid command, e.g. <code>color #cluster_1# red #cluster_2# blue x1.5</code>.</li>
                     <li><strong>Attribute Stacking:</strong> You do not need to provide all three attributes. If you only want to scale, simply pass the scale, e.g., <code>color &quot;Mutant&quot; x3</code>.</li>
+                    <li><strong>Render Order:</strong> Every node modified by one command invocation is brought to the top as one group, ordered internally by stable node index. A later color invocation is rendered above earlier groups.</li>
                     <li><strong>Undo Support:</strong> Revert color modifications instantly by typing <code>undo</code>.</li>
                 </ul>
 
@@ -1511,7 +1514,7 @@
                     <div class="syntax-content">spectrum [expression] prop:&lt;property_name&gt; [scheme:&lt;color_scheme&gt;]</div>
                     <button class="copy-btn" onclick="copyText('spectrum', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Colors visible nodes along a color gradient (spectrum) based on the values of a numerical property. Automatically calls the <code>meta display</code> command to display the selected property in the HUD when a node is clicked.</p>
+                <p><strong>Overview:</strong> Colors visible nodes along a color gradient (spectrum) based on the values of a numerical property and brings all nodes colored by that invocation to the top in stable node-index order. Automatically calls the <code>meta display</code> command to display the selected property in the HUD when a node is clicked.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>

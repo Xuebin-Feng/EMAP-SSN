@@ -701,7 +701,7 @@ def execute_reset(viewer, targets):
     lower_parts = [p.lower() for p in targets]
     
     if "help" in lower_parts or "-h" in lower_parts or "--help" in lower_parts:
-        msg = "Usage: reset <target_1> [target_2] ...\nDescription: Resets specific properties of the network to their default or backup states.\nValid Targets:\n  colors   - Resets all node colors to default\n  sizes    - Resets all node sizes to default\n  shapes   - Resets all node shapes to default\n  clusters - Clears all cluster labels\n  groups   - Clears all group labels\n  hide     - Unhides all hidden nodes\n  network  - Restores node layout positions to the original or last saved state\nExamples:\n  reset network hide\n  reset colors sizes"
+        msg = "Usage: reset <target_1> [target_2] ...\nDescription: Resets specific properties of the network to their default or backup states.\nValid Targets:\n  colors   - Resets all node colors to default\n  sizes    - Resets all node sizes to default\n  shapes   - Resets all node shapes to default\n  clusters - Clears all cluster labels\n  groups   - Clears all group labels\n  hide     - Unhides all hidden nodes\n  network  - Restores node layout positions to the original or last saved state\n  order/layer - Restores persistent node rendering to index order\nExamples:\n  reset network hide\n  reset colors sizes\n  reset order"
         print_help(viewer, msg)
         return
 
@@ -762,6 +762,13 @@ def execute_reset(viewer, targets):
             needs_update = True
             targets_found.append("network")
 
+        elif base_p in ["order", "layer"]:
+            from commands import reset as reset_command
+            reset_command.reset_node_render_order(viewer)
+            needs_update = True
+            if "node order" not in targets_found:
+                targets_found.append("node order")
+
     if needs_update:
         viewer.update_nodes()
         if "hidden" in targets_found or "network" in targets_found:
@@ -770,7 +777,7 @@ def execute_reset(viewer, targets):
     if targets_found:
         msg = f"Reset successful: {', '.join(targets_found)}."
     else:
-        msg = "Usage: reset [colors | sizes | clusters | hide | network]"
+        msg = "Usage: reset [colors | sizes | shapes | clusters | groups | hide | network | order | layer]"
     
     viewer.console_text.text = msg
     print(f"{msg}")
