@@ -2219,52 +2219,57 @@ class MainViewer:
                 node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
                 screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
-            # If clicked within the node's radius, highlight the node and print full header
+            # If clicked within the node's radius, apply the shared left-click focus.
             if screen_dist < cfg.NODE_SIZE:
-                self.selected_node_idx = nearest_idx
-                self.tooltip.text = ""
-                
-                # Row 1: Cluster + Header
-                lbl_line1 = ""
-                if getattr(self, 'cluster_labels', None) is not None:
-                    cid = self.cluster_labels[nearest_idx]
-                    lbl_line1 = "[Noise] " if cid == -1 else f"[Cluster {cid}] "
-                
-                lbl_line1 += self.full_headers[nearest_idx]
-                
-                # Row 2: Groups (if they exist)
-                group_line = ""
-                group_print = ""
-                if getattr(self, 'group_labels', None) and self.group_labels[nearest_idx]:
-                    group_str = ", ".join(sorted(self.group_labels[nearest_idx]))
-                    group_line = f"\n[Groups: {group_str}]"
-                    group_print = f" [Groups: {group_str}]"
-                
-                # Fetch and print the full FASTA header (keep print statement on one line)
-                full_header = self.full_headers[nearest_idx]
-                print(f"Node Selected: {full_header}")
-                
-                # Optionally update the HUD console text with a brief confirmation
-                self.console_text.text = f"Selected: {lbl_line1}{group_print}"
-                
-                # Sync selection to metadata spreadsheet
-                if hasattr(self, 'sync_metadata_table_selection'):
-                    self.sync_metadata_table_selection(nearest_idx)
-
-                # Update any registered HUD displays
-                for display in self.hud_displays.values():
-                    if getattr(display, 'on_node_clicked', None):
-                        display.on_node_clicked(nearest_idx)
-                
-                self.update_nodes()
+                self.apply_left_click_focus(nearest_idx)
             else:
                 # Clicking empty space clears the left-click highlight
-                self.selected_node_idx = None
-                self.tooltip.text = ""
-                self.update_nodes()
+                self.clear_left_click_focus()
                 
             event.handled = True
             return
+
+    def apply_left_click_focus(self, node_idx):
+        """Apply the shared temporary focus used by SSN and metadata clicks."""
+        node_idx = int(node_idx)
+        self.selected_node_idx = node_idx
+        self.left_click_highlight_indices = None
+        if getattr(self, 'tooltip', None) is not None:
+            self.tooltip.text = ""
+
+        label = ""
+        if getattr(self, 'cluster_labels', None) is not None:
+            cluster_id = self.cluster_labels[node_idx]
+            label = "[Noise] " if cluster_id == -1 else f"[Cluster {cluster_id}] "
+        label += self.full_headers[node_idx]
+
+        group_suffix = ""
+        if getattr(self, 'group_labels', None) and self.group_labels[node_idx]:
+            group_text = ", ".join(sorted(self.group_labels[node_idx]))
+            group_suffix = f" [Groups: {group_text}]"
+
+        print(f"Node Selected: {self.full_headers[node_idx]}")
+        if getattr(self, 'console_text', None) is not None:
+            self.console_text.text = f"Selected: {label}{group_suffix}"
+
+        if hasattr(self, 'sync_metadata_table_selection'):
+            self.sync_metadata_table_selection(node_idx)
+
+        for display in getattr(self, 'hud_displays', {}).values():
+            if getattr(display, 'on_node_clicked', None):
+                display.on_node_clicked(node_idx)
+
+        self.update_nodes()
+        self.broadcast_event({"type": "highlight_row", "index": node_idx})
+
+    def clear_left_click_focus(self):
+        """Clear temporary click focus without changing command selection."""
+        self.selected_node_idx = None
+        self.left_click_highlight_indices = None
+        if getattr(self, 'tooltip', None) is not None:
+            self.tooltip.text = ""
+        self.update_nodes()
+        self.broadcast_event({"type": "highlight_row", "index": None})
     
     def _update_hud_elements(self, event=None):
         """Updates the zoom indicator, hidden nodes count, and maintains the tooltip pixel gap."""

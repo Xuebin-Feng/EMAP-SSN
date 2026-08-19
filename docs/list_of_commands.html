@@ -761,6 +761,7 @@
                         <ul>
                             <li><strong>Specific Amino Acid:</strong> <code>P106</code> targets all nodes that have a Proline (P) at alignment column 106.</li>
                             <li><strong>Gap Queries:</strong> <code>_100</code> targets all nodes that have a gap (<code>-</code> or <code>.</code>) at alignment column 100.</li>
+                            <li><strong>Negative Offset Positions:</strong> Parentheses are required around negative displayed positions: use <code>K(-1)</code> or <code>K(-1.1)</code>. Bare forms such as <code>K-1</code> are invalid, preserving <code>-</code> for future expression functions.</li>
                         </ul>
                     </div>
                 </div>
@@ -1008,6 +1009,7 @@
                     <li><strong>With one integer:</strong> Applies a positive, negative, or zero offset. A loaded MSA and valid active reference are required.</li>
                     <li><strong>Session-only:</strong> The command changes the running viewer. Configure Alignment Offset in SSN Config to set the value for future sessions.</li>
                     <li><strong>Affected commands:</strong> Position-aware <code>query</code>, <code>label</code>, <code>logo</code>, and amino-acid expressions used by <code>color</code>, <code>select</code>, <code>group</code>, <code>hide</code>, and <code>spectrum</code>.</li>
+                    <li><strong>Negative amino-acid positions:</strong> In Boolean expressions, wrap negative displayed positions in parentheses, for example <code>K(-1)</code> or <code>K(-1.1)</code>. Do not use <code>K-1</code>.</li>
                 </ul>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -1596,7 +1598,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated list or ranges in brackets (e.g. <code>[10-25]</code>).</li>
+                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Integer ranges retain integer-only behavior.</li>
                     <li><strong>FILENAME:</strong> Output file ending in <code>.svg</code> or <code>.png</code>. Saved to <code>Results/Sequence_Logos/</code>.</li>
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
@@ -1607,6 +1609,7 @@
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>logo [10-20]</span><button class="copy-btn" onclick="copyText('logo [10-20]', this)">Copy</button></li>
+                    <li class="example-item"><span>logo [10,10.1,10.2,11]</span><button class="copy-btn" onclick="copyText('logo [10,10.1,10.2,11]', this)">Copy</button></li>
                     <li class="example-item"><span>logo #cluster_1# [1,5] pcts no_gap</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] pcts no_gap', this)">Copy</button></li>
                     <li class="example-item"><span>logo [10-20] color=charge</span><button class="copy-btn" onclick="copyText('logo [10-20] color=charge', this)">Copy</button></li>
                     <li class="example-item"><span>logo #cluster_1# [1,5] bits 90%</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] bits 90%', this)">Copy</button></li>

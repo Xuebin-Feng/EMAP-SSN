@@ -131,6 +131,18 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.assertEqual(network_combo.currentText(), "remaining.h5")
             self.assertEqual(observed_texts, ["remaining.h5"])
 
+    def test_visual_color_swatch_tracks_typed_name_and_hex_code(self):
+        color_input = self.window.inputs["HOVER_COLOR"]
+        color_swatch = self.window.color_swatches["HOVER_COLOR"]
+
+        color_input.setText("magenta")
+        self.app.processEvents()
+        self.assertIn("background-color: #ff00ff", color_swatch.styleSheet())
+
+        color_input.setText("#123456")
+        self.app.processEvents()
+        self.assertIn("background-color: #123456", color_swatch.styleSheet())
+
 
 if __name__ == "__main__":
     unittest.main()

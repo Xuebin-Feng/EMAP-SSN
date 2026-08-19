@@ -38,7 +38,8 @@ def print_help():
         the group name to the nodes currently selected in the viewer.
 
     Expression Targets (Do NOT use spaces inside expressions!):
-      1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap)
+      1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap); negative positions
+                       require parentheses (e.g., K(-1), K(-1.1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@

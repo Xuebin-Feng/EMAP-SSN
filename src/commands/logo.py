@@ -35,6 +35,11 @@ STANDARD_AAS = tuple("ACDEFGHIKLMNPQRSTVWY")
 _BARE_IDENTITY_THRESHOLD = re.compile(
     r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?$"
 )
+_POSITION_LABEL_PATTERN = r"[+-]?\d+(?:\.\d+)?"
+_POSITION_LABEL_RE = re.compile(rf"^{_POSITION_LABEL_PATTERN}$")
+_POSITION_RANGE_RE = re.compile(
+    rf"^({_POSITION_LABEL_PATTERN})\s*-\s*({_POSITION_LABEL_PATTERN})$"
+)
 
 
 def choose_balanced_thread_count(configured_threads, logical_cpus=None):
@@ -591,6 +596,70 @@ def get_compact_logo_coordinates(plot_positions):
     return list(range(len(plot_positions)))
 
 
+def _normalize_logo_position_label(value):
+    """Return an integer or canonical hierarchical insertion label."""
+    text = str(value).strip()
+    if not _POSITION_LABEL_RE.fullmatch(text):
+        raise ValueError(f"Invalid position label '{value}'.")
+
+    major_text, separator, insertion_text = text.partition('.')
+    major = int(major_text)
+    if not separator:
+        return major
+
+    insertion = int(insertion_text)
+    if insertion <= 0:
+        raise ValueError(
+            f"Invalid insertion position '{value}'; the fractional suffix must be positive."
+        )
+    return f"{major}.{insertion}"
+
+
+def _logo_position_sort_key(position):
+    """Sort hierarchical labels in reference-alignment order, not as floats."""
+    major_text, separator, insertion_text = str(position).partition('.')
+    return int(major_text), int(insertion_text) if separator else 0
+
+
+def parse_logo_positions(position_spec):
+    """Parse integer reference positions and explicit insertion labels.
+
+    Integer ranges retain their historical meaning and expand to integer
+    reference positions only. Insertion positions must be listed explicitly.
+    """
+    text = str(position_spec).strip()
+    if text.startswith('[') and text.endswith(']'):
+        text = text[1:-1]
+
+    positions = {}
+    for raw_part in text.split(','):
+        part = raw_part.strip()
+        if not part:
+            continue
+
+        range_match = _POSITION_RANGE_RE.fullmatch(part)
+        if range_match:
+            start = _normalize_logo_position_label(range_match.group(1))
+            end = _normalize_logo_position_label(range_match.group(2))
+            if not isinstance(start, int) or not isinstance(end, int):
+                raise ValueError(
+                    f"Fractional range '{part}' is not supported; list insertion "
+                    "positions explicitly."
+                )
+            if start > end:
+                raise ValueError(
+                    f"Position range '{part}' must be written from lower to higher."
+                )
+            for position in range(start, end + 1):
+                positions[str(position)] = position
+            continue
+
+        position = _normalize_logo_position_label(part)
+        positions[str(position)] = position
+
+    return sorted(positions.values(), key=_logo_position_sort_key)
+
+
 def print_help():
     print("""
     Sequence Logo Generator
@@ -610,8 +679,11 @@ def print_help():
         defaults to analyzing ALL nodes in the entire network.
 
     Arguments (Can be provided in almost any order):
-      1. [POSITIONS] : (Required) Comma-separated list or ranges enclosed in brackets.
-                       Example: [1, 2, 9-12]
+      1. [POSITIONS] : (Required) Comma-separated reference positions or integer
+                       ranges enclosed in brackets. Fractional insertion positions
+                       (alignment columns where the reference has a gap) are accepted
+                       when listed explicitly.
+                       Examples: [1, 2, 9-12] or [10, 10.1, 10.2, 11]
                        Non-contiguous positions are plotted adjacently while retaining
                        their original reference-position labels.
       2. EXPRESSION  : Boolean logic target (e.g., #cluster_1#, "ATA", or $sele$).
@@ -636,6 +708,7 @@ def print_help():
 
     Examples:
       logo [10-20]                        (Logos pos 10-20 for selected or all nodes)
+      logo [10,10.1,10.2,11]             (Includes explicit insertion positions)
       logo #cluster_1# [1,5] pcts no_gap  (Percentage logo ignoring gaps for pos 1 and 5)
       logo [10-20] color=charge           (Generates bits logo using the charge color scheme)
       logo #cluster_1# [1,5] 90%           (Reweights sequences at 90% identity)
@@ -764,21 +837,13 @@ def run(viewer, args):
         expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
 
     # 5. Parse Position Array
-    inner = pos_str[1:-1]
-    positions = set()
-    for part in inner.split(','):
-        part = part.strip()
-        if not part: continue
-        if '-' in part:
-            try:
-                start, end = map(int, part.split('-'))
-                positions.update(range(start, end + 1))
-            except ValueError: pass
-        else:
-            try: positions.add(int(part))
-            except ValueError: pass
-            
-    requested_positions = sorted(list(positions))
+    try:
+        requested_positions = parse_logo_positions(pos_str)
+    except ValueError as exc:
+        msg = f"Error: {exc}"
+        Command_Engine.print_help(viewer, msg)
+        return
+
     if not requested_positions:
         msg = "Error: Could not parse positions from brackets."
         viewer.console_text.text = msg

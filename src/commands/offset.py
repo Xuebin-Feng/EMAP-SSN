@@ -52,6 +52,8 @@ def print_help():
       Positive and negative integers are accepted. Changes made with this
       command apply to the current viewer session. Configure Alignment Offset
       in SSN_Config to set the value used when launching a new session.
+      In Boolean amino-acid expressions, parentheses are required around a
+      negative displayed position: use K(-1) or K(-1.1), never K-1 or K-1.1.
 
     Examples:
       offset

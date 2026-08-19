@@ -292,6 +292,61 @@ class NodeRenderOrderTests(unittest.TestCase):
         np.testing.assert_array_equal(viewer.node_render_order, [2, 0, 3, 1])
 
 
+class LeftClickFocusTests(unittest.TestCase):
+    def make_viewer(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.n_nodes = 3
+        viewer.full_headers = ["A", "B", "C"]
+        viewer.cluster_labels = np.array([1, 7, -1], dtype=np.int32)
+        viewer.group_labels = [set(), {"beta", "alpha"}, set()]
+        viewer.selected_indices = [0, 2]
+        viewer.selected_node_idx = None
+        viewer.left_click_highlight_indices = [0, 2]
+        viewer.tooltip = SimpleNamespace(text="old tooltip")
+        viewer.console_text = SimpleNamespace(text="")
+        display = SimpleNamespace(on_node_clicked=mock.Mock())
+        viewer.hud_displays = {"probe": display}
+        viewer.sync_metadata_table_selection = mock.Mock()
+        viewer.update_nodes = mock.Mock()
+        viewer.broadcast_event = mock.Mock()
+        return viewer, display
+
+    def test_apply_left_click_focus_runs_full_shared_behavior(self):
+        viewer, display = self.make_viewer()
+
+        viewer.apply_left_click_focus(1)
+
+        self.assertEqual(viewer.selected_node_idx, 1)
+        self.assertIsNone(viewer.left_click_highlight_indices)
+        self.assertEqual(viewer.selected_indices, [0, 2])
+        self.assertEqual(viewer.tooltip.text, "")
+        self.assertEqual(
+            viewer.console_text.text,
+            "Selected: [Cluster 7] B [Groups: alpha, beta]",
+        )
+        viewer.sync_metadata_table_selection.assert_called_once_with(1)
+        display.on_node_clicked.assert_called_once_with(1)
+        viewer.update_nodes.assert_called_once_with()
+        viewer.broadcast_event.assert_called_once_with(
+            {"type": "highlight_row", "index": 1}
+        )
+
+    def test_clear_left_click_focus_preserves_command_selection(self):
+        viewer, _display = self.make_viewer()
+        viewer.selected_node_idx = 1
+
+        viewer.clear_left_click_focus()
+
+        self.assertIsNone(viewer.selected_node_idx)
+        self.assertIsNone(viewer.left_click_highlight_indices)
+        self.assertEqual(viewer.selected_indices, [0, 2])
+        self.assertEqual(viewer.tooltip.text, "")
+        viewer.update_nodes.assert_called_once_with()
+        viewer.broadcast_event.assert_called_once_with(
+            {"type": "highlight_row", "index": None}
+        )
+
+
 class CommandPromotionTests(unittest.TestCase):
     def make_viewer(self):
         return SimpleNamespace(

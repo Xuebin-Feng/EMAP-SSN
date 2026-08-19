@@ -58,7 +58,8 @@ def print_help():
          Example: [K>10%], [(K>0.1) & (R>0.05)], [!(GAP>50%) & ((K>10%) | (R>10%))]
 
     Sequence Selection Expression Targets (Do NOT use spaces inside expressions!):
-      1. AA Position:  [AA][Pos] (e.g., P106, _100)
+      1. AA Position:  [AA][Pos] (e.g., P106, _100); negative positions require
+                       parentheses (e.g., K(-1), K(-1.1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list@, @my_seqs.fasta@)
       4. NCBI List:    @[NCBI][File]@ (Extracts & matches NCBI IDs from file and headers)

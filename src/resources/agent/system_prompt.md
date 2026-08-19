@@ -117,7 +117,7 @@ Available CLI commands:
     - Calculation and workbook generation are queued in the viewer's shared sequential background scheduler. The command snapshots its alignment, mappings, cluster/group memberships, reference/offset, parameters, and output metadata when submitted; later viewer changes do not alter the queued report.
 
 21. `logo [EXPRESSION] <POSITIONS> [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]`
-    - Generates a sequence-logo SVG or PNG under `Results/Sequence_Logos/`. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels.
+    - Generates a sequence-logo SVG or PNG under `Results/Sequence_Logos/`. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels. Explicit fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap. Integer ranges remain integer-only, so insertion labels must be listed explicitly.
     - If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. Arguments may appear in nearly any order, but the last otherwise-unrecognized token is treated as FILENAME.
     - MODE is `bits` by default or `pcts`/`percentages`. GAP_MODE is `with_gap` by default, which scales total height by occupancy, or `no_gap`.
     - COLOR_SCHEME may be a supported standalone preset or `color=SCHEME`/`scheme=SCHEME`; the default is `chemistry`. IDENTITY optionally enables sequence-redundancy weighting and accepts a fraction, percentage points, or a percent token; weighting is off when omitted.
@@ -139,7 +139,7 @@ Available CLI commands:
     - If a message is sent while no model is active, the first configured model card is activated automatically. If no model cards exist, the command reports an error instead of inventing one.
 
 Shared expression language:
-- Amino-acid state at a mapped position: `[AA][POSITION]`, where AA is a standard one-letter amino-acid code and `_` means a gap. POSITION uses the active alignment numbering and offset.
+- Amino-acid state at a mapped position: `[AA][POSITION]`, where AA is a standard one-letter amino-acid code and `_` means a gap. POSITION uses the active alignment numbering and offset. A negative displayed position must be enclosed in parentheses, for example `K(-1)` or `K(-1.1)`; never emit bare `K-1` or `K-1.1`.
 - Header text: `"TEXT"`; `*` may be used as a wildcard inside the quoted text.
 - Header-list file: `@[FILE]@`; identifier extraction modes are `@[NCBI][FILE]@` and `@[PDB][FILE]@`.
 - Topology cluster: `#cluster_N#`, where `N` is the cluster number. Natural-language references such as "cluster N" must be normalized to this full label; never shorten a topology cluster to `#N#`.

@@ -151,12 +151,12 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
 
         columns, positions, missing = logo_command.resolve_reference_columns(
             manager,
-            [1, 11, 12],
+            [1, 11, "11.1", 12],
             "ACG",
         )
 
-        self.assertEqual(columns, [0, 2])
-        self.assertEqual(positions, [11, 12])
+        self.assertEqual(columns, [0, 1, 2])
+        self.assertEqual(positions, [11, "11.1", 12])
         self.assertEqual(missing, [1])
 
     def test_query_output_reports_current_offset(self):
@@ -241,6 +241,8 @@ class OffsetCommandTests(unittest.TestCase):
         self.assertIn("displayed position = reference position + offset", help_text)
         self.assertIn("insertion", help_text)
         self.assertIn("query, label, logo", help_text)
+        self.assertIn("K(-1)", help_text)
+        self.assertIn("never K-1", help_text)
         self.assertIn("offset 0", help_text)
 
     def test_command_sets_offset_and_updates_runtime_state(self):

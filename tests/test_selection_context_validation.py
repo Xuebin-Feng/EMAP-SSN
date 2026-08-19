@@ -2,6 +2,7 @@
 
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -46,9 +47,16 @@ class StrictExpressionTests(unittest.TestCase):
         self.viewer_to_aln = np.array([0, 1, 2], dtype=int)
         self.valid_indices = np.array([0, 1, 2], dtype=int)
         self.alignment = SimpleNamespace(
-            aln=FakeAlignmentRows({(0, "A"): [False, False, False]}),
-            label_to_col={"10": 0, "10.1": 1},
-            col_to_label={0: "10", 1: "10.1"},
+            aln=FakeAlignmentRows(
+                {
+                    (0, "A"): [False, False, False],
+                    (2, "K"): [True, False, True],
+                    (3, "K"): [False, True, False],
+                    (4, "A"): [True, True, False],
+                }
+            ),
+            label_to_col={"10": 0, "10.1": 1, "-1": 2, "-1.1": 3, "0": 4},
+            col_to_label={0: "10", 1: "10.1", 2: "-1", 3: "-1.1", 4: "0"},
         )
         self.metadata = {
             "Length": {
@@ -111,6 +119,24 @@ class StrictExpressionTests(unittest.TestCase):
         with self.assertRaisesRegex(Command_Engine.SelectionExpressionError, "not a valid"):
             self.evaluate("A10..1")
         np.testing.assert_array_equal(self.evaluate("A10"), [False, False, False])
+
+    def test_negative_positions_require_parentheses_and_support_boolean_logic(self):
+        np.testing.assert_array_equal(
+            self.evaluate("K(-1)&!A0"),
+            [False, False, True],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate("K(-1.1)"),
+            [False, True, False],
+        )
+
+        for expression, replacement in (("K-1", "K(-1)"), ("K-1.1", "K(-1.1)")):
+            with self.subTest(expression=expression):
+                with self.assertRaisesRegex(
+                    Command_Engine.SelectionExpressionError,
+                    re.escape(replacement),
+                ):
+                    self.evaluate(expression)
 
     def test_empty_or_malformed_target_does_not_produce_scalar_mask(self):
         with self.assertRaisesRegex(Command_Engine.SelectionExpressionError, "malformed targets"):

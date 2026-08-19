@@ -326,6 +326,42 @@
         let currentVisibleMask = null;
         let currentSelectionIndices = null;
         let currentSelectionIndicesSet = null;
+        let pendingNodeNameGesture = null;
+
+        function cancelPendingNodeNameGesture() {
+            pendingNodeNameGesture = null;
+        }
+
+        function rangeMatchesPendingNodeCell(range, gesture) {
+            if (!range || !gesture) return false;
+            const rangeCells = range.getCells();
+            const cells = rangeCells.flat ? rangeCells.flat() : [].concat(...rangeCells);
+            if (!cells || cells.length !== 1) return false;
+            const cell = cells[0];
+            return cell.getField() === "Node ID" &&
+                cell.getRow().getData().id === gesture.nodeIndex;
+        }
+
+        function finishPendingNodeNameGesture(event) {
+            const gesture = pendingNodeNameGesture;
+            pendingNodeNameGesture = null;
+            if (!gesture || event.button !== 0) return;
+
+            // Let Tabulator finish updating the active range before deciding
+            // whether this was a click or a click-drag selection.
+            setTimeout(() => {
+                if (!table || gesture.dragged) return;
+                const ranges = table.getRanges ? table.getRanges() : [];
+                const activeRange = ranges.length ? ranges[ranges.length - 1] : null;
+                if (rangeMatchesPendingNodeCell(activeRange, gesture)) {
+                    sendAction({ action: "select", index: gesture.nodeIndex });
+                }
+            }, 0);
+        }
+
+        document.addEventListener("mouseup", finishPendingNodeNameGesture);
+        document.addEventListener("pointercancel", cancelPendingNodeNameGesture);
+        window.addEventListener("blur", cancelPendingNodeNameGesture);
 
         function textFilterFunc(headerValue, rowValue, rowData, filterParams) {
             if (headerValue === undefined || headerValue === null || headerValue === "") {
@@ -636,6 +672,29 @@
                 }
             });
 
+            table.on("cellMouseDown", (event, cell) => {
+                pendingNodeNameGesture = null;
+                if (event.button !== 0 || cell.getField() !== "Node ID") return;
+
+                const nodeIndex = cell.getRow().getData().id;
+                if (!Number.isInteger(nodeIndex)) return;
+                pendingNodeNameGesture = {
+                    nodeIndex: nodeIndex,
+                    dragged: false
+                };
+            });
+
+            table.on("rangeChanged", (range) => {
+                if (
+                    pendingNodeNameGesture &&
+                    !rangeMatchesPendingNodeCell(range, pendingNodeNameGesture)
+                ) {
+                    // Once expanded, the gesture remains a drag even if the
+                    // pointer returns to the original cell before release.
+                    pendingNodeNameGesture.dragged = true;
+                }
+            });
+
             table.on("cellEdited", (cell) => {
                 const row = cell.getRow().getData();
                 sendAction({
@@ -852,7 +911,7 @@
                     }
                     highlightSingleRow(null);
                     
-                    // Notify backend to clear its selection state too
+                    // Clear only the backend's temporary left-click focus.
                     sendAction({ action: "clear_selection" });
                 }
 

@@ -46,7 +46,8 @@ def print_help():
                                     (Supports .txt for headers or .fasta for sequences)
 
     Syntax & Targets:
-      1. AA Position:  [AA][Pos] (e.g., P106, _100)
+      1. AA Position:  [AA][Pos] (e.g., P106, _100); negative positions require
+                       parentheses (e.g., K(-1), K(-1.1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@

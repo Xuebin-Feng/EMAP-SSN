@@ -220,7 +220,7 @@ if __name__ == "__main__":
         QStyle, QStyleOptionSlider, QFileDialog, QColorDialog,
     )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
-    from PySide6.QtGui import QDesktopServices, QIcon
+    from PySide6.QtGui import QColor, QDesktopServices, QIcon
     from matplotlib.backends.backend_qtagg import (
         FigureCanvasQTAgg,
         NavigationToolbar2QT,
@@ -1865,13 +1865,21 @@ if __name__ == "__main__":
                 swatch.setStyleSheet(f"background-color: {val}; border: 1px solid gray; border-radius: 3px;")
                 
                 le = QLineEdit("" if val in [None, "None"] else str(val))
+
+                def update_color_swatch(value, color_swatch=swatch):
+                    color = QColor(str(value).strip())
+                    if color.isValid():
+                        color_swatch.setStyleSheet(
+                            f"background-color: {color.name()}; border: 1px solid gray; border-radius: 3px;"
+                        )
+
+                le.textChanged.connect(update_color_swatch)
                 
                 btn = QPushButton("Pick")
                 btn.setFixedWidth(50)
                 
                 def pick_color(checked, line_edit=le, color_swatch=swatch):
                     initial = line_edit.text()
-                    from PySide6.QtGui import QColor
                     color = QColorDialog.getColor(QColor(initial) if initial else QColor("white"), self, "Select Color")
                     if color.isValid():
                         hex_val = color.name()

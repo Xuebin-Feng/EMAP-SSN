@@ -541,9 +541,47 @@ def _extend_initial_web_state(viewer, state):
     return state
 
 
+def handle_select_node(viewer, data):
+    """Apply SSN left-click focus for a validated metadata row index."""
+    node_idx = data.get("index")
+    if isinstance(node_idx, (bool, np.bool_)) or not isinstance(
+        node_idx, (int, np.integer)
+    ):
+        return False
+
+    node_idx = int(node_idx)
+    node_count = int(getattr(viewer, "n_nodes", 0))
+    if node_idx < 0 or node_idx >= node_count:
+        return False
+
+    visible_mask = getattr(viewer, "visible_mask", None)
+    if visible_mask is None or not bool(visible_mask[node_idx]):
+        return False
+
+    apply_focus = getattr(viewer, "apply_left_click_focus", None)
+    if not callable(apply_focus):
+        return False
+    apply_focus(node_idx)
+    return True
+
+
+def handle_clear_selection(viewer, _data):
+    """Clear only temporary click focus, leaving command selection intact."""
+    clear_focus = getattr(viewer, "clear_left_click_focus", None)
+    if not callable(clear_focus):
+        return False
+    clear_focus()
+    return True
+
+
 def register_backend(registry, viewer):
     """Register Metadata web capabilities without changing sidebar state."""
-    registry.register_action("meta", "select", lambda data: None)
+    registry.register_action(
+        "meta", "select", lambda data: handle_select_node(viewer, data)
+    )
+    registry.register_action(
+        "meta", "clear_selection", lambda data: handle_clear_selection(viewer, data)
+    )
     registry.register_action(
         "meta", "edit_cell", lambda data: handle_edit_cell(viewer, data)
     )
@@ -564,19 +602,14 @@ def register_backend(registry, viewer):
 
 def activate(viewer):
     """Show and persist the Metadata UI while preserving current behavior."""
-    # Intercept mouse press to broadcast left-click node highlights & clear multi-highlights
+    # Preserve the existing rule that any SSN mouse press clears metadata
+    # multi-highlights. Shared viewer helpers now own row broadcasts.
     if hasattr(viewer, 'on_mouse_press') and not hasattr(viewer, "_on_mouse_press_patched_meta"):
         orig_on_mouse_press = viewer.on_mouse_press
         def wrapped_on_mouse_press(event):
             if hasattr(viewer, 'left_click_highlight_indices'):
                 viewer.left_click_highlight_indices = None
             orig_on_mouse_press(event)
-            if event.button == 1 and 'Shift' not in event.modifiers and not viewer.console_mode:
-                idx = getattr(viewer, 'selected_node_idx', None)
-                if idx is not None:
-                    viewer.broadcast_event({"type": "highlight_row", "index": int(idx)})
-                else:
-                    viewer.broadcast_event({"type": "highlight_row", "index": None})
         viewer.on_mouse_press = wrapped_on_mouse_press
         viewer._on_mouse_press_patched_meta = True
 

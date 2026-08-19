@@ -30,6 +30,12 @@ class SelectionContextError(SelectionExpressionError):
 _METADATA_QUERY_PATTERN = re.compile(
     r'^([a-zA-Z0-9_\-]+)\s*(>=|<=|!=|==|>|<|=)\s*(.*)$'
 )
+_AA_PREDICATE_PATTERN = re.compile(
+    r'(?<!\w)([a-zA-Z_])(?:\((-\d+(?:\.\d+)?)\)|([\d.]+))(?![\w.])'
+)
+_BARE_NEGATIVE_AA_PATTERN = re.compile(
+    r'(?<!\w)([a-zA-Z_])(-\d+(?:\.\d+)?)(?![\w.])'
+)
 _SUGGESTION_LIMIT = 10
 
 
@@ -140,8 +146,12 @@ def _validate_label_target(cluster_labels, group_labels, target):
 
 
 def _validate_aa_target(alignment, target_aa, target_pos_label):
-    predicate = f"{target_aa}{target_pos_label}"
-    if not re.fullmatch(r'\d+(?:\.\d+)?', target_pos_label):
+    predicate = (
+        f"{target_aa}({target_pos_label})"
+        if str(target_pos_label).startswith('-')
+        else f"{target_aa}{target_pos_label}"
+    )
+    if not re.fullmatch(r'-?\d+(?:\.\d+)?', target_pos_label):
         raise SelectionExpressionError(
             f"Alignment position '{target_pos_label}' in predicate '{predicate}' is "
             "not a valid integer or insertion-position label."
@@ -643,7 +653,7 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
         if match.group(0).startswith('M_') or match.group(0) == 'masks':
             return match.group(0)
         aa = match.group(1)
-        pos = match.group(2)
+        pos = match.group(2) or match.group(3)
         _validate_aa_target(alignment, aa, pos)
         aa_mask = evaluate_aa_mask(
             full_headers,
@@ -660,7 +670,15 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
         repl = f"masks['M_{mask_idx}']"
         mask_idx += 1
         return repl
-    expr = re.sub(r'(?<!\w)([a-zA-Z_])([\d\.]+)\b', aa_repl, expr)
+    expr = _AA_PREDICATE_PATTERN.sub(aa_repl, expr)
+
+    bare_negative = _BARE_NEGATIVE_AA_PATTERN.search(expr)
+    if bare_negative:
+        aa, position = bare_negative.groups()
+        raise SelectionExpressionError(
+            f"Negative alignment position '{aa}{position}' must be written as "
+            f"'{aa}({position})'. Parentheses are required around negative positions."
+        )
     
     final_expr = expr.replace("!", "~").replace("&", "&").replace("|", "|").replace("^", "^")
     try:

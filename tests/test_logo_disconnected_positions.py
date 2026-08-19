@@ -25,6 +25,7 @@ from commands.logo import (
     calculate_logo_matrix,
     extract_identity_threshold,
     get_compact_logo_coordinates,
+    parse_logo_positions,
 )
 
 
@@ -63,6 +64,27 @@ class DisconnectedLogoPositionTests(unittest.TestCase):
     def test_empty_and_single_position_inputs_are_supported(self):
         self.assertEqual(get_compact_logo_coordinates([]), [])
         self.assertEqual(get_compact_logo_coordinates([282]), [0])
+
+
+class LogoPositionParsingTests(unittest.TestCase):
+    def test_explicit_fractional_positions_are_parsed_in_alignment_order(self):
+        positions = parse_logo_positions("[11,10.2,10,10.1]")
+
+        self.assertEqual(positions, [10, "10.1", "10.2", 11])
+
+    def test_integer_ranges_retain_integer_only_behavior(self):
+        positions = parse_logo_positions("[10-12,10.1]")
+
+        self.assertEqual(positions, [10, "10.1", 11, 12])
+
+    def test_negative_offset_insertion_labels_are_supported(self):
+        positions = parse_logo_positions("[-1.1,-1,0]")
+
+        self.assertEqual(positions, [-1, "-1.1", 0])
+
+    def test_fractional_ranges_require_explicit_insertion_labels(self):
+        with self.assertRaisesRegex(ValueError, "list insertion positions explicitly"):
+            parse_logo_positions("[10.1-11.2]")
 
 
 class LogoIdentityThresholdParsingTests(unittest.TestCase):
@@ -493,6 +515,45 @@ class LogoSnapshotTests(unittest.TestCase):
             self.assertEqual(payload["selected_seqs"], ("AAAA",))
             self.assertEqual(payload["valid_cols"], (0,))
             self.assertEqual(payload["plot_positions"], (1,))
+
+    def test_run_submits_explicit_fractional_position_to_logo_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            alignment_rows = MultipleSeqAlignment(
+                [
+                    SeqRecord(Seq("A-AA"), id="node0"),
+                    SeqRecord(Seq("ACAA"), id="node1"),
+                ]
+            )
+            alignment = SimpleNamespace(
+                aln=alignment_rows,
+                viewer_to_aln=np.array([0, 1]),
+                col_to_label={0: "1", 1: "1.1", 2: "2", 3: "3"},
+                label_to_col={"1": 0, "1.1": 1, "2": 2, "3": 3},
+                has_reference=True,
+            )
+            scheduler = CapturingScheduler()
+            viewer = SimpleNamespace(
+                alignment=alignment,
+                full_headers=["node0", "node1"],
+                selected_indices=[0, 1],
+                cluster_labels=None,
+                group_labels=None,
+                active_reference="node0",
+                console_text=SimpleNamespace(text=""),
+                background_job_scheduler=scheduler,
+            )
+
+            with mock.patch.object(logo_command.cfg, "LOGO_DIR", directory), \
+                    mock.patch.object(
+                        logo_command.cfg,
+                        "HEADER_LIST_DIR",
+                        directory,
+                    ):
+                logo_command.run(viewer, ["[1,1.1,2]", "insertions.svg"])
+
+            payload = scheduler.job["payload"]
+            self.assertEqual(payload["valid_cols"], (0, 1, 2))
+            self.assertEqual(payload["plot_positions"], (1, "1.1", 2))
 
     def test_run_scopes_overwrite_to_explicit_filename(self):
         with tempfile.TemporaryDirectory() as directory:
