@@ -89,9 +89,9 @@ This script queries a single sequence against an entire database using residue-l
 
 #### Embedding Search Results
 *   **Text Report**: `Report_<name>.txt`, containing parameters and the full ranked hit table; the console shows at most the first 100 hits.
-*   **Excel Workbook**: `Report_<name>.xlsx`, with `Search Results` and `Search Parameters` sheets.
+*   **Excel Workbook**: `Report_<name>.xlsx`, with a metadata-viewer-compatible `Search Results` sheet and a `Search Parameters` sheet. The first sheet follows `docs/metadata_template.xlsx`: row 1 contains property names, row 2 contains data types, and column A contains exact sequence headers for strict node matching.
 *   **Optional FASTA**: When `GENERATE_FASTA` is enabled, `Hits_<name>.fasta` contains the query followed by ranked hit sequences.
-*   **Columns**: Rank, normalized score, raw alignment score, sequence length, alignment length, and header.
+*   **Metadata Columns**: `Node ID`, `Rank`, `Norm_Score`, `Raw_Score`, `Sequence_Length`, and `Alignment_Length`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>

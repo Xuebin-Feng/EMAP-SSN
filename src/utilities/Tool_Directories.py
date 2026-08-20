@@ -15,7 +15,29 @@ DEFAULT_DIRECTORY_PATHS = {
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "NETWORK_DIR": os.path.join("Input_Files", "Networks_EValues"),
     "PATH_DIR": os.path.join("Cache_Files", "Global_Path"),
-    "REPORT_DIR": os.path.join("Cache_Files", "Align_Report"),
+    "REPORT_DIR": os.path.join("Analysis_Results", "Alignment_Report"),
+    "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Tool_Settings"),
+}
+
+
+# Global directory settings consumed by each script exposed in SSN_Tools.py.
+# Tool-specific paths such as SAFE_TEMP_DIR and BLASTP_DIR remain part of the
+# script's own settings section rather than this shared directory registry.
+TOOL_DIRECTORY_KEYS = {
+    "Align_Similarity_Matrix.py": ("EMBED_DIR", "NETWORK_DIR"),
+    "Align_Substitution_Matrix.py": ("FASTA_DIR", "NETWORK_DIR"),
+    "Embedding_Cropping.py": ("FASTA_DIR", "EMBED_DIR"),
+    "Embedding_Extraction.py": ("FASTA_DIR", "EMBED_DIR"),
+    "Embedding_Injection.py": ("FASTA_DIR", "EMBED_DIR"),
+    "Embedding_MSA.py": ("FASTA_DIR", "EMBED_DIR", "NETWORK_DIR", "MSA_DIR"),
+    "Embedding_PWA.py": ("EMBED_DIR", "REPORT_DIR"),
+    "Embedding_SSEARCH.py": ("EMBED_DIR", "REPORT_DIR"),
+    "Generate_Embeddings.py": ("FASTA_DIR", "EMBED_DIR"),
+    "Network_Extraction.py": ("FASTA_DIR", "NETWORK_DIR", "PATH_DIR"),
+    "Network_Injection.py": ("EMBED_DIR", "NETWORK_DIR"),
+    "Parse_BLAST_Output.py": ("NETWORK_DIR",),
+    "Sanitize_Sequences.py": ("FASTA_DIR",),
+    "Sparse_MSA_Converter.py": ("MSA_DIR",),
 }
 
 

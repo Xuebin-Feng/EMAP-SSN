@@ -136,8 +136,12 @@ def run(viewer, args):
     else:
         lvl2_name = lvl2_name_base
 
-    # Build Output Path (Changed to FASTA_Split)
-    out_dir = os.path.join("Cache_Files", "FASTA_Split", lvl1_name)
+    sequence_export_dir = getattr(
+        cfg,
+        "SEQUENCE_EXPORT_DIR",
+        os.path.join("Analysis_Results", "Sequence_Export"),
+    )
+    out_dir = os.path.join(sequence_export_dir, lvl1_name)
     
     if target_mode in ["groups", "specific"]:
         final_dir_name = f"{lvl2_name}_GROUPS" if lvl2_name else "GROUPS"

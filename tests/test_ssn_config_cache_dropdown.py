@@ -44,6 +44,101 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         cls.window.close()
         cls.app.processEvents()
 
+    def test_default_directory_layout_uses_input_and_analysis_roots(self):
+        defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]
+        self.assertEqual(
+            defaults["HEADER_LIST_DIR"],
+            os.path.join("Input_Files", "Header_Lists"),
+        )
+        self.assertEqual(
+            defaults["METADATA_DIR"],
+            os.path.join("Input_Files", "Meta_Data"),
+        )
+        self.assertEqual(
+            defaults["SEQUENCE_EXPORT_DIR"],
+            os.path.join("Analysis_Results", "Sequence_Export"),
+        )
+        self.assertEqual(
+            defaults["PRINT_SAVE_DIR"],
+            os.path.join("Analysis_Results", "Saved_Images"),
+        )
+        self.assertEqual(
+            defaults["STRUCTURES_DIR"],
+            os.path.join("Cache_Files", "Predicted_Structures"),
+        )
+
+    def test_requested_directory_labels_use_concise_names(self):
+        expected_labels = {
+            "FASTA_DIR": "Input FASTA Directory:",
+            "SAVED_LAYOUT_DIR": "Layout Directory:",
+            "SEQUENCE_EXPORT_DIR": "Sequence Export Directory:",
+            "PRINT_SAVE_DIR": "Print Directory:",
+        }
+        for key, expected in expected_labels.items():
+            with self.subTest(key=key):
+                self.assertEqual(self.window.labels[key].text(), expected)
+
+    def test_slider_spinboxes_match_tools_minimum_height(self):
+        slider_keys = (
+            "NODE_SIZE",
+            "EDGE_WIDTH",
+            "NODE_BOUNDARY_WIDTH",
+            "EDGE_ALPHA",
+            "TEXT_SIZE",
+            "SPRING_K",
+            "COULOMB_K",
+            "COULOMB_CUTOFF",
+            "DAMPING",
+        )
+
+        for key in slider_keys:
+            with self.subTest(key=key):
+                self.assertEqual(self.window.inputs[key].minimumHeight(), 28)
+
+    def test_monte_carlo_rows_have_extra_top_clearance(self):
+        monte_carlo_grid = self.window.findChild(
+            self.namespace["QGridLayout"], "monteCarloGrid"
+        )
+
+        self.assertIsNotNone(monte_carlo_grid)
+        self.assertEqual(monte_carlo_grid.contentsMargins().top(), 8)
+
+    def test_low_resource_mode_row_has_extra_top_clearance(self):
+        low_resource_row = self.window.findChild(
+            self.namespace["QWidget"], "lowResourceModeRow"
+        )
+
+        self.assertIsNotNone(low_resource_row)
+        self.assertEqual(low_resource_row.layout().contentsMargins().top(), 8)
+
+    def test_spinboxes_are_not_clipped_by_parent_wrappers(self):
+        from PySide6.QtWidgets import QAbstractSpinBox
+
+        original_index = self.window.tabs.currentIndex()
+        try:
+            self.window.resize(1400, 900)
+            self.window.show()
+            for tab_index in range(self.window.tabs.count()):
+                self.window.tabs.setCurrentIndex(tab_index)
+                self.app.processEvents()
+
+                for spinbox in self.window.tabs.currentWidget().findChildren(
+                    QAbstractSpinBox
+                ):
+                    if not spinbox.isVisibleTo(self.window):
+                        continue
+                    with self.subTest(
+                        tab=self.window.tabs.tabText(tab_index),
+                        spinbox=spinbox.objectName() or type(spinbox).__name__,
+                    ):
+                        self.assertLessEqual(
+                            spinbox.geometry().bottom(),
+                            spinbox.parentWidget().rect().bottom(),
+                        )
+        finally:
+            self.window.tabs.setCurrentIndex(original_index)
+            self.app.processEvents()
+
     def test_opening_dropdown_finds_new_files_and_preserves_selection(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             saved_layout_dir = pathlib.Path(temp_dir)
@@ -196,6 +291,66 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(visual_content.isEnabled())
         default_node_size = self.window.inputs["NODE_SIZE"].value()
+        palette_type = self.namespace["QPalette"]
+        disabled_group = palette_type.ColorGroup.Disabled
+
+        node_size_label = self.window.labels["NODE_SIZE"]
+        node_size_spinbox = self.window.inputs["NODE_SIZE"]
+        node_size_slider = node_size_spinbox.parentWidget().findChild(
+            self.namespace["QSlider"]
+        )
+        self.assertFalse(node_size_label.isEnabled())
+        self.assertIn(
+            self.namespace["PROFILE_DISABLED_LABEL_STYLESHEET"],
+            node_size_label.styleSheet(),
+        )
+        self.assertFalse(node_size_spinbox.isEnabled())
+        self.assertIn(
+            self.namespace["PROFILE_DISABLED_SPINBOX_STYLESHEET"],
+            node_size_spinbox.styleSheet(),
+        )
+        self.assertNotIn("border: 1px solid #c8c8c8", node_size_spinbox.styleSheet())
+        self.assertIsNotNone(node_size_slider)
+        self.assertFalse(node_size_slider.isEnabled())
+        self.assertEqual(node_size_slider.styleSheet(), "")
+
+        color_input = self.window.inputs["HOVER_COLOR"]
+        pick_button = color_input.parentWidget().findChild(
+            self.namespace["QPushButton"]
+        )
+        self.assertFalse(color_input.isEnabled())
+        self.assertEqual(
+            color_input.palette().color(
+                disabled_group,
+                palette_type.ColorRole.Base,
+            ).name(),
+            "#f0f0f0",
+        )
+        self.assertIsNotNone(pick_button)
+        self.assertFalse(pick_button.isEnabled())
+        self.assertEqual(
+            pick_button.palette().color(
+                disabled_group,
+                palette_type.ColorRole.ButtonText,
+            ).name(),
+            "#888888",
+        )
+
+        low_resource_toggle = self.window.inputs["LOW_RESOURCE_MODE"]
+        self.assertFalse(low_resource_toggle.isEnabled())
+        self.assertIn(
+            self.namespace["PROFILE_DISABLED_TOGGLE_STYLESHEET"],
+            low_resource_toggle.styleSheet(),
+        )
+        default_swatch = self.window.color_swatches["HOVER_COLOR"]
+        default_swatch_image = default_swatch.grab().toImage()
+        self.assertEqual(
+            default_swatch_image.pixelColor(
+                default_swatch_image.width() // 2,
+                default_swatch_image.height() // 2,
+            ).name(),
+            "#ffaa00",
+        )
 
         visual_selector.setCurrentText("(new)")
         self.app.processEvents()
@@ -214,7 +369,70 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 for widget in self.window.profile_content_widgets["directories"]
             )
         )
+        directory_input = self.window.inputs["FASTA_DIR"]
+        directory_button = directory_input.parentWidget().findChild(
+            self.namespace["QPushButton"]
+        )
+        for widget in (
+            self.window.labels["FASTA_DIR"],
+            directory_input,
+            directory_button,
+        ):
+            self.assertIsNotNone(widget)
+            self.assertFalse(widget.isEnabled())
+        self.assertIn(
+            self.namespace["PROFILE_DISABLED_LABEL_STYLESHEET"],
+            self.window.labels["FASTA_DIR"].styleSheet(),
+        )
+        self.assertEqual(
+            directory_input.palette().color(
+                disabled_group,
+                palette_type.ColorRole.Text,
+            ).name(),
+            "#888888",
+        )
+        self.assertEqual(
+            directory_button.palette().color(
+                disabled_group,
+                palette_type.ColorRole.Button,
+            ).name(),
+            "#f0f0f0",
+        )
         self.assertTrue(self.window.inputs["SAVED_CONFIG_DIR"].isEnabled())
+
+        physics_selector = self.window.profile_selectors["simulation_physics"]
+        physics_selector.setCurrentText("(default)")
+        self.app.processEvents()
+        for key in (
+            "PHYSICS_ENGINE",
+            "DT",
+            "ENABLE_PROGRESSIVE_SIMULATION",
+        ):
+            widget = self.window.inputs[key]
+            self.assertFalse(widget.isEnabled())
+            self.assertFalse(self.window.labels[key].isEnabled())
+            self.assertIn(
+                self.namespace["PROFILE_DISABLED_LABEL_STYLESHEET"],
+                self.window.labels[key].styleSheet(),
+            )
+        self.assertEqual(
+            self.window.inputs["PHYSICS_ENGINE"].palette().color(
+                disabled_group,
+                palette_type.ColorRole.Text,
+            ).name(),
+            "#888888",
+        )
+        self.assertEqual(
+            self.window.inputs["DT"].palette().color(
+                disabled_group,
+                palette_type.ColorRole.Base,
+            ).name(),
+            "#f0f0f0",
+        )
+        self.assertIn(
+            self.namespace["PROFILE_DISABLED_TOGGLE_STYLESHEET"],
+            self.window.inputs["ENABLE_PROGRESSIVE_SIMULATION"].styleSheet(),
+        )
 
         reset_buttons = [
             button.text()
@@ -224,6 +442,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
 
         visual_selector.setCurrentText("(custom)")
         directory_selector.setCurrentText("(custom)")
+        physics_selector.setCurrentText("(custom)")
         self.app.processEvents()
 
     def test_profile_folder_button_opens_the_specific_tab_folder(self):
@@ -265,7 +484,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         )
         profile_field_positions = []
         setting_field_positions = []
-        self.assertEqual(expected_spacing, 30)
+        self.assertEqual(expected_spacing, 24)
         self.assertEqual(expected_thickness, 2)
         self.assertEqual(
             self.namespace["DEFAULT_SAVED_CONFIG_DIR"],
@@ -411,16 +630,77 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.window.tabs.setCurrentIndex(original_index)
             self.app.processEvents()
 
-    def test_save_only_has_no_success_popup(self):
-        with mock.patch.object(
-            self.window, "save_settings", return_value=True
-        ) as save_settings, mock.patch.object(
-            self.namespace["QMessageBox"], "information"
-        ) as information:
-            self.window.save_only()
+    def test_save_only_reports_success_in_tooltip_without_popup(self):
+        original_tip = self.window.tip_panel.text()
+        try:
+            with mock.patch.object(
+                self.window,
+                "_prepare_profile_writes",
+                return_value=([], dict(self.window._custom_settings), [], []),
+            ), mock.patch.object(
+                self.namespace["QMessageBox"], "information"
+            ) as information, mock.patch.object(
+                self.namespace["QMessageBox"], "critical"
+            ) as critical:
+                self.window.save_only()
 
-        save_settings.assert_called_once_with()
-        information.assert_not_called()
+            self.assertIn(
+                "Settings saved successfully.", self.window.tip_panel.text()
+            )
+            information.assert_not_called()
+            critical.assert_not_called()
+        finally:
+            self.window.tip_panel.setText(original_tip)
+
+    def test_save_reports_default_tabs_in_tooltip(self):
+        original_tip = self.window.tip_panel.text()
+        try:
+            with mock.patch.object(
+                self.window,
+                "_prepare_profile_writes",
+                return_value=(
+                    [],
+                    dict(self.window._custom_settings),
+                    [],
+                    ["visual_effects", "directories"],
+                ),
+            ), mock.patch.object(
+                self.namespace["QMessageBox"], "critical"
+            ) as critical:
+                self.assertTrue(self.window.save_settings())
+
+            self.assertIn(
+                "Settings saved successfully. Built-in default settings were "
+                "left unchanged for: Visual Effects, Directories.",
+                self.window.tip_panel.text(),
+            )
+            critical.assert_not_called()
+        finally:
+            self.window.tip_panel.setText(original_tip)
+
+    def test_new_profile_without_name_reports_in_tooltip_without_popup(self):
+        original_tip = self.window.tip_panel.text()
+        selector = self.window.profile_selectors["visual_effects"]
+        name_input = self.window.profile_name_inputs["visual_effects"]
+        original_selection = selector.currentText()
+        original_name = name_input.text()
+        try:
+            selector.setCurrentText("(new)")
+            name_input.clear()
+            with mock.patch.object(
+                self.namespace["QMessageBox"], "critical"
+            ) as critical:
+                self.assertFalse(self.window.save_settings())
+
+            self.assertIn(
+                "Failed to save settings: Enter a profile name.",
+                self.window.tip_panel.text(),
+            )
+            critical.assert_not_called()
+        finally:
+            selector.setCurrentText(original_selection)
+            name_input.setText(original_name)
+            self.window.tip_panel.setText(original_tip)
 
     def test_malformed_named_profile_keeps_current_visual_state(self):
         selector = self.window.profile_selectors["visual_effects"]
@@ -501,6 +781,11 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertEqual(saved_named["TEXT_SIZE"], "13")
                 self.assertNotIn("SAVED_CONFIG_DIR", saved_named)
                 self.assertFalse((root / "simulation_physics" / "default.json").exists())
+                self.assertIn(
+                    "Built-in default settings were left unchanged for: "
+                    "Simulation &amp; Physics.",
+                    self.window.tip_panel.text(),
+                )
             finally:
                 globals_dict["DEFAULT_SETTINGS_FILE"] = original_settings_file
                 self.window._custom_settings = original_custom
@@ -534,6 +819,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertTrue(created.exists())
                 self.assertEqual(selector.currentText(), "publication")
                 self.assertTrue(name_input.isHidden())
+                self.assertIn("Created profile(s): Visual Effects:", self.window.tip_panel.text())
+                self.assertIn("publication", self.window.tip_panel.text())
 
                 selector.setCurrentText("(new)")
                 name_input.setText("publication")
@@ -541,7 +828,10 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                     self.namespace["QMessageBox"], "critical"
                 ) as critical:
                     self.assertFalse(self.window.save_settings())
-                self.assertTrue(critical.called)
+                critical.assert_not_called()
+                self.assertIn("Failed to save settings:", self.window.tip_panel.text())
+                self.assertIn("publication", self.window.tip_panel.text())
+                self.assertIn("already exists.", self.window.tip_panel.text())
                 self.assertEqual(selector.currentText(), "(new)")
             finally:
                 globals_dict["DEFAULT_SETTINGS_FILE"] = original_settings_file

@@ -21,6 +21,7 @@ if SRC_DIR not in sys.path:
 import Command_Engine
 import SSN_Config as cfg
 from commands import color as color_command
+from commands import export as export_command
 from commands import group as group_command
 from commands import hide as hide_command
 from commands import select as select_command
@@ -270,6 +271,59 @@ class AtomicCommandTests(unittest.TestCase):
 
         self.assertEqual(viewer.selected_indices, [0])
         viewer.update_selection_visual.assert_not_called()
+
+    def test_select_save_uses_configured_header_list_directory(self):
+        viewer = self.make_viewer()
+        viewer.selected_indices = [0]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir, create=True):
+                select_command.run(viewer, ["save", "selected.txt"])
+
+            output_path = os.path.join(temp_dir, "selected.txt")
+            self.assertTrue(os.path.isfile(output_path))
+            with open(output_path, "r", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "node\n")
+
+    def test_export_uses_configured_sequence_export_directory(self):
+        viewer = self.make_viewer()
+        viewer.cluster_labels = np.array([0])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fasta_path = os.path.join(temp_dir, "source.fasta")
+            with open(fasta_path, "w", encoding="utf-8") as handle:
+                handle.write(">node\nAAAA\n")
+
+            export_root = os.path.join(temp_dir, "exports")
+            metadata = SimpleNamespace(model_name="test", network_type="blast")
+            patches = (
+                mock.patch.object(cfg, "NODE_FASTA_FILE", fasta_path),
+                mock.patch.object(cfg, "INPUT_HDF5", "network.h5"),
+                mock.patch.object(
+                    cfg,
+                    "SEQUENCE_EXPORT_DIR",
+                    export_root,
+                    create=True,
+                ),
+                mock.patch.object(cfg, "TOP_EDGE_PERCENT", None),
+                mock.patch.object(cfg, "SIMILARITY_THRESHOLD", 0.5),
+                mock.patch.object(
+                    export_command.cache_manifest,
+                    "validate_network_schema",
+                    return_value=metadata,
+                ),
+            )
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+                with redirect_stdout(io.StringIO()):
+                    export_command.run(viewer, ["clusters"])
+
+            output_path = os.path.join(
+                export_root,
+                "source_[test]",
+                "Score0.5",
+                "Cluster_0.fasta",
+            )
+            self.assertTrue(os.path.isfile(output_path))
 
     def test_invalid_hide_does_not_change_visibility_or_undo_state(self):
         viewer = self.make_viewer()

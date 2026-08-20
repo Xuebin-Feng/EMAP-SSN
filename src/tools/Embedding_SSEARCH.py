@@ -93,6 +93,7 @@ WORKERS = 8
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -104,9 +105,9 @@ GENERATE_FASTA = False
 import json
 import ast
 
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -623,6 +624,184 @@ def process_search_tasks(tasks, workers, input_h5):
     return results
 
 # --- 5. REPORTING -------------------------------------------------------------
+METADATA_REPORT_COLUMNS = [
+    "Node ID",
+    "Rank",
+    "Norm_Score",
+    "Raw_Score",
+    "Sequence_Length",
+    "Alignment_Length",
+]
+METADATA_REPORT_TYPES = [
+    "Data Type",
+    "number",
+    "number",
+    "number",
+    "number",
+    "number",
+]
+
+
+def build_metadata_report_dataframe(rows):
+    """Return search hits in the metadata viewer's two-header-row schema."""
+    data_rows = [METADATA_REPORT_TYPES]
+    data_rows.extend(
+        [
+            row["Node ID"],
+            row["Rank"],
+            row["Norm_Score"],
+            row["Raw_Score"],
+            row["Sequence_Length"],
+            row["Alignment_Length"],
+        ]
+        for row in rows
+    )
+    return pd.DataFrame(data_rows, columns=METADATA_REPORT_COLUMNS)
+
+
+def format_metadata_report_sheet(worksheet):
+    """Match docs/metadata_template.xlsx while retaining typed cell values."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    header_fill = PatternFill("solid", fgColor="2C3E50")
+    type_fill = PatternFill("solid", fgColor="D5D8DC")
+    alternate_fill = PatternFill("solid", fgColor="F7F8F9")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+    border_side = Side(style="thin", color="E2E2E2")
+    cell_border = Border(
+        left=border_side,
+        right=border_side,
+        top=border_side,
+        bottom=border_side,
+    )
+    header_font = Font(
+        name="Segoe UI",
+        size=11,
+        bold=True,
+        color="FFFFFF",
+    )
+    type_font = Font(
+        name="Segoe UI",
+        size=10,
+        bold=True,
+        italic=True,
+        color="1F2328",
+    )
+    data_font = Font(name="Segoe UI", size=10, color="000000")
+
+    worksheet.row_dimensions[1].height = 28.05
+    worksheet.row_dimensions[2].height = 22.05
+    worksheet.freeze_panes = "A3"
+    worksheet.sheet_view.showGridLines = True
+
+    widths = {
+        "A": 80,
+        "B": 12,
+        "C": 16,
+        "D": 16,
+        "E": 20,
+        "F": 20,
+    }
+    for column, width in widths.items():
+        worksheet.column_dimensions[column].width = width
+
+    for column_index, cell in enumerate(worksheet[1], start=1):
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = cell_border
+        cell.alignment = Alignment(
+            horizontal="left" if column_index == 1 else "center",
+            vertical="center",
+        )
+
+    for column_index, cell in enumerate(worksheet[2], start=1):
+        cell.fill = type_fill
+        cell.font = type_font
+        cell.border = cell_border
+        cell.alignment = Alignment(
+            horizontal="left" if column_index == 1 else "center",
+            vertical="center",
+        )
+
+    number_formats = {
+        2: "0",
+        3: "0.000",
+        4: "0.0",
+        5: "0",
+        6: "0",
+    }
+    for row_index, row in enumerate(
+        worksheet.iter_rows(
+            min_row=3,
+            max_row=worksheet.max_row,
+            min_col=1,
+            max_col=len(METADATA_REPORT_COLUMNS),
+        ),
+        start=3,
+    ):
+        worksheet.row_dimensions[row_index].height = 20
+        row_fill = alternate_fill if row_index % 2 == 0 else white_fill
+        for column_index, cell in enumerate(row, start=1):
+            cell.fill = row_fill
+            cell.font = data_font
+            cell.border = cell_border
+            cell.alignment = Alignment(
+                horizontal="left" if column_index == 1 else "right",
+                vertical="center",
+            )
+            if column_index in number_formats:
+                cell.number_format = number_formats[column_index]
+
+
+def format_search_parameters_sheet(worksheet):
+    """Keep the secondary parameter sheet readable without changing its data."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    header_fill = PatternFill("solid", fgColor="2C3E50")
+    alternate_fill = PatternFill("solid", fgColor="F7F8F9")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+    border_side = Side(style="thin", color="E2E2E2")
+    cell_border = Border(
+        left=border_side,
+        right=border_side,
+        top=border_side,
+        bottom=border_side,
+    )
+
+    worksheet.column_dimensions["A"].width = 32
+    worksheet.column_dimensions["B"].width = 80
+    worksheet.row_dimensions[1].height = 28.05
+    worksheet.freeze_panes = "A2"
+
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = Font(
+            name="Segoe UI",
+            size=11,
+            bold=True,
+            color="FFFFFF",
+        )
+        cell.border = cell_border
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    for row_index, row in enumerate(
+        worksheet.iter_rows(
+            min_row=2,
+            max_row=worksheet.max_row,
+            min_col=1,
+            max_col=2,
+        ),
+        start=2,
+    ):
+        worksheet.row_dimensions[row_index].height = 20
+        row_fill = alternate_fill if row_index % 2 == 0 else white_fill
+        for cell in row:
+            cell.fill = row_fill
+            cell.font = Font(name="Segoe UI", size=10, color="000000")
+            cell.border = cell_border
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+
 def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, norm_mode, gap_p):
     q_head, q_len = query_meta
     
@@ -674,12 +853,12 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
                 printed_hits += 1
                 
             xlsx_data.append({
+                "Node ID": str(head),
                 "Rank": rank_counter,
-                "Norm Score": float(norm_score),
-                "Raw Score": float(raw_score),
-                "Seq Len": int(seq_len_val),
-                "Aln Len": int(aln_len_val),
-                "Header": str(head)
+                "Norm_Score": float(norm_score),
+                "Raw_Score": float(raw_score),
+                "Sequence_Length": int(seq_len_val),
+                "Alignment_Length": int(aln_len_val),
             })
             
             rank_counter += 1
@@ -697,10 +876,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
     
     # Generate and save Excel Report
     xlsx_path = os.path.join(output_dir, f"Report_{base_filename}.xlsx")
-    if not xlsx_data:
-        xlsx_df = pd.DataFrame(columns=["Rank", "Norm Score", "Raw Score", "Seq Len", "Aln Len", "Header"])
-    else:
-        xlsx_df = pd.DataFrame(xlsx_data)
+    xlsx_df = build_metadata_report_dataframe(xlsx_data)
         
     meta_data = [
         {"Parameter": "Query Header", "Value": q_head},
@@ -719,6 +895,8 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         with pd.ExcelWriter(xlsx_path, engine='openpyxl') as writer:
             xlsx_df.to_excel(writer, sheet_name="Search Results", index=False)
             meta_df.to_excel(writer, sheet_name="Search Parameters", index=False)
+            format_metadata_report_sheet(writer.sheets["Search Results"])
+            format_search_parameters_sheet(writer.sheets["Search Parameters"])
         print(f"[Export] Excel report saved to: {xlsx_path}")
     except Exception as e:
         print(f"[Warning] Failed to save Excel report: {e}")
@@ -738,7 +916,10 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         print(f"[Export] {count} sequences exported to Hits_{base_filename}.fasta (Query is #1)")
 
 # --- 6. MAIN ------------------------------------------------------------------
-if __name__ == "__main__":
+def main(argv=None):
+    global FULL_INPUT_EMBED
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
+    FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
     database = prepare_database_embeddings()
     db_headers = database.headers
     seq_lookup = database.sequence_by_header
@@ -841,3 +1022,8 @@ if __name__ == "__main__":
         base_filename = re.sub(r'[^a-zA-Z0-9]', '_', query_name)[:20]
         
     save_results(df, (query_name, len(query_emb)), len(db_headers), seq_lookup, base_filename, query_seq_str, NORM_MODE, gap_p)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

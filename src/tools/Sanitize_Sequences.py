@@ -77,6 +77,7 @@ from utilities.FASTA_Sanitization import (
     select_preferred_header,
 )
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 # ==========================================
 # CONFIGURATION
@@ -98,9 +99,9 @@ import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -278,7 +279,8 @@ def plot_length_distribution(lengths):
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
-if __name__ == "__main__":
+def main(argv=None):
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
     print(f"--- 🧬 Sequence Sanitization ---")
     print(f"Reading from: {INPUT_FASTA}")
 
@@ -487,3 +489,8 @@ if __name__ == "__main__":
         plot_length_distribution(clean_lengths)
     else:
         print(f"⚠️ No sequences passed the length filters. Histogram skipped.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

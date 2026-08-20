@@ -49,6 +49,7 @@ Algorithm:
 """
 # %% Import Necessary Libraries
 import os
+import sys
 try:
     from tools import _bootstrap
 except ModuleNotFoundError:
@@ -86,6 +87,7 @@ SAVING_MODE = "float16"
 DEVICE_SELECTION = "auto"
                   
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -98,9 +100,9 @@ import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -572,7 +574,16 @@ def _handle_model_license_cli(argv=None):
         metavar="MODEL_ID",
         help="review and record acceptance of separately licensed model weights",
     )
+    parser.add_argument(
+        "settings_json",
+        nargs="?",
+        help="JSON file exported for this tool by SSN_Tools.py",
+    )
     args = parser.parse_args(argv)
+    if args.accept_model_license and args.settings_json:
+        parser.error(
+            "settings_json cannot be combined with --accept-model-license"
+        )
     if not args.accept_model_license:
         return False
 
@@ -596,9 +607,11 @@ def _handle_model_license_cli(argv=None):
     return True
 
 
-if __name__ == "__main__":
-    if _handle_model_license_cli():
-        raise SystemExit(0)
+def main(argv=None):
+    command_args = list(sys.argv[1:] if argv is None else argv)
+    if _handle_model_license_cli(command_args):
+        return 0
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, command_args)
     try:
         configure_runtime_paths()
     except ValueError as error:
@@ -618,3 +631,8 @@ if __name__ == "__main__":
     )
     if generated_count:
         print(f"\nDone! All embeddings generated and saved to {OUTPUT_HDF5}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -125,7 +125,7 @@ def print_help():
     =======================================
     Generates a comprehensive XLSX report comparing the sequence properties and 
     conserved residues of each subset against the global dataset. Output is saved 
-    to the 'Results/Cluster_Label/' directory.
+    to the 'Analysis_Results/Cluster_Label/' directory.
 
     * PREREQUISITES: 
       1. A Multiple Sequence Alignment (MSA) must be loaded.
@@ -1507,7 +1507,11 @@ def run(viewer, args):
         return
 
     output_directory = os.path.abspath(
-        getattr(cfg, "CLUSTER_LABEL_DIR", os.path.join("Results", "Cluster_Label"))
+        getattr(
+            cfg,
+            "CLUSTER_LABEL_DIR",
+            os.path.join("Analysis_Results", "Cluster_Label"),
+        )
     )
     requested_filename = parameters["requested_filename"]
     allow_overwrite = requested_filename is not None

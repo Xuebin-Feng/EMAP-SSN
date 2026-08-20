@@ -42,7 +42,7 @@ def print_help():
       subtract / minus / remove   : Removes matches from the current selection.
       filter / keep / intersect   : Keeps ONLY currently selected nodes that match the expression.
       invert                      : Inverts current selection (takes no expression).
-      save [filename]             : Saves selected nodes to Cache_Files/Header_Lists/
+      save [filename]             : Saves selected nodes to Input_Files/Header_Lists/
                                     (Supports .txt for headers or .fasta for sequences)
 
     Syntax & Targets:
@@ -94,7 +94,11 @@ def run(viewer, args):
         elif not filename.lower().endswith('.txt'):
             filename += ".txt"
             
-        save_dir = os.path.join("Cache_Files", "Header_Lists")
+        save_dir = getattr(
+            cfg,
+            "HEADER_LIST_DIR",
+            os.path.join("Input_Files", "Header_Lists"),
+        )
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, filename)
         
@@ -135,14 +139,14 @@ def run(viewer, args):
                         missing_count += 1
                         
                 SeqIO.write(records_to_save, save_path, "fasta")
-                msg = f"Saved {len(records_to_save)} sequences to {os.path.join('Cache_Files', 'Header_Lists', filename)}"
+                msg = f"Saved {len(records_to_save)} sequences to {save_path}"
                 if missing_count > 0:
                     msg += f" ({missing_count} missing from source FASTA)"
             else:
                 with open(save_path, "w", encoding="utf-8", newline="\n") as f:
                     for idx in selected_indices:
                         f.write(f"{viewer.full_headers[idx]}\n")
-                msg = f"Saved {len(selected_indices)} headers to {os.path.join('Cache_Files', 'Header_Lists', filename)}"
+                msg = f"Saved {len(selected_indices)} headers to {save_path}"
                 
             Command_Engine.print_help(viewer, msg)
         except Exception as e:

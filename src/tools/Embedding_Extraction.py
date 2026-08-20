@@ -40,14 +40,15 @@ INPUT_EMBED = None
 INPUT_FASTA = None
 
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
 EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
 FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as settings_handle:
             all_settings = json.load(settings_handle)
@@ -165,7 +166,15 @@ def extract_subset(input_hdf5, selection_file, output_hdf5=None):
     return output_hdf5, found_headers, missing_headers
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    global FULL_INPUT_EMBED, FULL_INPUT_FASTA
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
+    FULL_INPUT_EMBED = (
+        os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR and INPUT_EMBED else ""
+    )
+    FULL_INPUT_FASTA = (
+        os.path.join(FASTA_DIR, INPUT_FASTA) if FASTA_DIR and INPUT_FASTA else ""
+    )
     print("--- HDF5 Embedding Extractor ---")
     output_path, found, missing = extract_subset(
         FULL_INPUT_EMBED,
@@ -181,3 +190,8 @@ if __name__ == "__main__":
             print(f"    - {header}")
         if len(missing) > 10:
             print(f"    ... and {len(missing) - 10} more.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -66,6 +66,7 @@ INPUT_FASTA = None
 
 # DIRECTORIES
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -80,9 +81,9 @@ import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -336,10 +337,16 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
         if len(missing_headers) > 10:
             print(f"    ... and {len(missing_headers) - 10} more.")
 
-if __name__ == "__main__":
+def main(argv=None):
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
     try:
         configure_runtime_paths()
     except ValueError as error:
         raise SystemExit(f"❌ Error: {error}") from error
 
     filter_network(FULL_INPUT_NET, FULL_INPUT_FASTA, OUTPUT_NET, INPUT_PATHS, OUTPUT_PATHS)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -2,7 +2,7 @@
 src/commands/specificity.py
 
 # User-specified folders
-Results/
+Analysis_Results/
 Input_Files/
 Embeddings/
 Cache_Files/

@@ -66,7 +66,7 @@ def print_help(meta_dir):
 
 def run(viewer, args):
     # Retrieve configuration directory for metadata files
-    meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Cache_Files", "Meta_Data"))
+    meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Input_Files", "Meta_Data"))
     os.makedirs(meta_dir, exist_ok=True)
 
     # 1. Registration callback support

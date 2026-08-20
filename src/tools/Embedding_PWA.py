@@ -68,6 +68,7 @@ LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -80,9 +81,9 @@ import json
 import ast
 
 # Automatically calculate the root directory of the SSN project for the current PC
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -628,7 +629,12 @@ def run_alignment(
 # ==========================================
 # 4. USER CONFIGURATION
 # ==========================================
-if __name__ == "__main__":
+def main(argv=None):
+    global FULL_INPUT_EMBED
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
+    FULL_INPUT_EMBED = (
+        os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR and INPUT_EMBED else ""
+    )
     print(f"--- 🧬 Embedding Pairwise Alignment ---")
     try:
         database = None
@@ -657,3 +663,9 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"\n❌ {e}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

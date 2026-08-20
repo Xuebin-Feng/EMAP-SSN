@@ -669,7 +669,7 @@ def print_help():
 
     Description:
       Generates a high-resolution SVG or PNG sequence logo for a targeted subset of nodes.
-      Output is automatically saved to your 'Results/Sequence_Logos/' directory.
+      Output is automatically saved to your 'Analysis_Results/Sequence_Logos/' directory.
       Label and logo jobs share one sequential background queue. Selection,
       aligned sequences, mapped positions, and rendering options are captured
       when the command is submitted.
@@ -934,7 +934,11 @@ def run(viewer, args):
         return
 
     # 9. Freeze the selected data and submit one background artifact job.
-    logo_dir = getattr(cfg, 'LOGO_DIR', os.path.join("Results", "Sequence_Logos"))
+    logo_dir = getattr(
+        cfg,
+        'LOGO_DIR',
+        os.path.join("Analysis_Results", "Sequence_Logos"),
+    )
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
         Command_Engine.print_help(

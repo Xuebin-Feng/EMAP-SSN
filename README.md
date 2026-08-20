@@ -30,6 +30,44 @@ All calculations related to SSN generation are centralized in the `SSN_Tools.py`
 
 ![SSN Tools GUI](docs/assets/ssn_tools_gui.png)
 
+Each tool card also provides **Export Setting** below **Save & Run**. The
+Directories tab controls the export location through **Setting Export
+Directory**, which defaults to `Cache_Files/Tool_Settings/`. An exported file
+contains the current settings for one tool and only the global directories
+used by that tool. For example:
+
+```json
+{
+  "DIRECTORIES": {
+    "FASTA_DIR": "Input_Files/Sequence_Sets"
+  },
+  "Sanitize_Sequences.py": {
+    "INPUT_FASTA": "example.fasta",
+    "OVER_WRITE": false
+  }
+}
+```
+
+Run any exported configuration as the sole positional argument to its tool:
+
+```powershell
+# Windows
+.\.venv\Scripts\python.exe src\tools\Sanitize_Sequences.py Cache_Files\Tool_Settings\example.json
+```
+
+```bash
+# Linux or macOS
+./.venv/bin/python src/tools/Sanitize_Sequences.py Cache_Files/Tool_Settings/example.json
+```
+
+The settings-file argument is resolved from the terminal's current working
+directory. Directory values inside the JSON retain the GUI representation:
+absolute paths remain absolute, while relative paths are resolved from the
+project root. Omitting the argument preserves the GUI-compatible behavior of
+reading `Input_Files/tools_settings.json`. Model acknowledgement remains a
+separate command, for example
+`python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID`.
+
 ### ⚙️ SSN Configuration GUI
 
 The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in `Input_Files/viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab (by default, `Cache_Files/Saved_Config/`). Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown.
@@ -340,19 +378,21 @@ Sequence_Similarity_Network_Viewer/
 │   ├── Sequence_Sets/        # Protein sequence sets and subsets (.fasta)
 │   ├── Multiple_Alignments/  # Full or sparse multiple-sequence alignments
 │   ├── Networks_EValues/    # Embedding- or BLAST-derived network files (.h5)
+│   ├── Header_Lists/         # Reusable sequence-header cohorts
+│   ├── Meta_Data/            # Imported and exported node metadata
+│   ├── Batch Scripts/        # User batch and helper scripts
 │   └── viewer_settings.json  # Settings saved by the configuration GUI
 │
 ├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
 │   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)
-│   ├── Meta_Data/            # Imported and exported node metadata
-│   ├── FASTA_Split/          # Extracted sequence subsets
-│   ├── Header_Lists/         # Reusable sequence-header cohorts
 │   ├── Structures/           # Predicted structures and viewer assets
 │   ├── Global_Path/          # Cached pairwise-alignment paths
-│   └── Align_Report/         # Pairwise-alignment reports
+│   └── Tool_Settings/        # Exported per-tool command-line settings
 │
 ├── Embeddings/               # Protein-language-model embedding databases (.h5)
-└── Results/                  # User-facing exported analysis results
+└── Analysis_Results/          # User-facing exported analysis results
+    ├── Sequence_Export/       # Extracted sequence subsets
+    ├── Alignment_Report/      # Pairwise-alignment reports
     ├── Saved_Images/          # Viewer image exports
     ├── Cluster_Label/         # Cluster and specificity reports
     └── Sequence_Logos/        # Sequence-logo graphics

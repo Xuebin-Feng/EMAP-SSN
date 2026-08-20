@@ -51,13 +51,13 @@ FASTA_DIR = os.path.join("Input_Files", "Sequence_Sets")
 MSA_DIR = os.path.join("Input_Files", "Multiple_Alignments")
 HDF5_DIR = os.path.join("Input_Files", "Networks_EValues")
 SAVED_LAYOUT_DIR = os.path.join("Cache_Files", "Saved_Layouts")
-METADATA_DIR = os.path.join("Cache_Files", "Meta_Data")
-PRINT_SAVE_DIR = os.path.join("Results", "Saved_Images")
-FASTA_SPLIT_DIR = os.path.join("Cache_Files", "FASTA_Split")
-CLUSTER_LABEL_DIR = os.path.join("Results", "Cluster_Label")
-HEADER_LIST_DIR = os.path.join("Cache_Files", "Header_Lists")
-LOGO_DIR = os.path.join("Results", "Sequence_Logos")
-STRUCTURES_DIR = os.path.join("Cache_Files", "Structures")
+METADATA_DIR = os.path.join("Input_Files", "Meta_Data")
+PRINT_SAVE_DIR = os.path.join("Analysis_Results", "Saved_Images")
+SEQUENCE_EXPORT_DIR = os.path.join("Analysis_Results", "Sequence_Export")
+CLUSTER_LABEL_DIR = os.path.join("Analysis_Results", "Cluster_Label")
+HEADER_LIST_DIR = os.path.join("Input_Files", "Header_Lists")
+LOGO_DIR = os.path.join("Analysis_Results", "Sequence_Logos")
+STRUCTURES_DIR = os.path.join("Cache_Files", "Predicted_Structures")
 DEFAULT_SAVED_CONFIG_DIR = os.path.join("Cache_Files", "Saved_Config")
 SAVED_CONFIG_DIR = DEFAULT_SAVED_CONFIG_DIR
 
@@ -177,13 +177,20 @@ DIRECTORY_PROFILE_DEFAULTS = {
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "HDF5_DIR": os.path.join("Input_Files", "Networks_EValues"),
     "SAVED_LAYOUT_DIR": os.path.join("Cache_Files", "Saved_Layouts"),
-    "METADATA_DIR": os.path.join("Cache_Files", "Meta_Data"),
-    "FASTA_SPLIT_DIR": os.path.join("Cache_Files", "FASTA_Split"),
-    "HEADER_LIST_DIR": os.path.join("Cache_Files", "Header_Lists"),
-    "STRUCTURES_DIR": os.path.join("Cache_Files", "Structures"),
-    "PRINT_SAVE_DIR": os.path.join("Results", "Saved_Images"),
-    "CLUSTER_LABEL_DIR": os.path.join("Results", "Cluster_Label"),
-    "LOGO_DIR": os.path.join("Results", "Sequence_Logos"),
+    "METADATA_DIR": os.path.join("Input_Files", "Meta_Data"),
+    "SEQUENCE_EXPORT_DIR": os.path.join("Analysis_Results", "Sequence_Export"),
+    "HEADER_LIST_DIR": os.path.join("Input_Files", "Header_Lists"),
+    "STRUCTURES_DIR": os.path.join("Cache_Files", "Predicted_Structures"),
+    "PRINT_SAVE_DIR": os.path.join("Analysis_Results", "Saved_Images"),
+    "CLUSTER_LABEL_DIR": os.path.join("Analysis_Results", "Cluster_Label"),
+    "LOGO_DIR": os.path.join("Analysis_Results", "Sequence_Logos"),
+}
+
+DIRECTORY_DISPLAY_NAMES = {
+    "FASTA_DIR": "Input FASTA Directory",
+    "SAVED_LAYOUT_DIR": "Layout Directory",
+    "SEQUENCE_EXPORT_DIR": "Sequence Export Directory",
+    "PRINT_SAVE_DIR": "Print Directory",
 }
 
 TAB_PROFILE_SPECS = {
@@ -205,13 +212,29 @@ TAB_PROFILE_SPECS = {
     },
 }
 
+PROFILE_TAB_DISPLAY_NAMES = {
+    "inputs_outputs": "Inputs & Outputs",
+    "visual_effects": "Visual Effects",
+    "simulation_physics": "Simulation & Physics",
+    "directories": "Directories",
+}
+
 RESERVED_PROFILE_NAMES = {"custom", "default", "new"}
 CONFIG_TAB_CONTENT_MARGIN = 18
 CONFIG_TAB_ROW_SPACING = 12
 CONFIG_FIELD_LABEL_WIDTH = 180
 CONFIG_FIELD_HORIZONTAL_SPACING = 12
 CONFIG_SEPARATOR_THICKNESS = 2
-CONFIG_SEPARATOR_PADDING = 30
+CONFIG_SEPARATOR_PADDING = 24
+PROFILE_DISABLED_LABEL_STYLESHEET = "QLabel:disabled { color: #888; }"
+PROFILE_DISABLED_SPINBOX_STYLESHEET = (
+    "QSpinBox:disabled, QDoubleSpinBox:disabled { "
+    "background-color: #f0f0f0; color: #888; }"
+)
+PROFILE_DISABLED_TOGGLE_STYLESHEET = (
+    "QPushButton:disabled { background-color: #e0e0e0; color: #888; "
+    "border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }"
+)
 
 PROFILE_ENUM_VALUES = {
     "ALIGNMENT_SCORE": {"global", "local"},
@@ -425,7 +448,7 @@ if __name__ == "__main__":
         QFrame,
     )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
-    from PySide6.QtGui import QColor, QDesktopServices, QIcon
+    from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPalette
     from matplotlib.backends.backend_qtagg import (
         FigureCanvasQTAgg,
         NavigationToolbar2QT,
@@ -438,6 +461,26 @@ if __name__ == "__main__":
         SingleInstanceController,
         show_window_in_front,
     )
+
+    def apply_gated_input_palette(widget):
+        """Grey disabled inputs while retaining their native Fusion controls."""
+        palette = widget.palette()
+        disabled = QPalette.ColorGroup.Disabled
+        for role in (
+            QPalette.ColorRole.Base,
+            QPalette.ColorRole.AlternateBase,
+            QPalette.ColorRole.Button,
+            QPalette.ColorRole.Window,
+        ):
+            palette.setColor(disabled, role, QColor("#f0f0f0"))
+        for role in (
+            QPalette.ColorRole.Text,
+            QPalette.ColorRole.ButtonText,
+            QPalette.ColorRole.WindowText,
+            QPalette.ColorRole.PlaceholderText,
+        ):
+            palette.setColor(disabled, role, QColor("#888888"))
+        widget.setPalette(palette)
 
     # --- Custom Widget Classes ---
     class ScoreHistogramDialog(QDialog):
@@ -507,6 +550,7 @@ if __name__ == "__main__":
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.setMinimumHeight(28)
             
         def wheelEvent(self, event):
             if not self.hasFocus():
@@ -518,6 +562,7 @@ if __name__ == "__main__":
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.setMinimumHeight(28)
             
         def wheelEvent(self, event):
             if not self.hasFocus():
@@ -1029,11 +1074,42 @@ if __name__ == "__main__":
 
         def _set_profile_content_enabled(self, tab_id, enabled):
             content = self.profile_content_widgets[tab_id]
-            if isinstance(content, (list, tuple)):
-                for widget in content:
-                    widget.setEnabled(enabled)
-            else:
-                content.setEnabled(enabled)
+            roots = list(content) if isinstance(content, (list, tuple)) else [content]
+            seen = set()
+            color_swatches = set(self.color_swatches.values())
+            for root in roots:
+                candidates = [root, *root.findChildren(QWidget)]
+                for widget in candidates:
+                    identity = id(widget)
+                    if identity in seen or widget in color_swatches:
+                        continue
+                    seen.add(identity)
+                    if isinstance(widget, QLabel):
+                        current_style = widget.styleSheet()
+                        if PROFILE_DISABLED_LABEL_STYLESHEET not in current_style:
+                            widget.setStyleSheet(
+                                f"{current_style.rstrip()}\n"
+                                f"{PROFILE_DISABLED_LABEL_STYLESHEET}".strip()
+                            )
+                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                        current_style = widget.styleSheet()
+                        if PROFILE_DISABLED_SPINBOX_STYLESHEET not in current_style:
+                            widget.setStyleSheet(
+                                f"{current_style.rstrip()}\n"
+                                f"{PROFILE_DISABLED_SPINBOX_STYLESHEET}".strip()
+                            )
+                    elif isinstance(widget, QPushButton) and widget.isCheckable():
+                        current_style = widget.styleSheet()
+                        if PROFILE_DISABLED_TOGGLE_STYLESHEET not in current_style:
+                            widget.setStyleSheet(
+                                f"{current_style.rstrip()}\n"
+                                f"{PROFILE_DISABLED_TOGGLE_STYLESHEET}".strip()
+                            )
+                    elif isinstance(widget, (QLineEdit, QComboBox, QPushButton)):
+                        apply_gated_input_palette(widget)
+
+            for root in roots:
+                root.setEnabled(enabled)
 
         def _set_new_profile_field_visible(self, tab_id, visible):
             name_input = self.profile_name_inputs[tab_id]
@@ -1277,7 +1353,7 @@ if __name__ == "__main__":
                 "SAVED_LAYOUT_DIR": "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks.",
                 "METADATA_DIR": "Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.\nUsed for custom node coloring, categorization, and annotation in the visualizer.",
                 "PRINT_SAVE_DIR": "Directory where high-resolution image snapshots and vector graphics (PDF, PNG, SVG) are exported.\nEnsure this path is writable with sufficient disk space for graphic outputs.",
-                "FASTA_SPLIT_DIR": "Directory where dynamically split or extracted sequence subset FASTA files are saved.\nUsed by sub-cluster extraction and downstream sequence analyses.",
+                "SEQUENCE_EXPORT_DIR": "Directory where dynamically split or extracted sequence subset FASTA files are saved.\nUsed by sub-cluster extraction and downstream sequence analyses.",
                 "CLUSTER_LABEL_DIR": "Directory where exported cluster metadata, sequence IDs, and automated cluster labels are saved.\nUseful for downstream annotation pipelines and external inspection.",
                 "HEADER_LIST_DIR": "Directory containing text files with lists of sequence headers matching network query criteria.\nUsed to store and track sequence cohorts identified in the visualizer.",
                 "LOGO_DIR": "Directory where exported sequence logos representing consensus conservation are saved.\nOutputs PNG or vector graphics for publication and presentation.",
@@ -2388,6 +2464,7 @@ if __name__ == "__main__":
             visual_grid = QGridLayout()
             visual_grid.setHorizontalSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
             visual_grid.setVerticalSpacing(12)
+            visual_grid.setColumnMinimumWidth(0, CONFIG_FIELD_LABEL_WIDTH)
             visual_grid.setColumnStretch(1, 1)
             visual_grid.setColumnMinimumWidth(2, 16)
             visual_grid.setColumnStretch(4, 1)
@@ -2545,9 +2622,16 @@ if __name__ == "__main__":
             initial_low_res = bool(globals().get("LOW_RESOURCE_MODE", False))
             cb_low_res.setChecked(initial_low_res)
             switch_toggle_style_low_res(initial_low_res)
-            
-            visual_grid.addWidget(lbl_low_res, visual_row, 0)
-            visual_grid.addWidget(cb_low_res, visual_row, 1)
+
+            low_resource_row = QWidget()
+            low_resource_row.setObjectName("lowResourceModeRow")
+            low_resource_layout = QHBoxLayout(low_resource_row)
+            low_resource_layout.setContentsMargins(0, 8, 0, 0)
+            low_resource_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            low_resource_layout.addWidget(lbl_low_res)
+            low_resource_layout.addWidget(cb_low_res)
+            low_resource_layout.addStretch()
+            visual_grid.addWidget(low_resource_row, visual_row, 0, 1, 5)
             self.labels["LOW_RESOURCE_MODE"] = lbl_low_res
             self.inputs["LOW_RESOURCE_MODE"] = cb_low_res
             
@@ -2863,6 +2947,7 @@ if __name__ == "__main__":
             box_pgs.setRange(1.0, 200.0)
             box_pgs.setDecimals(1)
             box_pgs.setFixedWidth(70)
+            pgs_widget.setMinimumHeight(box_pgs.minimumHeight())
             
             import math
             val_pgs = globals().get("PACKING_GRID_SIZE", 20.0)
@@ -2917,6 +3002,8 @@ if __name__ == "__main__":
 
             # --- 6. Monte Carlo settings (two columns) ---
             monte_carlo_grid = QGridLayout()
+            monte_carlo_grid.setObjectName("monteCarloGrid")
+            monte_carlo_grid.setContentsMargins(0, 8, 0, 0)
             monte_carlo_grid.setHorizontalSpacing(0)
             monte_carlo_grid.setVerticalSpacing(12)
             monte_carlo_grid.setColumnMinimumWidth(0, CONFIG_FIELD_LABEL_WIDTH)
@@ -3049,12 +3136,13 @@ if __name__ == "__main__":
             
             keys = [
                 # Input_Files
-                "FASTA_DIR", "MSA_DIR", "HDF5_DIR",
+                "FASTA_DIR", "MSA_DIR", "HDF5_DIR", "METADATA_DIR",
+                "HEADER_LIST_DIR",
                 # Cache_Files
-                "SAVED_LAYOUT_DIR", "METADATA_DIR", "FASTA_SPLIT_DIR",
-                "HEADER_LIST_DIR", "STRUCTURES_DIR",
-                # Results
-                "PRINT_SAVE_DIR", "CLUSTER_LABEL_DIR", "LOGO_DIR",
+                "SAVED_LAYOUT_DIR", "STRUCTURES_DIR",
+                # Analysis_Results
+                "PRINT_SAVE_DIR", "SEQUENCE_EXPORT_DIR", "CLUSTER_LABEL_DIR",
+                "LOGO_DIR",
             ]
             
             for key in keys:
@@ -3078,11 +3166,12 @@ if __name__ == "__main__":
                 h_lay.addWidget(le)
                 h_lay.addWidget(btn)
                 
-                display_name = key.replace('_', ' ').title()
-                display_name = display_name.replace('Msa', 'MSA')
-                display_name = display_name.replace('Hdf5', 'Network')
-                display_name = display_name.replace('Fasta Split', 'FASTA Split Saving')
-                display_name = display_name.replace('Dir', 'Directory')
+                display_name = DIRECTORY_DISPLAY_NAMES.get(key)
+                if display_name is None:
+                    display_name = key.replace('_', ' ').title()
+                    display_name = display_name.replace('Msa', 'MSA')
+                    display_name = display_name.replace('Hdf5', 'Network')
+                    display_name = display_name.replace('Dir', 'Directory')
                 
                 lbl = QLabel(f"{display_name}:")
                 lbl.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
@@ -3195,12 +3284,14 @@ if __name__ == "__main__":
             custom_settings["SAVED_CONFIG_DIR"] = self.inputs["SAVED_CONFIG_DIR"].text()
             writes = []
             created_profiles = []
+            default_tabs = []
 
             for tab_id in TAB_PROFILE_SPECS:
                 selection = self.profile_selectors[tab_id].currentText()
                 if selection == "(custom)":
                     custom_settings.update(tab_data[tab_id])
                 elif selection == "(default)":
+                    default_tabs.append(tab_id)
                     continue
                 elif selection == "(new)":
                     existing = _discover_profile_names(self._saved_config_root(), tab_id)
@@ -3215,11 +3306,34 @@ if __name__ == "__main__":
                     )
 
             writes.append((Path(DEFAULT_SETTINGS_FILE), custom_settings))
-            return writes, custom_settings, created_profiles
+            return writes, custom_settings, created_profiles, default_tabs
+
+        def _save_success_message(self, created_profiles, default_tabs):
+            messages = ["Settings saved successfully."]
+            if created_profiles:
+                created = ", ".join(
+                    f"{PROFILE_TAB_DISPLAY_NAMES[tab_id]}: '{name}'"
+                    for tab_id, name in created_profiles
+                )
+                messages.append(f"Created profile(s): {created}.")
+            if default_tabs:
+                unchanged = ", ".join(
+                    PROFILE_TAB_DISPLAY_NAMES[tab_id] for tab_id in default_tabs
+                )
+                messages.append(
+                    "Built-in default settings were left unchanged for: "
+                    f"{unchanged}."
+                )
+            return " ".join(messages)
 
         def save_settings(self):
             try:
-                writes, custom_settings, created_profiles = self._prepare_profile_writes()
+                (
+                    writes,
+                    custom_settings,
+                    created_profiles,
+                    default_tabs,
+                ) = self._prepare_profile_writes()
                 for path, profile_data in writes:
                     _atomic_write_json(path, profile_data)
                 self._custom_settings = custom_settings
@@ -3228,9 +3342,12 @@ if __name__ == "__main__":
                     self._set_profile_selection(tab_id, name)
                     self._profile_previous_selection[tab_id] = name
                     self._set_new_profile_field_visible(tab_id, False)
+                self.tip_panel.setText(
+                    self._save_success_message(created_profiles, default_tabs)
+                )
                 return True
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save settings:\n{e}")
+                self.tip_panel.setText(f"Failed to save settings: {e}")
                 return False
 
         def save_and_run(self):

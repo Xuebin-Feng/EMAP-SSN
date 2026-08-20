@@ -47,6 +47,7 @@ from tqdm import tqdm
 # ==========================================
 INPUT_BLAST_TABULAR = None 
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -59,9 +60,9 @@ import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             all_settings = json.load(f)
@@ -171,7 +172,8 @@ def detect_evalue_column(filepath, num_lines_to_check=1000):
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
-if __name__ == "__main__":
+def main(argv=None):
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
     print(f"--- 🔄 Converting External BLAST Results to HDF5 ---")
     try:
         configure_runtime_paths()
@@ -300,3 +302,8 @@ if __name__ == "__main__":
         hf.create_dataset("score", data=arr_score)
         
     print(f"✅ Conversion Complete!")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

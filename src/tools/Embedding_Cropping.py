@@ -39,15 +39,16 @@ INPUT_EMBED = None
 CROPPED_FASTA = None
 
 from utilities.Tool_Directories import project_directory_defaults
+from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
 FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
 EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
 
-SETTINGS_FILE = os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
 
-if os.path.exists(SETTINGS_FILE):
+if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as settings_handle:
             all_settings = json.load(settings_handle)
@@ -174,7 +175,15 @@ def _report(label, items):
         print(f"    ... and {len(items) - 10} more.")
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    global FULL_INPUT_EMBED, CROPPED_FASTA_PATH
+    load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
+    FULL_INPUT_EMBED = (
+        os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR and INPUT_EMBED else ""
+    )
+    CROPPED_FASTA_PATH = (
+        os.path.join(FASTA_DIR, CROPPED_FASTA) if FASTA_DIR and CROPPED_FASTA else ""
+    )
     print("--- Embedding Cropping ---")
     result = crop_embeddings(FULL_INPUT_EMBED, CROPPED_FASTA_PATH)
     print(f"\n✅ Done! Cropped embeddings saved to {result['output_hdf5']}")
@@ -188,3 +197,8 @@ if __name__ == "__main__":
             print(f"    - {header}")
     _report("missing from source embedding metadata", result["missing_from_source"])
     _report("crop substring not found in stored full sequence", result["substring_not_found"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

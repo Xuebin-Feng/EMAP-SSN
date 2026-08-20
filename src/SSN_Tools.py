@@ -37,6 +37,7 @@ from utilities.Model_License_Utils import (
 )
 from utilities.Tool_Directories import (
     DEFAULT_DIRECTORY_PATHS,
+    TOOL_DIRECTORY_KEYS,
     fill_missing_directory_defaults,
 )
 from utilities.Application_Windows import (
@@ -289,7 +290,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QMessageBox, QLabel, QScrollArea, QTextEdit,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
-                             QSizePolicy, QFrame)
+                             QSizePolicy, QFrame, QInputDialog)
 from PySide6.QtCore import Qt
 
 # QtWebEngine ships inside the PySide6-Addons wheel, but its bundled Chromium
@@ -712,6 +713,8 @@ def render_markdown_with_math(text):
     return html
 
 class ToolsGUI(QMainWindow):
+    COMMON_TAB_VIEWPORT_MINIMUM_WIDTH = 600
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SSN Utilities Tools")
@@ -1597,6 +1600,7 @@ class ToolsGUI(QMainWindow):
         
         self.script_data = {} 
         self.tab_paths = [] 
+        self._tool_form_layouts = []
 
         self.tip_db = {}
         self.network_completeness_cache = {}
@@ -1605,6 +1609,8 @@ class ToolsGUI(QMainWindow):
         
         self.load_tools()
         self.create_directories_tab()
+        self._align_all_tool_cards()
+        self._harmonize_tab_page_widths()
     
     def create_directories_tab(self):
         tab = QWidget()
@@ -1625,7 +1631,7 @@ class ToolsGUI(QMainWindow):
         header.setObjectName("toolHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(12)
+        header_layout.setSpacing(0)
 
         desc_label = QLabel("📂 Global Directory Settings")
         desc_label.setObjectName("toolTitle")
@@ -1639,8 +1645,19 @@ class ToolsGUI(QMainWindow):
         )
         btn_save.clicked.connect(self.save_directories)
 
+        directory_actions = QWidget()
+        directory_actions.setObjectName("directoryActionButtons")
+        directory_actions.setProperty(
+            "originalSingleButtonHeight", btn_save.sizeHint().height()
+        )
+        directory_action_layout = QHBoxLayout(directory_actions)
+        directory_action_layout.setContentsMargins(0, 0, 0, 0)
+        directory_action_layout.setSpacing(0)
+        directory_action_layout.addWidget(btn_save)
+        directory_action_layout.addStretch()
+
         header_layout.addWidget(
-            btn_save,
+            directory_actions,
             0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
@@ -1667,7 +1684,8 @@ class ToolsGUI(QMainWindow):
             "EMBED_DIR": "Directory containing pre-computed protein language model embedding databases (.h5).",
             "NETWORK_DIR": "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular).",
             "PATH_DIR": "Directory for storing and caching extracted traceback alignment paths (.h5).",
-            "REPORT_DIR": "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved."
+            "REPORT_DIR": "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved.",
+            "SETTING_EXPORT_DIR": "Directory where per-tool JSON settings files are exported for command-line execution."
         }
         
         for key, current_val in dir_defaults.items():
@@ -1712,6 +1730,7 @@ class ToolsGUI(QMainWindow):
             
         main_layout.addWidget(form_widget)
         main_layout.addStretch() # Pushes the form strictly to the top
+        self._tool_form_layouts.append(layout)
         
         self.tabs.addTab(scroll, "Directories")
         self.tab_paths.append("DIRECTORIES_TAB")
@@ -3078,7 +3097,7 @@ class ToolsGUI(QMainWindow):
         header.setObjectName("toolHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(12)
+        header_layout.setSpacing(0)
 
         tool_title = self.tool_titles.get(
             script_name,
@@ -3090,16 +3109,49 @@ class ToolsGUI(QMainWindow):
 
         btn_run = QPushButton("Save && Run")
         btn_run.setObjectName("saveRunButton")
+        btn_run.setToolTip(
+            "Save the current tool settings to the shared settings file "
+            "and run this tool."
+        )
         btn_run.setStyleSheet(
             "background-color: #4CAF50; color: white; "
             "font-weight: bold; padding: 10px 16px;"
         )
+        original_button_height = btn_run.sizeHint().height()
         btn_run.clicked.connect(
             lambda checked, sp=script_path: self.save_and_run(sp)
         )
 
+        btn_export = QPushButton("Export\nSetting")
+        btn_export.setObjectName("exportSettingButton")
+        btn_export.setAccessibleName("Export Settings")
+        btn_export.setToolTip(
+            "Export the current tool settings to a standalone JSON file "
+            "for command-line execution."
+        )
+        btn_export.setStyleSheet(
+            "background-color: #3498DB; color: white; "
+            "font-weight: bold; font-size: 10px; padding: 1px 8px;"
+        )
+        btn_export.clicked.connect(
+            lambda checked, sp=script_path: self.export_settings(sp)
+        )
+
+        button_height = max(original_button_height, btn_export.sizeHint().height())
+        for button in (btn_run, btn_export):
+            button.setFixedHeight(button_height)
+
+        button_row = QWidget()
+        button_row.setObjectName("toolActionButtons")
+        button_layout = QHBoxLayout(button_row)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(10)
+        button_layout.addWidget(btn_run)
+        button_layout.addWidget(btn_export)
+        button_row.setProperty("originalSingleButtonHeight", button_height)
+
         header_layout.addWidget(
-            btn_run,
+            button_row,
             0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
@@ -3172,6 +3224,136 @@ class ToolsGUI(QMainWindow):
             )
             for column in columns:
                 column.setMinimumWidth(shared_column_width)
+
+        return shared_width
+
+    @staticmethod
+    def _align_tool_card_headers(form_layouts, shared_label_width):
+        if not form_layouts:
+            return 0
+
+        horizontal_spacing = max(
+            max(0, form_layout.horizontalSpacing())
+            for form_layout in form_layouts
+        )
+        title_start_x = shared_label_width + horizontal_spacing
+        action_gap = 10
+        full_button_width = max(1, (title_start_x - action_gap) // 2)
+        run_button_width = full_button_width
+        export_button_width = max(1, round(full_button_width * 0.6))
+        trailing_space = max(
+            0,
+            title_start_x
+            - (run_button_width + export_button_width + action_gap),
+        )
+
+        for form_layout in form_layouts:
+            form_layout.setHorizontalSpacing(horizontal_spacing)
+            header = None
+            for row in range(form_layout.rowCount()):
+                spanning_item = form_layout.itemAt(
+                    row,
+                    QFormLayout.ItemRole.SpanningRole,
+                )
+                if (
+                    spanning_item is not None
+                    and spanning_item.widget() is not None
+                    and spanning_item.widget().objectName() == "toolHeader"
+                ):
+                    header = spanning_item.widget()
+                    break
+            if header is None:
+                continue
+
+            header_layout = header.layout()
+            header_layout.setSpacing(0)
+            action_widget = header_layout.itemAt(0).widget()
+            if action_widget is None:
+                continue
+
+            button_height = int(
+                action_widget.property("originalSingleButtonHeight") or 0
+            )
+            action_widget.setFixedSize(title_start_x, button_height)
+
+            if action_widget.objectName() == "toolActionButtons":
+                action_layout = action_widget.layout()
+                action_layout.setContentsMargins(0, 0, trailing_space, 0)
+                action_layout.setSpacing(action_gap)
+                for button in action_widget.findChildren(
+                    QPushButton,
+                    options=Qt.FindChildOption.FindDirectChildrenOnly,
+                ):
+                    width = (
+                        run_button_width
+                        if button.objectName() == "saveRunButton"
+                        else export_button_width
+                    )
+                    button.setFixedSize(width, button_height)
+            elif action_widget.objectName() == "directoryActionButtons":
+                save_button = action_widget.findChild(
+                    QPushButton,
+                    "saveDirectoriesButton",
+                    Qt.FindChildOption.FindDirectChildrenOnly,
+                )
+                if save_button is not None:
+                    save_button.setFixedSize(full_button_width, button_height)
+
+            header.setProperty("sharedTitleStartX", title_start_x)
+
+        return title_start_x
+
+    def _align_all_tool_cards(self):
+        shared_label_width = self._align_form_label_columns(
+            self._tool_form_layouts
+        )
+        self._align_tool_card_headers(
+            self._tool_form_layouts,
+            shared_label_width,
+        )
+
+    def _harmonize_tab_page_widths(self):
+        scroll_pages = [
+            self.tabs.widget(index)
+            for index in range(self.tabs.count())
+            if isinstance(self.tabs.widget(index), QScrollArea)
+        ]
+        content_pages = [
+            scroll_page.widget()
+            for scroll_page in scroll_pages
+            if scroll_page.widget() is not None
+        ]
+        if not content_pages:
+            return 0
+
+        common_content_width = max(
+            max(page.minimumWidth(), page.minimumSizeHint().width())
+            for page in content_pages
+        )
+        viewport_minimum_width = self.COMMON_TAB_VIEWPORT_MINIMUM_WIDTH
+
+        for scroll_page in scroll_pages:
+            scroll_page.setMinimumWidth(viewport_minimum_width)
+            scroll_page.setProperty(
+                "commonViewportMinimumWidth",
+                viewport_minimum_width,
+            )
+        for content_page in content_pages:
+            content_page.setMinimumWidth(common_content_width)
+            content_page.setProperty(
+                "commonContentMinimumWidth",
+                common_content_width,
+            )
+
+        self.tabs.setProperty(
+            "commonContentMinimumWidth",
+            common_content_width,
+        )
+        self.tabs.setProperty(
+            "commonViewportMinimumWidth",
+            viewport_minimum_width,
+        )
+        return common_content_width
             
     def create_combined_tab(
         self,
@@ -3189,7 +3371,6 @@ class ToolsGUI(QMainWindow):
         
         combined_docstring = ""
         script_idx = 0
-        script_form_layouts = []
         
         for script_name, script_settings_def in scripts_dict.items():
             script_path = os.path.join(tools_dir, script_name)
@@ -3223,10 +3404,9 @@ class ToolsGUI(QMainWindow):
                 show_secondary_titles=show_secondary_titles,
             )
             main_layout.addWidget(form_widget)
-            script_form_layouts.append(layout)
+            self._tool_form_layouts.append(layout)
             script_idx += 1
 
-        self._align_form_label_columns(script_form_layouts)
         main_layout.addStretch()
 
         pseudo_path = os.path.join(tools_dir, tab_key) + "_GUI_tab"
@@ -3271,7 +3451,7 @@ class ToolsGUI(QMainWindow):
         layout.addRow(self._create_tool_header(script_name, script_path))
 
         self._populate_script_layout(layout, script_name, script_path, script_settings_def, source, tree)
-        self._align_form_label_columns([layout])
+        self._tool_form_layouts.append(layout)
         
         main_layout.addWidget(form_widget)
         main_layout.addStretch() # Pushes the form strictly to the top
@@ -3294,13 +3474,11 @@ class ToolsGUI(QMainWindow):
                 self.tip_panel.setText(tip)
         return super().eventFilter(obj, event)
 
-    def save_and_run(self, script_path):
-        import json
+    def _collect_tool_settings(self, script_path):
         data = self.script_data[script_path]
         inputs = data['inputs']
         settings = data['settings']
-        
-        # 1. Collect current values from GUI
+
         new_settings = {}
         for s in settings:
             var_name = s['name']
@@ -3339,7 +3517,114 @@ class ToolsGUI(QMainWindow):
                 new_settings[var_name] = os.path.normpath(raw_path) if raw_path else ""
             else:
                 new_settings[var_name] = widget.text()
-                
+
+        return new_settings
+
+    def _current_directory_settings(self):
+        directories = {}
+        for key, line_edit in self.dir_inputs.items():
+            raw_path = line_edit.text().strip()
+            directories[key] = os.path.normpath(raw_path) if raw_path else ""
+        return directories
+
+    @staticmethod
+    def _normalized_export_filename(raw_name):
+        name = raw_name.strip()
+        if not name:
+            raise ValueError("Enter a name for the exported settings file.")
+        if name.lower().endswith(".json"):
+            stem = name[:-5]
+        else:
+            stem = name
+            name += ".json"
+        if not stem or stem in {".", ".."}:
+            raise ValueError("Enter a valid settings filename.")
+        if any(character in name for character in '<>:"/\\|?*'):
+            raise ValueError("The settings name cannot contain path separators or <>:\"|?*.")
+        if stem[-1] in {" ", "."}:
+            raise ValueError("The settings name cannot end with a space or period.")
+        reserved = {"CON", "PRN", "AUX", "NUL"}
+        reserved.update(f"COM{index}" for index in range(1, 10))
+        reserved.update(f"LPT{index}" for index in range(1, 10))
+        if stem.split(".", 1)[0].upper() in reserved:
+            raise ValueError(f"'{stem}' is a reserved filename.")
+        return name
+
+    def export_settings(self, script_path):
+        script_name = os.path.basename(script_path)
+        suggested_name = script_name.removesuffix(".py")
+        raw_name, accepted = QInputDialog.getText(
+            self,
+            "Export Tool Settings",
+            "Settings name:",
+            QLineEdit.EchoMode.Normal,
+            suggested_name,
+        )
+        if not accepted:
+            return
+
+        try:
+            filename = self._normalized_export_filename(raw_name)
+            current_directories = self._current_directory_settings()
+            export_directory = current_directories.get("SETTING_EXPORT_DIR", "")
+            if not export_directory:
+                export_directory = DEFAULT_DIRECTORY_PATHS["SETTING_EXPORT_DIR"]
+            if not os.path.isabs(export_directory):
+                export_directory = os.path.join(_PROJECT_ROOT, export_directory)
+            export_directory = os.path.normpath(export_directory)
+            target_path = os.path.join(export_directory, filename)
+
+            if os.path.exists(target_path):
+                answer = QMessageBox.question(
+                    self,
+                    "Replace Exported Settings?",
+                    f"'{target_path}' already exists. Replace it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+
+            directory_keys = TOOL_DIRECTORY_KEYS.get(script_name)
+            if directory_keys is None:
+                raise ValueError(f"No directory export contract is registered for {script_name}.")
+            payload = {
+                "DIRECTORIES": {
+                    key: current_directories.get(key, "") for key in directory_keys
+                },
+                script_name: self._collect_tool_settings(script_path),
+            }
+
+            os.makedirs(export_directory, exist_ok=True)
+            partial_path = f"{target_path}.{os.getpid()}.partial"
+            try:
+                with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
+                    json.dump(payload, handle, indent=4)
+                    handle.write("\n")
+                os.replace(partial_path, target_path)
+            finally:
+                if os.path.exists(partial_path):
+                    os.unlink(partial_path)
+
+            command = (
+                f'"{sys.executable}" -u "{os.path.abspath(script_path)}" '
+                f'"{os.path.abspath(target_path)}"'
+            )
+            QMessageBox.information(
+                self,
+                "Settings Exported",
+                f"Settings exported to:\n{os.path.abspath(target_path)}\n\n"
+                f"Command-line usage:\n{command}",
+            )
+        except Exception as error:
+            QMessageBox.critical(self, "Export Settings Error", str(error))
+
+    def save_and_run(self, script_path):
+        import json
+
+        # 1. Collect current values from GUI
+        new_settings = self._collect_tool_settings(script_path)
+
         # 2. Load existing JSON to avoid overwriting unrelated settings
         settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
         combined_settings = {}

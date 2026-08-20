@@ -170,6 +170,12 @@ class SanitizeSequencesTests(unittest.TestCase):
 
 
 class ToolDirectoryDefaultTests(unittest.TestCase):
+    def test_alignment_reports_default_to_analysis_results(self):
+        self.assertEqual(
+            DEFAULT_DIRECTORY_PATHS["REPORT_DIR"],
+            os.path.join("Analysis_Results", "Alignment_Report"),
+        )
+
     def test_empty_settings_receive_all_gui_defaults(self):
         settings = {}
 

@@ -468,7 +468,7 @@ def handle_import_metadata(viewer, data):
             parent_widget.raise_()
             parent_widget.activateWindow()
             
-        meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Cache_Files", "Meta_Data"))
+        meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Input_Files", "Meta_Data"))
         abs_meta_dir = os.path.abspath(meta_dir)
         os.makedirs(abs_meta_dir, exist_ok=True)
         
@@ -503,7 +503,7 @@ def handle_export_metadata(viewer, data):
             parent_widget.raise_()
             parent_widget.activateWindow()
             
-        meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Cache_Files", "Meta_Data"))
+        meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Input_Files", "Meta_Data"))
         abs_meta_dir = os.path.abspath(meta_dir)
         os.makedirs(abs_meta_dir, exist_ok=True)
         
