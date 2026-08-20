@@ -124,6 +124,40 @@ class ManagedEnvironmentTests(unittest.TestCase):
             self.assertIn("--locked-setup", sources[name])
             self.assertIn('"%COMSPEC%" /d /c', sources[name])
 
+    def test_launchers_probe_for_existing_windows_before_validation(self):
+        paths = (
+            SRC_DIR / "bin" / "SSN_Desktop_Launcher.bat",
+            SRC_DIR / "bin" / "SSN_Desktop_Launcher.sh",
+            SRC_DIR / "bin" / "SSN_Viewer.bat",
+            SRC_DIR / "bin" / "SSN_Viewer.sh",
+            SRC_DIR / "bin" / "SSN_Tools.bat",
+            SRC_DIR / "bin" / "SSN_Tools.sh",
+        )
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.name):
+                self.assertIn("Single_Instance_Probe.py", source)
+                validation_markers = (
+                    "Detecting hardware and validating dependencies",
+                    "ssn_require_linux_gui_dependencies",
+                    "where uv",
+                    "command -v uv",
+                )
+                validation_position = min(
+                    source.index(marker)
+                    for marker in validation_markers
+                    if marker in source
+                )
+                probe_position = source.index(
+                    "call :ACTIVATE_EXISTING_INSTANCE"
+                    if path.suffix == ".bat"
+                    else "activate_existing_instance()"
+                )
+                self.assertLess(
+                    probe_position,
+                    validation_position,
+                )
+
 
 @unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
 class PosixSetupLockTests(unittest.TestCase):

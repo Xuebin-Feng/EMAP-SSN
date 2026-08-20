@@ -39,6 +39,13 @@ case "$APP_KIND" in
         ;;
 esac
 
+activate_existing_instance() {
+    local venv_python="$PROJECT_ROOT/.venv/bin/python"
+    [ -x "$venv_python" ] || return 1
+    "$venv_python" "$PROJECT_ROOT/src/utilities/Single_Instance_Probe.py" \
+        "$APP_KIND" >/dev/null 2>&1
+}
+
 open_startup_terminal() {
     ssn_launch_in_terminal \
         --cwd "$PROJECT_ROOT" \
@@ -47,6 +54,9 @@ open_startup_terminal() {
 }
 
 if [ "$LAUNCH_MODE" = "--open-terminal" ]; then
+    if activate_existing_instance; then
+        exit 0
+    fi
     open_startup_terminal
     exit $?
 fi
@@ -56,6 +66,9 @@ if [ "$LAUNCH_MODE" != "--terminal-session" ]; then
 fi
 
 cd "$PROJECT_ROOT" || exit 1
+if activate_existing_instance; then
+    exit 0
+fi
 printf 'Starting %s...\n' "$APP_LABEL"
 printf 'Detecting hardware and validating dependencies...\n'
 if ! "$PORTABLE_LAUNCHER" --check-only; then
@@ -72,6 +85,10 @@ if [ ! -x "$VENV_PYTHON" ]; then
     printf 'Expected %s after setup, but it was not found.\n' "$VENV_PYTHON" >&2
     read -r -p 'Press Enter to close...' _
     exit 1
+fi
+
+if activate_existing_instance; then
+    exit 0
 fi
 
 STATE_ROOT="$PROJECT_ROOT/Cache_Files/Launcher_State"

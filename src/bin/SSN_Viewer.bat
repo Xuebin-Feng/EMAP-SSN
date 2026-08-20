@@ -23,6 +23,11 @@ call :SANITIZE_MANAGED_ENVIRONMENT
 :: Move to the project root directory (two levels up from this script)
 cd /d "%~dp0..\.."
 
+if "%LAUNCH_MODE%"=="" call :ACTIVATE_EXISTING_INSTANCE
+if "%LAUNCH_MODE%"=="" if !ERRORLEVEL! equ 0 exit /b 0
+if /I "%LAUNCH_MODE%"=="--run-only" call :ACTIVATE_EXISTING_INSTANCE
+if /I "%LAUNCH_MODE%"=="--run-only" if !ERRORLEVEL! equ 0 exit /b 0
+
 :: 1. Locate uv executable using labels (no parentheses to avoid parsing bugs)
 where uv >nul 2>nul
 if %ERRORLEVEL% equ 0 (
@@ -117,6 +122,8 @@ if /I "%LAUNCH_MODE%"=="--setup-only" exit /b 0
 
 :: 4. Run the configuration tool
 :RUN_APPLICATION
+call :ACTIVATE_EXISTING_INSTANCE
+if !ERRORLEVEL! equ 0 exit /b 0
 echo Starting SSN_Config...
 "!VENV_PYTHON!" src\SSN_Config.py
 set "APP_EXIT=!ERRORLEVEL!"
@@ -127,6 +134,11 @@ if !APP_EXIT! neq 0 (
     pause
 )
 exit /b !APP_EXIT!
+
+:ACTIVATE_EXISTING_INSTANCE
+if not exist ".venv\Scripts\python.exe" exit /b 1
+".venv\Scripts\python.exe" "src\utilities\Single_Instance_Probe.py" viewer >nul 2>nul
+exit /b !ERRORLEVEL!
 
 :SANITIZE_MANAGED_ENVIRONMENT
 set "PYTHONHOME="

@@ -17,6 +17,9 @@ if /I "%APP_KIND%"=="viewer" (
 )
 
 cd /d "%~dp0..\.."
+call :ACTIVATE_EXISTING_INSTANCE
+if !ERRORLEVEL! equ 0 exit /b 0
+
 echo Starting !APP_LABEL!...
 echo Detecting hardware and validating dependencies...
 call "!PORTABLE_LAUNCHER!" --check-only
@@ -37,6 +40,9 @@ if not exist ".venv\Scripts\pythonw.exe" (
     pause
     exit /b 1
 )
+
+call :ACTIVATE_EXISTING_INSTANCE
+if !ERRORLEVEL! equ 0 exit /b 0
 
 for /f %%I in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"') do set "LAUNCH_TOKEN=%%I"
 set "STATE_DIR=%CD%\Cache_Files\Launcher_State\%APP_KIND%_!LAUNCH_TOKEN!"
@@ -86,6 +92,11 @@ echo The terminal will remain open. Diagnostic log:
 echo !STATE_DIR!\application.log
 pause
 exit /b 1
+
+:ACTIVATE_EXISTING_INSTANCE
+if not exist ".venv\Scripts\python.exe" exit /b 1
+".venv\Scripts\python.exe" "src\utilities\Single_Instance_Probe.py" "!APP_KIND!" >nul 2>nul
+exit /b !ERRORLEVEL!
 
 :SANITIZE_MANAGED_ENVIRONMENT
 set "PYTHONHOME="

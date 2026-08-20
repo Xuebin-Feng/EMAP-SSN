@@ -434,7 +434,10 @@ if __name__ == "__main__":
         configure_qt_application_fonts,
         qt_monospace_font,
     )
-    from utilities.Application_Windows import show_window_in_front
+    from utilities.Application_Windows import (
+        SingleInstanceController,
+        show_window_in_front,
+    )
 
     # --- Custom Widget Classes ---
     class ScoreHistogramDialog(QDialog):
@@ -1923,7 +1926,11 @@ if __name__ == "__main__":
             btn_lay.addWidget(self.btn_stats, 3)
             btn_lay.addWidget(self.btn_hist, 1)
             layout.addRow("", btn_container)
-            
+
+            self.cache_file_separator = self._add_padded_separator(
+                layout, "cache_file_separator"
+            )
+
             # --- Target Cache Tracker & Folder Button ---
             cache_container = QWidget()
             cache_lay = QHBoxLayout(cache_container)
@@ -1958,11 +1965,10 @@ if __name__ == "__main__":
             
             cache_lay.addWidget(self.lbl_cache_tracker, 1)
             cache_lay.addWidget(btn_open_cache)
-            layout.addRow("", cache_container)
-
-            self.cache_file_separator = self._add_padded_separator(
-                layout, "cache_file_separator"
-            )
+            target_cache_label = QLabel("Target Cache:")
+            target_cache_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+            layout.addRow(target_cache_label, cache_container)
+            self.labels["TARGET_CACHE"] = target_cache_label
 
             # Cache dropdown, conditional new-cache name, and folder button.
             target_container = QWidget()
@@ -3312,7 +3318,20 @@ if __name__ == "__main__":
         def save_only(self):
             self.save_settings()
 
-    app = QApplication(sys.argv)
+    existing_qt_application = QApplication.instance()
+    app = existing_qt_application or QApplication(sys.argv)
+    single_instance = None
+    if existing_qt_application is None:
+        single_instance = SingleInstanceController("SSN_Config", app)
+        try:
+            is_primary_instance = single_instance.acquire_or_notify()
+        except RuntimeError as error:
+            QMessageBox.critical(None, "SSN Config Startup Error", str(error))
+            raise SystemExit(1)
+        if not is_primary_instance:
+            raise SystemExit(0)
+        app.aboutToQuit.connect(single_instance.close)
+
     configure_linux_qt_desktop_identity(app, VIEWER_DESKTOP_FILE_NAME)
     def _exit_on_uncaught_exception(exc_type, exc_value, exc_traceback):
         traceback.print_exception(exc_type, exc_value, exc_traceback)
@@ -3338,5 +3357,9 @@ if __name__ == "__main__":
         print(f"Warning: Could not force light palette: {e}")
         app.setStyle("Fusion")
     window = ConfigGUI()
+    if single_instance is not None:
+        single_instance.set_activation_callback(
+            lambda active_window=window: show_window_in_front(active_window)
+        )
     show_window_in_front(window)
     sys.exit(app.exec())

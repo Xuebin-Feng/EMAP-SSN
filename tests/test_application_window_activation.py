@@ -85,6 +85,103 @@ class ApplicationWindowActivationTests(unittest.TestCase):
             self.assertFalse(Application_Windows._signal_launcher_ready(window))
             self.assertNotIn("SSN_GUI_READY_FILE", os.environ)
 
+    def test_single_instance_names_are_stable_per_user_and_distinct_per_app(self):
+        config_name = Application_Windows._single_instance_server_name("SSN_Config")
+        self.assertEqual(
+            config_name,
+            Application_Windows._single_instance_server_name("SSN_Config"),
+        )
+        self.assertNotEqual(
+            config_name,
+            Application_Windows._single_instance_server_name("SSN_Tools"),
+        )
+
+    def test_primary_instance_claims_local_server(self):
+        server = mock.Mock()
+        server.listen.return_value = True
+        lock = mock.Mock()
+        lock.tryLock.return_value = True
+        with mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalServer", return_value=server
+        ), mock.patch.object(
+            Application_Windows.QtCore, "QLockFile", return_value=lock
+        ):
+            controller = Application_Windows.SingleInstanceController("primary-test")
+            self.assertTrue(controller.acquire_or_notify())
+
+        self.assertTrue(controller.owns_server)
+        lock.tryLock.assert_called_once_with(0)
+        server.listen.assert_called_once_with(controller.server_name)
+        controller.close()
+        self.assertFalse(controller.owns_server)
+        server.close.assert_called_once_with()
+        lock.unlock.assert_called_once_with()
+
+    def test_duplicate_instance_notifies_owner_and_does_not_claim_server(self):
+        server = mock.Mock()
+        server.listen.return_value = False
+        socket = mock.Mock()
+        socket.waitForConnected.return_value = True
+        lock = mock.Mock()
+        lock.tryLock.return_value = False
+        with mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalServer", return_value=server
+        ), mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalSocket", return_value=socket
+        ), mock.patch.object(
+            Application_Windows.QtCore, "QLockFile", return_value=lock
+        ):
+            controller = Application_Windows.SingleInstanceController("duplicate-test")
+            self.assertFalse(controller.acquire_or_notify())
+
+        self.assertFalse(controller.owns_server)
+        server.listen.assert_not_called()
+        socket.connectToServer.assert_called_once_with(controller.server_name)
+        socket.write.assert_called_once_with(b"activate\n")
+
+    def test_lightweight_probe_notifies_without_claiming_an_instance(self):
+        socket = mock.Mock()
+        socket.waitForConnected.return_value = True
+        with mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalSocket", return_value=socket
+        ), mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalServer"
+        ) as local_server:
+            self.assertTrue(
+                Application_Windows.notify_existing_instance("SSN_Config")
+            )
+
+        local_server.assert_not_called()
+        socket.connectToServer.assert_called_once_with(
+            Application_Windows._single_instance_server_name("SSN_Config")
+        )
+        socket.write.assert_called_once_with(b"activate\n")
+
+    def test_early_duplicate_activation_is_delivered_after_window_is_ready(self):
+        server = mock.Mock()
+        server.hasPendingConnections.side_effect = [True, False]
+        connection = mock.Mock()
+        server.nextPendingConnection.return_value = connection
+        lock = mock.Mock()
+        with mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalServer", return_value=server
+        ), mock.patch.object(
+            Application_Windows.QtCore, "QLockFile", return_value=lock
+        ):
+            controller = Application_Windows.SingleInstanceController("pending-test")
+            controller._accept_connections()
+
+        callback = mock.Mock()
+        with mock.patch.object(
+            Application_Windows.QtCore.QTimer,
+            "singleShot",
+            side_effect=lambda delay, pending_callback: pending_callback(),
+        ):
+            controller.set_activation_callback(callback)
+
+        callback.assert_called_once_with()
+        connection.disconnectFromServer.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

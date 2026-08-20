@@ -22,6 +22,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         from utilities import Hardware_Utils  # noqa: F401 - load torch before PySide6
         from SSN_Tools import DynamicComboBox
         from PySide6.QtWidgets import QApplication
+        test_app = QApplication.instance() or QApplication([])
 
         with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
             sys, "exit", return_value=None
@@ -359,11 +360,15 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.app.processEvents()
 
             tab = self.window.tabs.widget(0)
+            button_container = self.window.btn_stats.parentWidget()
             tracker_container = self.window.lbl_cache_tracker.parentWidget()
             separator = self.window.cache_file_separator
+            cache_label = self.window.labels["TARGET_CACHE"]
             target_label = self.window.labels["TARGET_CACHE_FILE"]
+            button_position = button_container.mapTo(tab, QPoint(0, 0))
             tracker_position = tracker_container.mapTo(tab, QPoint(0, 0))
             separator_position = separator.mapTo(tab, QPoint(0, 0))
+            cache_position = cache_label.mapTo(tab, QPoint(0, 0))
             target_position = target_label.mapTo(tab, QPoint(0, 0))
             expected_margin = self.namespace["CONFIG_TAB_CONTENT_MARGIN"]
             expected_spacing = self.namespace["CONFIG_SEPARATOR_PADDING"]
@@ -377,14 +382,17 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             )
             self.assertEqual(
                 separator_position.y()
-                - tracker_position.y()
-                - tracker_container.height(),
+                - button_position.y()
+                - button_container.height(),
                 expected_spacing,
             )
             self.assertEqual(
-                target_position.y() - separator_position.y() - separator.height(),
+                cache_position.y() - separator_position.y() - separator.height(),
                 expected_spacing,
             )
+            self.assertEqual(cache_label.text(), "Target Cache:")
+            self.assertEqual(tracker_position.y(), cache_position.y())
+            self.assertGreater(target_position.y(), tracker_position.y())
 
             self.assertTrue(self.window.line_new_cache.isHidden())
             combo.setCurrentText("(New Layout Cache)")

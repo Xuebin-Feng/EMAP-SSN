@@ -39,7 +39,10 @@ from utilities.Tool_Directories import (
     DEFAULT_DIRECTORY_PATHS,
     fill_missing_directory_defaults,
 )
-from utilities.Application_Windows import show_window_in_front
+from utilities.Application_Windows import (
+    SingleInstanceController,
+    show_window_in_front,
+)
 from utilities.Application_Identity import (
     TOOLS_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
@@ -3440,7 +3443,20 @@ class ToolsGUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to run {script_path}:\n{e}")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    existing_qt_application = QApplication.instance()
+    app = existing_qt_application or QApplication(sys.argv)
+    single_instance = None
+    if existing_qt_application is None:
+        single_instance = SingleInstanceController("SSN_Tools", app)
+        try:
+            is_primary_instance = single_instance.acquire_or_notify()
+        except RuntimeError as error:
+            QMessageBox.critical(None, "SSN Tools Startup Error", str(error))
+            raise SystemExit(1)
+        if not is_primary_instance:
+            raise SystemExit(0)
+        app.aboutToQuit.connect(single_instance.close)
+
     configure_linux_qt_desktop_identity(app, TOOLS_DESKTOP_FILE_NAME)
     def _exit_on_uncaught_exception(exc_type, exc_value, exc_traceback):
         traceback.print_exception(exc_type, exc_value, exc_traceback)
@@ -3479,5 +3495,9 @@ if __name__ == "__main__":
         print(f"Warning: Could not force light palette: {e}")
         app.setStyle("Fusion")
     window = ToolsGUI()
+    if single_instance is not None:
+        single_instance.set_activation_callback(
+            lambda active_window=window: show_window_in_front(active_window)
+        )
     show_window_in_front(window)
     sys.exit(app.exec())

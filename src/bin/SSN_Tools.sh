@@ -39,6 +39,17 @@ fi
 # Move to the project root directory.
 cd "$PROJECT_ROOT"
 
+activate_existing_instance() {
+    [ -x ".venv/bin/python" ] || return 1
+    ".venv/bin/python" src/utilities/Single_Instance_Probe.py tools \
+        >/dev/null 2>&1
+}
+
+if { [ -z "$LAUNCH_MODE" ] || [ "$LAUNCH_MODE" = "--run-only" ]; } &&
+        activate_existing_instance; then
+    exit 0
+fi
+
 # 0. Prefer XWayland on Wayland sessions. The vispy OpenGL canvas hosted inside
 # Qt6 is unreliable on the native Wayland platform plugin; xcb is the known-good
 # path. Only applied when the user has not chosen a platform themselves, so
@@ -124,5 +135,8 @@ if [ "$LAUNCH_MODE" = "--setup-only" ]; then
 fi
 
 # 4. Run the tools
+if activate_existing_instance; then
+    exit 0
+fi
 echo "Starting SSN_Tools..."
 "$VENV_PYTHON" src/SSN_Tools.py

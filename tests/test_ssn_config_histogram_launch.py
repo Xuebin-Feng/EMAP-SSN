@@ -148,6 +148,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             from utilities import Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication
+            test_app = QApplication.instance() or QApplication([])
 
             with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
                 sys, "exit", return_value=None
@@ -275,6 +276,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             from PySide6.QtCore import QTimer, qInstallMessageHandler
             from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
             from SSN_Utils import build_score_histogram_figure
+            test_app = QApplication.instance() or QApplication([])
 
             with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
                 sys, "exit", return_value=None
