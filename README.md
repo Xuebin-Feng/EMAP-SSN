@@ -32,7 +32,9 @@ All calculations related to SSN generation are centralized in the `SSN_Tools.py`
 
 ### ⚙️ SSN Configuration GUI
 
-The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. It features a **Compute Network Statistics** utility that analyzes the network density and outputs a report in the right panel to guide the selection of an optimal similarity cutoff. Additionally, the **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match perfectly across all files.
+The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in `Input_Files/viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab (by default, `Cache_Files/Saved_Config/`). Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown.
+
+The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
 ![SSN Configuration GUI](docs/assets/ssn_config_gui.png)
 

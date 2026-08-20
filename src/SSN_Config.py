@@ -14,12 +14,16 @@
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 # Import Libraries
+import ast
 import html
+import json
+import math
 import os
 import re
 import sys
 import tempfile
 import traceback
+from pathlib import Path
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from utilities.Application_Identity import (
     VIEWER_DESKTOP_FILE_NAME,
@@ -54,6 +58,8 @@ CLUSTER_LABEL_DIR = os.path.join("Results", "Cluster_Label")
 HEADER_LIST_DIR = os.path.join("Cache_Files", "Header_Lists")
 LOGO_DIR = os.path.join("Results", "Sequence_Logos")
 STRUCTURES_DIR = os.path.join("Cache_Files", "Structures")
+DEFAULT_SAVED_CONFIG_DIR = os.path.join("Cache_Files", "Saved_Config")
+SAVED_CONFIG_DIR = DEFAULT_SAVED_CONFIG_DIR
 
 # --- Explicit Input File Paths ---
 # You can manually replace these string paths to decouple file logic:
@@ -112,13 +118,209 @@ SGLD_K_PERCENT = 0.01
 SGLD_START_TEMP = 1.5
 SGLD_NOISE_SCALE = 1.0
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+INPUT_PROFILE_DEFAULTS = {
+    "NODE_FASTA_FILE": "",
+    "MSA_FILE": "",
+    "INPUT_HDF5": "",
+    "ALIGNMENT_SCORE": "global",
+    "NORM_MODE": "alignment_length",
+    "ALIGNMENT_REFERENCE": "",
+    "ALIGNMENT_OFFSET": 0,
+    "UMAP_MODE": False,
+    "UMAP_NEIGHBORS": 15,
+    "UMAP_MIN_DIST": 0.1,
+    "SIMILARITY_THRESHOLD": None,
+    "TOP_EDGE_PERCENT": None,
+    "FILTER_MIN_OCCUPANCY": 10.0,
+}
+
+VISUAL_PROFILE_DEFAULTS = {
+    "NODE_SIZE": 10,
+    "EDGE_WIDTH": 1.0,
+    "NODE_BOUNDARY_WIDTH": 0.5,
+    "EDGE_ALPHA": 0.1,
+    "TEXT_SIZE": 8,
+    "TEXT_COLOR": "grey",
+    "INITIAL_NODE_COLOR": "#4488ff",
+    "HOVER_COLOR": "#ffaa00",
+    "CONNECTED_NODE_COLOR": "#ff0000",
+    "EDGE_COLOR": "#000000",
+    "NODE_BOUNDARY_COLOR": "#000000",
+    "LOW_RESOURCE_MODE": False,
+}
+
+PHYSICS_PROFILE_DEFAULTS = {
+    "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
+    "LAYOUT_DEVICE_SELECTION": "auto",
+    "SPRING_K": 5.0,
+    "COULOMB_K": 10.0,
+    "COULOMB_CUTOFF": 30.0,
+    "DAMPING": 0.9,
+    "DT": 0.005,
+    "MAX_STEPS": 10000,
+    "RMSD_THRESHOLD": 0.005,
+    "PERCENTAGE_DROP_THRESHOLD": 0.1,
+    "RMSD_WINDOW": 50,
+    "ENABLE_PROGRESSIVE_SIMULATION": False,
+    "PACKING_GEOMETRY": "Square",
+    "PACKING_GRID_SIZE": 20.0,
+    "SGLD_MIN_K": 20,
+    "SGLD_K_PERCENT": 0.01,
+    "SGLD_START_TEMP": 1.5,
+    "SGLD_NOISE_SCALE": 1.0,
+}
+
+DIRECTORY_PROFILE_DEFAULTS = {
+    "FASTA_DIR": os.path.join("Input_Files", "Sequence_Sets"),
+    "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
+    "HDF5_DIR": os.path.join("Input_Files", "Networks_EValues"),
+    "SAVED_LAYOUT_DIR": os.path.join("Cache_Files", "Saved_Layouts"),
+    "METADATA_DIR": os.path.join("Cache_Files", "Meta_Data"),
+    "FASTA_SPLIT_DIR": os.path.join("Cache_Files", "FASTA_Split"),
+    "HEADER_LIST_DIR": os.path.join("Cache_Files", "Header_Lists"),
+    "STRUCTURES_DIR": os.path.join("Cache_Files", "Structures"),
+    "PRINT_SAVE_DIR": os.path.join("Results", "Saved_Images"),
+    "CLUSTER_LABEL_DIR": os.path.join("Results", "Cluster_Label"),
+    "LOGO_DIR": os.path.join("Results", "Sequence_Logos"),
+}
+
+TAB_PROFILE_SPECS = {
+    "inputs_outputs": {
+        "defaults": INPUT_PROFILE_DEFAULTS,
+        "allow_default": False,
+    },
+    "visual_effects": {
+        "defaults": VISUAL_PROFILE_DEFAULTS,
+        "allow_default": True,
+    },
+    "simulation_physics": {
+        "defaults": PHYSICS_PROFILE_DEFAULTS,
+        "allow_default": True,
+    },
+    "directories": {
+        "defaults": DIRECTORY_PROFILE_DEFAULTS,
+        "allow_default": True,
+    },
+}
+
+RESERVED_PROFILE_NAMES = {"custom", "default", "new"}
+CONFIG_TAB_CONTENT_MARGIN = 18
+CONFIG_TAB_ROW_SPACING = 12
+CONFIG_FIELD_LABEL_WIDTH = 180
+CONFIG_FIELD_HORIZONTAL_SPACING = 12
+CONFIG_SEPARATOR_THICKNESS = 2
+CONFIG_SEPARATOR_PADDING = 30
+
+PROFILE_ENUM_VALUES = {
+    "ALIGNMENT_SCORE": {"global", "local"},
+    "NORM_MODE": {
+        "alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"
+    },
+    "PHYSICS_ENGINE": {"Molecular Dynamics (Style)", "Monte Carlo (Style)"},
+    "PACKING_GEOMETRY": {"Square", "Circle"},
+}
+
+PROFILE_RANGES = {
+    "ALIGNMENT_OFFSET": (-1000000, 1000000),
+    "UMAP_NEIGHBORS": (2, 500),
+    "UMAP_MIN_DIST": (0.0, 1.0),
+    "TOP_EDGE_PERCENT": (0.0, 100.0),
+    "FILTER_MIN_OCCUPANCY": (0.0, 100.0),
+    "NODE_SIZE": (1, 20),
+    "EDGE_WIDTH": (0.1, 3.0),
+    "NODE_BOUNDARY_WIDTH": (0.0, 2.0),
+    "EDGE_ALPHA": (0.0, 1.0),
+    "TEXT_SIZE": (1, 24),
+    "SPRING_K": (1.0, 20.0),
+    "COULOMB_K": (1.0, 30.0),
+    "COULOMB_CUTOFF": (1.0, 100.0),
+    "DAMPING": (0.1, 2.0),
+    "RMSD_WINDOW": (10, 1000),
+    "PACKING_GRID_SIZE": (1.0, 200.0),
+}
+
+
+def _resolved_saved_config_root(value):
+    path = Path(str(value or DEFAULT_SAVED_CONFIG_DIR)).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path.resolve()
+
+
+def _migrate_saved_config_dir(value):
+    normalized = os.path.normpath(str(value or "")).replace("\\", "/").rstrip("/")
+    if normalized.casefold() == "saved_config":
+        return DEFAULT_SAVED_CONFIG_DIR
+    return value
+
+
+def _discover_profile_names(root, tab_id):
+    folder = Path(root) / tab_id
+    try:
+        names = sorted((
+            entry.stem
+            for entry in folder.iterdir()
+            if entry.is_file()
+            and entry.suffix.lower() == ".json"
+            and entry.stem.casefold() not in RESERVED_PROFILE_NAMES
+        ), key=str.casefold)
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        return []
+    unique_names = {}
+    for name in names:
+        unique_names.setdefault(name.casefold(), name)
+    return list(unique_names.values())
+
+
+def _validate_profile_name(name, existing_names=()):
+    normalized = str(name).strip()
+    if normalized.lower().endswith(".json"):
+        normalized = normalized[:-5].rstrip()
+    if not normalized:
+        raise ValueError("Enter a profile name.")
+    if normalized.casefold() in RESERVED_PROFILE_NAMES:
+        raise ValueError(f"'{normalized}' is a reserved profile name.")
+    if normalized in {".", ".."} or normalized.endswith((" ", ".")):
+        raise ValueError("Profile names cannot end with a space or period.")
+    if re.search(r'[<>:"/\\|?*\x00-\x1f]', normalized):
+        raise ValueError("Profile names cannot contain path separators or Windows-reserved characters.")
+    windows_stem = normalized.split(".", 1)[0].casefold()
+    windows_reserved = {"con", "prn", "aux", "nul"}
+    windows_reserved.update(f"com{i}" for i in range(1, 10))
+    windows_reserved.update(f"lpt{i}" for i in range(1, 10))
+    if windows_stem in windows_reserved:
+        raise ValueError(f"'{normalized}' is reserved by Windows.")
+    if normalized.casefold() in {str(item).casefold() for item in existing_names}:
+        raise ValueError(f"A profile named '{normalized}' already exists.")
+    return normalized
+
+
+def _atomic_write_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".partial", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(data, handle, indent=4)
+            handle.write("\n")
+        os.replace(temporary_path, path)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
+
 # --- JSON Settings Override ---
-import json
-import ast
 import Cache_Manifest as cache_manifest
 
-DEFAULT_SETTINGS_FILE = os.path.join("Input_Files", "viewer_settings.json")
+DEFAULT_SETTINGS_FILE = str(PROJECT_ROOT / "Input_Files" / "viewer_settings.json")
 SETTINGS_FILE = os.environ.get("SSN_VIEWER_SETTINGS_PATH") or DEFAULT_SETTINGS_FILE
+viewer_settings = {}
 if os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -130,6 +332,8 @@ if os.path.exists(SETTINGS_FILE):
             for k, v in viewer_settings.items():
                 if k in LEGACY_KEYS_MAPPING:
                     k = LEGACY_KEYS_MAPPING[k]
+                if k == "SAVED_CONFIG_DIR":
+                    v = _migrate_saved_config_dir(v)
                 if k in globals() and v is not None and (str(v).strip() != "" or k in ["MSA_FILE", "ALIGNMENT_REFERENCE"]):
                     orig = globals()[k]
                     if isinstance(orig, int) and not isinstance(orig, bool):
@@ -217,7 +421,8 @@ if __name__ == "__main__":
         QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
         QComboBox, QPushButton, QMessageBox, QTextEdit,
         QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
-        QStyle, QStyleOptionSlider, QFileDialog, QColorDialog,
+        QStyle, QStyleOptionSlider, QFileDialog, QColorDialog, QSizePolicy,
+        QFrame,
     )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import QColor, QDesktopServices, QIcon
@@ -497,6 +702,16 @@ if __name__ == "__main__":
             self.inputs = {}
             self.labels = {} 
             self.color_swatches = {} 
+            self.profile_selectors = {}
+            self.profile_name_inputs = {}
+            self.profile_folder_buttons = {}
+            self.profile_labels = {}
+            self.profile_separators = {}
+            self.profile_content_widgets = {}
+            self._profile_previous_selection = {}
+            self._profile_loading = False
+            self._initializing_profiles = True
+            self._custom_settings = self._read_custom_settings()
             self._cache_hash_cache = {}
             self._cache_hash_request_id = 0
             self._cache_hash_workers = {}
@@ -509,6 +724,9 @@ if __name__ == "__main__":
             self.create_visuals_tab()
             self.create_physics_tab()
             self.create_directories_tab()
+
+            self._initializing_profiles = False
+            self._load_all_custom_profiles()
             
             self.cb_fasta.currentTextChanged.connect(self.update_live_validators)
             self.cb_hdf5.currentTextChanged.connect(self.update_live_validators)
@@ -521,6 +739,368 @@ if __name__ == "__main__":
             
             self.update_live_validators()
             self.setup_tips()
+
+        def _read_custom_settings(self):
+            try:
+                with open(DEFAULT_SETTINGS_FILE, "r", encoding="utf-8") as handle:
+                    data = json.load(handle)
+                if not isinstance(data, dict):
+                    raise ValueError("the JSON root must be an object")
+                if "SAVED_CONFIG_DIR" in data:
+                    data["SAVED_CONFIG_DIR"] = _migrate_saved_config_dir(
+                        data["SAVED_CONFIG_DIR"]
+                    )
+                return dict(data)
+            except FileNotFoundError:
+                return {}
+            except (OSError, ValueError, json.JSONDecodeError) as error:
+                print(f"Failed to load custom settings from {DEFAULT_SETTINGS_FILE}: {error}")
+                return {}
+
+        def _saved_config_root(self):
+            widget = self.inputs.get("SAVED_CONFIG_DIR")
+            value = widget.text() if widget is not None else globals().get(
+                "SAVED_CONFIG_DIR", SAVED_CONFIG_DIR
+            )
+            return _resolved_saved_config_root(value)
+
+        def _add_profile_selector(
+            self,
+            tab_id,
+            form_layout,
+            *,
+            label_width=CONFIG_FIELD_LABEL_WIDTH,
+        ):
+            container = QWidget()
+            row_layout = QHBoxLayout(container)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+
+            selector = DynamicComboBox(
+                lambda selected_tab=tab_id: self._refresh_profile_combo(selected_tab)
+            )
+            name_input = QLineEdit()
+            name_input.setPlaceholderText("New profile name")
+            name_input.setVisible(False)
+            folder_button = QPushButton("📂")
+            folder_button.setFixedWidth(30)
+            folder_button.setToolTip("Open this tab's saved config folder")
+            row_layout.addWidget(selector, 1)
+            row_layout.addWidget(name_input, 1)
+            row_layout.addWidget(folder_button)
+
+            label = QLabel("Saved Config:")
+            label.setFixedWidth(label_width)
+            form_layout.addRow(label, container)
+
+            def open_profile_folder(checked=False, selected_tab=tab_id):
+                folder = self._saved_config_root() / selected_tab
+                os.makedirs(folder, exist_ok=True)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+            folder_button.clicked.connect(open_profile_folder)
+
+            self.profile_selectors[tab_id] = selector
+            self.profile_name_inputs[tab_id] = name_input
+            self.profile_folder_buttons[tab_id] = folder_button
+            self.profile_labels[tab_id] = label
+            self._profile_previous_selection[tab_id] = "(custom)"
+            self._refresh_profile_combo(tab_id)
+            selector.currentTextChanged.connect(
+                lambda text, selected_tab=tab_id: self._profile_selection_changed(
+                    selected_tab, text
+                )
+            )
+
+        def _profile_special_items(self, tab_id):
+            items = ["(custom)"]
+            if TAB_PROFILE_SPECS[tab_id]["allow_default"]:
+                items.append("(default)")
+            items.append("(new)")
+            return items
+
+        def _add_padded_separator(self, layout, object_name):
+            wrapper = QWidget()
+            wrapper_layout = QVBoxLayout(wrapper)
+            extra_padding = CONFIG_SEPARATOR_PADDING - CONFIG_TAB_ROW_SPACING
+            wrapper_layout.setContentsMargins(0, extra_padding, 0, extra_padding)
+            wrapper_layout.setSpacing(0)
+
+            separator = QFrame()
+            separator.setObjectName(object_name)
+            separator.setFrameShape(QFrame.Shape.NoFrame)
+            separator.setFixedHeight(CONFIG_SEPARATOR_THICKNESS)
+            separator.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            separator.setStyleSheet("background-color: #9e9e9e; border: none;")
+            wrapper_layout.addWidget(separator)
+            if isinstance(layout, QFormLayout):
+                layout.addRow(wrapper)
+            else:
+                layout.addWidget(wrapper)
+            return separator
+
+        def _add_profile_separator(self, tab_id, layout):
+            separator = self._add_padded_separator(
+                layout, f"{tab_id}_saved_config_separator"
+            )
+            self.profile_separators[tab_id] = separator
+
+        def _refresh_profile_combo(self, tab_id):
+            selector = self.profile_selectors[tab_id]
+            current = selector.currentText() or "(custom)"
+            items = _discover_profile_names(self._saved_config_root(), tab_id)
+            items.extend(self._profile_special_items(tab_id))
+            disappeared = current not in items
+
+            selector.blockSignals(True)
+            try:
+                selector.clear()
+                selector.addItems(items)
+                selector.setCurrentText("(custom)" if disappeared else current)
+            finally:
+                selector.blockSignals(False)
+
+            if (
+                disappeared
+                and current != "(custom)"
+                and not self._initializing_profiles
+                and not self._profile_loading
+            ):
+                self._profile_selection_changed(tab_id, "(custom)")
+
+        def _profile_path(self, tab_id, profile_name):
+            folder = self._saved_config_root() / tab_id
+            candidate = folder / f"{profile_name}.json"
+            if candidate.exists():
+                return candidate
+            try:
+                for entry in folder.iterdir():
+                    if (
+                        entry.is_file()
+                        and entry.suffix.lower() == ".json"
+                        and entry.stem.casefold() == str(profile_name).casefold()
+                    ):
+                        return entry
+            except (FileNotFoundError, NotADirectoryError, OSError):
+                pass
+            return candidate
+
+        def _normalize_profile_data(self, tab_id, raw_data, *, allow_extra=False):
+            if not isinstance(raw_data, dict):
+                raise ValueError("the JSON root must be an object")
+
+            defaults = TAB_PROFILE_SPECS[tab_id]["defaults"]
+            unknown = set(raw_data) - set(defaults)
+            if unknown and not allow_extra:
+                names = ", ".join(sorted(unknown))
+                raise ValueError(f"unknown setting key(s): {names}")
+
+            normalized = dict(defaults)
+            for key in defaults:
+                if key not in raw_data:
+                    continue
+                value = raw_data[key]
+                default = defaults[key]
+                try:
+                    if default is None:
+                        if value is None or str(value).strip().lower() in {"", "none"}:
+                            value = None
+                        else:
+                            value = float(value)
+                    elif isinstance(default, bool):
+                        if isinstance(value, bool):
+                            pass
+                        elif str(value).strip().lower() in {"true", "1", "t", "y", "yes"}:
+                            value = True
+                        elif str(value).strip().lower() in {"false", "0", "f", "n", "no"}:
+                            value = False
+                        else:
+                            raise ValueError("expected true or false")
+                    elif isinstance(default, int):
+                        if isinstance(value, bool) or float(value) != int(float(value)):
+                            raise ValueError("expected an integer")
+                        value = int(float(value))
+                    elif isinstance(default, float):
+                        if isinstance(value, bool):
+                            raise ValueError("expected a number")
+                        value = float(value)
+                    else:
+                        if not isinstance(value, str):
+                            raise ValueError("expected text")
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise ValueError(f"invalid value for {key}: {error}") from error
+
+                if isinstance(value, float) and not math.isfinite(value):
+                    raise ValueError(f"invalid value for {key}: expected a finite number")
+                if key in PROFILE_ENUM_VALUES and value not in PROFILE_ENUM_VALUES[key]:
+                    allowed = ", ".join(sorted(PROFILE_ENUM_VALUES[key]))
+                    raise ValueError(f"invalid value for {key}; expected one of: {allowed}")
+                if value is not None and key in PROFILE_RANGES:
+                    minimum, maximum = PROFILE_RANGES[key]
+                    if value < minimum or value > maximum:
+                        raise ValueError(
+                            f"invalid value for {key}; expected {minimum} to {maximum}"
+                        )
+                normalized[key] = value
+
+            if (
+                normalized.get("ALIGNMENT_SCORE") == "local"
+                and normalized.get("NORM_MODE") == "alignment_length"
+            ):
+                raise ValueError(
+                    "NORM_MODE alignment_length is unavailable for local alignment scores"
+                )
+
+            color_keys = {
+                "TEXT_COLOR", "INITIAL_NODE_COLOR", "HOVER_COLOR",
+                "CONNECTED_NODE_COLOR", "EDGE_COLOR", "NODE_BOUNDARY_COLOR",
+            }
+            for key in color_keys.intersection(normalized):
+                if not QColor(normalized[key]).isValid():
+                    raise ValueError(f"invalid color value for {key}: {normalized[key]}")
+            return normalized
+
+        def _custom_profile_data(self, tab_id):
+            defaults = TAB_PROFILE_SPECS[tab_id]["defaults"]
+            raw_data = {
+                key: self._custom_settings[key]
+                for key in defaults
+                if key in self._custom_settings
+            }
+            try:
+                return self._normalize_profile_data(tab_id, raw_data)
+            except ValueError as error:
+                print(f"Invalid custom settings for {tab_id}; using defaults: {error}")
+                return dict(defaults)
+
+        def _named_profile_data(self, tab_id, profile_name):
+            path = self._profile_path(tab_id, profile_name)
+            with open(path, "r", encoding="utf-8") as handle:
+                raw_data = json.load(handle)
+            return self._normalize_profile_data(tab_id, raw_data)
+
+        def _set_widget_profile_value(self, key, value):
+            widget = self.inputs[key]
+            if isinstance(widget, OptionalNoScrollDoubleSpinBox):
+                widget.setOptionalValue(value)
+            elif isinstance(widget, QComboBox):
+                if key == "LAYOUT_DEVICE_SELECTION":
+                    index = widget.findData(value)
+                    if index < 0:
+                        widget.addItem(f"Unavailable saved device [{value}]", value)
+                        index = widget.count() - 1
+                    widget.setCurrentIndex(index)
+                else:
+                    text_value = str(value)
+                    if key in {"NODE_FASTA_FILE", "MSA_FILE", "INPUT_HDF5"}:
+                        text_value = os.path.basename(text_value)
+                        if text_value and widget.findText(text_value) < 0:
+                            widget.addItem(text_value)
+                    widget.setCurrentText(text_value)
+            elif isinstance(widget, QPushButton) and widget.isCheckable():
+                widget.setChecked(bool(value))
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                widget.setValue(value)
+            elif isinstance(widget, QLineEdit):
+                widget.setText("" if value is None else str(value))
+            elif hasattr(widget, "setChecked"):
+                widget.setChecked(bool(value))
+            else:
+                raise TypeError(f"Unsupported settings widget for {key}")
+
+        def _apply_profile_data(self, tab_id, data, *, read_only=False):
+            self._set_profile_content_enabled(tab_id, True)
+            self._profile_loading = True
+            try:
+                for key in TAB_PROFILE_SPECS[tab_id]["defaults"]:
+                    self._set_widget_profile_value(key, data[key])
+            finally:
+                self._profile_loading = False
+
+            if tab_id == "inputs_outputs":
+                self.update_norm_mode_options()
+            if hasattr(self, "update_live_validators"):
+                self.update_live_validators()
+            self._set_profile_content_enabled(tab_id, not read_only)
+
+        def _set_profile_content_enabled(self, tab_id, enabled):
+            content = self.profile_content_widgets[tab_id]
+            if isinstance(content, (list, tuple)):
+                for widget in content:
+                    widget.setEnabled(enabled)
+            else:
+                content.setEnabled(enabled)
+
+        def _set_new_profile_field_visible(self, tab_id, visible):
+            name_input = self.profile_name_inputs[tab_id]
+            name_input.setVisible(visible)
+            if visible:
+                name_input.setFocus()
+            else:
+                name_input.clear()
+
+        def _set_profile_selection(self, tab_id, text):
+            selector = self.profile_selectors[tab_id]
+            selector.blockSignals(True)
+            try:
+                selector.setCurrentText(text)
+            finally:
+                selector.blockSignals(False)
+
+        def _profile_selection_changed(self, tab_id, text):
+            if self._initializing_profiles or self._profile_loading or not text:
+                return
+            previous = self._profile_previous_selection.get(tab_id, "(custom)")
+
+            if text == "(new)":
+                self._set_new_profile_field_visible(tab_id, True)
+                self._set_profile_content_enabled(tab_id, True)
+                self._profile_previous_selection[tab_id] = text
+                return
+
+            self._set_new_profile_field_visible(tab_id, False)
+            try:
+                if text == "(custom)":
+                    data = self._custom_profile_data(tab_id)
+                    read_only = False
+                elif text == "(default)":
+                    if not TAB_PROFILE_SPECS[tab_id]["allow_default"]:
+                        raise ValueError("this tab does not provide a default profile")
+                    data = dict(TAB_PROFILE_SPECS[tab_id]["defaults"])
+                    read_only = True
+                else:
+                    data = self._named_profile_data(tab_id, text)
+                    read_only = False
+                self._apply_profile_data(tab_id, data, read_only=read_only)
+                self._profile_previous_selection[tab_id] = text
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                self._set_profile_selection(tab_id, previous)
+                self._set_new_profile_field_visible(tab_id, previous == "(new)")
+                QMessageBox.critical(
+                    self,
+                    "Saved Config Error",
+                    f"Could not load profile '{text}':\n{error}",
+                )
+
+        def _load_all_custom_profiles(self):
+            for tab_id in (
+                "directories", "inputs_outputs", "visual_effects", "simulation_physics"
+            ):
+                self._set_profile_selection(tab_id, "(custom)")
+                self._profile_previous_selection[tab_id] = "(custom)"
+                self._set_new_profile_field_visible(tab_id, False)
+                self._apply_profile_data(tab_id, self._custom_profile_data(tab_id))
+
+        def _saved_config_directory_committed(self):
+            if self._initializing_profiles or self._profile_loading:
+                return
+            for tab_id in TAB_PROFILE_SPECS:
+                self._set_profile_selection(tab_id, "(custom)")
+                self._profile_previous_selection[tab_id] = "(custom)"
+                self._set_new_profile_field_visible(tab_id, False)
+                self._refresh_profile_combo(tab_id)
+            self._load_all_custom_profiles()
 
         def closeEvent(self, event):
             self._cache_hash_request_id += 1
@@ -698,7 +1278,8 @@ if __name__ == "__main__":
                 "CLUSTER_LABEL_DIR": "Directory where exported cluster metadata, sequence IDs, and automated cluster labels are saved.\nUseful for downstream annotation pipelines and external inspection.",
                 "HEADER_LIST_DIR": "Directory containing text files with lists of sequence headers matching network query criteria.\nUsed to store and track sequence cohorts identified in the visualizer.",
                 "LOGO_DIR": "Directory where exported sequence logos representing consensus conservation are saved.\nOutputs PNG or vector graphics for publication and presentation.",
-                "STRUCTURES_DIR": "Directory where predicted 3D structures and PDB/mmCIF files are stored and loaded.\nUsed by the 3D structure viewer module for structural superposition and inspection."
+                "STRUCTURES_DIR": "Directory where predicted 3D structures and PDB/mmCIF files are stored and loaded.\nUsed by the 3D structure viewer module for structural superposition and inspection.",
+                "SAVED_CONFIG_DIR": "Directory containing named per-tab configuration profiles.\nRelative paths are resolved from the project root; the location itself is always stored in viewer_settings.json."
             }
             
             self.tip_db = {}
@@ -724,10 +1305,13 @@ if __name__ == "__main__":
                                 child.installEventFilter(self)
         
         def _toggle_new_cache_input(self, text):
-            if text == "(New Layout Cache)":
-                self.line_new_cache.setEnabled(True)
+            is_new_layout = text == "(New Layout Cache)"
+            self.line_new_cache.setVisible(is_new_layout)
+            self.line_new_cache.setEnabled(is_new_layout)
+            if is_new_layout:
+                self.line_new_cache.setFocus()
             else:
-                self.line_new_cache.setEnabled(False)
+                self.line_new_cache.clear()
 
         def _refresh_cache_file_combo(self):
             folder_path = self.current_cache_folder
@@ -808,7 +1392,7 @@ if __name__ == "__main__":
             self.cb_cache_file.clear()
             self.cb_cache_file.setEnabled(False)
             self.cb_cache_file.blockSignals(False)
-            self.line_new_cache.setEnabled(False)
+            self._toggle_new_cache_input("")
             self.btn_open_target_folder.setEnabled(False)
 
         def _cache_paths_from_inputs(self):
@@ -897,7 +1481,7 @@ if __name__ == "__main__":
                 self._cache_launch_allowed = False
                 self.btn_save_run.setEnabled(False)
                 self.cb_cache_file.setEnabled(False)
-                self.line_new_cache.setEnabled(False)
+                self._toggle_new_cache_input("")
                 self.btn_open_target_folder.setEnabled(False)
                 self.lbl_cache_tracker.setText(
                     f"Error: {len(folders)} compatible cache folders found"
@@ -1038,11 +1622,21 @@ if __name__ == "__main__":
         def create_inputs_tab(self):
             tab = QWidget()
             layout = QFormLayout(tab)
-            layout.setHorizontalSpacing(30)
-            layout.setVerticalSpacing(12)
+            layout.setContentsMargins(
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+            )
+            layout.setHorizontalSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            layout.setVerticalSpacing(CONFIG_TAB_ROW_SPACING)
+            self._add_profile_selector("inputs_outputs", layout)
+            self._add_profile_separator("inputs_outputs", layout)
+            self.profile_content_widgets["inputs_outputs"] = []
             
             def add_row(key, label_text, widget):
                 lbl = QLabel(label_text)
+                lbl.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
                 layout.addRow(lbl, widget)
                 self.labels[key] = lbl
                 self.inputs[key] = widget
@@ -1074,6 +1668,7 @@ if __name__ == "__main__":
                 h_lay.addWidget(btn)
                 
                 lbl = QLabel(label_text)
+                lbl.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
                 layout.addRow(lbl, container)
                 self.labels[key] = lbl
                 self.inputs[key] = combo 
@@ -1154,6 +1749,7 @@ if __name__ == "__main__":
             ref_layout.addWidget(self.spin_alignment_offset)
 
             ref_label = QLabel("Alignment Reference ID:")
+            ref_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             layout.addRow(ref_label, ref_container)
             self.labels["ALIGNMENT_REFERENCE"] = ref_label
             self.inputs["ALIGNMENT_REFERENCE"] = self.line_ref
@@ -1184,7 +1780,6 @@ if __name__ == "__main__":
             self.check_umap.setChecked(bool(umap_mode_val))
             switch_umap_style(bool(umap_mode_val))
             
-            from PySide6.QtWidgets import QSizePolicy
             lbl_k = QLabel("   UMAP Nearest Neighbors (k):")
             lbl_md = QLabel("   UMAP Min Distance:")
             
@@ -1245,6 +1840,7 @@ if __name__ == "__main__":
             
             layout.addRow("Enable UMAP Layout:", umap_container)
             self.labels["UMAP_MODE"] = layout.labelForField(umap_container)
+            self.labels["UMAP_MODE"].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             self.inputs["UMAP_MODE"] = self.check_umap
             self.inputs["UMAP_NEIGHBORS"] = self.spin_umap_k
             self.inputs["UMAP_MIN_DIST"] = self.spin_umap_md
@@ -1287,6 +1883,7 @@ if __name__ == "__main__":
             filter_layout.setContentsMargins(0, 0, 0, 0)
 
             lbl_thresh = QLabel("Similarity Threshold:")
+            lbl_thresh.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             lbl_top = QLabel("   Top Edge %:")
             lbl_min_occ = QLabel("   Min Occupancy %:")
 
@@ -1362,8 +1959,12 @@ if __name__ == "__main__":
             cache_lay.addWidget(self.lbl_cache_tracker, 1)
             cache_lay.addWidget(btn_open_cache)
             layout.addRow("", cache_container)
-            
-            # ---> NEW: Cache File Dropdown & Specific Folder Button <---
+
+            self.cache_file_separator = self._add_padded_separator(
+                layout, "cache_file_separator"
+            )
+
+            # Cache dropdown, conditional new-cache name, and folder button.
             target_container = QWidget()
             target_container.setObjectName("wrapper")
             target_lay = QHBoxLayout(target_container)
@@ -1371,6 +1972,10 @@ if __name__ == "__main__":
 
             self.cb_cache_file = DynamicComboBox(self._refresh_cache_file_combo)
             self.cb_cache_file.setEnabled(False)
+
+            self.line_new_cache = QLineEdit()
+            self.line_new_cache.setVisible(False)
+            self.line_new_cache.setEnabled(False)
             
             self.btn_open_target_folder = QPushButton("📂")
             self.btn_open_target_folder.setFixedWidth(30)
@@ -1388,21 +1993,15 @@ if __name__ == "__main__":
                     QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
                     
             self.btn_open_target_folder.clicked.connect(open_target_folder)
-            
-            target_lay.addWidget(self.cb_cache_file)
+
+            target_lay.addWidget(self.cb_cache_file, 1)
+            target_lay.addWidget(self.line_new_cache, 1)
             target_lay.addWidget(self.btn_open_target_folder)
             
             layout.addRow("Selected Cache File:", target_container)
             self.labels["TARGET_CACHE_FILE"] = layout.labelForField(target_container)
+            self.labels["TARGET_CACHE_FILE"].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             self.inputs["TARGET_CACHE_FILE"] = self.cb_cache_file
-            
-            # ---> NEW: Custom Cache Name Box <---
-            self.line_new_cache = QLineEdit()
-            self.line_new_cache.setEnabled(False)
-            self.line_new_cache.setStyleSheet("QLineEdit:disabled { background-color: #f0f0f0; color: #888; }")
-            lbl_new_cache = QLabel("New Cache Name:")
-            layout.addRow(lbl_new_cache, self.line_new_cache)
-            self.labels["NEW_CACHE_NAME"] = lbl_new_cache
             self.inputs["NEW_CACHE_NAME"] = self.line_new_cache
             
             # Hook up the toggle switch
@@ -1757,9 +2356,31 @@ if __name__ == "__main__":
 
         def create_visuals_tab(self):
             tab = QWidget()
-            main_layout = QVBoxLayout(tab)
+            tab_layout = QVBoxLayout(tab)
+            tab_layout.setContentsMargins(
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+            )
+            tab_layout.setSpacing(CONFIG_TAB_ROW_SPACING)
+            profile_widget = QWidget()
+            profile_widget.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+            )
+            profile_layout = QFormLayout(profile_widget)
+            profile_layout.setContentsMargins(0, 0, 0, 0)
+            profile_layout.setHorizontalSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            self._add_profile_selector("visual_effects", profile_layout)
+            tab_layout.addWidget(profile_widget)
+            self._add_profile_separator("visual_effects", tab_layout)
+            content = QWidget()
+            main_layout = QVBoxLayout(content)
+            main_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.addWidget(content, 1)
+            self.profile_content_widgets["visual_effects"] = content
             visual_grid = QGridLayout()
-            visual_grid.setHorizontalSpacing(8)
+            visual_grid.setHorizontalSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
             visual_grid.setVerticalSpacing(12)
             visual_grid.setColumnStretch(1, 1)
             visual_grid.setColumnMinimumWidth(2, 16)
@@ -1841,11 +2462,7 @@ if __name__ == "__main__":
 
             # 2. Colors Setup
             color_keys = ["TEXT_COLOR", "INITIAL_NODE_COLOR", "HOVER_COLOR", "CONNECTED_NODE_COLOR", "EDGE_COLOR", "NODE_BOUNDARY_COLOR"]
-            self.visual_defaults = {
-                "NODE_SIZE": 10, "EDGE_WIDTH": 1.0, "NODE_BOUNDARY_WIDTH": 0.5, "EDGE_ALPHA": 0.1, "TEXT_SIZE": 8,
-                "TEXT_COLOR": "grey", "INITIAL_NODE_COLOR": "#4488ff", "HOVER_COLOR": "#ffaa00", "CONNECTED_NODE_COLOR": "#ff0000",
-                "EDGE_COLOR": "#000000", "NODE_BOUNDARY_COLOR": "#000000", "LOW_RESOURCE_MODE": False
-            }
+            self.visual_defaults = VISUAL_PROFILE_DEFAULTS
 
             color_row_start = visual_row
 
@@ -1905,7 +2522,7 @@ if __name__ == "__main__":
 
             # --- Low Resource Mode Toggle ---
             lbl_low_res = QLabel("Low Resource Mode:")
-            lbl_low_res.setFixedWidth(180)
+            lbl_low_res.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             cb_low_res = QPushButton()
             cb_low_res.setCheckable(True)
             cb_low_res.setFixedSize(60, 28)
@@ -1930,54 +2547,45 @@ if __name__ == "__main__":
             
             main_layout.addLayout(visual_grid)
             main_layout.addStretch()
-            
-            btn_reset = QPushButton("Reset to Default")
-            btn_reset.setMinimumSize(140, 35)
-            btn_reset.setStyleSheet("background-color: #e0e0e0; color: #333; font-weight: bold;")
-            
-            def reset_visuals():
-                for k, v in self.visual_defaults.items():
-                    widget = self.inputs.get(k)
-                    if widget:
-                        if hasattr(widget, 'setValue'):
-                            widget.setValue(v)
-                        elif hasattr(widget, 'setChecked'):
-                            widget.setChecked(v)
-                        else:
-                            widget.setText(str(v))
-                            if k in self.color_swatches:
-                                self.color_swatches[k].setStyleSheet(f"background-color: {v}; border: 1px solid gray; border-radius: 3px;")
-                                
-            btn_reset.clicked.connect(reset_visuals)
-            
-            bottom_lay = QHBoxLayout()
-            bottom_lay.addStretch()
-            bottom_lay.addWidget(btn_reset)
-            main_layout.addLayout(bottom_lay)
+
+            self.profile_labels["visual_effects"].setFixedWidth(
+                CONFIG_FIELD_LABEL_WIDTH
+            )
             
             self.tabs.addTab(tab, "Visual Effects")
             
         def create_physics_tab(self):
             tab = QWidget()
-            main_layout = QVBoxLayout(tab)
+            tab_layout = QVBoxLayout(tab)
+            tab_layout.setContentsMargins(
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+            )
+            tab_layout.setSpacing(CONFIG_TAB_ROW_SPACING)
+            profile_widget = QWidget()
+            profile_widget.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+            )
+            profile_layout = QFormLayout(profile_widget)
+            profile_layout.setContentsMargins(0, 0, 0, 0)
+            profile_layout.setHorizontalSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            self._add_profile_selector("simulation_physics", profile_layout)
+            tab_layout.addWidget(profile_widget)
+            self._add_profile_separator("simulation_physics", tab_layout)
+            content = QWidget()
+            main_layout = QVBoxLayout(content)
+            main_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.addWidget(content, 1)
+            self.profile_content_widgets["simulation_physics"] = content
             form_layout = QFormLayout()
-            field_label_gap = 12
+            field_label_gap = CONFIG_FIELD_HORIZONTAL_SPACING
             paired_group_padding = 24
             form_layout.setHorizontalSpacing(field_label_gap)
             form_layout.setVerticalSpacing(12)
             
-            self.physics_defaults = {
-                "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
-                "LAYOUT_DEVICE_SELECTION": "auto",
-                "SPRING_K": 5.0, "COULOMB_K": 10.0, "COULOMB_CUTOFF": 30.0, 
-                "DAMPING": 0.9, "DT": 0.005, "MAX_STEPS": 10000, "RMSD_THRESHOLD": 0.005,
-                "PERCENTAGE_DROP_THRESHOLD": 0.1, "RMSD_WINDOW": 50,
-                "ENABLE_PROGRESSIVE_SIMULATION": False,
-                "PACKING_GEOMETRY": "Square",
-                "PACKING_GRID_SIZE": 20.0,
-                "SGLD_MIN_K": 20, "SGLD_K_PERCENT": 0.01,
-                "SGLD_START_TEMP": 1.5, "SGLD_NOISE_SCALE": 1.0
-            }
+            self.physics_defaults = PHYSICS_PROFILE_DEFAULTS
             
             # --- 1. Physics Engine Choice ---
             cb_engine = NoScrollComboBox()
@@ -1985,7 +2593,7 @@ if __name__ == "__main__":
             initial_engine = globals().get("PHYSICS_ENGINE", "Molecular Dynamics (Style)")
             cb_engine.setCurrentText(initial_engine)
             lbl_engine = QLabel("Physics Engine:")
-            lbl_engine.setFixedWidth(180)
+            lbl_engine.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             form_layout.addRow(lbl_engine, cb_engine)
             self.inputs["PHYSICS_ENGINE"] = cb_engine
             self.labels["PHYSICS_ENGINE"] = lbl_engine
@@ -2004,7 +2612,7 @@ if __name__ == "__main__":
                 saved_index = cb_layout_device.count() - 1
             cb_layout_device.setCurrentIndex(saved_index)
             lbl_layout_device = QLabel("Layout Device:")
-            lbl_layout_device.setFixedWidth(180)
+            lbl_layout_device.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             form_layout.addRow(lbl_layout_device, cb_layout_device)
             self.inputs["LAYOUT_DEVICE_SELECTION"] = cb_layout_device
             self.labels["LAYOUT_DEVICE_SELECTION"] = lbl_layout_device
@@ -2071,7 +2679,7 @@ if __name__ == "__main__":
             slider_pair_grid = QGridLayout()
             slider_pair_grid.setHorizontalSpacing(0)
             slider_pair_grid.setVerticalSpacing(12)
-            slider_pair_grid.setColumnMinimumWidth(0, 180)
+            slider_pair_grid.setColumnMinimumWidth(0, CONFIG_FIELD_LABEL_WIDTH)
             slider_pair_grid.setColumnMinimumWidth(1, field_label_gap)
             slider_pair_grid.setColumnMinimumWidth(3, paired_group_padding)
             slider_pair_grid.setColumnMinimumWidth(5, field_label_gap)
@@ -2082,7 +2690,7 @@ if __name__ == "__main__":
                 row = slider_pair_grid.rowCount()
                 left_label, left_control = physics_slider_controls[left_key]
                 right_label, right_control = physics_slider_controls[right_key]
-                left_label.setFixedWidth(180)
+                left_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
 
                 slider_pair_grid.addWidget(left_label, row, 0)
                 slider_pair_grid.addWidget(left_control, row, 2)
@@ -2097,7 +2705,7 @@ if __name__ == "__main__":
             convergence_grid = QGridLayout()
             convergence_grid.setHorizontalSpacing(0)
             convergence_grid.setVerticalSpacing(12)
-            convergence_grid.setColumnMinimumWidth(0, 180)
+            convergence_grid.setColumnMinimumWidth(0, CONFIG_FIELD_LABEL_WIDTH)
             convergence_grid.setColumnMinimumWidth(1, field_label_gap)
             convergence_grid.setColumnMinimumWidth(3, paired_group_padding)
             convergence_grid.setColumnMinimumWidth(5, field_label_gap)
@@ -2183,14 +2791,14 @@ if __name__ == "__main__":
             h_lay_window.addWidget(box_window)
             
             lbl_window = QLabel("RMSD Window:")
-            lbl_window.setFixedWidth(180)
+            lbl_window.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             form_layout.addRow(lbl_window, ui_window)
             self.inputs["RMSD_WINDOW"] = box_window
             self.labels["RMSD_WINDOW"] = lbl_window
             
             # --- 5. Packing controls ---
             lbl_prog = QLabel("Progressive Annealing:")
-            lbl_prog.setFixedWidth(180)
+            lbl_prog.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             cb_prog = QPushButton()
             cb_prog.setCheckable(True)
             cb_prog.setFixedSize(60, 28)
@@ -2223,7 +2831,6 @@ if __name__ == "__main__":
             cb_geom = NoScrollComboBox()
             cb_geom.addItems(["Square", "Circle"])
 
-            from PySide6.QtWidgets import QSizePolicy
             cb_geom.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
             cb_geom.setMinimumWidth(120)
 
@@ -2306,7 +2913,7 @@ if __name__ == "__main__":
             monte_carlo_grid = QGridLayout()
             monte_carlo_grid.setHorizontalSpacing(0)
             monte_carlo_grid.setVerticalSpacing(12)
-            monte_carlo_grid.setColumnMinimumWidth(0, 180)
+            monte_carlo_grid.setColumnMinimumWidth(0, CONFIG_FIELD_LABEL_WIDTH)
             monte_carlo_grid.setColumnMinimumWidth(1, field_label_gap)
             monte_carlo_grid.setColumnMinimumWidth(3, paired_group_padding)
             monte_carlo_grid.setColumnMinimumWidth(5, field_label_gap)
@@ -2347,7 +2954,7 @@ if __name__ == "__main__":
                 lbl_steps, lbl_drop, lbl_pct_k, lbl_noise_scale,
             )
             for paired_label in paired_left_labels:
-                paired_label.setFixedWidth(180)
+                paired_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             right_label_width = max(
                 label.fontMetrics().horizontalAdvance(label.text())
                 for label in paired_right_labels
@@ -2391,43 +2998,48 @@ if __name__ == "__main__":
             
             main_layout.addLayout(form_layout)
             main_layout.addStretch()
-            
-            btn_reset = QPushButton("Reset to Default")
-            btn_reset.setMinimumSize(140, 35)
-            btn_reset.setStyleSheet("background-color: #e0e0e0; color: #333; font-weight: bold;")
-            
-            def reset_physics():
-                for k, v in self.physics_defaults.items():
-                    widget = self.inputs.get(k)
-                    if widget:
-                        if k == "LAYOUT_DEVICE_SELECTION":
-                            index = widget.findData(v)
-                            if index >= 0:
-                                widget.setCurrentIndex(index)
-                        elif hasattr(widget, 'setCurrentText'):
-                            widget.setCurrentText(str(v))
-                        elif hasattr(widget, 'setValue'):
-                            widget.setValue(v)
-                        elif hasattr(widget, 'setChecked'):
-                            widget.setChecked(v)
-                        else:
-                            widget.setText(str(v))
-                update_engine_ui()
-            
-            btn_reset.clicked.connect(reset_physics)
-            
-            bottom_lay = QHBoxLayout()
-            bottom_lay.addStretch()
-            bottom_lay.addWidget(btn_reset)
-            main_layout.addLayout(bottom_lay)
  
             self.tabs.addTab(tab, "Simulation && Physics")
             
         def create_directories_tab(self):
             tab = QWidget()
             layout = QFormLayout(tab)
-            layout.setHorizontalSpacing(30)
-            layout.setVerticalSpacing(12)
+            layout.setContentsMargins(
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+                CONFIG_TAB_CONTENT_MARGIN,
+            )
+            layout.setHorizontalSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            layout.setVerticalSpacing(CONFIG_TAB_ROW_SPACING)
+            self._add_profile_selector("directories", layout)
+
+            saved_config_container = QWidget()
+            saved_config_layout = QHBoxLayout(saved_config_container)
+            saved_config_layout.setContentsMargins(0, 0, 0, 0)
+            saved_config_input = QLineEdit(str(globals().get("SAVED_CONFIG_DIR", SAVED_CONFIG_DIR)))
+            saved_config_button = QPushButton("Browse...")
+            saved_config_layout.addWidget(saved_config_input)
+            saved_config_layout.addWidget(saved_config_button)
+            layout.addRow("Saved Config Directory:", saved_config_container)
+            self.inputs["SAVED_CONFIG_DIR"] = saved_config_input
+            self.labels["SAVED_CONFIG_DIR"] = layout.labelForField(saved_config_container)
+            self.labels["SAVED_CONFIG_DIR"].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+
+            def browse_saved_config_directory(checked=False):
+                folder = QFileDialog.getExistingDirectory(
+                    self, "Select Saved Config Directory", saved_config_input.text() or ""
+                )
+                if folder:
+                    saved_config_input.setText(os.path.normpath(folder))
+                    self._saved_config_directory_committed()
+
+            saved_config_button.clicked.connect(browse_saved_config_directory)
+            saved_config_input.editingFinished.connect(self._saved_config_directory_committed)
+            self._add_profile_separator("directories", layout)
+
+            directory_profile_controls = []
+            self.profile_content_widgets["directories"] = directory_profile_controls
             
             keys = [
                 # Input_Files
@@ -2467,7 +3079,9 @@ if __name__ == "__main__":
                 display_name = display_name.replace('Dir', 'Directory')
                 
                 lbl = QLabel(f"{display_name}:")
+                lbl.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
                 layout.addRow(lbl, container)
+                directory_profile_controls.extend((lbl, container))
                 self.labels[key] = lbl
                 self.inputs[key] = le
 
@@ -2485,7 +3099,7 @@ if __name__ == "__main__":
             for key, widget in self.inputs.items():
                 
                 # ---> NEW: Completely skip saving the target cache selection to JSON
-                if key == "TARGET_CACHE_FILE":
+                if key in {"TARGET_CACHE_FILE", "NEW_CACHE_NAME"}:
                     continue
                     
                 if isinstance(widget, QComboBox):
@@ -2519,13 +3133,95 @@ if __name__ == "__main__":
                 data[key] = val
             return data
 
-        def save_settings(self, data=None):
-            if data is None:
-                data = self.collect_data()
+        def _widget_profile_value(self, key):
+            widget = self.inputs[key]
+            if isinstance(widget, QComboBox):
+                value = (
+                    widget.currentData()
+                    if key == "LAYOUT_DEVICE_SELECTION"
+                    else widget.currentText()
+                )
+            elif isinstance(widget, OptionalNoScrollDoubleSpinBox):
+                optional_value = widget.optionalValue()
+                value = "None" if optional_value is None else str(optional_value)
+            elif isinstance(widget, QPushButton) and widget.isCheckable():
+                value = widget.isChecked()
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                value = str(widget.value())
+            elif isinstance(widget, QLineEdit):
+                value = widget.text()
+            elif hasattr(widget, "isChecked"):
+                value = widget.isChecked()
+            else:
+                value = str(widget)
+
+            if key == "NODE_FASTA_FILE":
+                value = (
+                    os.path.join(self.inputs["FASTA_DIR"].text(), value).replace("\\", "/")
+                    if value else ""
+                )
+            elif key == "MSA_FILE":
+                value = (
+                    os.path.join(self.inputs["MSA_DIR"].text(), value).replace("\\", "/")
+                    if value else ""
+                )
+            elif key == "INPUT_HDF5":
+                value = (
+                    os.path.join(self.inputs["HDF5_DIR"].text(), value).replace("\\", "/")
+                    if value else ""
+                )
+            return value
+
+        def _collect_tab_profile_data(self, tab_id):
+            data = {
+                key: self._widget_profile_value(key)
+                for key in TAB_PROFILE_SPECS[tab_id]["defaults"]
+            }
+            self._normalize_profile_data(tab_id, data)
+            return data
+
+        def _prepare_profile_writes(self):
+            tab_data = {
+                tab_id: self._collect_tab_profile_data(tab_id)
+                for tab_id in TAB_PROFILE_SPECS
+            }
+            custom_settings = dict(self._custom_settings)
+            custom_settings["SAVED_CONFIG_DIR"] = self.inputs["SAVED_CONFIG_DIR"].text()
+            writes = []
+            created_profiles = []
+
+            for tab_id in TAB_PROFILE_SPECS:
+                selection = self.profile_selectors[tab_id].currentText()
+                if selection == "(custom)":
+                    custom_settings.update(tab_data[tab_id])
+                elif selection == "(default)":
+                    continue
+                elif selection == "(new)":
+                    existing = _discover_profile_names(self._saved_config_root(), tab_id)
+                    name = _validate_profile_name(
+                        self.profile_name_inputs[tab_id].text(), existing
+                    )
+                    writes.append((self._profile_path(tab_id, name), tab_data[tab_id]))
+                    created_profiles.append((tab_id, name))
+                else:
+                    writes.append(
+                        (self._profile_path(tab_id, selection), tab_data[tab_id])
+                    )
+
+            writes.append((Path(DEFAULT_SETTINGS_FILE), custom_settings))
+            return writes, custom_settings, created_profiles
+
+        def save_settings(self):
             try:
-                os.makedirs("Input_Files", exist_ok=True)
-                with open(DEFAULT_SETTINGS_FILE, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=4)
+                writes, custom_settings, created_profiles = self._prepare_profile_writes()
+                for path, profile_data in writes:
+                    _atomic_write_json(path, profile_data)
+                self._custom_settings = custom_settings
+                for tab_id, name in created_profiles:
+                    self._refresh_profile_combo(tab_id)
+                    self._set_profile_selection(tab_id, name)
+                    self._profile_previous_selection[tab_id] = name
+                    self._set_new_profile_field_visible(tab_id, False)
                 return True
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save settings:\n{e}")
@@ -2576,7 +3272,7 @@ if __name__ == "__main__":
                 return
 
             settings_data = self.collect_data()
-            if not self.save_settings(settings_data):
+            if not self.save_settings():
                 return
 
             try:
@@ -2614,8 +3310,7 @@ if __name__ == "__main__":
                 return
 
         def save_only(self):
-            if self.save_settings():
-                QMessageBox.information(self, "Success", "Settings saved successfully!")
+            self.save_settings()
 
     app = QApplication(sys.argv)
     configure_linux_qt_desktop_identity(app, VIEWER_DESKTOP_FILE_NAME)
