@@ -17,6 +17,8 @@ import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with
 import html
 import sys
 import os
+import ntpath
+import posixpath
 import ast
 import json
 import markdown
@@ -3544,6 +3546,16 @@ class ToolsGUI(QMainWindow):
         return directories
 
     @staticmethod
+    def _portable_export_directory_path(path):
+        """Use portable separators for relative directories in exported JSON."""
+        if not path:
+            return ""
+        path = os.fspath(path)
+        if ntpath.isabs(path) or posixpath.isabs(path):
+            return path
+        return path.replace("\\", "/")
+
+    @staticmethod
     def _normalized_export_filename(raw_name):
         name = raw_name.strip()
         if not name:
@@ -3604,11 +3616,23 @@ class ToolsGUI(QMainWindow):
             directory_keys = TOOL_DIRECTORY_KEYS.get(script_name)
             if directory_keys is None:
                 raise ValueError(f"No directory export contract is registered for {script_name}.")
+            tool_settings = self._collect_tool_settings(script_path)
+            tool_settings = {
+                key: (
+                    self._portable_export_directory_path(value)
+                    if key.endswith("_DIR") and isinstance(value, (str, os.PathLike))
+                    else value
+                )
+                for key, value in tool_settings.items()
+            }
             payload = {
                 "DIRECTORIES": {
-                    key: current_directories.get(key, "") for key in directory_keys
+                    key: self._portable_export_directory_path(
+                        current_directories.get(key, "")
+                    )
+                    for key in directory_keys
                 },
-                script_name: self._collect_tool_settings(script_path),
+                script_name: tool_settings,
             }
 
             os.makedirs(export_directory, exist_ok=True)

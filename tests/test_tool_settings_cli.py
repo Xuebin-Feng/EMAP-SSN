@@ -1,7 +1,9 @@
 import importlib.util
 import json
+import ntpath
 import os
 import pathlib
+import posixpath
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -228,6 +230,26 @@ class ToolExportGuiTests(unittest.TestCase):
             with self.subTest(name=invalid), self.assertRaises(ValueError):
                 normalize(invalid)
 
+    def test_exported_relative_directories_use_portable_separators(self):
+        portable = self.tools_gui_class._portable_export_directory_path
+
+        exported = portable(r"Input_Files\Sequence Sets")
+        self.assertEqual(exported, "Input_Files/Sequence Sets")
+        self.assertEqual(
+            portable("Input_Files/Sequence Sets"),
+            "Input_Files/Sequence Sets",
+        )
+        self.assertEqual(
+            ntpath.normpath(ntpath.join(r"C:\ssn", exported)),
+            r"C:\ssn\Input_Files\Sequence Sets",
+        )
+        self.assertEqual(
+            posixpath.normpath(posixpath.join("/ssn", exported)),
+            "/ssn/Input_Files/Sequence Sets",
+        )
+        self.assertEqual(portable(r"C:\SSN Data\Sequences"), r"C:\SSN Data\Sequences")
+        self.assertEqual(portable("/srv/ssn/sequences"), "/srv/ssn/sequences")
+
     def test_tab_pages_share_content_width_without_resizing_tab_labels(self):
         from PySide6.QtWidgets import QScrollArea, QTabWidget, QWidget
 
@@ -427,7 +449,7 @@ class ToolExportGuiTests(unittest.TestCase):
             overwrite.setChecked(True)
             fake_window = SimpleNamespace()
             fake_window.dir_inputs = {
-                "FASTA_DIR": QLineEdit("current_sequences"),
+                "FASTA_DIR": QLineEdit(r"current_sequences\nested"),
                 "EMBED_DIR": QLineEdit("should_not_export"),
                 "SETTING_EXPORT_DIR": QLineEdit(temp_dir),
             }
@@ -449,6 +471,9 @@ class ToolExportGuiTests(unittest.TestCase):
             fake_window._current_directory_settings = lambda: (
                 self.tools_gui_class._current_directory_settings(fake_window)
             )
+            fake_window._portable_export_directory_path = (
+                self.tools_gui_class._portable_export_directory_path
+            )
             fake_window._collect_tool_settings = lambda path: (
                 self.tools_gui_class._collect_tool_settings(fake_window, path)
             )
@@ -463,7 +488,10 @@ class ToolExportGuiTests(unittest.TestCase):
             payload = json.loads(
                 (pathlib.Path(temp_dir) / "portable.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(payload["DIRECTORIES"], {"FASTA_DIR": "current_sequences"})
+            self.assertEqual(
+                payload["DIRECTORIES"],
+                {"FASTA_DIR": "current_sequences/nested"},
+            )
             self.assertEqual(
                 payload["Sanitize_Sequences.py"],
                 {"INPUT_FASTA": "current.fasta", "OVER_WRITE": True},
