@@ -71,7 +71,7 @@ Available CLI commands:
 13. `query EXPRESSION [POSITIONS_OR_FREQUENCY_LOGIC] | query [POSITIONS_OR_FREQUENCY_LOGIC]`
     - Requires a loaded MSA and exactly one literal bracketed argument containing the positions or frequency logic. EXPRESSION uses the shared expression language and must remain outside the square brackets. For example, use `query #cluster_N#&!#GROUP_NAME# [POSITION]`, never `query [#cluster_N#&!#GROUP_NAME#] [POSITION]`.
     - If EXPRESSION is omitted, the current selection is queried; when there is no selection, all mapped nodes are queried.
-    - Position-breakdown mode accepts a literal bracketed comma-separated list of positions and ranges. Reference labels may be integers or decimal insertion labels; `E` and `END` denote the last mapped position and may terminate a range.
+    - Position-breakdown mode accepts a literal bracketed comma-separated list of positions and ranges. Reference labels may be integers or decimal insertion labels; `E` and `END` denote the last mapped position and may terminate a range. Every negative position or range endpoint must be enclosed individually in parentheses: emit `[(-1),(-1.1),0]` or `[(-3)-2]`, never `[-1]`, `[-1.1,0]`, or `[-3--1]`.
     - Frequency-search mode accepts literal bracketed residue-frequency comparisons joined by `&`, `|`, `!`, and `^`. Comparisons support `<`, `<=`, `>`, and `>=`; thresholds may be decimal fractions or percentages; residues are one-letter codes and gaps are `GAP` or `_`. Parenthesize individual comparisons when combining them.
     - Reports residue distributions or matching positions to the terminal together with alignment, reference, offset, and subset context; it does not modify viewer state.
 
@@ -91,14 +91,15 @@ Available CLI commands:
     - The default Matplotlib color scheme is `coolwarm`. A valid Matplotlib colormap name may be supplied; an unrecognized scheme falls back to the default.
     - All nodes colored by one invocation, including invalid-value nodes colored gray, are promoted as one node-index-ordered render group.
 
-17. `meta | meta [upload|import] <FILENAME> | meta show <PROPERTY_NAME> | meta download [FILENAME]`
+17. `meta | meta [upload|import] <FILENAME> | meta show <PROPERTY_NAME> | meta download [FILENAME] | meta delete|remove|clear <PROPERTY_NAME> [PROPERTY_NAME ...]`
     - `meta` opens the browser metadata spreadsheet and registers its sidebar shortcut.
     - A bare filename, or a filename after `upload`/`import`, loads and merges `.xlsx`, `.xls`, or `.csv` metadata into the current session. Paths may be absolute, relative, or relative to the configured metadata directory.
     - `show`/`display` enables a click-driven HUD for one property; `meta show clear` and `meta show off` remove it.
+    - `delete`/`remove`/`clear` atomically deletes one or more metadata properties using case-insensitive matching. Node ID/Sequence Header is protected, Length is deletable, and `all` is not supported. These deletions participate in viewer undo/redo.
     - `download`/`retrieve`/`export` writes all current session metadata. Without a filename it chooses the next free generic CSV name; with a filename it adds `.csv` if no extension is present and overwrites an existing target of that name. This form does not accept a node expression.
 
 18. `group [EXPRESSION] <GROUP_NAME> [<EXPRESSION_2> <GROUP_NAME_2> ...] | group list | group remove <GROUP_NAME...>`
-    - Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens and should use underscores instead of spaces or special characters.
+    - Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens and should use underscores instead of spaces or special characters. Do not use the reserved names `noise`, `reset`, `remove`, `delete`, `list`, `help`, `cluster`, `group`, `groups`, or `clusters`. Canonical generated labels `cluster_N` and `subcluster_N_M` are also reserved when each numeric component is a positive integer without leading zeros; noncanonical names such as `cluster_001` remain allowed.
     - A single group name with no expression targets the current selection. Otherwise, arguments are expression/name pairs and multiple assignments may be made in one command.
     - `group list` prints group sizes and proportions. `remove` and `delete` remove the named groups from every node. Group assignments and removals participate in undo state.
 
@@ -107,9 +108,9 @@ Available CLI commands:
     - With no target, or with `clusters`, exports every non-noise topology cluster and requires prior clustering. `group`/`groups` exports every defined custom group. One or more `group:<GROUP_NAME>` targets export only those named groups.
     - Files are written to the viewer's organized `Analysis_Results/Sequence_Export/` hierarchy. This command chooses artifact names from cluster/group labels and does not accept a custom output filename.
 
-20. `label [clusters|groups] [gmax VALUE] [cmin VALUE] [IDENTITY] [FILENAME]`
+20. `label [cluster|clusters|group|groups] [gmax VALUE] [cmin VALUE] [IDENTITY] [FILENAME]`
     - Performs legacy differential sequence analysis and writes an XLSX workbook under `Analysis_Results/Cluster_Label/`. It requires a loaded MSA and a valid active reference.
-    - `clusters` is the default and analyzes all defined topology clusters plus custom groups; `groups` restricts analysis to custom groups.
+    - With no target keyword, analyzes all available topology clusters and custom groups. `cluster`/`clusters` restricts the report to topology clusters; `group`/`groups` restricts it to custom groups.
     - `gmax` is the maximum residue frequency allowed outside the deduplicated union of all analyzed subsets where the same amino acid meets `cmin` at the same position; it defaults to `40%`. `cmin` is the minimum gap-diluted within-subset amino-acid frequency and defaults to `98%`. Every amino acid at or above `cmin` is evaluated, qualifying clusters and groups share the union exclusion pool, and an empty outside background is not reported. Values accept decimal fractions or percentages. Global conservation is reported above a fixed `97%` threshold.
     - Optional identity-neighbor reweighting is off by default. Enable it with `id 0.9`, `id 90`, or `id 90%`; alternatively, a third positional number after gmax and cmin is identity. The first two positional numbers retain their gmax-then-cmin meanings, and positional thresholds must not follow keyword use.
     - Identity weights are calculated once across the complete aligned MSA and applied to global, subset, and outside-background residue frequencies and occupancy. Identity-enabled workbooks add Effective N while raw counts, proportions, and length statistics remain unweighted; omitted identity preserves the historical workbook layout.
@@ -117,7 +118,7 @@ Available CLI commands:
     - Calculation and workbook generation are queued in the viewer's shared sequential background scheduler. The command snapshots its alignment, mappings, cluster/group memberships, reference/offset, parameters, and output metadata when submitted; later viewer changes do not alter the queued report.
 
 21. `logo [EXPRESSION] <POSITIONS> [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]`
-    - Generates a sequence-logo SVG or PNG under `Analysis_Results/Sequence_Logos/`. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels. Explicit fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap. Integer ranges remain integer-only, so insertion labels must be listed explicitly.
+    - Generates a sequence-logo SVG or PNG under `Analysis_Results/Sequence_Logos/`. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels. Explicit fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap. Every negative position or range endpoint must be enclosed individually in parentheses, such as `[(-1),0,1]` or `[(-3)-(-1)]`; never emit bare negative positions. Integer ranges remain integer-only, so insertion labels must be listed explicitly.
     - If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. Arguments may appear in nearly any order, but the last otherwise-unrecognized token is treated as FILENAME.
     - MODE is `bits` by default or `pcts`/`percentages`. GAP_MODE is `with_gap` by default, which scales total height by occupancy, or `no_gap`.
     - COLOR_SCHEME may be a supported standalone preset or `color=SCHEME`/`scheme=SCHEME`; the default is `chemistry`. IDENTITY optionally enables sequence-redundancy weighting and accepts a fraction, percentage points, or a percent token; weighting is off when omitted.

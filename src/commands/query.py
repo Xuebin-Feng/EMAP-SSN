@@ -23,6 +23,60 @@ from collections import Counter
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
+from utilities.Position_Parsing import (
+    DISPLAYED_POSITION_ATOM_PATTERN,
+    normalize_displayed_position_atom,
+    reject_bare_negative_positions,
+)
+
+
+_QUERY_POSITION_ENDPOINT_PATTERN = (
+    rf"(?:{DISPLAYED_POSITION_ATOM_PATTERN}|E(?:ND)?)"
+)
+_QUERY_POSITION_RANGE_RE = re.compile(
+    rf"^({_QUERY_POSITION_ENDPOINT_PATTERN})\s*-\s*"
+    rf"({_QUERY_POSITION_ENDPOINT_PATTERN})$",
+    re.IGNORECASE,
+)
+
+
+def parse_query_positions(position_spec, valid_labels):
+    """Expand a query position list against mapped alignment labels."""
+    text = str(position_spec).strip()
+    if text.startswith('[') and text.endswith(']'):
+        text = text[1:-1]
+
+    reject_bare_negative_positions(text)
+
+    parsed_args = [part.strip() for part in text.split(',') if part.strip()]
+    expanded_positions = []
+    max_val = valid_labels[-1][0] if valid_labels else (0, 0)
+
+    def parse_to_tuple(value):
+        normalized = normalize_displayed_position_atom(value, allow_end=True)
+        if normalized in {"E", "END"}:
+            return max_val
+        major_text, separator, insertion_text = normalized.partition('.')
+        return int(major_text), int(insertion_text) if separator else 0
+
+    for part in parsed_args:
+        range_match = _QUERY_POSITION_RANGE_RE.fullmatch(part)
+        if range_match:
+            start_value, end_value = sorted(
+                [parse_to_tuple(range_match.group(1)), parse_to_tuple(range_match.group(2))]
+            )
+            for value, label in valid_labels:
+                if start_value <= value <= end_value and label not in expanded_positions:
+                    expanded_positions.append(label)
+            continue
+
+        normalized = normalize_displayed_position_atom(part, allow_end=True)
+        if normalized in {"E", "END"} and valid_labels:
+            normalized = valid_labels[-1][1]
+        if normalized not in expanded_positions:
+            expanded_positions.append(normalized)
+
+    return expanded_positions
 
 def print_help():
     print("""
@@ -47,7 +101,8 @@ def print_help():
       1. Position Breakdown Mode:
          [POSITIONS] - Comma-separated list or ranges enclosed in brackets.
          Accepts decimal positions, and 'E' or 'END' for the last residue.
-         Example: [10, 15.1, 20-30, 250-E, END]
+         Negative positions must be enclosed individually in parentheses.
+         Example: [(-1), 0, 15.1, 20-30, 250-E, END] or [(-3)-(-1)]
 
       2. Position Frequency Search Mode:
          [LOGIC_ARGUMENT] - Frequency criteria with operators (>, <, >=, <=) and 
@@ -77,6 +132,8 @@ def print_help():
 
     Examples:
       query [10, 15, 20-30]                         (Queries pos 10, 15, and 20 to 30)
+      query [(-1),0,10.1]                           (Queries negative, zero, and insertion positions)
+      query #cluster_1# [(-3)-2]                    (Queries a range crossing zero in cluster 1)
       query [K>10%]                                 (Finds positions where Lysine > 10%)
       query [(K>0.1) & (R>0.05)]                    (Finds positions where K > 10% and R > 5%)
       query P106 [(K>20%) | (R>20%)]                (Finds positions with K or R > 20% in Pro106 subset)
@@ -422,41 +479,11 @@ def run(viewer, args):
     print(f"Alignment Offset: {offset_display}")
     print("-" * 50)
 
-    # Extract the inner string from the brackets and split by comma
-    parsed_args = [x.strip() for x in inner.split(',') if x.strip()]
-    
-    expanded_positions = []
-    max_val = valid_labels[-1][0] if valid_labels else (0, 0)
-
-    def parse_to_tuple(s):
-        s_clean = str(s).strip().upper()
-        if s_clean in ["E", "END"]:
-            return max_val
-        p = s_clean.split('.')
-        return (int(p[0]), int(p[1]) if len(p) > 1 else 0)
-
-    for part in parsed_args:
-        if '-' in part and not part.startswith('-'):
-            try:
-                s_str, e_str = part.split('-', 1)
-                s_val, e_val = sorted([parse_to_tuple(s_str), parse_to_tuple(e_str)])
-                
-                for val, lbl in valid_labels:
-                    # Tuple comparison naturally handles Major/Minor logic correctly
-                    if s_val <= val <= e_val and lbl not in expanded_positions:
-                        expanded_positions.append(lbl)
-            except ValueError:
-                if part not in expanded_positions:
-                    expanded_positions.append(part)
-        else:
-            part_clean = part.strip().upper()
-            if part_clean in ["E", "END"] and valid_labels:
-                last_lbl = valid_labels[-1][1]
-                if last_lbl not in expanded_positions:
-                    expanded_positions.append(last_lbl)
-            else:
-                if part not in expanded_positions:
-                    expanded_positions.append(part)
+    try:
+        expanded_positions = parse_query_positions(inner, valid_labels)
+    except ValueError as exc:
+        Command_Engine.print_help(viewer, f"Error: {exc}")
+        return
 
     # Query the Matrix
     for pos in expanded_positions:

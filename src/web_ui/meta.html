@@ -167,6 +167,67 @@
             padding-right: 20px !important;
         }
 
+        .metadata-column-title {
+            align-items: center;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: center;
+            max-width: 100%;
+            padding: 0 24px;
+            position: relative;
+            width: 100%;
+        }
+
+        .metadata-typed-column .tabulator-col-title {
+            box-sizing: border-box;
+            width: 100%;
+        }
+
+        .metadata-column-drag-handle {
+            align-items: center;
+            display: inline-flex;
+            left: 0;
+            position: absolute;
+        }
+
+        .metadata-column-name {
+            overflow: hidden;
+            text-align: center;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .metadata-delete-column {
+            appearance: none;
+            align-items: center;
+            border: none;
+            background: transparent;
+            color: var(--danger);
+            cursor: pointer;
+            display: inline-flex;
+            justify-content: center;
+            font: inherit;
+            font-size: 20px;
+            font-weight: 800;
+            line-height: 1;
+            height: 20px;
+            margin: 0;
+            position: absolute;
+            right: -4px;
+            width: 20px;
+            padding: 0;
+        }
+
+        #spreadsheet-table .tabulator-col-sorter {
+            right: 10px !important;
+        }
+
+        .metadata-delete-column:hover,
+        .metadata-delete-column:focus-visible {
+            color: #b91c1c;
+            outline: none;
+        }
+
         /* Stack header title and filter container vertically */
         .tabulator-col-content {
             display: flex !important;
@@ -194,8 +255,41 @@
             width: 100% !important;
         }
 
+        .metadata-typed-column .tabulator-header-filter {
+            align-items: center;
+            display: flex;
+            gap: 5px;
+        }
+
+        .metadata-typed-column .tabulator-header-filter::before {
+            border: 1px solid;
+            border-radius: 3px;
+            box-sizing: border-box;
+            flex: 0 0 auto;
+            font-size: 9px;
+            font-weight: bold;
+            line-height: 1;
+            padding: 2px 4px;
+        }
+
+        .metadata-number-column .tabulator-header-filter::before {
+            background-color: #dafbe1;
+            border-color: #2da44e;
+            color: #1a7f37;
+            content: "NUM";
+        }
+
+        .metadata-text-column .tabulator-header-filter::before {
+            background-color: #ddf4ff;
+            border-color: #388bfd;
+            color: #0969da;
+            content: "TXT";
+        }
+
         .tabulator-header-filter input {
+            flex: 1 1 auto;
             height: 20px !important;
+            min-width: 0;
             padding: 2px 6px !important;
             font-size: 11.5px !important;
             border-radius: 4px !important;
@@ -362,6 +456,91 @@
         document.addEventListener("mouseup", finishPendingNodeNameGesture);
         document.addEventListener("pointercancel", cancelPendingNodeNameGesture);
         window.addEventListener("blur", cancelPendingNodeNameGesture);
+
+        function buildMetadataColumnTitle(columnName) {
+            const wrapper = document.createElement("span");
+            wrapper.className = "metadata-column-title";
+
+            const dragHandle = document.createElement("span");
+            dragHandle.className = "metadata-column-drag-handle";
+            dragHandle.textContent = "☰";
+            dragHandle.style.cursor = "grab";
+            dragHandle.style.color = "#94a3b8";
+            dragHandle.style.fontWeight = "bold";
+            wrapper.appendChild(dragHandle);
+
+            const title = document.createElement("span");
+            title.className = "metadata-column-name";
+            title.textContent = columnName;
+            wrapper.appendChild(title);
+
+            const deleteButton = document.createElement("button");
+            deleteButton.type = "button";
+            deleteButton.className = "metadata-delete-column";
+            deleteButton.textContent = "×";
+            deleteButton.title = `Delete metadata column ${columnName}`;
+            deleteButton.setAttribute("aria-label", `Delete metadata column ${columnName}`);
+            ["pointerdown", "mousedown"].forEach(eventName => {
+                deleteButton.addEventListener(eventName, event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                });
+            });
+            deleteButton.addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (window.confirm(`Delete metadata column "${columnName}"?`)) {
+                    sendAction({
+                        action: "delete_columns",
+                        columns: [columnName]
+                    });
+                }
+            });
+            wrapper.appendChild(deleteButton);
+            return wrapper;
+        }
+
+        function buildTableColumns(columnNames, types) {
+            const columns = [
+                {
+                    formatter: "rownum",
+                    headerSort: false,
+                    hoversort: false,
+                    width: 50,
+                    hozAlign: "center",
+                    movable: false
+                },
+                {
+                    title: "Sequence Header",
+                    field: "Node ID",
+                    headerFilter: "input",
+                    sorter: "string",
+                    hozAlign: "left",
+                    minWidth: 200,
+                    movable: false,
+                    headerFilterFunc: textFilterFunc
+                }
+            ];
+
+            columnNames.forEach(columnName => {
+                if (columnName === "Node ID") return;
+                const type = (types && types[columnName]) || "text";
+                columns.push({
+                    title: columnName,
+                    titleFormatter: () => buildMetadataColumnTitle(columnName),
+                    field: columnName,
+                    cssClass: `metadata-typed-column metadata-${type === "number" ? "number" : "text"}-column`,
+                    editor: type === "number" ? "number" : "input",
+                    editorParams: type === "number" ? {step: "any"} : undefined,
+                    validator: type === "number" ? "numeric" : undefined,
+                    sorter: type === "number" ? "number" : "string",
+                    headerFilter: "input",
+                    hozAlign: "center",
+                    headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
+                });
+            });
+            return columns;
+        }
 
         function textFilterFunc(headerValue, rowValue, rowData, filterParams) {
             if (headerValue === undefined || headerValue === null || headerValue === "") {
@@ -540,50 +719,7 @@
                     if (table && event.metadata) {
                         isEditingFromVispy = true;
                         if (event.columns) {
-                            const newCols = [
-                                {
-                                    formatter: "rownum", 
-                                    headerSort: false, 
-                                    hoversort: false, 
-                                    width: 50, 
-                                    hozAlign: "center",
-                                    movable: false
-                                },
-                                {
-                                    title: "Sequence Header", 
-                                    field: "Node ID", 
-                                    headerFilter: "input", 
-                                    sorter: "string", 
-                                    hozAlign: "left", 
-                                    minWidth: 200, 
-                                    movable: false, 
-                                    headerFilterFunc: textFilterFunc
-                                }
-                            ];
-                            event.columns.forEach(col => {
-                                if (col === "Node ID") return;
-                                const type = (event.types && event.types[col]) || "text";
-                                let badge = "";
-                                if (type === "number") {
-                                    badge = ' <span style="display: inline-block; color: #1a7f37; font-weight: bold; font-size: 9px; margin-left: 6px; padding: 2px 4px; border: 1px solid #2da44e; border-radius: 3px; background-color: #dafbe1; vertical-align: middle; line-height: 1;">NUM</span>';
-                                } else {
-                                    badge = ' <span style="display: inline-block; color: #0969da; font-weight: bold; font-size: 9px; margin-left: 6px; padding: 2px 4px; border: 1px solid #388bfd; border-radius: 3px; background-color: #ddf4ff; vertical-align: middle; line-height: 1;">TXT</span>';
-                                }
-                                const dragHandle = '<span style="cursor: grab; margin-right: 6px; color: #94a3b8; font-weight: bold; vertical-align: middle;">☰</span>';
-                                const titleText = '<span style="vertical-align: middle;">' + col + '</span>';
-                                newCols.push({
-                                    title: dragHandle + titleText + badge,
-                                    field: col,
-                                    editor: type === "number" ? "number" : "input",
-                                    editorParams: type === "number" ? {step: "any"} : undefined,
-                                    validator: type === "number" ? "numeric" : undefined,
-                                    sorter: type === "number" ? "number" : "string",
-                                    headerFilter: "input",
-                                    hozAlign: "center",
-                                    headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
-                                });
-                            });
-                            table.setColumns(newCols);
+                            table.setColumns(buildTableColumns(event.columns, event.types));
                         }
                         table.setData(event.metadata).then(() => {
                             currentSelectionIndices = event.selected_indices;
@@ -594,54 +730,14 @@
                         });
                     }
                     break;
+                case "metadata_error":
+                    window.alert(event.message || "Metadata operation failed.");
+                    break;
             }
         }
 
         function initSpreadsheet(data) {
-            const columns = [
-                {
-                    formatter: "rownum", 
-                    headerSort: false, 
-                    hoversort: false, 
-                    width: 50, 
-                    hozAlign: "center",
-                    movable: false
-                },
-                {
-                    title: "Sequence Header", 
-                    field: "Node ID", 
-                    headerFilter: "input", 
-                    sorter: "string", 
-                    hozAlign: "left", 
-                    minWidth: 200, 
-                    movable: false, 
-                    headerFilterFunc: textFilterFunc
-                }
-            ];
-
-            data.columns.forEach(col => {
-                if (col === "Node ID") return;
-                const type = (data.types && data.types[col]) || "text";
-                let badge = "";
-                if (type === "number") {
-                    badge = ' <span style="display: inline-block; color: #1a7f37; font-weight: bold; font-size: 9px; margin-left: 6px; padding: 2px 4px; border: 1px solid #2da44e; border-radius: 3px; background-color: #dafbe1; vertical-align: middle; line-height: 1;">NUM</span>';
-                } else {
-                    badge = ' <span style="display: inline-block; color: #0969da; font-weight: bold; font-size: 9px; margin-left: 6px; padding: 2px 4px; border: 1px solid #388bfd; border-radius: 3px; background-color: #ddf4ff; vertical-align: middle; line-height: 1;">TXT</span>';
-                }
-                const dragHandle = '<span style="cursor: grab; margin-right: 6px; color: #94a3b8; font-weight: bold; vertical-align: middle;">☰</span>';
-                const titleText = '<span style="vertical-align: middle;">' + col + '</span>';
-                columns.push({
-                    title: dragHandle + titleText + badge,
-                    field: col,
-                    editor: type === "number" ? "number" : "input",
-                    editorParams: type === "number" ? {step: "any"} : undefined,
-                    validator: type === "number" ? "numeric" : undefined,
-                    sorter: type === "number" ? "number" : "string",
-                    headerFilter: "input",
-                    hozAlign: "center",
-                    headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
-                });
-            });
+            const columns = buildTableColumns(data.columns, data.types);
 
             table = new Tabulator("#spreadsheet-table", {
                 data: data.rows,
@@ -652,7 +748,7 @@
                 placeholder: "No network data loaded",
                 headerSortTristate: true,
                 movableColumns: true,
-                history: true,
+                history: false,
                 validationMode: "blocking",
                 editTriggerEvent: "dblclick",
                 selectableRange: true,
@@ -740,29 +836,6 @@
                 }
             });
 
-            table.on("historyUndo", (action, component, data) => {
-                if (action === "cellEdit") {
-                    sendAction({
-                        action: "edit_cell",
-                        row: component.getRow().getData().id,
-                        column: component.getField(),
-                        value: component.getValue()
-                    });
-                }
-            });
-
-            table.on("historyRedo", (action, component, data) => {
-                if (action === "cellEdit") {
-                    sendAction({
-                        action: "edit_cell",
-                        row: component.getRow().getData().id,
-                        column: component.getField(),
-                        value: component.getValue()
-                    });
-                }
-            });
-
-
             document.getElementById("import-btn").addEventListener("click", () => {
                 sendAction({ action: "import_metadata" });
             });
@@ -772,11 +845,11 @@
             });
 
             document.getElementById("undo-btn").addEventListener("click", () => {
-                if (table) table.undo();
+                sendAction({ action: "metadata_undo" });
             });
 
             document.getElementById("redo-btn").addEventListener("click", () => {
-                if (table) table.redo();
+                sendAction({ action: "metadata_redo" });
             });
 
             const helpBtn = document.getElementById("help-btn");
@@ -806,10 +879,10 @@
                 if (e.ctrlKey || e.metaKey) {
                     if (e.key.toLowerCase() === "z") {
                         e.preventDefault();
-                        if (table) table.undo();
+                        sendAction({ action: "metadata_undo" });
                     } else if (e.key.toLowerCase() === "y") {
                         e.preventDefault();
-                        if (table) table.redo();
+                        sendAction({ action: "metadata_redo" });
                     }
                 }
             });

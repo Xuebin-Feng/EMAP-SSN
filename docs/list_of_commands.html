@@ -1081,7 +1081,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last reference residue (for example, <code>[10,15.1,20-30,250-E]</code>).</li>
+                    <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last reference residue (for example, <code>[10,15.1,20-30,250-E]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),(-1.1),0]</code> or <code>[(-3)-2]</code>; bare forms such as <code>[-1]</code> and <code>[-3--1]</code> are invalid.</li>
                     <li><strong>Insertions (Decimals):</strong> Insertion residues are marked using decimals (e.g., <code>106.1</code>, <code>106.2</code>). Querying <code>[106-107]</code> natively prints statistics for 106, 106.1, 106.2, and 107 in order.</li>
                     <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. A single criterion can be written as <code>[K&gt;10%]</code>; multi-condition searches require parentheses around each criterion, for example <code>[(K&gt;10%) &amp; (R&gt;5%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
                 </ul>
@@ -1089,6 +1089,8 @@
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>query [10, 15, 20-30]</span><button class="copy-btn" onclick="copyText('query [10, 15, 20-30]', this)">Copy</button></li>
+                    <li class="example-item"><span>query [(-1),0,10.1]</span><button class="copy-btn" onclick="copyText('query [(-1),0,10.1]', this)">Copy</button></li>
+                    <li class="example-item"><span>query #cluster_1# [(-3)-2]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [(-3)-2]', this)">Copy</button></li>
                     <li class="example-item"><span>query P106 [150-160]</span><button class="copy-btn" onclick="copyText('query P106 [150-160]', this)">Copy</button></li>
                     <li class="example-item"><span>query {Length&gt;500} [10-20]</span><button class="copy-btn" onclick="copyText('query {Length>500} [10-20]', this)">Copy</button></li>
                     <li class="example-item"><span>query [K&gt;10%]</span><button class="copy-btn" onclick="copyText('query [K>10%]', this)">Copy</button></li>
@@ -1264,7 +1266,8 @@
                 <ul>
                     <li><strong>No Spaces:</strong> Group names must be continuous strings. Use underscores instead of spaces (e.g. <code>active_site</code>).</li>
                     <li><strong>Case-Insensitive:</strong> All group names are converted to lowercase internally to prevent matching errors.</li>
-                    <li><strong>Reserved Words:</strong> You cannot name a group <code>noise</code> or <code>cluster_[N]</code> to prevent logic overlap.</li>
+                    <li><strong>Reserved Words:</strong> The exact case-insensitive names <code>noise</code>, <code>reset</code>, <code>remove</code>, <code>delete</code>, <code>list</code>, <code>help</code>, <code>cluster</code>, <code>group</code>, <code>groups</code>, and <code>clusters</code> are prohibited.</li>
+                    <li><strong>Generated Labels:</strong> Canonical labels that the topology commands can generate are prohibited: <code>cluster_N</code> and <code>subcluster_N_M</code>, where every component is a positive integer written without leading zeros. Thus <code>cluster_1</code> and <code>subcluster_1_2</code> are reserved, while noncanonical names such as <code>cluster_001</code>, <code>subcluster_001_2</code>, and <code>subcluster_1_002</code> are allowed.</li>
                 </ul>
 
                 <div class="subheading">Usage Mechanics</div>
@@ -1343,7 +1346,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">label [clusters|groups] [gmax value] [cmin value] [identity] [filename]</div>
+                    <div class="syntax-content">label [cluster|clusters|group|groups] [gmax value] [cmin value] [identity] [filename]</div>
                     <button class="copy-btn" onclick="copyText('label', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
@@ -1358,7 +1361,7 @@
 
                 <div class="subheading">Targets &amp; Parameters</div>
                 <ul>
-                    <li><strong>TARGET (Default: clusters):</strong> <code>clusters</code> (analyzes topology clusters and manual groups) or <code>groups</code> (skips clusters, analyzes only custom groups).</li>
+                    <li><strong>TARGET (Default: all available results):</strong> Omitting the target analyzes both topology clusters and custom groups when available. <code>cluster</code>/<code>clusters</code> retains only topology-cluster results; <code>group</code>/<code>groups</code> retains only custom-group results.</li>
                     <li><strong>OUTSIDE_MAX (gmax) [Default: 40%]:</strong> Maximum frequency of a conserved residue outside the deduplicated union of all analyzed subsets where that same amino acid meets <code>cmin</code> at the same position. Every qualifying subset is reported when the shared outside frequency is below this value. A candidate is not reported when its exclusion union leaves no outside sequences.</li>
                     <li><strong>CLUSTER_MIN (cmin) [Default: 98%]:</strong> Minimum gap-diluted amino-acid frequency inside a cluster or group. Every amino acid occurring at or above this frequency is evaluated, rather than only the dominant residue.</li>
                     <li><strong>IDENTITY (id) [Default: off]:</strong> Optional sequence-redundancy threshold, accepted as a fraction or percentage such as <code>id 0.9</code>, <code>id 90</code>, or <code>id 90%</code>. The command calculates logo-style identity-neighbor weights once across the aligned MSA and applies them consistently to global, subset, and outside-background residue frequencies and occupancy.</li>
@@ -1477,10 +1480,10 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt;  |  meta show &lt;property_name&gt;  |  meta download [filename]</div>
+                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt;  |  meta show &lt;property_name&gt;  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt; [property_name ...]</div>
                     <button class="copy-btn" onclick="copyText('meta', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Opens the browser metadata editor, loads Excel/CSV metadata into the current session, controls the clicked-node HUD property, or exports the complete current session metadata.</p>
+                <p><strong>Function:</strong> Opens the browser metadata editor, loads Excel/CSV metadata into the current session, controls the clicked-node HUD property, deletes metadata columns, or exports the complete current session metadata.</p>
                 
                 <div class="subheading">Subcommands &amp; Usage</div>
                 <ul>
@@ -1489,6 +1492,7 @@
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>:</strong> Activates a HUD text box in the bottom-right corner of the viewer displaying the value of the specified property when a node is clicked.</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>:</strong> Deactivates and hides the metadata property HUD.</li>
                     <li><strong><code>meta retrieve|download|export [filename]</code>:</strong> Exports all current session metadata to the configured metadata directory. With no filename, chooses the next free <code>metadata.csv</code>, <code>metadata1.csv</code>, and so on. An explicit filename defaults to <code>.csv</code> when it has no extension and overwrites an existing file. This subcommand does not accept an expression filter.</li>
+                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt; [property_name ...]</code>:</strong> Atomically deletes one or more metadata columns using case-insensitive property matching. Repeated names are ignored; if any requested name is missing, ambiguous, or protected, nothing is deleted. <code>Node ID</code>/<code>Sequence Header</code> is protected, while <code>Length</code> is ordinary deletable metadata. The keyword <code>all</code> is not supported. Use <code>undo</code>/<code>redo</code> to restore or reapply the deletion.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1499,6 +1503,8 @@
                     <li class="example-item"><span>meta show clear</span><button class="copy-btn" onclick="copyText('meta show clear', this)">Copy</button></li>
                     <li class="example-item"><span>meta download</span><button class="copy-btn" onclick="copyText('meta download', this)">Copy</button></li>
                     <li class="example-item"><span>meta export session_metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta export session_metadata.xlsx', this)">Copy</button></li>
+                    <li class="example-item"><span>meta delete Organism Host</span><button class="copy-btn" onclick="copyText('meta delete Organism Host', this)">Copy</button></li>
+                    <li class="example-item"><span>meta clear Length</span><button class="copy-btn" onclick="copyText('meta clear Length', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1598,7 +1604,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Integer ranges retain integer-only behavior.</li>
+                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior.</li>
                     <li><strong>FILENAME:</strong> Output file ending in <code>.svg</code> or <code>.png</code>. Saved to <code>Analysis_Results/Sequence_Logos/</code>.</li>
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
@@ -1610,6 +1616,8 @@
                 <ul class="example-list">
                     <li class="example-item"><span>logo [10-20]</span><button class="copy-btn" onclick="copyText('logo [10-20]', this)">Copy</button></li>
                     <li class="example-item"><span>logo [10,10.1,10.2,11]</span><button class="copy-btn" onclick="copyText('logo [10,10.1,10.2,11]', this)">Copy</button></li>
+                    <li class="example-item"><span>logo [(-1),0,1]</span><button class="copy-btn" onclick="copyText('logo [(-1),0,1]', this)">Copy</button></li>
+                    <li class="example-item"><span>logo #cluster_1# [(-3)-(-1)] pcts</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [(-3)-(-1)] pcts', this)">Copy</button></li>
                     <li class="example-item"><span>logo #cluster_1# [1,5] pcts no_gap</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] pcts no_gap', this)">Copy</button></li>
                     <li class="example-item"><span>logo [10-20] color=charge</span><button class="copy-btn" onclick="copyText('logo [10-20] color=charge', this)">Copy</button></li>
                     <li class="example-item"><span>logo #cluster_1# [1,5] bits 90%</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] bits 90%', this)">Copy</button></li>

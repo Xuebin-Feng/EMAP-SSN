@@ -108,20 +108,24 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         if meta_entry is None:
             return False
             
-        prop_type = meta_entry["type"]
-        if prop_type == "number":
-            try:
-                if not str(value).strip():
-                    parsed_val = np.nan
-                else:
-                    parsed_val = float(value)
-            except ValueError:
-                return False
-        else:
-            parsed_val = str(value)
-            
+        try:
+            parsed_val = _parse_metadata_value(meta_entry["type"], value)
+        except (TypeError, ValueError):
+            return False
+
+        old_value = meta_entry["values"][row]
+        if _metadata_values_equal(old_value, parsed_val):
+            return False
+        _record_metadata_cell_history(
+            self.viewer, col_name, row, old_value, parsed_val
+        )
         meta_entry["values"][row] = parsed_val
         self.dataChanged.emit(index, index, [QtCore.Qt.ItemDataRole.DisplayRole, QtCore.Qt.ItemDataRole.EditRole])
+        if hasattr(self.viewer, "update_nodes"):
+            self.viewer.update_nodes()
+        if hasattr(self.viewer, "canvas"):
+            self.viewer.canvas.update()
+        broadcast_metadata_state(self.viewer)
         return True
 
     def headerData(self, section, orientation, role=QtCore.Qt.ItemDataRole.DisplayRole):
@@ -270,6 +274,203 @@ def is_logic_expression(arg):
     if re.match(r'^[a-zA-Z_][\d\.]+$', arg):
         return True
     return False
+
+
+class MetadataColumnDeleteError(ValueError):
+    """Raised when a metadata-column deletion request is not atomic and valid."""
+
+
+def _parse_metadata_value(prop_type, value):
+    if prop_type == "number":
+        if str(value).strip() == "":
+            return np.nan
+        return float(value)
+    return str(value)
+
+
+def _metadata_values_equal(left, right):
+    try:
+        if pd.isna(left) and pd.isna(right):
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        return bool(left == right)
+    except (TypeError, ValueError):
+        return False
+
+
+def _record_metadata_cell_history(viewer, column, row, before, after):
+    save_compact = getattr(viewer, "_save_metadata_cell_history", None)
+    if callable(save_compact):
+        save_compact(column, row, before, after)
+    elif hasattr(viewer, "_save_state"):
+        viewer._save_state()
+
+
+def refresh_metadata_views(viewer):
+    refresh = getattr(viewer, "_refresh_metadata_views", None)
+    if callable(refresh):
+        refresh()
+        return
+
+    source_model = getattr(viewer, "metadata_source_model", None)
+    if source_model is not None and hasattr(source_model, "refresh_columns"):
+        source_model.refresh_columns()
+
+
+def metadata_state_event(viewer):
+    return {
+        "type": "state_updated",
+        "visible_mask": viewer.visible_mask.tolist(),
+        "selected_indices": viewer.selected_indices,
+        "metadata": viewer.get_serializable_metadata(),
+        "columns": ["Node ID"] + list(viewer.metadata.keys()),
+        "types": {
+            key: entry["type"] for key, entry in viewer.metadata.items()
+        },
+    }
+
+
+def broadcast_metadata_state(viewer):
+    broadcast = getattr(viewer, "broadcast_metadata_state", None)
+    if callable(broadcast):
+        broadcast()
+    elif hasattr(viewer, "broadcast_event"):
+        viewer.broadcast_event(metadata_state_event(viewer))
+
+
+def _resolve_metadata_column_names(viewer, requested_names):
+    if not isinstance(requested_names, (list, tuple)):
+        raise MetadataColumnDeleteError(
+            "Metadata columns must be supplied as a list of property names."
+        )
+
+    normalized = [str(name).strip() for name in requested_names]
+    if not normalized or any(not name for name in normalized):
+        raise MetadataColumnDeleteError(
+            "Specify at least one metadata property to delete."
+        )
+    if any(name.casefold() == "all" for name in normalized):
+        raise MetadataColumnDeleteError(
+            "Deleting all metadata columns at once is not supported."
+        )
+
+    protected = {"node id", "sequence header"}
+    protected_requested = [
+        name for name in normalized if name.casefold() in protected
+    ]
+    if protected_requested:
+        raise MetadataColumnDeleteError(
+            "Protected columns cannot be deleted: "
+            + ", ".join(protected_requested)
+            + "."
+        )
+
+    available = list(getattr(viewer, "metadata", {}).keys())
+    folded = {}
+    for available_name in available:
+        folded.setdefault(available_name.casefold(), []).append(available_name)
+
+    resolved = []
+    missing = []
+    ambiguous = []
+    for requested in normalized:
+        if requested in viewer.metadata:
+            actual = requested
+        else:
+            matches = folded.get(requested.casefold(), [])
+            if not matches:
+                missing.append(requested)
+                continue
+            if len(matches) > 1:
+                ambiguous.append(requested)
+                continue
+            actual = matches[0]
+        if actual not in resolved:
+            resolved.append(actual)
+
+    problems = []
+    if missing:
+        problems.append("not found: " + ", ".join(missing))
+    if ambiguous:
+        problems.append("case-ambiguous: " + ", ".join(ambiguous))
+    if problems:
+        available_text = ", ".join(available) if available else "none"
+        raise MetadataColumnDeleteError(
+            "Cannot delete metadata columns ("
+            + "; ".join(problems)
+            + f"). Available properties: {available_text}."
+        )
+    return resolved
+
+
+def delete_metadata_columns(viewer, requested_names, broadcast=True):
+    """Atomically delete resolved metadata columns and record compact history."""
+    resolved = _resolve_metadata_column_names(viewer, requested_names)
+    metadata_names = list(viewer.metadata.keys())
+    removed_columns = []
+    for name in resolved:
+        entry = viewer.metadata[name]
+        removed_columns.append({
+            "name": name,
+            "index": metadata_names.index(name),
+            "type": entry["type"],
+            "values": entry["values"].copy(),
+        })
+
+    active_hud = getattr(viewer, "meta_display_prop", None)
+    hud_property = active_hud if active_hud in resolved else None
+    save_compact = getattr(viewer, "_save_metadata_column_history", None)
+    if callable(save_compact):
+        save_compact(removed_columns, hud_property=hud_property)
+    elif hasattr(viewer, "_save_state"):
+        viewer._save_state()
+
+    for name in resolved:
+        del viewer.metadata[name]
+
+    if hud_property:
+        set_hud = getattr(viewer, "_set_metadata_hud_property", None)
+        if callable(set_hud):
+            set_hud(None)
+        else:
+            viewer.meta_display_prop = None
+            display = getattr(viewer, "hud_displays", {}).get("meta_display")
+            if display is not None:
+                display.hide()
+
+    refresh_metadata_views(viewer)
+    if broadcast:
+        broadcast_metadata_state(viewer)
+    return resolved
+
+
+def handle_delete_columns(viewer, data):
+    try:
+        deleted = delete_metadata_columns(viewer, data.get("columns"))
+    except MetadataColumnDeleteError as error:
+        message = str(error)
+        if hasattr(viewer, "broadcast_event"):
+            viewer.broadcast_event({
+                "type": "metadata_error",
+                "message": message,
+            })
+        Command_Engine.print_help(viewer, f"Error: {message}")
+        return False
+
+    Command_Engine.print_help(
+        viewer, "Deleted metadata columns: " + ", ".join(deleted) + "."
+    )
+    return True
+
+
+def handle_metadata_undo(viewer, _data):
+    return bool(viewer._do_undo())
+
+
+def handle_metadata_redo(viewer, _data):
+    return bool(viewer._do_redo())
 
 
 def inject_spreadsheet_panel(viewer, show_sidebar=True):
@@ -437,24 +638,29 @@ def handle_edit_cell(viewer, data):
     row = data.get("row")
     col = data.get("column")
     value = data.get("value")
-    
+
+    if isinstance(row, bool) or not isinstance(row, (int, np.integer)):
+        return False
+    row = int(row)
+    if row < 0 or row >= getattr(viewer, "n_nodes", 0):
+        return False
+
     meta_entry = viewer.metadata.get(col)
-    if meta_entry:
-        prop_type = meta_entry["type"]
-        if prop_type == "number":
-            try:
-                if str(value).strip() == "":
-                    parsed_val = np.nan
-                else:
-                    parsed_val = float(value)
-            except ValueError:
-                return
-        else:
-            parsed_val = str(value)
-        
-        meta_entry["values"][row] = parsed_val
-        viewer.update_nodes()
-        viewer.canvas.update()
+    if not meta_entry:
+        return False
+    try:
+        parsed_val = _parse_metadata_value(meta_entry["type"], value)
+    except (TypeError, ValueError):
+        return False
+
+    old_value = meta_entry["values"][row]
+    if _metadata_values_equal(old_value, parsed_val):
+        return False
+    _record_metadata_cell_history(viewer, col, row, old_value, parsed_val)
+    meta_entry["values"][row] = parsed_val
+    viewer.update_nodes()
+    viewer.canvas.update()
+    return True
 
 def handle_import_metadata(viewer, data):
     try:
@@ -590,6 +796,15 @@ def register_backend(registry, viewer):
     )
     registry.register_action(
         "meta", "export_metadata", lambda data: handle_export_metadata(viewer, data)
+    )
+    registry.register_action(
+        "meta", "delete_columns", lambda data: handle_delete_columns(viewer, data)
+    )
+    registry.register_action(
+        "meta", "metadata_undo", lambda data: handle_metadata_undo(viewer, data)
+    )
+    registry.register_action(
+        "meta", "metadata_redo", lambda data: handle_metadata_redo(viewer, data)
     )
     src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     registry.register_static_route(
@@ -777,14 +992,7 @@ def upload_metadata(viewer, file_paths):
             f"Matched {len(matched_nodes)} unique nodes, ignored {total_unmatched} rows. "
             f"Merged properties: {', '.join(sorted(all_merged_props))}."
         )
-        viewer.broadcast_event({
-            "type": "state_updated",
-            "visible_mask": viewer.visible_mask.tolist(),
-            "selected_indices": viewer.selected_indices,
-            "metadata": viewer.get_serializable_metadata(),
-            "columns": ["Node ID"] + list(viewer.metadata.keys()),
-            "types": {k: entry["type"] for k, entry in viewer.metadata.items()}
-        })
+        broadcast_metadata_state(viewer)
     if failed_files:
         fail_details = "; ".join([f"{f}: {err}" for f, err in failed_files])
         msg_parts.append(f"Failed to upload from {len(failed_files)} file(s): {fail_details}")

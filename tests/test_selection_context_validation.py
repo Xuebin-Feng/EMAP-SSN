@@ -264,6 +264,58 @@ class AtomicCommandTests(unittest.TestCase):
         viewer._save_state.assert_called_once_with()
         viewer.update_nodes.assert_called_once_with()
 
+    def test_group_rejects_reserved_words_and_canonical_generated_labels(self):
+        prohibited_names = (
+            "noise",
+            "reset",
+            "remove",
+            "delete",
+            "list",
+            "help",
+            "cluster",
+            "group",
+            "groups",
+            "clusters",
+            "cluster_1",
+            "cluster_27",
+            "subcluster_1_1",
+            "subcluster_12_34",
+            "GROUP",
+            "CLUSTER",
+            "Cluster_1",
+            "Subcluster_1_1",
+        )
+
+        for name in prohibited_names:
+            with self.subTest(name=name):
+                viewer = self.make_viewer()
+                with mock.patch("builtins.print"):
+                    group_command.run(viewer, ['"node"', name])
+
+                self.assertEqual(viewer.group_labels, [set()])
+                self.assertTrue(viewer.console_text.text.startswith("Skipped:"))
+                viewer._save_state.assert_not_called()
+                viewer.update_nodes.assert_not_called()
+
+    def test_group_allows_noncanonical_generated_label_lookalikes(self):
+        allowed_names = (
+            "cluster_0",
+            "cluster_001",
+            "subcluster_0_1",
+            "subcluster_001_2",
+            "subcluster_1_002",
+        )
+
+        for name in allowed_names:
+            with self.subTest(name=name):
+                viewer = self.make_viewer()
+                with mock.patch("builtins.print"):
+                    group_command.run(viewer, ['"node"', name])
+
+                self.assertEqual(viewer.group_labels, [{name}])
+                viewer._save_state.assert_called_once_with()
+                viewer.update_nodes.assert_called_once_with()
+
     def test_invalid_select_does_not_replace_current_selection(self):
         viewer = self.make_viewer()
         viewer.selected_indices = [0]

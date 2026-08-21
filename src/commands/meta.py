@@ -24,6 +24,8 @@ import pandas as pd
 import Command_Engine
 import SSN_Config as cfg
 from web_ui.meta_backend import (
+    MetadataColumnDeleteError,
+    delete_metadata_columns,
     register,
     upload_metadata,
     download_metadata,
@@ -52,6 +54,11 @@ def print_help(meta_dir):
           whenever a node is clicked.
       meta show/display clear/off
           Clears and removes the metadata property display.
+      meta delete/remove/clear <property_name> [property_name ...]
+          Atomically deletes one or more metadata columns from the current session.
+          Property matching is case-insensitive. Node ID/Sequence Header cannot be
+          deleted; Length is deletable metadata. Deleting every column with "all"
+          is not supported.
       meta help
           Displays this help message.
 
@@ -62,6 +69,9 @@ def print_help(meta_dir):
       meta download my_exported_data
       meta show Organism
       meta show clear
+      meta delete Organism Taxonomy
+      meta remove Host
+      meta clear Source
     """)
 
 def run(viewer, args):
@@ -72,7 +82,7 @@ def run(viewer, args):
     # 1. Registration callback support
     # Register sidebar button when called alone, or with upload, or via startup flag
     should_register = (not args or 
-                       (args and args[0].lower() not in ['help', '-h', '--help', 'show', 'display', 'download', 'retrieve', 'export', 'off', 'deactivate']) or 
+                       (args and args[0].lower() not in ['help', '-h', '--help', 'show', 'display', 'download', 'retrieve', 'export', 'delete', 'remove', 'clear', 'off', 'deactivate']) or
                        (args and args[0] == '--register-only'))
 
     if should_register:
@@ -106,7 +116,27 @@ def run(viewer, args):
             viewer.console_text.text = "Help information printed to the terminal"
         return
 
-    # 4. Display/Show Property Check
+    # 4. Delete Metadata Columns
+    if first_arg in ['delete', 'remove', 'clear']:
+        if len(args) < 2:
+            Command_Engine.print_help(
+                viewer,
+                f"Usage: meta {first_arg} <property_name> [property_name ...]",
+            )
+            return
+        try:
+            deleted = delete_metadata_columns(
+                viewer, args[1:], broadcast=False
+            )
+        except MetadataColumnDeleteError as error:
+            Command_Engine.print_help(viewer, f"Error: {error}")
+            return
+        Command_Engine.print_help(
+            viewer, "Deleted metadata columns: " + ", ".join(deleted) + "."
+        )
+        return
+
+    # 5. Display/Show Property Check
     if first_arg in ['display', 'show']:
         if len(args) < 2:
             Command_Engine.print_help(viewer, "Usage: meta show <property_name> OR meta show clear/off")
@@ -174,7 +204,7 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, f"Metadata display enabled for property: '{resolved_prop}'")
         return
 
-    # 5. Download Check
+    # 6. Download Check
     if first_arg in ['download', 'retrieve', 'export']:
         filename = ""
         if len(args) >= 2:
@@ -200,7 +230,7 @@ def run(viewer, args):
         download_metadata(viewer, filepath)
         return
 
-    # 6. Upload Check (Treat first argument as filename to upload)
+    # 7. Upload Check (Treat first argument as filename to upload)
     upload_args = list(args)
     if first_arg in ['upload', 'import']:
         upload_args = args[1:]

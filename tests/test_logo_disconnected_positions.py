@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -77,10 +78,38 @@ class LogoPositionParsingTests(unittest.TestCase):
 
         self.assertEqual(positions, [10, "10.1", 11, 12])
 
-    def test_negative_offset_insertion_labels_are_supported(self):
-        positions = parse_logo_positions("[-1.1,-1,0]")
+    def test_explicit_plus_prefix_remains_supported(self):
+        self.assertEqual(parse_logo_positions("[+1,+1.1]"), [1, "1.1"])
+
+    def test_parenthesized_negative_offset_labels_are_supported(self):
+        positions = parse_logo_positions("[(-1.1),(-1),0]")
 
         self.assertEqual(positions, [-1, "-1.1", 0])
+
+    def test_parenthesized_negative_ranges_are_supported(self):
+        self.assertEqual(
+            parse_logo_positions("[(-3)-(-1),0]"),
+            [-3, -2, -1, 0],
+        )
+        self.assertEqual(
+            parse_logo_positions("[(-2)-1]"),
+            [-2, -1, 0, 1],
+        )
+
+    def test_descending_parenthesized_negative_range_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "lower to higher"):
+            parse_logo_positions("[(-1)-(-3)]")
+
+    def test_bare_negative_positions_are_rejected_with_correction(self):
+        for position_spec, correction in (
+            ("[-1]", "(-1)"),
+            ("[-1.1,0]", "(-1.1)"),
+            ("[-3--1]", "(-3)"),
+            ("[1--1]", "(-1)"),
+        ):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaisesRegex(ValueError, re.escape(correction)):
+                    parse_logo_positions(position_spec)
 
     def test_fractional_ranges_require_explicit_insertion_labels(self):
         with self.assertRaisesRegex(ValueError, "list insertion positions explicitly"):

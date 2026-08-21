@@ -134,9 +134,10 @@ def print_help():
     Usage: label [TARGET] [GLOBAL_MAX] [CLUSTER_MIN] [IDENTITY] [NAME]
        or: label [TARGET] [key value] [<key 2> <value 2> ...] [NAME]
 
-    Targets (Default: clusters):
-      clusters : Analyzes all defined topology clusters AND any custom groups.
-      groups   : Analyzes ONLY custom groups (topology clusters not required).
+    Targets (Default: all available results):
+      cluster / clusters : Analyzes ONLY defined topology clusters.
+      group / groups     : Analyzes ONLY custom groups.
+      omitted            : Analyzes all available clusters and custom groups.
 
     Arguments (Accepts decimals '0.4' or percentages '40%'):
       gmax (Outside Max)  : Default 40%. Max frequency a conserved residue can
@@ -170,6 +171,9 @@ def print_help():
       label 0.4 0.9               (Positional: gmax=40%, cmin=90%)
       label id 90%                 (Uses default gmax/cmin and 90% identity weights)
       label 0.4 0.9 90% report    (Sets gmax, cmin, identity, and filename)
+      label cluster cmin 90%      (Analyzes only topology clusters)
+      label clusters report       (Cluster-only report; writes report.xlsx)
+      label group cmin 90%        (Analyzes only custom groups)
       label groups cmin 90%       (Keyword: Analyzes groups, sets cmin to 90%)
       label groups report         (Writes report.xlsx)
       label 0.4 0.9 report        (Sets thresholds and writes report.xlsx)
@@ -210,7 +214,7 @@ def _parse_label_arguments(args):
     }
     fixed_keys = {"gmin", "global_min", "g_min"}
     valid_targets = {"cluster", "clusters", "group", "groups"}
-    forced_target = "clusters"
+    forced_target = "all"
     requested_filename = None
     positional_args = []
     keyword_args = {}
@@ -294,6 +298,67 @@ def _parse_label_arguments(args):
         "forced_target": forced_target,
         "requested_filename": requested_filename,
     }
+
+
+def _build_label_tasks(viewer, target_mode, viewer_to_aln):
+    """Build cluster/group alignment subset tasks for the requested mode."""
+    tasks = []
+
+    if target_mode in {"all", "clusters"} and viewer.cluster_labels is not None:
+        aln_idx_to_cid = {}
+        for node_index, _header in enumerate(viewer.full_headers):
+            if node_index >= len(viewer.cluster_labels):
+                break
+            alignment_index = int(viewer_to_aln[node_index])
+            if alignment_index >= 0:
+                aln_idx_to_cid[alignment_index] = viewer.cluster_labels[node_index]
+
+        cluster_records = {}
+        for alignment_index, record in enumerate(viewer.alignment.aln):
+            cluster_id = aln_idx_to_cid.get(alignment_index, -1)
+            if cluster_id != -1:
+                cluster_records.setdefault(cluster_id, []).append(
+                    (alignment_index, record)
+                )
+
+        for cluster_id in sorted(cluster_records):
+            indexed_records = cluster_records[cluster_id]
+            tasks.append((
+                "cluster",
+                cluster_id,
+                MultipleSeqAlignment([record for _, record in indexed_records]),
+                viewer.alignment.col_to_label,
+                np.asarray([index for index, _ in indexed_records], dtype=int),
+            ))
+
+    if target_mode in {"all", "groups"} and getattr(viewer, 'group_labels', None):
+        aln_idx_to_groups = {}
+        for node_index, _header in enumerate(viewer.full_headers):
+            if node_index >= len(viewer.group_labels):
+                break
+            groups = viewer.group_labels[node_index]
+            alignment_index = int(viewer_to_aln[node_index])
+            if groups and alignment_index >= 0:
+                aln_idx_to_groups[alignment_index] = groups
+
+        group_records = {}
+        for alignment_index, record in enumerate(viewer.alignment.aln):
+            for group_name in aln_idx_to_groups.get(alignment_index, ()):
+                group_records.setdefault(group_name, []).append(
+                    (alignment_index, record)
+                )
+
+        for group_name in sorted(group_records):
+            indexed_records = group_records[group_name]
+            tasks.append((
+                "group",
+                group_name,
+                MultipleSeqAlignment([record for _, record in indexed_records]),
+                viewer.alignment.col_to_label,
+                np.asarray([index for index, _ in indexed_records], dtype=int),
+            ))
+
+    return tasks
 
 def get_sequence_stats(aln, gap_chars=None):
     lengths = []
@@ -635,6 +700,15 @@ def _run_label_artifact(viewer, args):
             print("Error: No groups defined. Use the 'group' command first.")
             return
 
+        if (
+            forced_target == "all"
+            and viewer.cluster_labels is None
+            and getattr(viewer, 'group_labels', None) is None
+        ):
+            viewer.console_text.text = "Error: No clusters or groups defined."
+            print("Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
+            return
+
         # --- 1. Global Statistics ---
         print("Calculating Global Stats...")
         gap_chars = frozenset(_setting(viewer, "GAP_CHARS", ("-", ".")))
@@ -735,7 +809,7 @@ def _run_label_artifact(viewer, args):
             try: lvl2_name_base += f"Score{float(thresh)}"
             except: pass
             
-        if forced_target == "clusters":
+        if forced_target in {"all", "clusters"}:
             if getattr(viewer, 'last_cluster_params', None):
                 c_mode_param, c_min_param = viewer.last_cluster_params
                 if lvl2_name_base:
@@ -748,60 +822,9 @@ def _run_label_artifact(viewer, args):
             lvl2_name = lvl2_name_base
 
         # --- 3. Prepare Tasks ---
-        tasks = [] 
-        
         print(f"Splitting Global Alignment for {forced_target.upper()}...")
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
-        
-        if forced_target == "clusters":
-            aln_idx_to_cid = {}
-            for i, _header in enumerate(viewer.full_headers):
-                if i >= len(viewer.cluster_labels): break
-                cid = viewer.cluster_labels[i]
-                aln_idx = int(viewer_to_aln[i])
-                if aln_idx >= 0:
-                    aln_idx_to_cid[aln_idx] = cid
-
-            clusters_records = {}
-            for i, record in enumerate(viewer.alignment.aln):
-                if i in aln_idx_to_cid:
-                    found_cid = aln_idx_to_cid[i]
-                    if found_cid != -1:
-                        if found_cid not in clusters_records: clusters_records[found_cid] = []
-                        clusters_records[found_cid].append((i, record))
-            
-            for cid in sorted(clusters_records.keys()):
-                indexed_records = clusters_records[cid]
-                sub_aln = MultipleSeqAlignment([record for _, record in indexed_records])
-                aln_indices = np.asarray([idx for idx, _ in indexed_records], dtype=int)
-                tasks.append((
-                    'cluster', cid, sub_aln, viewer.alignment.col_to_label, aln_indices
-                ))
-        
-        # Group splitting
-        if getattr(viewer, 'group_labels', None):
-            aln_idx_to_groups = {}
-            for i, _header in enumerate(viewer.full_headers):
-                if i >= len(viewer.group_labels): break
-                groups = viewer.group_labels[i]
-                aln_idx = int(viewer_to_aln[i])
-                if groups and aln_idx >= 0:
-                    aln_idx_to_groups[aln_idx] = groups
-            
-            groups_records = {}
-            for i, record in enumerate(viewer.alignment.aln):
-                if i in aln_idx_to_groups:
-                    for g_name in aln_idx_to_groups[i]:
-                        if g_name not in groups_records: groups_records[g_name] = []
-                        groups_records[g_name].append((i, record))
-            
-            for g_name in sorted(groups_records.keys()):
-                indexed_records = groups_records[g_name]
-                sub_aln = MultipleSeqAlignment([record for _, record in indexed_records])
-                aln_indices = np.asarray([idx for idx, _ in indexed_records], dtype=int)
-                tasks.append((
-                    'group', g_name, sub_aln, viewer.alignment.col_to_label, aln_indices
-                ))
+        tasks = _build_label_tasks(viewer, forced_target, viewer_to_aln)
 
         # --- 4. Process Tasks ---
         master_labels = set()
@@ -994,14 +1017,21 @@ def _run_label_artifact(viewer, args):
         msa_file = _setting(viewer, 'MSA_FILE', None)
         alignment_name = os.path.basename(msa_file) if msa_file else "N/A"
         
-        if forced_target == "clusters" and getattr(viewer, 'last_cluster_params', None):
+        if (
+            forced_target in {"all", "clusters"}
+            and getattr(viewer, 'last_cluster_params', None)
+        ):
             c_mode_param, c_min_param = viewer.last_cluster_params
             parts = c_mode_param.split('_')
             cluster_mode = parts[0] if parts else c_mode_param
             param_val = parts[1] if len(parts) > 1 else ""
             cluster_params = f"Param: {param_val}, Min Size: {c_min_param}" if param_val else f"Min Size: {c_min_param}"
         else:
-            cluster_mode = "Groups" if forced_target == "groups" else "N/A"
+            cluster_mode = {
+                "all": "All",
+                "groups": "Groups",
+                "clusters": "N/A",
+            }[forced_target]
             cluster_params = "N/A"
 
         label_params = (
@@ -1499,6 +1529,13 @@ def run(viewer, args):
         return
     if forced_target == "groups" and getattr(viewer, "group_labels", None) is None:
         _report_label_error(viewer, "No groups defined.")
+        return
+    if (
+        forced_target == "all"
+        and getattr(viewer, "cluster_labels", None) is None
+        and getattr(viewer, "group_labels", None) is None
+    ):
+        _report_label_error(viewer, "No clusters or groups defined.")
         return
 
     scheduler = getattr(viewer, "background_job_scheduler", None)

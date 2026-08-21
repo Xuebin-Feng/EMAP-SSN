@@ -926,6 +926,7 @@ class MainViewer:
             cfg.CACHE_MANIFEST_ID = self.cache_manifest_id
 
             raw_loaded = False
+            self._metadata_loaded_from_cache = False
 
             # --- Try Loading Cache ---
             if cache_mode == 'existing':
@@ -995,6 +996,7 @@ class MainViewer:
                         # --- Load Metadata from Cache ---
                         self.metadata = {}
                         if "metadata" in hf:
+                            self._metadata_loaded_from_cache = True
                             meta_group = hf["metadata"]
                             for prop_name in meta_group.keys():
                                 ds = meta_group[prop_name]
@@ -1220,8 +1222,12 @@ class MainViewer:
         if not hasattr(self, 'group_labels'): self.group_labels = [set() for _ in range(self.n_nodes)]
         if not hasattr(self, 'metadata'): self.metadata = {}
         
-        # Initialize Length metadata if not already loaded from cache
-        if "Length" not in self.metadata:
+        # New layouts start with generated Length metadata.  A saved metadata
+        # group without Length represents an intentional column deletion.
+        if (
+            "Length" not in self.metadata
+            and not getattr(self, "_metadata_loaded_from_cache", False)
+        ):
             lengths_map = {
                 header: len(sequence)
                 for header, sequence in self.sequences_map.items()
@@ -1314,6 +1320,7 @@ class MainViewer:
             
         self.update_selection_visual()
         self.update_edges()
+        self._refresh_metadata_views()
 
     def _get_custom_attributes_snapshot(self):
         if not getattr(self, '_cacheable_attrs', None):
@@ -1339,34 +1346,152 @@ class MainViewer:
                 setattr(self, attr_name, copy.deepcopy(val))
             self._cacheable_attrs.add(attr_name)
 
-    def _save_state(self):
-        """Saves current state to history and clears redo stack."""
-        self.position_history.append(self._get_current_state())
+    def _append_history_entry(self, entry):
+        """Append a full-state or compact history entry and clear redo state."""
+        self.position_history.append(entry)
         if len(self.position_history) > 50:
             self.position_history.pop(0)
         self.redo_stack.clear()
+
+    def _save_metadata_cell_history(self, column, row, before, after):
+        """Record one metadata cell edit without copying the full network state."""
+        self._append_history_entry({
+            "_history_kind": "metadata_cell",
+            "column": column,
+            "row": int(row),
+            "before": before,
+            "after": after,
+        })
+
+    def _save_metadata_column_history(self, removed_columns, hud_property=None):
+        """Record deleted metadata columns and their original ordering."""
+        self._append_history_entry({
+            "_history_kind": "metadata_columns",
+            "columns": removed_columns,
+            "hud_property": hud_property,
+        })
+
+    def _refresh_metadata_views(self):
+        """Refresh native metadata widgets after metadata shape/value changes."""
+        source_model = getattr(self, "metadata_source_model", None)
+        if source_model is not None and hasattr(source_model, "refresh_columns"):
+            source_model.refresh_columns()
+
+        table_view = getattr(self, "metadata_table_view", None)
+        if table_view is not None:
+            header = table_view.horizontalHeader()
+            if hasattr(header, "setFilterBoxes") and source_model is not None:
+                header.setFilterBoxes(source_model.columnCount())
+
+        proxy_model = getattr(self, "metadata_proxy_model", None)
+        if proxy_model is not None:
+            proxy_model.invalidateFilter()
+
+    def _set_metadata_hud_property(self, property_name):
+        """Synchronize the optional clicked-node metadata HUD with history."""
+        self.meta_display_prop = property_name
+        display = getattr(self, "hud_displays", {}).get("meta_display")
+        if display is None:
+            return
+        if property_name is None:
+            display.hide()
+            return
+
+        node_idx = getattr(self, "selected_node_idx", None)
+        entry = getattr(self, "metadata", {}).get(property_name)
+        if entry is None or node_idx is None:
+            display.show(f"{property_name}: -")
+            return
+
+        value = entry["values"][node_idx]
+        if value is None or (
+            isinstance(value, (float, np.floating)) and np.isnan(value)
+        ):
+            value_text = "N/A"
+        else:
+            value_text = str(value).strip() or "N/A"
+        display.show(f"{property_name}: {value_text}")
+
+    def _apply_metadata_history_entry(self, entry, undo):
+        """Apply one compact metadata history entry in either direction."""
+        kind = entry.get("_history_kind")
+        if kind == "metadata_cell":
+            column = entry["column"]
+            metadata_entry = self.metadata.get(column)
+            if metadata_entry is not None:
+                value = entry["before"] if undo else entry["after"]
+                metadata_entry["values"][entry["row"]] = value
+        elif kind == "metadata_columns":
+            removed_columns = entry["columns"]
+            if undo:
+                restored_items = list(self.metadata.items())
+                for removed in sorted(
+                    removed_columns, key=lambda item: item["index"]
+                ):
+                    restored_entry = {
+                        "type": removed["type"],
+                        "values": removed["values"].copy(),
+                    }
+                    restored_items.insert(
+                        min(removed["index"], len(restored_items)),
+                        (removed["name"], restored_entry),
+                    )
+                self.metadata = dict(restored_items)
+                if entry.get("hud_property"):
+                    self._set_metadata_hud_property(entry["hud_property"])
+            else:
+                for removed in removed_columns:
+                    self.metadata.pop(removed["name"], None)
+                if entry.get("hud_property"):
+                    self._set_metadata_hud_property(None)
+        else:
+            raise ValueError(f"Unsupported history entry kind: {kind}")
+
+        self._refresh_metadata_views()
+
+    def _save_state(self):
+        """Saves current state to history and clears redo stack."""
+        self._append_history_entry(self._get_current_state())
         
     def _do_undo(self):
         if len(self.position_history) > 0:
-            self.redo_stack.append(self._get_current_state())
             state = self.position_history.pop()
-            self._apply_state(state)
+            if state.get("_history_kind"):
+                self.redo_stack.append(state)
+                self._apply_metadata_history_entry(state, undo=True)
+            else:
+                self.redo_stack.append(self._get_current_state())
+                self._apply_state(state)
             msg = "Undo successful."
+            changed = True
         else:
             msg = "Nothing to undo."
+            changed = False
         self.console_text.text = msg
         print(msg)
+        if changed:
+            self.broadcast_metadata_state()
+        return changed
 
     def _do_redo(self):
         if len(self.redo_stack) > 0:
-            self.position_history.append(self._get_current_state())
             state = self.redo_stack.pop()
-            self._apply_state(state)
+            if state.get("_history_kind"):
+                self.position_history.append(state)
+                self._apply_metadata_history_entry(state, undo=False)
+            else:
+                self.position_history.append(self._get_current_state())
+                self._apply_state(state)
             msg = "Redo successful."
+            changed = True
         else:
             msg = "Nothing to redo."
+            changed = False
         self.console_text.text = msg
         print(msg)
+        if changed:
+            self.broadcast_metadata_state()
+        return changed
 
     def load_global_alignment(self):
         """
@@ -1891,13 +2016,8 @@ class MainViewer:
                 module.run(self, args)
                 if not silent and hasattr(self, 'update_console_background'):
                     self.update_console_background()
-                # Broadcast state update to HTML5 browser!
-                self.broadcast_event({
-                    "type": "state_updated",
-                    "visible_mask": self.visible_mask.tolist(),
-                    "selected_indices": self.selected_indices,
-                    "metadata": self.get_serializable_metadata()
-                })
+                # Broadcast a complete browser state, including metadata shape.
+                self.broadcast_metadata_state()
             else:
                 if not silent and hasattr(self, 'console_text'):
                     self.console_text.text = f"Error: No 'run' in {command_name}"
@@ -2580,6 +2700,19 @@ class MainViewer:
                 queues = list(self.web_server.event_queues)
             for q in queues:
                 q.put(event)
+
+    def broadcast_metadata_state(self):
+        """Broadcast metadata rows and schema as one authoritative state."""
+        self.broadcast_event({
+            "type": "state_updated",
+            "visible_mask": self.visible_mask.tolist(),
+            "selected_indices": self.selected_indices,
+            "metadata": self.get_serializable_metadata(),
+            "columns": ["Node ID"] + list(self.metadata.keys()),
+            "types": {
+                key: entry["type"] for key, entry in self.metadata.items()
+            },
+        })
 
     def handle_web_action(self, data):
         action = data.get("action")

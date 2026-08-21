@@ -148,6 +148,21 @@ class LabelWorkbookPercentTests(unittest.TestCase):
         viewer.identity_weight_mock = identity_weight_mock
         return viewer
 
+    def test_target_aliases_and_default_have_distinct_modes(self):
+        self.assertEqual(label._parse_label_arguments([])["forced_target"], "all")
+        for target in ("cluster", "clusters"):
+            with self.subTest(target=target):
+                self.assertEqual(
+                    label._parse_label_arguments([target])["forced_target"],
+                    "clusters",
+                )
+        for target in ("group", "groups"):
+            with self.subTest(target=target):
+                self.assertEqual(
+                    label._parse_label_arguments([target])["forced_target"],
+                    "groups",
+                )
+
     def test_percent_column_uses_total_network_nodes_in_both_sheets(self):
         with tempfile.TemporaryDirectory() as directory:
             self.run_label(directory, [])
@@ -201,7 +216,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
             self.assertEqual(statistics_row, label_row + 1)
             self.assertEqual(
                 metadata_sheet.cell(label_row, 2).value,
-                "gmax_outside=40%, cmin=90%, target=clusters",
+                "gmax_outside=40%, cmin=90%, target=all",
             )
             self.assertEqual(
                 metadata_sheet.cell(statistics_row, 2).value,
@@ -469,6 +484,52 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 worksheet.cell(find_row(worksheet, "Group SharedY"), 10).value,
                 "Y1",
             )
+
+    def test_cluster_aliases_exclude_group_results(self):
+        for target in ("cluster", "clusters"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
+                self.run_label(directory, [target, f"{target}_only"])
+                worksheet = openpyxl.load_workbook(
+                    Path(directory, f"{target}_only.xlsx")
+                )["Subset Stats"]
+                subset_names = {
+                    worksheet.cell(row=row, column=1).value
+                    for row in range(1, worksheet.max_row + 1)
+                }
+
+                self.assertIn("Cluster 0", subset_names)
+                self.assertIn("Cluster 1", subset_names)
+                self.assertNotIn("Group GroupA", subset_names)
+
+    def test_group_aliases_exclude_cluster_results(self):
+        for target in ("group", "groups"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
+                self.run_label(directory, [target, f"{target}_only"])
+                worksheet = openpyxl.load_workbook(
+                    Path(directory, f"{target}_only.xlsx")
+                )["Subset Stats"]
+                subset_names = {
+                    worksheet.cell(row=row, column=1).value
+                    for row in range(1, worksheet.max_row + 1)
+                }
+
+                self.assertIn("Group GroupA", subset_names)
+                self.assertNotIn("Cluster 0", subset_names)
+                self.assertNotIn("Cluster 1", subset_names)
+
+    def test_default_mode_uses_groups_when_clusters_are_unavailable(self):
+        viewer = self.make_viewer(
+            ["Y", "Y", "A"],
+            None,
+            [{"OnlyGroup"}, {"OnlyGroup"}, set()],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(directory, ["groups_available"], viewer=viewer)
+            worksheet = openpyxl.load_workbook(
+                Path(directory, "groups_available.xlsx")
+            )["Subset Stats"]
+
+            self.assertIsNotNone(find_row(worksheet, "Group OnlyGroup"))
 
     def test_group_mode_deduplicates_overlapping_weighted_memberships(self):
         viewer = self.make_viewer(

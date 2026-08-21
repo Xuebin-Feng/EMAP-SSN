@@ -20,6 +20,11 @@ from datetime import datetime  # <--- NEW IMPORT
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
+from utilities.Position_Parsing import (
+    DISPLAYED_POSITION_ATOM_PATTERN,
+    normalize_displayed_position_atom,
+    reject_bare_negative_positions,
+)
 
 try:
     from numba import get_num_threads, njit, prange, set_num_threads
@@ -35,8 +40,7 @@ STANDARD_AAS = tuple("ACDEFGHIKLMNPQRSTVWY")
 _BARE_IDENTITY_THRESHOLD = re.compile(
     r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?$"
 )
-_POSITION_LABEL_PATTERN = r"[+-]?\d+(?:\.\d+)?"
-_POSITION_LABEL_RE = re.compile(rf"^{_POSITION_LABEL_PATTERN}$")
+_POSITION_LABEL_PATTERN = DISPLAYED_POSITION_ATOM_PATTERN
 _POSITION_RANGE_RE = re.compile(
     rf"^({_POSITION_LABEL_PATTERN})\s*-\s*({_POSITION_LABEL_PATTERN})$"
 )
@@ -598,9 +602,7 @@ def get_compact_logo_coordinates(plot_positions):
 
 def _normalize_logo_position_label(value):
     """Return an integer or canonical hierarchical insertion label."""
-    text = str(value).strip()
-    if not _POSITION_LABEL_RE.fullmatch(text):
-        raise ValueError(f"Invalid position label '{value}'.")
+    text = normalize_displayed_position_atom(value)
 
     major_text, separator, insertion_text = text.partition('.')
     major = int(major_text)
@@ -630,6 +632,8 @@ def parse_logo_positions(position_spec):
     text = str(position_spec).strip()
     if text.startswith('[') and text.endswith(']'):
         text = text[1:-1]
+
+    reject_bare_negative_positions(text)
 
     positions = {}
     for raw_part in text.split(','):
@@ -682,8 +686,10 @@ def print_help():
       1. [POSITIONS] : (Required) Comma-separated reference positions or integer
                        ranges enclosed in brackets. Fractional insertion positions
                        (alignment columns where the reference has a gap) are accepted
-                       when listed explicitly.
-                       Examples: [1, 2, 9-12] or [10, 10.1, 10.2, 11]
+                       when listed explicitly. Negative positions must be enclosed
+                       individually in parentheses.
+                       Examples: [1,2,9-12], [10,10.1,10.2,11],
+                       or [(-3)-(-1),0]
                        Non-contiguous positions are plotted adjacently while retaining
                        their original reference-position labels.
       2. EXPRESSION  : Boolean logic target (e.g., #cluster_1#, "ATA", or $sele$).
@@ -709,6 +715,8 @@ def print_help():
     Examples:
       logo [10-20]                        (Logos pos 10-20 for selected or all nodes)
       logo [10,10.1,10.2,11]             (Includes explicit insertion positions)
+      logo [(-1),0,1]                     (Includes a parenthesized negative position)
+      logo #cluster_1# [(-3)-(-1)] pcts   (Percentage logo across a negative range)
       logo #cluster_1# [1,5] pcts no_gap  (Percentage logo ignoring gaps for pos 1 and 5)
       logo [10-20] color=charge           (Generates bits logo using the charge color scheme)
       logo #cluster_1# [1,5] 90%           (Reweights sequences at 90% identity)
