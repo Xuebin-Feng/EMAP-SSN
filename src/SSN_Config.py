@@ -1293,15 +1293,35 @@ if __name__ == "__main__":
             
         def eventFilter(self, obj, event):
             from PySide6.QtCore import QEvent
-            if event.type() in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress):
+            event_type = event.type()
+            if event_type in (
+                QEvent.Type.FocusIn,
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.ToolTip,
+            ):
                 if hasattr(self, 'tip_db'):
                     tip = self.tip_db.get(obj, None)
+                    if not tip and isinstance(obj, QWidget):
+                        tip = obj.toolTip()
                     if tip:
                         self.tip_panel.setText(tip)
+                        if event_type == QEvent.Type.ToolTip:
+                            return True
             return super().eventFilter(obj, event)
+
+        def _register_tip_targets(self, widget, tip, *, overwrite=True):
+            if widget is None:
+                return
+            targets = [widget]
+            targets.extend(widget.findChildren(QWidget))
+            for target in targets:
+                if overwrite or target not in self.tip_db:
+                    self.tip_db[target] = tip
+                    target.installEventFilter(self)
 
         def setup_tips(self):
             self.tip_db_keys = {
+                "SAVED_CONFIG": "Saved Config: Selects the settings profile used for this tab.\n(custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory.",
                 "NODE_FASTA_FILE": "Primary FASTA file containing sequences visualized as nodes in the SSN.\nMust match sequences present in the selected network edges and multiple alignments.",
                 "MSA_FILE": "Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.\nUsed to calculate positional conservation, gaps, and occupancy thresholds during analysis.",
                 "INPUT_HDF5": "Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.\nMust contain alignment metrics for at least all sequences present in the active sequence set.",
@@ -1312,6 +1332,7 @@ if __name__ == "__main__":
                 "SIMILARITY_THRESHOLD": "Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.\nEdges below this cutoff are filtered out and excluded from physics simulation and rendering.",
                 "TOP_EDGE_PERCENT": "Alternative edge filter that retains only the top N% highest-scoring edges in the network.\nMaintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold).",
                 "FILTER_MIN_OCCUPANCY": "Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses.\nColumns with occupancy below this percentage are excluded from logo and conservation calculations.",
+                "TARGET_CACHE": "Target Cache: Compatibility-specific folder for layout cache files matching the selected sequence set and network.\nThe status reports whether a compatible target folder is available; the folder button opens the layout-cache root.",
                 "TARGET_CACHE_FILE": "Selects a pre-computed 2D layout coordinate cache file (.h5) from the cache directory.\nInstantly restores previously computed node positions to bypass physics simulation.",
                 "NEW_CACHE_NAME": "Specifies a custom filename when saving a new layout configuration iteration.\nOnly editable when Selected Cache File is set to '(New Layout Cache)'.",
                 "NODE_SIZE": "Visual rendering diameter (in pixels) for each sequence node in the network plot.\nAdjust to optimize visual density; smaller node sizes are recommended for large networks.",
@@ -1364,24 +1385,42 @@ if __name__ == "__main__":
             self.tip_db = {}
             for key, tip in self.tip_db_keys.items():
                 if key in self.labels:
-                    lbl = self.labels[key]
-                    self.tip_db[lbl] = tip
-                    lbl.installEventFilter(self)
+                    self._register_tip_targets(self.labels[key], tip)
                 
                 if key in self.inputs:
-                    widget = self.inputs[key]
-                    self.tip_db[widget] = tip
-                    widget.installEventFilter(self)
+                    self._register_tip_targets(self.inputs[key], tip)
                     
             for key, tip in self.tip_db_keys.items():
                 if key in self.inputs:
                     widget = self.inputs[key]
                     parent = widget.parentWidget()
                     if parent and parent.objectName() == "wrapper":
-                        for child in parent.children():
-                            if child.isWidgetType() and child not in self.tip_db:
-                                self.tip_db[child] = tip
-                                child.installEventFilter(self)
+                        self._register_tip_targets(parent, tip, overwrite=False)
+
+            saved_config_tip = self.tip_db_keys["SAVED_CONFIG"]
+            for tab_id, selector in self.profile_selectors.items():
+                self._register_tip_targets(
+                    self.profile_labels.get(tab_id), saved_config_tip
+                )
+                self._register_tip_targets(
+                    selector.parentWidget(), saved_config_tip
+                )
+
+            target_cache_tip = self.tip_db_keys["TARGET_CACHE"]
+            self._register_tip_targets(
+                self.labels.get("TARGET_CACHE"), target_cache_tip
+            )
+            self._register_tip_targets(
+                self.lbl_cache_tracker.parentWidget(), target_cache_tip
+            )
+
+            # Any remaining native Qt tooltip is also displayed in the shared
+            # panel, and its native popup is suppressed by eventFilter().
+            for widget in self.findChildren(QWidget):
+                if widget.toolTip():
+                    self._register_tip_targets(
+                        widget, widget.toolTip(), overwrite=False
+                    )
         
         def _toggle_new_cache_input(self, text):
             is_new_layout = text == "(New Layout Cache)"
@@ -2020,9 +2059,9 @@ if __name__ == "__main__":
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
             )
             
-            btn_open_cache = QPushButton("📂")
-            btn_open_cache.setFixedWidth(30)
-            btn_open_cache.setToolTip("Open Target Cache Folder")
+            self.btn_open_cache = QPushButton("📂")
+            self.btn_open_cache.setFixedWidth(30)
+            self.btn_open_cache.setToolTip("Open Target Cache Folder")
             
             def open_cache_folder(checked):
                 import os
@@ -2037,10 +2076,10 @@ if __name__ == "__main__":
                 os.makedirs(abs_path, exist_ok=True)
                 QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
                 
-            btn_open_cache.clicked.connect(open_cache_folder)
+            self.btn_open_cache.clicked.connect(open_cache_folder)
             
             cache_lay.addWidget(self.lbl_cache_tracker, 1)
-            cache_lay.addWidget(btn_open_cache)
+            cache_lay.addWidget(self.btn_open_cache)
             target_cache_label = QLabel("Target Cache:")
             target_cache_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             layout.addRow(target_cache_label, cache_container)
@@ -3108,6 +3147,7 @@ if __name__ == "__main__":
             self._add_profile_selector("directories", layout)
 
             saved_config_container = QWidget()
+            saved_config_container.setObjectName("wrapper")
             saved_config_layout = QHBoxLayout(saved_config_container)
             saved_config_layout.setContentsMargins(0, 0, 0, 0)
             saved_config_input = QLineEdit(str(globals().get("SAVED_CONFIG_DIR", SAVED_CONFIG_DIR)))

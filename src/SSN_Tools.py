@@ -291,7 +291,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
                              QSizePolicy, QFrame, QInputDialog)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 
 # QtWebEngine ships inside the PySide6-Addons wheel, but its bundled Chromium
 # links against system libraries that pip cannot install. On a stock Linux
@@ -1611,6 +1611,13 @@ class ToolsGUI(QMainWindow):
         self.create_directories_tab()
         self._align_all_tool_cards()
         self._harmonize_tab_page_widths()
+        self._route_native_tooltips_to_tip_panel()
+
+    def _route_native_tooltips_to_tip_panel(self):
+        """Route every native widget tooltip through the shared help panel."""
+        for widget in self.findChildren(QWidget):
+            if widget.toolTip():
+                widget.installEventFilter(self)
     
     def create_directories_tab(self):
         tab = QWidget()
@@ -3467,11 +3474,20 @@ class ToolsGUI(QMainWindow):
         self.tabs.addTab(scroll, tab_name)
 
     def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
-        if event.type() in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress, QEvent.Type.Enter):
-            tip = self.tip_db.get(obj, None)
+        event_type = event.type()
+        routed_events = (
+            QEvent.Type.FocusIn,
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.Enter,
+            QEvent.Type.ToolTip,
+        )
+        if event_type in routed_events:
+            tip = obj.toolTip() if isinstance(obj, QWidget) else ""
+            tip = tip or self.tip_db.get(obj, "")
             if tip:
                 self.tip_panel.setText(tip)
+                if event_type == QEvent.Type.ToolTip:
+                    return True
         return super().eventFilter(obj, event)
 
     def _collect_tool_settings(self, script_path):

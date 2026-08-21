@@ -630,6 +630,78 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.window.tabs.setCurrentIndex(original_index)
             self.app.processEvents()
 
+    def test_every_setting_input_and_nested_editor_has_a_shared_tip(self):
+        from PySide6.QtWidgets import QLineEdit, QWidget
+
+        self.assertEqual(
+            set(self.window.inputs) - set(self.window.tip_db_keys),
+            set(),
+        )
+        for key, widget in self.window.inputs.items():
+            with self.subTest(key=key, target="input"):
+                self.assertIn(widget, self.window.tip_db)
+            if key in self.window.labels:
+                with self.subTest(key=key, target="label"):
+                    self.assertIn(self.window.labels[key], self.window.tip_db)
+            for child in widget.findChildren(QWidget):
+                if isinstance(child, QLineEdit):
+                    with self.subTest(key=key, target="nested editor"):
+                        self.assertIn(child, self.window.tip_db)
+
+    def test_saved_config_and_target_cache_clicks_use_shared_tip_panel(self):
+        from PySide6.QtCore import QEvent
+
+        original_tip = self.window.tip_panel.text()
+        cases = []
+        for tab_id in self.window.profile_selectors:
+            cases.extend(
+                (
+                    (self.window.profile_labels[tab_id], "Saved Config:"),
+                    (self.window.profile_selectors[tab_id], "Saved Config:"),
+                    (self.window.profile_name_inputs[tab_id], "Saved Config:"),
+                    (self.window.profile_folder_buttons[tab_id], "Saved Config:"),
+                )
+            )
+        cases.extend(
+            (
+                (self.window.labels["TARGET_CACHE"], "Target Cache:"),
+                (self.window.lbl_cache_tracker, "Target Cache:"),
+                (self.window.btn_open_cache, "Target Cache:"),
+            )
+        )
+        try:
+            for target, expected_tip in cases:
+                with self.subTest(target=type(target).__name__):
+                    self.assertIn(target, self.window.tip_db)
+                    self.window.tip_panel.setText("sentinel")
+                    self.window.eventFilter(
+                        target,
+                        QEvent(QEvent.Type.MouseButtonPress),
+                    )
+                    self.assertIn(expected_tip, self.window.tip_panel.text())
+        finally:
+            self.window.tip_panel.setText(original_tip)
+
+    def test_native_tooltip_popup_is_redirected_to_shared_tip_panel(self):
+        from PySide6.QtCore import QEvent, QPoint
+        from PySide6.QtGui import QHelpEvent
+
+        original_tip = self.window.tip_panel.text()
+        try:
+            handled = self.window.eventFilter(
+                self.window.btn_open_cache,
+                QHelpEvent(
+                    QEvent.Type.ToolTip,
+                    QPoint(1, 1),
+                    QPoint(1, 1),
+                ),
+            )
+
+            self.assertTrue(handled)
+            self.assertIn("Target Cache:", self.window.tip_panel.text())
+        finally:
+            self.window.tip_panel.setText(original_tip)
+
     def test_save_only_reports_success_in_tooltip_without_popup(self):
         original_tip = self.window.tip_panel.text()
         try:

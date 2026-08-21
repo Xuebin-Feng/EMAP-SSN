@@ -46,12 +46,12 @@ class IncompleteAlignmentLoaderTests(unittest.TestCase):
             with redirect_stdout(output):
                 manager = Alignment_Manager.Alignment_Manager(
                     fasta_path,
-                    full_headers=["node1 full", "node2 full", "node3 full"],
+                    full_headers=["node1_full", "node2_full", "node3_full"],
                     active_reference="node1",
                 )
 
-        self.assertEqual(manager.matched_headers, ["node1 full", "node3 full"])
-        self.assertEqual(manager.missing_headers, ["node2 full"])
+        self.assertEqual(manager.matched_headers, ["node1_full", "node3_full"])
+        self.assertEqual(manager.missing_headers, ["node2_full"])
         np.testing.assert_array_equal(manager.viewer_to_aln, np.array([0, -1, 1]))
         np.testing.assert_array_equal(
             manager.aligned_node_mask,
@@ -61,7 +61,7 @@ class IncompleteAlignmentLoaderTests(unittest.TestCase):
         warning = output.getvalue()
         self.assertIn("\033[91mWARNING: Incomplete MSA coverage", warning)
         self.assertIn("Aligned network nodes: 2/3 (66.7%)", warning)
-        self.assertIn("  - node2 full", warning)
+        self.assertIn("  - node2_full", warning)
         self.assertIn("\033[0m", warning)
 
     def test_exact_full_header_matching_does_not_accept_shortened_description(self):
@@ -71,12 +71,12 @@ class IncompleteAlignmentLoaderTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 manager = Alignment_Manager.Alignment_Manager(
                     fasta_path,
-                    full_headers=["node1 full description"],
+                    full_headers=["node1_full_description"],
                 )
 
         self.assertEqual(len(manager.aln), 0)
         self.assertEqual(manager.matched_headers, [])
-        self.assertEqual(manager.missing_headers, ["node1 full description"])
+        self.assertEqual(manager.missing_headers, ["node1_full_description"])
 
     def test_zero_overlap_is_a_loaded_empty_alignment_state(self):
         with tempfile.TemporaryDirectory() as directory:

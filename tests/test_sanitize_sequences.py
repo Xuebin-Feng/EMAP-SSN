@@ -79,6 +79,14 @@ class SanitizeSequencesTests(unittest.TestCase):
         self.assertEqual(header, "Alpha_Beta")
         self.assertTrue(was_modified)
 
+    def test_header_sanitization_converts_normalized_whitespace_to_underscores(self):
+        header, was_modified = sanitize_sequences.sanitize_header(
+            "  Alpha \t  Beta  Gamma  "
+        )
+
+        self.assertEqual(header, "Alpha_Beta_Gamma")
+        self.assertTrue(was_modified)
+
     def test_configuration_requires_an_explicit_output_directory(self):
         with self.assertRaisesRegex(ValueError, "output directory"):
             sanitize_sequences.validate_configuration(

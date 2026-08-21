@@ -15,7 +15,7 @@ from src.utilities.FASTA_Sanitization import (
 class EmbeddingFastaSanitizationTests(unittest.TestCase):
     def test_clean_records_do_not_print_a_sanitization_result(self):
         headers, sequences, stats = sanitize_fasta_records(
-            ["Clean_header", "Another header"],
+            ["Clean_header", "Another_header"],
             ["ACDE", "FGHI"],
         )
 
@@ -23,10 +23,21 @@ class EmbeddingFastaSanitizationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             printed = print_sanitization_result(stats)
 
-        self.assertEqual(headers, ["Clean_header", "Another header"])
+        self.assertEqual(headers, ["Clean_header", "Another_header"])
         self.assertEqual(sequences, ["ACDE", "FGHI"])
         self.assertFalse(printed)
         self.assertEqual(output.getvalue(), "")
+
+    def test_whitespace_normalization_collisions_receive_unique_headers(self):
+        headers, sequences, stats = sanitize_fasta_records(
+            ["Alpha Beta", "Alpha_Beta"],
+            ["ACDE", "FGHI"],
+        )
+
+        self.assertEqual(headers, ["Alpha_Beta_1", "Alpha_Beta_2"])
+        self.assertEqual(sequences, ["ACDE", "FGHI"])
+        self.assertEqual(stats["headers_modified"], 1)
+        self.assertEqual(stats["headers_renamed"], 2)
 
     def test_modified_records_print_a_compact_result(self):
         headers, sequences, stats = sanitize_fasta_records(

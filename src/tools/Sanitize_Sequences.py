@@ -25,7 +25,8 @@ What this script does step-by-step:
 1. Header Cleaning: 
    - Replaces problematic characters (like brackets, quotes, and slashes) with safe 
      alternatives (parentheses or underscores) to prevent tool or file system errors.
-   - Cleans up accidental double-spaces.
+   - Removes leading and trailing whitespace, collapses repeated whitespace, and
+     replaces the remaining spaces with underscores.
 
 2. Sequence Cleaning:
    - Converts all amino acid letters to UPPERCASE.

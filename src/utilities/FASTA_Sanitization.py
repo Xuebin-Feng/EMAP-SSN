@@ -96,8 +96,9 @@ def sanitize_header(header):
     """Apply the canonical SSN header character and whitespace rules."""
     safe_header = header.translate(str.maketrans("[]{}", "()()"))
     safe_header = re.sub(r'[?*"#%@$/\\]', "_", safe_header)
-    safe_header = re.sub(r"_+", "_", safe_header)
     safe_header = re.sub(r"\s+", " ", safe_header).strip()
+    safe_header = safe_header.replace(" ", "_")
+    safe_header = re.sub(r"_+", "_", safe_header)
     return safe_header, safe_header != header
 
 
