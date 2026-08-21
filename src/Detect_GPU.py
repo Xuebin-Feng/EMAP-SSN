@@ -578,6 +578,57 @@ def _candidate_ladder(devices: list[dict[str, Any]]) -> tuple[list[dict[str, Any
     return ordered, ignored
 
 
+def _normalized_hardware_name(value: Any) -> str:
+    """Return a comparison-safe model label without node-specific spacing."""
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def hardware_compatibility_material(report: dict[str, Any]) -> dict[str, Any]:
+    """Return stable hardware facts that determine backend compatibility.
+
+    PCI bus addresses, enumeration order, exact driver releases, and detection
+    source are intentionally excluded.  They commonly change across equivalent
+    HPC nodes and after harmless desktop driver refreshes.  A driver change that
+    crosses a supported CUDA profile boundary is still represented by the
+    normalized backend candidate.
+    """
+    devices = []
+    for device in report.get("devices", []):
+        if not isinstance(device, dict):
+            continue
+        devices.append({
+            "name": _normalized_hardware_name(device.get("name")),
+            "vendor": str(device.get("vendor") or "").upper(),
+            "pci_id": str(device.get("pci_id") or "").lower() or None,
+            "kind": device.get("kind"),
+            "architecture": str(device.get("architecture") or "").lower() or None,
+            "compute_capability": str(device.get("compute_capability") or "") or None,
+            "eligible_profiles": sorted(
+                str(value) for value in device.get("eligible_profiles", [])
+            ),
+        })
+    devices.sort(key=lambda value: json.dumps(value, sort_keys=True, default=str))
+
+    candidates = []
+    for candidate in report.get("backend_candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        candidates.append({
+            "backend": candidate.get("backend"),
+            "profile": candidate.get("profile"),
+            "vendor": candidate.get("vendor"),
+            "gfx_target": candidate.get("gfx_target"),
+            "eligibility": candidate.get("eligibility"),
+        })
+
+    return {
+        "compatibility_revision": report.get("compatibility_revision"),
+        "platform": report.get("platform"),
+        "devices": devices,
+        "backend_candidates": candidates,
+    }
+
+
 def detect_hardware() -> dict[str, Any]:
     system = platform.system().lower()
     version = platform.version()

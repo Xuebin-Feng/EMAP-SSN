@@ -217,10 +217,20 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 - A failed installation or tensor validation advances to the next eligible
   backend and ultimately to CPU.
 - The selected backend and validation results are stored in
-  `.venv/ssn_backend.json`. Hardware, driver, OS, requirements, or compatibility
-  revision changes invalidate the saved state. Run
+  `.venv/ssn_backend.json`. Requirements, bundled artifacts, compatibility
+  rules, or a change to the required PyTorch profile invalidate the relevant
+  saved state. Physical GPU addresses, device enumeration order, and driver
+  updates that remain within the same CUDA compatibility profile do not force
+  PyTorch to be reinstalled; the existing build is validated and reused.
+- A shared HPC `.venv` retains its installed accelerator build when inspected
+  from a CPU-only login node. CPU work remains available there, and accelerator
+  tensor validation resumes on a compute node. Moving to a genuinely different
+  backend profile, such as CUDA 12.6 to CUDA 13.2 or a different ROCm GFX
+  target, still selects the required build.
+- Run
   `python src/Install_Dependencies.py --refresh-backend` inside the managed
-  environment to retry the full candidate ladder.
+  environment to deliberately reinstall from the currently visible candidate
+  ladder. On a CPU-only node, this explicit override selects the CPU build.
 
 ---
 

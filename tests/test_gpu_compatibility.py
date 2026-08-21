@@ -301,11 +301,65 @@ class InstallerProfileTests(unittest.TestCase):
         self.assertEqual(len(specs[1].install_steps), 2)
         self.assertIn("rocm_sdk_core", specs[1].install_steps[0].requirements[0])
 
-    def test_hardware_fingerprint_changes_with_driver(self):
-        report = {"compatibility_revision": 3, "platform": "windows", "os": {}, "devices": [{"id": "0", "driver_version": "1"}], "backend_candidates": []}
+    def test_hardware_fingerprint_ignores_physical_identity_and_driver_release(self):
+        report = {
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+            "platform": "linux",
+            "devices": [
+                {
+                    "id": "0000:01:00.0", "name": "NVIDIA H100", "vendor": "NVIDIA",
+                    "pci_id": "10de:2330", "driver_version": "570.1", "driver": "nvidia",
+                    "kind": "discrete", "compute_capability": "9.0",
+                    "eligible_profiles": ["cuda"],
+                },
+                {
+                    "id": "0000:02:00.0", "name": "NVIDIA H100", "vendor": "NVIDIA",
+                    "pci_id": "10de:2330", "driver_version": "570.1", "driver": "nvidia",
+                    "kind": "discrete", "compute_capability": "9.0",
+                    "eligible_profiles": ["cuda"],
+                },
+            ],
+            "backend_candidates": [
+                {"backend": "cuda126", "profile": "cuda126", "vendor": "NVIDIA", "device_ids": ["0000:01:00.0", "0000:02:00.0"]},
+                {"backend": "cpu", "profile": "cpu", "vendor": "CPU", "device_ids": ["cpu"]},
+            ],
+        }
         first = Install_Dependencies.hardware_fingerprint(report)
-        report["devices"][0]["driver_version"] = "2"
-        self.assertNotEqual(first, Install_Dependencies.hardware_fingerprint(report))
+        report["devices"].reverse()
+        report["devices"][0]["id"] = "0000:a1:00.0"
+        report["devices"][1]["id"] = "0000:a2:00.0"
+        report["devices"][0]["driver_version"] = "575.9"
+        report["devices"][1]["driver_version"] = "575.9"
+        report["backend_candidates"][0]["device_ids"] = ["0000:a1:00.0", "0000:a2:00.0"]
+        self.assertEqual(first, Install_Dependencies.hardware_fingerprint(report))
+
+    def test_hardware_fingerprint_changes_with_compatibility_facts(self):
+        report = {
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+            "platform": "linux",
+            "devices": [{
+                "name": "NVIDIA H100", "vendor": "NVIDIA", "pci_id": "10de:2330",
+                "kind": "discrete", "compute_capability": "9.0",
+                "eligible_profiles": ["cuda"],
+            }],
+            "backend_candidates": [
+                {"backend": "cuda126", "profile": "cuda126", "vendor": "NVIDIA"},
+                {"backend": "cpu", "profile": "cpu", "vendor": "CPU"},
+            ],
+        }
+        first = Install_Dependencies.hardware_fingerprint(report)
+        for mutation in ("profile", "model", "count", "revision"):
+            changed = json.loads(json.dumps(report))
+            if mutation == "profile":
+                changed["backend_candidates"][0].update(backend="cuda132", profile="cuda132")
+            elif mutation == "model":
+                changed["devices"][0]["pci_id"] = "10de:2331"
+            elif mutation == "count":
+                changed["devices"].append(dict(changed["devices"][0]))
+            else:
+                changed["compatibility_revision"] += 1
+            with self.subTest(mutation=mutation):
+                self.assertNotEqual(first, Install_Dependencies.hardware_fingerprint(changed))
 
     def test_state_schema_two_is_invalidated(self):
         requirements = ROOT / "src" / "requirements.txt"

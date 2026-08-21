@@ -177,6 +177,27 @@ class DependencyInstallerTests(unittest.TestCase):
             devices=[],
         )
 
+    def _cuda_report(self, backend="cuda126", device_id="0000:01:00.0"):
+        return detected_report(
+            backend=backend,
+            backend_candidates=[
+                {
+                    "backend": backend, "profile": backend, "vendor": "NVIDIA",
+                    "device_ids": [device_id],
+                },
+                {"backend": "cpu", "profile": "cpu", "vendor": "CPU", "device_ids": ["cpu"]},
+            ],
+            compatibility_revision=Detect_GPU.COMPATIBILITY_REVISION,
+            platform="linux",
+            os={"id": "rocky", "version_id": "9"},
+            devices=[{
+                "id": device_id, "name": "NVIDIA H100", "vendor": "NVIDIA",
+                "pci_id": "10de:2330", "driver_version": "570.1", "kind": "discrete",
+                "compute_capability": "9.0", "eligible_profiles": ["cuda"],
+            }],
+            reason="test CUDA profile",
+        )
+
     def test_subprocess_commands_are_not_echoed(self):
         success = mock.Mock(returncode=0, stdout="", stderr="")
         output = io.StringIO()
@@ -199,6 +220,26 @@ class DependencyInstallerTests(unittest.TestCase):
             self.assertTrue(Install_Dependencies.validate_backend(Path("python"), spec))
 
         self.assertEqual(output.getvalue(), "")
+
+    def test_package_only_validation_does_not_require_a_visible_device(self):
+        success = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                "backend": "cuda126", "profile": "cuda126",
+                "torch_version": "2.12.1+cu126", "package_error": None,
+            }),
+            stderr="",
+        )
+        spec = Install_Dependencies.backend_spec({"backend": "cuda126"})
+        with mock.patch.object(Install_Dependencies, "_run", return_value=success) as run:
+            validation = Install_Dependencies.validate_backend_package(
+                Path("python"), spec
+            )
+        self.assertEqual(validation["validated_devices"], [])
+        self.assertTrue(validation["preserved_without_accelerator"])
+        program = run.call_args.args[0][-1]
+        self.assertNotIn("torch.cuda.is_available", program)
+        self.assertNotIn("torch.ones", program)
 
     def test_esm_import_smoke_test_forces_utf8_mode(self):
         success = mock.Mock(returncode=0, stdout="", stderr="")
@@ -475,6 +516,287 @@ class DependencyInstallerTests(unittest.TestCase):
                         changed, specs, fingerprint, requirements
                     )
                 )
+
+    def test_state_mismatches_name_every_changed_field_in_order(self):
+        report = self._cpu_report()
+        specs = Install_Dependencies.backend_specs(report)
+        requirements = ROOT / "src" / "requirements.txt"
+        fingerprint = Install_Dependencies.hardware_fingerprint(report)
+        state = Install_Dependencies._state_profile(specs[0], requirements)
+        state.update({
+            "hardware_fingerprint": "old-fingerprint",
+            "requested_candidates": [],
+            "schema": Install_Dependencies.STATE_SCHEMA - 1,
+            "requirements_sha256": "old-requirements",
+            "esm_wheel_sha256": "old-esm-wheel",
+        })
+        self.assertEqual(
+            Install_Dependencies._state_mismatches(
+                state, specs, fingerprint, requirements
+            ),
+            [
+                "schema", "hardware_fingerprint", "requirements_sha256",
+                "esm_wheel_sha256", "requested_candidates",
+            ],
+        )
+
+    def test_stale_metadata_reuses_compatible_cuda_without_reinstall(self):
+        report = self._cuda_report()
+        specs = Install_Dependencies.backend_specs(report)
+        requirements = ROOT / "src" / "requirements.txt"
+        success = mock.Mock(returncode=0, stdout="", stderr="")
+        validation = {"validated_devices": [{"spec": "cuda:0", "success": True}]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            venv = Path(temp_dir)
+            state = Install_Dependencies._state_profile(specs[0], requirements)
+            Install_Dependencies.write_state(
+                venv / Install_Dependencies.STATE_FILENAME, state, report
+            )
+            saved = Install_Dependencies.read_state(
+                venv / Install_Dependencies.STATE_FILENAME
+            )
+            saved["schema"] = Install_Dependencies.STATE_SCHEMA - 1
+            (venv / Install_Dependencies.STATE_FILENAME).write_text(
+                json.dumps(saved), encoding="utf-8"
+            )
+            with mock.patch.object(
+                Install_Dependencies, "venv_python", return_value=Path(sys.executable)
+            ), mock.patch.object(
+                Install_Dependencies, "verify_bundled_artifacts"
+            ), mock.patch.object(
+                Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report
+            ), mock.patch.object(
+                Install_Dependencies, "_run", return_value=success
+            ), mock.patch.object(
+                Install_Dependencies, "validate_backend", return_value=validation
+            ) as validate, mock.patch.object(
+                Install_Dependencies, "install_backend"
+            ) as install_backend, mock.patch.object(
+                Install_Dependencies,
+                "_installed_version",
+                side_effect=lambda _python, package: (
+                    Install_Dependencies.TRANSFORMERS_VERSION
+                    if package == "transformers" else Install_Dependencies.ESM_VERSION
+                ),
+            ), mock.patch.object(
+                Install_Dependencies, "validate_package_consistency", return_value=True
+            ), mock.patch.object(
+                Install_Dependencies, "validate_esm_stack", return_value=True
+            ), mock.patch.object(Install_Dependencies, "write_state"):
+                code = Install_Dependencies.install(
+                    project_root=ROOT, venv=venv, uv_executable="uv"
+                )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(validate.call_args.args[1].backend, "cuda126")
+        install_backend.assert_not_called()
+
+    def test_cpu_only_node_preserves_installed_accelerator_package(self):
+        cuda_report = self._cuda_report()
+        cpu_report = self._cpu_report()
+        cuda_spec = Install_Dependencies.backend_specs(cuda_report)[0]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            venv = Path(temp_dir)
+            python = venv / "python"
+            python.touch()
+            Install_Dependencies.write_state(
+                venv / Install_Dependencies.STATE_FILENAME,
+                Install_Dependencies._state_profile(
+                    cuda_spec, ROOT / "src" / "requirements.txt"
+                ),
+                cuda_report,
+            )
+            with mock.patch.object(
+                Install_Dependencies, "venv_python", return_value=python
+            ), mock.patch.object(
+                Install_Dependencies, "verify_bundled_artifacts"
+            ), mock.patch.object(
+                Install_Dependencies.Detect_GPU,
+                "detect_hardware",
+                return_value=cpu_report,
+            ), mock.patch.object(
+                Install_Dependencies,
+                "validate_backend_package",
+                return_value={"validated_devices": []},
+            ) as package_validation, mock.patch.object(
+                Install_Dependencies, "validate_backend"
+            ) as runtime_validation, mock.patch.object(
+                Install_Dependencies,
+                "_installed_version",
+                side_effect=lambda _python, package: (
+                    Install_Dependencies.TRANSFORMERS_VERSION
+                    if package == "transformers" else Install_Dependencies.ESM_VERSION
+                ),
+            ), mock.patch.object(
+                Install_Dependencies, "validate_package_consistency", return_value=True
+            ), mock.patch.object(
+                Install_Dependencies, "validate_esm_stack", return_value=True
+            ):
+                ready = Install_Dependencies.environment_is_ready(
+                    project_root=ROOT, venv=venv, uv_executable="uv"
+                )
+
+        self.assertTrue(ready)
+        package_validation.assert_called_once()
+        runtime_validation.assert_not_called()
+
+    def test_refresh_backend_on_cpu_only_node_explicitly_installs_cpu(self):
+        cuda_report = self._cuda_report()
+        cpu_report = self._cpu_report()
+        cuda_spec = Install_Dependencies.backend_specs(cuda_report)[0]
+        success = mock.Mock(returncode=0, stdout="", stderr="")
+        validation = {"validated_devices": [{"spec": "cpu", "success": True}]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            venv = Path(temp_dir)
+            Install_Dependencies.write_state(
+                venv / Install_Dependencies.STATE_FILENAME,
+                Install_Dependencies._state_profile(
+                    cuda_spec, ROOT / "src" / "requirements.txt"
+                ),
+                cuda_report,
+            )
+            with mock.patch.object(
+                Install_Dependencies, "venv_python", return_value=Path(sys.executable)
+            ), mock.patch.object(
+                Install_Dependencies, "verify_bundled_artifacts"
+            ), mock.patch.object(
+                Install_Dependencies.Detect_GPU, "detect_hardware", return_value=cpu_report
+            ), mock.patch.object(
+                Install_Dependencies, "_run", return_value=success
+            ), mock.patch.object(
+                Install_Dependencies, "install_backend", return_value=validation
+            ) as install_backend, mock.patch.object(
+                Install_Dependencies, "validate_backend_package"
+            ) as package_validation, mock.patch.object(
+                Install_Dependencies,
+                "_installed_version",
+                side_effect=lambda _python, package: (
+                    Install_Dependencies.TRANSFORMERS_VERSION
+                    if package == "transformers" else Install_Dependencies.ESM_VERSION
+                ),
+            ), mock.patch.object(
+                Install_Dependencies, "validate_package_consistency", return_value=True
+            ), mock.patch.object(
+                Install_Dependencies, "validate_esm_stack", return_value=True
+            ), mock.patch.object(Install_Dependencies, "write_state"):
+                code = Install_Dependencies.install(
+                    project_root=ROOT, venv=venv, uv_executable="uv",
+                    refresh_backend=True,
+                )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(install_backend.call_args.args[2].backend, "cpu")
+        package_validation.assert_not_called()
+
+    def test_changed_backend_profile_and_new_accelerator_are_not_reused(self):
+        cuda126_specs = Install_Dependencies.backend_specs(self._cuda_report("cuda126"))
+        cuda132_specs = Install_Dependencies.backend_specs(self._cuda_report("cuda132"))
+        cpu_specs = Install_Dependencies.backend_specs(self._cpu_report())
+        cuda_state = {
+            "active_backend": Install_Dependencies._spec_payloads((cuda126_specs[0],))[0],
+            "requested_candidates": Install_Dependencies._spec_payloads(cuda126_specs),
+        }
+        cpu_state = {
+            "active_backend": Install_Dependencies._spec_payloads((cpu_specs[0],))[0],
+            "requested_candidates": Install_Dependencies._spec_payloads(cpu_specs),
+        }
+        self.assertIsNone(
+            Install_Dependencies._reusable_backend(cuda_state, cuda132_specs)
+        )
+        self.assertIsNone(
+            Install_Dependencies._reusable_backend(cpu_state, cuda126_specs)
+        )
+
+    def test_provisional_accelerator_inventory_preserves_saved_build(self):
+        saved_specs = Install_Dependencies.backend_specs(self._cuda_report("cuda132"))
+        provisional_report = self._cuda_report("cuda126")
+        provisional_report["backend_candidates"][0]["eligibility"] = "provisional"
+        current_specs = Install_Dependencies.backend_specs(provisional_report)
+        state = {
+            "active_backend": Install_Dependencies._spec_payloads((saved_specs[0],))[0],
+            "requested_candidates": Install_Dependencies._spec_payloads(saved_specs),
+        }
+        self.assertFalse(
+            Install_Dependencies._accelerator_runtime_visible(provisional_report)
+        )
+        reusable = Install_Dependencies._reusable_backend(
+            state, current_specs, accelerator_visible=False
+        )
+        self.assertIsNotNone(reusable)
+        self.assertEqual(reusable[0].backend, "cuda132")
+        self.assertEqual(reusable[1], "package-only")
+
+    def test_provisional_gpu_keeps_cpu_but_eligible_gpu_upgrades_it(self):
+        cpu_report = self._cpu_report()
+        cpu_spec = Install_Dependencies.backend_specs(cpu_report)[0]
+        provisional_report = self._cuda_report("cuda126")
+        provisional_report["backend_candidates"][0]["eligibility"] = "provisional"
+        provisional_specs = Install_Dependencies.backend_specs(provisional_report)
+        cpu_state = {
+            "active_backend": Install_Dependencies._spec_payloads((cpu_spec,))[0],
+            "requested_candidates": Install_Dependencies._spec_payloads((cpu_spec,)),
+            "detection": cpu_report,
+        }
+        reusable = Install_Dependencies._reusable_backend(
+            cpu_state, provisional_specs, accelerator_visible=False
+        )
+        self.assertEqual(reusable[0].backend, "cpu")
+
+        provisional_state = {
+            "active_backend": Install_Dependencies._spec_payloads((cpu_spec,))[0],
+            "requested_candidates": Install_Dependencies._spec_payloads(provisional_specs),
+            "detection": provisional_report,
+        }
+        self.assertIsNone(
+            Install_Dependencies._reusable_backend(
+                provisional_state, provisional_specs, accelerator_visible=True
+            )
+        )
+
+    def test_failed_visible_runtime_validation_reinstalls_same_backend(self):
+        report = self._cuda_report()
+        specs = Install_Dependencies.backend_specs(report)
+        success = mock.Mock(returncode=0, stdout="", stderr="")
+        repaired = {"validated_devices": [{"spec": "cuda:0", "success": True}]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            venv = Path(temp_dir)
+            Install_Dependencies.write_state(
+                venv / Install_Dependencies.STATE_FILENAME,
+                Install_Dependencies._state_profile(
+                    specs[0], ROOT / "src" / "requirements.txt"
+                ),
+                report,
+            )
+            with mock.patch.object(
+                Install_Dependencies, "venv_python", return_value=Path(sys.executable)
+            ), mock.patch.object(
+                Install_Dependencies, "verify_bundled_artifacts"
+            ), mock.patch.object(
+                Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report
+            ), mock.patch.object(
+                Install_Dependencies, "_run", return_value=success
+            ), mock.patch.object(
+                Install_Dependencies, "validate_backend", return_value=None
+            ), mock.patch.object(
+                Install_Dependencies, "install_backend", return_value=repaired
+            ) as install_backend, mock.patch.object(
+                Install_Dependencies,
+                "_installed_version",
+                side_effect=lambda _python, package: (
+                    Install_Dependencies.TRANSFORMERS_VERSION
+                    if package == "transformers" else Install_Dependencies.ESM_VERSION
+                ),
+            ), mock.patch.object(
+                Install_Dependencies, "validate_package_consistency", return_value=True
+            ), mock.patch.object(
+                Install_Dependencies, "validate_esm_stack", return_value=True
+            ), mock.patch.object(Install_Dependencies, "write_state"):
+                code = Install_Dependencies.install(
+                    project_root=ROOT, venv=venv, uv_executable="uv"
+                )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(install_backend.call_args.args[2].backend, "cuda126")
 
     def test_failed_accelerator_install_falls_back_to_cpu(self):
         report = detected_report(

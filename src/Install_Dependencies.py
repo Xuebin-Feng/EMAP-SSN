@@ -43,8 +43,12 @@ ESM_WHEEL_SHA256 = "d5e412470877fa2e21c36b40a52cdf1bef5664234654355dc2a35bb8cd2f
 TRANSFORMERS_VERSION = "4.57.6+biohub.3a8956f"
 TRANSFORMERS_WHEEL_SHA256 = "74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b"
 STATE_FILENAME = "ssn_backend.json"
-STATE_SCHEMA = 4
+STATE_SCHEMA = 5
 SETUP_REQUIRED_EXIT = 10
+ACCELERATOR_BACKENDS = {
+    "cuda126", "cuda132", "xpu", "rocm72", "rocm64", "rocm714",
+    "rocm721", "mps",
+}
 
 PYTORCH_INDEXES = {
     "cpu": "https://download.pytorch.org/whl/cpu",
@@ -223,21 +227,7 @@ def _stable_hash(value: Any) -> str:
 
 
 def hardware_fingerprint(report: dict[str, Any]) -> str:
-    material = {
-        "compatibility_revision": report.get("compatibility_revision"),
-        "platform": report.get("platform"),
-        "os": report.get("os"),
-        "devices": [
-            {
-                key: device.get(key)
-                for key in ("id", "name", "vendor", "pci_id", "driver_version", "driver", "kind", "architecture", "eligibility", "eligible_profiles")
-            }
-            for device in report.get("devices", [])
-            if isinstance(device, dict)
-        ],
-        "backend_candidates": report.get("backend_candidates"),
-    }
-    return _stable_hash(material)
+    return _stable_hash(Detect_GPU.hardware_compatibility_material(report))
 
 
 def _wheel_metadata(wheel: Path) -> tuple[Any, set[str]]:
@@ -416,6 +406,96 @@ def _backend_from_state(value: Any) -> BackendSpec | None:
         return None
 
 
+def _backend_install_identity(spec: BackendSpec) -> dict[str, Any]:
+    """Describe the installed artifacts without physical device identity."""
+    return {
+        "backend": spec.backend,
+        "profile": spec.profile,
+        "torch_version": spec.torch_version,
+        "install_steps": [
+            {
+                "requirements": list(step.requirements),
+                "index_url": step.index_url,
+            }
+            for step in spec.install_steps
+        ],
+        "gfx_target": spec.gfx_target,
+    }
+
+
+def _candidate_install_identities(specs: Iterable[BackendSpec]) -> list[dict[str, Any]]:
+    return [_backend_install_identity(spec) for spec in specs]
+
+
+def _saved_candidate_identities(value: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(value, list):
+        return None
+    identities: list[dict[str, Any]] = []
+    for item in value:
+        spec = _backend_from_state(item)
+        if spec is None:
+            return None
+        identities.append(_backend_install_identity(spec))
+    return identities
+
+
+def _same_backend_install(left: BackendSpec, right: BackendSpec) -> bool:
+    return _backend_install_identity(left) == _backend_install_identity(right)
+
+
+def _accelerator_runtime_visible(report: dict[str, Any]) -> bool:
+    """Return whether detection found an accelerator with usable runtime data."""
+    candidates = report.get("backend_candidates")
+    if not isinstance(candidates, list):
+        return str(report.get("backend") or "cpu") != "cpu"
+    return any(
+        isinstance(candidate, dict)
+        and candidate.get("backend") != "cpu"
+        and candidate.get("eligibility", "eligible") == "eligible"
+        for candidate in candidates
+    )
+
+
+def _reusable_backend(
+    state: dict[str, Any] | None,
+    specs: list[BackendSpec],
+    *,
+    accelerator_visible: bool = True,
+) -> tuple[BackendSpec, str] | None:
+    """Return a safely reusable backend and its validation mode."""
+    if not state:
+        return None
+    active = _backend_from_state(state.get("active_backend"))
+    if active is None:
+        return None
+
+    if not accelerator_visible:
+        if active.backend in ACCELERATOR_BACKENDS:
+            return active, "package-only"
+        matching_cpu = next(
+            (spec for spec in specs if _same_backend_install(active, spec)), None
+        )
+        if matching_cpu is not None:
+            return matching_cpu, "runtime"
+
+    matching = next((spec for spec in specs if _same_backend_install(active, spec)), None)
+    if matching is None:
+        return None
+    if _same_backend_install(matching, specs[0]):
+        return matching, "runtime"
+
+    saved_ladder = _saved_candidate_identities(state.get("requested_candidates"))
+    saved_accelerator_visible = _accelerator_runtime_visible(
+        state.get("detection", {}) if isinstance(state.get("detection"), dict) else {}
+    )
+    if (
+        saved_ladder == _candidate_install_identities(specs)
+        and not (accelerator_visible and not saved_accelerator_visible)
+    ):
+        return matching, "runtime"
+    return None
+
+
 def _validation_program(spec: BackendSpec) -> str:
     return textwrap.dedent(
         f"""
@@ -523,6 +603,65 @@ def validate_backend(python: Path, spec: BackendSpec) -> dict[str, Any] | None:
     return result
 
 
+def _package_validation_program(spec: BackendSpec) -> str:
+    return textwrap.dedent(
+        f"""
+        import json
+        result = {{"backend": {spec.backend!r}, "profile": {spec.profile!r}, "package_error": None}}
+        try:
+            import torch
+            result["torch_version"] = torch.__version__
+            if torch.__version__.split("+", 1)[0] != {spec.torch_version!r}:
+                raise RuntimeError("unexpected torch version: " + torch.__version__)
+            backend = {spec.backend!r}
+            if backend in {{"cuda126", "cuda132"}}:
+                expected_cuda = "12.6" if backend == "cuda126" else "13.2"
+                if torch.version.hip is not None:
+                    raise RuntimeError("CUDA profile loaded a ROCm build")
+                if not str(torch.version.cuda).startswith(expected_cuda):
+                    raise RuntimeError("unexpected CUDA runtime: " + str(torch.version.cuda))
+            elif backend.startswith("rocm"):
+                if not torch.version.hip:
+                    raise RuntimeError("ROCm/HIP build metadata is missing")
+            elif backend == "xpu":
+                if not hasattr(torch, "xpu"):
+                    raise RuntimeError("Intel XPU support is missing")
+            elif backend == "mps":
+                if not hasattr(torch.backends, "mps"):
+                    raise RuntimeError("Apple MPS support is missing")
+            elif torch.version.cuda is not None or torch.version.hip is not None:
+                raise RuntimeError("CPU profile loaded an accelerator build")
+        except Exception as error:
+            result["package_error"] = str(error)
+        print(json.dumps(result, sort_keys=True))
+        """
+    ).strip()
+
+
+def validate_backend_package(python: Path, spec: BackendSpec) -> dict[str, Any] | None:
+    """Validate an installed build without requiring accelerator visibility."""
+    completed = _run([str(python), "-c", _package_validation_program(spec)], capture=True)
+    detail = completed.stderr.strip()
+    try:
+        result = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError:
+        result = None
+    if (
+        completed.returncode != 0
+        or not isinstance(result, dict)
+        or result.get("package_error")
+    ):
+        reason = (
+            result.get("package_error") if isinstance(result, dict) else None
+        ) or detail or completed.stdout.strip() or "invalid validator output"
+        print(f"PyTorch package validation failed: {reason}", file=sys.stderr)
+        return None
+    result["devices"] = []
+    result["validated_devices"] = []
+    result["preserved_without_accelerator"] = True
+    return result
+
+
 def _legacy_validation_payload(spec: BackendSpec) -> dict[str, Any]:
     runtime_spec = "cpu" if spec.backend == "cpu" else "mps" if spec.backend == "mps" else "xpu:0" if spec.backend == "xpu" else "cuda:0"
     device = {"spec": runtime_spec, "index": 0 if ":" in runtime_spec else None, "name": spec.description, "architecture": spec.gfx_target, "success": True, "error": None}
@@ -617,28 +756,67 @@ def install_backend(uv_executable: str, python: Path, spec: BackendSpec) -> dict
     return validate_backend(python, spec)
 
 
+STATE_FIELD_LABELS = {
+    "state_file": "saved backend state is missing or unreadable",
+    "schema": "backend state schema changed",
+    "compatibility_revision": "hardware compatibility rules changed",
+    "hardware_fingerprint": "stable hardware compatibility profile changed",
+    "requirements_sha256": "base requirements changed",
+    "esm_version": "bundled ESM version changed",
+    "esm_wheel_sha256": "bundled ESM wheel changed",
+    "transformers_version": "bundled Transformers version changed",
+    "transformers_wheel_sha256": "bundled Transformers wheel changed",
+    "esm_runtime_requirements_sha256": "ESM runtime requirements changed",
+    "requested_candidates": "backend candidate ladder changed",
+}
+
+
+def _state_mismatches(
+    state: dict[str, Any] | None,
+    specs: Iterable[BackendSpec],
+    fingerprint: str,
+    requirements: Path,
+) -> list[str]:
+    if not state:
+        return ["state_file"]
+    specs = list(specs)
+    expected = {
+        "schema": STATE_SCHEMA,
+        "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+        "hardware_fingerprint": fingerprint,
+        "requirements_sha256": _sha256(requirements),
+        "esm_version": ESM_VERSION,
+        "esm_wheel_sha256": ESM_WHEEL_SHA256,
+        "transformers_version": TRANSFORMERS_VERSION,
+        "transformers_wheel_sha256": TRANSFORMERS_WHEEL_SHA256,
+        "esm_runtime_requirements_sha256": _sha256(
+            requirements.parent / "resources" / "wheels"
+            / f"esm-{ESM_VERSION}-runtime-requirements.txt"
+        ),
+    }
+    mismatches = [
+        field for field, value in expected.items() if state.get(field) != value
+    ]
+    if _saved_candidate_identities(state.get("requested_candidates")) != (
+        _candidate_install_identities(specs)
+    ):
+        mismatches.append("requested_candidates")
+    return mismatches
+
+
+def _print_state_mismatches(fields: Iterable[str]) -> None:
+    for field in fields:
+        label = STATE_FIELD_LABELS.get(field, "saved value changed")
+        print(f"State mismatch [{field}]: {label}.", file=sys.stderr)
+
+
 def _state_matches(
     state: dict[str, Any] | None,
     specs: Iterable[BackendSpec],
     fingerprint: str,
     requirements: Path,
 ) -> bool:
-    return bool(
-        state
-        and state.get("schema") == STATE_SCHEMA
-        and state.get("compatibility_revision") == Detect_GPU.COMPATIBILITY_REVISION
-        and state.get("hardware_fingerprint") == fingerprint
-        and state.get("requirements_sha256") == _sha256(requirements)
-        and state.get("esm_version") == ESM_VERSION
-        and state.get("esm_wheel_sha256") == ESM_WHEEL_SHA256
-        and state.get("transformers_version") == TRANSFORMERS_VERSION
-        and state.get("transformers_wheel_sha256") == TRANSFORMERS_WHEEL_SHA256
-        and state.get("esm_runtime_requirements_sha256") == _sha256(
-            requirements.parent / "resources" / "wheels"
-            / f"esm-{ESM_VERSION}-runtime-requirements.txt"
-        )
-        and state.get("requested_candidates") == _spec_payloads(specs)
-    )
+    return not _state_mismatches(state, specs, fingerprint, requirements)
 
 
 def _spec_payloads(specs: Iterable[BackendSpec]) -> list[dict[str, Any]]:
@@ -660,13 +838,14 @@ def install(
     fingerprint = hardware_fingerprint(report)
     state_path = venv / STATE_FILENAME
     current_state = read_state(state_path)
-    state_matches = _state_matches(current_state, specs, fingerprint, requirements)
-    saved_active = _backend_from_state(current_state.get("active_backend")) if state_matches and current_state else None
+    mismatches = _state_mismatches(current_state, specs, fingerprint, requirements)
 
     print(f"Detected: {report['reason']}")
     if report.get("ignored_devices"):
         for item in report["ignored_devices"]:
             print(f"Ignoring {item.get('name')}: {item.get('reason')}")
+    if mismatches:
+        _print_state_mismatches(mismatches)
 
     base_command = base_install_command(uv_executable, python, requirements)
     transformers_command = transformers_install_command(
@@ -694,11 +873,43 @@ def install(
     active: BackendSpec | None = None
     validation: dict[str, Any] | None = None
     attempts: list[dict[str, Any]] = []
-    if saved_active is not None and not refresh_backend:
-        validation = _normalize_validation(validate_backend(python, saved_active), saved_active)
+    preservation_mode = False
+    reusable = None if refresh_backend else _reusable_backend(
+        current_state,
+        specs,
+        accelerator_visible=_accelerator_runtime_visible(report),
+    )
+    if reusable is not None:
+        saved_active, validation_mode = reusable
+        if validation_mode == "package-only":
+            print(
+                f"No accelerator is currently visible; preserving installed "
+                f"{saved_active.description} and validating its package metadata."
+            )
+            validation = validate_backend_package(python, saved_active)
+            preservation_mode = validation is not None
+        else:
+            print(
+                f"Validating installed {saved_active.description} before considering "
+                "a backend reinstall."
+            )
+            validation = _normalize_validation(
+                validate_backend(python, saved_active), saved_active
+            )
         if validation is not None:
             active = saved_active
             attempts = list(current_state.get("attempts", [])) if current_state else []
+            if mismatches:
+                print(
+                    f"Reusing installed {active.description}; refreshing saved "
+                    "dependency and hardware state."
+                )
+        else:
+            print(
+                f"Installed {saved_active.description} did not validate; "
+                "the backend candidate ladder will be repaired.",
+                file=sys.stderr,
+            )
 
     if active is None:
         for spec in specs:
@@ -720,8 +931,13 @@ def install(
         print("No PyTorch backend, including CPU, could be installed and validated.", file=sys.stderr)
         return 1
 
+    esm_fields = {
+        "esm_version", "esm_wheel_sha256", "transformers_version",
+        "transformers_wheel_sha256", "esm_runtime_requirements_sha256",
+    }
     esm_ready = (
-        state_matches
+        current_state is not None
+        and not esm_fields.intersection(mismatches)
         and _installed_version(python, "transformers") == TRANSFORMERS_VERSION
         and _installed_version(python, "esm") == ESM_VERSION
         and validate_esm_stack(python)
@@ -762,12 +978,21 @@ def install(
     final_report = dict(report)
     final_report["backend"] = active.backend
     final_report["gfx_target"] = active.gfx_target
-    final_report["reason"] = f"{active.description} passed runtime validation."
-    if active.backend != specs[0].backend:
+    if preservation_mode:
+        final_report["reason"] = (
+            f"{active.description} package metadata passed validation while no "
+            "accelerator was visible."
+        )
+        final_report["preserved_without_accelerator"] = True
+    else:
+        final_report["reason"] = f"{active.description} passed runtime validation."
+    if not preservation_mode and active.backend != specs[0].backend:
         final_report["fallback_from"] = specs[0].backend
     write_state(state_path, payload, final_report)
     print(f"Dependency environment is ready ({active.description}).")
     print(f"Validated runtime devices: {len(active_devices)}")
+    if preservation_mode:
+        print("Accelerator runtime validation: deferred until an accelerator is visible")
     print(f"Bundled Transformers version: {TRANSFORMERS_VERSION}")
     print(f"Bundled ESM version: {ESM_VERSION}")
     return 0
@@ -796,14 +1021,31 @@ def environment_is_ready(
         for item in report.get("ignored_devices", []):
             print(f"Ignoring {item.get('name')}: {item.get('reason')}")
         state = read_state(venv / STATE_FILENAME)
-        if not _state_matches(state, specs, fingerprint, requirements):
+        mismatches = _state_mismatches(state, specs, fingerprint, requirements)
+        active = _backend_from_state(state.get("active_backend")) if state else None
+        accelerator_visible = _accelerator_runtime_visible(report)
+        preserve_without_accelerator = bool(
+            active is not None and not accelerator_visible
+        )
+        if mismatches:
+            _print_state_mismatches(mismatches)
+        tolerable_cpu_only_fields = {"hardware_fingerprint", "requested_candidates"}
+        if mismatches and not (
+            preserve_without_accelerator
+            and set(mismatches).issubset(tolerable_cpu_only_fields)
+        ):
             print(
                 "Environment is not ready: dependency or hardware state changed.",
                 file=sys.stderr,
             )
             return False
-        print("Dependency and hardware state: current")
-        active = _backend_from_state(state.get("active_backend")) if state else None
+        if mismatches:
+            print(
+                "No accelerator is currently visible; compatible accelerator "
+                "state is being preserved."
+            )
+        else:
+            print("Dependency and hardware state: current")
         saved_backend = state.get("active_backend", {}) if state else {}
         active_label = (
             getattr(active, "description", None)
@@ -811,11 +1053,26 @@ def environment_is_ready(
             or saved_backend.get("backend")
             or "validated backend"
         )
-        if active is not None:
+        package_only_preservation = bool(
+            preserve_without_accelerator
+            and active is not None
+            and active.backend in ACCELERATOR_BACKENDS
+        )
+        if active is not None and package_only_preservation:
+            print(f"Validating installed backend package: {active_label}")
+        elif active is not None:
             print(f"Validating runtime backend: {active_label}")
-        validation = validate_backend(python, active) if active is not None else None
+        validation = (
+            validate_backend_package(python, active)
+            if active is not None and package_only_preservation
+            else validate_backend(python, active) if active is not None else None
+        )
         if active is None or validation is None:
-            print("Environment is not ready: runtime backend validation failed.", file=sys.stderr)
+            validation_kind = "package" if package_only_preservation else "runtime backend"
+            print(
+                f"Environment is not ready: {validation_kind} validation failed.",
+                file=sys.stderr,
+            )
             return False
         if _installed_version(python, "transformers") != TRANSFORMERS_VERSION:
             print(
@@ -842,6 +1099,8 @@ def environment_is_ready(
         "Validated runtime devices: "
         f"{len(validation.get('validated_devices', validation.get('devices', [])))}"
     )
+    if package_only_preservation:
+        print("Accelerator runtime validation: deferred until an accelerator is visible")
     print(f"Bundled Transformers version: {TRANSFORMERS_VERSION}")
     print(f"Bundled ESM version: {ESM_VERSION}")
     return True

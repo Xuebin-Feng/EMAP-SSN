@@ -31,14 +31,14 @@ class DependencyReadinessTests(unittest.TestCase):
             python = root / "python"
             python.touch()
             state = {"active_backend": {"backend": "cpu"}}
-            active = object()
+            active = Install_Dependencies.backend_spec({"backend": "cpu"})
             with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
                     mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
                     mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
                     mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
                     mock.patch.object(Install_Dependencies, "read_state", return_value=state), \
-                    mock.patch.object(Install_Dependencies, "_state_matches", return_value=True), \
+                    mock.patch.object(Install_Dependencies, "_state_mismatches", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "_backend_from_state", return_value=active), \
                     mock.patch.object(Install_Dependencies, "validate_backend", return_value={"devices": []}), \
                     mock.patch.object(
@@ -72,7 +72,11 @@ class DependencyReadinessTests(unittest.TestCase):
                     mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
                     mock.patch.object(Install_Dependencies, "read_state", return_value={}), \
-                    mock.patch.object(Install_Dependencies, "_state_matches", return_value=False), \
+                    mock.patch.object(
+                        Install_Dependencies,
+                        "_state_mismatches",
+                        return_value=["hardware_fingerprint"],
+                    ), \
                     mock.patch.object(Install_Dependencies, "validate_backend") as validate:
                 ready = Install_Dependencies.environment_is_ready(
                     project_root=root, venv=root, uv_executable="uv"
