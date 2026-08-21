@@ -340,6 +340,7 @@ class AtomicCommandTests(unittest.TestCase):
     def test_export_uses_configured_sequence_export_directory(self):
         viewer = self.make_viewer()
         viewer.cluster_labels = np.array([0])
+        viewer._selected_fasta_records = [("node", "CCCC")]
 
         with tempfile.TemporaryDirectory() as temp_dir:
             fasta_path = os.path.join(temp_dir, "source.fasta")
@@ -376,6 +377,8 @@ class AtomicCommandTests(unittest.TestCase):
                 "Cluster_0.fasta",
             )
             self.assertTrue(os.path.isfile(output_path))
+            with open(output_path, "r", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), ">node\nCCCC\n")
 
     def test_invalid_hide_does_not_change_visibility_or_undo_state(self):
         viewer = self.make_viewer()

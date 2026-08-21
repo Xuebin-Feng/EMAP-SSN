@@ -426,6 +426,36 @@ def _create_viewer_settings_snapshot(settings):
         raise
     return path
 
+
+def _load_consistency_fasta_headers(fasta_path):
+    """Return the canonical FASTA headers used by downstream SSN workflows."""
+    from utilities.FASTA_Sanitization import load_sanitized_fasta
+
+    headers, _, _ = load_sanitized_fasta(fasta_path)
+    return headers
+
+
+def _load_consistency_msa_headers(msa_path):
+    """Return canonical MSA headers using the same rules as the viewer."""
+    from utilities.MSA_Sanitization import (
+        load_sanitized_msa_fasta,
+        sanitize_msa_headers,
+    )
+
+    if os.path.splitext(msa_path)[1].lower() == ".h5":
+        import h5py
+
+        with h5py.File(msa_path, "r") as hf:
+            raw_headers = hf["headers"][:]
+        decoded_headers = [
+            header.decode("utf-8") if isinstance(header, bytes) else header
+            for header in raw_headers
+        ]
+        return sanitize_msa_headers(decoded_headers)
+
+    headers, _, _ = load_sanitized_msa_fasta(msa_path)
+    return headers
+
 # =============================================================================
 # GUI APPLICATION
 # =============================================================================
@@ -1191,8 +1221,7 @@ if __name__ == "__main__":
             
         def run_consistency_check(self):
             import h5py
-            from Bio import SeqIO
-            import os
+            from utilities.FASTA_Sanitization import sanitize_header
             
             # 1. Define the file names by grabbing them from the UI dropdowns
             fasta_file = self.cb_fasta.currentText()
@@ -1213,25 +1242,22 @@ if __name__ == "__main__":
             QApplication.processEvents()
             
             try:
-                fasta_ids = set()
-                fasta_headers = set()
-                for rec in SeqIO.parse(fasta_path, "fasta"):
-                    fasta_ids.add(rec.id)
-                    fasta_headers.add(rec.description)
+                fasta_headers = _load_consistency_fasta_headers(fasta_path)
                 
                 with h5py.File(hdf5_path, "r") as hf:
                     raw_headers = hf['headers'][:]
                     headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
                     
                 net_headers_set = set(headers)
-                net_id_set = {h.split()[0] for h in headers}
+                missing_nodes = [
+                    header for header in fasta_headers
+                    if header not in net_headers_set
+                ]
                 
-                missing_nodes = [hid for hid in fasta_ids if hid not in net_id_set and hid not in net_headers_set]
-                
-                num_matched = len(fasta_ids) - len(missing_nodes)
+                num_matched = len(fasta_headers) - len(missing_nodes)
                 num_missing = len(missing_nodes)
                 
-                msg = f"FASTA vs HDF5:\nMatched: {num_matched} of {len(net_headers_set)} | Missing: {num_missing}"
+                msg = f"FASTA vs HDF5:\nMatched: {num_matched} of {len(fasta_headers)} | Missing: {num_missing}"
                 
                 if missing_nodes:
                     msg = f"ERROR: FASTA is NOT a subset of HDF5.\n{msg}\nMissing examples: {', '.join(missing_nodes[:5])}"
@@ -1239,19 +1265,7 @@ if __name__ == "__main__":
                     msg = f"SUCCESS: FASTA is a strict subset of HDF5.\n{msg}"
                 
                 if msa_path and os.path.exists(msa_path):
-                    msa_headers = set()
-                    
-                    if msa_path.endswith('.h5'):
-                        import h5py
-                        with h5py.File(msa_path, "r") as hf:
-                            raw_headers = hf['headers'][:]
-                            msa_headers = {
-                                h.decode('utf-8') if isinstance(h, bytes) else h
-                                for h in raw_headers
-                            }
-                    else:
-                        for rec in SeqIO.parse(msa_path, "fasta"):
-                            msa_headers.add(rec.description)
+                    msa_headers = set(_load_consistency_msa_headers(msa_path))
 
                     msa_missing = [
                         header for header in fasta_headers if header not in msa_headers
@@ -1277,7 +1291,7 @@ if __name__ == "__main__":
                 ref_id = self.line_ref.text().strip()
                 if ref_id:
                     # Proceed with normal matching only (Case-Insensitive)
-                    ref_id_lower = ref_id.lower()
+                    ref_id_lower = sanitize_header(ref_id)[0].lower()
                     matched_refs = [h for h in fasta_headers if ref_id_lower in h.lower()]
                     if matched_refs:
                         msg += f"\n\nSUCCESS: Reference ID '{ref_id}' matched {len(matched_refs)} header(s) in FASTA."

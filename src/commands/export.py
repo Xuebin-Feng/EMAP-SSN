@@ -15,10 +15,29 @@
 import Command_Engine
 import os
 import re
-from Bio import SeqIO
 import SSN_Config as cfg
 import SSN_Utils as utils
 import Cache_Manifest as cache_manifest
+from utilities.FASTA_Sanitization import write_fasta_atomic
+
+
+def _get_in_memory_sequence_records(viewer):
+    """Return canonical header/sequence pairs already loaded by the viewer."""
+    selected_records = getattr(viewer, "_selected_fasta_records", None)
+    if selected_records is not None:
+        return {
+            str(header): str(sequence)
+            for header, sequence in selected_records
+        }
+
+    sequence_map = getattr(viewer, "sequences_map", None)
+    if sequence_map is None:
+        return {}
+    return {
+        header: str(sequence_map[header])
+        for header in viewer.full_headers
+        if header in sequence_map
+    }
 
 def print_help():
     print("""
@@ -28,9 +47,9 @@ def print_help():
            export help
 
     Description:
-      Extracts sequence subsets from the currently active viewer state and saves them 
-      as standalone .fasta files. Files are automatically routed to strictly organized 
-      subdirectories within that specified in the GUI.
+      Extracts sanitized sequence subsets from the currently active viewer state and
+      saves them as standalone .fasta files. Files are automatically routed to strictly
+      organized subdirectories within that specified in the GUI.
       
     [TARGET] Arguments (Default: clusters):
       clusters : Exports sequences based on their assigned topology cluster ID. 
@@ -77,28 +96,20 @@ def run(viewer, args):
         print("Error: No groups defined. Use the 'group' command first.")
         return
 
-    # --- 2. Load Source FASTA ---
-    fasta_path = getattr(cfg, 'NODE_FASTA_FILE', None)
-    if not fasta_path or not os.path.exists(fasta_path):
-        fasta_path = getattr(cfg, 'SEQUENCES_FILE', None)
-        
-    if not fasta_path or not os.path.exists(fasta_path):
-        msg = "Error: Cannot find source FASTA file."
+    # --- 2. Load Canonical Records Already Held by the Viewer ---
+    source_records = _get_in_memory_sequence_records(viewer)
+    if not source_records:
+        msg = "Error: No in-memory sequence set is available for export."
         viewer.console_text.text = msg
         print(msg)
         return
 
-    print(f"Loading source FASTA: {os.path.basename(fasta_path)}...")
-    source_records = {}
-    try:
-        for rec in SeqIO.parse(fasta_path, "fasta"):
-            # Store by full header to ensure perfect mapping
-            source_records[rec.description] = rec
-    except Exception as e:
-        msg = f"Error reading FASTA: {e}"
-        viewer.console_text.text = msg
-        print(msg)
-        return
+    fasta_path = (
+        getattr(cfg, 'NODE_FASTA_FILE', None)
+        or getattr(cfg, 'SEQUENCES_FILE', None)
+        or "loaded_sequences.fasta"
+    )
+    print(f"Using {len(source_records)} in-memory sanitized sequences...")
 
     # --- 3. Resolve Target Directory (NO Reference Injection) ---
     fasta_base = os.path.splitext(os.path.basename(fasta_path))[0]
@@ -162,7 +173,7 @@ def run(viewer, args):
             missing_count += 1
             continue
             
-        record = source_records[full_header]
+        record = (full_header, source_records[full_header])
         
         if target_mode == "clusters":
             if i >= len(viewer.cluster_labels): continue
@@ -205,7 +216,11 @@ def run(viewer, args):
     for filename, recs in file_map.items():
         out_path = os.path.join(out_dir, filename)
         try:
-            SeqIO.write(recs, out_path, "fasta")
+            write_fasta_atomic(
+                out_path,
+                [header for header, _ in recs],
+                [sequence for _, sequence in recs],
+            )
             files_written += 1
             seqs_written += len(recs)
         except Exception as e:
