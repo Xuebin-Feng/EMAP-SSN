@@ -742,6 +742,10 @@ if __name__ == "__main__":
             self.btn_export_layout = QPushButton("Export Layout Settings")
             self.btn_export_layout.clicked.connect(self.export_layout_settings)
             self.btn_export_layout.setEnabled(False)
+            self.btn_export_layout.setStyleSheet(
+                "background-color: #2196F3; color: white; "
+                "font-weight: bold; padding: 5px;"
+            )
             self.btn_export_layout.setToolTip(
                 "Export a generation-only JSON file for the selected new layout cache."
             )

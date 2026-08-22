@@ -1001,6 +1001,15 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             critical.assert_not_called()
 
     def test_layout_export_button_is_enabled_only_for_new_cache_generation(self):
+        self.assertIn("#2196F3", self.window.btn_export_layout.styleSheet())
+        self.assertEqual(
+            self.window.btn_export_layout.sizeHint().height(),
+            self.window.btn_save_run.sizeHint().height(),
+        )
+        self.assertEqual(
+            self.window.btn_export_layout.sizeHint().height(),
+            self.window.btn_check.sizeHint().height(),
+        )
         with mock.patch.object(self.window, "_cache_launch_allowed", True):
             self.window._toggle_new_cache_input("(New Layout Cache)")
             self.assertTrue(self.window.btn_export_layout.isEnabled())
