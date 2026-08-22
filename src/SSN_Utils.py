@@ -435,9 +435,11 @@ def build_network_from_raw(
     data,
     forced_ref_header=None,
     selected_fasta_headers=None,
+    layout_settings=None,
 ):
+    settings = cfg if layout_settings is None else layout_settings
     metadata = cache_manifest.validate_network_schema(data)
-    cfg.INPUT_IS_EVALUE = metadata.network_type == "blast"
+    settings.INPUT_IS_EVALUE = metadata.network_type == "blast"
 
     # Decode HDF5 byte-strings into standard python strings
     raw_headers = data['headers'][:]
@@ -445,7 +447,7 @@ def build_network_from_raw(
     n_total = len(headers)
     
     # Extract arrays efficiently into memory
-    if cfg.INPUT_IS_EVALUE:
+    if settings.INPUT_IS_EVALUE:
         sources = data['i'][:]
         targets = data['j'][:]
         scores  = data['score'][:]
@@ -454,7 +456,7 @@ def build_network_from_raw(
         sources = data['i'][:]
         targets = data['j'][:]
         seq_lens = data['seq_lens'][:]
-        if cfg.ALIGNMENT_SCORE == "global":
+        if settings.ALIGNMENT_SCORE == "global":
             arr_score = data['g_score'][:]
             arr_len = data['g_len'][:]
         else:
@@ -464,11 +466,11 @@ def build_network_from_raw(
         
     print(f"Raw Data: {n_total} sequences.")
     
-    if not cfg.INPUT_IS_EVALUE:
-        print(f"Metric: {cfg.ALIGNMENT_SCORE.upper()} Alignment with {cfg.NORM_MODE} Normalization")
+    if not settings.INPUT_IS_EVALUE:
+        print(f"Metric: {settings.ALIGNMENT_SCORE.upper()} Alignment with {settings.NORM_MODE} Normalization")
 
     # --- 2. FASTA Subset Filtering Logic ---
-    fasta_path = getattr(cfg, "NODE_FASTA_FILE", "")
+    fasta_path = getattr(settings, "NODE_FASTA_FILE", "")
     kept_indices = []
     
     if selected_fasta_headers is not None or os.path.exists(fasta_path):
@@ -504,7 +506,7 @@ def build_network_from_raw(
                 if h in fasta_headers or rec_id in fasta_ids:
                     kept_indices.append(i)
                     
-            kept_indices = np.array(kept_indices)
+            kept_indices = np.asarray(kept_indices, dtype=np.int64)
             print(f"Filtered {n_total} down to {len(kept_indices)} valid FASTA subsets.")
             
         except Exception as e:
@@ -529,17 +531,17 @@ def build_network_from_raw(
     valid_v = targets[valid_edges_mask]
     
     # Fetch/calculate scores for those valid edges
-    if cfg.INPUT_IS_EVALUE:
+    if settings.INPUT_IS_EVALUE:
         valid_scores = scores[valid_edges_mask]
     else:
         valid_raw_scores = arr_score[valid_edges_mask]
         valid_align_lens = arr_len[valid_edges_mask]
-        valid_scores = normalize_score(valid_raw_scores, valid_align_lens, seq_lens[valid_u], seq_lens[valid_v], cfg.NORM_MODE)
+        valid_scores = normalize_score(valid_raw_scores, valid_align_lens, seq_lens[valid_u], seq_lens[valid_v], settings.NORM_MODE)
         
     scores_for_hist = valid_scores.tolist()
     
-    top_percent = getattr(cfg, 'TOP_EDGE_PERCENT', None)
-    if top_percent is not None and not getattr(cfg, 'UMAP_MODE', False):
+    top_percent = getattr(settings, 'TOP_EDGE_PERCENT', None)
+    if top_percent is not None and not getattr(settings, 'UMAP_MODE', False):
         # ---> NEW: Calculate absolute theoretical max edges for proper Top % <---
         total_active_nodes = len(kept_indices)
         theoretical_max_edges = (total_active_nodes * (total_active_nodes - 1)) / 2.0
@@ -557,17 +559,17 @@ def build_network_from_raw(
             sorted_all = np.sort(valid_scores)[::-1]
             calculated_cutoff = sorted_all[k - 1]
         
-        mode_label = "E-Value" if cfg.INPUT_IS_EVALUE else "Similarity"
+        mode_label = "E-Value" if settings.INPUT_IS_EVALUE else "Similarity"
         print(f"Top {top_percent}% Edges Requested (based on max possible {int(theoretical_max_edges)} edges).")
         print(f"Calculated {mode_label} Cutoff: {calculated_cutoff:.5f}")
         
         # Override the global threshold for this session so the Viewer knows what to use
-        cfg.SIMILARITY_THRESHOLD = calculated_cutoff
+        settings.SIMILARITY_THRESHOLD = calculated_cutoff
 
-    is_umap = getattr(cfg, 'UMAP_MODE', False)
+    is_umap = getattr(settings, 'UMAP_MODE', False)
     if is_umap:
         print("UMAP Mode enabled: Bypassing global threshold. Filtering top k edges per node...")
-        umap_k = int(getattr(cfg, 'UMAP_NEIGHBORS', 15))
+        umap_k = int(getattr(settings, 'UMAP_NEIGHBORS', 15))
         keep_limit = umap_k
         
         import pandas as pd
@@ -584,7 +586,7 @@ def build_network_from_raw(
         print(f"Kept {len(keep_idx)} edges for UMAP topology (max {keep_limit} per node direction).")
     else:
         # Threshold filter (only keep edges above cutoff)
-        thresh_mask = valid_scores >= cfg.SIMILARITY_THRESHOLD
+        thresh_mask = valid_scores >= settings.SIMILARITY_THRESHOLD
     
     # Apply new indices
     final_u = map_array[valid_u[thresh_mask]]
@@ -601,7 +603,7 @@ def build_network_from_raw(
     # Layout Init
     side = int(np.ceil(np.sqrt(n_nodes_new)))
     base_box = np.sqrt(n_nodes_new) * 2.5 + 5.0
-    box_limit = base_box * cfg.BOX_SCALE
+    box_limit = base_box * settings.BOX_SCALE
     x = np.linspace(-box_limit*0.5, box_limit*0.5, side)
     y = np.linspace(-box_limit*0.5, box_limit*0.5, side)
     xv, yv = np.meshgrid(x, y)

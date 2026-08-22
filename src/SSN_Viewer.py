@@ -69,10 +69,13 @@ import SSN_Config as cfg
 import SSN_Utils as utils
 import Command_Engine
 import Cache_Manifest as cache_manifest
+from Layout_Cache_Generator import (
+    LayoutGenerationSettings,
+    generate_layout_cache,
+)
 from Background_Job_Scheduler import BackgroundJobScheduler
 from utilities.FASTA_Sanitization import (
     load_sanitized_fasta,
-    write_fasta_atomic,
 )
 from utilities.Application_Fonts import (
     VISPY_FALLBACK_FACE,
@@ -1075,132 +1078,36 @@ class MainViewer:
             if not raw_loaded:
                 if cache_mode != 'new':
                     raise RuntimeError("Existing cache validation did not complete.")
-                if os.path.exists(cache_path):
-                    raise RuntimeError(
-                        f"New cache target already exists and will not be overwritten: {cache_path}"
-                    )
-                # ---> FIX: Normalize the slash direction for the console output <---
                 clean_hdf5_path = os.path.normpath(cfg.INPUT_HDF5)
                 print(f"--- Calculating New Layout (Raw: {clean_hdf5_path}) ---")
                 try:
-                    with h5py.File(cfg.INPUT_HDF5, "r") as raw_data: 
-                        self.full_headers, self.edges, self.edge_scores, initial_pos, self.box_limit = utils.build_network_from_raw(
-                            raw_data, 
-                            forced_ref_header=self.resolved_ref_full,
-                            selected_fasta_headers=selected_fasta_headers,
-                        )
-                except Exception as e:
-                    sys.exit(f"Error loading HDF5 file: {e}")
-                
+                    generation_settings = LayoutGenerationSettings.from_namespace(
+                        cfg,
+                        cache_filename=os.path.basename(cache_path),
+                        project_root=os.path.dirname(_SRC_DIR),
+                        target_cache_path=cache_path,
+                    )
+                    result = generate_layout_cache(generation_settings)
+                except Exception as error:
+                    raise RuntimeError(
+                        f"Could not generate layout cache: {error}"
+                    ) from error
+
+                self.cache_manifest = result.manifest
+                self.cache_manifest_id = result.manifest["manifest_id"]
+                cfg.CACHE_MANIFEST_ID = self.cache_manifest_id
+                cfg.SIMILARITY_THRESHOLD = result.effective_similarity_threshold
+                self._selected_fasta_records = result.fasta_records
+                self.sequences_map = _build_sequence_lookup(result.fasta_records)
+                self.full_headers = result.full_headers
+                self.edges = result.edges
+                self.edge_scores = result.edge_scores
+                self.pos = result.positions
+                self.box_limit = result.box_limit
                 self.n_nodes = len(self.full_headers)
-                print(f"Network Built: {self.n_nodes} Nodes, {len(self.edges)} Edges.")
-                
-                # --- Layout Engine Calculation ---
-                if getattr(cfg, 'UMAP_MODE', False):
-                    import Layout_Engine_UMAP as Layout_Engine
-                else:
-                    engine_style = getattr(cfg, 'PHYSICS_ENGINE', 'Molecular Dynamics (Style)')
-                    if engine_style == 'Monte Carlo (Style)':
-                        import Layout_Engine_SSN_MonteCarlo as Layout_Engine
-                    else:
-                        import Layout_Engine_SSN_MolecularDynamics as Layout_Engine
-                
-                # Construct params dictionary from cfg
-                params = {
-                    'PHYSICS_ENGINE': getattr(cfg, 'PHYSICS_ENGINE', 'Molecular Dynamics (Style)'),
-                    'LAYOUT_DEVICE_SELECTION': getattr(
-                        cfg, 'LAYOUT_DEVICE_SELECTION', 'auto'
-                    ),
-                    'BOX_SCALE': getattr(cfg, 'BOX_SCALE', 1.0),
-                    'SIMILARITY_THRESHOLD': getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0),
-                    'ENABLE_PROGRESSIVE_SIMULATION': getattr(cfg, 'ENABLE_PROGRESSIVE_SIMULATION', True),
-                    'RMSD_WINDOW': getattr(cfg, 'RMSD_WINDOW', 50),
-                    'MAX_STEPS': getattr(cfg, 'MAX_STEPS', 2000),
-                    'RMSD_THRESHOLD': getattr(cfg, 'RMSD_THRESHOLD', 0.005),
-                    'PERCENTAGE_DROP_THRESHOLD': getattr(cfg, 'PERCENTAGE_DROP_THRESHOLD', 0.0),
-                    'PACKING_GRID_SIZE': getattr(cfg, 'PACKING_GRID_SIZE', 200.0),
-                    'PACKING_PADDING': getattr(cfg, 'PACKING_PADDING', 50.0),
-                    'PACKING_GEOMETRY': getattr(cfg, 'PACKING_GEOMETRY', 'Square'),
-                    'COULOMB_CUTOFF': getattr(cfg, 'COULOMB_CUTOFF', 15.0),
-                    'COULOMB_K': getattr(cfg, 'COULOMB_K', 50.0),
-                    'MAX_FORCE_LIMIT': getattr(cfg, 'MAX_FORCE_LIMIT', 20.0),
-                    'MAX_TOTAL_REPULSION_FORCE': getattr(
-                        cfg, 'MAX_TOTAL_REPULSION_FORCE', 0.0
-                    ),
-                    'SPRING_K': getattr(cfg, 'SPRING_K', 0.1),
-                    'DAMPING': getattr(cfg, 'DAMPING', 0.5),
-                    'DT': getattr(cfg, 'DT', 0.1),
-                    'UMAP_NEIGHBORS': getattr(cfg, 'UMAP_NEIGHBORS', 15),
-                    'UMAP_MIN_DIST': getattr(cfg, 'UMAP_MIN_DIST', 0.1),
-                    'SGLD_MIN_K': getattr(cfg, 'SGLD_MIN_K', 20),
-                    'SGLD_K_PERCENT': getattr(cfg, 'SGLD_K_PERCENT', 0.01),
-                    'SGLD_START_TEMP': getattr(cfg, 'SGLD_START_TEMP', 1.5),
-                    'SGLD_NOISE_SCALE': getattr(cfg, 'SGLD_NOISE_SCALE', 1.0)
-                }
-                
-                # Construct N x 3 connectivity table
-                if len(self.edges) > 0:
-                    connectivity = np.column_stack((self.edges, self.edge_scores))
-                else:
-                    connectivity = np.zeros((0, 3), dtype=np.float32)
-                    
-                self.pos, self.box_limit = Layout_Engine.calculate_layout(connectivity, self.n_nodes, params)
-                
-                # --- Save to Cache (Using FULL headers) ---
-                try:
-                    cache_folder = os.path.dirname(cache_path)
-                    os.makedirs(cache_folder, exist_ok=True)
-
-                    fasta_backup_name = os.path.basename(
-                        os.path.normpath(selected_fasta_path)
-                    )
-                    fasta_backup_path = os.path.join(
-                        cache_folder, fasta_backup_name
-                    )
-                    if os.path.normcase(os.path.abspath(fasta_backup_path)) == (
-                        os.path.normcase(os.path.abspath(selected_fasta_path))
-                    ):
-                        raise RuntimeError(
-                            "The cache FASTA backup path resolves to the selected "
-                            "input FASTA. Choose a separate saved-layout folder."
-                        )
-                    sanitized_headers = [
-                        header for header, _ in self._selected_fasta_records
-                    ]
-                    sanitized_sequences = [
-                        sequence for _, sequence in self._selected_fasta_records
-                    ]
-                    write_fasta_atomic(
-                        fasta_backup_path,
-                        sanitized_headers,
-                        sanitized_sequences,
-                    )
-                    print(
-                        f"Sanitized FASTA backup saved to: "
-                        f"{fasta_backup_path}"
-                    )
-
-                    partial_cache_path = cache_path + ".partial"
-                    if os.path.exists(partial_cache_path):
-                        os.remove(partial_cache_path)
-
-                    with h5py.File(partial_cache_path, "w") as hf:
-                        dt_str = h5py.string_dtype(encoding='utf-8')
-                        hf.attrs["cache_manifest_id"] = self.cache_manifest_id
-                        hf.create_dataset("headers", data=np.array(self.full_headers, dtype=object), dtype=dt_str, compression="gzip")
-                        hf.create_dataset("positions", data=self.pos, compression="gzip")
-                        
-                        if getattr(self, 'last_cluster_params', None) is not None: hf.attrs["last_cluster_params"] = json.dumps(self.last_cluster_params)
-
-                    os.replace(partial_cache_path, cache_path)
-                    cache_manifest.write_manifest_atomic(
-                        cache_folder, self.cache_manifest
-                    )
-                    print(f"Layout saved to: {cache_path}")
-                except Exception as e:
-                    if 'partial_cache_path' in locals() and os.path.exists(partial_cache_path):
-                        os.remove(partial_cache_path)
-                    raise RuntimeError(f"Could not save layout cache: {e}") from e
+                print(
+                    f"Network Built: {self.n_nodes} Nodes, {len(self.edges)} Edges."
+                )
 
             self._init_colors()
 

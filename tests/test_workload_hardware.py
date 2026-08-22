@@ -530,12 +530,14 @@ class GuiContractTests(unittest.TestCase):
     def test_remote_and_layout_device_controls_are_visible_and_persist_specs(self):
         tools_source = (SRC / "SSN_Tools.py").read_text(encoding="utf-8")
         config_source = (SRC / "SSN_Config.py").read_text(encoding="utf-8")
-        viewer_source = (SRC / "SSN_Viewer.py").read_text(encoding="utf-8")
+        generator_source = (SRC / "Layout_Cache_Generator.py").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("Remote API — local device not applicable", tools_source)
         self.assertNotIn("ACCELERATOR_LANES", tools_source)
         self.assertIn('LAYOUT_DEVICE_SELECTION = "auto"', config_source)
         self.assertIn("widget.currentData()", config_source)
-        self.assertIn("'LAYOUT_DEVICE_SELECTION'", viewer_source)
+        self.assertIn('"LAYOUT_DEVICE_SELECTION"', generator_source)
 
 
 if __name__ == "__main__":

@@ -308,6 +308,23 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 
    `SSN_Viewer` opens the configuration GUI first. Select the input files and layout settings there, then click **Save & Run** to save the settings and launch the visualization window. On the first application launch, the managed launcher creates `.venv`, installs the pinned dependencies, and validates the selected compute backend; later launches reuse that environment while it remains compatible.
 
+### Headless layout-cache generation
+
+When **(New Layout Cache)** is selected in SSN Config, **Export Layout
+Settings** saves a generation-only JSON file. Run that file with the same
+managed Python environment to calculate and save the cache without opening the
+viewer:
+
+```text
+python -u src/Layout_Cache_Generator.py Cache_Files/Layout_Settings/example.json
+```
+
+The JSON contains the selected FASTA/network inputs, exact cache filename, edge
+filter, UMAP settings, and all physics-layout settings. It intentionally omits
+visual, metadata, command, and analysis settings. Relative paths are resolved
+from the project root. The command exits with an error rather than replacing an
+existing cache file.
+
 ### Additional language fonts
 
 The application bundles a 4.68 MiB Noto Sans/Noto Sans Mono desktop core with

@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import tempfile
+from types import SimpleNamespace
 import traceback
 from pathlib import Path
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
@@ -29,6 +30,7 @@ from utilities.Application_Identity import (
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
 )
+from Layout_Cache_Generator import LayoutGenerationSettings
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -102,6 +104,7 @@ COULOMB_K = 10.0
 COULOMB_CUTOFF = 30.0      
 DAMPING = 0.9              
 MAX_FORCE_LIMIT = 20.0      
+MAX_TOTAL_REPULSION_FORCE = 0.0
 
 DT = 0.005
 BOX_SCALE = 2.0
@@ -735,6 +738,13 @@ if __name__ == "__main__":
             self.btn_save_run = QPushButton("Save && Run")
             self.btn_save_run.clicked.connect(self.save_and_run)
             self.btn_save_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+
+            self.btn_export_layout = QPushButton("Export Layout Settings")
+            self.btn_export_layout.clicked.connect(self.export_layout_settings)
+            self.btn_export_layout.setEnabled(False)
+            self.btn_export_layout.setToolTip(
+                "Export a generation-only JSON file for the selected new layout cache."
+            )
             
             btn_save = QPushButton("Save")
             btn_save.clicked.connect(self.save_only)
@@ -743,6 +753,7 @@ if __name__ == "__main__":
             btn_exit.clicked.connect(self.close)
             
             btn_layout.addWidget(self.btn_save_run)
+            btn_layout.addWidget(self.btn_export_layout)
             btn_layout.addWidget(self.btn_check)
             btn_layout.addWidget(btn_save)
             btn_layout.addWidget(btn_exit)
@@ -1440,6 +1451,9 @@ if __name__ == "__main__":
             is_new_layout = text == "(New Layout Cache)"
             self.line_new_cache.setVisible(is_new_layout)
             self.line_new_cache.setEnabled(is_new_layout)
+            self.btn_export_layout.setEnabled(
+                is_new_layout and self._cache_launch_allowed
+            )
             if is_new_layout:
                 self.line_new_cache.setFocus()
             else:
@@ -3404,6 +3418,82 @@ if __name__ == "__main__":
                 self.tip_panel.setText(f"Failed to save settings: {e}")
                 return False
 
+        def _selected_new_cache_filename(self):
+            if self.cb_cache_file.currentText() != "(New Layout Cache)":
+                raise ValueError(
+                    "Layout settings can only be exported for (New Layout Cache)."
+                )
+            cache_name = self.line_new_cache.text().strip()
+            if not cache_name:
+                cache_name = self.line_new_cache.placeholderText()
+            if not cache_name.lower().endswith(".h5"):
+                cache_name += ".h5"
+            cache_manifest.validate_cache_filename(cache_name)
+            return cache_name
+
+        def _collect_layout_generation_settings(self):
+            if not self._cache_launch_allowed or not self.current_cache_folder:
+                raise ValueError("A unique compatible cache folder has not been resolved.")
+
+            cache_name = self._selected_new_cache_filename()
+            collected = self.collect_data()
+            collected["ALIGNMENT_SCORE"] = self.cb_score_mode.currentText() or None
+            collected["NORM_MODE"] = self.cb_norm_mode.currentText() or None
+            collected["SIMILARITY_THRESHOLD"] = self.spin_thresh.optionalValue()
+            collected["TOP_EDGE_PERCENT"] = self.spin_top.optionalValue()
+            collected["LAYOUT_DEVICE_SELECTION"] = self.cb_layout_device.currentData()
+            collected["SAVED_LAYOUT_DIR"] = self.inputs["SAVED_LAYOUT_DIR"].text()
+            for hidden_key in (
+                "BOX_SCALE",
+                "PACKING_PADDING",
+                "MAX_FORCE_LIMIT",
+                "MAX_TOTAL_REPULSION_FORCE",
+            ):
+                collected[hidden_key] = globals()[hidden_key]
+
+            return LayoutGenerationSettings.from_namespace(
+                SimpleNamespace(**collected),
+                cache_filename=cache_name,
+                project_root=PROJECT_ROOT,
+            )
+
+        def export_layout_settings(self):
+            try:
+                settings = self._collect_layout_generation_settings()
+                export_directory = PROJECT_ROOT / "Cache_Files" / "Layout_Settings"
+                export_directory.mkdir(parents=True, exist_ok=True)
+                suggested_name = f"{Path(settings.CACHE_FILENAME).stem}_layout.json"
+                selected_path, _selected_filter = QFileDialog.getSaveFileName(
+                    self,
+                    "Export Layout Settings",
+                    str(export_directory / suggested_name),
+                    "JSON Files (*.json)",
+                )
+                if not selected_path:
+                    return
+                if not selected_path.lower().endswith(".json"):
+                    selected_path += ".json"
+                target_path = Path(selected_path)
+                _atomic_write_json(
+                    target_path,
+                    settings.to_document(project_root=PROJECT_ROOT),
+                )
+                command = (
+                    f'"{sys.executable}" -u '
+                    f'"{PROJECT_ROOT / "src" / "Layout_Cache_Generator.py"}" '
+                    f'"{target_path.resolve()}"'
+                )
+                QMessageBox.information(
+                    self,
+                    "Layout Settings Exported",
+                    f"Settings exported to:\n{target_path.resolve()}\n\n"
+                    f"Command-line usage:\n{command}",
+                )
+            except Exception as error:
+                QMessageBox.critical(
+                    self, "Export Layout Settings Error", str(error)
+                )
+
         def save_and_run(self):
             if not self.check_umap.isChecked():
                 try:
@@ -3428,12 +3518,7 @@ if __name__ == "__main__":
             saved_layout_dir = os.path.abspath(self.inputs["SAVED_LAYOUT_DIR"].text())
             try:
                 if selected_cache == "(New Layout Cache)":
-                    cache_name = self.line_new_cache.text().strip()
-                    if not cache_name:
-                        cache_name = self.line_new_cache.placeholderText()
-                    if not cache_name.lower().endswith(".h5"):
-                        cache_name += ".h5"
-                    cache_manifest.validate_cache_filename(cache_name)
+                    cache_name = self._selected_new_cache_filename()
                     relative_path = cache_manifest.relative_cache_path(
                         saved_layout_dir, self.current_cache_folder, cache_name
                     )

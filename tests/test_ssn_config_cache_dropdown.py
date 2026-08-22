@@ -911,6 +911,103 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.window.inputs["SAVED_CONFIG_DIR"].setText(original_root)
                 self.window._saved_config_directory_committed()
 
+    def test_layout_export_contains_only_generation_settings_and_exact_name(self):
+        generation_values = {
+            "NODE_FASTA_FILE": "Input_Files/Sequence_Sets/example.fasta",
+            "INPUT_HDF5": "Input_Files/Networks_EValues/example.h5",
+            "ALIGNMENT_SCORE": "global",
+            "NORM_MODE": "alignment_length",
+            "UMAP_MODE": False,
+            "UMAP_NEIGHBORS": 15,
+            "UMAP_MIN_DIST": 0.1,
+            "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
+            "LAYOUT_DEVICE_SELECTION": "auto",
+            "SPRING_K": 5.0,
+            "COULOMB_K": 10.0,
+            "COULOMB_CUTOFF": 30.0,
+            "DAMPING": 0.9,
+            "DT": 0.005,
+            "MAX_STEPS": 10000,
+            "RMSD_THRESHOLD": 0.005,
+            "PERCENTAGE_DROP_THRESHOLD": 0.1,
+            "RMSD_WINDOW": 50,
+            "ENABLE_PROGRESSIVE_SIMULATION": False,
+            "PACKING_GEOMETRY": "Square",
+            "PACKING_GRID_SIZE": 20.0,
+            "SGLD_MIN_K": 20,
+            "SGLD_K_PERCENT": 0.01,
+            "SGLD_START_TEMP": 1.5,
+            "SGLD_NOISE_SCALE": 1.0,
+            "NODE_SIZE": 10,
+            "MSA_FILE": "example.fasta",
+            "PRINT_SAVE_DIR": "Analysis_Results/Saved_Images",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            target_json = temp_path / "exported.json"
+            method_globals = self.window.export_layout_settings.__func__.__globals__
+            with mock.patch.object(
+                self.window, "collect_data", return_value=generation_values
+            ), mock.patch.object(
+                self.window, "_selected_new_cache_filename", return_value="exact.h5"
+            ), mock.patch.object(
+                self.window.spin_thresh, "optionalValue", return_value=0.1
+            ), mock.patch.object(
+                self.window.spin_top, "optionalValue", return_value=None
+            ), mock.patch.object(
+                self.window.cb_layout_device, "currentData", return_value="auto"
+            ), mock.patch.object(
+                self.window.inputs["SAVED_LAYOUT_DIR"],
+                "text",
+                return_value=str(temp_path / "layouts"),
+            ), mock.patch.object(
+                self.window, "_cache_launch_allowed", True
+            ), mock.patch.object(
+                self.window, "current_cache_folder", str(temp_path / "target")
+            ), mock.patch.dict(
+                method_globals, {"PROJECT_ROOT": temp_path}
+            ):
+                settings = self.window._collect_layout_generation_settings()
+                document = settings.to_document(project_root=temp_path)
+                payload = document["Layout_Cache_Generator.py"]
+                self.assertEqual(payload["CACHE_FILENAME"], "exact.h5")
+                self.assertIs(payload["UMAP_MODE"], False)
+                self.assertIsInstance(payload["MAX_STEPS"], int)
+                self.assertNotIn("NODE_SIZE", payload)
+                self.assertNotIn("MSA_FILE", payload)
+                self.assertNotIn("PRINT_SAVE_DIR", payload)
+                self.assertEqual(
+                    set(document["DIRECTORIES"]), {"SAVED_LAYOUT_DIR"}
+                )
+
+                with mock.patch.object(
+                    self.namespace["QFileDialog"],
+                    "getSaveFileName",
+                    return_value=(str(target_json), "JSON Files (*.json)"),
+                ), mock.patch.object(
+                    self.namespace["QMessageBox"], "information"
+                ) as information, mock.patch.object(
+                    self.namespace["QMessageBox"], "critical"
+                ) as critical:
+                    self.window.export_layout_settings()
+
+            exported = json.loads(target_json.read_text(encoding="utf-8"))
+            self.assertEqual(exported, document)
+            information.assert_called_once()
+            self.assertIn(
+                "Layout_Cache_Generator.py",
+                information.call_args.args[2],
+            )
+            critical.assert_not_called()
+
+    def test_layout_export_button_is_enabled_only_for_new_cache_generation(self):
+        with mock.patch.object(self.window, "_cache_launch_allowed", True):
+            self.window._toggle_new_cache_input("(New Layout Cache)")
+            self.assertTrue(self.window.btn_export_layout.isEnabled())
+            self.window._toggle_new_cache_input("version_00.h5")
+            self.assertFalse(self.window.btn_export_layout.isEnabled())
+        self.window._toggle_new_cache_input(self.window.cb_cache_file.currentText())
+
 
 if __name__ == "__main__":
     unittest.main()
