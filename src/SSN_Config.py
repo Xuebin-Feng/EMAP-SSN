@@ -53,6 +53,7 @@ FASTA_DIR = os.path.join("Input_Files", "Sequence_Sets")
 MSA_DIR = os.path.join("Input_Files", "Multiple_Alignments")
 HDF5_DIR = os.path.join("Input_Files", "Networks_EValues")
 SAVED_LAYOUT_DIR = os.path.join("Cache_Files", "Saved_Layouts")
+SETTING_EXPORT_DIR = os.path.join("Cache_Files", "Exported_Settings")
 METADATA_DIR = os.path.join("Input_Files", "Meta_Data")
 PRINT_SAVE_DIR = os.path.join("Analysis_Results", "Saved_Images")
 SEQUENCE_EXPORT_DIR = os.path.join("Analysis_Results", "Sequence_Export")
@@ -180,6 +181,7 @@ DIRECTORY_PROFILE_DEFAULTS = {
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "HDF5_DIR": os.path.join("Input_Files", "Networks_EValues"),
     "SAVED_LAYOUT_DIR": os.path.join("Cache_Files", "Saved_Layouts"),
+    "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Exported_Settings"),
     "METADATA_DIR": os.path.join("Input_Files", "Meta_Data"),
     "SEQUENCE_EXPORT_DIR": os.path.join("Analysis_Results", "Sequence_Export"),
     "HEADER_LIST_DIR": os.path.join("Input_Files", "Header_Lists"),
@@ -192,6 +194,7 @@ DIRECTORY_PROFILE_DEFAULTS = {
 DIRECTORY_DISPLAY_NAMES = {
     "FASTA_DIR": "Input FASTA Directory",
     "SAVED_LAYOUT_DIR": "Layout Directory",
+    "SETTING_EXPORT_DIR": "Setting Export Directory",
     "SEQUENCE_EXPORT_DIR": "Sequence Export Directory",
     "PRINT_SAVE_DIR": "Print Directory",
 }
@@ -1401,6 +1404,7 @@ if __name__ == "__main__":
                 "MSA_DIR": "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).\nPopulates the MSA dropdown in the Inputs tab.",
                 "HDF5_DIR": "Directory containing HDF5 pairwise sequence similarity scores and network edge files.\nPopulates the Network Edges dropdown in the Inputs tab.",
                 "SAVED_LAYOUT_DIR": "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks.",
+                "SETTING_EXPORT_DIR": "Directory where command-line layout generation JSON settings are exported.",
                 "METADATA_DIR": "Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.\nUsed for custom node coloring, categorization, and annotation in the visualizer.",
                 "PRINT_SAVE_DIR": "Directory where high-resolution image snapshots and vector graphics (PDF, PNG, SVG) are exported.\nEnsure this path is writable with sufficient disk space for graphic outputs.",
                 "SEQUENCE_EXPORT_DIR": "Directory where dynamically split or extracted sequence subset FASTA files are saved.\nUsed by sub-cluster extraction and downstream sequence analyses.",
@@ -3211,7 +3215,7 @@ if __name__ == "__main__":
                 "FASTA_DIR", "MSA_DIR", "HDF5_DIR", "METADATA_DIR",
                 "HEADER_LIST_DIR",
                 # Cache_Files
-                "SAVED_LAYOUT_DIR", "STRUCTURES_DIR",
+                "SAVED_LAYOUT_DIR", "SETTING_EXPORT_DIR", "STRUCTURES_DIR",
                 # Analysis_Results
                 "PRINT_SAVE_DIR", "SEQUENCE_EXPORT_DIR", "CLUSTER_LABEL_DIR",
                 "LOGO_DIR",
@@ -3464,7 +3468,15 @@ if __name__ == "__main__":
         def export_layout_settings(self):
             try:
                 settings = self._collect_layout_generation_settings()
-                export_directory = PROJECT_ROOT / "Cache_Files" / "Layout_Settings"
+                export_directory = Path(
+                    self.inputs["SETTING_EXPORT_DIR"].text().strip()
+                    or DIRECTORY_PROFILE_DEFAULTS["SETTING_EXPORT_DIR"]
+                ).expanduser()
+                if not export_directory.is_absolute():
+                    export_directory = PROJECT_ROOT / export_directory
+                export_directory = Path(
+                    os.path.abspath(os.path.normpath(export_directory))
+                )
                 export_directory.mkdir(parents=True, exist_ok=True)
                 suggested_name = f"{Path(settings.CACHE_FILENAME).stem}_layout.json"
                 selected_path, _selected_filter = QFileDialog.getSaveFileName(

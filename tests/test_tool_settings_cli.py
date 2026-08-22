@@ -58,7 +58,7 @@ class ToolSettingsLoaderTests(unittest.TestCase):
         self.assertNotIn("PATH_DIR", DEFAULT_DIRECTORY_PATHS)
         self.assertEqual(
             DEFAULT_DIRECTORY_PATHS["SETTING_EXPORT_DIR"],
-            os.path.join("Cache_Files", "Tool_Settings"),
+            os.path.join("Cache_Files", "Exported_Settings"),
         )
 
     def test_explicit_document_applies_types_and_project_relative_paths(self):

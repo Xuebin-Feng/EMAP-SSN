@@ -66,11 +66,16 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             defaults["STRUCTURES_DIR"],
             os.path.join("Cache_Files", "Predicted_Structures"),
         )
+        self.assertEqual(
+            defaults["SETTING_EXPORT_DIR"],
+            os.path.join("Cache_Files", "Exported_Settings"),
+        )
 
     def test_requested_directory_labels_use_concise_names(self):
         expected_labels = {
             "FASTA_DIR": "Input FASTA Directory:",
             "SAVED_LAYOUT_DIR": "Layout Directory:",
+            "SETTING_EXPORT_DIR": "Setting Export Directory:",
             "SEQUENCE_EXPORT_DIR": "Sequence Export Directory:",
             "PRINT_SAVE_DIR": "Print Directory:",
         }
@@ -961,6 +966,10 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 "text",
                 return_value=str(temp_path / "layouts"),
             ), mock.patch.object(
+                self.window.inputs["SETTING_EXPORT_DIR"],
+                "text",
+                return_value=str(temp_path / "layout_exports"),
+            ), mock.patch.object(
                 self.window, "_cache_launch_allowed", True
             ), mock.patch.object(
                 self.window, "current_cache_folder", str(temp_path / "target")
@@ -984,12 +993,19 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                     self.namespace["QFileDialog"],
                     "getSaveFileName",
                     return_value=(str(target_json), "JSON Files (*.json)"),
-                ), mock.patch.object(
+                ) as get_save_file_name, mock.patch.object(
                     self.namespace["QMessageBox"], "information"
                 ) as information, mock.patch.object(
                     self.namespace["QMessageBox"], "critical"
                 ) as critical:
                     self.window.export_layout_settings()
+                    suggested_path = pathlib.Path(
+                        get_save_file_name.call_args.args[2]
+                    )
+                    self.assertEqual(
+                        suggested_path.parent,
+                        temp_path / "layout_exports",
+                    )
 
             exported = json.loads(target_json.read_text(encoding="utf-8"))
             self.assertEqual(exported, document)

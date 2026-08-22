@@ -15,7 +15,7 @@ DEFAULT_DIRECTORY_PATHS = {
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "NETWORK_DIR": os.path.join("Input_Files", "Networks_EValues"),
     "REPORT_DIR": os.path.join("Analysis_Results", "Alignment_Report"),
-    "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Tool_Settings"),
+    "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Exported_Settings"),
 }
 
 
