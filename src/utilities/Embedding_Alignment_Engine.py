@@ -30,7 +30,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 
 GIB = 1024 ** 3
-DEFAULT_HOST_CACHE_CAP = 32 * GIB
+DEFAULT_HOST_CACHE_CAP = 128 * GIB
 MIN_HOST_RESERVE = 8 * GIB
 MIN_CUDA_RESERVE = 2 * GIB
 PADDING_OVERHEAD_LIMIT = 0.15
@@ -96,6 +96,16 @@ def normalize_precision_setting(value):
     normalized = aliases.get(normalized, normalized)
     if normalized not in {"auto", "float32", "tf32"}:
         raise ValueError("ACCELERATOR_PRECISION must be auto, float32, or tf32.")
+    return normalized
+
+
+def normalize_execution_mode(value):
+    """Return a validated alignment execution-mode setting."""
+    normalized = "auto" if value is None else str(value).strip().lower()
+    if normalized not in {"auto", "scalar", "tiled"}:
+        raise ValueError(
+            "Execution mode must be 'auto', 'scalar', or 'tiled'."
+        )
     return normalized
 
 
@@ -197,9 +207,30 @@ class CudaWorkloadEstimate:
     reason: str
 
 
-def cuda_memory_plan(device, lanes=1, memory_info=None):
+def cuda_memory_plan(
+    device,
+    lanes=1,
+    memory_info=None,
+    *,
+    tile_fraction=None,
+    matrix_fraction=None,
+):
     """Divide free CUDA memory across tiles and concurrent microbatches."""
     lanes = max(1, int(lanes))
+    tile_fraction = (
+        CUDA_TILE_FRACTION if tile_fraction is None else float(tile_fraction)
+    )
+    matrix_fraction = (
+        CUDA_MATRIX_FRACTION
+        if matrix_fraction is None
+        else float(matrix_fraction)
+    )
+    if tile_fraction <= 0 or matrix_fraction <= 0:
+        raise ValueError("CUDA tile and matrix fractions must be positive.")
+    if tile_fraction + matrix_fraction > 0.80 + 1e-12:
+        raise ValueError(
+            "CUDA tile and matrix fractions may use at most 80% of usable VRAM."
+        )
     if memory_info is None:
         with torch.cuda.device(device):
             free_bytes, total_bytes = torch.cuda.mem_get_info(device)
@@ -210,12 +241,12 @@ def cuda_memory_plan(device, lanes=1, memory_info=None):
     reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
     usable = max(0, free_bytes - reserve)
     inflight_slots = max(2, lanes * 2)
-    matrix_pool = max(1, int(usable * CUDA_MATRIX_FRACTION))
+    matrix_pool = max(1, int(usable * matrix_fraction))
     return CudaMemoryPlan(
         free_bytes=free_bytes,
         total_bytes=total_bytes,
         usable_bytes=usable,
-        tile_cache_bytes=max(1, int(usable * CUDA_TILE_FRACTION)),
+        tile_cache_bytes=max(1, int(usable * tile_fraction)),
         matrix_pool_bytes=matrix_pool,
         matrix_bytes=max(1, matrix_pool // inflight_slots),
         reserve_bytes=reserve,
@@ -454,9 +485,18 @@ def estimate_cuda_working_set(
     lanes,
     variant="tiled",
     memory_info=None,
+    memory_plan_override=None,
 ):
     """Estimate peak CUDA use for one workload/variant without allocating."""
-    plan = cuda_memory_plan(device, lanes=lanes, memory_info=memory_info)
+    if memory_plan_override is not None and memory_info is not None:
+        raise ValueError(
+            "memory_info and memory_plan_override cannot be supplied together."
+        )
+    plan = memory_plan_override or cuda_memory_plan(
+        device, lanes=lanes, memory_info=memory_info
+    )
+    if int(plan.lanes) != max(1, int(lanes)):
+        raise ValueError("CUDA memory plan lane count does not match execution lanes.")
     tasks = list(tasks)
     baseline_bytes = max(0, plan.total_bytes - plan.free_bytes)
     safe_peak = max(0, plan.total_bytes - plan.reserve_bytes)
@@ -571,6 +611,7 @@ def run_tiled_cuda_pipeline(
     matrix_budget_override=None,
     result_callback=None,
     result_chunk_size=65536,
+    memory_plan_override=None,
 ):
     """Run a tiled CUDA producer and parallel CPU alignment consumers."""
     if getattr(device, "type", None) != "cuda":
@@ -578,7 +619,9 @@ def run_tiled_cuda_pipeline(
     if not tasks:
         return []
 
-    plan = cuda_memory_plan(device, lanes=lanes)
+    plan = memory_plan_override or cuda_memory_plan(device, lanes=lanes)
+    if int(plan.lanes) != max(1, int(lanes)):
+        raise ValueError("CUDA memory plan lane count does not match execution lanes.")
     matrix_budget = int(matrix_budget_override or plan.matrix_bytes)
     per_block = max(1, plan.tile_cache_bytes // 2)
     block_ids = store.block_ids(per_block)

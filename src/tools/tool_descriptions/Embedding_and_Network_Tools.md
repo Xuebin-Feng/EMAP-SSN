@@ -120,8 +120,9 @@ This script performs incremental similarity network calculations. When new seque
 | Gap Penalties | Automatically inherited directly from the input network (`OLD_NETWORK`). |
 | CPU Workers **`WORKERS`** | CPU worker count for the CPU processing plan and a concurrency input for accelerator-plan tuning. The tool benchmarks available CPU/accelerator plans on representative pending pairs and falls back through successful plans if needed. |
 | Processing Batch Size **`BATCH_SIZE`** | The number of sequence alignments calculated per write block, minimizing memory consumption and optimizing file write performance. |
-| Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or one concrete device. CUDA compares scalar and VRAM-aware tiled plans. |
-| Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget and `0` disables it. |
+| Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or one concrete device for calculating new residue score matrices. |
+| Execution Mode **`EXECUTION_MODE`** | `auto` compares scalar plans with tiled CUDA plans where supported. `scalar` restricts tuning and production to one-matrix-at-a-time plans. `tiled` forces CUDA embedding tiles and padded microbatches and fails early if CUDA is unavailable. |
+| Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget capped at 128 GiB and `0` disables it. |
 | Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. |
 
 ### 📤 Output

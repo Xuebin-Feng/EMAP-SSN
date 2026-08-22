@@ -31,6 +31,7 @@ Settings:
 - BATCH_SIZE: Number of pairs to process before writing to disk (prevents memory overflow).
 - WORKERS: Number of multiprocessing workers to use.
 - HOST_CACHE_GB: Automatic or explicit host-RAM cap for packed embeddings.
+- EXECUTION_MODE: Automatic, scalar, or tiled pairwise score execution.
 - ACCELERATOR_PRECISION: Validated automatic, IEEE FP32, or TF32 CUDA matmul.
 - LOCAL_GAP_P: The gap penalty for local alignment (e.g. Smith-Waterman style).
 - GLOBAL_GAP_P: The gap penalty for global alignment (e.g. Needleman-Wunsch style).
@@ -83,6 +84,7 @@ from utilities.Embedding_Alignment_Engine import (
     cuda_matmul_precision,
     cuda_memory_plan,
     estimate_cuda_working_set,
+    normalize_execution_mode,
     normalize_precision_setting,
     run_tiled_cuda_pipeline,
 )
@@ -99,6 +101,7 @@ POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings 
 LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
 WORKERS = 12
 DEVICE_SELECTION = "auto"
+EXECUTION_MODE = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
 ACCELERATOR_CONFIRM_PAIRS = 2048
 HOST_CACHE_GB = "auto"
@@ -1126,6 +1129,45 @@ def _precision_device(candidates):
     return next((candidate for candidate in candidates if candidate.backend == "cuda"), None)
 
 
+def _execution_variants(candidate):
+    """Return execution variants allowed for one hardware candidate."""
+    mode = normalize_execution_mode(EXECUTION_MODE)
+    if mode == "scalar":
+        return ["scalar"]
+    if mode == "tiled":
+        return ["tiled"] if candidate.backend == "cuda" else []
+    variants = ["scalar"]
+    if candidate.backend == "cuda":
+        variants.append("tiled")
+    return variants
+
+
+def _validate_execution_mode_hardware():
+    """Fail early when a forced execution mode cannot use selected hardware."""
+    mode = normalize_execution_mode(EXECUTION_MODE)
+    if mode != "tiled":
+        return mode
+    candidates = Hardware_Utils.get_available_devices()
+    manual = Hardware_Utils.resolve_device_selection(
+        DEVICE_SELECTION, candidates
+    )
+    if manual is not None and manual.backend != "cuda":
+        raise ValueError(
+            "Tiled execution requires a CUDA device; the selected device "
+            f"is '{manual.spec}'."
+        )
+    eligible = [
+        candidate for candidate in candidates if candidate.backend == "cuda"
+    ]
+    if manual is not None:
+        eligible = [manual]
+    if not eligible:
+        raise ValueError(
+            "Tiled execution was requested, but no CUDA device is available."
+        )
+    return mode
+
+
 def _gib_text(byte_count):
     return f"{int(byte_count) / (1024 ** 3):.2f} GiB"
 
@@ -1148,8 +1190,14 @@ def _resolve_active_matmul_precision(
     store,
     sequence_lengths,
 ):
-    """Resolve auto precision across scalar and tiled CUDA execution."""
+    """Resolve auto precision across the permitted CUDA execution variants."""
     normalized = normalize_precision_setting(setting)
+    execution_mode = normalize_execution_mode(EXECUTION_MODE)
+    variants = (
+        ("scalar", "tiled")
+        if execution_mode == "auto"
+        else (execution_mode,)
+    )
     if cached_precision is not None:
         print(f"[Precision] Resuming established {cached_precision} batches.")
         return cached_precision
@@ -1184,7 +1232,7 @@ def _resolve_active_matmul_precision(
             variant=variant,
             memory_info=memory_info,
         )
-        for variant in ("scalar", "tiled")
+        for variant in variants
     }
     for variant, estimate in preflight.items():
         print(
@@ -1198,12 +1246,13 @@ def _resolve_active_matmul_precision(
     ]
     if infeasible:
         print(
-            f"[Precision] Four-plan validation is not VRAM-safe "
+            f"[Precision] Selected-plan validation is not VRAM-safe "
             f"({'; '.join(infeasible)}); using IEEE FP32."
         )
         return "ieee_fp32"
     print(
-        f"[Precision] Testing FP32/TF32 with scalar and tiled CUDA on "
+        f"[Precision] Testing FP32/TF32 with "
+        f"{', '.join(variants)} CUDA execution on "
         f"{len(validation_tasks)} production-ordered pairs..."
     )
 
@@ -1231,13 +1280,13 @@ def _resolve_active_matmul_precision(
         )
 
     try:
-        for variant in ("scalar", "tiled"):
+        for variant in variants:
             run_variant(variant, "float32", validation_tasks[:2])
 
         results_by_plan = {}
         rates = {}
         print("Plan       Precision   Throughput (pairs/s)")
-        for variant in ("scalar", "tiled"):
+        for variant in variants:
             for precision in ("float32", "tf32"):
                 started = time.perf_counter()
                 results_by_plan[(variant, precision)] = run_variant(
@@ -1259,19 +1308,19 @@ def _resolve_active_matmul_precision(
         return "ieee_fp32"
 
     validation = {}
-    for variant in ("scalar", "tiled"):
+    for variant in variants:
         validation[variant] = compare_precision_results(
             results_by_plan[(variant, "float32")],
             results_by_plan[(variant, "tf32")],
         )
 
-    fp32_best = max(rates[(variant, "float32")] for variant in ("scalar", "tiled"))
-    tf32_best = max(rates[(variant, "tf32")] for variant in ("scalar", "tiled"))
+    fp32_best = max(rates[(variant, "float32")] for variant in variants)
+    tf32_best = max(rates[(variant, "tf32")] for variant in variants)
     speedup = tf32_best / max(fp32_best, 1e-9)
     all_equivalent = all(equivalent for equivalent, _reason in validation.values())
     if all_equivalent and speedup >= 1.10:
         print(
-            f"[Precision] TF32 passed scalar and tiled numerical validation "
+            f"[Precision] TF32 passed {', '.join(variants)} numerical validation "
             f"and its best plan was {speedup:.2f}x faster."
         )
         return "tf32"
@@ -1299,6 +1348,7 @@ def _benchmark_processing_plans(
     matmul_precision=None,
 ):
     """Compare the complete CPU path with every accelerator/lane plan."""
+    execution_mode = normalize_execution_mode(EXECUTION_MODE)
     candidates = Hardware_Utils.get_available_devices()
     if matmul_precision is None:
         matmul_precision = active_matmul_precision
@@ -1309,6 +1359,20 @@ def _benchmark_processing_plans(
     manual = Hardware_Utils.resolve_device_selection(
         DEVICE_SELECTION, candidates
     )
+    if execution_mode == "tiled":
+        if manual is not None and manual.backend != "cuda":
+            raise ValueError(
+                "Tiled execution requires a CUDA device; the selected device "
+                f"is '{manual.spec}'."
+            )
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.backend == "cuda"
+        ]
+        if not candidates:
+            raise ValueError(
+                "Tiled execution was requested, but no CUDA device is available."
+            )
     if manual is not None and manual.is_cpu:
         print(f"[Hardware] Using manually selected {manual.display_name}.")
         return [Hardware_Utils.BenchmarkResult(manual, 0.0, variant="scalar")]
@@ -1393,13 +1457,11 @@ def _benchmark_processing_plans(
             if candidate.is_cpu
             else _accelerator_lane_candidates(candidate.device, workers)
         )
-        variants = ["scalar"]
-        if (
-            candidate.backend == "cuda"
-            and embedding_store is not None
-            and sequence_lengths is not None
+        variants = _execution_variants(candidate)
+        if "tiled" in variants and (
+            embedding_store is None or sequence_lengths is None
         ):
-            variants.append("tiled")
+            variants.remove("tiled")
         if candidate.is_cpu:
             try:
                 process_cpu_tasks(
@@ -2074,6 +2136,8 @@ def run_job_distributor():
     global active_matmul_precision, active_embedding_store
     global active_sequence_lengths
     try:
+        _validate_execution_mode_hardware()
+        normalize_precision_setting(ACCELERATOR_PRECISION)
         configure_runtime_paths()
     except ValueError as error:
         print(f"\n❌ Cannot start alignment:\n{error}")

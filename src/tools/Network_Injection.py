@@ -32,6 +32,7 @@ Settings:
 - MODEL_NAME: The model identifier matching the embeddings used.
 - BATCH_SIZE: Number of pairs to process between writing to intermediate temp files (RAM protection).
 - WORKERS: Threads used for multiprocessing new alignment combinations.
+- EXECUTION_MODE: Automatic, scalar, or tiled pairwise score execution.
 
 Algorithm:
 1. Loads the headers of both the OLD network and the NEW embedding database.
@@ -87,6 +88,7 @@ from utilities.Embedding_Alignment_Engine import (
     cuda_memory_plan,
     estimate_cuda_working_set,
     is_nvidia_cuda,
+    normalize_execution_mode,
     run_tiled_cuda_pipeline,
 )
 from utilities.Embedding_HDF5 import read_embedding_manifest
@@ -102,6 +104,7 @@ NEW_EMBEDDINGS = None
 BATCH_SIZE = 500000 
 WORKERS = 12 
 DEVICE_SELECTION = "auto"
+EXECUTION_MODE = "auto"
 HOST_CACHE_GB = "auto"
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
@@ -707,6 +710,45 @@ def _representative_injection_tasks(tasks, lengths, count):
     return [ordered[int(position)] for position in positions]
 
 
+def _execution_variants(candidate):
+    """Return execution variants allowed for one hardware candidate."""
+    mode = normalize_execution_mode(EXECUTION_MODE)
+    if mode == "scalar":
+        return ["scalar"]
+    if mode == "tiled":
+        return ["tiled"] if candidate.backend == "cuda" else []
+    variants = ["scalar"]
+    if candidate.backend == "cuda":
+        variants.append("tiled")
+    return variants
+
+
+def _validate_execution_mode_hardware():
+    """Fail early when forced tiled execution cannot use selected hardware."""
+    mode = normalize_execution_mode(EXECUTION_MODE)
+    if mode != "tiled":
+        return mode
+    candidates = Hardware_Utils.get_available_devices()
+    manual = Hardware_Utils.resolve_device_selection(
+        DEVICE_SELECTION, candidates
+    )
+    if manual is not None and manual.backend != "cuda":
+        raise ValueError(
+            "Tiled execution requires a CUDA device; the selected device "
+            f"is '{manual.spec}'."
+        )
+    eligible = [
+        candidate for candidate in candidates if candidate.backend == "cuda"
+    ]
+    if manual is not None:
+        eligible = [manual]
+    if not eligible:
+        raise ValueError(
+            "Tiled execution was requested, but no CUDA device is available."
+        )
+    return mode
+
+
 def _execute_injection_plan(
     plan, tasks, workers, input_h5, batch_id, store, lengths,
     matmul_precision, show_progress=False,
@@ -737,6 +779,7 @@ def _execute_injection_plan(
 def _benchmark_injection_plans(
     tasks, workers, input_h5, store, lengths, matmul_precision,
 ):
+    execution_mode = normalize_execution_mode(EXECUTION_MODE)
     candidates = Hardware_Utils.get_available_devices()
     if matmul_precision == "tf32":
         candidates = [
@@ -749,6 +792,20 @@ def _benchmark_injection_plans(
                 "extended on an NVIDIA CUDA device."
             )
     manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
+    if execution_mode == "tiled":
+        if manual is not None and manual.backend != "cuda":
+            raise ValueError(
+                "Tiled execution requires a CUDA device; the selected device "
+                f"is '{manual.spec}'."
+            )
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.backend == "cuda"
+        ]
+        if not candidates:
+            raise ValueError(
+                "Tiled execution was requested, but no CUDA device is available."
+            )
     if manual is not None:
         candidates = [manual]
     if matmul_precision == "tf32" and (
@@ -776,9 +833,7 @@ def _benchmark_injection_plans(
     )
     short_results = []
     for candidate in candidates:
-        variants = ["scalar"]
-        if candidate.backend == "cuda":
-            variants.append("tiled")
+        variants = _execution_variants(candidate)
         lane_candidates = [1] if candidate.is_cpu else _lane_candidates(
             candidate.device, workers
         )
@@ -1316,6 +1371,7 @@ def compile_final_output(
 
 def run_injection():
     try:
+        _validate_execution_mode_hardware()
         configure_input_paths()
     except ValueError as error:
         print(f"\n❌ Cannot start Network Injection:\n{error}")

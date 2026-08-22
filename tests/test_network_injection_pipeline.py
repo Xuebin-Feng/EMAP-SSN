@@ -119,6 +119,49 @@ class EmbeddingInjectionPluginTests(unittest.TestCase):
 
 
 class NetworkInjectionPipelineTests(unittest.TestCase):
+    def test_execution_mode_filters_injection_candidate_variants(self):
+        cpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        cuda = network_injection.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        expectations = {
+            "auto": (["scalar"], ["scalar", "tiled"]),
+            "scalar": (["scalar"], ["scalar"]),
+            "tiled": ([], ["tiled"]),
+        }
+        for mode, (cpu_variants, cuda_variants) in expectations.items():
+            with self.subTest(mode=mode), mock.patch.object(
+                network_injection, "EXECUTION_MODE", mode
+            ):
+                self.assertEqual(
+                    network_injection._execution_variants(cpu), cpu_variants
+                )
+                self.assertEqual(
+                    network_injection._execution_variants(cuda), cuda_variants
+                )
+
+    def test_forced_tiled_injection_rejects_missing_cuda_before_benchmark(self):
+        cpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        with mock.patch.object(
+            network_injection, "EXECUTION_MODE", "tiled"
+        ), mock.patch.object(
+            network_injection.Hardware_Utils,
+            "get_available_devices",
+            return_value=[cpu],
+        ), self.assertRaisesRegex(ValueError, "no CUDA device"):
+            network_injection._benchmark_injection_plans(
+                [(0, 1, "a", "b")],
+                workers=1,
+                input_h5="unused.h5",
+                store=mock.Mock(),
+                lengths=[2, 2],
+                matmul_precision="ieee_fp32",
+            )
+
     def test_input_path_configuration_preserves_none_as_unselected(self):
         with mock.patch.object(network_injection, "OLD_NETWORK", None), \
                 mock.patch.object(network_injection, "NEW_EMBEDDINGS", None):

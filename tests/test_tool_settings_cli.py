@@ -198,6 +198,7 @@ class ToolEntryPointTests(unittest.TestCase):
                         "Align_Similarity_Matrix.py": {
                             "INPUT_HDF5": "portable.h5",
                             "WORKERS": 3,
+                            "EXECUTION_MODE": "tiled",
                         },
                     }
                 ),
@@ -212,6 +213,7 @@ class ToolEntryPointTests(unittest.TestCase):
         worker.assert_called_once_with()
         self.assertEqual(module.INPUT_HDF5, "portable.h5")
         self.assertEqual(module.WORKERS, 3)
+        self.assertEqual(module.EXECUTION_MODE, "tiled")
         self.assertEqual(
             module.EMBED_DIR,
             os.path.normpath(PROJECT_ROOT / "portable_embeddings"),
@@ -222,10 +224,20 @@ class ToolExportGuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication
-        from SSN_Tools import ToolsGUI
+        from SSN_Tools import (
+            HostCacheControl,
+            ToolsGUI,
+            _selection_supports_tf32,
+            _sync_tf32_precision_option,
+        )
 
         cls.app = QApplication.instance() or QApplication([])
+        cls.host_cache_control_class = HostCacheControl
         cls.tools_gui_class = ToolsGUI
+        cls.selection_supports_tf32 = staticmethod(_selection_supports_tf32)
+        cls.sync_tf32_precision_option = staticmethod(
+            _sync_tf32_precision_option
+        )
 
     def test_export_filename_validation(self):
         normalize = self.tools_gui_class._normalized_export_filename
@@ -254,6 +266,279 @@ class ToolExportGuiTests(unittest.TestCase):
         )
         self.assertEqual(portable(r"C:\SSN Data\Sequences"), r"C:\SSN Data\Sequences")
         self.assertEqual(portable("/srv/ssn/sequences"), "/srv/ssn/sequences")
+
+    def test_execution_mode_gui_contract_and_export_round_trip(self):
+        from PySide6.QtWidgets import QComboBox, QInputDialog, QLineEdit, QMessageBox
+
+        source = (SRC_DIR / "SSN_Tools.py").read_text(encoding="utf-8")
+        self.assertGreaterEqual(source.count('"var_name": "EXECUTION_MODE"'), 2)
+        self.assertGreaterEqual(
+            source.count('"options": ["auto", "scalar", "tiled"]'), 2
+        )
+
+        script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mode = QComboBox()
+            mode.addItems(["auto", "scalar", "tiled"])
+            mode.setCurrentText("tiled")
+            fake_window = SimpleNamespace()
+            fake_window.dir_inputs = {
+                "EMBED_DIR": QLineEdit("Embeddings"),
+                "NETWORK_DIR": QLineEdit(r"Input_Files\Networks_EValues"),
+                "SETTING_EXPORT_DIR": QLineEdit(temp_dir),
+            }
+            fake_window.script_data = {
+                script_path: {
+                    "inputs": {
+                        "EXECUTION_MODE": {
+                            "widget": mode,
+                            "type": "dropdown",
+                        }
+                    },
+                    "settings": [{"name": "EXECUTION_MODE"}],
+                }
+            }
+            fake_window._normalized_export_filename = (
+                self.tools_gui_class._normalized_export_filename
+            )
+            fake_window._current_directory_settings = lambda: (
+                self.tools_gui_class._current_directory_settings(fake_window)
+            )
+            fake_window._portable_export_directory_path = (
+                self.tools_gui_class._portable_export_directory_path
+            )
+            fake_window._collect_tool_settings = lambda path: (
+                self.tools_gui_class._collect_tool_settings(fake_window, path)
+            )
+
+            with mock.patch.object(
+                QInputDialog, "getText", return_value=("alignment-mode", True)
+            ), mock.patch.object(QMessageBox, "information"), mock.patch.object(
+                QMessageBox, "critical"
+            ) as critical:
+                self.tools_gui_class.export_settings(fake_window, script_path)
+
+            payload = json.loads(
+                (pathlib.Path(temp_dir) / "alignment-mode.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                payload["Align_Similarity_Matrix.py"]["EXECUTION_MODE"],
+                "tiled",
+            )
+            critical.assert_not_called()
+
+    def test_tf32_precision_option_tracks_detected_and_selected_hardware(self):
+        from PySide6.QtWidgets import QComboBox
+        from utilities import Hardware_Utils
+        import torch
+
+        cpu = Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        cuda = Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        device = QComboBox()
+        device.addItem("Auto", "auto")
+        device.addItem("CPU", "cpu")
+        device.addItem("CUDA", "cuda:0")
+        precision = QComboBox()
+        precision.addItems(["auto", "float32", "tf32"])
+        precision.setCurrentText("tf32")
+
+        with mock.patch(
+            "SSN_Tools.is_nvidia_cuda",
+            side_effect=lambda selected: selected.type == "cuda",
+        ):
+            self.assertFalse(
+                self.sync_tf32_precision_option(device, precision, [cpu])
+            )
+            self.assertEqual(precision.currentText(), "auto")
+            self.assertEqual(precision.findText("tf32"), -1)
+            self.assertFalse(precision.property("tf32Available"))
+
+            self.assertTrue(
+                self.sync_tf32_precision_option(
+                    device,
+                    precision,
+                    [cpu, cuda],
+                )
+            )
+            self.assertGreaterEqual(precision.findText("tf32"), 0)
+
+            precision.setCurrentText("tf32")
+            device.setCurrentIndex(device.findData("cpu"))
+            self.assertFalse(
+                self.sync_tf32_precision_option(
+                    device,
+                    precision,
+                    [cpu, cuda],
+                )
+            )
+            self.assertEqual(precision.currentText(), "auto")
+            self.assertEqual(precision.findText("tf32"), -1)
+
+            device.setCurrentIndex(device.findData("cuda:0"))
+            self.assertTrue(
+                self.sync_tf32_precision_option(
+                    device,
+                    precision,
+                    [cpu, cuda],
+                )
+            )
+            self.assertGreaterEqual(precision.findText("tf32"), 0)
+
+    def test_host_cache_control_uses_auto_or_linear_manual_gib(self):
+        source = (SRC_DIR / "SSN_Tools.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count('"type": "host_cache"'), 2)
+
+        control = self.host_cache_control_class("auto")
+        script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
+        fake_window = SimpleNamespace(
+            script_data={
+                script_path: {
+                    "inputs": {
+                        "HOST_CACHE_GB": {
+                            "widget": control,
+                            "type": "host_cache",
+                        }
+                    },
+                    "settings": [{"name": "HOST_CACHE_GB"}],
+                }
+            }
+        )
+
+        try:
+            self.assertTrue(control.auto_button.isChecked())
+            self.assertFalse(control.slider.isEnabled())
+            self.assertFalse(control.spinbox.isEnabled())
+            self.assertEqual(control.slider.styleSheet(), "")
+            self.assertEqual(
+                self.tools_gui_class._collect_tool_settings(
+                    fake_window, script_path
+                )["HOST_CACHE_GB"],
+                "auto",
+            )
+
+            control.auto_button.click()
+            self.app.processEvents()
+            self.assertFalse(control.auto_button.isChecked())
+            self.assertTrue(control.slider.isEnabled())
+            self.assertTrue(control.spinbox.isEnabled())
+
+            control.spinbox.setValue(64.0)
+            self.assertEqual(control.slider.value(), 640)
+            self.assertEqual(
+                self.tools_gui_class._collect_tool_settings(
+                    fake_window, script_path
+                )["HOST_CACHE_GB"],
+                64,
+            )
+
+            control.slider.setValue(0)
+            self.assertEqual(control.spinbox.value(), 0.0)
+            self.assertEqual(control.setting_value(), 0)
+        finally:
+            control.close()
+
+    def test_host_cache_slider_is_linear_across_the_full_range(self):
+        control_class = self.host_cache_control_class
+        minimum = control_class.gb_for_slider_position(0)
+        midpoint = control_class.gb_for_slider_position(640)
+        maximum = control_class.gb_for_slider_position(1280)
+
+        self.assertAlmostEqual(minimum, 0.0)
+        self.assertAlmostEqual(midpoint, 64.0)
+        self.assertAlmostEqual(maximum, 128.0)
+        self.assertEqual(control_class.slider_position_for_gb(64.0), 640)
+
+        manual_control = control_class(32)
+        try:
+            self.assertFalse(manual_control.auto_button.isChecked())
+            self.assertTrue(manual_control.slider.isEnabled())
+            self.assertEqual(manual_control.setting_value(), 32)
+        finally:
+            manual_control.close()
+
+    def test_alignment_and_injection_hardware_rows_follow_requested_order(self):
+        from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QWidget
+
+        source = (SRC_DIR / "SSN_Tools.py").read_text(encoding="utf-8")
+        manual_start = source.index("self.MANUAL_SETTINGS =")
+        align_start = source.index('"Align_Similarity_Matrix.py": [', manual_start)
+        align_end = source.index('"Align_Substitution_Matrix.py": [', align_start)
+        align_source = source[align_start:align_end]
+        self.assertLess(
+            align_source.index('"var_name": "ACCELERATOR_PRECISION"'),
+            align_source.index('"var_name": "EXECUTION_MODE"'),
+        )
+        self.assertLess(
+            align_source.index('"var_name": "EXECUTION_MODE"'),
+            align_source.index('"var_name": "HOST_CACHE_GB"'),
+        )
+
+        injection_start = source.index('"Network_Injection.py": [', manual_start)
+        injection_end = source.index('"Network_Extraction.py": [', injection_start)
+        injection_source = source[injection_start:injection_end]
+        self.assertLess(
+            injection_source.index('"var_name": "EXECUTION_MODE"'),
+            injection_source.index('"var_name": "HOST_CACHE_GB"'),
+        )
+
+        cases = (
+            (
+                "Align_Similarity_Matrix.py",
+                (
+                    ("DEVICE_SELECTION", "Device:"),
+                    ("ACCELERATOR_PRECISION", "Precision:"),
+                    ("EXECUTION_MODE", "Execution Mode:"),
+                    ("HOST_CACHE_GB", "Host Cache (GiB):"),
+                ),
+                "compactRow_ACCELERATOR_PRECISION_EXECUTION_MODE",
+                ["Precision:", "Execution Mode:"],
+            ),
+            (
+                "Network_Injection.py",
+                (
+                    ("DEVICE_SELECTION", "Device:"),
+                    ("EXECUTION_MODE", "Execution Mode:"),
+                    ("HOST_CACHE_GB", "Host Cache (GiB):"),
+                ),
+                "compactRow_EXECUTION_MODE_DEVICE_SELECTION",
+                ["Execution Mode:", "Device:"],
+            ),
+        )
+        for script_name, definitions, compact_name, compact_labels in cases:
+            with self.subTest(script=script_name):
+                form_parent = QWidget()
+                layout = QFormLayout(form_parent)
+                row_widgets = {}
+                for var_name, label_text in definitions:
+                    label = QLabel(label_text)
+                    field = QLineEdit()
+                    layout.addRow(label, field)
+                    row_widgets[var_name] = (label, field)
+
+                self.tools_gui_class._merge_compact_rows(
+                    layout,
+                    script_name,
+                    row_widgets,
+                )
+                compact = form_parent.findChild(QWidget, compact_name)
+                self.assertIsNotNone(compact)
+                self.assertEqual(
+                    [label.text() for label in compact.findChildren(QLabel)],
+                    compact_labels,
+                )
+                compact_row = layout.getWidgetPosition(compact)[0]
+                host_row = layout.getWidgetPosition(
+                    row_widgets["HOST_CACHE_GB"][0]
+                )[0]
+                self.assertEqual(host_row, layout.rowCount() - 1)
+                self.assertEqual(compact_row, host_row - 1)
+                form_parent.close()
 
     def test_tab_pages_share_content_width_without_resizing_tab_labels(self):
         from PySide6.QtWidgets import QScrollArea, QTabWidget, QWidget
@@ -549,6 +834,49 @@ class ToolExportGuiTests(unittest.TestCase):
                 fake_window.dir_inputs["FASTA_DIR"].text(),
                 "custom_sequences",
             )
+        finally:
+            fake_window.close()
+
+    def test_directory_open_buttons_precede_browse_and_open_selected_folder(self):
+        from PySide6.QtWidgets import QTabWidget, QWidget
+
+        fake_window = QWidget()
+        fake_window.save_directories = lambda: None
+        fake_window.tip_db = {}
+        fake_window._tool_form_layouts = []
+        fake_window.tabs = QTabWidget()
+        fake_window.tab_paths = []
+        self.tools_gui_class.create_directories_tab(fake_window)
+
+        try:
+            self.assertEqual(
+                set(fake_window.directory_open_buttons),
+                set(DEFAULT_DIRECTORY_PATHS),
+            )
+            for key, button in fake_window.directory_open_buttons.items():
+                with self.subTest(key=key):
+                    row_layout = button.parentWidget().layout()
+                    widgets = [
+                        row_layout.itemAt(index).widget()
+                        for index in range(row_layout.count())
+                    ]
+                    button_index = widgets.index(button)
+                    self.assertIs(widgets[button_index - 1], fake_window.dir_inputs[key])
+                    self.assertEqual(widgets[button_index + 1].text(), "Browse...")
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                selected_folder = pathlib.Path(temp_dir, "selected", "embeddings")
+                fake_window.dir_inputs["EMBED_DIR"].setText(str(selected_folder))
+                with mock.patch(
+                    "PySide6.QtGui.QDesktopServices.openUrl", return_value=True
+                ) as open_url:
+                    fake_window.directory_open_buttons["EMBED_DIR"].click()
+
+                self.assertTrue(selected_folder.is_dir())
+                self.assertEqual(
+                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    selected_folder.resolve(),
+                )
         finally:
             fake_window.close()
 

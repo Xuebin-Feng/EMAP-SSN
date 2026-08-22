@@ -469,6 +469,43 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             finally:
                 self.window.inputs["SAVED_CONFIG_DIR"].setText(original_root)
 
+    def test_directory_open_buttons_precede_browse_and_open_selected_folder(self):
+        expected_keys = {
+            "SAVED_CONFIG_DIR",
+            *self.namespace["DIRECTORY_PROFILE_DEFAULTS"],
+        }
+        self.assertEqual(set(self.window.directory_open_buttons), expected_keys)
+
+        for key, button in self.window.directory_open_buttons.items():
+            with self.subTest(key=key):
+                row_layout = button.parentWidget().layout()
+                widgets = [
+                    row_layout.itemAt(index).widget()
+                    for index in range(row_layout.count())
+                ]
+                button_index = widgets.index(button)
+                self.assertIs(widgets[button_index - 1], self.window.inputs[key])
+                self.assertEqual(widgets[button_index + 1].text(), "Browse...")
+
+        line_edit = self.window.inputs["FASTA_DIR"]
+        original_path = line_edit.text()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected_folder = pathlib.Path(temp_dir, "selected", "fasta")
+            try:
+                line_edit.setText(str(selected_folder))
+                with mock.patch.object(
+                    self.namespace["QDesktopServices"], "openUrl", return_value=True
+                ) as open_url:
+                    self.window.directory_open_buttons["FASTA_DIR"].click()
+
+                self.assertTrue(selected_folder.is_dir())
+                self.assertEqual(
+                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    selected_folder.resolve(),
+                )
+            finally:
+                line_edit.setText(original_path)
+
     def test_all_tabs_share_padding_and_separator_spacing(self):
         from PySide6.QtCore import QPoint
 

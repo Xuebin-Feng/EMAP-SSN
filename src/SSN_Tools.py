@@ -27,6 +27,12 @@ import re
 import traceback
 
 from utilities import Hardware_Utils
+from utilities.Embedding_Alignment_Engine import (
+    DEFAULT_HOST_CACHE_CAP,
+    GIB,
+    is_nvidia_cuda,
+    normalize_execution_mode,
+)
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from utilities.PLM_Plugin_Utils import (
     discover_model_execution_modes,
@@ -58,6 +64,9 @@ from Cache_Manifest import (
 )
 
 MAX_CORES = os.cpu_count() or 16
+HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
+HOST_CACHE_SLIDER_SCALE = 10
+HOST_CACHE_SLIDER_STEPS = round(HOST_CACHE_MAX_GB * HOST_CACHE_SLIDER_SCALE)
 
 SECTION_CARD_STYLE = (
     "QFrame#toolSectionCard { "
@@ -82,14 +91,14 @@ COMPACT_ROW_GROUPS = {
     "Align_Similarity_Matrix.py": [
         ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
         ("BATCH_SIZE", "WORKERS"),
-        ("HOST_CACHE_GB", "ACCELERATOR_PRECISION"),
+        ("ACCELERATOR_PRECISION", "EXECUTION_MODE"),
     ],
     "Align_Substitution_Matrix.py": [
         ("BATCH_SIZE", "NUM_THREADS"),
     ],
     "Network_Injection.py": [
         ("BATCH_SIZE", "WORKERS"),
-        ("HOST_CACHE_GB", "DEVICE_SELECTION"),
+        ("EXECUTION_MODE", "DEVICE_SELECTION"),
     ],
     "Embedding_MSA.py": [
         ("GAP_OPEN", "GAP_EXTEND"),
@@ -373,6 +382,47 @@ def apply_gated_input_palette(widget):
     widget.setPalette(palette)
 
 
+def _selection_supports_tf32(device_selection, candidates=None):
+    """Return whether the effective device selection can execute TF32."""
+    candidates = (
+        Hardware_Utils.get_available_devices()
+        if candidates is None
+        else list(candidates)
+    )
+    normalized = Hardware_Utils.normalize_device_selection(device_selection)
+    if normalized == "auto":
+        eligible = candidates
+    else:
+        eligible = [
+            candidate for candidate in candidates
+            if candidate.spec == normalized
+        ]
+    return any(
+        candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
+        for candidate in eligible
+    )
+
+
+def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
+    """Show TF32 only when the current hardware selection supports it."""
+    selection = device_combo.currentData()
+    if selection is None:
+        selection = device_combo.currentText()
+    available = _selection_supports_tf32(selection, candidates)
+    tf32_index = precision_combo.findText("tf32")
+    if not available:
+        if precision_combo.currentText() == "tf32":
+            auto_index = precision_combo.findText("auto")
+            precision_combo.setCurrentIndex(max(0, auto_index))
+        tf32_index = precision_combo.findText("tf32")
+        if tf32_index >= 0:
+            precision_combo.removeItem(tf32_index)
+    elif tf32_index < 0:
+        precision_combo.addItem("tf32")
+    precision_combo.setProperty("tf32Available", available)
+    return available
+
+
 QTWEBENGINE_MISSING_MESSAGE = """\
 SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
@@ -627,6 +677,110 @@ class NoScrollDoubleSpinBox(QDoubleSpinBox):
     def wheelEvent(self, e):
         e.ignore()
 
+
+class HostCacheControl(QWidget):
+    """Auto/manual host-cache selector with a linear GiB slider."""
+
+    def __init__(self, value="auto", parent=None):
+        super().__init__(parent)
+        control_layout = QHBoxLayout(self)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.setSpacing(12)
+
+        self.auto_button = QPushButton()
+        self.auto_button.setObjectName("hostCacheAutoButton")
+        self.auto_button.setAccessibleName("Automatic host cache")
+        self.auto_button.setCheckable(True)
+        self.auto_button.setFixedSize(82, 28)
+
+        self.slider = NoScrollSlider(Qt.Orientation.Horizontal)
+        self.slider.setObjectName("hostCacheSlider")
+        self.slider.setAccessibleName("Host cache size linear slider")
+        self.slider.setRange(0, HOST_CACHE_SLIDER_STEPS)
+        self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider.setTickInterval(HOST_CACHE_SLIDER_STEPS // 4)
+
+        self.spinbox = NoScrollDoubleSpinBox()
+        self.spinbox.setObjectName("hostCacheSpinBox")
+        self.spinbox.setAccessibleName("Host cache size in GiB")
+        self.spinbox.setRange(0.0, HOST_CACHE_MAX_GB)
+        self.spinbox.setDecimals(1)
+        self.spinbox.setSingleStep(1.0)
+        self.spinbox.setFixedWidth(78)
+        apply_gated_input_palette(self.spinbox)
+
+        control_layout.addWidget(self.auto_button)
+        control_layout.addWidget(self.slider, 1)
+        control_layout.addWidget(self.spinbox)
+
+        is_auto = str(value).strip().lower() == "auto"
+        try:
+            manual_value = float(value) if not is_auto else HOST_CACHE_MAX_GB
+        except (TypeError, ValueError):
+            is_auto = True
+            manual_value = HOST_CACHE_MAX_GB
+        if not math.isfinite(manual_value):
+            is_auto = True
+            manual_value = HOST_CACHE_MAX_GB
+        manual_value = min(HOST_CACHE_MAX_GB, max(0.0, manual_value))
+
+        self.slider.valueChanged.connect(self._sync_spinbox_from_slider)
+        self.spinbox.valueChanged.connect(self._sync_slider_from_spinbox)
+        self.auto_button.toggled.connect(self._apply_auto_state)
+
+        self.spinbox.setValue(manual_value)
+        self._sync_slider_from_spinbox(manual_value)
+        self.auto_button.setChecked(is_auto)
+        self._apply_auto_state(is_auto)
+
+    @staticmethod
+    def slider_position_for_gb(value):
+        value = min(HOST_CACHE_MAX_GB, max(0.0, float(value)))
+        return round(value * HOST_CACHE_SLIDER_SCALE)
+
+    @staticmethod
+    def gb_for_slider_position(position):
+        position = min(
+            HOST_CACHE_SLIDER_STEPS,
+            max(0, int(position)),
+        )
+        return position / HOST_CACHE_SLIDER_SCALE
+
+    def _sync_spinbox_from_slider(self, position):
+        value = round(self.gb_for_slider_position(position), 1)
+        self.spinbox.blockSignals(True)
+        self.spinbox.setValue(value)
+        self.spinbox.blockSignals(False)
+
+    def _sync_slider_from_spinbox(self, value):
+        position = self.slider_position_for_gb(value)
+        self.slider.blockSignals(True)
+        self.slider.setValue(position)
+        self.slider.blockSignals(False)
+
+    def _apply_auto_state(self, enabled):
+        self.auto_button.setText("AUTO ON" if enabled else "AUTO OFF")
+        if enabled:
+            self.auto_button.setStyleSheet(
+                "QPushButton { background-color: #4CAF50; color: white; "
+                "border-radius: 14px; font-weight: bold; "
+                "border: 1px solid #388E3C; }"
+            )
+        else:
+            self.auto_button.setStyleSheet(
+                "QPushButton { background-color: #e0e0e0; color: #333; "
+                "border-radius: 14px; font-weight: bold; "
+                "border: 1px solid #bdbdbd; }"
+            )
+        self.slider.setEnabled(not enabled)
+        self.spinbox.setEnabled(not enabled)
+
+    def setting_value(self):
+        if self.auto_button.isChecked():
+            return "auto"
+        value = float(self.spinbox.value())
+        return int(value) if value.is_integer() else value
+
 class DynamicComboBox(QComboBox):
     def __init__(self, folder, ext, include_ext=False, exclude_str=None, parent=None):
         super().__init__(parent)
@@ -757,8 +911,9 @@ class ToolsGUI(QMainWindow):
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
                 "BATCH_SIZE": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'.",
                 "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
-                "HOST_CACHE_GB": "Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nEnter 'auto' for a safe system-memory budget, a non-negative GiB value as a cap, or 0 to disable persistent caching.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with both scalar and tiled CUDA plans, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul; 'tf32' explicitly enables supported CUDA tensor-core matmul."
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses CUDA embedding tiles and padded microbatches and requires a CUDA device.",
+                "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
+                "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with every CUDA plan allowed by Execution Mode, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul. 'tf32' is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.",
@@ -806,7 +961,8 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores.",
                 "BATCH_SIZE": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance.",
                 "DEVICE_SELECTION": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
-                "HOST_CACHE_GB": "Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. Enter auto, a non-negative GiB value, or 0 to disable."
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses CUDA embedding tiles and padded microbatches and requires a CUDA device.",
+                "HOST_CACHE_GB": f"Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {HOST_CACHE_MAX_GB:g} GiB; turn it OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox."
             },
             "Network_Extraction.py": {
                 "INPUT_NET": "Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.\nEdges connecting sequences outside the whitelist are filtered out.",
@@ -842,7 +998,7 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems.",
                 "GENERATE_FASTA": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences.",
                 "DEVICE_SELECTION": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: auto considers validated TF32 only for at least 4,096 targets. Forced TF32 requires NVIDIA CUDA."
+                "ACCELERATOR_PRECISION": "Accelerator Precision: auto considers validated TF32 only for at least 4,096 targets. The tf32 option is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
             }
         }
         
@@ -1023,15 +1179,21 @@ class ToolsGUI(QMainWindow):
                     "display": "Device:"
                 },
                 {
-                    "var_name": "HOST_CACHE_GB",
-                    "type": "text",
-                    "display": "Host Cache (GiB):"
-                },
-                {
                     "var_name": "ACCELERATOR_PRECISION",
                     "type": "dropdown",
                     "options": ["auto", "float32", "tf32"],
                     "display": "Precision:"
+                },
+                {
+                    "var_name": "EXECUTION_MODE",
+                    "type": "dropdown",
+                    "options": ["auto", "scalar", "tiled"],
+                    "display": "Execution Mode:"
+                },
+                {
+                    "var_name": "HOST_CACHE_GB",
+                    "type": "host_cache",
+                    "display": "Host Cache (GiB):"
                 }
                     ],
                     "Align_Substitution_Matrix.py": [
@@ -1324,14 +1486,20 @@ class ToolsGUI(QMainWindow):
                             "display": "Batch Size:"
                         },
                         {
-                            "var_name": "HOST_CACHE_GB",
-                            "type": "text",
-                            "display": "Host Cache (GiB):"
-                        },
-                        {
                             "var_name": "DEVICE_SELECTION",
                             "type": "device_dropdown",
                             "display": "Device:"
+                        },
+                        {
+                            "var_name": "EXECUTION_MODE",
+                            "type": "dropdown",
+                            "options": ["auto", "scalar", "tiled"],
+                            "display": "Execution Mode:"
+                        },
+                        {
+                            "var_name": "HOST_CACHE_GB",
+                            "type": "host_cache",
+                            "display": "Host Cache (GiB):"
                         }
                     ],
                     "Network_Extraction.py": [
@@ -1708,6 +1876,7 @@ class ToolsGUI(QMainWindow):
         layout.addRow(header)
         
         self.dir_inputs = {}
+        self.directory_open_buttons = {}
         dir_defaults = dict(DEFAULT_DIRECTORY_PATHS)
         
         # Load existing paths from JSON if available
@@ -1740,7 +1909,30 @@ class ToolsGUI(QMainWindow):
             
             clean_val_str = str(current_val).replace('r"', '"').replace("r'", "'").strip("\"'")
             le = QLineEdit(clean_val_str)
+            open_button = QPushButton("📂")
+            open_button.setFixedWidth(30)
+            open_button.setToolTip("Open Folder")
+            open_button.setEnabled(bool(le.text().strip()))
             btn = QPushButton("Browse...")
+
+            def open_selected_folder(checked=False, line_edit=le):
+                raw_path = line_edit.text().strip()
+                if not raw_path:
+                    return
+                folder = os.path.expanduser(raw_path)
+                if not os.path.isabs(folder):
+                    folder = os.path.join(_PROJECT_ROOT, folder)
+                folder = os.path.abspath(folder)
+                os.makedirs(folder, exist_ok=True)
+                from PySide6.QtCore import QUrl
+                from PySide6.QtGui import QDesktopServices
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+            open_button.clicked.connect(open_selected_folder)
+            le.textChanged.connect(
+                lambda text, target=open_button: target.setEnabled(bool(text.strip()))
+            )
+            self.directory_open_buttons[key] = open_button
             
             def open_folder_dialog(checked=False, line_edit=le):
                 folder = QFileDialog.getExistingDirectory(self, "Select Directory", line_edit.text() if line_edit.text() else "")
@@ -1750,6 +1942,7 @@ class ToolsGUI(QMainWindow):
                     
             btn.clicked.connect(open_folder_dialog)
             h_lay.addWidget(le)
+            h_lay.addWidget(open_button)
             h_lay.addWidget(btn)
             
             display_name = key.replace('_', ' ').title()
@@ -2328,7 +2521,10 @@ class ToolsGUI(QMainWindow):
                 h_lay.addWidget(box)
                 ui_element.slider = sl
                 ui_element.scale = scale
-                
+
+            elif s_def['type'] == "host_cache":
+                ui_element = HostCacheControl(actual_val)
+
             elif s_def['type'] == "negative_number":
                 ui_element = NoScrollDoubleSpinBox()
                 ui_element.setMinimum(-1000.0)
@@ -2405,6 +2601,27 @@ class ToolsGUI(QMainWindow):
         self._merge_compact_rows(layout, script_name, row_widgets)
         self._merge_inline_field_rows(layout, script_name, row_widgets)
         self.script_data[script_path] = {'inputs': inputs, 'settings': settings}
+
+        if script_name in {
+            "Align_Similarity_Matrix.py",
+            "Embedding_SSEARCH.py",
+        }:
+            device_input = inputs.get("DEVICE_SELECTION")
+            precision_input = inputs.get("ACCELERATOR_PRECISION")
+            if device_input and precision_input:
+                device_combo = device_input["widget"]
+                precision_combo = precision_input["widget"]
+
+                def update_precision_options(index=None):
+                    _sync_tf32_precision_option(
+                        device_combo,
+                        precision_combo,
+                    )
+
+                device_combo.currentIndexChanged.connect(
+                    update_precision_options
+                )
+                update_precision_options()
 
         if script_name == "Generate_Embeddings.py":
             model_input = inputs.get("MODEL_NAME")
@@ -3545,6 +3762,8 @@ class ToolsGUI(QMainWindow):
                 new_settings[var_name] = int(widget.slider.value())
             elif w_type == "slider_float":
                 new_settings[var_name] = float(widget.slider.value() / widget.scale)
+            elif w_type == "host_cache":
+                new_settings[var_name] = widget.setting_value()
             elif w_type == "negative_number":
                 new_settings[var_name] = float(widget.value())
             elif w_type == "number":
@@ -3749,9 +3968,11 @@ class ToolsGUI(QMainWindow):
             "Network_Injection.py",
             "Embedding_SSEARCH.py",
         }:
+            available_devices = Hardware_Utils.get_available_devices()
             try:
                 Hardware_Utils.resolve_device_selection(
-                    new_settings.get("DEVICE_SELECTION", "auto")
+                    new_settings.get("DEVICE_SELECTION", "auto"),
+                    available_devices,
                 )
             except ValueError as error:
                 QMessageBox.critical(self, "Invalid Hardware Selection", str(error))
@@ -3762,6 +3983,12 @@ class ToolsGUI(QMainWindow):
                 precision = str(
                     new_settings.get("ACCELERATOR_PRECISION", "auto")
                 ).strip().lower()
+                if precision == "tf32" and not _selection_supports_tf32(
+                    new_settings.get("DEVICE_SELECTION", "auto"),
+                    available_devices,
+                ):
+                    precision = "auto"
+                    new_settings["ACCELERATOR_PRECISION"] = "auto"
                 if precision not in {"auto", "float32", "tf32"}:
                     QMessageBox.critical(
                         self,
@@ -3772,6 +3999,33 @@ class ToolsGUI(QMainWindow):
             if script_name in {
                 "Align_Similarity_Matrix.py", "Network_Injection.py"
             }:
+                try:
+                    execution_mode = normalize_execution_mode(
+                        new_settings.get("EXECUTION_MODE", "auto")
+                    )
+                except ValueError as error:
+                    QMessageBox.critical(
+                        self, "Invalid Execution Mode", str(error)
+                    )
+                    return
+                if execution_mode == "tiled":
+                    available = Hardware_Utils.get_available_devices()
+                    selected = Hardware_Utils.resolve_device_selection(
+                        new_settings.get("DEVICE_SELECTION", "auto"), available
+                    )
+                    eligible = [
+                        candidate for candidate in available
+                        if candidate.backend == "cuda"
+                    ]
+                    if selected is not None:
+                        eligible = [selected] if selected.backend == "cuda" else []
+                    if not eligible:
+                        QMessageBox.critical(
+                            self,
+                            "Invalid Execution Mode",
+                            "Tiled execution requires an available CUDA device.",
+                        )
+                        return
                 host_cache = str(new_settings.get("HOST_CACHE_GB", "auto")).strip()
                 if host_cache.lower() != "auto":
                     try:

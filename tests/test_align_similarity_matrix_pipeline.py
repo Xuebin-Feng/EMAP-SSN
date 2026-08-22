@@ -61,6 +61,55 @@ class AlignmentPipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No embeddings file"):
                 similarity_matrix.configure_runtime_paths()
 
+    def test_execution_mode_normalization_accepts_only_supported_values(self):
+        self.assertEqual(alignment_engine.normalize_execution_mode(None), "auto")
+        self.assertEqual(
+            alignment_engine.normalize_execution_mode(" TILED "), "tiled"
+        )
+        with self.assertRaisesRegex(ValueError, "auto.*scalar.*tiled"):
+            alignment_engine.normalize_execution_mode("batched")
+
+    def test_execution_mode_filters_candidate_variants(self):
+        cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        expectations = {
+            "auto": (["scalar"], ["scalar", "tiled"]),
+            "scalar": (["scalar"], ["scalar"]),
+            "tiled": ([], ["tiled"]),
+        }
+        for mode, (cpu_variants, cuda_variants) in expectations.items():
+            with self.subTest(mode=mode), mock.patch.object(
+                similarity_matrix, "EXECUTION_MODE", mode
+            ):
+                self.assertEqual(
+                    similarity_matrix._execution_variants(cpu), cpu_variants
+                )
+                self.assertEqual(
+                    similarity_matrix._execution_variants(cuda), cuda_variants
+                )
+
+    def test_forced_tiled_mode_rejects_missing_cuda_before_benchmark(self):
+        cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        with mock.patch.object(
+            similarity_matrix, "EXECUTION_MODE", "tiled"
+        ), mock.patch.object(
+            similarity_matrix.Hardware_Utils,
+            "get_available_devices",
+            return_value=[cpu],
+        ), self.assertRaisesRegex(ValueError, "no CUDA device"):
+            similarity_matrix._benchmark_processing_plans(
+                [(0, 1, "a", "b")],
+                workers=1,
+                input_h5="unused.h5",
+                batch_id=0,
+            )
+
     def test_runtime_path_configuration_accepts_an_absolute_input(self):
         selected = os.path.abspath(
             os.path.join("temporary", "sequences_[test-model]_embeddings.h5")
@@ -488,6 +537,24 @@ class AlignmentPipelineTests(unittest.TestCase):
             )
             self.assertEqual(alignment_engine.resolve_host_cache_bytes(0), 0)
 
+        with mock.patch.object(
+            alignment_engine,
+            "system_memory_bytes",
+            return_value=(512 * alignment_engine.GIB, 400 * alignment_engine.GIB),
+        ):
+            self.assertEqual(
+                alignment_engine.resolve_host_cache_bytes("auto"),
+                128 * alignment_engine.GIB,
+            )
+            self.assertEqual(
+                alignment_engine.resolve_host_cache_bytes(200),
+                128 * alignment_engine.GIB,
+            )
+            self.assertEqual(
+                alignment_engine.resolve_host_cache_bytes(96),
+                96 * alignment_engine.GIB,
+            )
+
     def test_cuda_memory_plan_divides_matrix_pool_across_lane_slots(self):
         memory_info = (16 << 30, 16 << 30)
         one_lane = alignment_engine.cuda_memory_plan(
@@ -507,6 +574,56 @@ class AlignmentPipelineTests(unittest.TestCase):
             abs(one_lane.matrix_bytes - four_lanes.matrix_bytes * 4),
             4,
         )
+
+    def test_cuda_memory_plan_accepts_safe_benchmark_profiles(self):
+        memory_info = (16 << 30, 16 << 30)
+        plans = [
+            alignment_engine.cuda_memory_plan(
+                torch.device("cuda:0"),
+                lanes=2,
+                memory_info=memory_info,
+                tile_fraction=tile_fraction,
+                matrix_fraction=matrix_fraction,
+            )
+            for tile_fraction, matrix_fraction in (
+                (0.20, 0.60),
+                (0.30, 0.50),
+                (0.40, 0.40),
+            )
+        ]
+        self.assertLess(plans[0].tile_cache_bytes, plans[2].tile_cache_bytes)
+        self.assertGreater(plans[0].matrix_bytes, plans[2].matrix_bytes)
+        with self.assertRaisesRegex(ValueError, "at most 80%"):
+            alignment_engine.cuda_memory_plan(
+                torch.device("cuda:0"),
+                lanes=2,
+                memory_info=memory_info,
+                tile_fraction=0.50,
+                matrix_fraction=0.40,
+            )
+
+    def test_vram_estimator_uses_explicit_benchmark_plan(self):
+        store = mock.Mock(
+            feature_dimension=8,
+            float32_bytes=[64, 64],
+        )
+        store.block_ids.return_value = np.zeros(2, dtype=np.int32)
+        plan = alignment_engine.cuda_memory_plan(
+            torch.device("cuda:0"),
+            lanes=2,
+            memory_info=(16 << 30, 16 << 30),
+            tile_fraction=0.20,
+            matrix_fraction=0.60,
+        )
+        estimate = alignment_engine.estimate_cuda_working_set(
+            [(0, 1, "a", "b")],
+            store=store,
+            lengths=[2, 2],
+            device=torch.device("cuda:0"),
+            lanes=2,
+            memory_plan_override=plan,
+        )
+        self.assertEqual(estimate.per_microbatch_bytes, plan.matrix_bytes)
 
     def test_vram_estimator_rejects_unsafe_lane_count_before_cuda(self):
         store = mock.Mock(
@@ -1071,6 +1188,66 @@ class AlignmentPipelineTests(unittest.TestCase):
             [call.kwargs["precision"] for call in tiled.call_args_list],
             ["float32", "float32", "tf32"],
         )
+
+    def test_forced_scalar_precision_validation_never_runs_tiled_plan(self):
+        cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cuda:0",
+            "Test CUDA",
+            torch.device("cuda:0"),
+            "cuda",
+            0,
+            True,
+        )
+        tasks = [(0, 1, "a", "b"), (0, 2, "a", "c")]
+        results = [(0, 1, 1.0, 2, 2.0, 2), (0, 2, 1.5, 2, 2.5, 2)]
+        safe_estimate = mock.Mock(
+            feasible=True,
+            projected_peak_bytes=10 << 30,
+            safe_peak_bytes=13 << 30,
+            tile_bytes=0,
+            transient_bytes=2 << 30,
+            per_microbatch_bytes=512 << 20,
+            reason="within reserved-VRAM boundary",
+        )
+        memory_plan = mock.Mock(free_bytes=12 << 30, total_bytes=16 << 30)
+        clock = iter([0.0, 1.0, 1.0, 1.4])
+        with mock.patch.object(
+            similarity_matrix, "EXECUTION_MODE", "scalar"
+        ), mock.patch.object(
+            similarity_matrix.Hardware_Utils,
+            "get_available_devices",
+            return_value=[cuda],
+        ), mock.patch.object(
+            similarity_matrix.Hardware_Utils, "release_device_cache"
+        ), mock.patch.object(
+            similarity_matrix, "cuda_memory_plan", return_value=memory_plan
+        ), mock.patch.object(
+            similarity_matrix,
+            "estimate_cuda_working_set",
+            return_value=safe_estimate,
+        ), mock.patch.object(
+            similarity_matrix,
+            "_run_accelerated_pipeline",
+            return_value=results,
+        ) as scalar, mock.patch.object(
+            similarity_matrix, "run_tiled_cuda_pipeline"
+        ) as tiled, mock.patch.object(
+            similarity_matrix.time,
+            "perf_counter",
+            side_effect=lambda: next(clock),
+        ), redirect_stdout(io.StringIO()):
+            precision = similarity_matrix._resolve_active_matmul_precision(
+                "auto",
+                None,
+                tasks,
+                workers=2,
+                store=mock.Mock(path="unused.h5"),
+                sequence_lengths=[2, 2, 2],
+            )
+
+        self.assertEqual(precision, "tf32")
+        self.assertEqual(scalar.call_count, 3)
+        tiled.assert_not_called()
 
     def test_plan_tuner_confirms_selected_cuda_variants_on_larger_sample(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(

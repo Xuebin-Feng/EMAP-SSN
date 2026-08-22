@@ -3182,13 +3182,43 @@ if __name__ == "__main__":
             layout.setVerticalSpacing(CONFIG_TAB_ROW_SPACING)
             self._add_profile_selector("directories", layout)
 
+            self.directory_open_buttons = {}
+
+            def add_open_folder_button(line_edit, key):
+                button = QPushButton("📂")
+                button.setFixedWidth(30)
+                button.setToolTip("Open Folder")
+                button.setEnabled(bool(line_edit.text().strip()))
+
+                def open_selected_folder(checked=False):
+                    raw_path = line_edit.text().strip()
+                    if not raw_path:
+                        return
+                    folder = Path(raw_path).expanduser()
+                    if not folder.is_absolute():
+                        folder = PROJECT_ROOT / folder
+                    folder = folder.resolve()
+                    folder.mkdir(parents=True, exist_ok=True)
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+                button.clicked.connect(open_selected_folder)
+                line_edit.textChanged.connect(
+                    lambda text, target=button: target.setEnabled(bool(text.strip()))
+                )
+                self.directory_open_buttons[key] = button
+                return button
+
             saved_config_container = QWidget()
             saved_config_container.setObjectName("wrapper")
             saved_config_layout = QHBoxLayout(saved_config_container)
             saved_config_layout.setContentsMargins(0, 0, 0, 0)
             saved_config_input = QLineEdit(str(globals().get("SAVED_CONFIG_DIR", SAVED_CONFIG_DIR)))
+            saved_config_open_button = add_open_folder_button(
+                saved_config_input, "SAVED_CONFIG_DIR"
+            )
             saved_config_button = QPushButton("Browse...")
             saved_config_layout.addWidget(saved_config_input)
+            saved_config_layout.addWidget(saved_config_open_button)
             saved_config_layout.addWidget(saved_config_button)
             layout.addRow("Saved Config Directory:", saved_config_container)
             self.inputs["SAVED_CONFIG_DIR"] = saved_config_input
@@ -3229,6 +3259,7 @@ if __name__ == "__main__":
                 
                 val = globals().get(key, "")
                 le = QLineEdit("" if val in [None, "None"] else str(val))
+                open_button = add_open_folder_button(le, key)
                 btn = QPushButton("Browse...")
                 
                 def browse_dir(checked, line_edit=le):
@@ -3240,6 +3271,7 @@ if __name__ == "__main__":
                 btn.clicked.connect(browse_dir)
                 
                 h_lay.addWidget(le)
+                h_lay.addWidget(open_button)
                 h_lay.addWidget(btn)
                 
                 display_name = DIRECTORY_DISPLAY_NAMES.get(key)
