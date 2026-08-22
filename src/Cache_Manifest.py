@@ -516,6 +516,56 @@ def build_canonical_cache_name(
     return f"{fasta_base}{model_string}{suffix}"
 
 
+def resolve_default_cache_folder(
+    saved_layout_dir, canonical_name, expected_compatibility
+):
+    """Return a non-conflicting default folder for one compatibility identity.
+
+    The readable canonical name remains the default.  If that path is already
+    occupied by another manifest identity, append a deterministic prefix of the
+    current manifest ID so the existing folder is never repurposed.
+    """
+    if (
+        not isinstance(canonical_name, str)
+        or not canonical_name
+        or canonical_name != os.path.basename(canonical_name)
+        or canonical_name in {".", ".."}
+    ):
+        raise CacheManifestError("Canonical cache name must be a plain folder name.")
+
+    root = os.path.abspath(os.path.normpath(saved_layout_dir))
+    manifest_id = calculate_manifest_id(expected_compatibility)
+
+    def available_or_matching(folder):
+        if not os.path.exists(folder):
+            return True
+        if not os.path.isdir(folder):
+            return False
+        try:
+            read_manifest(folder, expected_compatibility)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return False
+        return True
+
+    canonical_folder = os.path.abspath(os.path.join(root, canonical_name))
+    if not _is_within(root, canonical_folder) or os.path.dirname(canonical_folder) != root:
+        raise CacheManifestError(
+            "Canonical cache folder must be an immediate child of SAVED_LAYOUT_DIR."
+        )
+    if available_or_matching(canonical_folder):
+        return canonical_folder
+
+    for prefix_length in (8, 12, 16, 24, 32, 48, 64):
+        suffixed_name = f"{canonical_name}_[{manifest_id[:prefix_length]}]"
+        candidate = os.path.abspath(os.path.join(root, suffixed_name))
+        if available_or_matching(candidate):
+            return candidate
+
+    raise CacheManifestError(
+        "Could not choose a unique cache folder for the current manifest identity."
+    )
+
+
 def next_cache_version_filename(folder_path):
     """Return the next simple two-digit default cache filename."""
     max_version = -1

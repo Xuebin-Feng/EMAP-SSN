@@ -174,6 +174,41 @@ class ManifestIdentityTests(unittest.TestCase):
                 "version_04.h5",
             )
 
+    def test_default_folder_adds_identity_suffix_for_canonical_collision(self):
+        current_compatibility = make_compatibility()
+        current_manifest = make_manifest(current_compatibility)
+        incompatible_manifest = make_manifest(
+            make_compatibility(sequence_hash="c" * 64)
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            canonical = root / "readable-cache-name"
+            Cache_Manifest.write_manifest_atomic(canonical, incompatible_manifest)
+
+            resolved = pathlib.Path(
+                Cache_Manifest.resolve_default_cache_folder(
+                    root, canonical.name, current_compatibility
+                )
+            )
+            expected_suffix = current_manifest["manifest_id"][:8]
+            self.assertEqual(
+                resolved.name, f"{canonical.name}_[{expected_suffix}]"
+            )
+            self.assertEqual(
+                Cache_Manifest.read_manifest(canonical)["manifest_id"],
+                incompatible_manifest["manifest_id"],
+            )
+
+            Cache_Manifest.write_manifest_atomic(resolved, current_manifest)
+            self.assertEqual(
+                pathlib.Path(
+                    Cache_Manifest.resolve_default_cache_folder(
+                        root, canonical.name, current_compatibility
+                    )
+                ),
+                resolved,
+            )
+
 
 class ManifestDiscoveryTests(unittest.TestCase):
     def test_zero_one_renamed_and_duplicate_matches(self):

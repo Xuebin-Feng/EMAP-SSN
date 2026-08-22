@@ -461,7 +461,9 @@ def _resolve_cache_target(
             network_type,
             **_manifest_settings(settings),
         )
-        folder = os.path.join(saved_root, folder_name)
+        folder = cache_manifest.resolve_default_cache_folder(
+            saved_root, folder_name, manifest["compatibility"]
+        )
 
     manifest_path = os.path.join(folder, cache_manifest.MANIFEST_FILENAME)
     if os.path.isfile(manifest_path):

@@ -127,7 +127,7 @@ class LayoutSettingsTests(unittest.TestCase):
 
 
 class LayoutCacheGenerationTests(unittest.TestCase):
-    def test_duplicate_and_incompatible_manifest_folders_are_rejected(self):
+    def test_duplicate_folders_are_rejected_and_canonical_collision_is_renamed(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = pathlib.Path(temp_dir)
             _write_inputs(temp_path)
@@ -191,10 +191,32 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 pathlib.Path(settings.SAVED_LAYOUT_DIR) / folder_name,
                 incompatible,
             )
-            with self.assertRaisesRegex(
-                LayoutGenerationError, "incompatible cache manifest"
+            fake_engine = SimpleNamespace(
+                calculate_layout=lambda _connectivity, _node_count, _params: (
+                    np.asarray([[0, 0], [1, 1]], dtype=np.float32),
+                    12.0,
+                )
+            )
+            with mock.patch.dict(
+                sys.modules, {"Layout_Engine_SSN_MolecularDynamics": fake_engine}
             ):
-                generate_layout_cache(settings)
+                result = generate_layout_cache(settings)
+
+            expected_folder = (
+                pathlib.Path(settings.SAVED_LAYOUT_DIR)
+                / f"{folder_name}_[{manifest['manifest_id'][:8]}]"
+            )
+            self.assertEqual(pathlib.Path(result.cache_path).parent, expected_folder)
+            self.assertEqual(
+                Cache_Manifest.read_manifest(
+                    pathlib.Path(settings.SAVED_LAYOUT_DIR) / folder_name
+                )["manifest_id"],
+                incompatible["manifest_id"],
+            )
+            self.assertEqual(
+                Cache_Manifest.read_manifest(expected_folder)["manifest_id"],
+                manifest["manifest_id"],
+            )
 
     def test_generation_publishes_only_minimal_cache_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -179,6 +179,82 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             )
             self.assertEqual(combo.currentText(), "older.h5")
 
+    def test_incompatible_canonical_folder_uses_manifest_suffix(self):
+        cache_manifest = self.namespace["cache_manifest"]
+        current_compatibility = cache_manifest.build_compatibility(
+            "a" * 64,
+            "b" * 64,
+            "alignment",
+            alignment_score="global",
+            normalization="alignment_length",
+            top_edge_percent=5.0,
+        )
+        incompatible_compatibility = cache_manifest.build_compatibility(
+            "c" * 64,
+            "b" * 64,
+            "alignment",
+            alignment_score="global",
+            normalization="alignment_length",
+            top_edge_percent=5.0,
+        )
+        incompatible_manifest = cache_manifest.build_manifest(
+            {"basename": "set.fasta", "size_bytes": 1, "sha256": "c" * 64},
+            {"basename": "network.h5", "size_bytes": 1, "sha256": "b" * 64},
+            incompatible_compatibility,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            canonical = root / "readable-cache"
+            cache_manifest.write_manifest_atomic(canonical, incompatible_manifest)
+            directory_input = self.window.inputs["SAVED_LAYOUT_DIR"]
+            previous_directory = directory_input.text()
+            directory_input.blockSignals(True)
+            directory_input.setText(str(root))
+            directory_input.blockSignals(False)
+            try:
+                with mock.patch.object(
+                    self.window,
+                    "_cache_paths_from_inputs",
+                    return_value=(str(root / "set.fasta"), str(root / "network.h5")),
+                ), mock.patch.object(
+                    cache_manifest,
+                    "build_compatibility",
+                    return_value=current_compatibility,
+                ), mock.patch.object(
+                    cache_manifest,
+                    "build_canonical_cache_name",
+                    return_value=canonical.name,
+                ), mock.patch.object(
+                    cache_manifest,
+                    "find_matching_manifest_folders",
+                    return_value=[],
+                ):
+                    self.window._apply_cache_discovery(
+                        {
+                            "sequence": {"sha256": "a" * 64},
+                            "network": {"sha256": "b" * 64},
+                            "network_type": "alignment",
+                        }
+                    )
+
+                suffix = cache_manifest.calculate_manifest_id(
+                    current_compatibility
+                )[:8]
+                expected = root / f"{canonical.name}_[{suffix}]"
+                self.assertEqual(
+                    pathlib.Path(self.window.current_cache_folder), expected
+                )
+                self.assertIn(expected.name, self.window.lbl_cache_tracker.text())
+                self.assertEqual(
+                    cache_manifest.read_manifest(canonical)["manifest_id"],
+                    incompatible_manifest["manifest_id"],
+                )
+            finally:
+                directory_input.blockSignals(True)
+                directory_input.setText(previous_directory)
+                directory_input.blockSignals(False)
+
     def test_folder_dropdown_refresh_does_not_reset_dependent_score_mode(self):
         from PySide6.QtWidgets import QComboBox
 

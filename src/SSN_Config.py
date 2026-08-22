@@ -1615,7 +1615,9 @@ if __name__ == "__main__":
                     network_type,
                     **settings,
                 )
-                canonical_folder = os.path.join(saved_layout_dir, canonical_name)
+                default_folder = cache_manifest.resolve_default_cache_folder(
+                    saved_layout_dir, canonical_name, compatibility
+                )
                 matches = cache_manifest.find_matching_manifest_folders(
                     saved_layout_dir, compatibility
                 )
@@ -1677,10 +1679,11 @@ if __name__ == "__main__":
                 )
                 self.btn_open_target_folder.setEnabled(True)
             else:
-                active_folder = canonical_folder
+                active_folder = default_folder
+                default_name = os.path.basename(default_folder)
                 self.current_cache_folder = active_folder
                 self.lbl_cache_tracker.setText(
-                    f"Target Folder: {canonical_name} [Needs Computing]"
+                    f"Target Folder: {default_name} [Needs Computing]"
                 )
                 self.lbl_cache_tracker.setStyleSheet("color: #d32f2f;")
                 self.btn_open_target_folder.setEnabled(False)
