@@ -30,17 +30,22 @@ Settings:
 - MODEL_NAME: The name of the embedding model used.
 - BATCH_SIZE: Number of pairs to process before writing to disk (prevents memory overflow).
 - WORKERS: Number of multiprocessing workers to use.
+- HOST_CACHE_GB: Automatic or explicit host-RAM cap for packed embeddings.
+- ACCELERATOR_PRECISION: Validated automatic, IEEE FP32, or TF32 CUDA matmul.
 - LOCAL_GAP_P: The gap penalty for local alignment (e.g. Smith-Waterman style).
 - GLOBAL_GAP_P: The gap penalty for global alignment (e.g. Needleman-Wunsch style).
 
 Algorithm:
-1. Loads pairs of embeddings dynamically from the input HDF5 file.
-2. Uses one process to compute similarity matrices on the selected accelerator.
+1. Packs the embedding database in bounded host RAM when possible; otherwise
+   loads byte-bounded sequence tiles from HDF5.
+2. Tunes lanes on a short cost-stratified sample, then confirms the selected
+   scalar and padded-batched CUDA plans on production-ordered pairs.
 3. Passes those matrices by reference through a bounded queue to parallel CPU
    threads, which evaluate Global and Local Alignments using Numba functions
    compiled to release the Python GIL.
 4. On CPU-only systems, distributes complete pairs across the CPU workers.
-5. Writes intermediate HDF5 batches and merges them into the final datasets.
+5. Streams intermediate results into atomic HDF5 batches and merges them into
+   the final datasets.
 """
 # %% Import Necessary Libraries
 # Limit threads to prevent CPU thrashing
@@ -72,6 +77,15 @@ from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Utils
+from utilities.Embedding_Alignment_Engine import (
+    EmbeddingTileStore,
+    compare_precision_results,
+    cuda_matmul_precision,
+    cuda_memory_plan,
+    estimate_cuda_working_set,
+    normalize_precision_setting,
+    run_tiled_cuda_pipeline,
+)
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_HDF5 import read_embedding_manifest
 
@@ -86,6 +100,9 @@ LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length rati
 WORKERS = 12
 DEVICE_SELECTION = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
+ACCELERATOR_CONFIRM_PAIRS = 2048
+HOST_CACHE_GB = "auto"
+ACCELERATOR_PRECISION = "auto"
 # Compatibility for callers that use _accelerator_worker_count directly.
 # Production scheduling always uses the automatic lane tuner.
 GPU_STREAMS = 4
@@ -161,6 +178,9 @@ SEQUENCE_SET = ""
 FULL_INPUT_HDF5 = None
 RESULTS_DIR = None
 FINAL_OUTPUT_NET = None
+active_matmul_precision = "ieee_fp32"
+active_embedding_store = None
+active_sequence_lengths = None
 
 
 def configure_runtime_paths():
@@ -548,7 +568,7 @@ def _compute_accelerated_matrix(args):
     return idx_i, idx_j, matrix
 
 
-def _run_accelerated_pipeline(
+def _run_scalar_accelerated_pipeline(
     batch_tasks,
     workers,
     input_h5,
@@ -556,6 +576,8 @@ def _run_accelerated_pipeline(
     batch_id,
     accelerator_workers,
     show_progress,
+    result_callback=None,
+    result_chunk_size=65536,
 ):
     """
     Run one complete accelerator/CPU pipeline with a fixed lane count.
@@ -672,8 +694,42 @@ def _run_accelerated_pipeline(
                 results.append(future.result())
                 if progress is not None:
                     progress.update(1)
+                if (
+                    result_callback is not None
+                    and len(results) >= int(result_chunk_size)
+                ):
+                    result_callback(results)
+                    results.clear()
 
+    if result_callback is not None and results:
+        result_callback(results)
+        results.clear()
     return results
+
+
+def _run_accelerated_pipeline(
+    batch_tasks,
+    workers,
+    input_h5,
+    device,
+    batch_id,
+    accelerator_workers,
+    show_progress,
+    matmul_precision="ieee_fp32",
+    result_callback=None,
+):
+    """Compatibility wrapper for the original per-pair accelerator path."""
+    with cuda_matmul_precision(matmul_precision):
+        return _run_scalar_accelerated_pipeline(
+            batch_tasks,
+            workers,
+            input_h5,
+            device,
+            batch_id,
+            accelerator_workers,
+            show_progress,
+            result_callback=result_callback,
+        )
 
 
 def _select_accelerator_lanes(
@@ -682,6 +738,7 @@ def _select_accelerator_lanes(
     input_h5,
     device,
     batch_id,
+    matmul_precision=None,
 ):
     """
     Select accelerator concurrency using a short representative benchmark.
@@ -691,6 +748,8 @@ def _select_accelerator_lanes(
     rather than accelerator utilization alone.
     """
     candidates = _accelerator_lane_candidates(device, workers)
+    if matmul_precision is None:
+        matmul_precision = active_matmul_precision
     if len(candidates) == 1 or len(batch_tasks) < 2:
         return 1
 
@@ -723,6 +782,7 @@ def _select_accelerator_lanes(
         batch_id,
         accelerator_workers=1,
         show_progress=False,
+        matmul_precision=matmul_precision,
     )
 
     measured_rates = {}
@@ -737,6 +797,7 @@ def _select_accelerator_lanes(
                 batch_id,
                 accelerator_workers=lanes,
                 show_progress=False,
+                matmul_precision=matmul_precision,
             )
         except (RuntimeError, NotImplementedError) as error:
             if lanes == 1:
@@ -779,6 +840,11 @@ def process_accelerated_tasks(
     device,
     batch_id,
     accelerator_workers=None,
+    embedding_store=None,
+    sequence_lengths=None,
+    matmul_precision="ieee_fp32",
+    execution_variant="scalar",
+    result_callback=None,
 ):
     """
     Auto-select accelerator concurrency, then run the complete task batch.
@@ -790,7 +856,65 @@ def process_accelerated_tasks(
             input_h5,
             device,
             batch_id,
+            matmul_precision=matmul_precision,
         )
+    if (
+        execution_variant == "tiled"
+        and _device_type(device) == "cuda"
+        and embedding_store is not None
+        and sequence_lengths is not None
+    ):
+        progress = tqdm(
+            total=len(batch_tasks),
+            desc=(
+                f"  Batch {batch_id} (tiled CUDA, "
+                f"{accelerator_workers} lane"
+                f"{'s' if accelerator_workers != 1 else ''})"
+            ),
+            leave=False,
+        )
+        matrix_budget = None
+        try:
+            for attempt in range(4):
+                checkpoint = (
+                    result_callback.checkpoint()
+                    if result_callback is not None
+                    and hasattr(result_callback, "checkpoint")
+                    else None
+                )
+                try:
+                    return run_tiled_cuda_pipeline(
+                        batch_tasks,
+                        store=embedding_store,
+                        lengths=sequence_lengths,
+                        device=device,
+                        workers=workers,
+                        lanes=accelerator_workers,
+                        alignment_callback=calculate_alignment_data,
+                        precision=matmul_precision,
+                        progress=progress,
+                        matrix_budget_override=matrix_budget,
+                        result_callback=result_callback,
+                    )
+                except torch.cuda.OutOfMemoryError:
+                    if checkpoint is not None:
+                        result_callback.rollback(checkpoint)
+                    torch.cuda.empty_cache()
+                    default_budget = cuda_memory_plan(
+                        device,
+                        lanes=accelerator_workers,
+                    ).matrix_bytes
+                    matrix_budget = max(
+                        16 * 1024 * 1024,
+                        int(matrix_budget or default_budget) // 2,
+                    )
+                    print(
+                        f"  > CUDA memory pressure; retrying batch with "
+                        f"{matrix_budget / (1024 ** 2):.0f} MiB matrix budget."
+                    )
+            print("  > Tiled CUDA remained out of memory; using scalar CUDA.")
+        finally:
+            progress.close()
     return _run_accelerated_pipeline(
         batch_tasks,
         workers,
@@ -799,11 +923,18 @@ def process_accelerated_tasks(
         batch_id,
         accelerator_workers,
         show_progress=True,
+        matmul_precision=matmul_precision,
+        result_callback=result_callback,
     )
 
 
 def process_cpu_tasks(
-    batch_tasks, workers, input_h5, batch_id, show_progress=True
+    batch_tasks,
+    workers,
+    input_h5,
+    batch_id,
+    show_progress=True,
+    result_callback=None,
 ):
     """Process complete pairs in parallel when no accelerator is available."""
     results = []
@@ -826,6 +957,12 @@ def process_cpu_tasks(
         )
         for result in progress:
             results.append(result)
+            if result_callback is not None and len(results) >= 65536:
+                result_callback(results)
+                results.clear()
+    if result_callback is not None and results:
+        result_callback(results)
+        results.clear()
     return results
 
 
@@ -899,49 +1036,370 @@ def _representative_pending_pairs(
     return [probes[int(index)][1] for index in selected_indices]
 
 
+def _first_pending_pairs(
+    safe_headers,
+    computed_mask,
+    required_mask,
+    num_tasks,
+    limit,
+):
+    """Return the first production-ordered pending pairs for confirmation."""
+    limit = max(1, min(int(limit), int(num_tasks)))
+    sample = []
+    n_sequences = len(safe_headers)
+    for row in range(n_sequences - 1):
+        pending = ~computed_mask[row, row + 1:]
+        if required_mask is not None:
+            pending &= required_mask[row, row + 1:]
+        columns = np.flatnonzero(pending) + row + 1
+        for column in columns:
+            column = int(column)
+            sample.append(
+                (row, column, safe_headers[row], safe_headers[column])
+            )
+            if len(sample) >= limit:
+                return sample
+    return sample
+
+
+def _representative_row_local_pending_pairs(
+    safe_headers,
+    sequence_lengths,
+    computed_mask,
+    required_mask,
+    num_tasks,
+    limit,
+):
+    """Return a cost-stratified sample that retains production row locality."""
+    limit = max(1, min(int(limit), int(num_tasks)))
+    n_sequences = len(safe_headers)
+    populated_rows = []
+    pending_by_row = {}
+    for row in range(n_sequences - 1):
+        pending = ~computed_mask[row, row + 1:]
+        if required_mask is not None:
+            pending &= required_mask[row, row + 1:]
+        columns = np.flatnonzero(pending) + row + 1
+        if len(columns):
+            populated_rows.append(row)
+            pending_by_row[row] = columns
+    if not populated_rows:
+        return []
+
+    row_count = min(8, len(populated_rows), limit)
+    row_positions = np.linspace(
+        0,
+        len(populated_rows) - 1,
+        num=row_count,
+        dtype=np.int64,
+    )
+    selected_rows = [populated_rows[int(position)] for position in row_positions]
+    per_row = max(1, math.ceil(limit / len(selected_rows)))
+    sample = []
+    for row in selected_rows:
+        columns = pending_by_row[row]
+        ordered = sorted(
+            (int(column) for column in columns),
+            key=lambda column: (
+                int(sequence_lengths[row]) * int(sequence_lengths[column]),
+                column,
+            ),
+        )
+        positions = np.linspace(
+            0,
+            len(ordered) - 1,
+            num=min(per_row, len(ordered)),
+            dtype=np.int64,
+        )
+        for position in positions:
+            column = ordered[int(position)]
+            sample.append(
+                (row, column, safe_headers[row], safe_headers[column])
+            )
+    return sample[:limit]
+
+
+def _precision_device(candidates):
+    manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
+    if manual is not None:
+        return manual if manual.backend == "cuda" else None
+    return next((candidate for candidate in candidates if candidate.backend == "cuda"), None)
+
+
+def _gib_text(byte_count):
+    return f"{int(byte_count) / (1024 ** 3):.2f} GiB"
+
+
+def _vram_estimate_text(estimate):
+    return (
+        f"projected {_gib_text(estimate.projected_peak_bytes)} / "
+        f"safe {_gib_text(estimate.safe_peak_bytes)}; "
+        f"tile {_gib_text(estimate.tile_bytes)}, "
+        f"transient {_gib_text(estimate.transient_bytes)}, "
+        f"per-slot cap {_gib_text(estimate.per_microbatch_bytes)}"
+    )
+
+
+def _resolve_active_matmul_precision(
+    setting,
+    cached_precision,
+    sample,
+    workers,
+    store,
+    sequence_lengths,
+):
+    """Resolve auto precision across scalar and tiled CUDA execution."""
+    normalized = normalize_precision_setting(setting)
+    if cached_precision is not None:
+        print(f"[Precision] Resuming established {cached_precision} batches.")
+        return cached_precision
+    if normalized == "float32":
+        return "ieee_fp32"
+
+    candidates = Hardware_Utils.get_available_devices()
+    cuda_candidate = _precision_device(candidates)
+    if cuda_candidate is None:
+        if normalized == "tf32":
+            raise ValueError("TF32 was requested, but no CUDA device is available.")
+        return "ieee_fp32"
+    if normalized == "tf32":
+        print("[Precision] TF32 was explicitly selected.")
+        return "tf32"
+
+    validation_tasks = list(
+        sample[: min(int(ACCELERATOR_CONFIRM_PAIRS), len(sample))]
+    )
+    if len(validation_tasks) < 2:
+        return "ieee_fp32"
+    Hardware_Utils.release_device_cache(cuda_candidate)
+    memory_plan = cuda_memory_plan(cuda_candidate.device, lanes=1)
+    memory_info = (memory_plan.free_bytes, memory_plan.total_bytes)
+    preflight = {
+        variant: estimate_cuda_working_set(
+            validation_tasks,
+            store=store,
+            lengths=sequence_lengths,
+            device=cuda_candidate.device,
+            lanes=1,
+            variant=variant,
+            memory_info=memory_info,
+        )
+        for variant in ("scalar", "tiled")
+    }
+    for variant, estimate in preflight.items():
+        print(
+            f"[Precision] VRAM preflight {variant}: "
+            f"{_vram_estimate_text(estimate)}; {estimate.reason}."
+        )
+    infeasible = [
+        f"{variant}: {estimate.reason}"
+        for variant, estimate in preflight.items()
+        if not estimate.feasible
+    ]
+    if infeasible:
+        print(
+            f"[Precision] Four-plan validation is not VRAM-safe "
+            f"({'; '.join(infeasible)}); using IEEE FP32."
+        )
+        return "ieee_fp32"
+    print(
+        f"[Precision] Testing FP32/TF32 with scalar and tiled CUDA on "
+        f"{len(validation_tasks)} production-ordered pairs..."
+    )
+
+    def run_variant(variant, precision, tasks):
+        if variant == "scalar":
+            return _run_accelerated_pipeline(
+                tasks,
+                workers,
+                store.path,
+                cuda_candidate.device,
+                0,
+                accelerator_workers=1,
+                show_progress=False,
+                matmul_precision=precision,
+            )
+        return run_tiled_cuda_pipeline(
+            tasks,
+            store=store,
+            lengths=sequence_lengths,
+            device=cuda_candidate.device,
+            workers=workers,
+            lanes=1,
+            alignment_callback=calculate_alignment_data,
+            precision=precision,
+        )
+
+    try:
+        for variant in ("scalar", "tiled"):
+            run_variant(variant, "float32", validation_tasks[:2])
+
+        results_by_plan = {}
+        rates = {}
+        print("Plan       Precision   Throughput (pairs/s)")
+        for variant in ("scalar", "tiled"):
+            for precision in ("float32", "tf32"):
+                started = time.perf_counter()
+                results_by_plan[(variant, precision)] = run_variant(
+                    variant,
+                    precision,
+                    validation_tasks,
+                )
+                elapsed = max(time.perf_counter() - started, 1e-9)
+                rates[(variant, precision)] = len(validation_tasks) / elapsed
+                print(
+                    f"{variant:10} {precision:9} "
+                    f"{rates[(variant, precision)]:>20.2f}"
+                )
+    except Exception as error:
+        print(
+            f"[Precision] TF32 validation unavailable "
+            f"({type(error).__name__}: {error}); using IEEE FP32."
+        )
+        return "ieee_fp32"
+
+    validation = {}
+    for variant in ("scalar", "tiled"):
+        validation[variant] = compare_precision_results(
+            results_by_plan[(variant, "float32")],
+            results_by_plan[(variant, "tf32")],
+        )
+
+    fp32_best = max(rates[(variant, "float32")] for variant in ("scalar", "tiled"))
+    tf32_best = max(rates[(variant, "tf32")] for variant in ("scalar", "tiled"))
+    speedup = tf32_best / max(fp32_best, 1e-9)
+    all_equivalent = all(equivalent for equivalent, _reason in validation.values())
+    if all_equivalent and speedup >= 1.10:
+        print(
+            f"[Precision] TF32 passed scalar and tiled numerical validation "
+            f"and its best plan was {speedup:.2f}x faster."
+        )
+        return "tf32"
+
+    if not all_equivalent:
+        failed = next(
+            f"{variant}: {reason}"
+            for variant, (equivalent, reason) in validation.items()
+            if not equivalent
+        )
+        speed_reason = f"numerical validation failed for {failed}"
+    else:
+        speed_reason = f"best-plan speedup {speedup:.2f}x is below 1.10x"
+    print(f"[Precision] Using IEEE FP32: {speed_reason}.")
+    return "ieee_fp32"
+
+
 def _benchmark_processing_plans(
     batch_tasks,
     workers,
     input_h5,
     batch_id,
+    embedding_store=None,
+    sequence_lengths=None,
+    matmul_precision=None,
 ):
     """Compare the complete CPU path with every accelerator/lane plan."""
     candidates = Hardware_Utils.get_available_devices()
+    if matmul_precision is None:
+        matmul_precision = active_matmul_precision
+    if matmul_precision == "tf32":
+        candidates = [candidate for candidate in candidates if candidate.backend == "cuda"]
+        if not candidates:
+            raise RuntimeError("TF32 execution requires an available CUDA device.")
     manual = Hardware_Utils.resolve_device_selection(
         DEVICE_SELECTION, candidates
     )
     if manual is not None and manual.is_cpu:
         print(f"[Hardware] Using manually selected {manual.display_name}.")
-        return [Hardware_Utils.BenchmarkResult(manual, 0.0)]
+        return [Hardware_Utils.BenchmarkResult(manual, 0.0, variant="scalar")]
 
     sample = _representative_alignment_tasks(
         batch_tasks,
         input_h5,
         max(2, min(int(ACCELERATOR_TUNE_PAIRS), len(batch_tasks))),
     )
+    confirmation_sample = list(
+        batch_tasks[
+            : max(
+                len(sample),
+                min(int(ACCELERATOR_CONFIRM_PAIRS), len(batch_tasks)),
+            )
+        ]
+    )
+
+    def execute_plan(candidate, variant, lanes, tasks):
+        if candidate.is_cpu:
+            return process_cpu_tasks(
+                tasks,
+                workers,
+                input_h5,
+                batch_id,
+                show_progress=False,
+            )
+        if variant == "tiled":
+            return run_tiled_cuda_pipeline(
+                tasks,
+                store=embedding_store,
+                lengths=sequence_lengths,
+                device=candidate.device,
+                workers=workers,
+                lanes=lanes,
+                alignment_callback=calculate_alignment_data,
+                precision=matmul_precision,
+            )
+        return _run_accelerated_pipeline(
+            tasks,
+            workers,
+            input_h5,
+            candidate.device,
+            batch_id,
+            accelerator_workers=lanes,
+            show_progress=False,
+            matmul_precision=matmul_precision,
+        )
 
     if manual is not None:
-        lanes = _select_accelerator_lanes(
-            sample, workers, input_h5, manual.device, batch_id
-        )
+        candidates = [manual]
         print(
-            f"[Hardware] Using manually selected {manual.display_name} "
-            f"with {lanes} lane(s)."
+            f"[Hardware] Benchmarking plans on manually selected "
+            f"{manual.display_name}."
         )
-        return [Hardware_Utils.BenchmarkResult(manual, 0.0, lanes=lanes)]
 
     print(
         f"[Hardware] Benchmarking {len(candidates)} device(s) with "
         f"{len(sample)} representative alignment pairs..."
     )
-    print("Device/backend                 Lanes   Throughput (pairs/s)   Status")
+    print(
+        "Device/backend                 Plan      Lanes   VRAM peak/safe   "
+        "Throughput (pairs/s)   Status"
+    )
     results = []
     for candidate in candidates:
+        candidate_results = []
+        candidate_memory_info = None
+        if (
+            candidate.backend == "cuda"
+            and embedding_store is not None
+            and sequence_lengths is not None
+        ):
+            Hardware_Utils.release_device_cache(candidate)
+            base_memory_plan = cuda_memory_plan(candidate.device, lanes=1)
+            candidate_memory_info = (
+                base_memory_plan.free_bytes,
+                base_memory_plan.total_bytes,
+            )
         lane_candidates = (
             [1]
             if candidate.is_cpu
             else _accelerator_lane_candidates(candidate.device, workers)
         )
+        variants = ["scalar"]
+        if (
+            candidate.backend == "cuda"
+            and embedding_store is not None
+            and sequence_lengths is not None
+        ):
+            variants.append("tiled")
         if candidate.is_cpu:
             try:
                 process_cpu_tasks(
@@ -954,61 +1412,166 @@ def _benchmark_processing_plans(
             except Exception:
                 pass
         else:
-            try:
-                _run_accelerated_pipeline(
-                    sample[: min(2, len(sample))],
-                    workers,
-                    input_h5,
-                    candidate.device,
-                    batch_id,
-                    accelerator_workers=1,
-                    show_progress=False,
-                )
-            except Exception:
-                pass
+            for variant in variants:
+                warmup_tasks = sample[: min(2, len(sample))]
+                if candidate_memory_info is not None:
+                    warmup_estimate = estimate_cuda_working_set(
+                        warmup_tasks,
+                        store=embedding_store,
+                        lengths=sequence_lengths,
+                        device=candidate.device,
+                        lanes=1,
+                        variant=variant,
+                        memory_info=candidate_memory_info,
+                    )
+                    if not warmup_estimate.feasible:
+                        continue
+                try:
+                    execute_plan(candidate, variant, 1, warmup_tasks)
+                except Exception:
+                    pass
 
-        for lanes in lane_candidates:
-            started = time.perf_counter()
-            try:
-                if candidate.is_cpu:
-                    process_cpu_tasks(
+        for variant in variants:
+            for lanes in lane_candidates:
+                memory_estimate = None
+                vram_label = "--"
+                if candidate_memory_info is not None:
+                    memory_estimate = estimate_cuda_working_set(
                         sample,
-                        workers,
-                        input_h5,
-                        batch_id,
-                        show_progress=False,
+                        store=embedding_store,
+                        lengths=sequence_lengths,
+                        device=candidate.device,
+                        lanes=lanes,
+                        variant=variant,
+                        memory_info=candidate_memory_info,
                     )
-                else:
-                    _run_accelerated_pipeline(
-                        sample,
-                        workers,
-                        input_h5,
-                        candidate.device,
-                        batch_id,
-                        accelerator_workers=lanes,
-                        show_progress=False,
+                    vram_label = (
+                        f"{memory_estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
+                        f"{memory_estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
                     )
-                elapsed = max(time.perf_counter() - started, 1e-9)
-                rate = len(sample) / elapsed
-                result = Hardware_Utils.BenchmarkResult(
-                    candidate, rate, lanes=lanes
+                    if not memory_estimate.feasible:
+                        result = Hardware_Utils.BenchmarkResult(
+                            candidate,
+                            None,
+                            lanes=lanes,
+                            error=f"VRAM preflight: {memory_estimate.reason}",
+                            variant=variant,
+                        )
+                        print(
+                            f"{candidate.display_name[:30]:30}  {variant:8}  "
+                            f"{lanes:>5}   {vram_label:>14}   "
+                            f"{'--':>20}   skipped: {memory_estimate.reason}"
+                        )
+                        candidate_results.append(result)
+                        continue
+                started = time.perf_counter()
+                try:
+                    execute_plan(candidate, variant, lanes, sample)
+                    elapsed = max(time.perf_counter() - started, 1e-9)
+                    rate = len(sample) / elapsed
+                    result = Hardware_Utils.BenchmarkResult(
+                        candidate,
+                        rate,
+                        lanes=lanes,
+                        variant=variant,
+                    )
+                    print(
+                        f"{candidate.display_name[:30]:30}  {variant:8}  "
+                        f"{lanes:>5}   {vram_label:>14}   "
+                        f"{rate:>20.2f}   ok"
+                    )
+                except Exception as error:
+                    result = Hardware_Utils.BenchmarkResult(
+                        candidate,
+                        None,
+                        lanes=lanes,
+                        error=f"{type(error).__name__}: {error}",
+                        variant=variant,
+                    )
+                    print(
+                        f"{candidate.display_name[:30]:30}  {variant:8}  "
+                        f"{lanes:>5}   {vram_label:>14}   "
+                        f"{'--':>20}   {result.error}"
+                    )
+                candidate_results.append(result)
+
+        selected_short = []
+        for variant in variants:
+            successful = [
+                result
+                for result in candidate_results
+                if result.variant == variant and result.succeeded
+            ]
+            if not successful:
+                continue
+            fastest_rate = max(float(result.value) for result in successful)
+            selected_short.append(
+                min(
+                    (
+                        result
+                        for result in successful
+                        if float(result.value) >= fastest_rate * 0.97
+                    ),
+                    key=lambda result: result.lanes,
+                )
+            )
+
+        if candidate.backend == "cuda" and len(confirmation_sample) > len(sample):
+            print(
+                f"[Hardware] Confirming {candidate.display_name} plans on "
+                f"{len(confirmation_sample)} production-ordered pairs..."
+            )
+            for short_result in selected_short:
+                memory_estimate = estimate_cuda_working_set(
+                    confirmation_sample,
+                    store=embedding_store,
+                    lengths=sequence_lengths,
+                    device=candidate.device,
+                    lanes=short_result.lanes,
+                    variant=short_result.variant,
+                    memory_info=candidate_memory_info,
                 )
                 print(
-                    f"{candidate.display_name[:30]:30}  {lanes:>5}   "
-                    f"{rate:>20.2f}   ok"
+                    f"  [VRAM] {short_result.variant}, "
+                    f"lanes={short_result.lanes}: "
+                    f"{_vram_estimate_text(memory_estimate)}; "
+                    f"{memory_estimate.reason}."
                 )
-            except Exception as error:
-                result = Hardware_Utils.BenchmarkResult(
-                    candidate,
-                    None,
-                    lanes=lanes,
-                    error=f"{type(error).__name__}: {error}",
-                )
-                print(
-                    f"{candidate.display_name[:30]:30}  {lanes:>5}   "
-                    f"{'--':>20}   {result.error}"
-                )
-            results.append(result)
+                if not memory_estimate.feasible:
+                    print(
+                        f"  {short_result.variant:8} lanes="
+                        f"{short_result.lanes:<2} --   skipped by VRAM preflight"
+                    )
+                    continue
+                started = time.perf_counter()
+                try:
+                    execute_plan(
+                        candidate,
+                        short_result.variant,
+                        short_result.lanes,
+                        confirmation_sample,
+                    )
+                    elapsed = max(time.perf_counter() - started, 1e-9)
+                    rate = len(confirmation_sample) / elapsed
+                    confirmed = Hardware_Utils.BenchmarkResult(
+                        candidate,
+                        rate,
+                        lanes=short_result.lanes,
+                        variant=short_result.variant,
+                    )
+                    print(
+                        f"  {short_result.variant:8} lanes="
+                        f"{short_result.lanes:<2} {rate:.2f} pairs/s   ok"
+                    )
+                    results.append(confirmed)
+                except Exception as error:
+                    print(
+                        f"  {short_result.variant:8} lanes="
+                        f"{short_result.lanes:<2} --   "
+                        f"{type(error).__name__}: {error}"
+                    )
+        else:
+            results.extend(selected_short)
         Hardware_Utils.release_device_cache(candidate)
 
     ranked = Hardware_Utils.rank_benchmark_results(
@@ -1024,10 +1587,11 @@ def _benchmark_processing_plans(
     tie_applied = (
         winner.candidate.spec != fastest.candidate.spec
         or winner.lanes != fastest.lanes
+        or winner.variant != fastest.variant
     )
     print(
         f"[Hardware] Selected {winner.candidate.display_name} with "
-        f"{winner.lanes} lane(s); 3% tie preference "
+        f"{winner.variant} plan and {winner.lanes} lane(s); 3% tie preference "
         f"{'applied' if tie_applied else 'not applied'}."
     )
     return ranked
@@ -1050,6 +1614,7 @@ def _run_batch_with_ranked_plans(
                 accelerator_workers=(
                     None if plan.candidate.is_cpu else plan.lanes
                 ),
+                execution_variant=plan.variant,
             )
             return active_plan_index
         except (RuntimeError, NotImplementedError, MemoryError) as error:
@@ -1074,6 +1639,89 @@ def _run_batch_with_ranked_plans(
 # %% =======================================
 # PROCESSING & MERGE
 # ==========================================
+class _PartialBatchWriter:
+    """Append result chunks and atomically publish one complete batch."""
+
+    DATASET_DTYPES = {
+        "i": np.uint32,
+        "j": np.uint32,
+        "l_score": np.float32,
+        "l_len": np.uint16,
+        "g_score": np.float32,
+        "g_len": np.uint16,
+    }
+
+    def __init__(
+        self,
+        output_filename,
+        embedding_checksum,
+        model_name,
+        gap_penalties,
+        matmul_precision,
+    ):
+        self.output_filename = output_filename
+        self.partial_filename = output_filename + ".partial"
+        if os.path.exists(self.partial_filename):
+            os.remove(self.partial_filename)
+        self.hf = h5py.File(self.partial_filename, "w")
+        if embedding_checksum is not None:
+            self.hf.attrs["embedding_checksum"] = embedding_checksum
+        if model_name is not None:
+            self.hf.attrs["model_name"] = model_name
+        if gap_penalties is not None:
+            self.hf.attrs["gap_penalties"] = np.asarray(
+                gap_penalties, dtype=np.float32
+            )
+        self.hf.attrs["matmul_precision"] = matmul_precision
+        self.datasets = {
+            name: self.hf.create_dataset(
+                name,
+                shape=(0,),
+                maxshape=(None,),
+                dtype=dtype,
+            )
+            for name, dtype in self.DATASET_DTYPES.items()
+        }
+        self.count = 0
+        self.closed = False
+
+    def checkpoint(self):
+        return self.count
+
+    def rollback(self, count):
+        count = int(count)
+        for dataset in self.datasets.values():
+            dataset.resize((count,))
+        self.count = count
+        self.hf.flush()
+
+    def __call__(self, results):
+        if not results:
+            return
+        start = self.count
+        end = start + len(results)
+        for dataset in self.datasets.values():
+            dataset.resize((end,))
+        columns = tuple(zip(*results))
+        for column, (name, dtype) in zip(
+            columns,
+            self.DATASET_DTYPES.items(),
+        ):
+            self.datasets[name][start:end] = np.asarray(column, dtype=dtype)
+        self.count = end
+
+    def publish(self):
+        self.hf.flush()
+        self.hf.close()
+        self.closed = True
+        os.replace(self.partial_filename, self.output_filename)
+
+    def close(self):
+        if not self.closed:
+            self.hf.close()
+            self.closed = True
+
+
 def process_batch(
     batch_tasks,
     batch_id,
@@ -1085,50 +1733,60 @@ def process_batch(
     gap_penalties=None,
     device=None,
     accelerator_workers=None,
+    execution_variant="scalar",
+    matmul_precision=None,
+    embedding_store=None,
+    sequence_lengths=None,
 ):
     output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
     if device is None:
         device = Hardware_Utils.get_optimal_device()
+    if matmul_precision is None:
+        matmul_precision = active_matmul_precision
+    if embedding_store is None:
+        embedding_store = active_embedding_store
+    if sequence_lengths is None:
+        sequence_lengths = active_sequence_lengths
 
-    if _uses_accelerator(device):
-        results = process_accelerated_tasks(
-            batch_tasks,
-            workers,
-            input_h5,
-            device,
-            batch_id,
-            accelerator_workers=accelerator_workers,
-        )
-    else:
-        results = process_cpu_tasks(
-            batch_tasks,
-            workers,
-            input_h5,
-            batch_id,
-        )
-            
-    # Save as uncompressed HDF5 for easy access
-    rows_i = [r[0] for r in results]
-    rows_j = [r[1] for r in results]
-    l_scores = [r[2] for r in results]
-    l_lens = [r[3] for r in results]
-    g_scores = [r[4] for r in results]
-    g_lens = [r[5] for r in results]
-    
-    with h5py.File(output_filename, "w") as hf:
-        if embedding_checksum is not None:
-            hf.attrs["embedding_checksum"] = embedding_checksum
-        if model_name is not None:
-            hf.attrs["model_name"] = model_name
-        if gap_penalties is not None:
-            hf.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
-            
-        hf.create_dataset("i", data=np.array(rows_i, dtype=np.uint32))
-        hf.create_dataset("j", data=np.array(rows_j, dtype=np.uint32))
-        hf.create_dataset("l_score", data=np.array(l_scores, dtype=np.float32))
-        hf.create_dataset("l_len", data=np.array(l_lens, dtype=np.uint16))
-        hf.create_dataset("g_score", data=np.array(g_scores, dtype=np.float32))
-        hf.create_dataset("g_len", data=np.array(g_lens, dtype=np.uint16))
+    writer = _PartialBatchWriter(
+        output_filename,
+        embedding_checksum,
+        model_name,
+        gap_penalties,
+        matmul_precision,
+    )
+    try:
+        if _uses_accelerator(device):
+            results = process_accelerated_tasks(
+                batch_tasks,
+                workers,
+                input_h5,
+                device,
+                batch_id,
+                accelerator_workers=accelerator_workers,
+                embedding_store=embedding_store,
+                sequence_lengths=sequence_lengths,
+                matmul_precision=matmul_precision,
+                execution_variant=execution_variant,
+                result_callback=writer,
+            )
+        else:
+            results = process_cpu_tasks(
+                batch_tasks,
+                workers,
+                input_h5,
+                batch_id,
+                result_callback=writer,
+            )
+        writer(results)
+        if writer.count != len(batch_tasks):
+            raise RuntimeError(
+                f"Batch produced {writer.count} results for "
+                f"{len(batch_tasks)} requested pairs."
+            )
+        writer.publish()
+    finally:
+        writer.close()
 
 def _decode_attr(val):
     if val is None:
@@ -1154,21 +1812,24 @@ def scan_existing_batches(
     saving_mode,
     gap_penalties,
     computed_mask,
+    requested_matmul_precision=None,
 ):
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR, exist_ok=True)
-        return
+        return None
     
     batch_files = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
     if not batch_files:
-        return
+        return None
 
     mismatches = []
     found_attrs = {
         "model_name": "Unknown/Legacy",
         "gap_penalties": "Unknown/Legacy",
         "embedding_checksum": "Unknown/Legacy",
+        "matmul_precision": "ieee_fp32",
     }
+    established_precision = None
 
     for bf in batch_files:
         try:
@@ -1176,10 +1837,14 @@ def scan_existing_batches(
                 cached_checksum = _decode_attr(hf.attrs.get("embedding_checksum"))
                 cached_model = _decode_attr(hf.attrs.get("model_name"))
                 cached_gaps = hf.attrs.get("gap_penalties")
+                cached_precision = _decode_attr(
+                    hf.attrs.get("matmul_precision", "ieee_fp32")
+                )
 
                 if cached_checksum: found_attrs["embedding_checksum"] = cached_checksum
                 if cached_model: found_attrs["model_name"] = cached_model
                 if cached_gaps is not None: found_attrs["gap_penalties"] = list(np.array(cached_gaps, dtype=np.float32).flatten())
+                found_attrs["matmul_precision"] = cached_precision
 
                 # Check for completeness of datasets
                 required_keys = ["i", "j", "l_score", "l_len", "g_score", "g_len"]
@@ -1201,6 +1866,24 @@ def scan_existing_batches(
                     break
                 if not _compare_gap_penalties(cached_gaps, gap_penalties):
                     mismatches.append(f"Gap penalties mismatch in '{os.path.basename(bf)}' ({found_attrs['gap_penalties']} vs current {gap_penalties})")
+                    break
+                if established_precision is None:
+                    established_precision = cached_precision
+                elif cached_precision != established_precision:
+                    mismatches.append(
+                        f"Mixed matmul precision in '{os.path.basename(bf)}' "
+                        f"('{cached_precision}' vs '{established_precision}')"
+                    )
+                    break
+                if (
+                    requested_matmul_precision is not None
+                    and cached_precision != requested_matmul_precision
+                ):
+                    mismatches.append(
+                        f"Matmul precision mismatch in '{os.path.basename(bf)}' "
+                        f"('{cached_precision}' vs current "
+                        f"'{requested_matmul_precision}')"
+                    )
                     break
         except Exception as e:
             mismatches.append(f"Error reading batch file '{os.path.basename(bf)}': {e}")
@@ -1241,10 +1924,15 @@ def scan_existing_batches(
                 info_f.write(f"  - Model Name:         {found_attrs['model_name']}\n")
                 info_f.write(f"  - Gap Penalties:      {found_attrs['gap_penalties']}\n")
                 info_f.write(f"  - Embedding Checksum: {found_attrs['embedding_checksum']}\n\n")
+                info_f.write(f"  - Matmul Precision:   {found_attrs['matmul_precision']}\n\n")
                 info_f.write("CURRENT EXECUTION SETTINGS:\n")
                 info_f.write(f"  - Model Name:         {model_name}\n")
                 info_f.write(f"  - Gap Penalties:      {gap_penalties}\n")
                 info_f.write(f"  - Embedding Checksum: {current_checksum}\n")
+                info_f.write(
+                    f"  - Matmul Precision:   "
+                    f"{requested_matmul_precision or 'auto'}\n"
+                )
                 info_f.write("==========================================================\n")
             print(f"  > Created attribute report: '{info_file}'")
         except Exception as err:
@@ -1253,7 +1941,7 @@ def scan_existing_batches(
         # Re-initialize clean working directory
         os.makedirs(RESULTS_DIR, exist_ok=True)
         print(f"  > Initialized fresh calculation directory: '{RESULTS_DIR}'\n")
-        return
+        return None
 
     # If all existing batches match current settings perfectly, populate computed_mask
     for bf in batch_files:
@@ -1265,6 +1953,7 @@ def scan_existing_batches(
                 computed_mask[arr_j, arr_i] = True
         except Exception:
             pass
+    return established_precision
 
 def compile_final_output(
     headers,
@@ -1275,6 +1964,7 @@ def compile_final_output(
     model_name,
     saving_mode,
     gap_penalties,
+    matmul_precision="ieee_fp32",
 ):
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError(
@@ -1329,6 +2019,7 @@ def compile_final_output(
         hf_out.attrs["model_name"] = model_name
         if gap_penalties is not None:
             hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
+        hf_out.attrs["matmul_precision"] = matmul_precision
 
         dt_str = h5py.string_dtype(encoding='utf-8')
         hf_out.create_dataset("headers", data=np.array(headers, dtype=object), dtype=dt_str)
@@ -1380,6 +2071,8 @@ def compile_final_output(
 # MAIN
 # ==========================================
 def run_job_distributor():
+    global active_matmul_precision, active_embedding_store
+    global active_sequence_lengths
     try:
         configure_runtime_paths()
     except ValueError as error:
@@ -1407,6 +2100,11 @@ def run_job_distributor():
     current_model_name = manifest.model_name
     current_saving_mode = manifest.saving_mode
     current_gap_penalties = [LOCAL_GAP_P, GLOBAL_GAP_P]
+    precision_setting = normalize_precision_setting(ACCELERATOR_PRECISION)
+    requested_cache_precision = {
+        "float32": "ieee_fp32",
+        "tf32": "tf32",
+    }.get(precision_setting)
 
     n = len(headers)
     total_pairs = (n * (n - 1)) // 2
@@ -1474,13 +2172,14 @@ def run_job_distributor():
     print(f"  > Checksum: {current_checksum}")
 
     # Scan existing batches for already computed pairs
-    scan_existing_batches(
+    cached_precision = scan_existing_batches(
         n,
         current_checksum,
         current_model_name,
         current_saving_mode,
         current_gap_penalties,
         computed_mask,
+        requested_matmul_precision=requested_cache_precision,
     )
 
     # Find the next available batch_id
@@ -1512,19 +2211,49 @@ def run_job_distributor():
         current_batch = []
         batch_id = next_batch_id
         active_plan_index = 0
-        benchmark_tasks = _representative_pending_pairs(
+        benchmark_tasks = _first_pending_pairs(
             safe_headers,
-            seq_lens,
             computed_mask,
             required_mask,
             num_tasks,
-            ACCELERATOR_TUNE_PAIRS,
+            ACCELERATOR_CONFIRM_PAIRS,
         )
+        try:
+            active_embedding_store = EmbeddingTileStore(
+                FULL_INPUT_HDF5,
+                safe_headers,
+                HOST_CACHE_GB,
+            )
+        except ValueError as error:
+            print(f"\n❌ Invalid adaptive alignment configuration:\n{error}")
+            return
+        active_sequence_lengths = list(seq_lens)
+        cache_mode = (
+            f"packed host cache ({active_embedding_store.cached_bytes / (1024 ** 3):.2f} GiB)"
+            if active_embedding_store.fully_cached
+            else "memory-bounded HDF5 tiles"
+        )
+        print(f"[Memory] Using {cache_mode}.")
+        try:
+            active_matmul_precision = _resolve_active_matmul_precision(
+                precision_setting,
+                cached_precision,
+                benchmark_tasks,
+                WORKERS,
+                active_embedding_store,
+                active_sequence_lengths,
+            )
+        except ValueError as error:
+            print(f"\n❌ Invalid precision configuration:\n{error}")
+            return
         ranked_plans = _benchmark_processing_plans(
             benchmark_tasks,
             WORKERS,
             FULL_INPUT_HDF5,
             batch_id,
+            embedding_store=active_embedding_store,
+            sequence_lengths=active_sequence_lengths,
+            matmul_precision=active_matmul_precision,
         )
         batches_to_run = math.ceil(num_tasks / BATCH_SIZE)
         pbar = tqdm(
@@ -1582,6 +2311,12 @@ def run_job_distributor():
             pbar.update(1)
             
         pbar.close()
+    elif cached_precision is not None:
+        active_matmul_precision = cached_precision
+    elif precision_setting == "tf32":
+        active_matmul_precision = "tf32"
+    else:
+        active_matmul_precision = "ieee_fp32"
 
     # Compile intermediate HDF5 batches into final output
     compile_final_output(
@@ -1593,6 +2328,7 @@ def run_job_distributor():
         current_model_name,
         current_saving_mode,
         current_gap_penalties,
+        active_matmul_precision,
     )
 
 def main(argv=None):

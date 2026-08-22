@@ -396,7 +396,6 @@ Sequence_Similarity_Network_Viewer/
 ├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
 │   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)
 │   ├── Structures/           # Predicted structures and viewer assets
-│   ├── Global_Path/          # Cached pairwise-alignment paths
 │   └── Tool_Settings/        # Exported per-tool command-line settings
 │
 ├── Embeddings/               # Protein-language-model embedding databases (.h5)

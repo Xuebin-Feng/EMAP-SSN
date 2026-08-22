@@ -60,6 +60,7 @@ class BenchmarkResult:
     value: Optional[float]
     lanes: int = 1
     error: Optional[str] = None
+    variant: str = "scalar"
 
     @property
     def succeeded(self) -> bool:
@@ -280,6 +281,7 @@ def rank_benchmark_results(
             competitive,
             key=lambda r: (
                 0 if r.candidate.is_cpu else 1,
+                0 if r.variant == "scalar" else 1,
                 int(r.lanes),
                 r.candidate.spec,
             ),

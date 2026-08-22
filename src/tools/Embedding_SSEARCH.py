@@ -55,6 +55,16 @@ import threading
 import time
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
+from utilities.Embedding_Alignment_Engine import (
+    EmbeddingTileStore,
+    compute_score_matrix_torch as _shared_score_matrix,
+    cuda_matmul_precision,
+    cuda_memory_plan,
+    estimate_fixed_query_cuda_working_set,
+    is_nvidia_cuda,
+    normalize_precision_setting,
+    run_fixed_query_cuda_pipeline,
+)
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
@@ -90,8 +100,12 @@ NORM_MODE = "longer_sequence"
 
 # HARDWARE & CACHE
 WORKERS = 8                  
+DEVICE_SELECTION = "auto"
+ACCELERATOR_PRECISION = "auto"
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
+TILED_SEARCH_MIN_TARGETS = 512
+TF32_SEARCH_MIN_TARGETS = 4096
 from utilities.Tool_Directories import project_directory_defaults
 from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
 
@@ -216,19 +230,7 @@ def prepare_database_embeddings():
 
 # --- 4. ALIGNMENT & NORMALIZATION LOGIC ---------------------------------------
 def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
-    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
-    t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
-    t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
-    dist_mat = 1.0 - cos_sim
-    sim_mat = torch.exp(-dist_mat)
-    epsilon = 1e-8
-    row_mean = sim_mat.mean(dim=1, keepdim=True); row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
-    col_mean = sim_mat.mean(dim=0, keepdim=True); col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
-    z_r = (sim_mat - row_mean) / (row_std + epsilon)
-    z_c = (sim_mat - col_mean) / (col_std + epsilon)
-    return ((z_r + z_c) / 2.0).to(dtype=torch.float32, device="cpu").numpy()
+    return _shared_score_matrix(emb_i, emb_j, device, precision="float32")
 
 def normalize_score(raw_score, align_len, len_i, len_j, mode):
     if mode == "alignment_length": return raw_score / align_len if align_len > 0 else 0.0
@@ -414,10 +416,10 @@ def _stream_context(device):
 
 
 def _compute_accelerated_search(args):
-    idx, header, q_emb, t_emb, mode, gap, norm_mode, device = args
+    idx, header, q_emb, t_emb, mode, gap, norm_mode, device, precision = args
     with torch.inference_mode():
         with _stream_context(device):
-            mat = compute_score_matrix_torch(q_emb, t_emb, device)
+            mat = _shared_score_matrix(q_emb, t_emb, device, precision=None)
     return (
         idx,
         header,
@@ -437,6 +439,7 @@ def _run_accelerated_search(
     device,
     lanes,
     show_progress,
+    precision="float32",
 ):
     results = []
     accelerator_pending = set()
@@ -455,7 +458,8 @@ def _run_accelerated_search(
         else nullcontext(None)
     )
 
-    with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf, \
+    with cuda_matmul_precision(precision), \
+            h5py.File(input_h5, "r", libver="latest", swmr=True) as hf, \
             ThreadPoolExecutor(
                 max_workers=lanes,
                 thread_name_prefix="search-accelerator",
@@ -511,6 +515,7 @@ def _run_accelerated_search(
                             gap,
                             norm_mode,
                             device,
+                            precision,
                         ),
                     )
                 )
@@ -600,14 +605,7 @@ def _select_lanes(tasks, workers, input_h5, device):
     return selected
 
 
-def process_search_tasks(tasks, workers, input_h5):
-    device = Hardware_Utils.get_optimal_device()
-    if _uses_accelerator(device):
-        lanes = _select_lanes(tasks, workers, input_h5, device)
-        return _run_accelerated_search(
-            tasks, workers, input_h5, device, lanes, True
-        )
-
+def _run_cpu_search(tasks, workers, input_h5, show_progress=True):
     results = []
     with Pool(
         processes=workers,
@@ -619,9 +617,332 @@ def process_search_tasks(tasks, workers, input_h5):
             tasks,
             chunksize=50,
         )
-        for result in tqdm(iterator, total=len(tasks)):
+        for result in tqdm(iterator, total=len(tasks), disable=not show_progress):
             results.append(result)
     return results
+
+
+def _finish_fixed_query(task, query_length, target_length, matrix):
+    idx, header, _safe_h, _query, mode, gap, norm_mode = task
+    return finish_search(
+        (
+            idx,
+            header,
+            query_length,
+            target_length,
+            mode,
+            gap,
+            norm_mode,
+            matrix,
+        )
+    )
+
+
+def _cost_stratified_search_sample(tasks, lengths):
+    count = min(256, max(16, int(len(tasks) * 0.01)))
+    count = min(count, len(tasks))
+    ordered = sorted(tasks, key=lambda task: (int(lengths[int(task[0])]), int(task[0])))
+    if count >= len(ordered):
+        return ordered
+    positions = np.linspace(0, len(ordered) - 1, num=count, dtype=np.int64)
+    return [ordered[int(position)] for position in positions]
+
+
+def _search_results_equivalent(fp32_results, tf32_results, tolerance=1e-3):
+    fp32 = {int(result["index"]): result for result in fp32_results}
+    tf32 = {int(result["index"]): result for result in tf32_results}
+    if fp32.keys() != tf32.keys():
+        return False, "target identities differ"
+    for index, baseline in fp32.items():
+        candidate = tf32[index]
+        if int(baseline["aln_len"]) != int(candidate["aln_len"]):
+            return False, f"alignment length changed for target {index}"
+        values = (
+            float(candidate["raw_score"]),
+            float(candidate["norm_score"]),
+        )
+        if not all(np.isfinite(value) for value in values):
+            return False, f"non-finite TF32 result for target {index}"
+        denominator = max(1, int(baseline["aln_len"]))
+        drift = abs(
+            float(baseline["raw_score"]) - float(candidate["raw_score"])
+        ) / denominator
+        if drift > tolerance:
+            return False, f"per-aligned-residue drift exceeded {tolerance:g}"
+    return True, "alignment lengths and per-residue scores passed"
+
+
+active_search_hardware = {
+    "device": "cpu",
+    "plan": "scalar",
+    "precision": "ieee_fp32",
+    "lanes": 1,
+    "microbatch_mib": None,
+}
+
+
+def _execute_search_plan(
+    plan,
+    tasks,
+    workers,
+    input_h5,
+    store,
+    lengths,
+    query_embedding,
+    show_progress,
+):
+    candidate, variant, precision, lanes = plan
+    if candidate.is_cpu:
+        return _run_cpu_search(tasks, workers, input_h5, show_progress)
+    if variant == "tiled":
+        progress = tqdm(total=len(tasks), desc="Search (tiled CUDA)") if show_progress else None
+        try:
+            return run_fixed_query_cuda_pipeline(
+                tasks,
+                query_embedding=query_embedding,
+                store=store,
+                lengths=lengths,
+                device=candidate.device,
+                workers=workers,
+                lanes=lanes,
+                alignment_callback=_finish_fixed_query,
+                precision=precision,
+                progress=progress,
+            )
+        finally:
+            if progress is not None:
+                progress.close()
+    return _run_accelerated_search(
+        tasks,
+        workers,
+        input_h5,
+        candidate.device,
+        lanes,
+        show_progress,
+        precision=precision,
+    )
+
+
+def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embedding):
+    precision_setting = normalize_precision_setting(ACCELERATOR_PRECISION)
+    candidates = Hardware_Utils.get_available_devices()
+    manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
+    if manual is not None:
+        candidates = [manual]
+    if precision_setting == "tf32":
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
+        ]
+        if not candidates:
+            raise RuntimeError("Forced TF32 SSEARCH requires an NVIDIA CUDA device.")
+
+    sample = _cost_stratified_search_sample(tasks, lengths)
+    print(
+        f"[Hardware] Testing SSEARCH plans on {len(sample)} length-stratified "
+        f"targets ({len(tasks)} total)."
+    )
+    print("Device/backend                 Plan      Prec.    Lanes   Targets/s   Status")
+    benchmark_rows = []
+    result_payloads = {}
+    for candidate in candidates:
+        variants = ["scalar"]
+        if candidate.backend == "cuda":
+            variants.append("tiled")
+        precisions = ["float32"]
+        if precision_setting == "tf32":
+            precisions = ["tf32"]
+        elif (
+            precision_setting == "auto"
+            and len(tasks) >= TF32_SEARCH_MIN_TARGETS
+            and candidate.backend == "cuda"
+            and is_nvidia_cuda(candidate.device)
+        ):
+            precisions.append("tf32")
+        lane_candidates = [1] if candidate.is_cpu else _lane_candidates(candidate.device, workers)
+        for variant in variants:
+            for precision in precisions:
+                if precision == "tf32" and not is_nvidia_cuda(candidate.device):
+                    continue
+                for lanes in lane_candidates:
+                    if variant == "tiled":
+                        estimate = estimate_fixed_query_cuda_working_set(
+                            sample,
+                            query_embedding=query_embedding,
+                            store=store,
+                            lengths=lengths,
+                            device=candidate.device,
+                            lanes=lanes,
+                        )
+                        if not estimate.feasible:
+                            print(
+                                f"{candidate.display_name[:30]:30}  {variant:8}  "
+                                f"{precision:7}  {lanes:>5}   {'--':>9}   "
+                                f"skipped: {estimate.reason}"
+                            )
+                            continue
+                    started = time.perf_counter()
+                    try:
+                        payload = _execute_search_plan(
+                            (candidate, variant, precision, lanes),
+                            sample,
+                            workers,
+                            input_h5,
+                            store,
+                            lengths,
+                            query_embedding,
+                            False,
+                        )
+                        rate = len(sample) / max(time.perf_counter() - started, 1e-9)
+                        row = Hardware_Utils.BenchmarkResult(
+                            candidate, rate, lanes=lanes,
+                            variant=f"{variant}:{precision}",
+                        )
+                        benchmark_rows.append(row)
+                        result_payloads[(candidate.spec, variant, precision, lanes)] = payload
+                        print(
+                            f"{candidate.display_name[:30]:30}  {variant:8}  "
+                            f"{precision:7}  {lanes:>5}   {rate:>9.2f}   ok"
+                        )
+                    except Exception as error:
+                        print(
+                            f"{candidate.display_name[:30]:30}  {variant:8}  "
+                            f"{precision:7}  {lanes:>5}   {'--':>9}   "
+                            f"{type(error).__name__}: {error}"
+                        )
+        Hardware_Utils.release_device_cache(candidate)
+
+    if precision_setting == "auto":
+        fp32_rates = [
+            float(row.value) for row in benchmark_rows
+            if row.variant.endswith(":float32")
+        ]
+        tf32_rows = [row for row in benchmark_rows if row.variant.endswith(":tf32")]
+        validated_tf32 = []
+        for row in tf32_rows:
+            variant = row.variant.split(":", 1)[0]
+            baseline_rows = [
+                baseline for baseline in benchmark_rows
+                if baseline.candidate.spec == row.candidate.spec
+                and baseline.variant == f"{variant}:float32"
+            ]
+            if not baseline_rows:
+                continue
+            baseline = max(baseline_rows, key=lambda item: float(item.value))
+            equivalent, reason = _search_results_equivalent(
+                result_payloads[(baseline.candidate.spec, variant, "float32", baseline.lanes)],
+                result_payloads[(row.candidate.spec, variant, "tf32", row.lanes)],
+            )
+            if equivalent:
+                validated_tf32.append(row)
+            else:
+                print(f"[Precision] Rejected {variant} TF32: {reason}.")
+        fp32_best = max(fp32_rates, default=0.0)
+        tf32_best = max((float(row.value) for row in validated_tf32), default=0.0)
+        if tf32_best < fp32_best * 1.10:
+            if tf32_rows:
+                print(
+                    f"[Precision] Using IEEE FP32: best validated TF32 speedup "
+                    f"was {tf32_best / max(fp32_best, 1e-9):.2f}x."
+                )
+            validated_tf32 = []
+        allowed_tf32 = set(id(row) for row in validated_tf32)
+        benchmark_rows = [
+            row for row in benchmark_rows
+            if not row.variant.endswith(":tf32") or id(row) in allowed_tf32
+        ]
+
+    ranked_rows = Hardware_Utils.rank_benchmark_results(
+        benchmark_rows, higher_is_better=True
+    )
+    if not ranked_rows:
+        raise RuntimeError("No SSEARCH hardware plan completed successfully.")
+    plans = []
+    for row in ranked_rows:
+        variant, precision = row.variant.split(":", 1)
+        plans.append((row.candidate, variant, precision, row.lanes))
+    winner = plans[0]
+    print(
+        f"[Hardware] Selected {winner[0].display_name}, {winner[1]} plan, "
+        f"{winner[3]} lane(s), {winner[2]}."
+    )
+    return plans
+
+
+def process_search_tasks(tasks, workers, input_h5):
+    if len(tasks) < TILED_SEARCH_MIN_TARGETS:
+        device = Hardware_Utils.resolve_device_selection(
+            DEVICE_SELECTION, Hardware_Utils.get_available_devices()
+        )
+        if device is None:
+            selected_device = Hardware_Utils.get_optimal_device()
+        else:
+            selected_device = device.device
+        precision = normalize_precision_setting(ACCELERATOR_PRECISION)
+        if precision == "tf32" and not is_nvidia_cuda(selected_device):
+            raise RuntimeError("Forced TF32 SSEARCH requires an NVIDIA CUDA device.")
+        if _uses_accelerator(selected_device):
+            lanes = _select_lanes(tasks, workers, input_h5, selected_device)
+            active_search_hardware.update(
+                device=str(selected_device), plan="scalar",
+                precision="tf32" if precision == "tf32" else "ieee_fp32",
+                lanes=lanes, microbatch_mib=None,
+            )
+            return _run_accelerated_search(
+                tasks, workers, input_h5, selected_device, lanes, True,
+                precision="tf32" if precision == "tf32" else "float32",
+            )
+        active_search_hardware.update(
+            device="cpu", plan="scalar", precision="ieee_fp32", lanes=1,
+            microbatch_mib=None,
+        )
+        return _run_cpu_search(tasks, workers, input_h5, True)
+
+    store = EmbeddingTileStore(
+        input_h5,
+        [task[2] for task in tasks],
+        host_cache_setting=0,
+    )
+    lengths = [shape[0] for shape in store.shapes]
+    query_embedding = tasks[0][3]
+    plans = _select_search_plans(
+        tasks, workers, input_h5, store, lengths, query_embedding
+    )
+    last_error = None
+    manual = Hardware_Utils.normalize_device_selection(DEVICE_SELECTION) != "auto"
+    for candidate, variant, precision, lanes in plans:
+        try:
+            results = _execute_search_plan(
+                (candidate, variant, precision, lanes),
+                tasks,
+                workers,
+                input_h5,
+                store,
+                lengths,
+                query_embedding,
+                True,
+            )
+            active_search_hardware.update(
+                device=candidate.display_name,
+                plan=variant,
+                precision="tf32" if precision == "tf32" else "ieee_fp32",
+                lanes=lanes,
+                microbatch_mib=(
+                    cuda_memory_plan(candidate.device, lanes=lanes).matrix_bytes
+                    / (1024 ** 2)
+                    if variant == "tiled" else None
+                ),
+            )
+            return results
+        except (RuntimeError, NotImplementedError, MemoryError) as error:
+            last_error = error
+            if manual:
+                raise
+            print(
+                f"[Hardware] {variant} failed on {candidate.display_name}: "
+                f"{error}; trying the next benchmarked plan."
+            )
+    raise RuntimeError("Every benchmarked SSEARCH plan failed.") from last_error
 
 # --- 5. REPORTING -------------------------------------------------------------
 METADATA_REPORT_COLUMNS = [
@@ -818,6 +1139,18 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
     meta_lines.append(f" Parameters:  Gap Penalty = {gap_p}")
     meta_lines.append(f" Metric:      Raw Score / {norm_mode}")
     meta_lines.append(f" Filters:     Top_K={TOP_K} | Norm_Threshold={NORM_THRESHOLD}")
+    hardware_line = (
+        f" Hardware:    {active_search_hardware['device']} | "
+        f"{active_search_hardware['plan']} | "
+        f"{active_search_hardware['precision']} | "
+        f"lanes={active_search_hardware['lanes']}"
+    )
+    if active_search_hardware["microbatch_mib"] is not None:
+        hardware_line += (
+            f" | microbatch="
+            f"{active_search_hardware['microbatch_mib']:.1f} MiB"
+        )
+    meta_lines.append(hardware_line)
     meta_lines.append("-" * 80 + "\n")
     
     report_lines = list(meta_lines)
@@ -887,7 +1220,12 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         {"Parameter": "Gap Penalty", "Value": gap_p},
         {"Parameter": "Normalization Mode", "Value": norm_mode},
         {"Parameter": "Norm Score Cutoff", "Value": NORM_THRESHOLD if NORM_THRESHOLD is not None else "None"},
-        {"Parameter": "Top K", "Value": TOP_K if TOP_K is not None else "None"}
+        {"Parameter": "Top K", "Value": TOP_K if TOP_K is not None else "None"},
+        {"Parameter": "Compute Device", "Value": active_search_hardware["device"]},
+        {"Parameter": "Compute Plan", "Value": active_search_hardware["plan"]},
+        {"Parameter": "Matmul Precision", "Value": active_search_hardware["precision"]},
+        {"Parameter": "Accelerator Lanes", "Value": active_search_hardware["lanes"]},
+        {"Parameter": "Microbatch Budget (MiB)", "Value": active_search_hardware["microbatch_mib"] if active_search_hardware["microbatch_mib"] is not None else "N/A"},
     ]
     meta_df = pd.DataFrame(meta_data)
     

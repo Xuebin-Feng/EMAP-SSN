@@ -120,12 +120,15 @@ This script performs incremental similarity network calculations. When new seque
 | Gap Penalties | Automatically inherited directly from the input network (`OLD_NETWORK`). |
 | CPU Workers **`WORKERS`** | CPU worker count for the CPU processing plan and a concurrency input for accelerator-plan tuning. The tool benchmarks available CPU/accelerator plans on representative pending pairs and falls back through successful plans if needed. |
 | Processing Batch Size **`BATCH_SIZE`** | The number of sequence alignments calculated per write block, minimizing memory consumption and optimizing file write performance. |
+| Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or one concrete device. CUDA compares scalar and VRAM-aware tiled plans. |
+| Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget and `0` disables it. |
+| Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. |
 
 ### 📤 Output
 
 #### Updated HDF5 Alignment Network
 *   **Format**: HDF5 (`.h5`).
-*   **Description**: Re-indexed alignment network containing `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`, plus `model_name`, `saving_mode`, `gap_penalties`, and `embedding_checksum` attributes. Existing gap penalties are mandatory and are inherited from `OLD_NETWORK`.
+*   **Description**: Re-indexed alignment network containing `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`, plus `model_name`, `saving_mode`, `gap_penalties`, `embedding_checksum`, and `matmul_precision` attributes. Existing gap penalties and arithmetic precision are inherited from `OLD_NETWORK`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -142,7 +145,7 @@ This script performs incremental similarity network calculations. When new seque
      - **Case 3 (New Pair, Sparse Old Network)**: Mean-pooled embedding cosine similarity is compared with the lowest cosine similarity among reusable old edges. Only new pairs meeting that inherited threshold are aligned, preserving a sparse-network policy.
 
 3. **Incremental Alignment**:
-     Benchmarks available CPU/accelerator processing plans and sends scheduled new pairs through the best successful plan. Each pair:
+     Benchmarks available CPU/accelerator processing plans and sends scheduled new pairs through the best successful plan. CUDA tiles reuse normalized embeddings, length-bucket targets with bounded padding, and preflight lane-dependent VRAM before execution. Each pair:
      - Retrieves residue embeddings from the HDF5 database.
      - Calculates the normalized score matrix:
        $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
@@ -179,8 +182,8 @@ This script does not require additional configuration parameters.
 
 #### Extracted HDF5 Sub-Network Archive
 *   **Format**: HDF5 (`.h5`).
-*   **Embedding-network schema**: Copies source attributes and writes re-indexed `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`. If the matching traceback-path file exists, a separately filtered `/headers` plus variable-length `/paths` file is also written.
-*   **BLAST/E-value schema**: Copies source attributes and writes re-indexed `/headers`, `/i`, `/j`, and `/score`; traceback extraction is skipped.
+*   **Embedding-network schema**: Copies source attributes and writes re-indexed `/headers`, `/seq_lens`, `/i`, `/j`, `/g_score`, `/g_len`, `/l_score`, and `/l_len`.
+*   **BLAST/E-value schema**: Copies source attributes and writes re-indexed `/headers`, `/i`, `/j`, and `/score`.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -202,6 +205,6 @@ This script does not require additional configuration parameters.
      $$j'_k = \text{Map}_{\text{master\_idx} \to \text{subset\_idx}}(j_k)$$
 
 4. **Output Assembly**:
-     Preserves the detected source schema: embedding score/length datasets and optional traceback paths for alignment networks, or the single `score` dataset for BLAST/E-value networks. Output names are derived from the whitelist FASTA basename and the source network's `model_name` metadata.
+     Preserves the detected source schema: embedding score/length datasets for alignment networks or the single `score` dataset for BLAST/E-value networks. Output names are derived from the whitelist FASTA basename and the source network's `model_name` metadata.
 
 </details>

@@ -23,25 +23,21 @@ the existing pre-computed connections database and slices out any edges that do 
 Input:
 - A large master network file containing pairwise connectivity combinations (`INPUT_NET`).
 - A target text or FASTA file containing the sequence headers you wish to retain/extract (`INPUT_FASTA`).
-- (Optional) A path database file associated with the embedding sequence traceback (`INPUT_PATHS`).
 
 Output:
 - A compact HDF5 file containing only the connectivity scores/edges between the sequences on your whitelist (`OUTPUT_NET`).
-- (Optional) A similarly truncated traceback paths file if extracting from an embedding network (`OUTPUT_PATHS`).
 
 Settings:
 - INPUT_NET: The path to the massive network database you want to filter down.
 - INPUT_FASTA: A FASTA file dictating the exact sub-population of headers that should survive the filter.
 - OUTPUT_NET: The location to save the newly filtered subset network.
-- INPUT_PATHS / OUTPUT_PATHS: Matching parameters for truncating traceback arrays (set to None if processing BLAST networks).
 
 Algorithm:
 1. Loads the target whitelist of sequences into RAM from the parsed FASTA headers.
-2. Interrogates the HDF5 network metadata to auto-detect its file structure (BLAST vs Embedding vs Embedding+Path).
+2. Interrogates the HDF5 network metadata to auto-detect its file structure (BLAST vs Embedding).
 3. Constructs an integer mapping array bridging the old global node indices to the newly contiguous subset indices.
 4. Loads the source/target topology vectors into RAM and masks them utilizing boolean logic (dropping connections where either participant is omitted).
 5. Commits the newly filtered vectors back into a fresh HDF5 database structure.
-6. If applicable, iterates over variable-length sequence traceback arrays, dropping omitting rows and updating binary structures dynamically.
 """
 # %% Imports
 import os
@@ -54,7 +50,6 @@ except ModuleNotFoundError:
 import sys
 import h5py
 import numpy as np
-from tqdm import tqdm
 from Cache_Manifest import validate_network_schema
 
 # ==========================================
@@ -72,12 +67,10 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
 NETWORK_DIR = _DEFAULT_DIRECTORIES["NETWORK_DIR"]
 FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
-PATH_DIR = _DEFAULT_DIRECTORIES["PATH_DIR"]
 
 # --- JSON Settings Override ---
 import json
 import ast
-import os
 
 # Automatically calculate the root directory of the SSN project for the current PC
 # (Tool scripts are located in the /tools/ folder)
@@ -132,8 +125,6 @@ import re
 
 FULL_INPUT_NET = None
 FULL_INPUT_FASTA = None
-INPUT_PATHS = None
-OUTPUT_PATHS = None
 OUTPUT_NET = None
 
 
@@ -149,8 +140,7 @@ def _resolve_selected_path(value, directory, description):
 
 def configure_runtime_paths():
     """Resolve inputs and derive outputs when extraction actually starts."""
-    global FULL_INPUT_NET, FULL_INPUT_FASTA
-    global INPUT_PATHS, OUTPUT_PATHS, OUTPUT_NET
+    global FULL_INPUT_NET, FULL_INPUT_FASTA, OUTPUT_NET
 
     FULL_INPUT_NET = _resolve_selected_path(
         INPUT_NET,
@@ -168,19 +158,11 @@ def configure_runtime_paths():
     fasta_base = os.path.splitext(os.path.basename(FULL_INPUT_FASTA))[0]
 
     if network_metadata.network_type == "blast":
-        INPUT_PATHS = None
-        OUTPUT_PATHS = None
         OUTPUT_NET = os.path.join(
             NETWORK_DIR,
             f"{fasta_base}_[{model_name}]_EValue.h5",
         )
     else:
-        old_net_base = os.path.basename(FULL_INPUT_NET).replace("_network.h5", "")
-        INPUT_PATHS = os.path.join(PATH_DIR, f"{old_net_base}_paths.h5")
-        OUTPUT_PATHS = os.path.join(
-            PATH_DIR,
-            f"{fasta_base}_[{model_name}]_paths.h5",
-        )
         OUTPUT_NET = os.path.join(
             NETWORK_DIR,
             f"{fasta_base}_[{model_name}]_network.h5",
@@ -200,7 +182,7 @@ def load_fasta_headers(fasta_path):
     print(f"-> Found {len(headers)} sequences in filtered FASTA.")
     return headers
 
-def filter_network(input_net, input_fasta, output_net, input_paths, output_paths):
+def filter_network(input_net, input_fasta, output_net):
     # 1. Load Whitelist
     keep_headers_set = load_fasta_headers(input_fasta)
 
@@ -297,37 +279,6 @@ def filter_network(input_net, input_fasta, output_net, input_paths, output_paths
                 hf_out.create_dataset("g_score", data=hf_in['g_score'][valid_mask])
                 hf_out.create_dataset("g_len", data=hf_in['g_len'][valid_mask])
 
-    # 6. Extract Paths (If available and applicable)
-    if is_blast_network:
-        print("\nBLAST E-Value network detected. Skipping path file extraction.")
-    elif input_paths is None or output_paths is None:
-        print("\nPath configurations set to None. Skipping path extraction.")
-    elif not os.path.exists(input_paths):
-        print(f"\n⚠️  Warning: Paths file not found at {input_paths}.")
-        print("   Proceeding without extracting traceback paths.")
-    else:
-        print(f"\nExtracting corresponding traceback paths from {input_paths}...")
-        os.makedirs(os.path.dirname(output_paths), exist_ok=True)
-
-        with h5py.File(input_paths, "r") as hf_p_in, h5py.File(output_paths, "w") as hf_p_out:
-            # Recreate headers for the paths file
-            dt_str = h5py.string_dtype(encoding='utf-8')
-            hf_p_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
-
-            # Get the explicit integer indices of the rows we are keeping
-            valid_indices = np.where(valid_mask)[0]
-
-            # Setup the variable-length structure in the new file
-            dt_vlen = h5py.vlen_dtype(np.uint8)
-            paths_out_ds = hf_p_out.create_dataset("paths", shape=(len(valid_indices),), dtype=dt_vlen)
-            master_paths = hf_p_in['paths']
-            
-            # Stream the filtered paths directly from disk to disk
-            for new_idx, old_idx in tqdm(enumerate(valid_indices), total=len(valid_indices), desc="-> Saving Paths"):
-                paths_out_ds[new_idx] = master_paths[old_idx]
-                
-        print(f"✅ Filtered paths saved to {output_paths}")
-
     print("\n✅ Sub-Network Extraction Complete!")
 
     if missing_headers:
@@ -344,7 +295,7 @@ def main(argv=None):
     except ValueError as error:
         raise SystemExit(f"❌ Error: {error}") from error
 
-    filter_network(FULL_INPUT_NET, FULL_INPUT_FASTA, OUTPUT_NET, INPUT_PATHS, OUTPUT_PATHS)
+    filter_network(FULL_INPUT_NET, FULL_INPUT_FASTA, OUTPUT_NET)
     return 0
 
 

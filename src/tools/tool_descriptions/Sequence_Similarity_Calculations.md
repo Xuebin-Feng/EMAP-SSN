@@ -21,7 +21,9 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score applied for local alignments. More negative values penalize gaps more heavily, resulting in fewer gaps. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score applied for global alignments. |
 | Processing Batch Size **`BATCH_SIZE`** | The integer number of sequence pairs processed in a single chunk before writing to disk. Larger batches can improve utilization but increase memory consumption. |
-| Compute Device **`DEVICE_SELECTION`** | Selects `auto` or a specific available CPU, CUDA, XPU, or MPS device for residue score-matrix construction. `auto` benchmarks representative pending pairs across candidate device/concurrency plans and falls back through the ranked plans if necessary. Dynamic-programming scoring remains on CPU. |
+| Compute Device **`DEVICE_SELECTION`** | Selects `auto` or a specific available CPU, CUDA, XPU, or MPS device for residue score-matrix construction. `auto` first estimates normalized tile storage, padded target tensors, score/statistic workspaces, lane concurrency, and current free VRAM. Unsafe lane/plan combinations are skipped before allocation. It then tunes safe lanes on up to 256 cost-stratified pairs and confirms the selected scalar and tiled CUDA plans on up to 2,048 pairs in actual production order. Dynamic-programming scoring remains on CPU. |
+| Host Cache **`HOST_CACHE_GB`** | Maximum GiB of host RAM used for a packed embedding cache. `auto` preserves at least 8 GiB or 25% of physical RAM and caps the cache at 32 GiB; `0` uses bounded HDF5 tiles only. |
+| Accelerator Precision **`ACCELERATOR_PRECISION`** | `auto` tests FP32 and TF32 through both scalar and tiled CUDA paths on up to 2,048 production-ordered pairs. TF32 is selected only when both paths retain alignment lengths, pass per-residue score tolerances, remain finite, and the fastest TF32 plan is at least 10% faster than the fastest FP32 plan. The selected precision is locked for all resumable batches. `float32` and `tf32` force a mode explicitly. |
 
 ### 📤 Output
 
@@ -65,6 +67,8 @@ The alignment pipeline is executed in the following steps:
      
      where $v_i(a)$ is the embedding vector for residue $a$ in sequence $i$. This distance is converted into a similarity matrix:
      $$S(a, b) = \exp(-D(a, b))$$
+
+     On CUDA, pending pairs are regrouped into memory-bounded source/target tiles. Each unique embedding is read and normalized once per tile, similar target lengths are padded by at most 15%, and multiple matrices are evaluated by one broadcast batched multiplication. Padding is excluded from all statistics and from the CPU alignment matrices. The original per-pair path remains available as the benchmarked fallback.
 
 4. **Dual Z-Score Normalization**:
      The similarity matrix is normalized row-wise and column-wise to adjust for residue-specific background similarities:

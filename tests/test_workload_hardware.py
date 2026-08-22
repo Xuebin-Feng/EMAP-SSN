@@ -86,6 +86,23 @@ class HardwareUtilityTests(unittest.TestCase):
             higher_is_better=True,
         )
         self.assertEqual(ranked[0].candidate.spec, "cpu")
+
+    def test_tie_margin_prefers_scalar_variant_when_tiled_gain_is_noise(self):
+        gpu = Hardware_Utils.DeviceCandidate(
+            "cuda:0", "GPU", torch.device("cuda:0"), "cuda", 0, True
+        )
+        ranked = Hardware_Utils.rank_benchmark_results(
+            [
+                Hardware_Utils.BenchmarkResult(
+                    gpu, 100.0, lanes=2, variant="tiled"
+                ),
+                Hardware_Utils.BenchmarkResult(
+                    gpu, 98.0, lanes=2, variant="scalar"
+                ),
+            ],
+            higher_is_better=True,
+        )
+        self.assertEqual(ranked[0].variant, "scalar")
         self.assertEqual(ranked[1].lanes, 2)
 
     def test_manual_unavailable_device_is_not_silently_replaced(self):

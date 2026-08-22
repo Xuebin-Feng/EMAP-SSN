@@ -83,6 +83,8 @@ This script queries a single sequence against an entire database using residue-l
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
 | Score Normalization Mode **`NORM_MODE`** | The score normalization method (e.g., alignment_length, shorter_sequence, longer_sequence, average_sequence). |
 | CPU Worker Threads **`WORKERS`** | The number of CPU threads allocated for parallel alignment calculations. |
+| Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or a concrete CPU/accelerator device. |
+| Accelerator Precision **`ACCELERATOR_PRECISION`** | `auto` uses IEEE FP32 for small searches and considers validated TF32 only from 4,096 targets. Forced TF32 requires NVIDIA CUDA. |
 | Export Top Hits FASTA **`GENERATE_FASTA`** | Toggle to export a FASTA file containing the sequences of the top *K* database hits. |
 
 ### 📤 Output
@@ -100,7 +102,7 @@ This script queries a single sequence against an entire database using residue-l
      Reads stored sequences from `/sequences`. The manual switch explicitly selects the source: OFF reuses the stored header and embedding, while ON requires a sanitized manual sequence and embeds it through the model adapter recorded by `model_name`. A colliding manual header does not replace or suppress the same-header database record.
 
 2. **Database Alignment Queue**:
-     Iterates through all database sequences $j$ in the HDF5 file. For each sequence, it adds the pair (query, j) to a parallel queue.
+     Iterates through all database sequences $j$ in the HDF5 file. Below 512 targets it retains scalar execution. For larger CUDA searches, the query is normalized and uploaded once while targets are read once, grouped by length, and scored in VRAM-bounded batches.
 
 3. **Multithreaded dynamic programming**:
      Allocates alignments to multiprocessing workers. Each worker:

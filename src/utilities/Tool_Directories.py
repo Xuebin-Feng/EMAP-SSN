@@ -14,7 +14,6 @@ DEFAULT_DIRECTORY_PATHS = {
     "FASTA_DIR": os.path.join("Input_Files", "Sequence_Sets"),
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "NETWORK_DIR": os.path.join("Input_Files", "Networks_EValues"),
-    "PATH_DIR": os.path.join("Cache_Files", "Global_Path"),
     "REPORT_DIR": os.path.join("Analysis_Results", "Alignment_Report"),
     "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Tool_Settings"),
 }
@@ -33,7 +32,7 @@ TOOL_DIRECTORY_KEYS = {
     "Embedding_PWA.py": ("EMBED_DIR", "REPORT_DIR"),
     "Embedding_SSEARCH.py": ("EMBED_DIR", "REPORT_DIR"),
     "Generate_Embeddings.py": ("FASTA_DIR", "EMBED_DIR"),
-    "Network_Extraction.py": ("FASTA_DIR", "NETWORK_DIR", "PATH_DIR"),
+    "Network_Extraction.py": ("FASTA_DIR", "NETWORK_DIR"),
     "Network_Injection.py": ("EMBED_DIR", "NETWORK_DIR"),
     "Parse_BLAST_Output.py": ("NETWORK_DIR",),
     "Sanitize_Sequences.py": ("FASTA_DIR",),

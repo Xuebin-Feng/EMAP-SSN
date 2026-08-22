@@ -35,7 +35,7 @@ EXPECTED_TOOL_DIRECTORIES = {
     "Embedding_PWA.py": {"EMBED_DIR", "REPORT_DIR"},
     "Embedding_SSEARCH.py": {"EMBED_DIR", "REPORT_DIR"},
     "Generate_Embeddings.py": {"FASTA_DIR", "EMBED_DIR"},
-    "Network_Extraction.py": {"FASTA_DIR", "NETWORK_DIR", "PATH_DIR"},
+    "Network_Extraction.py": {"FASTA_DIR", "NETWORK_DIR"},
     "Network_Injection.py": {"EMBED_DIR", "NETWORK_DIR"},
     "Parse_BLAST_Output.py": {"NETWORK_DIR"},
     "Sanitize_Sequences.py": {"FASTA_DIR"},
@@ -182,6 +182,13 @@ class ToolDirectoryDefaultTests(unittest.TestCase):
         self.assertEqual(
             DEFAULT_DIRECTORY_PATHS["REPORT_DIR"],
             os.path.join("Analysis_Results", "Alignment_Report"),
+        )
+
+    def test_traceback_path_directory_is_not_a_global_setting(self):
+        self.assertNotIn("PATH_DIR", DEFAULT_DIRECTORY_PATHS)
+        self.assertEqual(
+            set(EXPECTED_TOOL_DIRECTORIES["Network_Extraction.py"]),
+            {"FASTA_DIR", "NETWORK_DIR"},
         )
 
     def test_empty_settings_receive_all_gui_defaults(self):

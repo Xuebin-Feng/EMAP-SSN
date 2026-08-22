@@ -292,6 +292,52 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             with h5py.File(output_path, "r") as hf:
                 self.assertNotIn("paths", hf)
                 self.assertEqual(hf.attrs["embedding_checksum"], "checksum")
+                self.assertEqual(hf.attrs["matmul_precision"], "ieee_fp32")
+
+    def test_partial_writer_records_tf32_and_publishes_atomically(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = os.path.join(temp_dir, "batch_00000.h5")
+            writer = network_injection._PartialBatchWriter(
+                output_path,
+                "checksum",
+                "test-model",
+                "float16",
+                [-2.0, 0.0],
+                "tf32",
+            )
+            writer([(0, 1, 1.0, 1, 2.0, 1)])
+            self.assertFalse(os.path.exists(output_path))
+            self.assertTrue(os.path.exists(output_path + ".partial"))
+            writer.publish()
+            self.assertTrue(os.path.exists(output_path))
+            self.assertFalse(os.path.exists(output_path + ".partial"))
+            with h5py.File(output_path, "r") as hf:
+                self.assertEqual(hf.attrs["matmul_precision"], "tf32")
+                self.assertEqual(len(hf["i"]), 1)
+
+    def test_legacy_batch_precision_is_ieee_fp32(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            batch_path = os.path.join(temp_dir, "batch_00000.h5")
+            with h5py.File(batch_path, "w") as hf:
+                hf.attrs["embedding_checksum"] = "checksum"
+                hf.attrs["model_name"] = "test-model"
+                hf.attrs["saving_mode"] = "float32"
+                hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], np.float32)
+                for name, values in {
+                    "i": [0], "j": [1], "l_score": [1.0], "l_len": [1],
+                    "g_score": [2.0], "g_len": [1],
+                }.items():
+                    hf.create_dataset(name, data=values)
+            with mock.patch.object(network_injection, "RESULTS_DIR", temp_dir):
+                computed = network_injection.scan_existing_batches(
+                    2,
+                    "checksum",
+                    "test-model",
+                    "float32",
+                    [-2.0, 0.0],
+                    "ieee_fp32",
+                )
+            self.assertEqual(computed, {1})
 
 
 if __name__ == "__main__":

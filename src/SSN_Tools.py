@@ -21,6 +21,7 @@ import ntpath
 import posixpath
 import ast
 import json
+import math
 import markdown
 import re
 import traceback
@@ -71,13 +72,6 @@ PRIMARY_TITLE_STYLE = (
     "font-weight: bold; font-size: 18px; margin-top: 5px; margin-bottom: 5px; "
     "color: #2C3E50; border-bottom: 1px solid #3498DB; padding-bottom: 8px;"
 )
-SECONDARY_TITLE_STYLE = (
-    "font-weight: bold; font-size: 15px; margin-bottom: 5px; "
-    "border-bottom: 1px solid #95A5A6; padding-bottom: 2px;"
-)
-SECONDARY_TITLE_WITH_TOP_PADDING_STYLE = (
-    SECONDARY_TITLE_STYLE + " padding-top: 18px;"
-)
 COMPACT_ROW_GROUPS = {
     "Sanitize_Sequences.py": [
         ("MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"),
@@ -88,12 +82,14 @@ COMPACT_ROW_GROUPS = {
     "Align_Similarity_Matrix.py": [
         ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
         ("BATCH_SIZE", "WORKERS"),
+        ("HOST_CACHE_GB", "ACCELERATOR_PRECISION"),
     ],
     "Align_Substitution_Matrix.py": [
         ("BATCH_SIZE", "NUM_THREADS"),
     ],
     "Network_Injection.py": [
         ("BATCH_SIZE", "WORKERS"),
+        ("HOST_CACHE_GB", "DEVICE_SELECTION"),
     ],
     "Embedding_MSA.py": [
         ("GAP_OPEN", "GAP_EXTEND"),
@@ -106,6 +102,7 @@ COMPACT_ROW_GROUPS = {
         ("OUTPUT_NAME", "TOP_K", "NORM_THRESHOLD"),
         ("ALIGNMENT_MODE", "NORM_MODE"),
         ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
+        ("DEVICE_SELECTION", "ACCELERATOR_PRECISION"),
     ],
 }
 INLINE_FIELD_GROUPS = {
@@ -759,7 +756,9 @@ class ToolsGUI(QMainWindow):
                 "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps.",
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
                 "BATCH_SIZE": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'.",
-                "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU."
+                "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
+                "HOST_CACHE_GB": "Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nEnter 'auto' for a safe system-memory budget, a non-negative GiB value as a cap, or 0 to disable persistent caching.",
+                "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with both scalar and tiled CUDA plans, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul; 'tf32' explicitly enables supported CUDA tensor-core matmul."
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.",
@@ -805,7 +804,9 @@ class ToolsGUI(QMainWindow):
                 "OLD_NETWORK": "Input Network Edges (.h5): Pre-existing HDF5 similarity network file.\nPre-computed alignment scores between existing sequence pairs are reused directly.",
                 "NEW_EMBEDDINGS": "Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.\nNewly introduced sequence pairs are aligned and injected into the updated network file.",
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores.",
-                "BATCH_SIZE": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance."
+                "BATCH_SIZE": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance.",
+                "DEVICE_SELECTION": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
+                "HOST_CACHE_GB": "Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. Enter auto, a non-negative GiB value, or 0 to disable."
             },
             "Network_Extraction.py": {
                 "INPUT_NET": "Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.\nEdges connecting sequences outside the whitelist are filtered out.",
@@ -839,7 +840,9 @@ class ToolsGUI(QMainWindow):
                 "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.\nMore negative values penalize gap insertions.",
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.\nMore negative values penalize gap insertions across full sequences.",
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems.",
-                "GENERATE_FASTA": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences."
+                "GENERATE_FASTA": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences.",
+                "DEVICE_SELECTION": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
+                "ACCELERATOR_PRECISION": "Accelerator Precision: auto considers validated TF32 only for at least 4,096 targets. Forced TF32 requires NVIDIA CUDA."
             }
         }
         
@@ -954,7 +957,6 @@ class ToolsGUI(QMainWindow):
             },
             "Sequence_Similarity_Calculations": {
                 "is_combined": True,
-                "hide_secondary_titles": True,
                 "scripts": {
                     "Align_Similarity_Matrix.py": [
                 {
@@ -1019,6 +1021,17 @@ class ToolsGUI(QMainWindow):
                     "var_name": "DEVICE_SELECTION",
                     "type": "device_dropdown",
                     "display": "Device:"
+                },
+                {
+                    "var_name": "HOST_CACHE_GB",
+                    "type": "text",
+                    "display": "Host Cache (GiB):"
+                },
+                {
+                    "var_name": "ACCELERATOR_PRECISION",
+                    "type": "dropdown",
+                    "options": ["auto", "float32", "tf32"],
+                    "display": "Precision:"
                 }
                     ],
                     "Align_Substitution_Matrix.py": [
@@ -1309,6 +1322,16 @@ class ToolsGUI(QMainWindow):
                             "var_name": "BATCH_SIZE",
                             "type": "text",
                             "display": "Batch Size:"
+                        },
+                        {
+                            "var_name": "HOST_CACHE_GB",
+                            "type": "text",
+                            "display": "Host Cache (GiB):"
+                        },
+                        {
+                            "var_name": "DEVICE_SELECTION",
+                            "type": "device_dropdown",
+                            "display": "Device:"
                         }
                     ],
                     "Network_Extraction.py": [
@@ -1515,6 +1538,17 @@ class ToolsGUI(QMainWindow):
                             "display": "CPU Workers:"
                         },
                         {
+                            "var_name": "DEVICE_SELECTION",
+                            "type": "device_dropdown",
+                            "display": "Device:"
+                        },
+                        {
+                            "var_name": "ACCELERATOR_PRECISION",
+                            "type": "dropdown",
+                            "options": ["auto", "float32", "tf32"],
+                            "display": "Precision:"
+                        },
+                        {
                             "var_name": "GENERATE_FASTA",
                             "type": "switch",
                             "display": "Generate FASTA File:"
@@ -1683,8 +1717,11 @@ class ToolsGUI(QMainWindow):
             try:
                 with open(settings_file, "r", encoding="utf-8") as f:
                     j_data = json.load(f)
-                    if "DIRECTORIES" in j_data:
-                        dir_defaults.update(j_data["DIRECTORIES"])
+                    saved_directories = j_data.get("DIRECTORIES", {})
+                    if isinstance(saved_directories, dict):
+                        for key in dir_defaults:
+                            if key in saved_directories:
+                                dir_defaults[key] = saved_directories[key]
             except: pass
             
         dir_tips = {
@@ -1692,7 +1729,6 @@ class ToolsGUI(QMainWindow):
             "MSA_DIR": "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).",
             "EMBED_DIR": "Directory containing pre-computed protein language model embedding databases (.h5).",
             "NETWORK_DIR": "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular).",
-            "PATH_DIR": "Directory for storing and caching extracted traceback alignment paths (.h5).",
             "REPORT_DIR": "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved.",
             "SETTING_EXPORT_DIR": "Directory where per-tool JSON settings files are exported for command-line execution."
         }
@@ -1720,7 +1756,6 @@ class ToolsGUI(QMainWindow):
             display_name = display_name.replace('Msa', 'MSA').replace('Dir', 'Directory')
             display_name = display_name.replace('Fasta', 'FASTA')
             display_name = display_name.replace('Embed', 'Embedding')
-            display_name = display_name.replace('Path Directory', 'Alignment Path Directory')
             display_name = display_name.replace('Report Directory', 'Alignment Report Directory')
             display_name = display_name.replace('Blastp', 'BLASTP')
             
@@ -1787,10 +1822,6 @@ class ToolsGUI(QMainWindow):
                     tools_dir,
                     tab_key,
                     settings_def["scripts"],
-                    show_secondary_titles=not settings_def.get(
-                        "hide_secondary_titles",
-                        False,
-                    ),
                 )
             else:
                 script_path = os.path.join(tools_dir, tab_key)
@@ -1872,10 +1903,8 @@ class ToolsGUI(QMainWindow):
         script_settings_def,
         source,
         tree,
-        show_secondary_titles=True,
     ):
         defined_vars = {item["var_name"]: item for item in script_settings_def}
-        section_title_count = sum(item["type"] == "title" for item in script_settings_def)
         settings = []
         for node in tree.body:
             if isinstance(node, ast.Assign):
@@ -1952,19 +1981,8 @@ class ToolsGUI(QMainWindow):
         inputs = {}
         row_widgets = {}
         skip_vars = set()
-        section_title_index = 0
         for s_def in script_settings_def:
             if s_def['type'] == "title":
-                if section_title_count > 1 and show_secondary_titles:
-                    title_lbl = QLabel(s_def['display'])
-                    title_style = (
-                        SECONDARY_TITLE_STYLE
-                        if section_title_index == 0
-                        else SECONDARY_TITLE_WITH_TOP_PADDING_STYLE
-                    )
-                    title_lbl.setStyleSheet(title_style)
-                    layout.addRow(title_lbl)
-                section_title_index += 1
                 continue
                 
             var_name = s_def['var_name']
@@ -3306,7 +3324,10 @@ class ToolsGUI(QMainWindow):
                     Qt.FindChildOption.FindDirectChildrenOnly,
                 )
                 if save_button is not None:
-                    save_button.setFixedSize(full_button_width, button_height)
+                    save_button.setFixedSize(
+                        round(full_button_width * 1.5),
+                        button_height,
+                    )
 
             header.setProperty("sharedTitleStartX", title_start_x)
 
@@ -3369,7 +3390,6 @@ class ToolsGUI(QMainWindow):
         tools_dir,
         tab_key,
         scripts_dict,
-        show_secondary_titles=True,
     ):
         tab = QWidget()
         scroll = QScrollArea()
@@ -3410,7 +3430,6 @@ class ToolsGUI(QMainWindow):
                 script_settings_def,
                 source,
                 tree,
-                show_secondary_titles=show_secondary_titles,
             )
             main_layout.addWidget(form_widget)
             self._tool_form_layouts.append(layout)
@@ -3725,7 +3744,11 @@ class ToolsGUI(QMainWindow):
                     )
                     return
 
-        if script_name == "Align_Similarity_Matrix.py":
+        if script_name in {
+            "Align_Similarity_Matrix.py",
+            "Network_Injection.py",
+            "Embedding_SSEARCH.py",
+        }:
             try:
                 Hardware_Utils.resolve_device_selection(
                     new_settings.get("DEVICE_SELECTION", "auto")
@@ -3733,6 +3756,35 @@ class ToolsGUI(QMainWindow):
             except ValueError as error:
                 QMessageBox.critical(self, "Invalid Hardware Selection", str(error))
                 return
+            if script_name in {
+                "Align_Similarity_Matrix.py", "Embedding_SSEARCH.py"
+            }:
+                precision = str(
+                    new_settings.get("ACCELERATOR_PRECISION", "auto")
+                ).strip().lower()
+                if precision not in {"auto", "float32", "tf32"}:
+                    QMessageBox.critical(
+                        self,
+                        "Invalid Accelerator Precision",
+                        "Precision must be auto, float32, or tf32.",
+                    )
+                    return
+            if script_name in {
+                "Align_Similarity_Matrix.py", "Network_Injection.py"
+            }:
+                host_cache = str(new_settings.get("HOST_CACHE_GB", "auto")).strip()
+                if host_cache.lower() != "auto":
+                    try:
+                        host_cache_value = float(host_cache)
+                    except ValueError:
+                        host_cache_value = -1.0
+                    if not math.isfinite(host_cache_value) or host_cache_value < 0:
+                        QMessageBox.critical(
+                            self,
+                            "Invalid Host Cache",
+                            "Host Cache must be 'auto' or a non-negative GiB value.",
+                        )
+                        return
 
         # 3. Replace and save only the selected script's complete settings section.
         # This removes stale keys that are no longer represented in the GUI while

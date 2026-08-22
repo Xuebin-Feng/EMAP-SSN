@@ -72,6 +72,7 @@ import sys
 import hashlib
 import threading
 import time
+from itertools import chain, islice
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
@@ -79,6 +80,15 @@ from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_local_scores
+from utilities.Embedding_Alignment_Engine import (
+    EmbeddingTileStore,
+    compute_score_matrix_torch as _shared_score_matrix,
+    cuda_matmul_precision,
+    cuda_memory_plan,
+    estimate_cuda_working_set,
+    is_nvidia_cuda,
+    run_tiled_cuda_pipeline,
+)
 from utilities.Embedding_HDF5 import read_embedding_manifest
 
 # ==========================================
@@ -91,8 +101,11 @@ NEW_EMBEDDINGS = None
 # SETTINGS
 BATCH_SIZE = 500000 
 WORKERS = 12 
+DEVICE_SELECTION = "auto"
+HOST_CACHE_GB = "auto"
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
+ACCELERATOR_CONFIRM_PAIRS = 2048
 LOCAL_GAP_P = None
 GLOBAL_GAP_P = None 
 
@@ -264,25 +277,7 @@ def load_embedding_metadata(file_path):
 
 
 def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
-    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
-    t_i_norm = torch.nn.functional.normalize(t_i, p=2, dim=-1)
-    t_j_norm = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
-    dist_mat = 1.0 - cos_sim
-    sim_mat = torch.exp(-dist_mat)
-    
-    epsilon = 1e-8
-    row_mean = sim_mat.mean(dim=1, keepdim=True)
-    row_std = sim_mat.std(dim=1, keepdim=True, correction=0)
-    col_mean = sim_mat.mean(dim=0, keepdim=True)
-    col_std = sim_mat.std(dim=0, keepdim=True, correction=0)
-    
-    z_r = (sim_mat - row_mean) / (row_std + epsilon)
-    z_c = (sim_mat - col_mean) / (col_std + epsilon)
-    final_score = (z_r + z_c) / 2.0
-    
-    return final_score.to(dtype=torch.float32, device="cpu").numpy()
+    return _shared_score_matrix(emb_i, emb_j, device, precision="float32")
 
 # %% =======================================
 # HDF5 WORKER INITIALIZATION
@@ -437,10 +432,10 @@ def _stream_context(device):
 
 
 def _compute_accelerated_matrix(args):
-    idx_i, idx_j, emb_i, emb_j, device = args
+    idx_i, idx_j, emb_i, emb_j, device, precision = args
     with torch.inference_mode():
         with _stream_context(device):
-            matrix = compute_score_matrix_torch(emb_i, emb_j, device)
+            matrix = _shared_score_matrix(emb_i, emb_j, device, precision=None)
     return idx_i, idx_j, matrix
 
 
@@ -452,6 +447,8 @@ def _run_accelerated_pipeline(
     batch_id,
     lanes,
     show_progress,
+    matmul_precision="float32",
+    result_callback=None,
 ):
     results = []
     gpu_pending = set()
@@ -473,7 +470,8 @@ def _run_accelerated_pipeline(
         else nullcontext(None)
     )
 
-    with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf, \
+    with cuda_matmul_precision(matmul_precision), \
+            h5py.File(input_h5, "r", libver="latest", swmr=True) as hf, \
             ThreadPoolExecutor(
                 max_workers=lanes,
                 thread_name_prefix="injection-accelerator",
@@ -526,6 +524,7 @@ def _run_accelerated_pipeline(
                             cached_row_embedding,
                             emb_j,
                             device,
+                            matmul_precision,
                         ),
                     )
                 )
@@ -555,6 +554,9 @@ def _run_accelerated_pipeline(
                 results.append(future.result())
                 if progress is not None:
                     progress.update(1)
+            if result_callback is not None and len(results) >= 65536:
+                result_callback(results)
+                results.clear()
 
     return results
 
@@ -661,6 +663,8 @@ def process_cpu_tasks(
     workers,
     input_h5,
     batch_id,
+    show_progress=True,
+    result_callback=None,
 ):
     results = []
     with Pool(
@@ -678,9 +682,288 @@ def process_cpu_tasks(
             total=len(tasks),
             desc=f"  Batch {batch_id}",
             leave=False,
+            disable=not show_progress,
         ):
             results.append(result)
+            if result_callback is not None and len(results) >= 65536:
+                result_callback(results)
+                results.clear()
     return results
+
+
+def _representative_injection_tasks(tasks, lengths, count):
+    count = min(max(1, int(count)), len(tasks))
+    if count >= len(tasks):
+        return list(tasks)
+    ordered = sorted(
+        tasks,
+        key=lambda task: (
+            int(lengths[int(task[0])]) * int(lengths[int(task[1])]),
+            int(task[0]),
+            int(task[1]),
+        ),
+    )
+    positions = np.linspace(0, len(ordered) - 1, num=count, dtype=np.int64)
+    return [ordered[int(position)] for position in positions]
+
+
+def _execute_injection_plan(
+    plan, tasks, workers, input_h5, batch_id, store, lengths,
+    matmul_precision, show_progress=False,
+):
+    candidate, variant, lanes = plan
+    if candidate.is_cpu:
+        return process_cpu_tasks(
+            tasks, workers, input_h5, batch_id,
+            show_progress=show_progress,
+        )
+    if variant == "tiled":
+        return run_tiled_cuda_pipeline(
+            tasks,
+            store=store,
+            lengths=lengths,
+            device=candidate.device,
+            workers=workers,
+            lanes=lanes,
+            alignment_callback=calculate_alignment_data,
+            precision=matmul_precision,
+        )
+    return _run_accelerated_pipeline(
+        tasks, workers, input_h5, candidate.device, batch_id, lanes,
+        show_progress, matmul_precision=matmul_precision,
+    )
+
+
+def _benchmark_injection_plans(
+    tasks, workers, input_h5, store, lengths, matmul_precision,
+):
+    candidates = Hardware_Utils.get_available_devices()
+    if matmul_precision == "tf32":
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
+        ]
+        if not candidates:
+            raise RuntimeError(
+                "The input network was calculated with TF32 and can only be "
+                "extended on an NVIDIA CUDA device."
+            )
+    manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
+    if manual is not None:
+        candidates = [manual]
+    if matmul_precision == "tf32" and (
+        not candidates or any(
+            candidate.backend != "cuda" or not is_nvidia_cuda(candidate.device)
+            for candidate in candidates
+        )
+    ):
+        raise RuntimeError(
+            "The input network uses TF32, but the selected device is not "
+            "an NVIDIA CUDA device."
+        )
+
+    sample = _representative_injection_tasks(
+        tasks, lengths, min(ACCELERATOR_TUNE_PAIRS, len(tasks))
+    )
+    confirmation = list(tasks[:min(ACCELERATOR_CONFIRM_PAIRS, len(tasks))])
+    print(
+        f"[Hardware] Benchmarking {len(candidates)} device(s) with "
+        f"{len(sample)} representative injection pairs..."
+    )
+    print(
+        "Device/backend                 Plan      Lanes   VRAM peak/safe   "
+        "Pairs/s      Status"
+    )
+    short_results = []
+    for candidate in candidates:
+        variants = ["scalar"]
+        if candidate.backend == "cuda":
+            variants.append("tiled")
+        lane_candidates = [1] if candidate.is_cpu else _lane_candidates(
+            candidate.device, workers
+        )
+        memory_info = None
+        if candidate.backend == "cuda":
+            Hardware_Utils.release_device_cache(candidate)
+            memory = cuda_memory_plan(candidate.device, lanes=1)
+            memory_info = (memory.free_bytes, memory.total_bytes)
+        for variant in variants:
+            for lanes in lane_candidates:
+                vram = "--"
+                if memory_info is not None:
+                    estimate = estimate_cuda_working_set(
+                        sample,
+                        store=store,
+                        lengths=lengths,
+                        device=candidate.device,
+                        lanes=lanes,
+                        variant=variant,
+                        memory_info=memory_info,
+                    )
+                    vram = (
+                        f"{estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
+                        f"{estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
+                    )
+                    if not estimate.feasible:
+                        print(
+                            f"{candidate.display_name[:30]:30}  {variant:8}  "
+                            f"{lanes:>5}   {vram:>14}   {'--':>9}   "
+                            f"skipped: {estimate.reason}"
+                        )
+                        continue
+                started = time.perf_counter()
+                try:
+                    _execute_injection_plan(
+                        (candidate, variant, lanes), sample, workers, input_h5,
+                        -1, store, lengths, matmul_precision,
+                    )
+                    rate = len(sample) / max(time.perf_counter() - started, 1e-9)
+                    short_results.append(
+                        Hardware_Utils.BenchmarkResult(
+                            candidate, rate, lanes=lanes, variant=variant
+                        )
+                    )
+                    print(
+                        f"{candidate.display_name[:30]:30}  {variant:8}  "
+                        f"{lanes:>5}   {vram:>14}   {rate:>9.2f}   ok"
+                    )
+                except Exception as error:
+                    print(
+                        f"{candidate.display_name[:30]:30}  {variant:8}  "
+                        f"{lanes:>5}   {vram:>14}   {'--':>9}   "
+                        f"{type(error).__name__}: {error}"
+                    )
+        Hardware_Utils.release_device_cache(candidate)
+
+    ranked_short = Hardware_Utils.rank_benchmark_results(
+        short_results, higher_is_better=True
+    )
+    if not ranked_short:
+        raise RuntimeError("No injection processing plan completed successfully.")
+
+    selected = []
+    seen = set()
+    for result in ranked_short:
+        key = (result.candidate.spec, result.variant)
+        if key not in seen:
+            selected.append(result)
+            seen.add(key)
+    final_results = []
+    for result in selected:
+        if (
+            result.candidate.backend == "cuda"
+            and len(confirmation) > len(sample)
+        ):
+            print(
+                f"[Hardware] Confirming {result.candidate.display_name} "
+                f"{result.variant}, lanes={result.lanes}, on "
+                f"{len(confirmation)} production-ordered pairs..."
+            )
+            started = time.perf_counter()
+            try:
+                _execute_injection_plan(
+                    (result.candidate, result.variant, result.lanes),
+                    confirmation, workers, input_h5, -1, store, lengths,
+                    matmul_precision,
+                )
+                final_results.append(
+                    Hardware_Utils.BenchmarkResult(
+                        result.candidate,
+                        len(confirmation) / max(time.perf_counter() - started, 1e-9),
+                        lanes=result.lanes,
+                        variant=result.variant,
+                    )
+                )
+            except Exception as error:
+                print(f"  Confirmation failed: {type(error).__name__}: {error}")
+        else:
+            final_results.append(result)
+    ranked = Hardware_Utils.rank_benchmark_results(
+        final_results, higher_is_better=True
+    )
+    if not ranked:
+        raise RuntimeError("No confirmed injection processing plan completed.")
+    winner = ranked[0]
+    print(
+        f"[Hardware] Selected {winner.candidate.display_name}, "
+        f"{winner.variant} plan, {winner.lanes} lane(s); 3% tie preference applied."
+    )
+    if winner.variant == "tiled":
+        budget = cuda_memory_plan(
+            winner.candidate.device, lanes=winner.lanes
+        ).matrix_bytes
+        print(f"[Hardware] CUDA microbatch budget: {budget / (1024 ** 2):.1f} MiB.")
+    return ranked
+
+
+class _PartialBatchWriter:
+    DATASET_DTYPES = {
+        "i": np.uint32,
+        "j": np.uint32,
+        "l_score": np.float32,
+        "l_len": np.uint16,
+        "g_score": np.float32,
+        "g_len": np.uint16,
+    }
+
+    def __init__(
+        self, output_filename, embedding_checksum, model_name, saving_mode,
+        gap_penalties, matmul_precision,
+    ):
+        self.output_filename = output_filename
+        self.partial_filename = output_filename + ".partial"
+        if os.path.exists(self.partial_filename):
+            os.remove(self.partial_filename)
+        self.hf = h5py.File(self.partial_filename, "w")
+        if embedding_checksum is not None:
+            self.hf.attrs["embedding_checksum"] = embedding_checksum
+        if model_name is not None:
+            self.hf.attrs["model_name"] = model_name
+        if saving_mode is not None:
+            self.hf.attrs["saving_mode"] = saving_mode
+        if gap_penalties is not None:
+            self.hf.attrs["gap_penalties"] = np.asarray(
+                gap_penalties, dtype=np.float32
+            )
+        self.hf.attrs["matmul_precision"] = matmul_precision
+        self.datasets = {
+            name: self.hf.create_dataset(
+                name, shape=(0,), maxshape=(None,), dtype=dtype
+            )
+            for name, dtype in self.DATASET_DTYPES.items()
+        }
+        self.count = 0
+        self.closed = False
+
+    def __call__(self, results):
+        if not results:
+            return
+        start = self.count
+        end = start + len(results)
+        for dataset in self.datasets.values():
+            dataset.resize((end,))
+        columns = tuple(zip(*results))
+        for column, (name, dtype) in zip(columns, self.DATASET_DTYPES.items()):
+            self.datasets[name][start:end] = np.asarray(column, dtype=dtype)
+        self.count = end
+
+    def rollback(self, count=0):
+        count = int(count)
+        for dataset in self.datasets.values():
+            dataset.resize((count,))
+        self.count = count
+        self.hf.flush()
+
+    def publish(self):
+        self.hf.flush()
+        self.hf.close()
+        self.closed = True
+        os.replace(self.partial_filename, self.output_filename)
+
+    def close(self):
+        if not self.closed:
+            self.hf.close()
+            self.closed = True
 
 
 def process_batch(
@@ -692,49 +975,77 @@ def process_batch(
     model_name,
     saving_mode,
     gap_penalties,
+    device=None,
+    accelerator_workers=None,
+    execution_variant="scalar",
+    matmul_precision="ieee_fp32",
+    embedding_store=None,
+    sequence_lengths=None,
 ):
     output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
-    device = Hardware_Utils.get_optimal_device()
-    if _uses_accelerator(device):
-        results = process_accelerated_tasks(
-            batch_tasks,
-            workers,
-            new_emb_path,
-            device,
-            batch_id,
-        )
-    else:
-        results = process_cpu_tasks(
-            batch_tasks,
-            workers,
-            new_emb_path,
-            batch_id,
-        )
-            
-    # Save as uncompressed HDF5 for easy access
-    rows_i = [r[0] for r in results]
-    rows_j = [r[1] for r in results]
-    l_scores = [r[2] for r in results]
-    l_lens = [r[3] for r in results]
-    g_scores = [r[4] for r in results]
-    g_lens = [r[5] for r in results]
-    
-    with h5py.File(output_filename, "w") as hf:
-        if embedding_checksum is not None:
-            hf.attrs["embedding_checksum"] = embedding_checksum
-        if model_name is not None:
-            hf.attrs["model_name"] = model_name
-        if saving_mode is not None:
-            hf.attrs["saving_mode"] = saving_mode
-        if gap_penalties is not None:
-            hf.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
-
-        hf.create_dataset("i", data=np.array(rows_i, dtype=np.uint32))
-        hf.create_dataset("j", data=np.array(rows_j, dtype=np.uint32))
-        hf.create_dataset("l_score", data=np.array(l_scores, dtype=np.float32))
-        hf.create_dataset("l_len", data=np.array(l_lens, dtype=np.uint16))
-        hf.create_dataset("g_score", data=np.array(g_scores, dtype=np.float32))
-        hf.create_dataset("g_len", data=np.array(g_lens, dtype=np.uint16))
+    if device is None:
+        device = Hardware_Utils.get_optimal_device()
+    lanes = max(1, int(accelerator_workers or 1))
+    writer = _PartialBatchWriter(
+        output_filename, embedding_checksum, model_name, saving_mode,
+        gap_penalties, matmul_precision,
+    )
+    try:
+        if _uses_accelerator(device) and execution_variant == "tiled":
+            budget = cuda_memory_plan(device, lanes=lanes).matrix_bytes
+            while True:
+                try:
+                    results = run_tiled_cuda_pipeline(
+                        batch_tasks,
+                        store=embedding_store,
+                        lengths=sequence_lengths,
+                        device=device,
+                        workers=workers,
+                        lanes=lanes,
+                        alignment_callback=calculate_alignment_data,
+                        precision=matmul_precision,
+                        result_callback=writer,
+                        matrix_budget_override=budget,
+                    )
+                    break
+                except torch.cuda.OutOfMemoryError:
+                    writer.rollback(0)
+                    torch.cuda.empty_cache()
+                    if budget <= 1024 ** 2:
+                        raise
+                    next_budget = max(1024 ** 2, budget // 2)
+                    print(
+                        f"[CUDA] Injection tile OOM; retrying uncommitted "
+                        f"batch with {next_budget / (1024 ** 2):.1f} MiB "
+                        f"per microbatch."
+                    )
+                    budget = next_budget
+        elif _uses_accelerator(device):
+            if embedding_store is None and accelerator_workers is None:
+                # Retain the historical callable path for external callers/tests.
+                results = process_accelerated_tasks(
+                    batch_tasks, workers, new_emb_path, device, batch_id
+                )
+            else:
+                results = _run_accelerated_pipeline(
+                    batch_tasks, workers, new_emb_path, device, batch_id, lanes,
+                    True, matmul_precision=matmul_precision,
+                    result_callback=writer,
+                )
+        else:
+            results = process_cpu_tasks(
+                batch_tasks, workers, new_emb_path, batch_id,
+                result_callback=writer,
+            )
+        writer(results)
+        if writer.count != len(batch_tasks):
+            raise RuntimeError(
+                f"Batch produced {writer.count} results for "
+                f"{len(batch_tasks)} requested pairs."
+            )
+        writer.publish()
+    finally:
+        writer.close()
 
 def _decode_attr(val):
     if val is None:
@@ -759,6 +1070,7 @@ def scan_existing_batches(
     model_name,
     saving_mode,
     gap_penalties,
+    requested_matmul_precision="ieee_fp32",
 ):
     computed_pairs = set()
     if not os.path.exists(RESULTS_DIR):
@@ -775,6 +1087,7 @@ def scan_existing_batches(
         "saving_mode": "Unknown/Legacy",
         "gap_penalties": "Unknown/Legacy",
         "embedding_checksum": "Unknown/Legacy",
+        "matmul_precision": "ieee_fp32",
     }
 
     for bf in batch_files:
@@ -784,11 +1097,15 @@ def scan_existing_batches(
                 cached_model = _decode_attr(hf.attrs.get("model_name"))
                 cached_saving_mode = _decode_attr(hf.attrs.get("saving_mode"))
                 cached_gaps = hf.attrs.get("gap_penalties")
+                cached_precision = _decode_attr(
+                    hf.attrs.get("matmul_precision", "ieee_fp32")
+                )
 
                 if cached_checksum: found_attrs["embedding_checksum"] = cached_checksum
                 if cached_model: found_attrs["model_name"] = cached_model
                 if cached_saving_mode: found_attrs["saving_mode"] = cached_saving_mode
                 if cached_gaps is not None: found_attrs["gap_penalties"] = list(np.array(cached_gaps, dtype=np.float32).flatten())
+                found_attrs["matmul_precision"] = cached_precision
 
                 required_keys = ["i", "j", "l_score", "l_len", "g_score", "g_len"]
                 if not all(k in hf for k in required_keys):
@@ -811,6 +1128,12 @@ def scan_existing_batches(
                     break
                 if not _compare_gap_penalties(cached_gaps, gap_penalties):
                     mismatches.append(f"Gap penalties mismatch in '{os.path.basename(bf)}' ({found_attrs['gap_penalties']} vs current {gap_penalties})")
+                    break
+                if cached_precision != requested_matmul_precision:
+                    mismatches.append(
+                        f"Matmul precision mismatch in '{os.path.basename(bf)}' "
+                        f"('{cached_precision}' vs '{requested_matmul_precision}')"
+                    )
                     break
         except Exception as e:
             mismatches.append(f"Error reading batch file '{os.path.basename(bf)}': {e}")
@@ -850,11 +1173,13 @@ def scan_existing_batches(
                 info_f.write(f"  - Saving Mode:        {found_attrs['saving_mode']}\n")
                 info_f.write(f"  - Gap Penalties:      {found_attrs['gap_penalties']}\n")
                 info_f.write(f"  - Embedding Checksum: {found_attrs['embedding_checksum']}\n\n")
+                info_f.write(f"  - Matmul Precision:   {found_attrs['matmul_precision']}\n\n")
                 info_f.write("CURRENT EXECUTION SETTINGS:\n")
                 info_f.write(f"  - Model Name:         {model_name}\n")
                 info_f.write(f"  - Saving Mode:        {saving_mode}\n")
                 info_f.write(f"  - Gap Penalties:      {gap_penalties}\n")
                 info_f.write(f"  - Embedding Checksum: {current_checksum}\n")
+                info_f.write(f"  - Matmul Precision:   {requested_matmul_precision}\n")
                 info_f.write("==========================================================\n")
             print(f"  > Created attribute report: '{info_file}'")
         except Exception as err:
@@ -892,6 +1217,7 @@ def compile_final_output(
     model_name,
     saving_mode,
     gap_penalties,
+    matmul_precision="ieee_fp32",
 ):
     if not isinstance(model_name, str) or not model_name.strip():
         raise ValueError(
@@ -973,6 +1299,7 @@ def compile_final_output(
             hf_out.attrs["saving_mode"] = saving_mode
         if gap_penalties is not None:
             hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
+        hf_out.attrs["matmul_precision"] = matmul_precision
 
         dt_str = h5py.string_dtype(encoding='utf-8')
         hf_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
@@ -1015,10 +1342,6 @@ def run_injection():
 
     new_N = len(new_headers)
 
-    print("Calculating checksum of input embedding file...")
-    current_checksum = calculate_file_hash(NEW_EMBEDDINGS)
-    print(f"  > Checksum: {current_checksum}")
-            
     print("Loading Existing Network...")
     if not os.path.exists(OLD_NETWORK):
         sys.exit(f"❌ Error: Old network file not found at {OLD_NETWORK}")
@@ -1040,6 +1363,17 @@ def run_injection():
         old_l_len = hf_old_net['l_len'][:]
         old_g_score = hf_old_net['g_score'][:]
         old_g_len = hf_old_net['g_len'][:]
+        inherited_precision = _decode_attr(
+            hf_old_net.attrs.get("matmul_precision", "ieee_fp32")
+        ).strip().lower()
+        inherited_precision = {
+            "float32": "ieee_fp32", "fp32": "ieee_fp32", "ieee": "ieee_fp32"
+        }.get(inherited_precision, inherited_precision)
+        if inherited_precision not in {"ieee_fp32", "tf32"}:
+            raise EmbeddingFileError(
+                f"Input network has unsupported matmul_precision="
+                f"'{inherited_precision}'."
+            )
 
         if "gap_penalties" not in hf_old_net.attrs:
             raise EmbeddingFileError(
@@ -1055,6 +1389,30 @@ def run_injection():
         globals()["GLOBAL_GAP_P"] = inherited_global
         current_gap_penalties = [inherited_local, inherited_global]
         print(f"  > Inherited gap penalties from input network: Local={inherited_local}, Global={inherited_global}")
+
+    if inherited_precision == "tf32":
+        available = Hardware_Utils.get_available_devices()
+        selected = Hardware_Utils.resolve_device_selection(
+            DEVICE_SELECTION, available
+        )
+        eligible = [
+            candidate for candidate in available
+            if candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
+        ]
+        if selected is not None:
+            eligible = [
+                selected
+            ] if selected.backend == "cuda" and is_nvidia_cuda(selected.device) else []
+        if not eligible:
+            raise EmbeddingFileError(
+                "The input network uses TF32. Network Injection requires an "
+                "NVIDIA CUDA device to calculate numerically compatible new edges."
+            )
+    print(f"  > Inherited matmul precision: {inherited_precision}")
+
+    print("Calculating checksum of input embedding file...")
+    current_checksum = calculate_file_hash(NEW_EMBEDDINGS)
+    print(f"  > Checksum: {current_checksum}")
 
     configure_output_paths(old_network_metadata.model_name)
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -1185,6 +1543,7 @@ def run_injection():
         current_model_name,
         current_saving_mode,
         current_gap_penalties,
+        inherited_precision,
     )
 
     existing_batches = glob.glob(os.path.join(glob.escape(RESULTS_DIR), "batch_*.h5"))
@@ -1198,52 +1557,111 @@ def run_injection():
             pass
     next_batch_id = max(batch_ids) + 1 if batch_ids else 0
 
-    tasks_to_compute = []
-    for i in range(new_N):
-        h_i = new_headers[i]
-        for j in range(i + 1, new_N):
-            pair_id = i * new_N + j
-            if pair_id in required_pairs and pair_id not in cached_old_pairs and pair_id not in computed_pairs:
-                tasks_to_compute.append((i, j, safe_new_headers[i], safe_new_headers[j]))
+    def iter_pending_tasks():
+        for i in range(new_N):
+            for j in range(i + 1, new_N):
+                pair_id = i * new_N + j
+                if (
+                    pair_id in required_pairs
+                    and pair_id not in cached_old_pairs
+                    and pair_id not in computed_pairs
+                ):
+                    yield (i, j, safe_new_headers[i], safe_new_headers[j])
 
-    num_tasks = len(tasks_to_compute)
+    num_tasks = sum(
+        pair_id not in cached_old_pairs and pair_id not in computed_pairs
+        for pair_id in required_pairs
+    )
     print(f"Total Required pairs: {effective_total_pairs}")
     print(f"Pre-existing cached pairs: {len(cached_old_pairs & required_pairs)}")
     print(f"Already computed pairs: {len(computed_pairs & required_pairs)}")
     print(f"Pairs queued for calculation: {num_tasks}")
 
     if num_tasks > 0:
+        pending_iterator = iter_pending_tasks()
+        benchmark_seed = list(
+            islice(
+                pending_iterator,
+                min(
+                    num_tasks,
+                    max(ACCELERATOR_TUNE_PAIRS, ACCELERATOR_CONFIRM_PAIRS),
+                ),
+            )
+        )
+        embedding_store = EmbeddingTileStore(
+            NEW_EMBEDDINGS, safe_new_headers, HOST_CACHE_GB
+        )
+        if embedding_store.fully_cached:
+            print(
+                f"[Memory] Using packed host cache "
+                f"({embedding_store.cached_bytes / (1024 ** 3):.2f} GiB)."
+            )
+        else:
+            print("[Memory] Using byte-bounded embedding tiles.")
+        sequence_lengths = [shape[0] for shape in embedding_store.shapes]
+        ranked_plans = _benchmark_injection_plans(
+            benchmark_seed,
+            WORKERS,
+            NEW_EMBEDDINGS,
+            embedding_store,
+            sequence_lengths,
+            inherited_precision,
+        )
+        active_plan_index = 0
+
+        def publish_batch(batch, current_id):
+            nonlocal active_plan_index
+            last_error = None
+            while active_plan_index < len(ranked_plans):
+                selected_plan = ranked_plans[active_plan_index]
+                try:
+                    process_batch(
+                        batch,
+                        current_id,
+                        WORKERS,
+                        NEW_EMBEDDINGS,
+                        current_checksum,
+                        current_model_name,
+                        current_saving_mode,
+                        current_gap_penalties,
+                        device=selected_plan.candidate.device,
+                        accelerator_workers=(
+                            None if selected_plan.candidate.is_cpu
+                            else selected_plan.lanes
+                        ),
+                        execution_variant=selected_plan.variant,
+                        matmul_precision=inherited_precision,
+                        embedding_store=embedding_store,
+                        sequence_lengths=sequence_lengths,
+                    )
+                    return
+                except (RuntimeError, NotImplementedError, MemoryError) as error:
+                    last_error = error
+                    active_plan_index += 1
+                    if active_plan_index < len(ranked_plans):
+                        fallback = ranked_plans[active_plan_index]
+                        print(
+                            f"[Hardware] {type(error).__name__}; retrying "
+                            f"uncommitted batch with {fallback.candidate.display_name}, "
+                            f"{fallback.variant}, lanes={fallback.lanes}."
+                        )
+            raise RuntimeError(
+                "Every benchmarked Network Injection plan failed."
+            ) from last_error
+
         current_batch = []
         batch_id = next_batch_id
         
         pbar = tqdm(total=math.ceil(num_tasks / BATCH_SIZE), desc="Progress", unit="batch")
-        for t in tasks_to_compute:
+        for t in chain(benchmark_seed, pending_iterator):
             current_batch.append(t)
             if len(current_batch) >= BATCH_SIZE:
-                process_batch(
-                    current_batch,
-                    batch_id,
-                    WORKERS,
-                    NEW_EMBEDDINGS,
-                    current_checksum,
-                    current_model_name,
-                    current_saving_mode,
-                    current_gap_penalties,
-                )
+                publish_batch(current_batch, batch_id)
                 batch_id += 1; pbar.update(1)
                 current_batch = []
                 
         if current_batch:
-            process_batch(
-                current_batch,
-                batch_id,
-                WORKERS,
-                NEW_EMBEDDINGS,
-                current_checksum,
-                current_model_name,
-                current_saving_mode,
-                current_gap_penalties,
-            )
+            publish_batch(current_batch, batch_id)
             pbar.update(1)
         pbar.close()
         
@@ -1263,6 +1681,7 @@ def run_injection():
         model_name=current_model_name,
         saving_mode=current_saving_mode,
         gap_penalties=current_gap_penalties,
+        matmul_precision=inherited_precision,
     )
 
 def main(argv=None):

@@ -52,6 +52,11 @@ class ToolSettingsLoaderTests(unittest.TestCase):
     def test_registry_covers_every_gui_tool_and_export_default(self):
         self.assertEqual(set(TOOL_DIRECTORY_KEYS), EXPECTED_TOOLS)
         self.assertEqual(
+            TOOL_DIRECTORY_KEYS["Network_Extraction.py"],
+            ("FASTA_DIR", "NETWORK_DIR"),
+        )
+        self.assertNotIn("PATH_DIR", DEFAULT_DIRECTORY_PATHS)
+        self.assertEqual(
             DEFAULT_DIRECTORY_PATHS["SETTING_EXPORT_DIR"],
             os.path.join("Cache_Files", "Tool_Settings"),
         )
@@ -435,6 +440,117 @@ class ToolExportGuiTests(unittest.TestCase):
         finally:
             for card in cards:
                 card.close()
+
+    def test_directory_save_button_is_one_and_a_half_times_wide_and_left_aligned(self):
+        from PySide6.QtCore import QPoint, Qt
+        from PySide6.QtWidgets import (
+            QFormLayout,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QPushButton,
+            QWidget,
+        )
+
+        card = QFrame()
+        layout = QFormLayout(card)
+        layout.setHorizontalSpacing(30)
+
+        header = QWidget()
+        header.setObjectName("toolHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+
+        actions = QWidget()
+        actions.setObjectName("directoryActionButtons")
+        actions.setProperty("originalSingleButtonHeight", 40)
+        action_layout = QHBoxLayout(actions)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(0)
+
+        save_button = QPushButton("Save Directories")
+        save_button.setObjectName("saveDirectoriesButton")
+        save_button.setStyleSheet("font-weight: bold; padding: 10px 16px;")
+        action_layout.addWidget(save_button)
+        action_layout.addStretch()
+
+        title = QLabel("Global Directory Settings")
+        title.setObjectName("toolTitle")
+        header_layout.addWidget(
+            actions,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        header_layout.addWidget(title, 1)
+        field = QLineEdit()
+        layout.addRow(header)
+        layout.addRow(QLabel("Alignment Report Directory:"), field)
+
+        shared_label_width = self.tools_gui_class._align_form_label_columns([layout])
+        title_start_x = self.tools_gui_class._align_tool_card_headers(
+            [layout],
+            shared_label_width,
+        )
+        former_width = max(1, (title_start_x - 10) // 2)
+
+        try:
+            card.resize(1000, 100)
+            card.show()
+            self.app.processEvents()
+
+            self.assertEqual(save_button.width(), round(former_width * 1.5))
+            self.assertEqual(
+                save_button.mapTo(card, QPoint(0, 0)).x(),
+                actions.mapTo(card, QPoint(0, 0)).x(),
+            )
+            self.assertEqual(
+                title.mapTo(card, QPoint(0, 0)).x(),
+                field.mapTo(card, QPoint(0, 0)).x(),
+            )
+            self.assertGreaterEqual(
+                save_button.width(),
+                save_button.fontMetrics().horizontalAdvance(save_button.text()) + 32,
+            )
+        finally:
+            card.close()
+
+    def test_legacy_path_directory_does_not_restore_a_directory_row(self):
+        from PySide6.QtWidgets import QLabel, QTabWidget, QWidget
+
+        fake_window = QWidget()
+        fake_window.save_directories = lambda: None
+        fake_window.tip_db = {}
+        fake_window._tool_form_layouts = []
+        fake_window.tabs = QTabWidget()
+        fake_window.tab_paths = []
+        legacy_settings = {
+            "DIRECTORIES": {
+                "FASTA_DIR": "custom_sequences",
+                "PATH_DIR": "legacy_paths",
+            }
+        }
+
+        with mock.patch("os.path.exists", return_value=True), mock.patch(
+            "builtins.open",
+            mock.mock_open(read_data=json.dumps(legacy_settings)),
+        ):
+            self.tools_gui_class.create_directories_tab(fake_window)
+
+        try:
+            labels = {
+                label.text()
+                for label in fake_window.tabs.findChildren(QLabel)
+            }
+            self.assertNotIn("PATH_DIR", fake_window.dir_inputs)
+            self.assertNotIn("Alignment Path Directory:", labels)
+            self.assertEqual(
+                fake_window.dir_inputs["FASTA_DIR"].text(),
+                "custom_sequences",
+            )
+        finally:
+            fake_window.close()
 
     def test_export_writes_current_values_and_only_required_directories(self):
         from PySide6.QtWidgets import QCheckBox, QLineEdit, QMessageBox, QInputDialog
