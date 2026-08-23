@@ -20,12 +20,14 @@ from Background_Job_Scheduler import BackgroundJobScheduler
 
 class ViewerStub:
     def __init__(self):
-        self.console_text = type("Console", (), {"text": ""})()
+        self.console_text = type("Console", (), {"text": "Cmd: untouched_"})()
+        self.background_job_status = ""
         self.status_updates = []
         self.update_threads = []
 
-    def update_console_background(self):
-        self.status_updates.append(self.console_text.text)
+    def set_background_job_status(self, message):
+        self.background_job_status = str(message)
+        self.status_updates.append(self.background_job_status)
         self.update_threads.append(threading.get_ident())
 
 
@@ -137,7 +139,11 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
                 ("start", "logo"), ("end", "logo"),
             ],
         )
-        self.assertIn("completed", viewer.console_text.text)
+        self.assertIn("completed", viewer.background_job_status)
+        self.assertEqual(viewer.console_text.text, "Cmd: untouched_")
+        self.assertTrue(any("Queued background job" in update for update in viewer.status_updates))
+        self.assertTrue(any("Running background job" in update for update in viewer.status_updates))
+        self.assertTrue(any("failed after" in update for update in viewer.status_updates))
         self.assertEqual(set(viewer.update_threads), {gui_thread})
         self.assertEqual(reveal_threads, [gui_thread])
         scheduler.shutdown()

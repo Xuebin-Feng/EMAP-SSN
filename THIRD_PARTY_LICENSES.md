@@ -39,9 +39,11 @@ attribution banner; the underlying upstream body is otherwise unchanged.
   `src/resources/wheels/manifest.json` records its size and provenance.
 - Biohub Transformers: the bundled `py3-none-any` wheel is from commit
   `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`, based on Hugging Face commit
-  `753d61104116eefc8ffc977327b441ee0c8d599f`. The only patch changes the
-  package version from `4.57.6` to `4.57.6+biohub.3a8956f`. Its SHA-256 is
-  `74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b`;
+  `753d61104116eefc8ffc977327b441ee0c8d599f`. The only project-side patch
+  changes the package version from `4.57.6` to `4.57.6+biohub.3a8956f`, adds
+  prominent modification notices to both changed files, and changes no package
+  functionality. Its SHA-256 is
+  `4ab1594c1461782fa39c80dcc0b72826e68893da3ced2631129f90d1de926e6c`;
   the patch, build recipe, source commits, size, and license are recorded under
   `src/resources/wheels/`.
 - Tabulator: Copyright (c) 2015-2024 Oli Folkerd. Vendored 2026-07-07.

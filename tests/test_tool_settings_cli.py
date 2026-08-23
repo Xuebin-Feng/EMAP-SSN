@@ -55,6 +55,10 @@ class ToolSettingsLoaderTests(unittest.TestCase):
             TOOL_DIRECTORY_KEYS["Network_Extraction.py"],
             ("FASTA_DIR", "NETWORK_DIR"),
         )
+        self.assertEqual(
+            TOOL_DIRECTORY_KEYS["Parse_BLAST_Output.py"],
+            ("FASTA_DIR", "NETWORK_DIR"),
+        )
         self.assertNotIn("PATH_DIR", DEFAULT_DIRECTORY_PATHS)
         self.assertEqual(
             DEFAULT_DIRECTORY_PATHS["SETTING_EXPORT_DIR"],
@@ -179,6 +183,34 @@ class ToolEntryPointTests(unittest.TestCase):
                 source = (SRC_DIR / "tools" / filename).read_text(encoding="utf-8")
                 self.assertIn("def main(argv=None):", source)
                 self.assertIn("load_tool_settings(globals(), __file__, PROJECT_ROOT", source)
+
+    def test_parse_blast_gui_contract_has_required_order_and_custom_gating(self):
+        source = (SRC_DIR / "SSN_Tools.py").read_text(encoding="utf-8")
+        manual_settings = source.index("self.MANUAL_SETTINGS")
+        start = source.index('"Parse_BLAST_Output.py": [', manual_settings)
+        end = source.index('"Embedding_MSA": {', start)
+        panel = source[start:end]
+        expected_order = (
+            '"var_name": "INPUT_BLAST_TABULAR"',
+            '"var_name": "INPUT_FASTA"',
+            '"var_name": "BLAST_LAYOUT"',
+            '"var_name": "QUERY_COLUMN"',
+            '"var_name": "SUBJECT_COLUMN"',
+            '"var_name": "EVALUE_COLUMN"',
+            '"var_name": "MATRIX"',
+            '"var_name": "BATCH_SIZE"',
+        )
+        positions = [panel.index(token) for token in expected_order]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('(".tabular", ".txt", ".tab", ".tsv")', panel)
+        self.assertIn('"Custom Columns (1-based indexing)"', panel)
+        self.assertIn('"display": "Query Column:"', panel)
+        self.assertIn('"display": "Subject Column:"', panel)
+        self.assertIn('"display": "EValue Column:"', panel)
+        self.assertIn(
+            '("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")', source
+        )
+        self.assertIn("bind_custom_blast_column_controls(inputs, row_widgets)", source)
 
     def test_representative_main_receives_explicit_export_before_worker(self):
         module_path = SRC_DIR / "tools" / "Align_Similarity_Matrix.py"

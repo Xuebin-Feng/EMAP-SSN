@@ -134,10 +134,18 @@ def local_score_length(score_matrix, gap_penalty, score_shift=2.0):
 
 
 @njit(nogil=True, fastmath=True, cache=True)
-def global_local_scores(
+def global_local_scores_reuse(
     score_matrix,
     global_gap_penalty,
     local_gap_penalty,
+    global_previous_scores,
+    global_current_scores,
+    global_previous_lengths,
+    global_current_lengths,
+    local_previous_scores,
+    local_current_scores,
+    local_previous_lengths,
+    local_current_lengths,
     local_score_shift=2.0,
 ):
     """
@@ -148,21 +156,17 @@ def global_local_scores(
     """
     num_rows, num_cols = score_matrix.shape
 
-    global_previous_scores = np.zeros(num_cols + 1, dtype=np.float32)
-    global_current_scores = np.zeros(num_cols + 1, dtype=np.float32)
-    global_previous_lengths = np.arange(
-        num_cols + 1,
-        dtype=np.uint32,
-    )
-    global_current_lengths = np.zeros(num_cols + 1, dtype=np.uint32)
-
-    local_previous_scores = np.zeros(num_cols + 1, dtype=np.float32)
-    local_current_scores = np.zeros(num_cols + 1, dtype=np.float32)
-    local_previous_lengths = np.zeros(num_cols + 1, dtype=np.uint32)
-    local_current_lengths = np.zeros(num_cols + 1, dtype=np.uint32)
-
-    for col in range(1, num_cols + 1):
+    # Every used cell is initialized so a thread can safely reuse arrays that
+    # contain results from an earlier, longer alignment.
+    for col in range(num_cols + 1):
         global_previous_scores[col] = col * global_gap_penalty
+        global_current_scores[col] = 0.0
+        global_previous_lengths[col] = col
+        global_current_lengths[col] = 0
+        local_previous_scores[col] = 0.0
+        local_current_scores[col] = 0.0
+        local_previous_lengths[col] = 0
+        local_current_lengths[col] = 0
 
     max_local_score = 0.0
     max_local_length = np.uint32(0)
@@ -251,3 +255,82 @@ def global_local_scores(
         max_local_score,
         max_local_length,
     )
+
+
+@njit(nogil=True, fastmath=True, cache=True)
+def global_local_scores(
+    score_matrix,
+    global_gap_penalty,
+    local_gap_penalty,
+    local_score_shift=2.0,
+):
+    """Compatibility wrapper using one-call dynamic-programming scratch."""
+    num_cols = score_matrix.shape[1]
+    global_previous_scores = np.empty(num_cols + 1, dtype=np.float32)
+    global_current_scores = np.empty(num_cols + 1, dtype=np.float32)
+    global_previous_lengths = np.empty(num_cols + 1, dtype=np.uint32)
+    global_current_lengths = np.empty(num_cols + 1, dtype=np.uint32)
+    local_previous_scores = np.empty(num_cols + 1, dtype=np.float32)
+    local_current_scores = np.empty(num_cols + 1, dtype=np.float32)
+    local_previous_lengths = np.empty(num_cols + 1, dtype=np.uint32)
+    local_current_lengths = np.empty(num_cols + 1, dtype=np.uint32)
+    return global_local_scores_reuse(
+        score_matrix,
+        global_gap_penalty,
+        local_gap_penalty,
+        global_previous_scores,
+        global_current_scores,
+        global_previous_lengths,
+        global_current_lengths,
+        local_previous_scores,
+        local_current_scores,
+        local_previous_lengths,
+        local_current_lengths,
+        local_score_shift,
+    )
+
+
+class GlobalLocalScratch:
+    """Grow-only scratch owned by one CPU alignment worker thread."""
+
+    def __init__(self):
+        self.capacity = 0
+        self.growths = 0
+        self.arrays = None
+
+    def _ensure(self, columns):
+        required = max(1, int(columns) + 1)
+        if required <= self.capacity:
+            return False
+        # Geometric growth avoids repeatedly reallocating for gradually
+        # increasing sequence lengths while keeping each worker bounded.
+        self.capacity = max(required, max(64, self.capacity * 2))
+        self.arrays = (
+            np.empty(self.capacity, dtype=np.float32),
+            np.empty(self.capacity, dtype=np.float32),
+            np.empty(self.capacity, dtype=np.uint32),
+            np.empty(self.capacity, dtype=np.uint32),
+            np.empty(self.capacity, dtype=np.float32),
+            np.empty(self.capacity, dtype=np.float32),
+            np.empty(self.capacity, dtype=np.uint32),
+            np.empty(self.capacity, dtype=np.uint32),
+        )
+        self.growths += 1
+        return True
+
+    def score(
+        self,
+        score_matrix,
+        global_gap_penalty,
+        local_gap_penalty,
+        local_score_shift=2.0,
+    ):
+        grew = self._ensure(score_matrix.shape[1])
+        result = global_local_scores_reuse(
+            score_matrix,
+            global_gap_penalty,
+            local_gap_penalty,
+            *self.arrays,
+            local_score_shift,
+        )
+        return result, grew

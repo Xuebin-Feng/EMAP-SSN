@@ -37,7 +37,7 @@ EXPECTED_TOOL_DIRECTORIES = {
     "Generate_Embeddings.py": {"FASTA_DIR", "EMBED_DIR"},
     "Network_Extraction.py": {"FASTA_DIR", "NETWORK_DIR"},
     "Network_Injection.py": {"EMBED_DIR", "NETWORK_DIR"},
-    "Parse_BLAST_Output.py": {"NETWORK_DIR"},
+    "Parse_BLAST_Output.py": {"FASTA_DIR", "NETWORK_DIR"},
     "Sanitize_Sequences.py": {"FASTA_DIR"},
     "Sparse_MSA_Converter.py": {"MSA_DIR"},
 }

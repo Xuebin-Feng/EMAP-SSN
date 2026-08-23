@@ -199,11 +199,9 @@ class BackgroundJobScheduler(QtCore.QObject):
 
     def _set_viewer_status(self, message):
         viewer = self._viewer_ref()
-        if viewer is None or not hasattr(viewer, "console_text"):
+        if viewer is None or not hasattr(viewer, "set_background_job_status"):
             return
-        viewer.console_text.text = str(message)
-        if hasattr(viewer, "update_console_background"):
-            viewer.update_console_background()
+        viewer.set_background_job_status(message)
 
     @QtCore.Slot(object)
     def _report_started(self, job):

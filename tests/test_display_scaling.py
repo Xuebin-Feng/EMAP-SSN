@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -259,6 +260,25 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertEqual(view_width_pos[0], property_pos[0])
         self.assertEqual(hidden_pos[1] - view_width_pos[1], 25.0)
         self.assertEqual(view_width_pos[1] - property_pos[1], 25.0)
+
+    def test_vispy_text_scaling_includes_background_job_status(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.hud_layout = {"font_size_px": 18.0}
+        viewer.canvas = SimpleNamespace(dpi=144.0)
+        viewer.instr_text = SimpleNamespace(font_size=0.0)
+        viewer.console_text = SimpleNamespace(font_size=0.0)
+        viewer.background_job_status_text = SimpleNamespace(font_size=0.0)
+        viewer.zoom_text = SimpleNamespace(font_size=0.0)
+        viewer.hidden_text = SimpleNamespace(font_size=0.0)
+        viewer.tooltip = None
+        viewer.hud_displays = {}
+
+        viewer._apply_vispy_text_scaling()
+
+        self.assertEqual(
+            viewer.background_job_status_text.font_size,
+            viewer.console_text.font_size,
+        )
 
     def test_metadata_property_display_uses_status_line_above_view_width(self):
         viewer = MainViewer.__new__(MainViewer)

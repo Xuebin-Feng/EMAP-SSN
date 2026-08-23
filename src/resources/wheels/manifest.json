@@ -24,8 +24,8 @@
       "python_tag": "py3",
       "requires_python": ">=3.9.0",
       "platform_tag": "any",
-      "size": 12139612,
-      "sha256": "74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b",
+      "size": 12140951,
+      "sha256": "4ab1594c1461782fa39c80dcc0b72826e68893da3ced2631129f90d1de926e6c",
       "source_repository": "https://github.com/Biohub/transformers",
       "source_commit": "3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf",
       "upstream_repository": "https://github.com/huggingface/transformers",
@@ -34,7 +34,7 @@
       "version_patch": "transformers-4.57.6+biohub.3a8956f.patch",
       "license": "Apache-2.0",
       "license_file": "LICENSE.transformers",
-      "notes": "Biohub source with only the documented local-version packaging patch applied."
+      "notes": "Biohub source with the documented local-version packaging patch and prominent modification notices applied; no package functionality is changed."
     }
   ]
 }

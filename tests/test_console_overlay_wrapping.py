@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -14,6 +15,7 @@ if SRC_DIR not in sys.path:
 from SSN_Viewer import (
     MainViewer,
     _apply_safe_rectangle_geometry,
+    _vispy_text_line_height_pixels,
     _wrap_console_text_for_display,
 )
 from vispy.visuals import RectangleVisual
@@ -21,9 +23,16 @@ from vispy.visuals import RectangleVisual
 
 class FixedWidthFont:
     ratio = 4.0
+    slop = 0.0
+    _lowres_size = 256.0
 
     def __getitem__(self, character):
-        return {"advance": 256.0, "kerning": {}}
+        return {
+            "advance": 256.0,
+            "kerning": {},
+            "offset": (0.0, 1024.0),
+            "size": (256.0, 256.0),
+        }
 
 
 class StrictRoundedRectangle:
@@ -99,8 +108,14 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
             "console_bg_radius": 6.0,
             "console_text_y": 60.0,
             "console_text_anchor_y": "bottom",
+            "background_job_status_gap": 8.0,
+            "background_job_status_right_padding": 20.0,
         }
-        viewer.canvas = SimpleNamespace(pixel_scale=pixel_scale, size=size)
+        viewer.canvas = SimpleNamespace(
+            pixel_scale=pixel_scale,
+            size=size,
+            update=lambda: None,
+        )
         viewer.console_bg = StrictRoundedRectangle(
             width=150.0,
             height=20.0,
@@ -114,6 +129,21 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
             _line_height=1.2,
         )
         return viewer
+
+    @staticmethod
+    def add_background_job_status(viewer, text=""):
+        viewer.background_job_status_text = SimpleNamespace(
+            text=text,
+            visible=False,
+            pos=(0.0, 0.0),
+            _font=FixedWidthFont(),
+            transforms=SimpleNamespace(dpi=1.0),
+            font_size=72.0,
+            _line_height=1.2,
+        )
+        viewer._background_job_status_logical_text = ""
+        viewer._background_job_status_rendered_text = ""
+        return viewer.background_job_status_text
 
     def test_short_logical_line_is_unchanged(self):
         text = "Cmd: select cluster_1"
@@ -179,6 +209,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         narrow_rendered = viewer.console_text.text
         narrow_height = viewer.console_bg.height
         narrow_center_y = viewer.console_bg.center[1]
+        narrow_top = narrow_center_y - narrow_height / 2.0
         self.assertIn("\n", narrow_rendered)
         self.assertEqual(viewer._console_logical_text, text)
         self.assertEqual(narrow_rendered.replace("\n", ""), text)
@@ -192,7 +223,11 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         self.assertEqual(viewer.console_text.text.replace("\n", ""), text)
         self.assertLess(viewer.console_text.text.count("\n"), narrow_rendered.count("\n"))
         self.assertLess(viewer.console_bg.height, narrow_height)
-        self.assertGreater(viewer.console_bg.center[1], narrow_center_y)
+        self.assertLess(viewer.console_bg.center[1], narrow_center_y)
+        self.assertAlmostEqual(
+            viewer.console_bg.center[1] - viewer.console_bg.height / 2.0,
+            narrow_top,
+        )
 
     def test_background_center_tracks_bottom_anchored_text(self):
         viewer = self.make_viewer(text="Cmd: _")
@@ -211,6 +246,167 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
             - expected_line_height / 2.0
             + viewer.hud_layout["console_bg_y_offset"],
         )
+
+    def test_line_height_uses_vispy_font_metrics(self):
+        text_visual = SimpleNamespace(
+            _font=FixedWidthFont(),
+            transforms=SimpleNamespace(dpi=72.0),
+            font_size=10.0,
+            _line_height=1.2,
+        )
+
+        self.assertAlmostEqual(
+            _vispy_text_line_height_pixels(text_visual),
+            12.0,
+        )
+
+    def test_background_job_status_wraps_below_multiline_console(self):
+        viewer = self.make_viewer(
+            size=(150, 160),
+            text="Cmd: " + ("command" * 12),
+        )
+        status = self.add_background_job_status(
+            viewer,
+            "Background job #1 completed: " + ("long-output-path" * 12),
+        )
+
+        viewer.update_console_background()
+
+        self.assertIn("\n", viewer.console_text.text)
+        self.assertIn("\n", status.text)
+        self.assertEqual(status.pos[0], viewer.hud_layout["console_text_x"])
+        self.assertEqual(
+            status.pos[1],
+            viewer.console_bg.center[1]
+            + viewer.console_bg.height / 2.0
+            + viewer.hud_layout["background_job_status_gap"],
+        )
+        self.assertTrue(status.visible)
+
+    def test_background_job_status_rewraps_for_sidebar_and_resize(self):
+        viewer = self.make_viewer(size=(260, 160), text="Cmd: _")
+        status = self.add_background_job_status(
+            viewer,
+            "Background job completed: " + ("result-path " * 12),
+        )
+        viewer.right_panel = SimpleNamespace(isVisible=lambda: False)
+        viewer._panel_w = 80
+
+        viewer.update_console_background()
+        wide_text = status.text
+
+        viewer.right_panel = SimpleNamespace(isVisible=lambda: True)
+        viewer.update_console_background()
+        panel_text = status.text
+        self.assertGreater(panel_text.count("\n"), wide_text.count("\n"))
+
+        viewer.canvas.size = (320, 160)
+        viewer.right_panel = SimpleNamespace(isVisible=lambda: False)
+        viewer.update_console_background()
+        self.assertLess(status.text.count("\n"), panel_text.count("\n"))
+
+    def test_scheduler_status_does_not_mutate_typed_command_or_box(self):
+        viewer = self.make_viewer(size=(260, 160), text="Cmd: select cluster_1_")
+        status = self.add_background_job_status(viewer)
+        viewer.update_console_background()
+        command_before = viewer.console_text.text
+        geometry_before = (
+            viewer.console_bg.center,
+            viewer.console_bg.width,
+            viewer.console_bg.height,
+        )
+
+        viewer.set_background_job_status(
+            "Background job #1 completed: saved output.xlsx"
+        )
+
+        self.assertEqual(viewer.console_text.text, command_before)
+        self.assertEqual(
+            (
+                viewer.console_bg.center,
+                viewer.console_bg.width,
+                viewer.console_bg.height,
+            ),
+            geometry_before,
+        )
+        self.assertIn("completed", status.text)
+        self.assertEqual(
+            status.pos[1],
+            viewer.console_bg.center[1]
+            + viewer.console_bg.height / 2.0
+            + viewer.hud_layout["background_job_status_gap"],
+        )
+
+        viewer.clear_background_job_status()
+        self.assertEqual(status.text, "")
+        self.assertFalse(status.visible)
+
+        viewer.set_background_job_status("Background job #2 completed")
+        self.assertTrue(status.visible)
+        self.assertEqual(viewer.console_text.text, command_before)
+
+    def test_opening_command_clears_previous_scheduler_status(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.console_mode = False
+        viewer.command_history = []
+        viewer.console_bg = SimpleNamespace(visible=False)
+        viewer.clear_background_job_status = mock.Mock()
+        viewer._update_console_text = mock.Mock()
+        event = SimpleNamespace(
+            key="Enter",
+            modifiers=[],
+            text="",
+            handled=False,
+        )
+
+        viewer.on_key_press(event)
+
+        viewer.clear_background_job_status.assert_called_once_with()
+        self.assertTrue(viewer.console_mode)
+        self.assertEqual(viewer.input_buffer, "")
+        self.assertTrue(viewer.console_bg.visible)
+        self.assertTrue(event.handled)
+
+    def test_scheduler_status_uses_downward_growing_console_anchor(self):
+        viewer = self.make_viewer()
+        viewer.hud_layout.update({
+            "font_size_px": 16.0,
+            "console_text_anchor_x": "left",
+            "instr_x": 10.0,
+            "instr_y": 10.0,
+            "instr_anchor_x": "left",
+            "instr_anchor_y": "bottom",
+            "status_x_offset": 10.0,
+            "status_bottom_offset": 30.0,
+            "status_line_spacing": 25.0,
+            "status_anchor_x": "right",
+            "status_anchor_y": "bottom",
+        })
+        viewer.canvas.dpi = 96.0
+        viewer.canvas.scene = object()
+        viewer.vispy_ui_face = "Arial"
+        viewer.vispy_monospace_face = "Courier New"
+
+        def make_visual(**kwargs):
+            return SimpleNamespace(visible=True, **kwargs)
+
+        with (
+            mock.patch(
+                "SSN_Viewer.scene.visuals.Rectangle",
+                side_effect=make_visual,
+            ) as rectangle_mock,
+            mock.patch(
+                "SSN_Viewer.scene.visuals.Text",
+                side_effect=make_visual,
+            ),
+        ):
+            viewer.create_hud()
+
+        self.assertEqual(
+            viewer.background_job_status_text.anchor_y,
+            viewer.hud_layout["console_text_anchor_y"],
+        )
+        self.assertEqual(rectangle_mock.call_count, 1)
 
     def test_safe_geometry_recovers_vispy_partial_mutation(self):
         rectangle = StrictRoundedRectangle(
@@ -259,6 +455,10 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         geometries = []
         for pixel_scale in (1.0, 1.25, 1.5, 2.0):
             viewer = self.make_viewer(pixel_scale=pixel_scale)
+            status = self.add_background_job_status(
+                viewer,
+                "Background job completed: output.xlsx",
+            )
             viewer.update_console_background()
             geometries.append((
                 viewer.console_bg.width,
@@ -266,6 +466,8 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
                 viewer.console_bg.radius,
                 viewer.console_bg.center,
                 viewer.console_text.text,
+                status.pos,
+                status.text,
             ))
 
         self.assertTrue(all(geometry == geometries[0] for geometry in geometries[1:]))

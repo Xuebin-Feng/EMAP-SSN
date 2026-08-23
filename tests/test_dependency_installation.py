@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -356,6 +357,16 @@ class DependencyInstallerTests(unittest.TestCase):
             artifacts["transformers"]["source_commit"],
             "3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf",
         )
+        notice = (
+            "Modified by the Sequence Similarity Network Viewer project on 2026-08-15"
+        )
+        with zipfile.ZipFile(wheels / expected["transformers"][0]) as archive:
+            package_init = archive.read("transformers/__init__.py").decode("utf-8")
+        self.assertIn(notice, package_init)
+        patch_text = (
+            wheels / "transformers-4.57.6+biohub.3a8956f.patch"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(patch_text.count(notice), 2)
 
     def test_esm_runtime_requirements_exactly_follow_verified_wheel_metadata(self):
         esm_wheel, _, requirements = Install_Dependencies._bundled_paths(ROOT)

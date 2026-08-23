@@ -80,18 +80,26 @@ from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Utils
-from utilities.Alignment_Score_Kernels import global_local_scores
+from utilities.Alignment_Score_Kernels import (
+    GlobalLocalScratch,
+    global_local_scores,
+)
 from utilities.Embedding_Alignment_Engine import (
+    AcceleratorMemoryPlan,
+    CompactPairTasks,
     EmbeddingTileStore,
     TiledAcceleratorSession,
     accelerator_memory_plan,
+    benchmark_accelerator_execution_plans,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     estimate_accelerator_working_set,
     get_accelerator_backend,
     is_nvidia_cuda,
+    measure_accelerator_session,
     normalize_execution_mode,
     run_tiled_accelerator_pipeline,
+    run_tiled_accelerator_batch_stream,
     tiled_accelerator_support,
 )
 from utilities.Embedding_HDF5 import read_embedding_manifest
@@ -290,6 +298,7 @@ def compute_score_matrix_torch(emb_i, emb_j, device):
 # ==========================================
 worker_hf = None
 worker_device = None
+alignment_scratch_state = threading.local()
 
 def init_worker(h5_path):
     global worker_hf, worker_device
@@ -302,13 +311,38 @@ def init_worker(h5_path):
 # ==========================================
 def calculate_alignment_data(args):
     idx_i, idx_j, matrix = args
-    g_raw, g_len, l_raw, l_len = global_local_scores(
+    scratch = getattr(alignment_scratch_state, "scratch", None)
+    if scratch is None:
+        scratch = GlobalLocalScratch()
+        alignment_scratch_state.scratch = scratch
+    (g_raw, g_len, l_raw, l_len), _grew = scratch.score(
         matrix,
         GLOBAL_GAP_P,
         LOCAL_GAP_P,
     )
 
     return (idx_i, idx_j, l_raw, l_len, g_raw, g_len)
+
+
+def calculate_alignment_chunk(items):
+    """Finish a bounded packet chunk with one grow-only thread scratch."""
+    scratch = getattr(alignment_scratch_state, "scratch", None)
+    if scratch is None:
+        scratch = GlobalLocalScratch()
+        alignment_scratch_state.scratch = scratch
+    results = []
+    growths = 0
+    for ordinal, idx_i, idx_j, matrix in items:
+        (g_raw, g_len, l_raw, l_len), grew = scratch.score(
+            matrix,
+            GLOBAL_GAP_P,
+            LOCAL_GAP_P,
+        )
+        growths += int(grew)
+        results.append(
+            (ordinal, (idx_i, idx_j, l_raw, l_len, g_raw, g_len))
+        )
+    return results, growths
 
 
 def calculate_cpu_pair(args):
@@ -763,7 +797,7 @@ def _validate_execution_mode_hardware():
 
 def _execute_injection_plan(
     plan, tasks, workers, input_h5, batch_id, store, lengths,
-    matmul_precision, show_progress=False,
+    matmul_precision, show_progress=False, execution_plan=None,
 ):
     candidate, variant, lanes = plan
     if candidate.is_cpu:
@@ -780,7 +814,10 @@ def _execute_injection_plan(
             workers=workers,
             lanes=lanes,
             alignment_callback=calculate_alignment_data,
+            alignment_chunk_callback=calculate_alignment_chunk,
             precision=matmul_precision,
+            execution_plan=execution_plan,
+            print_summary=False,
         )
     return _run_accelerated_pipeline(
         tasks, workers, input_h5, candidate.device, batch_id, lanes,
@@ -833,13 +870,11 @@ def _benchmark_injection_plans(
             "an NVIDIA CUDA device."
         )
 
-    sample = _representative_injection_tasks(
-        tasks, lengths, min(ACCELERATOR_TUNE_PAIRS, len(tasks))
-    )
+    sample = list(tasks[:min(ACCELERATOR_TUNE_PAIRS, len(tasks))])
     confirmation = list(tasks[:min(ACCELERATOR_CONFIRM_PAIRS, len(tasks))])
     print(
         f"[Hardware] Benchmarking {len(candidates)} device(s) with "
-        f"{len(sample)} representative injection pairs..."
+        f"{len(sample)} production-ordered injection pairs..."
     )
     print(
         "Device/backend                 Plan      Lanes   Memory peak/safe "
@@ -852,12 +887,18 @@ def _benchmark_injection_plans(
             candidate.device, workers
         )
         memory_info = None
+        base_memory_plan = None
         tiled_preflight_error = None
         if candidate.backend in {"cuda", "xpu"}:
             Hardware_Utils.release_device_cache(candidate)
             try:
-                memory = accelerator_memory_plan(candidate.device, lanes=1)
-                memory_info = (memory.free_bytes, memory.total_bytes)
+                base_memory_plan = accelerator_memory_plan(
+                    candidate.device, lanes=1
+                )
+                memory_info = (
+                    base_memory_plan.free_bytes,
+                    base_memory_plan.total_bytes,
+                )
             except (RuntimeError, NotImplementedError) as error:
                 tiled_preflight_error = (
                     f"device-memory information unavailable: {error}"
@@ -868,7 +909,120 @@ def _benchmark_injection_plans(
                 f"{candidate.display_name}: tiled plan skipped; "
                 f"{tiled_preflight_error}."
             )
-        for variant in variants:
+        if "tiled" in variants and isinstance(
+            base_memory_plan, AcceleratorMemoryPlan
+        ):
+            try:
+                _execute_injection_plan(
+                    (candidate, "tiled", 1),
+                    sample[:min(2, len(sample))],
+                    workers,
+                    input_h5,
+                    -1,
+                    store,
+                    lengths,
+                    matmul_precision,
+                    show_progress=False,
+                )
+            except Exception:
+                pass
+        if "tiled" in variants and isinstance(
+            base_memory_plan, AcceleratorMemoryPlan
+        ):
+            print(
+                f"[Hardware] Staged tiled tuning on "
+                f"{candidate.display_name}: lanes, packet cap, CPU workers, "
+                f"CPU chunk, then scorer."
+            )
+
+            def memory_plan_factory(lanes):
+                return accelerator_memory_plan(
+                    candidate.device,
+                    lanes=lanes,
+                    memory_info=memory_info,
+                )
+
+            def measure_tiled_plan(execution_plan, plan_tasks):
+                with TiledAcceleratorSession(
+                    store=store,
+                    lengths=lengths,
+                    device=candidate.device,
+                    workers=workers,
+                    lanes=execution_plan.lanes,
+                    alignment_callback=calculate_alignment_data,
+                    alignment_chunk_callback=calculate_alignment_chunk,
+                    precision=matmul_precision,
+                    memory_plan_override=memory_plan_factory(
+                        execution_plan.lanes
+                    ),
+                    execution_plan=execution_plan,
+                    print_summary=False,
+                ) as tuning_session:
+                    plan_results, rate, measured_pairs = (
+                        measure_accelerator_session(
+                            tuning_session, plan_tasks
+                        )
+                    )
+                    plan_metrics = tuning_session.metrics()
+                return {
+                    "rate": rate,
+                    "measured_pairs": measured_pairs,
+                    "peak_memory_bytes": plan_metrics[
+                        "peak_allocated_bytes"
+                    ],
+                    "compilation_seconds": plan_metrics[
+                        "compilation_seconds"
+                    ],
+                    "results": plan_results,
+                }
+
+            tiled_ranked, tiled_observations = (
+                benchmark_accelerator_execution_plans(
+                    lane_candidates=lane_candidates,
+                    memory_plan_factory=memory_plan_factory,
+                    workers=workers,
+                    short_tasks=sample,
+                    confirmation_tasks=confirmation,
+                    remaining_pairs=len(tasks),
+                    measure=measure_tiled_plan,
+                    allow_compilation=True,
+                    allow_graph_compilation=is_nvidia_cuda(
+                        candidate.device
+                    ),
+                )
+            )
+            for observation in tiled_observations:
+                plan = observation.execution_plan
+                cap_mib = plan.microbatch_workspace_bytes / (1024 ** 2)
+                status = (
+                    f"{observation.pairs_per_second:.2f} pairs/s"
+                    if observation.succeeded
+                    else observation.error
+                )
+                print(
+                    f"  tiled lanes={plan.lanes}, cap={cap_mib:.0f} MiB, "
+                    f"workers={plan.active_cpu_workers}, "
+                    f"chunk={plan.cpu_chunk_size}, "
+                    f"{plan.scorer_variant}: {status}"
+                )
+            for observation in tiled_ranked:
+                short_results.append(
+                    Hardware_Utils.BenchmarkResult(
+                        candidate,
+                        observation.pairs_per_second,
+                        lanes=observation.execution_plan.lanes,
+                        variant="tiled",
+                        execution_plan=observation.execution_plan,
+                        peak_memory_bytes=observation.peak_memory_bytes,
+                    )
+                )
+
+        staged_tiled = isinstance(base_memory_plan, AcceleratorMemoryPlan)
+        for variant in (
+            variant
+            for variant in variants
+            if variant != "tiled" or not staged_tiled
+        ):
             for lanes in lane_candidates:
                 vram = "--"
                 if memory_info is not None:
@@ -931,6 +1085,9 @@ def _benchmark_injection_plans(
             seen.add(key)
     final_results = []
     for result in selected:
+        if result.variant == "tiled" and result.execution_plan is not None:
+            final_results.append(result)
+            continue
         if (
             result.candidate.backend in {"cuda", "xpu"}
             and len(confirmation) > len(sample)
@@ -953,6 +1110,8 @@ def _benchmark_injection_plans(
                         len(confirmation) / max(time.perf_counter() - started, 1e-9),
                         lanes=result.lanes,
                         variant=result.variant,
+                        execution_plan=result.execution_plan,
+                        peak_memory_bytes=result.peak_memory_bytes,
                     )
                 )
             except Exception as error:
@@ -1095,6 +1254,7 @@ def process_batch(
                         workers=workers,
                         lanes=lanes,
                         alignment_callback=calculate_alignment_data,
+                        alignment_chunk_callback=calculate_alignment_chunk,
                         precision=matmul_precision,
                         result_callback=writer,
                         matrix_budget_override=budget,
@@ -1726,6 +1886,7 @@ def run_injection():
                             selected_plan.candidate.spec,
                             int(selected_plan.lanes),
                             str(inherited_precision),
+                            selected_plan.execution_plan,
                         )
                         tiled_session = tiled_sessions.get(session_key)
                         if tiled_session is None:
@@ -1736,7 +1897,9 @@ def run_injection():
                                 workers=WORKERS,
                                 lanes=selected_plan.lanes,
                                 alignment_callback=calculate_alignment_data,
+                                alignment_chunk_callback=calculate_alignment_chunk,
                                 precision=inherited_precision,
+                                execution_plan=selected_plan.execution_plan,
                             )
                             tiled_sessions[session_key] = tiled_session
                     process_batch(
@@ -1777,8 +1940,95 @@ def run_injection():
                 "Every benchmarked Network Injection plan failed."
             ) from last_error
 
-        current_batch = []
+        def publish_window(window):
+            """Publish two tiled batches together, or use normal fallback."""
+            nonlocal active_plan_index
+            while active_plan_index < len(ranked_plans):
+                selected_plan = ranked_plans[active_plan_index]
+                if selected_plan.variant != "tiled" or len(window) < 2:
+                    for current_id, current_tasks in window:
+                        publish_batch(current_tasks, current_id)
+                    return
+                session_key = (
+                    selected_plan.candidate.spec,
+                    int(selected_plan.lanes),
+                    str(inherited_precision),
+                    selected_plan.execution_plan,
+                )
+                session = tiled_sessions.get(session_key)
+                if session is None:
+                    session = TiledAcceleratorSession(
+                        store=embedding_store,
+                        lengths=sequence_lengths,
+                        device=selected_plan.candidate.device,
+                        workers=WORKERS,
+                        lanes=selected_plan.lanes,
+                        alignment_callback=calculate_alignment_data,
+                        alignment_chunk_callback=calculate_alignment_chunk,
+                        precision=inherited_precision,
+                        execution_plan=selected_plan.execution_plan,
+                    )
+                    tiled_sessions[session_key] = session
+                backend = get_accelerator_backend(
+                    selected_plan.candidate.device
+                )
+
+                def writer_factory(current_id):
+                    return _PartialBatchWriter(
+                        os.path.join(
+                            RESULTS_DIR, f"batch_{current_id:05d}.h5"
+                        ),
+                        current_checksum,
+                        current_model_name,
+                        current_saving_mode,
+                        current_gap_penalties,
+                        inherited_precision,
+                    )
+
+                last_error = None
+                for _attempt in range(4):
+                    try:
+                        list(
+                            run_tiled_accelerator_batch_stream(
+                                window,
+                                session=session,
+                                writer_factory=writer_factory,
+                            )
+                        )
+                        return
+                    except Exception as error:
+                        last_error = error
+                        if not backend.is_out_of_memory(error):
+                            break
+                        session.recover_from_oom()
+                session.close()
+                tiled_sessions.pop(session_key, None)
+                if (
+                    Hardware_Utils.normalize_device_selection(
+                        DEVICE_SELECTION
+                    )
+                    != "auto"
+                ):
+                    raise RuntimeError(
+                        "Two-batch accelerator window failed on manually "
+                        f"selected device '{selected_plan.candidate.spec}': "
+                        f"{last_error}"
+                    ) from last_error
+                active_plan_index += 1
+                if active_plan_index < len(ranked_plans):
+                    fallback = ranked_plans[active_plan_index]
+                    print(
+                        f"[Hardware] {type(last_error).__name__}; replaying "
+                        f"two uncommitted injection batches on "
+                        f"{fallback.candidate.display_name}."
+                    )
+            raise RuntimeError(
+                "Every benchmarked Network Injection plan failed."
+            )
+
+        current_batch = CompactPairTasks(BATCH_SIZE, safe_new_headers)
         batch_id = next_batch_id
+        batch_window = []
 
         pbar = tqdm(
             total=math.ceil(num_tasks / BATCH_SIZE),
@@ -1789,14 +2039,21 @@ def run_injection():
             for task in chain(benchmark_seed, pending_iterator):
                 current_batch.append(task)
                 if len(current_batch) >= BATCH_SIZE:
-                    publish_batch(current_batch, batch_id)
+                    batch_window.append((batch_id, current_batch))
                     batch_id += 1
-                    pbar.update(1)
-                    current_batch = []
+                    current_batch = CompactPairTasks(
+                        BATCH_SIZE, safe_new_headers
+                    )
+                    if len(batch_window) >= 2:
+                        publish_window(batch_window)
+                        pbar.update(len(batch_window))
+                        batch_window = []
 
             if current_batch:
-                publish_batch(current_batch, batch_id)
-                pbar.update(1)
+                batch_window.append((batch_id, current_batch))
+            if batch_window:
+                publish_window(batch_window)
+                pbar.update(len(batch_window))
         finally:
             for session in tiled_sessions.values():
                 session.close()

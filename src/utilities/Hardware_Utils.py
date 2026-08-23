@@ -61,6 +61,8 @@ class BenchmarkResult:
     lanes: int = 1
     error: Optional[str] = None
     variant: str = "scalar"
+    execution_plan: Any = None
+    peak_memory_bytes: Optional[int] = None
 
     @property
     def succeeded(self) -> bool:
@@ -282,7 +284,29 @@ def rank_benchmark_results(
             key=lambda r: (
                 0 if r.candidate.is_cpu else 1,
                 0 if r.variant == "scalar" else 1,
+                (
+                    int(r.peak_memory_bytes)
+                    if r.peak_memory_bytes is not None
+                    else 2 ** 63 - 1
+                ),
+                {
+                    "eager": 0,
+                    "compiled": 1,
+                    "compiled_graph": 2,
+                }.get(
+                    getattr(
+                        r.execution_plan, "scorer_variant", "eager"
+                    ),
+                    3,
+                ),
                 int(r.lanes),
+                int(
+                    getattr(
+                        r.execution_plan,
+                        "microbatch_workspace_bytes",
+                        0,
+                    )
+                ),
                 r.candidate.spec,
             ),
         )

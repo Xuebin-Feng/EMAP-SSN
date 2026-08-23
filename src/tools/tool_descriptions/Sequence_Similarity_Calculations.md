@@ -160,18 +160,31 @@ Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifes
 
 # 🔍 Parse BLAST Output (`Parse_BLAST_Output.py`)
 
-This script parses pre-computed, whitespace-separated BLAST tabular output and converts it into a standard HDF5 E-value network. Query and subject identifiers must be the first two columns; the E-value column is detected automatically. Reciprocal and repeated hits are collapsed to the strongest undirected edge.
+This script parses strict, tab-delimited BLAST output against a required companion FASTA and converts it into a standard HDF5 E-value network. Complete FASTA and selected BLAST headers are sanitized with the viewer's shared header rule, then matched exactly. Reciprocal and repeated hits are collapsed to the strongest undirected edge while FASTA records with no hits remain available as orphan nodes.
 
 ### 📥 Input
 
 #### Tabular BLAST Output File `INPUT_BLAST_TABULAR`
-*   **Format**: Tab-separated tabular values (`.txt`, `.tab`, `.tsv`).
-*   **Created By**: Externally run NCBI BLASTP command (`blastp -outfmt 6`).
-*   **Structure**: Query ID in column 1, subject ID in column 2, and an E-value column at column 3 or later. Standard `blastp -outfmt 6` is supported directly. Blank lines and `#` comments are ignored.
+*   **Format**: UTF-8 tabular BLAST output (`.tabular`, `.txt`, `.tab`, `.tsv`).
+*   **Created By**: Externally run NCBI BLASTP.
+*   **Structure**: Select `standard_outfmt6`, `outfmt7_fields`, or `custom_columns` with `BLAST_LAYOUT`.
+
+#### Companion FASTA File `INPUT_FASTA`
+*   **Format**: UTF-8 FASTA (`.fasta`).
+*   **Purpose**: Defines every viewer node, including sequences with no BLAST hits, and the canonical node order.
+*   **Header rule**: The complete header after `>` is sanitized. Duplicate raw headers, sanitization collisions, empty headers, empty sequences, and invalid FASTA structure are rejected.
 
 ### ⚙️ Parameters
 
-This script does not require additional configuration parameters.
+*   `BLAST_LAYOUT`: Input interpretation mode.
+    - `standard_outfmt6`: Exactly 12 fields; query, subject, and E-value are columns 1, 2, and 11.
+    - `outfmt7_fields`: Uses the complete `# Query:` value and resolves subject plus E-value columns from consistent `# Fields:` declarations. Subject title, ID, and accession variants are recognized.
+    - `custom_columns`: Uses the explicit one-based `QUERY_COLUMN`, `SUBJECT_COLUMN`, and `EVALUE_COLUMN` values.
+*   `QUERY_COLUMN`, `SUBJECT_COLUMN`, `EVALUE_COLUMN`: One-based columns used only by `custom_columns`.
+*   `MATRIX`: Provenance label for the substitution/scoring matrix used by the external BLAST run.
+*   `BATCH_SIZE`: Maximum number of parsed rows retained before a sorted temporary run is written.
+
+For FASTA headers that contain descriptions, the recommended BLAST format is outfmt 7 with subject titles, for example `-outfmt "7 qseqid stitle evalue"`. The query header is taken from `# Query:` and the subject header from `stitle`. Standard `qseqid`/`sseqid` output is accepted only when those values exactly equal the sanitized complete FASTA headers.
 
 ### 📤 Output
 
@@ -181,26 +194,28 @@ This script does not require additional configuration parameters.
     - `/i`: Source sequence node indices.
     - `/j`: Target sequence node indices.
     - `/score`: Best parsed $-\log_{10}(E_{\text{value}})$ score for each undirected pair.
-    - `/headers`: Array of sequence headers.
-    - Attributes `model_name="BLAST"` and `matrix="BLAST"`.
+    - `/headers`: Sanitized complete FASTA headers in source order.
+    - Attributes include `model_name="BLAST"`, matrix and layout metadata, resolved columns, source and manifest hashes, parse counts, sanitization counts, and available outfmt-7 provenance.
+
+The parser always reports FASTA and BLAST header sanitization separately. Any unmatched header or collision is fatal, and an existing final HDF5 file is preserved if parsing or output validation fails.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
 
-1. **Column Mapping**:
-     Uses the first two fields as query and subject IDs. It scans up to the first 1000 valid rows and chooses the later column with the most scientific-notation or exact `0.0` matches as $c_{\text{evalue}}$. If no such column is detected, it falls back to standard outfmt-6 column 11 (zero-based index 10).
+1. **FASTA Manifest**:
+     Reads every FASTA record in source order, validates its structure, and sanitizes the complete header. The sanitized headers form the only canonical viewer identities.
 
-2. **Header Index Resolution**:
-     Constructs a header-to-index mapping dictionary dynamically as it reads lines.
+2. **Strict BLAST Layout Resolution**:
+     Resolves columns from the selected explicit layout. Rows with incorrect field counts, inconsistent outfmt-7 declarations, invalid UTF-8, invalid E-values, or unknown headers fail with physical line numbers. No heuristic E-value detection or first-token aliasing is used.
 
 3. **Edge Parsing and Score Conversion**:
-     Extracts query ID, subject ID, and E-value, and converts the E-value:
+     Sanitizes the selected complete BLAST headers, matches them exactly to the manifest, and converts each finite non-negative E-value. Zero maps to the capped score 300:
      $$\text{Score} = -\log_{10}(E_{\text{value}} + 10^{-300})$$
 
-4. **Deduplication**:
-     Retains only the highest-scoring alignment edge between any undirected sequence pair (u, v) to filter out redundant alignments.
+4. **Bounded Deduplication**:
+     Writes sorted runs of at most `BATCH_SIZE` parsed rows, externally merges them, and retains only the highest-scoring alignment for each canonical undirected pair. Final pairs are strictly sorted and unique.
 
-5. **HDF5 Serialization**:
-     Writes headers, sequence indices, and edge score datasets to the output network.
+5. **Validated Atomic Publication**:
+     Writes a `.partial` HDF5, validates its schema, headers, finite scores, canonical pairs, sorting, uniqueness, and provenance, then atomically replaces the final output. Zero-edge networks are valid.
 
 </details>

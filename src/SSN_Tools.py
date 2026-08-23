@@ -122,6 +122,9 @@ INLINE_FIELD_GROUPS = {
     "Align_Substitution_Matrix.py": [
         ("INPUT_FASTA", "MATRIX"),
     ],
+    "Parse_BLAST_Output.py": [
+        ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"),
+    ],
     "Sanitize_Sequences.py": [
         ("INPUT_FASTA", "OVER_WRITE"),
         ("ENABLE_LENGTH_FILTER", "REMOVE_BY_HEADER_STRING"),
@@ -148,6 +151,7 @@ INLINE_FIELD_GROUPS = {
 INLINE_FIELD_RATIOS = {
     ("INPUT_HDF5", "DEVICE_SELECTION"): (2, 1),
     ("INPUT_FASTA", "MATRIX"): (2, 1),
+    ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"): (1, 1, 1),
 }
 INLINE_TRAILING_CONTROL_GROUPS = {
     ("INPUT_FASTA", "OVER_WRITE"),
@@ -832,6 +836,32 @@ class DynamicComboBox(QComboBox):
         self.populate()
         super().showPopup()
 
+
+def bind_custom_blast_column_controls(inputs, row_widgets):
+    """Enable custom BLAST column controls only for the custom layout."""
+    layout_input = inputs.get("BLAST_LAYOUT")
+    custom_names = ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")
+    if not layout_input or any(name not in inputs for name in custom_names):
+        return
+
+    layout_combo = layout_input["widget"]
+
+    def sync_custom_blast_columns(current_layout=None):
+        selected_layout = (
+            layout_combo.currentData()
+            if layout_combo.property("persistItemData")
+            else layout_combo.currentText()
+        )
+        enabled = selected_layout == "custom_columns"
+        for name in custom_names:
+            inputs[name]["widget"].setEnabled(enabled)
+            label = row_widgets.get(name, (None, None))[0]
+            if label is not None:
+                label.setEnabled(enabled)
+
+    layout_combo.currentTextChanged.connect(sync_custom_blast_columns)
+    sync_custom_blast_columns()
+
 def render_markdown_with_math(text):
     # Temporarily hide display math ($$ ... $$) and inline math ($ ... $) from the markdown parser
     block_math = []
@@ -947,7 +977,14 @@ class ToolsGUI(QMainWindow):
                 "INPUT_FASTA": "Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.\nCompresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%."
             },
             "Parse_BLAST_Output.py": {
-                "INPUT_BLAST_TABULAR": "BLAST Results (.tabular): Tabular BLAST output file (blastp -outfmt 6 / TSV) to parse.\nExtracts query/subject IDs and E-values, linearizing scores to -Log10(E) in an HDF5 network file."
+                "INPUT_BLAST_TABULAR": "BLAST Results: Tab-delimited BLASTP output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.",
+                "INPUT_FASTA": "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.",
+                "BLAST_LAYOUT": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.",
+                "QUERY_COLUMN": "Query Column: One-based full query-header column used only for Custom Columns.",
+                "SUBJECT_COLUMN": "Subject Column: One-based full subject-header column used only for Custom Columns.",
+                "EVALUE_COLUMN": "E-Value Column: One-based E-value column used only for Custom Columns.",
+                "MATRIX": "Matrix Metadata: Informational substitution-matrix label for the external BLAST run. Enter Unknown when the source settings are unavailable.",
+                "BATCH_SIZE": "Batch Size: Maximum parsed non-self edges buffered before writing a sorted HDF5 run. Lower values use less RAM."
             },
             "Embedding_Injection.py": {
                 "INPUT_EMBED": "Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.\nExisting sequence embeddings are preserved and reused without recalculation.",
@@ -1208,10 +1245,10 @@ class ToolsGUI(QMainWindow):
                             "var_name": "INPUT_FASTA",
                             "type": "dropdown_from_folder",
                             "folder": os.path.join("Input_Files", "Sequence_Sets"),
-                            "extension": ".fasta",
+                            "extension": (".fasta", ".fa", ".faa"),
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
+                            "display": "Sequence Set (.fasta/.fa/.faa):"
                         },
                         {
                             "var_name": "MATRIX",
@@ -1252,10 +1289,59 @@ class ToolsGUI(QMainWindow):
                             "var_name": "INPUT_BLAST_TABULAR",
                             "type": "dropdown_from_folder",
                             "folder": os.path.join("Input_Files", "Networks_EValues"),
-                            "extension": ".tabular",
+                            "extension": (".tabular", ".txt", ".tab", ".tsv"),
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",
-                            "display": "BLAST Results (.tabular):"
+                            "display": "BLAST Results (.tabular/.txt/.tab/.tsv):"
+                        },
+                        {
+                            "var_name": "INPUT_FASTA",
+                            "type": "dropdown_from_folder",
+                            "folder": os.path.join("Input_Files", "Sequence_Sets"),
+                            "extension": ".fasta",
+                            "include_ext": True,
+                            "dir_key": "FASTA_DIR",
+                            "display": "Sequence Set (.fasta):"
+                        },
+                        {
+                            "var_name": "BLAST_LAYOUT",
+                            "type": "dropdown",
+                            "options": [
+                                "standard_outfmt6",
+                                "outfmt7_fields",
+                                "Custom Columns (1-based indexing)"
+                            ],
+                            "option_values": [
+                                "standard_outfmt6",
+                                "outfmt7_fields",
+                                "custom_columns"
+                            ],
+                            "display": "BLAST Layout:"
+                        },
+                        {
+                            "var_name": "QUERY_COLUMN",
+                            "type": "number",
+                            "display": "Query Column:"
+                        },
+                        {
+                            "var_name": "SUBJECT_COLUMN",
+                            "type": "number",
+                            "display": "Subject Column:"
+                        },
+                        {
+                            "var_name": "EVALUE_COLUMN",
+                            "type": "number",
+                            "display": "EValue Column:"
+                        },
+                        {
+                            "var_name": "MATRIX",
+                            "type": "text",
+                            "display": "Substitution Matrix (metadata):"
+                        },
+                        {
+                            "var_name": "BATCH_SIZE",
+                            "type": "text",
+                            "display": "Batch Size:"
                         }
                     ]
                 }
@@ -2356,7 +2442,19 @@ class ToolsGUI(QMainWindow):
             
             if s_def['type'] == "dropdown":
                 ui_element = NoScrollComboBox()
-                if s_def.get("model_license_labels", False):
+                if s_def.get("option_values") is not None:
+                    option_values = s_def["option_values"]
+                    if len(option_values) != len(s_def["options"]):
+                        raise ValueError(
+                            f"Dropdown {var_name} has mismatched options and values."
+                        )
+                    for display_value, stored_value in zip(
+                        s_def["options"], option_values
+                    ):
+                        ui_element.addItem(display_value, stored_value)
+                    ui_element.setProperty("persistItemData", True)
+                    idx = ui_element.findData(str(actual_val))
+                elif s_def.get("model_license_labels", False):
                     usage_terms = get_embedding_model_usage_terms()
                     for model_name in s_def['options']:
                         ui_element.addItem(
@@ -2603,6 +2701,9 @@ class ToolsGUI(QMainWindow):
         self._merge_compact_rows(layout, script_name, row_widgets)
         self._merge_inline_field_rows(layout, script_name, row_widgets)
         self.script_data[script_path] = {'inputs': inputs, 'settings': settings}
+
+        if script_name == "Parse_BLAST_Output.py":
+            bind_custom_blast_column_controls(inputs, row_widgets)
 
         if script_name in {
             "Align_Similarity_Matrix.py",
@@ -3755,8 +3856,9 @@ class ToolsGUI(QMainWindow):
                     )
                     
                 if w_type == "dropdown_from_folder" and s['def'].get('include_ext', False):
-                    if val and not val.endswith(s['def']['extension']):
-                        val += s['def']['extension']
+                    extensions = s['def']['extension']
+                    if val and not val.endswith(extensions):
+                        val += extensions[0] if isinstance(extensions, tuple) else extensions
                 new_settings[var_name] = val
             elif w_type == "switch":
                 new_settings[var_name] = widget.isChecked()

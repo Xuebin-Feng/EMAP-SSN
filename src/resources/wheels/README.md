@@ -7,9 +7,10 @@ This directory contains two wheels used by the launchers:
   the Cambrian license.
 - The Biohub Transformers wheel comes from commit
   `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`, whose Hugging Face upstream base
-  is `753d61104116eefc8ffc977327b441ee0c8d599f`. The only source change is the
-  accompanying packaging patch, which changes `4.57.6` to the distinguishable
-  local version `4.57.6+biohub.3a8956f`.
+  is `753d61104116eefc8ffc977327b441ee0c8d599f`. The only project-side source
+  change is the accompanying packaging patch, which changes `4.57.6` to the
+  distinguishable local version `4.57.6+biohub.3a8956f`. The patch carries
+  prominent notices in both modified files and changes no package functionality.
 
 `manifest.json` records both source commits, wheel hashes, sizes, licenses, and
 the Transformers base commit. `esm-3.3.0-runtime-requirements.txt` is derived
@@ -27,8 +28,8 @@ $env:SOURCE_DATE_EPOCH = '1779863841'
 uv build --wheel --python C:\Python312\python.exe --out-dir wheelhouse
 ```
 
-The resulting wheel must have size `12139612` bytes and SHA-256
-`74cb19ba0b6c4cf0769322f0ef035bd016eea6ccb2f587a1ff1263a016354c3b`.
+The resulting wheel must have size `12140951` bytes and SHA-256
+`4ab1594c1461782fa39c80dcc0b72826e68893da3ced2631129f90d1de926e6c`.
 The Python path is illustrative; any clean supported Python build frontend may
 be used, but the fixed source-date epoch and clean source tree are required for
 the recorded reproducible artifact.

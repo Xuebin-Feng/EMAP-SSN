@@ -472,10 +472,12 @@ review.
 The repository bundles an unmodified ESM 3.3.0 wheel and a reproducible Biohub
 Transformers wheel labeled `4.57.6+biohub.3a8956f`. Their source commits,
 SHA-256 values, build documentation, and adjacent licenses are recorded under
-`src/resources/wheels/`. Installation does not clone the Biohub repository, but
-it is not fully offline: ordinary PyPI dependencies, the selected PyTorch build,
-and model weights remain separately downloaded. Model weights retain their
-publishers' licenses. See sections 1 and 5 of
+`src/resources/wheels/`. Biohub functionality is unchanged by the project-side
+packaging patch: it only adds the distinguishable local version label and
+prominent modification notices. Installation does not clone the Biohub
+repository, but it is not fully offline: ordinary PyPI dependencies, the
+selected PyTorch build, and model weights remain separately downloaded. Model
+weights retain their publishers' licenses. See sections 1 and 5 of
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 Before publishing a release, confirm that copyright ownership and release

@@ -79,19 +79,28 @@ from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Embedding_Alignment_Engine import (
+    AcceleratorMemoryPlan,
+    CompactPairTasks,
     TiledAcceleratorSession,
     EmbeddingTileStore,
     accelerator_memory_plan,
+    benchmark_accelerator_execution_plans,
     compare_precision_results,
     cuda_matmul_precision,
     estimate_accelerator_working_set,
     get_accelerator_backend,
+    is_nvidia_cuda,
+    measure_accelerator_session,
     normalize_execution_mode,
     normalize_precision_setting,
     run_tiled_accelerator_pipeline,
+    run_tiled_accelerator_batch_stream,
     tiled_accelerator_support,
 )
-from utilities.Alignment_Score_Kernels import global_local_scores
+from utilities.Alignment_Score_Kernels import (
+    GlobalLocalScratch,
+    global_local_scores,
+)
 from utilities.Embedding_HDF5 import read_embedding_manifest
 
 # ==========================================
@@ -374,6 +383,7 @@ def compute_score_matrix_torch(emb_i, emb_j, device):
 # ==========================================
 worker_hf = None
 worker_device = None
+alignment_scratch_state = threading.local()
 
 def init_worker(h5_path):
     global worker_hf, worker_device
@@ -395,13 +405,38 @@ def calculate_alignment_data(args):
     """
     idx_i, idx_j, matrix = args
 
-    g_raw, g_len, l_raw, l_len = global_local_scores(
+    scratch = getattr(alignment_scratch_state, "scratch", None)
+    if scratch is None:
+        scratch = GlobalLocalScratch()
+        alignment_scratch_state.scratch = scratch
+    (g_raw, g_len, l_raw, l_len), _grew = scratch.score(
         matrix,
         GLOBAL_GAP_P,
         LOCAL_GAP_P,
     )
 
     return (idx_i, idx_j, l_raw, l_len, g_raw, g_len)
+
+
+def calculate_alignment_chunk(items):
+    """Finish a bounded packet chunk with one grow-only thread scratch."""
+    scratch = getattr(alignment_scratch_state, "scratch", None)
+    if scratch is None:
+        scratch = GlobalLocalScratch()
+        alignment_scratch_state.scratch = scratch
+    results = []
+    growths = 0
+    for ordinal, idx_i, idx_j, matrix in items:
+        (g_raw, g_len, l_raw, l_len), grew = scratch.score(
+            matrix,
+            GLOBAL_GAP_P,
+            LOCAL_GAP_P,
+        )
+        growths += int(grew)
+        results.append(
+            (ordinal, (idx_i, idx_j, l_raw, l_len, g_raw, g_len))
+        )
+    return results, growths
 
 
 def calculate_cpu_pair(args):
@@ -900,6 +935,7 @@ def process_accelerated_tasks(
                         workers=workers,
                         lanes=accelerator_workers,
                         alignment_callback=calculate_alignment_data,
+                        alignment_chunk_callback=calculate_alignment_chunk,
                         precision=matmul_precision,
                         progress=progress,
                         matrix_budget_override=matrix_budget,
@@ -1311,6 +1347,7 @@ def _resolve_active_matmul_precision(
             workers=workers,
             lanes=1,
             alignment_callback=calculate_alignment_data,
+            alignment_chunk_callback=calculate_alignment_chunk,
             precision=precision,
         )
 
@@ -1414,10 +1451,13 @@ def _benchmark_processing_plans(
         print(f"[Hardware] Using manually selected {manual.display_name}.")
         return [Hardware_Utils.BenchmarkResult(manual, 0.0, variant="scalar")]
 
-    sample = _representative_alignment_tasks(
-        batch_tasks,
-        input_h5,
-        max(2, min(int(ACCELERATOR_TUNE_PAIRS), len(batch_tasks))),
+    sample = list(
+        batch_tasks[
+            : max(
+                2,
+                min(int(ACCELERATOR_TUNE_PAIRS), len(batch_tasks)),
+            )
+        ]
     )
     confirmation_sample = list(
         batch_tasks[
@@ -1428,7 +1468,9 @@ def _benchmark_processing_plans(
         ]
     )
 
-    def execute_plan(candidate, variant, lanes, tasks):
+    def execute_plan(
+        candidate, variant, lanes, tasks, execution_plan=None
+    ):
         if candidate.is_cpu:
             return process_cpu_tasks(
                 tasks,
@@ -1446,7 +1488,10 @@ def _benchmark_processing_plans(
                 workers=workers,
                 lanes=lanes,
                 alignment_callback=calculate_alignment_data,
+                alignment_chunk_callback=calculate_alignment_chunk,
                 precision=matmul_precision,
+                execution_plan=execution_plan,
+                print_summary=False,
             )
         return _run_accelerated_pipeline(
             tasks,
@@ -1468,7 +1513,7 @@ def _benchmark_processing_plans(
 
     print(
         f"[Hardware] Benchmarking {len(candidates)} device(s) with "
-        f"{len(sample)} representative alignment pairs..."
+        f"{len(sample)} production-ordered alignment pairs..."
     )
     print(
         "Device/backend                 Plan      Lanes   Memory peak/safe "
@@ -1478,6 +1523,7 @@ def _benchmark_processing_plans(
     for candidate in candidates:
         candidate_results = []
         candidate_memory_info = None
+        base_memory_plan = None
         tiled_preflight_error = None
         if (
             candidate.backend in {"cuda", "xpu"}
@@ -1544,7 +1590,103 @@ def _benchmark_processing_plans(
                 except Exception:
                     pass
 
-        for variant in variants:
+        if "tiled" in variants and isinstance(
+            base_memory_plan, AcceleratorMemoryPlan
+        ):
+            print(
+                f"[Hardware] Staged tiled tuning on "
+                f"{candidate.display_name}: lanes, packet cap, CPU workers, "
+                f"CPU chunk, then scorer."
+            )
+
+            def memory_plan_factory(lanes):
+                return accelerator_memory_plan(
+                    candidate.device,
+                    lanes=lanes,
+                    memory_info=candidate_memory_info,
+                )
+
+            def measure_tiled_plan(execution_plan, plan_tasks):
+                with TiledAcceleratorSession(
+                    store=embedding_store,
+                    lengths=sequence_lengths,
+                    device=candidate.device,
+                    workers=workers,
+                    lanes=execution_plan.lanes,
+                    alignment_callback=calculate_alignment_data,
+                    alignment_chunk_callback=calculate_alignment_chunk,
+                    precision=matmul_precision,
+                    memory_plan_override=memory_plan_factory(
+                        execution_plan.lanes
+                    ),
+                    execution_plan=execution_plan,
+                    print_summary=False,
+                ) as tuning_session:
+                    plan_results, rate, measured_pairs = (
+                        measure_accelerator_session(
+                            tuning_session, plan_tasks
+                        )
+                    )
+                    plan_metrics = tuning_session.metrics()
+                return {
+                    "rate": rate,
+                    "measured_pairs": measured_pairs,
+                    "peak_memory_bytes": plan_metrics[
+                        "peak_allocated_bytes"
+                    ],
+                    "compilation_seconds": plan_metrics[
+                        "compilation_seconds"
+                    ],
+                    "results": plan_results,
+                }
+
+            tiled_ranked, tiled_observations = (
+                benchmark_accelerator_execution_plans(
+                    lane_candidates=lane_candidates,
+                    memory_plan_factory=memory_plan_factory,
+                    workers=workers,
+                    short_tasks=sample,
+                    confirmation_tasks=confirmation_sample,
+                    remaining_pairs=len(batch_tasks),
+                    measure=measure_tiled_plan,
+                    allow_compilation=True,
+                    allow_graph_compilation=is_nvidia_cuda(
+                        candidate.device
+                    ),
+                )
+            )
+            for observation in tiled_observations:
+                plan = observation.execution_plan
+                cap_mib = plan.microbatch_workspace_bytes / (1024 ** 2)
+                status = (
+                    f"{observation.pairs_per_second:.2f} pairs/s"
+                    if observation.succeeded
+                    else observation.error
+                )
+                print(
+                    f"  tiled lanes={plan.lanes}, cap={cap_mib:.0f} MiB, "
+                    f"workers={plan.active_cpu_workers}, "
+                    f"chunk={plan.cpu_chunk_size}, "
+                    f"{plan.scorer_variant}: {status}"
+                )
+            for observation in tiled_ranked:
+                candidate_results.append(
+                    Hardware_Utils.BenchmarkResult(
+                        candidate,
+                        observation.pairs_per_second,
+                        lanes=observation.execution_plan.lanes,
+                        variant="tiled",
+                        execution_plan=observation.execution_plan,
+                        peak_memory_bytes=observation.peak_memory_bytes,
+                    )
+                )
+
+        staged_tiled = isinstance(base_memory_plan, AcceleratorMemoryPlan)
+        for variant in (
+            variant
+            for variant in variants
+            if variant != "tiled" or not staged_tiled
+        ):
             for lanes in lane_candidates:
                 memory_estimate = None
                 vram_label = "--"
@@ -1641,6 +1783,14 @@ def _benchmark_processing_plans(
                 f"{len(confirmation_sample)} production-ordered pairs..."
             )
             for short_result in selected_short:
+                if (
+                    short_result.variant == "tiled"
+                    and short_result.execution_plan is not None
+                ):
+                    # The staged tuner already confirmed its two finalists on
+                    # this production-ordered sample.
+                    results.append(short_result)
+                    continue
                 memory_estimate = estimate_accelerator_working_set(
                     confirmation_sample,
                     store=embedding_store,
@@ -1670,6 +1820,7 @@ def _benchmark_processing_plans(
                         short_result.variant,
                         short_result.lanes,
                         confirmation_sample,
+                        short_result.execution_plan,
                     )
                     elapsed = max(time.perf_counter() - started, 1e-9)
                     rate = len(confirmation_sample) / elapsed
@@ -1678,6 +1829,8 @@ def _benchmark_processing_plans(
                         rate,
                         lanes=short_result.lanes,
                         variant=short_result.variant,
+                        execution_plan=short_result.execution_plan,
+                        peak_memory_bytes=short_result.peak_memory_bytes,
                     )
                     print(
                         f"  {short_result.variant:8} lanes="
@@ -1747,6 +1900,7 @@ def _run_batch_with_ranked_plans(
                     plan.candidate.spec,
                     int(plan.lanes),
                     str(precision),
+                    plan.execution_plan,
                 )
                 tiled_session = tiled_sessions.get(session_key)
                 if tiled_session is None:
@@ -1757,7 +1911,9 @@ def _run_batch_with_ranked_plans(
                         workers=process_args[2],
                         lanes=plan.lanes,
                         alignment_callback=calculate_alignment_data,
+                        alignment_chunk_callback=calculate_alignment_chunk,
                         precision=precision,
+                        execution_plan=plan.execution_plan,
                     )
                     tiled_sessions[session_key] = tiled_session
             process_batch(
@@ -1946,6 +2102,109 @@ def process_batch(
         writer.publish()
     finally:
         writer.close()
+
+
+def _run_batch_window_with_ranked_plans(
+    ranked_plans,
+    active_plan_index,
+    batch_window,
+    workers,
+    input_h5,
+    embedding_checksum,
+    model_name,
+    saving_mode,
+    gap_penalties,
+    *,
+    tiled_sessions,
+    embedding_store,
+    sequence_lengths,
+    matmul_precision,
+):
+    """Run up to two uncommitted batches with accelerator lookahead."""
+    while active_plan_index < len(ranked_plans):
+        plan = ranked_plans[active_plan_index]
+        if plan.variant != "tiled" or len(batch_window) < 2:
+            for current_id, current_tasks in batch_window:
+                active_plan_index = _run_batch_with_ranked_plans(
+                    ranked_plans,
+                    active_plan_index,
+                    current_tasks,
+                    current_id,
+                    workers,
+                    input_h5,
+                    embedding_checksum,
+                    model_name,
+                    saving_mode,
+                    gap_penalties,
+                    tiled_sessions=tiled_sessions,
+                    embedding_store=embedding_store,
+                    sequence_lengths=sequence_lengths,
+                    matmul_precision=matmul_precision,
+                )
+            return active_plan_index
+
+        session_key = (
+            plan.candidate.spec,
+            int(plan.lanes),
+            str(matmul_precision),
+            plan.execution_plan,
+        )
+        session = tiled_sessions.get(session_key)
+        if session is None:
+            session = TiledAcceleratorSession(
+                store=embedding_store,
+                lengths=sequence_lengths,
+                device=plan.candidate.device,
+                workers=workers,
+                lanes=plan.lanes,
+                alignment_callback=calculate_alignment_data,
+                alignment_chunk_callback=calculate_alignment_chunk,
+                precision=matmul_precision,
+                execution_plan=plan.execution_plan,
+            )
+            tiled_sessions[session_key] = session
+        backend = get_accelerator_backend(plan.candidate.device)
+
+        def writer_factory(current_id):
+            return _PartialBatchWriter(
+                os.path.join(RESULTS_DIR, f"batch_{current_id:05d}.h5"),
+                embedding_checksum,
+                model_name,
+                gap_penalties,
+                matmul_precision,
+            )
+
+        last_error = None
+        for _attempt in range(4):
+            try:
+                list(
+                    run_tiled_accelerator_batch_stream(
+                        batch_window,
+                        session=session,
+                        writer_factory=writer_factory,
+                    )
+                )
+                return active_plan_index
+            except Exception as error:
+                last_error = error
+                if not backend.is_out_of_memory(error):
+                    break
+                session.recover_from_oom(minimum_budget=16 * 1024 * 1024)
+        session.close()
+        tiled_sessions.pop(session_key, None)
+        if Hardware_Utils.normalize_device_selection(DEVICE_SELECTION) != "auto":
+            raise RuntimeError(
+                f"Two-batch accelerator window failed on manually selected "
+                f"device '{plan.candidate.spec}': {last_error}"
+            ) from last_error
+        active_plan_index += 1
+        if active_plan_index < len(ranked_plans):
+            fallback = ranked_plans[active_plan_index]
+            print(
+                f"[Hardware] {type(last_error).__name__}; replaying two "
+                f"uncommitted batches on {fallback.candidate.display_name}."
+            )
+    raise RuntimeError("Every benchmarked alignment processing plan failed.")
 
 def _decode_attr(val):
     if val is None:
@@ -2369,7 +2628,7 @@ def run_job_distributor():
 
     # Build queue of missing tasks and process on the fly
     if num_tasks > 0:
-        current_batch = []
+        current_batch = CompactPairTasks(BATCH_SIZE, safe_headers)
         batch_id = next_batch_id
         active_plan_index = 0
         benchmark_tasks = _first_pending_pairs(
@@ -2423,6 +2682,7 @@ def run_job_distributor():
             unit="batch",
         )
         tiled_sessions = {}
+        batch_window = []
         try:
             for i in range(n):
                 cols = np.arange(i + 1, n)
@@ -2439,36 +2699,41 @@ def run_job_distributor():
 
                 pending_cols = cols[pending_mask]
                 for j_val in pending_cols:
-                    current_batch.append(
-                        (i, int(j_val), safe_headers[i], safe_headers[j_val])
-                    )
+                    current_batch.append(i, int(j_val))
                     if len(current_batch) >= BATCH_SIZE:
-                        active_plan_index = _run_batch_with_ranked_plans(
-                            ranked_plans,
-                            active_plan_index,
-                            current_batch,
-                            batch_id,
-                            WORKERS,
-                            FULL_INPUT_HDF5,
-                            current_checksum,
-                            current_model_name,
-                            current_saving_mode,
-                            current_gap_penalties,
-                            tiled_sessions=tiled_sessions,
-                            embedding_store=active_embedding_store,
-                            sequence_lengths=active_sequence_lengths,
-                            matmul_precision=active_matmul_precision,
-                        )
+                        batch_window.append((batch_id, current_batch))
                         batch_id += 1
-                        current_batch = []
-                        pbar.update(1)
+                        current_batch = CompactPairTasks(
+                            BATCH_SIZE, safe_headers
+                        )
+                        if len(batch_window) >= 2:
+                            active_plan_index = (
+                                _run_batch_window_with_ranked_plans(
+                                    ranked_plans,
+                                    active_plan_index,
+                                    batch_window,
+                                    WORKERS,
+                                    FULL_INPUT_HDF5,
+                                    current_checksum,
+                                    current_model_name,
+                                    current_saving_mode,
+                                    current_gap_penalties,
+                                    tiled_sessions=tiled_sessions,
+                                    embedding_store=active_embedding_store,
+                                    sequence_lengths=active_sequence_lengths,
+                                    matmul_precision=active_matmul_precision,
+                                )
+                            )
+                            pbar.update(len(batch_window))
+                            batch_window = []
 
             if len(current_batch) > 0:
-                active_plan_index = _run_batch_with_ranked_plans(
+                batch_window.append((batch_id, current_batch))
+            if batch_window:
+                active_plan_index = _run_batch_window_with_ranked_plans(
                     ranked_plans,
                     active_plan_index,
-                    current_batch,
-                    batch_id,
+                    batch_window,
                     WORKERS,
                     FULL_INPUT_HDF5,
                     current_checksum,
@@ -2480,7 +2745,7 @@ def run_job_distributor():
                     sequence_lengths=active_sequence_lengths,
                     matmul_precision=active_matmul_precision,
                 )
-                pbar.update(1)
+                pbar.update(len(batch_window))
         finally:
             for session in tiled_sessions.values():
                 session.close()

@@ -167,6 +167,35 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
     return "\n".join(lines)
 
 
+def _vispy_text_line_height_pixels(text_visual):
+    """Return VisPy's rendered multiline advance in logical pixels."""
+    n_pix = (text_visual.font_size / 72.0) * text_visual.transforms.dpi
+    line_height = getattr(text_visual, '_line_height', 1.2)
+    font = getattr(text_visual, '_font', None)
+    if font is None:
+        return n_pix * line_height
+
+    try:
+        ratio = 1.0 / font.ratio
+        slop = font.slop
+        ascender = 0.0
+        descender = 0.0
+        for char in 'ÅÉÑŐjgpqy':
+            glyph = font[char]
+            y0 = glyph['offset'][1] * ratio + slop
+            y1 = y0 - glyph['size'][1]
+            ascender = max(ascender, y0 - slop)
+            descender = min(descender, y1 + slop)
+        glyph_height = ascender - descender
+        lowres_size = float(font._lowres_size)
+        if glyph_height > 0.0 and lowres_size > 0.0:
+            return (glyph_height / lowres_size) * n_pix * line_height
+    except (AttributeError, KeyError, TypeError, ValueError, ZeroDivisionError):
+        pass
+
+    return n_pix * line_height
+
+
 def _apply_safe_rectangle_geometry(rectangle, center, width, height, radius):
     """Apply rounded-rectangle geometry without exposing invalid interim state."""
     width = max(float(width), 1.0)
@@ -341,8 +370,11 @@ class MainViewer:
             "console_bg_y_offset": 20.0, # Positive values move only the box downward
             "console_bg_radius": 10.0,    # Radius for the rounded corners (0.0 for sharp corners)
             "console_bg_padding_x": 20.0, # Fixed logical padding added to the end of the command box
+            # 4. Background-job status text below the command box
+            "background_job_status_gap": 8.0,
+            "background_job_status_right_padding": 20.0,
             
-            # 4. Bottom-right status stack, from bottom to top:
+            # 5. Bottom-right status stack, from bottom to top:
             #    Hidden Nodes, View Width, selected metadata property.
             "status_x_offset": 10.0,       # Distance from the right edge of the window
             "status_bottom_offset": 30.0,  # Distance from the bottom edge to Hidden Nodes
@@ -764,6 +796,7 @@ class MainViewer:
         for attribute_name in (
             'instr_text',
             'console_text',
+            'background_job_status_text',
             'zoom_text',
             'hidden_text',
         ):
@@ -854,26 +887,26 @@ class MainViewer:
         width = min(max_width, max(min_width, desired_width))
 
         base_height = cfg_hud["console_bg_height"]
-        font_line_height = (
-            (text_visual.font_size / 72.0)
-            * text_visual.transforms.dpi
-            * getattr(text_visual, '_line_height', 1.2)
-        )
+        font_line_height = _vispy_text_line_height_pixels(text_visual)
         extra_height = max(0, len(rendered_lines) - 1) * font_line_height
         height = base_height + extra_height
         radius = cfg_hud["console_bg_radius"]
         center_x = left_edge + width / 2.0
-        text_block_height = max(1, len(rendered_lines)) * font_line_height
         text_y = cfg_hud["console_text_y"]
         text_anchor_y = cfg_hud.get("console_text_anchor_y", "bottom")
         if text_anchor_y == "top":
-            center_y = text_y + text_block_height / 2.0
+            single_line_center_y = text_y + font_line_height / 2.0
         elif text_anchor_y in ("center", "middle"):
-            center_y = text_y
+            single_line_center_y = text_y
         else:
-            # Bottom and baseline anchored text extends upward from its anchor.
-            center_y = text_y - text_block_height / 2.0
-        center_y += cfg_hud.get("console_bg_y_offset", 0.0)
+            single_line_center_y = text_y - font_line_height / 2.0
+        # Keep the single-line top edge fixed so wrapped command lines and the
+        # background both extend downward together.
+        center_y = (
+            single_line_center_y
+            + extra_height / 2.0
+            + cfg_hud.get("console_bg_y_offset", 0.0)
+        )
 
         _apply_safe_rectangle_geometry(
             self.console_bg,
@@ -882,6 +915,98 @@ class MainViewer:
             height=height,
             radius=radius,
         )
+
+        self.update_background_job_status_layout()
+
+    def update_background_job_status_layout(self):
+        """Wrap and position scheduler status beneath the current command box."""
+        if (
+            not hasattr(self, 'background_job_status_text')
+            or not hasattr(self, 'console_bg')
+        ):
+            return
+
+        cfg_hud = self.hud_layout
+        text_visual = self.background_job_status_text
+
+        def measure_text_width(text):
+            if not text or not hasattr(text_visual, '_font'):
+                return 0.0
+
+            font = text_visual._font
+            dpi = text_visual.transforms.dpi
+            font_size = text_visual.font_size
+            n_pix = (font_size / 72.0) * dpi
+            ratio = 1.0 / getattr(font, 'ratio', 4.0)
+            width_val = 0.0
+            previous = None
+            for char in text:
+                glyph = font[char]
+                kerning = glyph['kerning'].get(previous, 0.0) * ratio
+                width_val += glyph['advance'] * ratio + kerning
+                previous = char
+            return (width_val / 64.0) * n_pix
+
+        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
+        panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
+        effective_canvas_width = self.canvas.size[0] - panel_width
+        right_padding = cfg_hud.get("background_job_status_right_padding", 20.0)
+        available_width = max(
+            1.0,
+            effective_canvas_width - cfg_hud["console_text_x"] - right_padding,
+        )
+
+        current_text = text_visual.text or ""
+        previous_rendered_text = getattr(
+            self,
+            '_background_job_status_rendered_text',
+            None,
+        )
+        if previous_rendered_text is None or current_text != previous_rendered_text:
+            logical_text = current_text.replace(
+                '\r\n', ' '
+            ).replace('\r', ' ').replace('\n', ' ')
+            self._background_job_status_logical_text = logical_text
+        else:
+            logical_text = getattr(
+                self,
+                '_background_job_status_logical_text',
+                current_text,
+            )
+
+        rendered_text = _wrap_console_text_for_display(
+            logical_text,
+            available_width,
+            measure_text_width,
+        )
+        self._background_job_status_rendered_text = rendered_text
+        if current_text != rendered_text:
+            text_visual.text = rendered_text
+
+        box_bottom = self.console_bg.center[1] + self.console_bg.height / 2.0
+        text_visual.pos = (
+            cfg_hud["console_text_x"],
+            box_bottom + cfg_hud.get("background_job_status_gap", 8.0),
+        )
+        text_visual.visible = bool(logical_text)
+
+    def set_background_job_status(self, message):
+        """Show a scheduler lifecycle message without altering command input."""
+        if not hasattr(self, 'background_job_status_text'):
+            return
+        self.background_job_status_text.text = str(message)
+        self.update_background_job_status_layout()
+        self.canvas.update()
+
+    def clear_background_job_status(self):
+        """Hide the previous scheduler status when a new command is opened."""
+        if not hasattr(self, 'background_job_status_text'):
+            return
+        self._background_job_status_logical_text = ""
+        self._background_job_status_rendered_text = ""
+        self.background_job_status_text.text = ""
+        self.background_job_status_text.visible = False
+        self.canvas.update()
 
     def load_and_simulate(self):
             """
@@ -1852,6 +1977,21 @@ class MainViewer:
             anchor_x=cfg_hud["console_text_anchor_x"], 
             parent=self.canvas.scene
         )
+
+        self._background_job_status_logical_text = ""
+        self._background_job_status_rendered_text = ""
+        self.background_job_status_text = scene.visuals.Text(
+            text="",
+            bold=True,
+            face=self.vispy_monospace_face,
+            font_size=hud_font_size,
+            color=cfg.TEXT_COLOR,
+            pos=(cfg_hud["console_text_x"], cfg_hud["console_text_y"]),
+            anchor_y=cfg_hud["console_text_anchor_y"],
+            anchor_x=cfg_hud["console_text_anchor_x"],
+            parent=self.canvas.scene,
+        )
+        self.background_job_status_text.visible = False
         
         self.zoom_text = scene.visuals.Text(
             text="", 
@@ -2062,6 +2202,7 @@ class MainViewer:
                 return
 
             if event.key in ['Enter', 'Return']:
+                self.clear_background_job_status()
                 self.console_mode = True
                 self.input_buffer = ""
                 self.cursor_pos = 0

@@ -18,14 +18,21 @@ from PySide6.QtCore import QEvent, QPoint  # noqa: E402
 from PySide6.QtGui import QHelpEvent  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
+    QComboBox,
+    QFormLayout,
     QLabel,
     QMainWindow,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from SSN_Tools import SpacedTipLabel, ToolsGUI  # noqa: E402
+from SSN_Tools import (  # noqa: E402
+    SpacedTipLabel,
+    ToolsGUI,
+    bind_custom_blast_column_controls,
+)
 
 
 class TooltipRoutingWindow(ToolsGUI):
@@ -85,6 +92,70 @@ class TooltipRoutingTests(unittest.TestCase):
             "Help from the shared database.",
             self.window.tip_panel.text(),
         )
+
+    def test_custom_blast_columns_follow_layout_selection(self):
+        layout_combo = QComboBox()
+        layout_combo.addItem("standard_outfmt6", "standard_outfmt6")
+        layout_combo.addItem("outfmt7_fields", "outfmt7_fields")
+        layout_combo.addItem(
+            "Custom Columns (1-based indexing)", "custom_columns"
+        )
+        layout_combo.setProperty("persistItemData", True)
+        inputs = {"BLAST_LAYOUT": {"widget": layout_combo}}
+        row_widgets = {}
+        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"):
+            label = QLabel(name)
+            widget = QSpinBox()
+            inputs[name] = {"widget": widget}
+            row_widgets[name] = (label, widget)
+
+        bind_custom_blast_column_controls(inputs, row_widgets)
+
+        self.assertTrue(
+            all(not inputs[name]["widget"].isEnabled() for name in row_widgets)
+        )
+        self.assertTrue(all(not label.isEnabled() for label, _ in row_widgets.values()))
+        layout_combo.setCurrentText("Custom Columns (1-based indexing)")
+        self.app.processEvents()
+        self.assertEqual(layout_combo.currentData(), "custom_columns")
+        self.assertTrue(
+            all(inputs[name]["widget"].isEnabled() for name in row_widgets)
+        )
+        self.assertTrue(all(label.isEnabled() for label, _ in row_widgets.values()))
+
+        self.window.script_data = {
+            "parse": {
+                "inputs": {
+                    "BLAST_LAYOUT": {
+                        "widget": layout_combo,
+                        "type": "dropdown",
+                    }
+                },
+                "settings": [{"name": "BLAST_LAYOUT", "def": {}}],
+            }
+        }
+        self.assertEqual(
+            self.window._collect_tool_settings("parse")["BLAST_LAYOUT"],
+            "custom_columns",
+        )
+
+    def test_custom_blast_column_controls_are_merged_into_one_row(self):
+        container = QWidget()
+        form = QFormLayout(container)
+        row_widgets = {}
+        for name in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN"):
+            label = QLabel(name)
+            widget = QSpinBox()
+            form.addRow(label, widget)
+            row_widgets[name] = (label, widget)
+
+        ToolsGUI._merge_inline_field_rows(
+            form, "Parse_BLAST_Output.py", row_widgets
+        )
+
+        self.assertEqual(form.rowCount(), 1)
+        field = form.itemAt(0, QFormLayout.ItemRole.FieldRole).widget()
+        self.assertEqual(field.property("compactColumnRatio"), "1:1:1")
 
 
 if __name__ == "__main__":
