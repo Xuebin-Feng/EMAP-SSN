@@ -32,8 +32,6 @@ BLAST_LAYOUT = "standard_outfmt6"
 QUERY_COLUMN = 1
 SUBJECT_COLUMN = 2
 EVALUE_COLUMN = 11
-MATRIX = "Unknown"
-BATCH_SIZE = 500000
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -86,8 +84,8 @@ def main(argv=None):
             query_column=QUERY_COLUMN,
             subject_column=SUBJECT_COLUMN,
             evalue_column=EVALUE_COLUMN,
-            matrix=MATRIX,
-            batch_size=BATCH_SIZE,
+            matrix="Imported",
+            batch_size=1000000,
             show_progress=True,
         )
     except (BlastParseError, OSError, RuntimeError, ValueError) as error:

@@ -982,9 +982,7 @@ class ToolsGUI(QMainWindow):
                 "BLAST_LAYOUT": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.",
                 "QUERY_COLUMN": "Query Column: One-based full query-header column used only for Custom Columns.",
                 "SUBJECT_COLUMN": "Subject Column: One-based full subject-header column used only for Custom Columns.",
-                "EVALUE_COLUMN": "E-Value Column: One-based E-value column used only for Custom Columns.",
-                "MATRIX": "Matrix Metadata: Informational substitution-matrix label for the external BLAST run. Enter Unknown when the source settings are unavailable.",
-                "BATCH_SIZE": "Batch Size: Maximum parsed non-self edges buffered before writing a sorted HDF5 run. Lower values use less RAM."
+                "EVALUE_COLUMN": "E-Value Column: One-based E-value column used only for Custom Columns."
             },
             "Embedding_Injection.py": {
                 "INPUT_EMBED": "Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.\nExisting sequence embeddings are preserved and reused without recalculation.",
@@ -1332,16 +1330,6 @@ class ToolsGUI(QMainWindow):
                             "var_name": "EVALUE_COLUMN",
                             "type": "number",
                             "display": "EValue Column:"
-                        },
-                        {
-                            "var_name": "MATRIX",
-                            "type": "text",
-                            "display": "Substitution Matrix (metadata):"
-                        },
-                        {
-                            "var_name": "BATCH_SIZE",
-                            "type": "text",
-                            "display": "Batch Size:"
                         }
                     ]
                 }

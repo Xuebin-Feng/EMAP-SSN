@@ -197,8 +197,6 @@ class ToolEntryPointTests(unittest.TestCase):
             '"var_name": "QUERY_COLUMN"',
             '"var_name": "SUBJECT_COLUMN"',
             '"var_name": "EVALUE_COLUMN"',
-            '"var_name": "MATRIX"',
-            '"var_name": "BATCH_SIZE"',
         )
         positions = [panel.index(token) for token in expected_order]
         self.assertEqual(positions, sorted(positions))
@@ -207,10 +205,52 @@ class ToolEntryPointTests(unittest.TestCase):
         self.assertIn('"display": "Query Column:"', panel)
         self.assertIn('"display": "Subject Column:"', panel)
         self.assertIn('"display": "EValue Column:"', panel)
+        self.assertNotIn('"var_name": "MATRIX"', panel)
+        self.assertNotIn('"var_name": "BATCH_SIZE"', panel)
         self.assertIn(
             '("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")', source
         )
         self.assertIn("bind_custom_blast_column_controls(inputs, row_widgets)", source)
+
+    def test_parse_blast_uses_fixed_import_metadata_and_batch_size(self):
+        module_path = SRC_DIR / "tools" / "Parse_BLAST_Output.py"
+        spec = importlib.util.spec_from_file_location("fixed_blast_parser", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = pathlib.Path(temp_dir) / "parser.json"
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "DIRECTORIES": {
+                            "FASTA_DIR": temp_dir,
+                            "NETWORK_DIR": temp_dir,
+                        },
+                        "Parse_BLAST_Output.py": {
+                            "INPUT_BLAST_TABULAR": "input.tabular",
+                            "INPUT_FASTA": "input.fasta",
+                            "MATRIX": "BLOSUM62",
+                            "BATCH_SIZE": 7,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            summary = SimpleNamespace(
+                fasta_header_count=2,
+                data_rows=1,
+                self_rows=0,
+                unique_edges=1,
+                output_path=str(pathlib.Path(temp_dir) / "output.h5"),
+            )
+            with mock.patch.object(
+                module, "build_blast_network", return_value=summary
+            ) as builder:
+                self.assertEqual(module.main([str(settings_path)]), 0)
+
+        self.assertEqual(builder.call_args.kwargs["matrix"], "Imported")
+        self.assertEqual(builder.call_args.kwargs["batch_size"], 1000000)
 
     def test_representative_main_receives_explicit_export_before_worker(self):
         module_path = SRC_DIR / "tools" / "Align_Similarity_Matrix.py"

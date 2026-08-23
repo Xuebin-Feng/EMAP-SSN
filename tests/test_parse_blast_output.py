@@ -85,7 +85,7 @@ class ParseBlastOutputTests(unittest.TestCase):
             self.assertEqual(network["headers"].asstr()[:].tolist(), ["A_", "B_"])
             self.assertEqual(network.attrs["fasta_headers_sanitized"], 2)
             self.assertEqual(network.attrs["blast_headers_sanitized"], 2)
-            self.assertEqual(network.attrs["matrix"], "Unknown")
+            self.assertEqual(network.attrs["matrix"], "Imported")
 
     def test_fasta_only_and_blast_only_header_modifications_are_reported(self):
         cases = (

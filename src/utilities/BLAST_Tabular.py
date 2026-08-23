@@ -704,8 +704,8 @@ def build_blast_network(
     query_column=1,
     subject_column=2,
     evalue_column=11,
-    matrix="Unknown",
-    batch_size=500000,
+    matrix="Imported",
+    batch_size=1000000,
     show_progress=True,
 ):
     """Build, validate, and atomically publish one external BLAST network."""

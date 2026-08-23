@@ -181,8 +181,8 @@ This script parses strict, tab-delimited BLAST output against a required compani
     - `outfmt7_fields`: Uses the complete `# Query:` value and resolves subject plus E-value columns from consistent `# Fields:` declarations. Subject title, ID, and accession variants are recognized.
     - `custom_columns`: Uses the explicit one-based `QUERY_COLUMN`, `SUBJECT_COLUMN`, and `EVALUE_COLUMN` values.
 *   `QUERY_COLUMN`, `SUBJECT_COLUMN`, `EVALUE_COLUMN`: One-based columns used only by `custom_columns`.
-*   `MATRIX`: Provenance label for the substitution/scoring matrix used by the external BLAST run.
-*   `BATCH_SIZE`: Maximum number of parsed rows retained before a sorted temporary run is written.
+
+The imported network records the fixed matrix provenance label `Imported`. Parsing uses a fixed batch size of `1,000,000` rows; neither value is a GUI setting.
 
 For FASTA headers that contain descriptions, the recommended BLAST format is outfmt 7 with subject titles, for example `-outfmt "7 qseqid stitle evalue"`. The query header is taken from `# Query:` and the subject header from `stitle`. Standard `qseqid`/`sseqid` output is accepted only when those values exactly equal the sanitized complete FASTA headers.
 
@@ -213,7 +213,7 @@ The parser always reports FASTA and BLAST header sanitization separately. Any un
      $$\text{Score} = -\log_{10}(E_{\text{value}} + 10^{-300})$$
 
 4. **Bounded Deduplication**:
-     Writes sorted runs of at most `BATCH_SIZE` parsed rows, externally merges them, and retains only the highest-scoring alignment for each canonical undirected pair. Final pairs are strictly sorted and unique.
+     Writes sorted runs of at most 1,000,000 parsed rows, externally merges them, and retains only the highest-scoring alignment for each canonical undirected pair. Final pairs are strictly sorted and unique.
 
 5. **Validated Atomic Publication**:
      Writes a `.partial` HDF5, validates its schema, headers, finite scores, canonical pairs, sorting, uniqueness, and provenance, then atomically replaces the final output. Zero-edge networks are valid.
