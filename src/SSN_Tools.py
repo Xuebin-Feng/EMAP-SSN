@@ -91,6 +91,7 @@ COMPACT_ROW_GROUPS = {
     ],
     "Align_Similarity_Matrix.py": [
         ("LOCAL_GAP_P", "GLOBAL_GAP_P"),
+        ("BATCH_SIZE", "WORKERS"),
         ("ACCELERATOR_PRECISION", "EXECUTION_MODE"),
     ],
     "Align_Substitution_Matrix.py": [
@@ -940,8 +941,9 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.\nIncreasing workers speeds up alignment of large datasets across multiple CPU cores.",
                 "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps.",
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
+                "BATCH_SIZE": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'.",
                 "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.",
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses CUDA embedding tiles and padded microbatches and requires a CUDA device.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
                 "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with every CUDA plan allowed by Execution Mode, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul. 'tf32' is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
             },
@@ -1202,6 +1204,11 @@ class ToolsGUI(QMainWindow):
                     "min": 1,
                     "max": MAX_CORES,
                     "display": "CPU Workers:"
+                },
+                {
+                    "var_name": "BATCH_SIZE",
+                    "type": "text",
+                    "display": "Batch Size:"
                 },
                 {
                     "var_name": "DEVICE_SELECTION",
@@ -4098,9 +4105,14 @@ class ToolsGUI(QMainWindow):
                     selected = Hardware_Utils.resolve_device_selection(
                         new_settings.get("DEVICE_SELECTION", "auto"), available
                     )
+                    eligible_backends = (
+                        {"cuda"}
+                        if script_name == "Align_Similarity_Matrix.py"
+                        else {"cuda", "xpu"}
+                    )
                     eligible = [
                         candidate for candidate in available
-                        if candidate.backend in {"cuda", "xpu"}
+                        if candidate.backend in eligible_backends
                         and tiled_accelerator_support(
                             candidate.device, require_memory=False
                         )[0]
@@ -4108,7 +4120,7 @@ class ToolsGUI(QMainWindow):
                     if selected is not None:
                         eligible = (
                             [selected]
-                            if selected.backend in {"cuda", "xpu"}
+                            if selected.backend in eligible_backends
                             and tiled_accelerator_support(
                                 selected.device, require_memory=False
                             )[0]
@@ -4118,8 +4130,13 @@ class ToolsGUI(QMainWindow):
                         QMessageBox.critical(
                             self,
                             "Invalid Execution Mode",
-                            "Tiled execution requires an available CUDA/ROCm "
-                            "or XPU accelerator.",
+                            (
+                                "Tiled alignment requires an available "
+                                "CUDA/ROCm accelerator."
+                                if script_name == "Align_Similarity_Matrix.py"
+                                else "Tiled execution requires an available "
+                                "CUDA/ROCm or XPU accelerator."
+                            ),
                         )
                         return
                 host_cache = str(new_settings.get("HOST_CACHE_GB", "auto")).strip()

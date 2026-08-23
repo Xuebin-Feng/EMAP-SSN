@@ -515,12 +515,15 @@ class GuiContractTests(unittest.TestCase):
         self.assertIn("widget.currentData()", config_source)
         self.assertIn('"LAYOUT_DEVICE_SELECTION"', generator_source)
 
-    def test_align_similarity_matrix_has_no_batch_size_control(self):
+    def test_align_similarity_matrix_has_batch_size_control(self):
         tools_source = (SRC / "SSN_Tools.py").read_text(encoding="utf-8")
-        align_controls = tools_source.split(
+        calculation_tools = tools_source.split(
+            '"Sequence_Similarity_Calculations": {', 1
+        )[1]
+        align_controls = calculation_tools.split(
             '"Align_Similarity_Matrix.py": [', 1
         )[1].split('"Align_Substitution_Matrix.py": [', 1)[0]
-        self.assertNotIn('"var_name": "BATCH_SIZE"', align_controls)
+        self.assertIn('"var_name": "BATCH_SIZE"', align_controls)
 
 
 if __name__ == "__main__":

@@ -2,10 +2,6 @@ import os
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
-import io
-from types import SimpleNamespace
-from unittest import mock
 
 import h5py
 import numpy as np
@@ -25,8 +21,6 @@ from utilities.Alignment_Network_HDF5 import (  # noqa: E402
     discover_compatible_alignment_networks,
     exact_top_k_mask,
 )
-from tools import Align_Similarity_Matrix as similarity_matrix  # noqa: E402
-from Cache_Manifest import validate_network_schema  # noqa: E402
 
 
 def identity(sequence_count=6):
@@ -73,25 +67,6 @@ class AlignmentNetworkHDF5Tests(unittest.TestCase):
             pooling_method="max",
             length_ratio_power=2.0,
         )
-
-    def test_sparse_runtime_path_uses_density_suffix(self):
-        with tempfile.TemporaryDirectory() as folder, mock.patch.object(
-            similarity_matrix, "INPUT_HDF5", os.path.join(folder, "set_[model]_embeddings.h5")
-        ), mock.patch.object(
-            similarity_matrix, "EMBED_DIR", folder
-        ), mock.patch.object(
-            similarity_matrix, "NETWORK_DIR", folder
-        ), mock.patch.object(
-            similarity_matrix, "EDGE_PREFILTERING", True
-        ), mock.patch.object(
-            similarity_matrix, "PREFILTER_STRENGTH", 62.5
-        ):
-            similarity_matrix.configure_runtime_paths()
-            self.assertTrue(
-                similarity_matrix.FINAL_OUTPUT_NET.endswith(
-                    "set_[model]_network_sparse62p5pct.h5"
-                )
-            )
 
     def test_exact_sparse_masks_are_nested_with_deterministic_ties(self):
         mask_80, keep_80, _cutoff_80 = exact_top_k_mask(
@@ -313,127 +288,6 @@ class AlignmentNetworkHDF5Tests(unittest.TestCase):
             self.assertEqual(
                 target_profile.keep_count - len(source_records),
                 target_profile.keep_count - 3,
-            )
-
-    def test_align_expansion_calculates_only_the_exact_sparse_delta(self):
-        mask_80, profile_80 = self.profile(80)
-        mask_60, profile_60 = self.profile(60)
-        manifest = SimpleNamespace(model_name="test-model", saving_mode="float32")
-        plan = SimpleNamespace(
-            candidate=SimpleNamespace(
-                is_cpu=True,
-                spec="cpu",
-                device="cpu",
-                display_name="Test CPU",
-            ),
-            variant="scalar",
-            lanes=1,
-            execution_plan=None,
-        )
-        calculated_by_run = []
-
-        def calculate(tasks, plans, plan_index, **kwargs):
-            pairs = [(int(task[0]), int(task[1])) for task in tasks]
-            calculated_by_run[-1].extend(pairs)
-            return (
-                [
-                    (
-                        left,
-                        right,
-                        np.float32(left * 10 + right),
-                        np.uint16(left + right + 1),
-                        np.float32(left * 10 + right + 0.5),
-                        np.uint16(left + right + 2),
-                    )
-                    for left, right in pairs
-                ],
-                plan_index,
-            )
-
-        with tempfile.TemporaryDirectory() as folder:
-            input_path = os.path.join(folder, "embeddings.h5")
-            with h5py.File(input_path, "w"):
-                pass
-            target_80 = os.path.join(folder, "set_[test-model]_network_sparse80pct.h5")
-            target_60 = os.path.join(folder, "set_[test-model]_network_sparse60pct.h5")
-
-            def run_target(target, mask, profile):
-                calculated_by_run.append([])
-                with mock.patch.object(
-                    similarity_matrix, "FULL_INPUT_HDF5", input_path
-                ), mock.patch.object(
-                    similarity_matrix, "NETWORK_DIR", folder
-                ), mock.patch.object(
-                    similarity_matrix, "FINAL_OUTPUT_NET", target
-                ), mock.patch.object(
-                    similarity_matrix, "configure_runtime_paths"
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "load_embedding_metadata",
-                    return_value=(
-                        list(self.identity.headers),
-                        list(self.identity.headers),
-                        list(self.identity.sequence_lengths),
-                        manifest,
-                    ),
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "calculate_file_hash",
-                    return_value=self.identity.embedding_checksum,
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "_compute_target_selection",
-                    return_value=(mask, profile),
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "EmbeddingTileStore",
-                    return_value=SimpleNamespace(
-                        fully_cached=False, cached_bytes=0
-                    ),
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "_resolve_active_matmul_precision",
-                    return_value="ieee_fp32",
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "_benchmark_processing_plans",
-                    return_value=[plan],
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "_calculate_result_chunk_with_ranked_plans",
-                    side_effect=calculate,
-                ), mock.patch.object(
-                    similarity_matrix, "set_start_method"
-                ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                    similarity_matrix.run_job_distributor()
-
-            run_target(target_80, mask_80, profile_80)
-            run_target(target_60, mask_60, profile_60)
-
-            self.assertEqual(len(calculated_by_run[0]), profile_80.keep_count)
-            self.assertEqual(
-                len(calculated_by_run[1]),
-                profile_60.keep_count - profile_80.keep_count,
-            )
-            with h5py.File(target_80, "r") as source, h5py.File(
-                target_60, "r"
-            ) as expanded:
-                self.assertEqual(len(expanded["i"]), profile_60.keep_count)
-                np.testing.assert_array_equal(
-                    expanded["l_score"][: profile_80.keep_count],
-                    source["l_score"][:],
-                )
-                source_pairs = list(zip(source["i"][:], source["j"][:]))
-                expanded_pairs = list(zip(expanded["i"][:], expanded["j"][:]))
-                self.assertEqual(expanded_pairs, sorted(expanded_pairs))
-                self.assertEqual(expanded_pairs[: len(source_pairs)], source_pairs)
-                metadata = validate_network_schema(
-                    expanded, expected_network_type="alignment"
-                )
-                self.assertEqual(metadata.model_name, self.identity.model_name)
-            self.assertEqual(
-                [name for name in os.listdir(folder) if name.startswith("batch_")],
-                [],
             )
 
 

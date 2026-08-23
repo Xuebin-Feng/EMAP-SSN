@@ -2690,9 +2690,125 @@ def estimate_accelerator_working_set(
     )
 
 
-def estimate_cuda_working_set(*args, **kwargs):
-    """Compatibility wrapper for :func:`estimate_accelerator_working_set`."""
-    return estimate_accelerator_working_set(*args, **kwargs)
+def estimate_cuda_working_set(
+    tasks,
+    *,
+    store: EmbeddingTileStore,
+    lengths,
+    device,
+    lanes,
+    variant="tiled",
+    memory_info=None,
+    memory_plan_override=None,
+):
+    """Estimate peak CUDA use for one workload/variant without allocating."""
+    if memory_plan_override is not None and memory_info is not None:
+        raise ValueError(
+            "memory_info and memory_plan_override cannot be supplied together."
+        )
+    plan = memory_plan_override or cuda_memory_plan(
+        device, lanes=lanes, memory_info=memory_info
+    )
+    if int(plan.lanes) != max(1, int(lanes)):
+        raise ValueError("CUDA memory plan lane count does not match execution lanes.")
+    tasks = list(tasks)
+    baseline_bytes = max(0, plan.total_bytes - plan.free_bytes)
+    safe_peak = max(0, plan.total_bytes - plan.reserve_bytes)
+    if not tasks:
+        return CudaWorkloadEstimate(
+            variant=str(variant),
+            lanes=int(lanes),
+            inflight_slots=plan.inflight_slots,
+            tile_bytes=0,
+            transient_bytes=0,
+            additional_bytes=0,
+            projected_peak_bytes=baseline_bytes,
+            safe_peak_bytes=safe_peak,
+            per_microbatch_bytes=plan.matrix_bytes,
+            largest_microbatch_bytes=0,
+            feasible=True,
+            reason="empty workload",
+        )
+
+    feature_dimension = int(store.feature_dimension or 0)
+    variant = str(variant).strip().lower()
+    tile_bytes = 0
+    workspaces = []
+    if variant == "tiled":
+        per_block = max(1, plan.tile_cache_bytes // 2)
+        block_ids = store.block_ids(per_block)
+        for tile_tasks in _partition_tiles(tasks, block_ids):
+            tile_indices = {int(task[0]) for task in tile_tasks}
+            tile_indices.update(int(task[1]) for task in tile_tasks)
+            tile_bytes = max(
+                tile_bytes,
+                sum(store.float32_bytes[index] for index in tile_indices),
+            )
+            rows = OrderedDict()
+            for task in tile_tasks:
+                rows.setdefault(int(task[0]), []).append(task)
+            for row, row_tasks in rows.items():
+                for microbatch in _length_microbatches(
+                    row_tasks,
+                    lengths,
+                    lengths[row],
+                    plan.matrix_bytes,
+                    feature_dimension,
+                ):
+                    target_lengths = [
+                        int(lengths[int(task[1])]) for task in microbatch
+                    ]
+                    workspaces.append(
+                        _microbatch_workspace_bytes(
+                            lengths[row],
+                            target_lengths,
+                            feature_dimension,
+                        )
+                    )
+        active_slots = plan.inflight_slots
+    else:
+        for task in tasks:
+            left = int(task[0])
+            right = int(task[1])
+            workspace = _microbatch_workspace_bytes(
+                lengths[left],
+                [lengths[right]],
+                0,
+            )
+            embedding_bytes = (
+                store.float32_bytes[left] + store.float32_bytes[right]
+            )
+            workspaces.append(workspace + embedding_bytes)
+        active_slots = max(1, int(lanes))
+
+    largest = max(workspaces, default=0)
+    transient_bytes = sum(
+        sorted(workspaces, reverse=True)[:active_slots]
+    )
+    additional = tile_bytes + transient_bytes
+    projected_peak = baseline_bytes + additional
+    microbatch_fits = variant != "tiled" or largest <= plan.matrix_bytes
+    feasible = microbatch_fits and projected_peak <= safe_peak
+    if not microbatch_fits:
+        reason = "one minimum-size microbatch exceeds its per-slot budget"
+    elif projected_peak > safe_peak:
+        reason = "projected peak exceeds the reserved-VRAM boundary"
+    else:
+        reason = "within reserved-VRAM boundary"
+    return CudaWorkloadEstimate(
+        variant=variant,
+        lanes=int(lanes),
+        inflight_slots=active_slots,
+        tile_bytes=int(tile_bytes),
+        transient_bytes=int(transient_bytes),
+        additional_bytes=int(additional),
+        projected_peak_bytes=int(projected_peak),
+        safe_peak_bytes=int(safe_peak),
+        per_microbatch_bytes=int(plan.matrix_bytes),
+        largest_microbatch_bytes=int(largest),
+        feasible=bool(feasible),
+        reason=reason,
+    )
 
 
 class _LegacyTiledAcceleratorSession:
