@@ -300,6 +300,7 @@ class ToolExportGuiTests(unittest.TestCase):
             HostCacheControl,
             ToolsGUI,
             _selection_supports_tf32,
+            _sync_alignment_tiled_option,
             _sync_tf32_precision_option,
         )
 
@@ -307,6 +308,9 @@ class ToolExportGuiTests(unittest.TestCase):
         cls.host_cache_control_class = HostCacheControl
         cls.tools_gui_class = ToolsGUI
         cls.selection_supports_tf32 = staticmethod(_selection_supports_tf32)
+        cls.sync_alignment_tiled_option = staticmethod(
+            _sync_alignment_tiled_option
+        )
         cls.sync_tf32_precision_option = staticmethod(
             _sync_tf32_precision_option
         )
@@ -461,6 +465,60 @@ class ToolExportGuiTests(unittest.TestCase):
                 )
             )
             self.assertGreaterEqual(precision.findText("tf32"), 0)
+
+    def test_alignment_tiled_option_hides_for_mps_and_restores_for_xpu(self):
+        from PySide6.QtWidgets import QComboBox
+        from utilities import Hardware_Utils
+        import torch
+
+        cpu = Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        mps = Hardware_Utils.DeviceCandidate(
+            "mps", "MPS", torch.device("mps"), "mps"
+        )
+        xpu = Hardware_Utils.DeviceCandidate(
+            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
+        )
+        device = QComboBox()
+        device.addItem("Auto", "auto")
+        device.addItem("MPS", "mps")
+        device.addItem("XPU", "xpu:0")
+        execution = QComboBox()
+        execution.addItems(["auto", "scalar", "tiled"])
+
+        execution.setCurrentText("tiled")
+        self.assertFalse(
+            self.sync_alignment_tiled_option(
+                device, execution, [cpu, mps]
+            )
+        )
+        self.assertEqual(execution.currentText(), "auto")
+        self.assertEqual(execution.findText("tiled"), -1)
+        self.assertFalse(execution.property("tiledAvailable"))
+
+        self.assertTrue(
+            self.sync_alignment_tiled_option(
+                device, execution, [cpu, mps, xpu]
+            )
+        )
+        self.assertGreaterEqual(execution.findText("tiled"), 0)
+
+        device.setCurrentIndex(device.findData("mps"))
+        self.assertFalse(
+            self.sync_alignment_tiled_option(
+                device, execution, [cpu, mps, xpu]
+            )
+        )
+        self.assertEqual(execution.findText("tiled"), -1)
+
+        device.setCurrentIndex(device.findData("xpu:0"))
+        self.assertTrue(
+            self.sync_alignment_tiled_option(
+                device, execution, [cpu, mps, xpu]
+            )
+        )
+        self.assertGreaterEqual(execution.findText("tiled"), 0)
 
     def test_host_cache_control_uses_auto_or_linear_manual_gib(self):
         source = (SRC_DIR / "SSN_Tools.py").read_text(encoding="utf-8")

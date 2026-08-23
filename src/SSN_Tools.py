@@ -429,6 +429,39 @@ def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
     return available
 
 
+def _sync_alignment_tiled_option(device_combo, execution_combo, candidates=None):
+    """Hide tiled tools when MPS is selected or is the only accelerator."""
+    candidates = (
+        Hardware_Utils.get_available_devices()
+        if candidates is None
+        else list(candidates)
+    )
+    selection = device_combo.currentData()
+    if selection is None:
+        selection = device_combo.currentText()
+    normalized = Hardware_Utils.normalize_device_selection(selection)
+    accelerator_backends = {
+        candidate.backend for candidate in candidates if not candidate.is_cpu
+    }
+    mps_only_auto = (
+        normalized == "auto" and accelerator_backends == {"mps"}
+    )
+    hide_tiled = normalized == "mps" or mps_only_auto
+    tiled_index = execution_combo.findText("tiled")
+    if hide_tiled:
+        if execution_combo.currentText() == "tiled":
+            auto_index = execution_combo.findText("auto")
+            execution_combo.setCurrentIndex(max(0, auto_index))
+        tiled_index = execution_combo.findText("tiled")
+        if tiled_index >= 0:
+            execution_combo.removeItem(tiled_index)
+    elif tiled_index < 0:
+        execution_combo.addItem("tiled")
+    available = not hide_tiled
+    execution_combo.setProperty("tiledAvailable", available)
+    return available
+
+
 QTWEBENGINE_MISSING_MESSAGE = """\
 SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
@@ -943,7 +976,7 @@ class ToolsGUI(QMainWindow):
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
                 "BATCH_SIZE": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'.",
                 "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses CUDA embedding tiles and padded microbatches and requires a CUDA device.",
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
                 "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with every CUDA plan allowed by Execution Mode, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul. 'tf32' is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
             },
@@ -998,7 +1031,7 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores.",
                 "BATCH_SIZE": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance.",
                 "DEVICE_SELECTION": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.",
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {HOST_CACHE_MAX_GB:g} GiB; turn it OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox."
             },
             "Network_Extraction.py": {
@@ -2714,6 +2747,26 @@ class ToolsGUI(QMainWindow):
                 )
                 update_precision_options()
 
+        if script_name in {
+            "Align_Similarity_Matrix.py", "Network_Injection.py"
+        }:
+            device_input = inputs.get("DEVICE_SELECTION")
+            execution_input = inputs.get("EXECUTION_MODE")
+            if device_input and execution_input:
+                device_combo = device_input["widget"]
+                execution_combo = execution_input["widget"]
+
+                def update_execution_options(index=None):
+                    _sync_alignment_tiled_option(
+                        device_combo,
+                        execution_combo,
+                    )
+
+                device_combo.currentIndexChanged.connect(
+                    update_execution_options
+                )
+                update_execution_options()
+
         if script_name == "Generate_Embeddings.py":
             model_input = inputs.get("MODEL_NAME")
             device_input = inputs.get("DEVICE_SELECTION")
@@ -4105,11 +4158,7 @@ class ToolsGUI(QMainWindow):
                     selected = Hardware_Utils.resolve_device_selection(
                         new_settings.get("DEVICE_SELECTION", "auto"), available
                     )
-                    eligible_backends = (
-                        {"cuda"}
-                        if script_name == "Align_Similarity_Matrix.py"
-                        else {"cuda", "xpu"}
-                    )
+                    eligible_backends = {"cuda", "xpu"}
                     eligible = [
                         candidate for candidate in available
                         if candidate.backend in eligible_backends
@@ -4132,7 +4181,7 @@ class ToolsGUI(QMainWindow):
                             "Invalid Execution Mode",
                             (
                                 "Tiled alignment requires an available "
-                                "CUDA/ROCm accelerator."
+                                "CUDA/ROCm or XPU accelerator."
                                 if script_name == "Align_Similarity_Matrix.py"
                                 else "Tiled execution requires an available "
                                 "CUDA/ROCm or XPU accelerator."

@@ -69,6 +69,44 @@ class AlignmentPipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "auto.*scalar.*tiled"):
             alignment_engine.normalize_execution_mode("batched")
 
+    def test_tiled_progress_advances_for_any_completed_future(self):
+        earlier = Future()
+        later = Future()
+        later.set_result((4, 9, 1.0, 2, 3.0, 4))
+        pending = {earlier, later}
+        results = []
+        progress = mock.Mock()
+
+        completed = alignment_engine._drain_completed_alignment_futures(
+            pending,
+            results,
+            progress=progress,
+            block=False,
+        )
+
+        self.assertEqual(completed, 1)
+        self.assertEqual(results, [(4, 9, 1.0, 2, 3.0, 4)])
+        self.assertEqual(pending, {earlier})
+        progress.update.assert_called_once_with(1)
+
+    def test_restored_engine_routes_memory_planning_to_xpu_runtime(self):
+        fake_xpu = mock.MagicMock()
+        fake_xpu.mem_get_info.return_value = (12 << 30, 16 << 30)
+
+        with mock.patch.object(alignment_engine.torch, "xpu", fake_xpu):
+            supported, _reason = alignment_engine.tiled_accelerator_support(
+                torch.device("xpu:0"), require_memory=True
+            )
+            plan = alignment_engine.cuda_memory_plan(
+                torch.device("xpu:0"), lanes=2
+            )
+
+        self.assertTrue(supported)
+        self.assertEqual(plan.free_bytes, 12 << 30)
+        self.assertEqual(plan.total_bytes, 16 << 30)
+        self.assertEqual(plan.lanes, 2)
+        fake_xpu.mem_get_info.assert_called_once()
+
     def test_execution_mode_filters_candidate_variants(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
@@ -76,23 +114,43 @@ class AlignmentPipelineTests(unittest.TestCase):
         cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
         )
+        xpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
+        )
+        mps = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "mps", "MPS", torch.device("mps"), "mps"
+        )
         expectations = {
-            "auto": (["scalar"], ["scalar", "tiled"]),
-            "scalar": (["scalar"], ["scalar"]),
-            "tiled": ([], ["tiled"]),
+            "auto": (
+                ["scalar"],
+                ["scalar", "tiled"],
+                ["scalar", "tiled"],
+                ["scalar"],
+            ),
+            "scalar": (
+                ["scalar"], ["scalar"], ["scalar"], ["scalar"]
+            ),
+            "tiled": ([], ["tiled"], ["tiled"], []),
         }
-        for mode, (cpu_variants, cuda_variants) in expectations.items():
+        for mode, expected_variants in expectations.items():
             with self.subTest(mode=mode), mock.patch.object(
                 similarity_matrix, "EXECUTION_MODE", mode
+            ), mock.patch.object(
+                similarity_matrix,
+                "tiled_accelerator_support",
+                side_effect=lambda device, require_memory=False: (
+                    device.type in {"cuda", "xpu"}, "mock capability"
+                ),
             ):
-                self.assertEqual(
-                    similarity_matrix._execution_variants(cpu), cpu_variants
-                )
-                self.assertEqual(
-                    similarity_matrix._execution_variants(cuda), cuda_variants
-                )
+                for candidate, expected in zip(
+                    (cpu, cuda, xpu, mps), expected_variants
+                ):
+                    self.assertEqual(
+                        similarity_matrix._execution_variants(candidate),
+                        expected,
+                    )
 
-    def test_forced_tiled_mode_rejects_missing_cuda_before_benchmark(self):
+    def test_forced_tiled_mode_rejects_missing_compatible_accelerator(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
@@ -102,12 +160,34 @@ class AlignmentPipelineTests(unittest.TestCase):
             similarity_matrix.Hardware_Utils,
             "get_available_devices",
             return_value=[cpu],
-        ), self.assertRaisesRegex(ValueError, "no CUDA device"):
+        ), self.assertRaisesRegex(ValueError, "CUDA/ROCm or XPU"):
             similarity_matrix._benchmark_processing_plans(
                 [(0, 1, "a", "b")],
                 workers=1,
                 input_h5="unused.h5",
                 batch_id=0,
+            )
+
+    def test_forced_tiled_mode_accepts_xpu_capability(self):
+        xpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
+        )
+        with mock.patch.object(
+            similarity_matrix, "EXECUTION_MODE", "tiled"
+        ), mock.patch.object(
+            similarity_matrix, "DEVICE_SELECTION", "xpu:0"
+        ), mock.patch.object(
+            similarity_matrix.Hardware_Utils,
+            "get_available_devices",
+            return_value=[xpu],
+        ), mock.patch.object(
+            similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock XPU support"),
+        ):
+            self.assertEqual(
+                similarity_matrix._validate_execution_mode_hardware(),
+                "tiled",
             )
 
     def test_runtime_path_configuration_accepts_an_absolute_input(self):
@@ -1310,7 +1390,7 @@ class AlignmentPipelineTests(unittest.TestCase):
             "_run_accelerated_pipeline",
         ) as scalar_pipeline, mock.patch.object(
             similarity_matrix,
-            "run_tiled_cuda_pipeline",
+            "run_tiled_accelerator_pipeline",
         ) as tiled_pipeline, redirect_stdout(output):
             plans = similarity_matrix._benchmark_processing_plans(
                 tasks,
@@ -1426,7 +1506,7 @@ class AlignmentPipelineTests(unittest.TestCase):
 
         with mock.patch.object(
             similarity_matrix,
-            "run_tiled_cuda_pipeline",
+            "run_tiled_accelerator_pipeline",
             side_effect=torch.cuda.OutOfMemoryError("simulated"),
         ) as tiled, mock.patch.object(
             similarity_matrix,
@@ -1459,6 +1539,104 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(sink.rollback.call_count, 4)
         scalar.assert_called_once()
         self.assertIs(scalar.call_args.kwargs["result_callback"], sink)
+
+    def test_tiled_xpu_uses_backend_neutral_runner_and_batch_callback(self):
+        tasks = [(0, 1, "a", "b")]
+        expected = [(0, 1, 1.0, 1, 2.0, 1)]
+        sink = mock.Mock()
+        backend = mock.Mock(device_type="xpu")
+
+        with mock.patch.object(
+            similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock XPU support"),
+        ), mock.patch.object(
+            similarity_matrix,
+            "get_accelerator_backend",
+            return_value=backend,
+        ), mock.patch.object(
+            similarity_matrix,
+            "run_tiled_accelerator_pipeline",
+            return_value=expected,
+        ) as tiled, mock.patch.object(
+            similarity_matrix,
+            "_run_accelerated_pipeline",
+        ) as scalar, mock.patch.object(
+            similarity_matrix,
+            "tqdm",
+            return_value=mock.Mock(),
+        ):
+            actual = similarity_matrix.process_accelerated_tasks(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                device=torch.device("xpu:0"),
+                batch_id=7,
+                accelerator_workers=2,
+                embedding_store=mock.Mock(),
+                sequence_lengths=[2, 2],
+                execution_variant="tiled",
+                result_callback=sink,
+            )
+
+        self.assertEqual(actual, expected)
+        scalar.assert_not_called()
+        tiled.assert_called_once()
+        self.assertEqual(tiled.call_args.kwargs["device"], torch.device("xpu:0"))
+        self.assertEqual(tiled.call_args.kwargs["lanes"], 2)
+        self.assertIs(tiled.call_args.kwargs["result_callback"], sink)
+
+    def test_tiled_xpu_oom_retries_then_falls_back_to_scalar_xpu(self):
+        tasks = [(0, 1, "a", "b")]
+        expected = [(0, 1, 1.0, 1, 2.0, 1)]
+        backend = mock.Mock(device_type="xpu")
+        backend.is_out_of_memory.return_value = True
+        memory_plan = mock.Mock(matrix_bytes=256 * 1024 * 1024)
+
+        with mock.patch.object(
+            similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock XPU support"),
+        ), mock.patch.object(
+            similarity_matrix,
+            "get_accelerator_backend",
+            return_value=backend,
+        ), mock.patch.object(
+            similarity_matrix,
+            "run_tiled_accelerator_pipeline",
+            side_effect=RuntimeError("XPU out of memory"),
+        ) as tiled, mock.patch.object(
+            similarity_matrix,
+            "cuda_memory_plan",
+            return_value=memory_plan,
+        ), mock.patch.object(
+            similarity_matrix,
+            "_run_accelerated_pipeline",
+            return_value=expected,
+        ) as scalar, mock.patch.object(
+            similarity_matrix,
+            "tqdm",
+            return_value=mock.Mock(),
+        ), redirect_stdout(io.StringIO()):
+            actual = similarity_matrix.process_accelerated_tasks(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                device=torch.device("xpu:0"),
+                batch_id=8,
+                accelerator_workers=1,
+                embedding_store=mock.Mock(),
+                sequence_lengths=[2, 2],
+                execution_variant="tiled",
+            )
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(tiled.call_count, 4)
+        self.assertEqual(backend.empty_cache.call_count, 4)
+        scalar.assert_called_once()
+        self.assertEqual(
+            scalar.call_args.args[3], torch.device("xpu:0")
+        )
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA is unavailable")
     def test_tiled_process_batch_streams_and_publishes_complete_cuda_results(self):

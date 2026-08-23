@@ -84,9 +84,12 @@ from utilities.Embedding_Alignment_Engine import (
     cuda_matmul_precision,
     cuda_memory_plan,
     estimate_cuda_working_set,
+    get_accelerator_backend,
     normalize_execution_mode,
     normalize_precision_setting,
+    run_tiled_accelerator_pipeline,
     run_tiled_cuda_pipeline,
+    tiled_accelerator_support,
 )
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_HDF5 import read_embedding_manifest
@@ -863,14 +866,23 @@ def process_accelerated_tasks(
         )
     if (
         execution_variant == "tiled"
-        and _device_type(device) == "cuda"
         and embedding_store is not None
         and sequence_lengths is not None
     ):
+        tiled_supported, support_reason = tiled_accelerator_support(
+            device, require_memory=True
+        )
+        if not tiled_supported:
+            raise RuntimeError(
+                f"Tiled execution is unavailable on '{device}': "
+                f"{support_reason}."
+            )
+        backend = get_accelerator_backend(device)
+        backend_label = backend.device_type.upper()
         progress = tqdm(
             total=len(batch_tasks),
             desc=(
-                f"  Batch {batch_id} (tiled CUDA, "
+                f"  Batch {batch_id} (tiled {backend_label}, "
                 f"{accelerator_workers} lane"
                 f"{'s' if accelerator_workers != 1 else ''})"
             ),
@@ -886,7 +898,7 @@ def process_accelerated_tasks(
                     else None
                 )
                 try:
-                    return run_tiled_cuda_pipeline(
+                    return run_tiled_accelerator_pipeline(
                         batch_tasks,
                         store=embedding_store,
                         lengths=sequence_lengths,
@@ -899,10 +911,12 @@ def process_accelerated_tasks(
                         matrix_budget_override=matrix_budget,
                         result_callback=result_callback,
                     )
-                except torch.cuda.OutOfMemoryError:
+                except Exception as error:
+                    if not backend.is_out_of_memory(error):
+                        raise
                     if checkpoint is not None:
                         result_callback.rollback(checkpoint)
-                    torch.cuda.empty_cache()
+                    backend.empty_cache()
                     default_budget = cuda_memory_plan(
                         device,
                         lanes=accelerator_workers,
@@ -912,10 +926,13 @@ def process_accelerated_tasks(
                         int(matrix_budget or default_budget) // 2,
                     )
                     print(
-                        f"  > CUDA memory pressure; retrying batch with "
+                        f"  > {backend_label} memory pressure; retrying batch with "
                         f"{matrix_budget / (1024 ** 2):.0f} MiB matrix budget."
                     )
-            print("  > Tiled CUDA remained out of memory; using scalar CUDA.")
+            print(
+                f"  > Tiled {backend_label} remained out of memory; "
+                f"using scalar {backend_label}."
+            )
         finally:
             progress.close()
     return _run_accelerated_pipeline(
@@ -1132,12 +1149,18 @@ def _precision_device(candidates):
 def _execution_variants(candidate):
     """Return execution variants allowed for one hardware candidate."""
     mode = normalize_execution_mode(EXECUTION_MODE)
+    tiled_supported = (
+        candidate.backend in {"cuda", "xpu"}
+        and tiled_accelerator_support(
+            candidate.device, require_memory=False
+        )[0]
+    )
     if mode == "scalar":
         return ["scalar"]
     if mode == "tiled":
-        return ["tiled"] if candidate.backend == "cuda" else []
+        return ["tiled"] if tiled_supported else []
     variants = ["scalar"]
-    if candidate.backend == "cuda":
+    if tiled_supported:
         variants.append("tiled")
     return variants
 
@@ -1151,19 +1174,21 @@ def _validate_execution_mode_hardware():
     manual = Hardware_Utils.resolve_device_selection(
         DEVICE_SELECTION, candidates
     )
-    if manual is not None and manual.backend != "cuda":
+    if manual is not None and not _execution_variants(manual):
         raise ValueError(
-            "Tiled execution requires a CUDA device; the selected device "
+            "Tiled execution requires a CUDA/ROCm or XPU accelerator; "
+            "the selected device "
             f"is '{manual.spec}'."
         )
     eligible = [
-        candidate for candidate in candidates if candidate.backend == "cuda"
+        candidate for candidate in candidates if _execution_variants(candidate)
     ]
     if manual is not None:
         eligible = [manual]
     if not eligible:
         raise ValueError(
-            "Tiled execution was requested, but no CUDA device is available."
+            "Tiled execution was requested, but no compatible CUDA/ROCm or "
+            "XPU accelerator is available."
         )
     return mode
 
@@ -1360,18 +1385,20 @@ def _benchmark_processing_plans(
         DEVICE_SELECTION, candidates
     )
     if execution_mode == "tiled":
-        if manual is not None and manual.backend != "cuda":
+        if manual is not None and not _execution_variants(manual):
             raise ValueError(
-                "Tiled execution requires a CUDA device; the selected device "
+                "Tiled execution requires a CUDA/ROCm or XPU accelerator; "
+                "the selected device "
                 f"is '{manual.spec}'."
             )
         candidates = [
             candidate for candidate in candidates
-            if candidate.backend == "cuda"
+            if _execution_variants(candidate)
         ]
         if not candidates:
             raise ValueError(
-                "Tiled execution was requested, but no CUDA device is available."
+                "Tiled execution was requested, but no compatible CUDA/ROCm "
+                "or XPU accelerator is available."
             )
     if manual is not None and manual.is_cpu:
         print(f"[Hardware] Using manually selected {manual.display_name}.")
@@ -1401,7 +1428,7 @@ def _benchmark_processing_plans(
                 show_progress=False,
             )
         if variant == "tiled":
-            return run_tiled_cuda_pipeline(
+            return run_tiled_accelerator_pipeline(
                 tasks,
                 store=embedding_store,
                 lengths=sequence_lengths,
@@ -1442,7 +1469,10 @@ def _benchmark_processing_plans(
         candidate_results = []
         candidate_memory_info = None
         if (
-            candidate.backend == "cuda"
+            candidate.backend in {"cuda", "xpu"}
+            and tiled_accelerator_support(
+                candidate.device, require_memory=True
+            )[0]
             and embedding_store is not None
             and sequence_lengths is not None
         ):
@@ -1578,7 +1608,10 @@ def _benchmark_processing_plans(
                 )
             )
 
-        if candidate.backend == "cuda" and len(confirmation_sample) > len(sample):
+        if (
+            candidate_memory_info is not None
+            and len(confirmation_sample) > len(sample)
+        ):
             print(
                 f"[Hardware] Confirming {candidate.display_name} plans on "
                 f"{len(confirmation_sample)} production-ordered pairs..."
