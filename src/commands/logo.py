@@ -18,7 +18,6 @@ import tempfile
 import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Command_Engine
 from utilities.Position_Parsing import (
     DISPLAYED_POSITION_ATOM_PATTERN,

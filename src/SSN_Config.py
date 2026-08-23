@@ -462,6 +462,38 @@ def _load_consistency_msa_headers(msa_path):
     headers, _, _ = load_sanitized_msa_fasta(msa_path)
     return headers
 
+
+def build_score_histogram_figure(
+    scores,
+    threshold,
+    *,
+    is_evalue,
+    norm_mode,
+):
+    """Build a score histogram without starting or owning a GUI event loop."""
+    from matplotlib.figure import Figure
+
+    figure = Figure(figsize=(10, 6))
+    axes = figure.add_subplot(111)
+    axes.hist(
+        scores,
+        bins=100,
+        color="#4488ff",
+        edgecolor="black",
+        alpha=0.7,
+    )
+    axes.axvline(
+        threshold,
+        color="red",
+        linestyle="dashed",
+        label=f"Threshold {threshold}",
+    )
+    mode_label = "E-Value" if is_evalue else norm_mode
+    axes.set_title(f"Score Distribution ({mode_label})")
+    axes.legend()
+    figure.tight_layout()
+    return figure
+
 # =============================================================================
 # GUI APPLICATION
 # =============================================================================
@@ -491,6 +523,7 @@ if __name__ == "__main__":
     )
     from utilities.Application_Fonts import (
         configure_qt_application_fonts,
+        force_light_palette,
         qt_monospace_font,
     )
     from utilities.Application_Windows import (
@@ -2493,8 +2526,6 @@ if __name__ == "__main__":
                 self.tip_panel.setText("Displaying score histogram...")
                 QApplication.processEvents()
                 
-                from SSN_Utils import build_score_histogram_figure
-
                 print("Displaying Score Histogram... (Close histogram to continue)")
                 figure = build_score_histogram_figure(
                     scores,
@@ -3658,7 +3689,6 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        from SSN_Utils import force_light_palette
         force_light_palette(app)
     except Exception as e:
         print(f"Warning: Could not force light palette: {e}")

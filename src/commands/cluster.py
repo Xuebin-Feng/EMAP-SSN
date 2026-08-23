@@ -15,7 +15,7 @@
 import Command_Engine
 import numpy as np
 import matplotlib.pyplot as plt
-import SSN_Utils as utils
+from utilities import Network_Clustering as network_clustering
 import sys
 import os
 import colorsys
@@ -225,7 +225,7 @@ def run(viewer, args):
     # =======================================================
     if mode == "jaccard":
         thresh = param1
-        if not utils.NUMBA_AVAILABLE:
+        if not network_clustering.NUMBA_AVAILABLE:
             print("Error: Numba required for topology clustering.")
             viewer.console_text.text = "Error: Numba library missing."
             return
@@ -248,7 +248,9 @@ def run(viewer, args):
             indices[indptr[i]:indptr[i+1]].sort()
 
         # Numba Filter
-        keep_mask = utils.fast_jaccard_filter(edges, indptr, indices, thresh)
+        keep_mask = network_clustering.fast_jaccard_filter(
+            edges, indptr, indices, thresh
+        )
         
         filtered_adj = {i: [] for i in range(n_nodes)}
         for i, keep in enumerate(keep_mask):
@@ -347,8 +349,8 @@ def run(viewer, args):
             print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
 
         # Nodes with no edges are always returned as Noise (-1), even if
-        # min_sz is 1. See SSN_Utils.leiden_partition for the guarantee.
-        labels = utils.leiden_partition(
+        # Isolated nodes remain Noise even when min_sz is 1.
+        labels = network_clustering.leiden_partition(
             n_nodes, edges, weights, resolution, min_sz, seed=42
         )
 

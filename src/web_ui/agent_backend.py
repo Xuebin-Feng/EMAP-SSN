@@ -37,6 +37,7 @@ if _SRC_DIR not in sys.path:
 import Command_Engine
 from PySide6 import QtCore
 from web_ui.Plugin_Manager import ensure_registry
+from utilities.Cache_Selection import resolve_selected_cache
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 
@@ -390,12 +391,14 @@ def get_viewer_session_context(viewer):
 
 def get_agent_history_path(viewer):
     try:
-        import SSN_Utils as utils
-        cache_path, _ = utils.get_cache_filename()
+        import SSN_Config as cfg
+
+        cache_path, _ = resolve_selected_cache(cfg)
         return os.path.join(os.path.dirname(cache_path), "agent_history.json")
     except Exception as e:
         print(f"Warning: Could not resolve agent history path ({e})")
         import SSN_Config as cfg
+
         saved_layout_dir = getattr(cfg, 'SAVED_LAYOUT_DIR', os.path.join("Cache_Files", "Saved_Layouts"))
         return os.path.join(saved_layout_dir, "agent_chat_history_fallback.json")
 

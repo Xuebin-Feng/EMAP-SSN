@@ -1,4 +1,4 @@
-"""Non-gating scalar-versus-tiled CUDA alignment benchmark.
+"""Non-gating scalar-versus-persistent-tiled CUDA alignment benchmark.
 
 Run from the repository root with the project environment::
 
@@ -25,10 +25,11 @@ for path in (TOOLS_DIR, UTILITIES_DIR):
 
 import Align_Similarity_Matrix as alignment
 from utilities.Embedding_Alignment_Engine import (
+    TiledAcceleratorSession,
     EmbeddingTileStore,
+    accelerator_memory_plan,
     compare_precision_results,
-    cuda_memory_plan,
-    run_tiled_cuda_pipeline,
+    get_accelerator_backend,
 )
 
 
@@ -46,6 +47,7 @@ tasks = [
     for column in range(row + 1, sequence_count)
 ][:4096]
 device = torch.device("cuda:0")
+backend = get_accelerator_backend(device)
 workers = min(12, os.cpu_count() or 1)
 lanes = min(4, workers)
 repetitions = 3
@@ -101,19 +103,17 @@ with tempfile.TemporaryDirectory() as temp_dir:
     scalar_seconds = median(scalar_times)
     scalar_peak = median(scalar_peaks)
     torch.cuda.empty_cache()
-    with torch.cuda.device(device):
-        memory_info = torch.cuda.mem_get_info(device)
+    memory_info = backend.memory_info()
     profile_results = []
     for name, tile_fraction, matrix_fraction in memory_profiles:
-        plan = cuda_memory_plan(
+        plan = accelerator_memory_plan(
             device,
             lanes=lanes,
             memory_info=memory_info,
             tile_fraction=tile_fraction,
             matrix_fraction=matrix_fraction,
         )
-        run_tiled_cuda_pipeline(
-            warmup,
+        session = TiledAcceleratorSession(
             store=store,
             lengths=lengths,
             device=device,
@@ -123,33 +123,29 @@ with tempfile.TemporaryDirectory() as temp_dir:
             precision="float32",
             memory_plan_override=plan,
         )
-        elapsed_runs = []
-        peak_runs = []
-        for _ in range(repetitions):
-            torch.cuda.empty_cache()
-            torch.cuda.reset_peak_memory_stats(device)
-            started = time.perf_counter()
-            tiled = run_tiled_cuda_pipeline(
-                tasks,
-                store=store,
-                lengths=lengths,
-                device=device,
-                workers=workers,
-                lanes=lanes,
-                alignment_callback=alignment.calculate_alignment_data,
-                precision="float32",
-                memory_plan_override=plan,
-            )
-            elapsed_runs.append(time.perf_counter() - started)
-            peak_runs.append(torch.cuda.max_memory_allocated(device))
-            equivalent, reason = compare_precision_results(
-                scalar_reference,
-                tiled,
-            )
-            if not equivalent:
-                raise RuntimeError(f"Profile {name} failed validation: {reason}")
+        try:
+            session.run(warmup)
+            elapsed_runs = []
+            peak_runs = []
+            for _ in range(repetitions):
+                backend.reset_peak_memory_stats()
+                started = time.perf_counter()
+                tiled = session.run(tasks)
+                elapsed_runs.append(time.perf_counter() - started)
+                peak_runs.append(backend.max_memory_allocated())
+                equivalent, reason = compare_precision_results(
+                    scalar_reference,
+                    tiled,
+                )
+                if not equivalent:
+                    raise RuntimeError(
+                        f"Profile {name} failed validation: {reason}"
+                    )
+            metrics = session.metrics()
+        finally:
+            session.close()
         profile_results.append(
-            (name, plan, median(elapsed_runs), median(peak_runs))
+            (name, plan, median(elapsed_runs), median(peak_runs), metrics)
         )
 
 print(f"Device: {torch.cuda.get_device_name(device)}")
@@ -161,16 +157,25 @@ print(
     f"peak {scalar_peak / (1024 ** 2):.1f} MiB"
 )
 print(
-    "Profile             Tile MiB   Matrix pool MiB   Microbatch MiB   "
-    "Pairs/s   Peak MiB   vs scalar"
+    "Profile             Tile MiB   Transient MiB   Matrix MiB   "
+    "Pairs/s   GPU peak   Host stage   Cache hit   vs scalar"
 )
-for name, plan, tiled_seconds, tiled_peak in profile_results:
+for name, plan, tiled_seconds, tiled_peak, metrics in profile_results:
+    cache_requests = (
+        metrics["embedding_cache_hits"]
+        + metrics["embedding_cache_misses"]
+    )
+    cache_hit_rate = (
+        metrics["embedding_cache_hits"] / max(1, cache_requests)
+    )
     print(
         f"{name:19} "
         f"{plan.tile_cache_bytes / (1024 ** 2):>8.1f}   "
-        f"{plan.matrix_pool_bytes / (1024 ** 2):>15.1f}   "
-        f"{plan.matrix_bytes / (1024 ** 2):>14.1f}   "
+        f"{plan.transient_pool_bytes / (1024 ** 2):>13.1f}   "
+        f"{plan.matrix_pool_bytes / (1024 ** 2):>10.1f}   "
         f"{len(tasks) / tiled_seconds:>7.1f}   "
         f"{tiled_peak / (1024 ** 2):>8.1f}   "
+        f"{metrics['peak_host_staging_bytes'] / (1024 ** 2):>10.1f}   "
+        f"{cache_hit_rate:>8.1%}   "
         f"{scalar_seconds / tiled_seconds:>8.2f}x"
     )

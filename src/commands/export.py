@@ -16,8 +16,8 @@ import Command_Engine
 import os
 import re
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Cache_Manifest as cache_manifest
+from utilities.Application_Windows import open_in_file_manager
 from utilities.FASTA_Sanitization import write_fasta_atomic
 
 
@@ -231,4 +231,4 @@ def run(viewer, args):
     print(f"\nSuccess! {msg}")
     
     # Auto-open the output folder in the system file manager
-    utils.open_in_file_manager(out_dir)
+    open_in_file_manager(out_dir)

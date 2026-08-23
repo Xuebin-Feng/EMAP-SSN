@@ -18,6 +18,7 @@ if str(SRC_DIR) not in sys.path:
 
 import Cache_Manifest
 from commands import save as save_command
+from utilities.Cache_Selection import resolve_selected_cache
 
 
 def make_compatibility(sequence_hash="a" * 64, network_hash="b" * 64, **overrides):
@@ -52,6 +53,98 @@ def make_manifest(compatibility, sequence_name="set.fasta", network_name="networ
         },
         compatibility,
     )
+
+
+class CacheSelectionTests(unittest.TestCase):
+    def test_default_and_legacy_cache_paths_preserve_canonical_naming(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            network_path = root / "network.h5"
+            with h5py.File(network_path, "w") as network:
+                network.attrs["model_name"] = "model"
+                network.create_dataset("headers", data=[b"A"])
+                network.create_dataset("seq_lens", data=[1])
+                for dataset in (
+                    "i",
+                    "j",
+                    "l_score",
+                    "l_len",
+                    "g_score",
+                    "g_len",
+                ):
+                    network.create_dataset(dataset, data=[])
+
+            msa_path = root / "alignment.fasta"
+            msa_path.write_text(
+                ">Alpha description\nA\n>Beta description\nB\n",
+                encoding="utf-8",
+            )
+            settings = SimpleNamespace(
+                ALIGNMENT_REFERENCE="beta",
+                MSA_FILE=str(msa_path),
+                SAVED_LAYOUT_DIR=str(root / "layouts"),
+                TARGET_CACHE_PATH=None,
+                TARGET_CACHE_FILE=None,
+                NODE_FASTA_FILE=str(root / "set.fasta"),
+                SEQUENCES_FILE="",
+                INPUT_HDF5=str(network_path),
+                ALIGNMENT_SCORE="global",
+                NORM_MODE="alignment_length",
+                UMAP_MODE=False,
+                UMAP_NEIGHBORS=15,
+                TOP_EDGE_PERCENT=None,
+                SIMILARITY_THRESHOLD=0.4,
+            )
+
+            cache_path, reference = resolve_selected_cache(settings)
+            self.assertEqual(reference, "Beta description")
+            self.assertEqual(
+                pathlib.Path(cache_path).name,
+                "version_00.h5",
+            )
+            self.assertEqual(
+                pathlib.Path(cache_path).parent.name,
+                "set_[model]_alignment_length_global_Score0.4",
+            )
+            self.assertFalse(settings.INPUT_IS_EVALUE)
+
+            settings.TARGET_CACHE_FILE = "saved_layout.h5"
+            legacy_path, _ = resolve_selected_cache(settings)
+            self.assertEqual(pathlib.Path(legacy_path).name, "saved_layout.h5")
+
+    def test_explicit_relative_path_resolves_hdf5_reference_and_rejects_traversal(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            msa_path = root / "alignment.h5"
+            with h5py.File(msa_path, "w") as alignment:
+                alignment.create_dataset("headers", data=[b"Alpha", b"Beta full"])
+
+            settings = SimpleNamespace(
+                ALIGNMENT_REFERENCE="beta",
+                MSA_FILE=str(msa_path),
+                SAVED_LAYOUT_DIR=str(root / "layouts"),
+                TARGET_CACHE_PATH="chosen/layout.h5",
+            )
+            cache_path, reference = resolve_selected_cache(settings)
+            self.assertEqual(reference, "Beta full")
+            self.assertEqual(
+                pathlib.Path(cache_path),
+                root / "layouts" / "chosen" / "layout.h5",
+            )
+
+            settings.TARGET_CACHE_PATH = "../escape.h5"
+            with self.assertRaises(Cache_Manifest.CacheManifestError):
+                resolve_selected_cache(settings)
+
+    def test_none_reference_is_inactive(self):
+        settings = SimpleNamespace(
+            ALIGNMENT_REFERENCE=None,
+            MSA_FILE="missing.fasta",
+            SAVED_LAYOUT_DIR="layouts",
+            TARGET_CACHE_PATH="chosen/layout.h5",
+        )
+        _, reference = resolve_selected_cache(settings)
+        self.assertIsNone(reference)
 
 
 class ManifestIdentityTests(unittest.TestCase):
@@ -376,8 +469,8 @@ class InteractiveSaveTests(unittest.TestCase):
             )
 
             with mock.patch.object(
-                save_command.utils,
-                "get_cache_filename",
+                save_command,
+                "resolve_selected_cache",
                 return_value=(str(default_path), None),
             ), mock.patch.object(save_command.Command_Engine, "print_help"):
                 save_command.run(viewer, [])
@@ -405,8 +498,8 @@ class InteractiveSaveTests(unittest.TestCase):
             )
             messages = []
             with mock.patch.object(
-                save_command.utils,
-                "get_cache_filename",
+                save_command,
+                "resolve_selected_cache",
                 return_value=(str(folder / "version_00.h5"), None),
             ), mock.patch.object(
                 save_command.Command_Engine,

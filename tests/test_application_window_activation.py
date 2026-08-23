@@ -27,6 +27,22 @@ class ApplicationWindowActivationTests(unittest.TestCase):
         window.windowHandle.return_value = None
         return window
 
+    def test_file_manager_prefers_qt_desktop_services(self):
+        with mock.patch(
+            "PySide6.QtGui.QDesktopServices.openUrl", return_value=True
+        ) as open_url:
+            self.assertTrue(Application_Windows.open_in_file_manager("output"))
+
+        open_url.assert_called_once()
+
+    def test_file_manager_uses_windows_shell_when_qt_declines(self):
+        with mock.patch(
+            "PySide6.QtGui.QDesktopServices.openUrl", return_value=False
+        ), mock.patch.object(Application_Windows.os, "startfile") as startfile:
+            self.assertTrue(Application_Windows.open_in_file_manager("output"))
+
+        startfile.assert_called_once_with(os.path.abspath("output"))
+
     def test_show_schedules_repeated_foreground_requests(self):
         window = self._window()
         callbacks = []

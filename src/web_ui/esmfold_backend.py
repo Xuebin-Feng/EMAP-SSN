@@ -14,10 +14,10 @@
 
 import os
 import json
-import SSN_Utils as utils
 import SSN_Config as cfg
 import webbrowser
 from web_ui.Plugin_Manager import ensure_registry
+from utilities.Cache_Selection import resolve_selected_cache
 
 def register_backend(registry, viewer):
     """Register Mol* web capabilities without changing sidebar state."""
@@ -97,7 +97,7 @@ def handle_save_session(viewer, data):
         if session_data is None:
             return
             
-        cache_path, _ = utils.get_cache_filename()
+        cache_path, _ = resolve_selected_cache(cfg)
         layout_dir = os.path.dirname(cache_path)
         os.makedirs(layout_dir, exist_ok=True)
         
@@ -110,7 +110,7 @@ def handle_save_session(viewer, data):
 def handle_load_session(viewer, data):
     """Loads the Mol* JSON session snapshot from the active layout cache folder and broadcasts it."""
     try:
-        cache_path, _ = utils.get_cache_filename()
+        cache_path, _ = resolve_selected_cache(cfg)
         layout_dir = os.path.dirname(cache_path)
         session_file = os.path.join(layout_dir, "molstar_session.json")
         

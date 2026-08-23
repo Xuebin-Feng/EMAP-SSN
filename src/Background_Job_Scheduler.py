@@ -26,6 +26,7 @@ from typing import Any, Callable, Mapping
 import weakref
 
 from PySide6 import QtCore
+from utilities.Application_Windows import open_in_file_manager
 
 
 Worker = Callable[[Any], Mapping[str, Any]]
@@ -222,9 +223,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         reveal_directory = result.get("reveal_directory")
         if reveal_directory:
             try:
-                import SSN_Utils as utils
-
-                utils.open_in_file_manager(reveal_directory)
+                open_in_file_manager(reveal_directory)
             except Exception as error:
                 print(f"Could not reveal output directory: {error}")
 

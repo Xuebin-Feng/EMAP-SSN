@@ -21,7 +21,7 @@ if str(SRC_DIR) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QFont, QFontDatabase, QTextLayout  # noqa: E402
+from PySide6.QtGui import QFont, QFontDatabase, QPalette, QTextLayout  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
@@ -49,6 +49,7 @@ from utilities.Application_Fonts import (  # noqa: E402
     VISPY_MONOSPACE_FACE,
     VISPY_UI_FACE,
     configure_qt_application_fonts,
+    force_light_palette,
     qt_monospace_font,
     register_vispy_application_fonts,
 )
@@ -70,6 +71,24 @@ class ApplicationFontTests(unittest.TestCase):
             delete(cls.app)
         cls.app = None
         gc.collect()
+
+    def test_light_palette_uses_shared_fusion_colors(self):
+        force_light_palette(self.app)
+
+        self.assertEqual(self.app.style().objectName().lower(), "fusion")
+        palette = self.app.palette()
+        self.assertEqual(
+            palette.color(QPalette.ColorRole.Window).getRgb()[:3],
+            (240, 240, 240),
+        )
+        self.assertEqual(
+            palette.color(QPalette.ColorRole.Highlight).getRgb()[:3],
+            (48, 140, 198),
+        )
+        self.assertEqual(
+            palette.color(QPalette.ColorRole.HighlightedText).getRgb()[:3],
+            (255, 255, 255),
+        )
 
     def test_manifest_declares_the_4_68_mib_core_pack_and_hashes_match(self):
         self.assertEqual(len(FONT_FILES), 8)

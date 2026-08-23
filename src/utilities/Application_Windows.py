@@ -214,3 +214,29 @@ def show_window_in_front(window):
     QtCore.QTimer.singleShot(
         100, lambda active_window=window: _activate_and_signal(active_window)
     )
+
+
+def open_in_file_manager(path):
+    """Reveal a path through Qt, with a platform shell fallback."""
+    target = os.path.abspath(path)
+    try:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(target)):
+            return True
+    except Exception:
+        pass
+
+    try:
+        import subprocess
+
+        if os.name == "nt":
+            os.startfile(target)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", target])
+        else:
+            subprocess.Popen(["xdg-open", target])
+        return True
+    except Exception:
+        return False

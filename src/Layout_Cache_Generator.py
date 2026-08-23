@@ -21,6 +21,7 @@ import numpy as np
 
 import Cache_Manifest as cache_manifest
 from utilities.FASTA_Sanitization import load_sanitized_fasta
+from utilities.Network_Preparation import prepare_network
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -590,22 +591,16 @@ def generate_layout_cache(
     headers, sequences, _ = load_sanitized_fasta(settings.NODE_FASTA_FILE)
     records = list(zip(headers, sequences))
 
-    # SSN_Utils remains the authoritative network filtering implementation, but
-    # receives this explicit namespace instead of the mutable viewer config.
-    import SSN_Utils as utils
-
     preparation_settings = SimpleNamespace(**{
         item.name: getattr(settings, item.name)
         for item in fields(settings)
         if not item.name.startswith("_")
     })
     with h5py.File(settings.INPUT_HDF5, "r") as raw_data:
-        full_headers, edges, edge_scores, _initial_pos, _initial_box = (
-            utils.build_network_from_raw(
-                raw_data,
-                selected_fasta_headers=headers,
-                layout_settings=preparation_settings,
-            )
+        full_headers, edges, edge_scores = prepare_network(
+            raw_data,
+            settings=preparation_settings,
+            selected_fasta_headers=headers,
         )
 
     n_nodes = len(full_headers)

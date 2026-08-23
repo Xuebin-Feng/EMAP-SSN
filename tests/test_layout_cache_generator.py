@@ -19,12 +19,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import Cache_Manifest
-import SSN_Utils  # noqa: F401 - keep the authoritative preparer loaded across mocks
 from Layout_Cache_Generator import (
     LayoutGenerationError,
     LayoutGenerationSettings,
     generate_layout_cache,
 )
+from utilities.Network_Preparation import prepare_network
 
 
 def _settings_document(temp_path, *, cache_filename="version_00.h5"):
@@ -82,6 +82,107 @@ def _write_inputs(temp_path):
             network.create_dataset(name, data=np.asarray([10], dtype=np.float32))
         for name in ("g_len", "l_len"):
             network.create_dataset(name, data=np.asarray([2], dtype=np.uint16))
+
+
+def _preparation_settings(**overrides):
+    values = {
+        "NODE_FASTA_FILE": "",
+        "ALIGNMENT_SCORE": "global",
+        "NORM_MODE": "alignment_length",
+        "SIMILARITY_THRESHOLD": 0.0,
+        "TOP_EDGE_PERCENT": None,
+        "UMAP_MODE": False,
+        "UMAP_NEIGHBORS": 15,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+class NetworkPreparationTests(unittest.TestCase):
+    def test_alignment_normalization_modes_and_fasta_subset(self):
+        expected_scores = {
+            "alignment_length": 4.0,
+            "shorter_sequence": 4.0,
+            "longer_sequence": 2.0,
+            "average_sequence": 8.0 / 3.0,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "alignment.h5"
+            with h5py.File(network_path, "w") as network:
+                network.attrs["model_name"] = "model"
+                network.create_dataset("headers", data=[b"A", b"B", b"C"])
+                network.create_dataset("i", data=[0, 0, 1])
+                network.create_dataset("j", data=[1, 2, 2])
+                network.create_dataset("seq_lens", data=[2, 4, 8])
+                for name in ("g_score", "l_score"):
+                    network.create_dataset(name, data=[8.0, 8.0, 8.0])
+                for name in ("g_len", "l_len"):
+                    network.create_dataset(name, data=[2, 2, 2])
+
+            for normalization, expected_score in expected_scores.items():
+                with self.subTest(normalization=normalization), h5py.File(
+                    network_path, "r"
+                ) as network:
+                    settings = _preparation_settings(NORM_MODE=normalization)
+                    headers, edges, scores = prepare_network(
+                        network,
+                        settings=settings,
+                        selected_fasta_headers=["A", "B"],
+                    )
+                    self.assertEqual(headers, ["A", "B"])
+                    np.testing.assert_array_equal(edges, [[0, 1]])
+                    np.testing.assert_allclose(scores, [expected_score])
+                    self.assertFalse(settings.INPUT_IS_EVALUE)
+
+    def test_top_percent_updates_effective_threshold(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "alignment.h5"
+            with h5py.File(network_path, "w") as network:
+                network.attrs["model_name"] = "model"
+                network.create_dataset("headers", data=[b"A", b"B", b"C"])
+                network.create_dataset("i", data=[0, 0, 1])
+                network.create_dataset("j", data=[1, 2, 2])
+                network.create_dataset("seq_lens", data=[2, 2, 2])
+                for name in ("g_score", "l_score"):
+                    network.create_dataset(name, data=[2.0, 6.0, 4.0])
+                for name in ("g_len", "l_len"):
+                    network.create_dataset(name, data=[2, 2, 2])
+
+            settings = _preparation_settings(TOP_EDGE_PERCENT=34.0)
+            with h5py.File(network_path, "r") as network:
+                headers, edges, scores = prepare_network(
+                    network,
+                    settings=settings,
+                    selected_fasta_headers=["A", "B", "C"],
+                )
+
+            self.assertEqual(headers, ["A", "B", "C"])
+            self.assertEqual(settings.SIMILARITY_THRESHOLD, 3.0)
+            np.testing.assert_array_equal(edges, [[0, 2]])
+            np.testing.assert_allclose(scores, [3.0])
+
+    def test_empty_blast_network_returns_empty_connectivity(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "blast.h5"
+            with h5py.File(network_path, "w") as network:
+                network.attrs["model_name"] = "blast"
+                network.create_dataset("headers", data=[b"A", b"B"])
+                network.create_dataset("i", data=np.asarray([], dtype=np.int32))
+                network.create_dataset("j", data=np.asarray([], dtype=np.int32))
+                network.create_dataset("score", data=np.asarray([], dtype=np.float32))
+
+            settings = _preparation_settings()
+            with h5py.File(network_path, "r") as network:
+                headers, edges, scores = prepare_network(
+                    network,
+                    settings=settings,
+                    selected_fasta_headers=None,
+                )
+
+            self.assertEqual(headers, ["A", "B"])
+            self.assertEqual(edges.shape, (0, 2))
+            self.assertEqual(scores.shape, (0,))
+            self.assertTrue(settings.INPUT_IS_EVALUE)
 
 
 class LayoutSettingsTests(unittest.TestCase):
@@ -323,9 +424,15 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 "-c",
                 (
                     "import sys; import Layout_Cache_Generator; "
+                    "import utilities.Cache_Selection; "
+                    "import utilities.Network_Clustering; "
+                    "import utilities.Network_Preparation; "
                     "assert 'SSN_Viewer' not in sys.modules; "
                     "assert 'vispy' not in sys.modules; "
-                    "assert 'PySide6' not in sys.modules"
+                    "assert 'PySide6' not in sys.modules; "
+                    "assert 'torch' not in sys.modules; "
+                    "assert 'Bio' not in sys.modules; "
+                    "assert 'matplotlib' not in sys.modules"
                 ),
             ],
             cwd=SRC,
@@ -334,6 +441,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(import_check.returncode, 0, import_check.stderr)
+        self.assertEqual(import_check.stdout, "")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             malformed = pathlib.Path(temp_dir) / "malformed.json"

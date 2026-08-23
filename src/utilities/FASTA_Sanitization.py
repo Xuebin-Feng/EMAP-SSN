@@ -102,6 +102,25 @@ def sanitize_header(header):
     return safe_header, safe_header != header
 
 
+def simplify_node_label(header):
+    """Return a compact accession or first-token label for a FASTA header."""
+    match = re.search(
+        r"\b([A-Z]{2}_\d+(?:\.\d+)?|[A-Z]{3}\d{5,7}(?:\.\d+)?)\b",
+        header,
+    )
+    if match:
+        return match.group(1)
+
+    marker = "|gb|"
+    if marker in header:
+        try:
+            return header.split(marker)[1].split("|")[0]
+        except IndexError:
+            pass
+
+    return header.split()[0] if header else ""
+
+
 def sanitize_sequence(seq):
     """Uppercase a sequence, trim terminal artifacts, and mask internal ones."""
     upper_seq = seq.upper()

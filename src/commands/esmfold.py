@@ -16,7 +16,6 @@ import os
 import sys
 import Command_Engine
 import SSN_Config as cfg
-import SSN_Utils as utils
 import web_ui.esmfold_backend as esmfold_backend
 from PySide6.QtWidgets import QApplication, QMessageBox
 from utilities.Terminal_Launcher import (

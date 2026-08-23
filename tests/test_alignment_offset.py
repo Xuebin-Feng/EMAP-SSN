@@ -20,7 +20,11 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 import Command_Engine
-import SSN_Utils
+from utilities.FASTA_Sanitization import simplify_node_label
+from utilities.Position_Parsing import (
+    format_alignment_offset_display,
+    sort_alignment_labels,
+)
 from commands import label as label_command
 from commands import logo as logo_command
 from commands import offset as offset_command
@@ -49,6 +53,17 @@ def make_reference_manager():
 
 
 class AlignmentOffsetMappingTests(unittest.TestCase):
+    def test_alignment_labels_sort_by_major_and_insertion_position(self):
+        self.assertEqual(
+            sort_alignment_labels(["188.10", "2", "188.6", "-1.2", "label"]),
+            ["-1.2", "label", "2", "188.6", "188.10"],
+        )
+
+    def test_node_label_simplification_preserves_accession_rules(self):
+        self.assertEqual(simplify_node_label("protein WP_012345678.1 detail"), "WP_012345678.1")
+        self.assertEqual(simplify_node_label("gi|1|gb|legacy_id|desc"), "legacy_id")
+        self.assertEqual(simplify_node_label("plain_id description"), "plain_id")
+
     def test_constructor_applies_configured_offset_after_reference_resolution(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             msa_path = os.path.join(temp_dir, "alignment.fasta")
@@ -187,7 +202,9 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
         viewer = SimpleNamespace(alignment=manager, alignment_offset=10)
 
         self.assertEqual(
-            SSN_Utils.get_alignment_offset_display(viewer),
+            format_alignment_offset_display(
+                viewer.alignment, viewer.alignment_offset
+            ),
             "10 (inactive)",
         )
 

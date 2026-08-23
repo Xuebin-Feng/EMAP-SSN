@@ -173,8 +173,8 @@ class MetadataColumnDeletionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             default_path = os.path.join(temp_dir, "version_00.h5")
             with mock.patch.object(
-                save_command.utils,
-                "get_cache_filename",
+                save_command,
+                "resolve_selected_cache",
                 return_value=(default_path, None),
             ), mock.patch.object(
                 save_command.cache_manifest,

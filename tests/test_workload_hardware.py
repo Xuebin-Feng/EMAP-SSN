@@ -284,6 +284,7 @@ class AlignmentHardwareTests(unittest.TestCase):
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
         with mock.patch.object(Alignment, "DEVICE_SELECTION", "cpu"), \
+                mock.patch.object(Alignment, "EXECUTION_MODE", "auto"), \
                 mock.patch.object(
                     Alignment.Hardware_Utils,
                     "get_available_devices",

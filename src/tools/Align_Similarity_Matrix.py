@@ -32,7 +32,7 @@ Settings:
 - WORKERS: Number of multiprocessing workers to use.
 - HOST_CACHE_GB: Automatic or explicit host-RAM cap for packed embeddings.
 - EXECUTION_MODE: Automatic, scalar, or tiled pairwise score execution.
-- ACCELERATOR_PRECISION: Validated automatic, IEEE FP32, or TF32 CUDA matmul.
+- ACCELERATOR_PRECISION: Validated automatic, IEEE FP32, or NVIDIA TF32 matmul.
 - LOCAL_GAP_P: The gap penalty for local alignment (e.g. Smith-Waterman style).
 - GLOBAL_GAP_P: The gap penalty for global alignment (e.g. Needleman-Wunsch style).
 
@@ -40,7 +40,7 @@ Algorithm:
 1. Packs the embedding database in bounded host RAM when possible; otherwise
    loads byte-bounded sequence tiles from HDF5.
 2. Tunes lanes on a short cost-stratified sample, then confirms the selected
-   scalar and padded-batched CUDA plans on production-ordered pairs.
+   scalar and padded-batched accelerator plans on production-ordered pairs.
 3. Passes those matrices by reference through a bounded queue to parallel CPU
    threads, which evaluate Global and Local Alignments using Numba functions
    compiled to release the Python GIL.
@@ -79,14 +79,17 @@ from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Embedding_Alignment_Engine import (
+    TiledAcceleratorSession,
     EmbeddingTileStore,
+    accelerator_memory_plan,
     compare_precision_results,
     cuda_matmul_precision,
-    cuda_memory_plan,
-    estimate_cuda_working_set,
+    estimate_accelerator_working_set,
+    get_accelerator_backend,
     normalize_execution_mode,
     normalize_precision_setting,
-    run_tiled_cuda_pipeline,
+    run_tiled_accelerator_pipeline,
+    tiled_accelerator_support,
 )
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_HDF5 import read_embedding_manifest
@@ -848,6 +851,7 @@ def process_accelerated_tasks(
     matmul_precision="ieee_fp32",
     execution_variant="scalar",
     result_callback=None,
+    tiled_session=None,
 ):
     """
     Auto-select accelerator concurrency, then run the complete task batch.
@@ -863,14 +867,15 @@ def process_accelerated_tasks(
         )
     if (
         execution_variant == "tiled"
-        and _device_type(device) == "cuda"
+        and _device_type(device) in {"cuda", "xpu"}
         and embedding_store is not None
         and sequence_lengths is not None
     ):
+        backend = get_accelerator_backend(device)
         progress = tqdm(
             total=len(batch_tasks),
             desc=(
-                f"  Batch {batch_id} (tiled CUDA, "
+                f"  Batch {batch_id} (tiled {_device_type(device).upper()}, "
                 f"{accelerator_workers} lane"
                 f"{'s' if accelerator_workers != 1 else ''})"
             ),
@@ -885,8 +890,9 @@ def process_accelerated_tasks(
                     and hasattr(result_callback, "checkpoint")
                     else None
                 )
+                progress_checkpoint = getattr(progress, "n", None)
                 try:
-                    return run_tiled_cuda_pipeline(
+                    return run_tiled_accelerator_pipeline(
                         batch_tasks,
                         store=embedding_store,
                         lengths=sequence_lengths,
@@ -898,24 +904,41 @@ def process_accelerated_tasks(
                         progress=progress,
                         matrix_budget_override=matrix_budget,
                         result_callback=result_callback,
+                        session=tiled_session,
                     )
-                except torch.cuda.OutOfMemoryError:
+                except Exception as error:
+                    if not backend.is_out_of_memory(error):
+                        raise
                     if checkpoint is not None:
                         result_callback.rollback(checkpoint)
-                    torch.cuda.empty_cache()
-                    default_budget = cuda_memory_plan(
-                        device,
-                        lanes=accelerator_workers,
-                    ).matrix_bytes
-                    matrix_budget = max(
-                        16 * 1024 * 1024,
-                        int(matrix_budget or default_budget) // 2,
-                    )
+                    if (
+                        isinstance(progress_checkpoint, (int, np.integer))
+                        and isinstance(getattr(progress, "n", None), (int, np.integer))
+                    ):
+                        progress.update(progress_checkpoint - progress.n)
+                    if tiled_session is not None:
+                        matrix_budget = tiled_session.recover_from_oom(
+                            minimum_budget=16 * 1024 * 1024
+                        )
+                    else:
+                        backend.empty_cache()
+                        default_budget = accelerator_memory_plan(
+                            device, lanes=accelerator_workers
+                        ).matrix_pool_bytes
+                        matrix_budget = max(
+                            16 * 1024 * 1024,
+                            int(matrix_budget or default_budget) // 2,
+                        )
                     print(
-                        f"  > CUDA memory pressure; retrying batch with "
-                        f"{matrix_budget / (1024 ** 2):.0f} MiB matrix budget."
+                        f"  > {_device_type(device).upper()} memory pressure; "
+                        f"retrying batch with "
+                        f"{matrix_budget / (1024 ** 2):.0f} MiB shared "
+                        f"matrix budget."
                     )
-            print("  > Tiled CUDA remained out of memory; using scalar CUDA.")
+            raise RuntimeError(
+                "Tiled accelerator execution remained out of memory after "
+                "four retries; the batch must use the next ranked plan."
+            )
         finally:
             progress.close()
     return _run_accelerated_pipeline(
@@ -1132,12 +1155,18 @@ def _precision_device(candidates):
 def _execution_variants(candidate):
     """Return execution variants allowed for one hardware candidate."""
     mode = normalize_execution_mode(EXECUTION_MODE)
+    tiled_supported = (
+        candidate.backend in {"cuda", "xpu"}
+        and tiled_accelerator_support(
+            candidate.device, require_memory=False
+        )[0]
+    )
     if mode == "scalar":
         return ["scalar"]
     if mode == "tiled":
-        return ["tiled"] if candidate.backend == "cuda" else []
+        return ["tiled"] if tiled_supported else []
     variants = ["scalar"]
-    if candidate.backend == "cuda":
+    if tiled_supported:
         variants.append("tiled")
     return variants
 
@@ -1151,19 +1180,22 @@ def _validate_execution_mode_hardware():
     manual = Hardware_Utils.resolve_device_selection(
         DEVICE_SELECTION, candidates
     )
-    if manual is not None and manual.backend != "cuda":
+    if manual is not None and not _execution_variants(manual):
         raise ValueError(
-            "Tiled execution requires a CUDA device; the selected device "
+            "Tiled execution requires a stream-capable CUDA/ROCm or XPU "
+            "accelerator; the selected device "
             f"is '{manual.spec}'."
         )
     eligible = [
-        candidate for candidate in candidates if candidate.backend == "cuda"
+        candidate for candidate in candidates
+        if _execution_variants(candidate) == ["tiled"]
     ]
     if manual is not None:
         eligible = [manual]
     if not eligible:
         raise ValueError(
-            "Tiled execution was requested, but no CUDA device is available."
+            "Tiled execution was requested, but no compatible CUDA/ROCm or "
+            "XPU accelerator is available."
         )
     return mode
 
@@ -1172,14 +1204,17 @@ def _gib_text(byte_count):
     return f"{int(byte_count) / (1024 ** 3):.2f} GiB"
 
 
-def _vram_estimate_text(estimate):
+def _device_memory_estimate_text(estimate):
     return (
         f"projected {_gib_text(estimate.projected_peak_bytes)} / "
         f"safe {_gib_text(estimate.safe_peak_bytes)}; "
         f"tile {_gib_text(estimate.tile_bytes)}, "
         f"transient {_gib_text(estimate.transient_bytes)}, "
-        f"per-slot cap {_gib_text(estimate.per_microbatch_bytes)}"
+        f"shared matrix cap {_gib_text(estimate.per_microbatch_bytes)}"
     )
+
+
+_vram_estimate_text = _device_memory_estimate_text
 
 
 def _resolve_active_matmul_precision(
@@ -1220,10 +1255,10 @@ def _resolve_active_matmul_precision(
     if len(validation_tasks) < 2:
         return "ieee_fp32"
     Hardware_Utils.release_device_cache(cuda_candidate)
-    memory_plan = cuda_memory_plan(cuda_candidate.device, lanes=1)
+    memory_plan = accelerator_memory_plan(cuda_candidate.device, lanes=1)
     memory_info = (memory_plan.free_bytes, memory_plan.total_bytes)
     preflight = {
-        variant: estimate_cuda_working_set(
+        variant: estimate_accelerator_working_set(
             validation_tasks,
             store=store,
             lengths=sequence_lengths,
@@ -1236,7 +1271,7 @@ def _resolve_active_matmul_precision(
     }
     for variant, estimate in preflight.items():
         print(
-            f"[Precision] VRAM preflight {variant}: "
+            f"[Precision] Device-memory preflight {variant}: "
             f"{_vram_estimate_text(estimate)}; {estimate.reason}."
         )
     infeasible = [
@@ -1246,7 +1281,7 @@ def _resolve_active_matmul_precision(
     ]
     if infeasible:
         print(
-            f"[Precision] Selected-plan validation is not VRAM-safe "
+            f"[Precision] Selected-plan validation is not device-memory-safe "
             f"({'; '.join(infeasible)}); using IEEE FP32."
         )
         return "ieee_fp32"
@@ -1268,7 +1303,7 @@ def _resolve_active_matmul_precision(
                 show_progress=False,
                 matmul_precision=precision,
             )
-        return run_tiled_cuda_pipeline(
+        return run_tiled_accelerator_pipeline(
             tasks,
             store=store,
             lengths=sequence_lengths,
@@ -1360,18 +1395,20 @@ def _benchmark_processing_plans(
         DEVICE_SELECTION, candidates
     )
     if execution_mode == "tiled":
-        if manual is not None and manual.backend != "cuda":
+        if manual is not None and not _execution_variants(manual):
             raise ValueError(
-                "Tiled execution requires a CUDA device; the selected device "
+                "Tiled execution requires a stream-capable CUDA/ROCm or XPU "
+                "accelerator; the selected device "
                 f"is '{manual.spec}'."
             )
         candidates = [
             candidate for candidate in candidates
-            if candidate.backend == "cuda"
+            if _execution_variants(candidate) == ["tiled"]
         ]
         if not candidates:
             raise ValueError(
-                "Tiled execution was requested, but no CUDA device is available."
+                "Tiled execution was requested, but no compatible CUDA/ROCm "
+                "or XPU accelerator is available."
             )
     if manual is not None and manual.is_cpu:
         print(f"[Hardware] Using manually selected {manual.display_name}.")
@@ -1401,7 +1438,7 @@ def _benchmark_processing_plans(
                 show_progress=False,
             )
         if variant == "tiled":
-            return run_tiled_cuda_pipeline(
+            return run_tiled_accelerator_pipeline(
                 tasks,
                 store=embedding_store,
                 lengths=sequence_lengths,
@@ -1434,24 +1471,32 @@ def _benchmark_processing_plans(
         f"{len(sample)} representative alignment pairs..."
     )
     print(
-        "Device/backend                 Plan      Lanes   VRAM peak/safe   "
+        "Device/backend                 Plan      Lanes   Memory peak/safe "
         "Throughput (pairs/s)   Status"
     )
     results = []
     for candidate in candidates:
         candidate_results = []
         candidate_memory_info = None
+        tiled_preflight_error = None
         if (
-            candidate.backend == "cuda"
+            candidate.backend in {"cuda", "xpu"}
             and embedding_store is not None
             and sequence_lengths is not None
         ):
             Hardware_Utils.release_device_cache(candidate)
-            base_memory_plan = cuda_memory_plan(candidate.device, lanes=1)
-            candidate_memory_info = (
-                base_memory_plan.free_bytes,
-                base_memory_plan.total_bytes,
-            )
+            try:
+                base_memory_plan = accelerator_memory_plan(
+                    candidate.device, lanes=1
+                )
+                candidate_memory_info = (
+                    base_memory_plan.free_bytes,
+                    base_memory_plan.total_bytes,
+                )
+            except (RuntimeError, NotImplementedError) as error:
+                tiled_preflight_error = (
+                    f"device-memory information unavailable: {error}"
+                )
         lane_candidates = (
             [1]
             if candidate.is_cpu
@@ -1462,6 +1507,12 @@ def _benchmark_processing_plans(
             embedding_store is None or sequence_lengths is None
         ):
             variants.remove("tiled")
+        if "tiled" in variants and tiled_preflight_error is not None:
+            variants.remove("tiled")
+            print(
+                f"{candidate.display_name}: tiled plan skipped; "
+                f"{tiled_preflight_error}."
+            )
         if candidate.is_cpu:
             try:
                 process_cpu_tasks(
@@ -1477,7 +1528,7 @@ def _benchmark_processing_plans(
             for variant in variants:
                 warmup_tasks = sample[: min(2, len(sample))]
                 if candidate_memory_info is not None:
-                    warmup_estimate = estimate_cuda_working_set(
+                    warmup_estimate = estimate_accelerator_working_set(
                         warmup_tasks,
                         store=embedding_store,
                         lengths=sequence_lengths,
@@ -1498,7 +1549,7 @@ def _benchmark_processing_plans(
                 memory_estimate = None
                 vram_label = "--"
                 if candidate_memory_info is not None:
-                    memory_estimate = estimate_cuda_working_set(
+                    memory_estimate = estimate_accelerator_working_set(
                         sample,
                         store=embedding_store,
                         lengths=sequence_lengths,
@@ -1516,7 +1567,10 @@ def _benchmark_processing_plans(
                             candidate,
                             None,
                             lanes=lanes,
-                            error=f"VRAM preflight: {memory_estimate.reason}",
+                            error=(
+                                f"Device-memory preflight: "
+                                f"{memory_estimate.reason}"
+                            ),
                             variant=variant,
                         )
                         print(
@@ -1578,13 +1632,16 @@ def _benchmark_processing_plans(
                 )
             )
 
-        if candidate.backend == "cuda" and len(confirmation_sample) > len(sample):
+        if (
+            candidate.backend in {"cuda", "xpu"}
+            and len(confirmation_sample) > len(sample)
+        ):
             print(
                 f"[Hardware] Confirming {candidate.display_name} plans on "
                 f"{len(confirmation_sample)} production-ordered pairs..."
             )
             for short_result in selected_short:
-                memory_estimate = estimate_cuda_working_set(
+                memory_estimate = estimate_accelerator_working_set(
                     confirmation_sample,
                     store=embedding_store,
                     lengths=sequence_lengths,
@@ -1594,7 +1651,7 @@ def _benchmark_processing_plans(
                     memory_info=candidate_memory_info,
                 )
                 print(
-                    f"  [VRAM] {short_result.variant}, "
+                    f"  [Device memory] {short_result.variant}, "
                     f"lanes={short_result.lanes}: "
                     f"{_vram_estimate_text(memory_estimate)}; "
                     f"{memory_estimate.reason}."
@@ -1602,7 +1659,8 @@ def _benchmark_processing_plans(
                 if not memory_estimate.feasible:
                     print(
                         f"  {short_result.variant:8} lanes="
-                        f"{short_result.lanes:<2} --   skipped by VRAM preflight"
+                        f"{short_result.lanes:<2} --   skipped by "
+                        f"device-memory preflight"
                     )
                     continue
                 started = time.perf_counter()
@@ -1663,12 +1721,45 @@ def _run_batch_with_ranked_plans(
     ranked_plans,
     active_plan_index,
     *process_args,
+    tiled_sessions=None,
     **process_kwargs,
 ):
     """Run one uncommitted batch, failing over only in automatic mode."""
     while active_plan_index < len(ranked_plans):
         plan = ranked_plans[active_plan_index]
+        session_key = None
+        tiled_session = None
+        store = process_kwargs.get("embedding_store", active_embedding_store)
+        lengths = process_kwargs.get(
+            "sequence_lengths", active_sequence_lengths
+        )
         try:
+            if (
+                plan.variant == "tiled"
+                and tiled_sessions is not None
+                and store is not None
+                and lengths is not None
+            ):
+                precision = process_kwargs.get(
+                    "matmul_precision", active_matmul_precision
+                )
+                session_key = (
+                    plan.candidate.spec,
+                    int(plan.lanes),
+                    str(precision),
+                )
+                tiled_session = tiled_sessions.get(session_key)
+                if tiled_session is None:
+                    tiled_session = TiledAcceleratorSession(
+                        store=store,
+                        lengths=lengths,
+                        device=plan.candidate.device,
+                        workers=process_args[2],
+                        lanes=plan.lanes,
+                        alignment_callback=calculate_alignment_data,
+                        precision=precision,
+                    )
+                    tiled_sessions[session_key] = tiled_session
             process_batch(
                 *process_args,
                 **process_kwargs,
@@ -1677,9 +1768,13 @@ def _run_batch_with_ranked_plans(
                     None if plan.candidate.is_cpu else plan.lanes
                 ),
                 execution_variant=plan.variant,
+                tiled_session=tiled_session,
             )
             return active_plan_index
         except (RuntimeError, NotImplementedError, MemoryError) as error:
+            if session_key is not None and tiled_session is not None:
+                tiled_session.close()
+                tiled_sessions.pop(session_key, None)
             if Hardware_Utils.normalize_device_selection(DEVICE_SELECTION) != "auto":
                 raise RuntimeError(
                     f"Alignment batch failed on manually selected device "
@@ -1799,6 +1894,7 @@ def process_batch(
     matmul_precision=None,
     embedding_store=None,
     sequence_lengths=None,
+    tiled_session=None,
 ):
     output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
     if device is None:
@@ -1831,6 +1927,7 @@ def process_batch(
                 matmul_precision=matmul_precision,
                 execution_variant=execution_variant,
                 result_callback=writer,
+                tiled_session=tiled_session,
             )
         else:
             results = process_cpu_tasks(
@@ -2325,56 +2422,69 @@ def run_job_distributor():
             desc="Overall Progress",
             unit="batch",
         )
-        
-        for i in range(n):
-            cols = np.arange(i + 1, n)
-            
-            row_computed = computed_mask[i, i+1:]
-            if required_mask is not None:
-                row_required = required_mask[i, i+1:]
-                pending_mask = row_required & (~row_computed)
-            else:
-                pending_mask = ~row_computed
-                
-            if not np.any(pending_mask):
-                continue
-                
-            pending_cols = cols[pending_mask]
-            for j_val in pending_cols:
-                current_batch.append((i, int(j_val), safe_headers[i], safe_headers[j_val]))
-                if len(current_batch) >= BATCH_SIZE:
-                    active_plan_index = _run_batch_with_ranked_plans(
-                        ranked_plans,
-                        active_plan_index,
-                        current_batch,
-                        batch_id,
-                        WORKERS,
-                        FULL_INPUT_HDF5,
-                        current_checksum,
-                        current_model_name,
-                        current_saving_mode,
-                        current_gap_penalties,
-                    )
-                    batch_id += 1
-                    current_batch = []
-                    pbar.update(1)
+        tiled_sessions = {}
+        try:
+            for i in range(n):
+                cols = np.arange(i + 1, n)
 
-        if len(current_batch) > 0:
-            active_plan_index = _run_batch_with_ranked_plans(
-                ranked_plans,
-                active_plan_index,
-                current_batch,
-                batch_id,
-                WORKERS,
-                FULL_INPUT_HDF5,
-                current_checksum,
-                current_model_name,
-                current_saving_mode,
-                current_gap_penalties,
-            )
-            pbar.update(1)
-            
-        pbar.close()
+                row_computed = computed_mask[i, i+1:]
+                if required_mask is not None:
+                    row_required = required_mask[i, i+1:]
+                    pending_mask = row_required & (~row_computed)
+                else:
+                    pending_mask = ~row_computed
+
+                if not np.any(pending_mask):
+                    continue
+
+                pending_cols = cols[pending_mask]
+                for j_val in pending_cols:
+                    current_batch.append(
+                        (i, int(j_val), safe_headers[i], safe_headers[j_val])
+                    )
+                    if len(current_batch) >= BATCH_SIZE:
+                        active_plan_index = _run_batch_with_ranked_plans(
+                            ranked_plans,
+                            active_plan_index,
+                            current_batch,
+                            batch_id,
+                            WORKERS,
+                            FULL_INPUT_HDF5,
+                            current_checksum,
+                            current_model_name,
+                            current_saving_mode,
+                            current_gap_penalties,
+                            tiled_sessions=tiled_sessions,
+                            embedding_store=active_embedding_store,
+                            sequence_lengths=active_sequence_lengths,
+                            matmul_precision=active_matmul_precision,
+                        )
+                        batch_id += 1
+                        current_batch = []
+                        pbar.update(1)
+
+            if len(current_batch) > 0:
+                active_plan_index = _run_batch_with_ranked_plans(
+                    ranked_plans,
+                    active_plan_index,
+                    current_batch,
+                    batch_id,
+                    WORKERS,
+                    FULL_INPUT_HDF5,
+                    current_checksum,
+                    current_model_name,
+                    current_saving_mode,
+                    current_gap_penalties,
+                    tiled_sessions=tiled_sessions,
+                    embedding_store=active_embedding_store,
+                    sequence_lengths=active_sequence_lengths,
+                    matmul_precision=active_matmul_precision,
+                )
+                pbar.update(1)
+        finally:
+            for session in tiled_sessions.values():
+                session.close()
+            pbar.close()
     elif cached_precision is not None:
         active_matmul_precision = cached_precision
     elif precision_setting == "tf32":

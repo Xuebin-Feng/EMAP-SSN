@@ -17,9 +17,9 @@ import os
 import h5py
 import numpy as np
 import json
-import SSN_Utils as utils
 import SSN_Config as cfg
 import Cache_Manifest as cache_manifest
+from utilities.Cache_Selection import resolve_selected_cache
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
@@ -28,7 +28,7 @@ def run(viewer, args):
         return
         
     try:
-        default_path, _ = utils.get_cache_filename()
+        default_path, _ = resolve_selected_cache(cfg)
         folder_path = os.path.dirname(default_path)
         
         os.makedirs(folder_path, exist_ok=True)

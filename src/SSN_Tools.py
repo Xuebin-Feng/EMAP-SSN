@@ -32,6 +32,7 @@ from utilities.Embedding_Alignment_Engine import (
     GIB,
     is_nvidia_cuda,
     normalize_execution_mode,
+    tiled_accelerator_support,
 )
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from utilities.PLM_Plugin_Utils import (
@@ -319,6 +320,7 @@ from utilities.Application_Fonts import (
     MONOSPACE_QSS_FONT_STACK,
     UI_QSS_FONT_STACK,
     configure_qt_application_fonts,
+    force_light_palette,
 )
 
 
@@ -911,7 +913,7 @@ class ToolsGUI(QMainWindow):
                 "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
                 "BATCH_SIZE": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'.",
                 "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses CUDA embedding tiles and padded microbatches and requires a CUDA device.",
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
                 "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with every CUDA plan allowed by Execution Mode, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul. 'tf32' is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
             },
@@ -961,7 +963,7 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores.",
                 "BATCH_SIZE": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance.",
                 "DEVICE_SELECTION": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses CUDA embedding tiles and padded microbatches and requires a CUDA device.",
+                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {HOST_CACHE_MAX_GB:g} GiB; turn it OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox."
             },
             "Network_Extraction.py": {
@@ -4015,15 +4017,26 @@ class ToolsGUI(QMainWindow):
                     )
                     eligible = [
                         candidate for candidate in available
-                        if candidate.backend == "cuda"
+                        if candidate.backend in {"cuda", "xpu"}
+                        and tiled_accelerator_support(
+                            candidate.device, require_memory=False
+                        )[0]
                     ]
                     if selected is not None:
-                        eligible = [selected] if selected.backend == "cuda" else []
+                        eligible = (
+                            [selected]
+                            if selected.backend in {"cuda", "xpu"}
+                            and tiled_accelerator_support(
+                                selected.device, require_memory=False
+                            )[0]
+                            else []
+                        )
                     if not eligible:
                         QMessageBox.critical(
                             self,
                             "Invalid Execution Mode",
-                            "Tiled execution requires an available CUDA device.",
+                            "Tiled execution requires an available CUDA/ROCm "
+                            "or XPU accelerator.",
                         )
                         return
                 host_cache = str(new_settings.get("HOST_CACHE_GB", "auto")).strip()
@@ -4120,7 +4133,6 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        from SSN_Utils import force_light_palette
         force_light_palette(app)
     except Exception as e:
         print(f"Warning: Could not force light palette: {e}")

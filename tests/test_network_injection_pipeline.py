@@ -126,14 +126,21 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
         cuda = network_injection.Hardware_Utils.DeviceCandidate(
             "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
         )
+        xpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
+        )
         expectations = {
-            "auto": (["scalar"], ["scalar", "tiled"]),
-            "scalar": (["scalar"], ["scalar"]),
-            "tiled": ([], ["tiled"]),
+            "auto": (["scalar"], ["scalar", "tiled"], ["scalar", "tiled"]),
+            "scalar": (["scalar"], ["scalar"], ["scalar"]),
+            "tiled": ([], ["tiled"], ["tiled"]),
         }
-        for mode, (cpu_variants, cuda_variants) in expectations.items():
+        for mode, (cpu_variants, cuda_variants, xpu_variants) in expectations.items():
             with self.subTest(mode=mode), mock.patch.object(
                 network_injection, "EXECUTION_MODE", mode
+            ), mock.patch.object(
+                network_injection,
+                "tiled_accelerator_support",
+                return_value=(True, "supported"),
             ):
                 self.assertEqual(
                     network_injection._execution_variants(cpu), cpu_variants
@@ -141,8 +148,11 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 self.assertEqual(
                     network_injection._execution_variants(cuda), cuda_variants
                 )
+                self.assertEqual(
+                    network_injection._execution_variants(xpu), xpu_variants
+                )
 
-    def test_forced_tiled_injection_rejects_missing_cuda_before_benchmark(self):
+    def test_forced_tiled_injection_rejects_missing_accelerator_before_benchmark(self):
         cpu = network_injection.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
@@ -152,7 +162,7 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             network_injection.Hardware_Utils,
             "get_available_devices",
             return_value=[cpu],
-        ), self.assertRaisesRegex(ValueError, "no CUDA device"):
+        ), self.assertRaisesRegex(ValueError, "no compatible CUDA/ROCm or XPU"):
             network_injection._benchmark_injection_plans(
                 [(0, 1, "a", "b")],
                 workers=1,

@@ -18,7 +18,6 @@ import fnmatch
 import numpy as np
 import matplotlib.colors as mcolors
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Command_Engine
 
 def print_help():
@@ -158,10 +157,11 @@ def run(viewer, args):
             
         # 4. Check if Color
         is_color = False
-        try: mcolors.to_rgba(arg); is_color = True
-        except:
-            try: utils.hex_to_rgba(arg); is_color = True
-            except: pass
+        try:
+            mcolors.to_rgba(arg)
+            is_color = True
+        except (TypeError, ValueError):
+            pass
         
         if is_color:
             if current_color is not None:
@@ -222,8 +222,7 @@ def run(viewer, args):
             state_saved = True
 
         if color_str:
-            try: new_rgba = mcolors.to_rgba(color_str)
-            except: new_rgba = utils.hex_to_rgba(color_str)
+            new_rgba = mcolors.to_rgba(color_str)
             viewer.current_colors[mask] = new_rgba
 
         if scale_val: viewer.current_sizes[mask] = cfg.NODE_SIZE * scale_val

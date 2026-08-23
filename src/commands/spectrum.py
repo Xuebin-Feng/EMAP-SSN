@@ -19,7 +19,6 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.cm as cm
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Command_Engine
 
 def print_help():

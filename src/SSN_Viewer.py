@@ -66,7 +66,6 @@ from vispy import scene, app
 from PySide6 import QtWidgets, QtCore, QtGui
 
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Layout_Cache_Generator import (
@@ -78,13 +77,17 @@ from utilities.FASTA_Sanitization import (
     load_sanitized_fasta,
 )
 from utilities.Application_Fonts import (
+    UI_QSS_FONT_STACK,
     VISPY_FALLBACK_FACE,
     configure_qt_application_fonts,
+    force_light_palette,
     register_vispy_application_fonts,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
 from utilities.Application_Windows import show_window_in_front
+from utilities.Cache_Selection import resolve_selected_cache
+from utilities.Network_Preparation import prepare_network
 from utilities.Application_Identity import (
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
@@ -354,7 +357,7 @@ class MainViewer:
         # ---> Persistent Command History (Per Layout) <---
         self.command_history = []
         try:
-            cache_path, _ = utils.get_cache_filename()
+            cache_path, _ = resolve_selected_cache(cfg)
             cache_dir = os.path.dirname(cache_path)
             self.history_file = os.path.join(cache_dir, "cli_history.txt")
             
@@ -526,7 +529,7 @@ class MainViewer:
         # Force light theme on the QApplication managed by Vispy
         if qapp:
             try:
-                utils.force_light_palette(qapp)
+                force_light_palette(qapp)
             except Exception as e:
                 print(f"Warning: Could not force light palette: {e}")
             
@@ -602,7 +605,7 @@ class MainViewer:
                 background: #e5e5e5;
                 border-color: #888888;
             }
-        """ % {"font": utils.UI_FONT_STACK, "text_color": cfg.TEXT_COLOR})
+        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
         
         self.position_slider_overlay()
         self.slider_overlay.show()
@@ -687,7 +690,7 @@ class MainViewer:
             QWidget#rightPanel QPushButton:pressed {
                 background-color: #e2f0fe;
             }
-        """ % {"font": utils.UI_FONT_STACK, "text_color": cfg.TEXT_COLOR})
+        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
         
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server
@@ -888,7 +891,7 @@ class MainViewer:
                 os.makedirs(cfg.SAVED_LAYOUT_DIR)
                 
             # --- Resolve Path and Header ---
-            cache_path, self.resolved_ref_full = utils.get_cache_filename()
+            cache_path, self.resolved_ref_full = resolve_selected_cache(cfg)
             print(f"Target Cache File: {cache_path}")
             cache_mode = getattr(cfg, 'TARGET_CACHE_MODE', None)
             if cache_mode not in {'existing', 'new'}:
@@ -948,9 +951,9 @@ class MainViewer:
                         )
 
                     with h5py.File(cfg.INPUT_HDF5, "r") as raw_data:
-                        expected_headers, expected_edges, expected_edge_scores, _, _ = utils.build_network_from_raw(
+                        expected_headers, expected_edges, expected_edge_scores = prepare_network(
                             raw_data,
-                            forced_ref_header=self.resolved_ref_full,
+                            settings=cfg,
                             selected_fasta_headers=selected_fasta_headers,
                         )
                     with h5py.File(cache_path, "r") as hf:

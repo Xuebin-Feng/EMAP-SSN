@@ -17,7 +17,6 @@ import re
 import fnmatch
 import numpy as np
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Command_Engine
 
 def print_help():

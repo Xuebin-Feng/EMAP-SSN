@@ -83,13 +83,16 @@ from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_Alignment_Engine import (
     EmbeddingTileStore,
+    TiledAcceleratorSession,
+    accelerator_memory_plan,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
-    cuda_memory_plan,
-    estimate_cuda_working_set,
+    estimate_accelerator_working_set,
+    get_accelerator_backend,
     is_nvidia_cuda,
     normalize_execution_mode,
-    run_tiled_cuda_pipeline,
+    run_tiled_accelerator_pipeline,
+    tiled_accelerator_support,
 )
 from utilities.Embedding_HDF5 import read_embedding_manifest
 
@@ -713,12 +716,18 @@ def _representative_injection_tasks(tasks, lengths, count):
 def _execution_variants(candidate):
     """Return execution variants allowed for one hardware candidate."""
     mode = normalize_execution_mode(EXECUTION_MODE)
+    tiled_supported = (
+        candidate.backend in {"cuda", "xpu"}
+        and tiled_accelerator_support(
+            candidate.device, require_memory=False
+        )[0]
+    )
     if mode == "scalar":
         return ["scalar"]
     if mode == "tiled":
-        return ["tiled"] if candidate.backend == "cuda" else []
+        return ["tiled"] if tiled_supported else []
     variants = ["scalar"]
-    if candidate.backend == "cuda":
+    if tiled_supported:
         variants.append("tiled")
     return variants
 
@@ -732,19 +741,22 @@ def _validate_execution_mode_hardware():
     manual = Hardware_Utils.resolve_device_selection(
         DEVICE_SELECTION, candidates
     )
-    if manual is not None and manual.backend != "cuda":
+    if manual is not None and not _execution_variants(manual):
         raise ValueError(
-            "Tiled execution requires a CUDA device; the selected device "
+            "Tiled execution requires a stream-capable CUDA/ROCm or XPU "
+            "accelerator; the selected device "
             f"is '{manual.spec}'."
         )
     eligible = [
-        candidate for candidate in candidates if candidate.backend == "cuda"
+        candidate for candidate in candidates
+        if _execution_variants(candidate) == ["tiled"]
     ]
     if manual is not None:
         eligible = [manual]
     if not eligible:
         raise ValueError(
-            "Tiled execution was requested, but no CUDA device is available."
+            "Tiled execution was requested, but no compatible CUDA/ROCm or "
+            "XPU accelerator is available."
         )
     return mode
 
@@ -760,7 +772,7 @@ def _execute_injection_plan(
             show_progress=show_progress,
         )
     if variant == "tiled":
-        return run_tiled_cuda_pipeline(
+        return run_tiled_accelerator_pipeline(
             tasks,
             store=store,
             lengths=lengths,
@@ -793,18 +805,20 @@ def _benchmark_injection_plans(
             )
     manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
     if execution_mode == "tiled":
-        if manual is not None and manual.backend != "cuda":
+        if manual is not None and not _execution_variants(manual):
             raise ValueError(
-                "Tiled execution requires a CUDA device; the selected device "
+                "Tiled execution requires a stream-capable CUDA/ROCm or XPU "
+                "accelerator; the selected device "
                 f"is '{manual.spec}'."
             )
         candidates = [
             candidate for candidate in candidates
-            if candidate.backend == "cuda"
+            if _execution_variants(candidate) == ["tiled"]
         ]
         if not candidates:
             raise ValueError(
-                "Tiled execution was requested, but no CUDA device is available."
+                "Tiled execution was requested, but no compatible CUDA/ROCm "
+                "or XPU accelerator is available."
             )
     if manual is not None:
         candidates = [manual]
@@ -828,7 +842,7 @@ def _benchmark_injection_plans(
         f"{len(sample)} representative injection pairs..."
     )
     print(
-        "Device/backend                 Plan      Lanes   VRAM peak/safe   "
+        "Device/backend                 Plan      Lanes   Memory peak/safe "
         "Pairs/s      Status"
     )
     short_results = []
@@ -838,15 +852,27 @@ def _benchmark_injection_plans(
             candidate.device, workers
         )
         memory_info = None
-        if candidate.backend == "cuda":
+        tiled_preflight_error = None
+        if candidate.backend in {"cuda", "xpu"}:
             Hardware_Utils.release_device_cache(candidate)
-            memory = cuda_memory_plan(candidate.device, lanes=1)
-            memory_info = (memory.free_bytes, memory.total_bytes)
+            try:
+                memory = accelerator_memory_plan(candidate.device, lanes=1)
+                memory_info = (memory.free_bytes, memory.total_bytes)
+            except (RuntimeError, NotImplementedError) as error:
+                tiled_preflight_error = (
+                    f"device-memory information unavailable: {error}"
+                )
+        if "tiled" in variants and tiled_preflight_error is not None:
+            variants.remove("tiled")
+            print(
+                f"{candidate.display_name}: tiled plan skipped; "
+                f"{tiled_preflight_error}."
+            )
         for variant in variants:
             for lanes in lane_candidates:
                 vram = "--"
                 if memory_info is not None:
-                    estimate = estimate_cuda_working_set(
+                    estimate = estimate_accelerator_working_set(
                         sample,
                         store=store,
                         lengths=lengths,
@@ -906,7 +932,7 @@ def _benchmark_injection_plans(
     final_results = []
     for result in selected:
         if (
-            result.candidate.backend == "cuda"
+            result.candidate.backend in {"cuda", "xpu"}
             and len(confirmation) > len(sample)
         ):
             print(
@@ -944,10 +970,13 @@ def _benchmark_injection_plans(
         f"{winner.variant} plan, {winner.lanes} lane(s); 3% tie preference applied."
     )
     if winner.variant == "tiled":
-        budget = cuda_memory_plan(
+        budget = accelerator_memory_plan(
             winner.candidate.device, lanes=winner.lanes
-        ).matrix_bytes
-        print(f"[Hardware] CUDA microbatch budget: {budget / (1024 ** 2):.1f} MiB.")
+        ).matrix_pool_bytes
+        print(
+            f"[Hardware] Shared accelerator matrix budget: "
+            f"{budget / (1024 ** 2):.1f} MiB."
+        )
     return ranked
 
 
@@ -1036,6 +1065,7 @@ def process_batch(
     matmul_precision="ieee_fp32",
     embedding_store=None,
     sequence_lengths=None,
+    tiled_session=None,
 ):
     output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
     if device is None:
@@ -1047,10 +1077,17 @@ def process_batch(
     )
     try:
         if _uses_accelerator(device) and execution_variant == "tiled":
-            budget = cuda_memory_plan(device, lanes=lanes).matrix_bytes
-            while True:
+            backend = get_accelerator_backend(device)
+            budget = (
+                tiled_session.matrix_budget
+                if tiled_session is not None
+                else accelerator_memory_plan(
+                    device, lanes=lanes
+                ).matrix_pool_bytes
+            )
+            for attempt in range(4):
                 try:
-                    results = run_tiled_cuda_pipeline(
+                    results = run_tiled_accelerator_pipeline(
                         batch_tasks,
                         store=embedding_store,
                         lengths=sequence_lengths,
@@ -1061,20 +1098,30 @@ def process_batch(
                         precision=matmul_precision,
                         result_callback=writer,
                         matrix_budget_override=budget,
+                        session=tiled_session,
                     )
                     break
-                except torch.cuda.OutOfMemoryError:
-                    writer.rollback(0)
-                    torch.cuda.empty_cache()
-                    if budget <= 1024 ** 2:
+                except Exception as error:
+                    if not backend.is_out_of_memory(error):
                         raise
-                    next_budget = max(1024 ** 2, budget // 2)
+                    writer.rollback(0)
+                    if tiled_session is not None:
+                        next_budget = tiled_session.recover_from_oom()
+                    else:
+                        backend.empty_cache()
+                        next_budget = max(1024 ** 2, budget // 2)
                     print(
-                        f"[CUDA] Injection tile OOM; retrying uncommitted "
+                        f"[{_device_type(device).upper()}] Injection tile OOM; "
+                        f"retrying uncommitted "
                         f"batch with {next_budget / (1024 ** 2):.1f} MiB "
-                        f"per microbatch."
+                        f"shared matrix budget."
                     )
                     budget = next_budget
+            else:
+                raise RuntimeError(
+                    "Tiled accelerator execution remained out of memory after "
+                    "four retries."
+                )
         elif _uses_accelerator(device):
             if embedding_store is None and accelerator_workers is None:
                 # Retain the historical callable path for external callers/tests.
@@ -1664,13 +1711,34 @@ def run_injection():
             inherited_precision,
         )
         active_plan_index = 0
+        tiled_sessions = {}
 
         def publish_batch(batch, current_id):
             nonlocal active_plan_index
             last_error = None
             while active_plan_index < len(ranked_plans):
                 selected_plan = ranked_plans[active_plan_index]
+                session_key = None
+                tiled_session = None
                 try:
+                    if selected_plan.variant == "tiled":
+                        session_key = (
+                            selected_plan.candidate.spec,
+                            int(selected_plan.lanes),
+                            str(inherited_precision),
+                        )
+                        tiled_session = tiled_sessions.get(session_key)
+                        if tiled_session is None:
+                            tiled_session = TiledAcceleratorSession(
+                                store=embedding_store,
+                                lengths=sequence_lengths,
+                                device=selected_plan.candidate.device,
+                                workers=WORKERS,
+                                lanes=selected_plan.lanes,
+                                alignment_callback=calculate_alignment_data,
+                                precision=inherited_precision,
+                            )
+                            tiled_sessions[session_key] = tiled_session
                     process_batch(
                         batch,
                         current_id,
@@ -1689,9 +1757,13 @@ def run_injection():
                         matmul_precision=inherited_precision,
                         embedding_store=embedding_store,
                         sequence_lengths=sequence_lengths,
+                        tiled_session=tiled_session,
                     )
                     return
                 except (RuntimeError, NotImplementedError, MemoryError) as error:
+                    if session_key is not None and tiled_session is not None:
+                        tiled_session.close()
+                        tiled_sessions.pop(session_key, None)
                     last_error = error
                     active_plan_index += 1
                     if active_plan_index < len(ranked_plans):
@@ -1707,19 +1779,28 @@ def run_injection():
 
         current_batch = []
         batch_id = next_batch_id
-        
-        pbar = tqdm(total=math.ceil(num_tasks / BATCH_SIZE), desc="Progress", unit="batch")
-        for t in chain(benchmark_seed, pending_iterator):
-            current_batch.append(t)
-            if len(current_batch) >= BATCH_SIZE:
+
+        pbar = tqdm(
+            total=math.ceil(num_tasks / BATCH_SIZE),
+            desc="Progress",
+            unit="batch",
+        )
+        try:
+            for task in chain(benchmark_seed, pending_iterator):
+                current_batch.append(task)
+                if len(current_batch) >= BATCH_SIZE:
+                    publish_batch(current_batch, batch_id)
+                    batch_id += 1
+                    pbar.update(1)
+                    current_batch = []
+
+            if current_batch:
                 publish_batch(current_batch, batch_id)
-                batch_id += 1; pbar.update(1)
-                current_batch = []
-                
-        if current_batch:
-            publish_batch(current_batch, batch_id)
-            pbar.update(1)
-        pbar.close()
+                pbar.update(1)
+        finally:
+            for session in tiled_sessions.values():
+                session.close()
+            pbar.close()
         
     compile_final_output(
         new_headers=new_headers,

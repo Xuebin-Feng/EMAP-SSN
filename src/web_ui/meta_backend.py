@@ -18,8 +18,8 @@ import numpy as np
 import pandas as pd
 from PySide6 import QtWidgets, QtCore, QtGui
 import Command_Engine
-import SSN_Utils as utils
 import SSN_Config as cfg
+from utilities.Application_Fonts import UI_QSS_FONT_STACK
 from web_ui.Plugin_Manager import ensure_registry
 
 class MetadataTableModel(QtCore.QAbstractTableModel):
@@ -522,7 +522,7 @@ def inject_spreadsheet_panel(viewer, show_sidebar=True):
                     font-weight: bold;
                     font-size: 9pt;
                 }
-            """ % {"font": utils.UI_FONT_STACK})
+            """ % {"font": UI_QSS_FONT_STACK})
 
             filter_header = FilterHeaderView(table_view)
             table_view.setHorizontalHeader(filter_header)

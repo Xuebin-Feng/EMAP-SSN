@@ -66,3 +66,25 @@ def normalize_displayed_position_atom(value, *, allow_end=False):
         f"Invalid position label '{value}'; expected {expected}, or a negative "
         "position enclosed in parentheses."
     )
+
+
+def format_alignment_offset_display(alignment, configured_offset):
+    """Format the active offset or mark the configured offset as inactive."""
+    if alignment is not None and getattr(alignment, "has_reference", False):
+        return str(getattr(alignment, "offset", 0))
+    return f"{configured_offset} (inactive)"
+
+
+def sort_alignment_labels(labels):
+    """Sort integer and insertion-style alignment labels numerically."""
+
+    def label_key(label):
+        try:
+            parts = str(label).split(".")
+            major = int(parts[0])
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            return major, minor
+        except (TypeError, ValueError):
+            return 0, 0
+
+    return sorted(labels, key=label_key)

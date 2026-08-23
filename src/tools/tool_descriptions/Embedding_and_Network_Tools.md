@@ -121,7 +121,7 @@ This script performs incremental similarity network calculations. When new seque
 | CPU Workers **`WORKERS`** | CPU worker count for the CPU processing plan and a concurrency input for accelerator-plan tuning. The tool benchmarks available CPU/accelerator plans on representative pending pairs and falls back through successful plans if needed. |
 | Processing Batch Size **`BATCH_SIZE`** | The number of sequence alignments calculated per write block, minimizing memory consumption and optimizing file write performance. |
 | Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or one concrete device for calculating new residue score matrices. |
-| Execution Mode **`EXECUTION_MODE`** | `auto` compares scalar plans with tiled CUDA plans where supported. `scalar` restricts tuning and production to one-matrix-at-a-time plans. `tiled` forces CUDA embedding tiles and padded microbatches and fails early if CUDA is unavailable. |
+| Execution Mode **`EXECUTION_MODE`** | `auto` compares scalar and tiled plans where supported. `scalar` restricts tuning and production to one-matrix-at-a-time plans. `tiled` forces memory-bounded embedding tiles and padded microbatches on CUDA/ROCm or XPU and fails early if no compatible accelerator is available. |
 | Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget capped at 128 GiB and `0` disables it. |
 | Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. |
 
@@ -146,7 +146,7 @@ This script performs incremental similarity network calculations. When new seque
      - **Case 3 (New Pair, Sparse Old Network)**: Mean-pooled embedding cosine similarity is compared with the lowest cosine similarity among reusable old edges. Only new pairs meeting that inherited threshold are aligned, preserving a sparse-network policy.
 
 3. **Incremental Alignment**:
-     Benchmarks available CPU/accelerator processing plans and sends scheduled new pairs through the best successful plan. CUDA tiles reuse normalized embeddings, length-bucket targets with bounded padding, and preflight lane-dependent VRAM before execution. Each pair:
+     Benchmarks available CPU/accelerator processing plans and sends scheduled new pairs through the best successful plan. CUDA/ROCm and XPU share persistent normalized-embedding tiles, length-bucketed targets with bounded padding, and device-memory preflight before execution. Each pair:
      - Retrieves residue embeddings from the HDF5 database.
      - Calculates the normalized score matrix:
        $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$

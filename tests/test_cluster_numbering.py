@@ -16,6 +16,39 @@ from commands import cluster
 
 
 class ClusterNumberingTests(unittest.TestCase):
+    def test_leiden_filters_small_communities_and_keeps_isolates_as_noise(self):
+        fake_leiden = mock.Mock(
+            return_value=(
+                None,
+                {"0": 10, "1": 10, "2": 10, "3": 20, "4": 20},
+            )
+        )
+        with mock.patch.dict(
+            sys.modules,
+            {"graspologic_native": SimpleNamespace(leiden=fake_leiden)},
+        ):
+            labels = cluster.network_clustering.leiden_partition(
+                6,
+                np.asarray([[0, 1], [1, 2], [3, 4]], dtype=np.int32),
+                None,
+                resolution=1.0,
+                min_size=3,
+            )
+
+        np.testing.assert_array_equal(labels, [1, 1, 1, -1, -1, -1])
+        self.assertEqual(fake_leiden.call_args.kwargs["seed"], 42)
+
+    def test_fast_jaccard_filter_uses_neighbour_union(self):
+        edges = np.asarray([[0, 1], [0, 3]], dtype=np.int32)
+        indptr = np.asarray([0, 2, 4, 7, 8], dtype=np.int32)
+        indices = np.asarray([1, 2, 0, 2, 0, 1, 3, 2], dtype=np.int32)
+
+        result = cluster.network_clustering.fast_jaccard_filter(
+            edges, indptr, indices, 0.4
+        )
+
+        np.testing.assert_array_equal(result, [False, True])
+
     def test_clusters_are_numbered_from_largest_to_smallest(self):
         labels = np.array([9, 9, 9, 4, 4, -1, 7, 7, 7, 7, 2])
 
@@ -59,7 +92,7 @@ class ClusterNumberingTests(unittest.TestCase):
             sys.modules,
             {"graspologic_native": SimpleNamespace()},
         ), mock.patch.object(
-            cluster.utils,
+            cluster.network_clustering,
             "leiden_partition",
             return_value=raw_labels,
         ) as leiden_partition, mock.patch("builtins.print"):

@@ -20,6 +20,7 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 from commands import label
+from utilities import Application_Windows as application_windows
 
 
 class AlignmentStub:
@@ -57,7 +58,7 @@ class ImmediateScheduler:
         self.viewer.console_text.text = result["message"]
         reveal_directory = result.get("reveal_directory")
         if reveal_directory:
-            label.utils.open_in_file_manager(reveal_directory)
+            application_windows.open_in_file_manager(reveal_directory)
         return 1
 
 
@@ -143,7 +144,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                     "calculate_identity_weights",
                     return_value=np.asarray(identity_weights, dtype=float),
                 ) as identity_weight_mock, \
-                mock.patch.object(label.utils, "open_in_file_manager"):
+                mock.patch.object(application_windows, "open_in_file_manager"):
             label.run(viewer, args)
         viewer.identity_weight_mock = identity_weight_mock
         return viewer

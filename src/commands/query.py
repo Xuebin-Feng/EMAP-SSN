@@ -21,10 +21,10 @@ import fnmatch
 import numpy as np
 from collections import Counter
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Command_Engine
 from utilities.Position_Parsing import (
     DISPLAYED_POSITION_ATOM_PATTERN,
+    format_alignment_offset_display,
     normalize_displayed_position_atom,
     reject_bare_negative_positions,
 )
@@ -278,7 +278,10 @@ def run(viewer, args):
     else:
         ref_display = "None (Unanchored)"
 
-    offset_display = utils.get_alignment_offset_display(viewer)
+    offset_display = format_alignment_offset_display(
+        getattr(viewer, "alignment", None),
+        getattr(viewer, "alignment_offset", getattr(cfg, "ALIGNMENT_OFFSET", 0)),
+    )
     is_sparse = hasattr(viewer.alignment.aln, 'matrix')
 
     # Get mapped position labels in order

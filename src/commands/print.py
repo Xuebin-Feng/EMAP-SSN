@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from vispy import app
 import SSN_Config as cfg
-import SSN_Utils as utils
+from utilities.Application_Windows import open_in_file_manager
 
 def print_help():
     print("""
@@ -467,7 +467,7 @@ def run(viewer, args):
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
         
         # Open the save folder in the system file explorer
-        utils.open_in_file_manager(save_dir)
+        open_in_file_manager(save_dir)
         
     except Exception as e:
         import traceback

@@ -20,7 +20,7 @@ from collections import Counter
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import SSN_Config as cfg
-import SSN_Utils as utils
+from utilities.FASTA_Sanitization import simplify_node_label
 from utilities.MSA_Sanitization import (
     AA_TO_INT,
     INT_TO_AA,
@@ -87,11 +87,11 @@ class Alignment_Manager:
                     self.valid_cols,
                 )
             else:
-                self.valid_cols, ref_length, forced_retained = utils.get_valid_columns_legacy(
+                self.valid_cols, ref_length, forced_retained = get_valid_columns_legacy(
                     self.aln,
                     ref_header=active_reference,
                 )
-                _, self.col_to_label = utils.get_ref_anchored_mapping_legacy(
+                _, self.col_to_label = get_ref_anchored_mapping_legacy(
                     self.aln,
                     active_reference,
                     self.valid_cols,
@@ -151,7 +151,7 @@ class Alignment_Manager:
             for i, record in enumerate(self.aln):
                 self.seq_map[record.id] = i
                 self.seq_map[record.description] = i
-                self.seq_map[utils.simplify_node_label(record.id)] = i
+                self.seq_map[simplify_node_label(record.id)] = i
 
     def _find_reference_index(self, active_reference, is_sparse):
         if not active_reference or len(self.aln) == 0:
@@ -180,7 +180,7 @@ class Alignment_Manager:
                 ref_header=None,
             )
         else:
-            self.valid_cols, ref_length, forced_retained = utils.get_valid_columns_legacy(
+            self.valid_cols, ref_length, forced_retained = get_valid_columns_legacy(
                 self.aln,
                 ref_header=None,
             )
@@ -468,7 +468,7 @@ class SparseAlignmentLoader:
             self.header_map[rec_id] = i
             
             # Map Simplified
-            simple_id = utils.simplify_node_label(header)
+            simple_id = simplify_node_label(header)
             self.header_map[simple_id] = i
 
         print_msa_sanitization_result(stats, h5_path)
@@ -659,7 +659,7 @@ class InMemorySparseLoader(SparseAlignmentLoader):
             self.header_map[header] = i
             rec_id = header.split()[0]
             self.header_map[rec_id] = i
-            simple_id = utils.simplify_node_label(header)
+            simple_id = simplify_node_label(header)
             self.header_map[simple_id] = i
 
         print_msa_sanitization_result(stats, fasta_path)

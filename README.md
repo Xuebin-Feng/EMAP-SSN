@@ -381,7 +381,6 @@ Sequence_Similarity_Network_Viewer/
 │   ├── SSN_Viewer.py         # Main PySide6 / VisPy desktop visualization application
 │   ├── SSN_Tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
 │   ├── SSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
-│   ├── SSN_Utils.py          # Shared utility functions (IO, math helper, parsing)
 │   │
 │   ├── bin/                  # Startup scripts and launchers
 │   │   ├── SSN_Viewer.bat    # Windows Viewer startup script
@@ -394,7 +393,7 @@ Sequence_Similarity_Network_Viewer/
 │   ├── resources/            # Configuration and system prompts
 │   ├── tools/                # Executable processing scripts exposed by SSN_Tools
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
-│   ├── utilities/            # Shared hardware, HDF5, alignment, and FASTA helpers
+│   ├── utilities/            # Focused cache, network, hardware, alignment, and FASTA helpers
 │   └── web_ui/               # Embedded web UI backend and interfaces
 │       └── plugins/          # Auto-discovered bundled web-utility descriptors
 │

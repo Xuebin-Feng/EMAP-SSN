@@ -32,8 +32,11 @@ from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import SSN_Config as cfg
-import SSN_Utils as utils
 import Cache_Manifest as cache_manifest
+from utilities.Position_Parsing import (
+    format_alignment_offset_display,
+    sort_alignment_labels,
+)
 try:
     import commands.cluster as cluster_cmd
     import commands.logo as logo_cmd
@@ -715,7 +718,14 @@ def _run_label_artifact(viewer, args):
         if hasattr(viewer, "_label_offset_display"):
             offset_display = viewer._label_offset_display
         else:
-            offset_display = utils.get_alignment_offset_display(viewer)
+            offset_display = format_alignment_offset_display(
+                getattr(viewer, "alignment", None),
+                getattr(
+                    viewer,
+                    "alignment_offset",
+                    getattr(cfg, "ALIGNMENT_OFFSET", 0),
+                ),
+            )
         print(f"Alignment Offset: {offset_display}")
         total_global_seqs = len(viewer.alignment.aln)
         total_network_nodes = getattr(viewer, 'n_nodes', len(viewer.full_headers))
@@ -864,7 +874,7 @@ def _run_label_artifact(viewer, args):
                 )
                 c_occ_dict = {
                     lbl: c_stats[lbl][2]
-                    for lbl in utils.sort_labels(c_stats.keys())
+                    for lbl in sort_alignment_labels(c_stats.keys())
                 }
                 
                 # Format Output Styling
@@ -902,7 +912,7 @@ def _run_label_artifact(viewer, args):
                 # First pass: collect every amino acid meeting cmin. The shared
                 # outside background is resolved only after every subset is known.
                 if c_effective_n > 0.0:
-                    for lbl in utils.sort_labels(c_counts_by_label.keys()):
+                    for lbl in sort_alignment_labels(c_counts_by_label.keys()):
                         if lbl not in g_stats:
                             continue
                         for amino_acid, count in sorted(
@@ -929,7 +939,7 @@ def _run_label_artifact(viewer, args):
 
         # Second pass: for each conserved position/residue pair, exclude the
         # deduplicated union of all qualifying cluster/group memberships.
-        candidate_labels = utils.sort_labels(candidate_amino_acids.keys())
+        candidate_labels = sort_alignment_labels(candidate_amino_acids.keys())
         for lbl in candidate_labels:
             amino_acids = sorted(candidate_amino_acids[lbl])
             col_idx = viewer.alignment.label_to_col.get(lbl)
@@ -992,14 +1002,14 @@ def _run_label_artifact(viewer, args):
             raise FileExistsError(f"Output file already exists: {out_path}")
 
         global_list = []
-        for lbl in utils.sort_labels(g_stats.keys()):
+        for lbl in sort_alignment_labels(g_stats.keys()):
             aa, freq, occ = g_stats[lbl]
             if freq > GLOBAL_CONSERVATION_THRESHOLD:
                 global_list.append(f"{aa}{lbl}")
 
-        sorted_cols = utils.sort_labels(list(master_labels))
+        sorted_cols = sort_alignment_labels(list(master_labels))
         cluster_results.sort(key=lambda x: x["sort_key"])
-        all_occ_labels = utils.sort_labels(list(g_stats.keys()))
+        all_occ_labels = sort_alignment_labels(list(g_stats.keys()))
         
         ref_display = (
             getattr(viewer.alignment, 'resolved_ref_full', None)
@@ -1623,7 +1633,14 @@ def run(viewer, args):
         console_text=SimpleNamespace(text=""),
         _label_settings=settings,
         _label_network_metadata=network_metadata,
-        _label_offset_display=utils.get_alignment_offset_display(viewer),
+        _label_offset_display=format_alignment_offset_display(
+            getattr(viewer, "alignment", None),
+            getattr(
+                viewer,
+                "alignment_offset",
+                getattr(cfg, "ALIGNMENT_OFFSET", 0),
+            ),
+        ),
         _label_output_path=output_path,
         _label_allow_overwrite=allow_overwrite,
     )

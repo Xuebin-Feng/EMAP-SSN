@@ -105,7 +105,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
                     active -= 1
 
         with tempfile.TemporaryDirectory() as directory, mock.patch(
-            "SSN_Utils.open_in_file_manager",
+            "Background_Job_Scheduler.open_in_file_manager",
             side_effect=lambda _path: reveal_threads.append(threading.get_ident()),
         ):
             scheduler.enqueue(
