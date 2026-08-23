@@ -66,6 +66,7 @@ from Cache_Manifest import (
 
 MAX_CORES = os.cpu_count() or 16
 HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
+TF32_PRECISION_LABEL = "TF32 (Nvidia GPU Only)"
 HOST_CACHE_SLIDER_SCALE = 10
 HOST_CACHE_SLIDER_STEPS = round(HOST_CACHE_MAX_GB * HOST_CACHE_SLIDER_SCALE)
 
@@ -415,16 +416,24 @@ def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
     if selection is None:
         selection = device_combo.currentText()
     available = _selection_supports_tf32(selection, candidates)
-    tf32_index = precision_combo.findText("tf32")
-    if not available:
-        if precision_combo.currentText() == "tf32":
-            auto_index = precision_combo.findText("auto")
-            precision_combo.setCurrentIndex(max(0, auto_index))
+    tf32_index = precision_combo.findData("tf32")
+    if tf32_index < 0:
+        tf32_index = precision_combo.findText(TF32_PRECISION_LABEL)
+    if tf32_index < 0:
         tf32_index = precision_combo.findText("tf32")
+    current_value = precision_combo.currentData()
+    if current_value is None:
+        current_value = precision_combo.currentText()
+    if not available:
+        if current_value in {"tf32", TF32_PRECISION_LABEL}:
+            auto_index = precision_combo.findData("auto")
+            if auto_index < 0:
+                auto_index = precision_combo.findText("auto")
+            precision_combo.setCurrentIndex(max(0, auto_index))
         if tf32_index >= 0:
             precision_combo.removeItem(tf32_index)
     elif tf32_index < 0:
-        precision_combo.addItem("tf32")
+        precision_combo.addItem(TF32_PRECISION_LABEL, "tf32")
     precision_combo.setProperty("tf32Available", available)
     return available
 
@@ -1251,7 +1260,8 @@ class ToolsGUI(QMainWindow):
                 {
                     "var_name": "ACCELERATOR_PRECISION",
                     "type": "dropdown",
-                    "options": ["auto", "float32", "tf32"],
+                    "options": ["auto", "float32", TF32_PRECISION_LABEL],
+                    "option_values": ["auto", "float32", "tf32"],
                     "display": "Precision:"
                 },
                 {
@@ -1822,7 +1832,8 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "ACCELERATOR_PRECISION",
                             "type": "dropdown",
-                            "options": ["auto", "float32", "tf32"],
+                            "options": ["auto", "float32", TF32_PRECISION_LABEL],
+                            "option_values": ["auto", "float32", "tf32"],
                             "display": "Precision:"
                         },
                         {

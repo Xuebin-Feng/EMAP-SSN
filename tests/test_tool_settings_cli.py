@@ -421,8 +421,10 @@ class ToolExportGuiTests(unittest.TestCase):
         device.addItem("CPU", "cpu")
         device.addItem("CUDA", "cuda:0")
         precision = QComboBox()
-        precision.addItems(["auto", "float32", "tf32"])
-        precision.setCurrentText("tf32")
+        precision.addItem("auto", "auto")
+        precision.addItem("float32", "float32")
+        precision.addItem("TF32 (Nvidia GPU Only)", "tf32")
+        precision.setCurrentIndex(precision.findData("tf32"))
 
         with mock.patch(
             "SSN_Tools.is_nvidia_cuda",
@@ -432,7 +434,7 @@ class ToolExportGuiTests(unittest.TestCase):
                 self.sync_tf32_precision_option(device, precision, [cpu])
             )
             self.assertEqual(precision.currentText(), "auto")
-            self.assertEqual(precision.findText("tf32"), -1)
+            self.assertEqual(precision.findData("tf32"), -1)
             self.assertFalse(precision.property("tf32Available"))
 
             self.assertTrue(
@@ -442,9 +444,13 @@ class ToolExportGuiTests(unittest.TestCase):
                     [cpu, cuda],
                 )
             )
-            self.assertGreaterEqual(precision.findText("tf32"), 0)
+            self.assertGreaterEqual(precision.findData("tf32"), 0)
+            self.assertEqual(
+                precision.itemText(precision.findData("tf32")),
+                "TF32 (Nvidia GPU Only)",
+            )
 
-            precision.setCurrentText("tf32")
+            precision.setCurrentIndex(precision.findData("tf32"))
             device.setCurrentIndex(device.findData("cpu"))
             self.assertFalse(
                 self.sync_tf32_precision_option(
@@ -454,7 +460,7 @@ class ToolExportGuiTests(unittest.TestCase):
                 )
             )
             self.assertEqual(precision.currentText(), "auto")
-            self.assertEqual(precision.findText("tf32"), -1)
+            self.assertEqual(precision.findData("tf32"), -1)
 
             device.setCurrentIndex(device.findData("cuda:0"))
             self.assertTrue(
@@ -464,7 +470,7 @@ class ToolExportGuiTests(unittest.TestCase):
                     [cpu, cuda],
                 )
             )
-            self.assertGreaterEqual(precision.findText("tf32"), 0)
+            self.assertGreaterEqual(precision.findData("tf32"), 0)
 
     def test_alignment_tiled_option_hides_for_mps_and_restores_for_xpu(self):
         from PySide6.QtWidgets import QComboBox
