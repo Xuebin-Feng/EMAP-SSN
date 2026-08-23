@@ -352,31 +352,6 @@ class AlignmentHardwareTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(Alignment, "ACCELERATOR_LANES"))
 
-    def test_auto_batch_failure_retries_next_ranked_plan(self):
-        cpu = Hardware_Utils.DeviceCandidate(
-            "cpu", "CPU", torch.device("cpu"), "cpu"
-        )
-        cuda = Hardware_Utils.DeviceCandidate(
-            "cuda:0", "GPU", torch.device("cuda:0"), "cuda", 0, True
-        )
-        ranked = [
-            Hardware_Utils.BenchmarkResult(cuda, 10.0, lanes=4),
-            Hardware_Utils.BenchmarkResult(cpu, 9.0, lanes=1),
-        ]
-        with mock.patch.object(Alignment, "DEVICE_SELECTION", "auto"), \
-                mock.patch.object(
-                    Alignment,
-                    "process_batch",
-                    side_effect=[RuntimeError("device lost"), None],
-                ) as process:
-            active = Alignment._run_batch_with_ranked_plans(
-                ranked, 0, [], 0, 4, "input.h5", "checksum"
-            )
-        self.assertEqual(active, 1)
-        self.assertEqual(process.call_count, 2)
-        self.assertEqual(process.call_args.kwargs["device"], cpu.device)
-
-
 class LayoutHardwareTests(unittest.TestCase):
     def test_size_class_boundaries(self):
         self.assertEqual(Layout_Hardware.layout_size_class(499), "small")
@@ -539,6 +514,13 @@ class GuiContractTests(unittest.TestCase):
         self.assertIn('LAYOUT_DEVICE_SELECTION = "auto"', config_source)
         self.assertIn("widget.currentData()", config_source)
         self.assertIn('"LAYOUT_DEVICE_SELECTION"', generator_source)
+
+    def test_align_similarity_matrix_has_no_batch_size_control(self):
+        tools_source = (SRC / "SSN_Tools.py").read_text(encoding="utf-8")
+        align_controls = tools_source.split(
+            '"Align_Similarity_Matrix.py": [', 1
+        )[1].split('"Align_Substitution_Matrix.py": [', 1)[0]
+        self.assertNotIn('"var_name": "BATCH_SIZE"', align_controls)
 
 
 if __name__ == "__main__":

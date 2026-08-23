@@ -1,5 +1,6 @@
 import inspect
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -12,6 +13,37 @@ from src.utilities.Alignment_Score_Kernels import (
 
 
 class TiledThroughputUnitTests(unittest.TestCase):
+    def test_pair_stream_preserves_external_ordinals_across_chunks(self):
+        session = object.__new__(engine.TiledAcceleratorSession)
+        session.store = SimpleNamespace(headers=["a", "b", "c"])
+        calls = []
+
+        def run(tasks, *, progress=None, result_callback=None, result_chunk_size=None):
+            calls.append(len(tasks))
+            results = [
+                (
+                    int(task[0]),
+                    int(task[1]),
+                    np.float32(1.0),
+                    np.uint16(2),
+                    np.float32(1.5),
+                    np.uint16(2),
+                )
+                for task in tasks
+            ]
+            result_callback(results)
+            return []
+
+        session.run = run
+        results = list(
+            session.run_pair_stream(
+                iter(((10, 0, 1), (20, 0, 2), (30, 1, 2))),
+                chunk_size=2,
+            )
+        )
+        self.assertEqual(calls, [2, 1])
+        self.assertEqual([result[0] for result in results], [10, 20, 30])
+
     def test_compact_pair_tasks_preserve_historical_contract(self):
         headers = ["a", "b", "c"]
         tasks = engine.CompactPairTasks(3, headers)

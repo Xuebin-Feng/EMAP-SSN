@@ -152,7 +152,6 @@ class AlignmentPipelineTests(unittest.TestCase):
                 mock.patch.object(similarity_matrix, "FULL_INPUT_HDF5"), \
                 mock.patch.object(similarity_matrix, "SEQUENCE_SET"), \
                 mock.patch.object(similarity_matrix, "MODEL_NAME"), \
-                mock.patch.object(similarity_matrix, "RESULTS_DIR"), \
                 mock.patch.object(similarity_matrix, "FINAL_OUTPUT_NET"):
             similarity_matrix.configure_runtime_paths()
             self.assertEqual(similarity_matrix.FULL_INPUT_HDF5, selected)
@@ -711,95 +710,6 @@ class AlignmentPipelineTests(unittest.TestCase):
         session.run.assert_called_once()
         session.close.assert_not_called()
 
-    def test_ranked_batches_reuse_one_persistent_tiled_session(self):
-        candidate = similarity_matrix.Hardware_Utils.DeviceCandidate(
-            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
-        )
-        plan = similarity_matrix.Hardware_Utils.BenchmarkResult(
-            candidate,
-            100.0,
-            lanes=2,
-            variant="tiled",
-        )
-        sessions = {}
-        store = mock.Mock()
-        persistent = mock.Mock()
-        with mock.patch.object(
-            similarity_matrix,
-            "TiledAcceleratorSession",
-            return_value=persistent,
-        ) as session_type, mock.patch.object(
-            similarity_matrix, "process_batch"
-        ) as process:
-            for batch_id in (0, 1):
-                index = similarity_matrix._run_batch_with_ranked_plans(
-                    [plan],
-                    0,
-                    [(0, 1, "a", "b")],
-                    batch_id,
-                    2,
-                    "unused.h5",
-                    "checksum",
-                    tiled_sessions=sessions,
-                    embedding_store=store,
-                    sequence_lengths=[2, 2],
-                    matmul_precision="float32",
-                )
-                self.assertEqual(index, 0)
-        session_type.assert_called_once()
-        self.assertEqual(process.call_count, 2)
-        self.assertTrue(
-            all(
-                call.kwargs["tiled_session"] is persistent
-                for call in process.call_args_list
-            )
-        )
-
-    def test_ranked_batch_falls_back_after_tiled_plan_failure(self):
-        candidate = similarity_matrix.Hardware_Utils.DeviceCandidate(
-            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
-        )
-        plans = [
-            similarity_matrix.Hardware_Utils.BenchmarkResult(
-                candidate, 100.0, lanes=2, variant="tiled"
-            ),
-            similarity_matrix.Hardware_Utils.BenchmarkResult(
-                candidate, 90.0, lanes=1, variant="scalar"
-            ),
-        ]
-        persistent = mock.Mock()
-        with mock.patch.object(
-            similarity_matrix, "DEVICE_SELECTION", "auto"
-        ), mock.patch.object(
-            similarity_matrix,
-            "TiledAcceleratorSession",
-            return_value=persistent,
-        ), mock.patch.object(
-            similarity_matrix,
-            "process_batch",
-            side_effect=[RuntimeError("OOM"), None],
-        ) as process, redirect_stdout(io.StringIO()):
-            index = similarity_matrix._run_batch_with_ranked_plans(
-                plans,
-                0,
-                [(0, 1, "a", "b")],
-                0,
-                2,
-                "unused.h5",
-                "checksum",
-                tiled_sessions={},
-                embedding_store=mock.Mock(),
-                sequence_lengths=[2, 2],
-                matmul_precision="float32",
-            )
-        self.assertEqual(index, 1)
-        self.assertEqual(process.call_count, 2)
-        persistent.close.assert_called_once()
-        self.assertEqual(
-            [call.kwargs["execution_variant"] for call in process.call_args_list],
-            ["tiled", "scalar"],
-        )
-
     def test_batched_score_falls_back_from_optional_eager_operations(self):
         rng = np.random.default_rng(20260823)
         left = rng.normal(size=(4, 8)).astype(np.float32)
@@ -1191,87 +1101,7 @@ class AlignmentPipelineTests(unittest.TestCase):
             similarity_matrix.global_local_scores.targetoptions["nogil"]
         )
 
-    def test_process_batch_routes_accelerators_to_single_producer_pipeline(self):
-        expected = [(0, 1, 1.0, 1, 2.0, 1)]
-        tasks = [(0, 1, "a", "b")]
-
-        with tempfile.TemporaryDirectory() as temp_dir, \
-                mock.patch.object(
-                    similarity_matrix,
-                    "RESULTS_DIR",
-                    temp_dir,
-                ), mock.patch.object(
-                    similarity_matrix.Hardware_Utils,
-                    "get_optimal_device",
-                    return_value=torch.device("cuda"),
-                ) as get_device, mock.patch.object(
-                    similarity_matrix,
-                    "process_accelerated_tasks",
-                    return_value=expected,
-                ) as accelerated, mock.patch.object(
-                    similarity_matrix,
-                    "process_cpu_tasks",
-                ) as cpu:
-            similarity_matrix.process_batch(
-                tasks,
-                batch_id=5,
-                workers=16,
-                input_h5="unused.h5",
-                embedding_checksum="checksum",
-            )
-
-            output_path = os.path.join(temp_dir, "batch_00005.h5")
-            with h5py.File(output_path, "r") as hf:
-                self.assertEqual(hf.attrs["embedding_checksum"], "checksum")
-                self.assertEqual(hf.attrs["matmul_precision"], "ieee_fp32")
-                np.testing.assert_array_equal(hf["i"][:], [0])
-                np.testing.assert_array_equal(hf["j"][:], [1])
-                self.assertNotIn("paths", hf)
-            self.assertFalse(os.path.exists(output_path + ".partial"))
-
-        get_device.assert_called_once_with()
-        accelerated.assert_called_once()
-        self.assertEqual(accelerated.call_args.args[1], 16)
-        cpu.assert_not_called()
-
-    def test_process_batch_keeps_parallel_whole_pair_cpu_fallback(self):
-        expected = [(0, 1, 1.0, 1, 2.0, 1)]
-        tasks = [(0, 1, "a", "b")]
-
-        with tempfile.TemporaryDirectory() as temp_dir, \
-                mock.patch.object(
-                    similarity_matrix,
-                    "RESULTS_DIR",
-                    temp_dir,
-                ), mock.patch.object(
-                    similarity_matrix.Hardware_Utils,
-                    "get_optimal_device",
-                    return_value=torch.device("cpu"),
-                ), mock.patch.object(
-                    similarity_matrix,
-                    "process_accelerated_tasks",
-                ) as accelerated, mock.patch.object(
-                    similarity_matrix,
-                    "process_cpu_tasks",
-                    return_value=expected,
-                ) as cpu:
-            similarity_matrix.process_batch(
-                tasks,
-                batch_id=6,
-                workers=8,
-                input_h5="unused.h5",
-                embedding_checksum="checksum",
-            )
-
-        accelerated.assert_not_called()
-        cpu.assert_called_once()
-        self.assertEqual(cpu.call_args.args, (tasks, 8, "unused.h5", 6))
-        self.assertIsInstance(
-            cpu.call_args.kwargs["result_callback"],
-            similarity_matrix._PartialBatchWriter,
-        )
-
-    def test_accelerator_tuning_precedes_overall_progress_bar(self):
+    def test_accelerator_tuning_precedes_edge_progress_bar(self):
         events = []
 
         class ProgressRecorder:
@@ -1280,6 +1110,9 @@ class AlignmentPipelineTests(unittest.TestCase):
 
             def update(self, amount):
                 events.append(("update", amount))
+
+            def set_postfix(self, **kwargs):
+                events.append(("postfix", kwargs))
 
             def close(self):
                 events.append(("close", None))
@@ -1302,14 +1135,6 @@ class AlignmentPipelineTests(unittest.TestCase):
                 similarity_matrix,
                 "FINAL_OUTPUT_NET",
                 os.path.join(temp_dir, "network.h5"),
-            ), mock.patch.object(
-                similarity_matrix,
-                "RESULTS_DIR",
-                os.path.join(temp_dir, "batches"),
-            ), mock.patch.object(
-                similarity_matrix,
-                "BATCH_SIZE",
-                2,
             ), mock.patch.object(
                 similarity_matrix,
                 "load_embedding_metadata",
@@ -1336,7 +1161,8 @@ class AlignmentPipelineTests(unittest.TestCase):
                 return_value="ieee_fp32",
             ), mock.patch.object(
                 similarity_matrix,
-                "scan_existing_batches",
+                "discover_compatible_alignment_networks",
+                return_value=[],
             ), mock.patch.object(
                 similarity_matrix,
                 "_benchmark_processing_plans",
@@ -1362,13 +1188,22 @@ class AlignmentPipelineTests(unittest.TestCase):
                 ProgressRecorder,
             ), mock.patch.object(
                 similarity_matrix,
-                "process_batch",
-                side_effect=lambda *args, **kwargs: events.append(
-                    ("batch", kwargs["accelerator_workers"])
+                "_calculate_result_chunk_with_ranked_plans",
+                side_effect=lambda tasks, plans, plan_index, **kwargs: (
+                    events.append(("calculate", plans[0].lanes))
+                    or [
+                        (
+                            int(task[0]),
+                            int(task[1]),
+                            np.float32(1.0),
+                            np.uint16(2),
+                            np.float32(1.5),
+                            np.uint16(2),
+                        )
+                        for task in tasks
+                    ],
+                    plan_index,
                 ),
-            ), mock.patch.object(
-                similarity_matrix,
-                "compile_final_output",
             ), mock.patch.object(
                 similarity_matrix,
                 "set_start_method",
@@ -1382,8 +1217,8 @@ class AlignmentPipelineTests(unittest.TestCase):
             events[:3],
             [
                 ("benchmark", 3),
-                ("overall", "Overall Progress"),
-                ("batch", 3),
+                ("overall", "Alignment Network"),
+                ("calculate", 3),
             ],
         )
 
@@ -1680,86 +1515,6 @@ class AlignmentPipelineTests(unittest.TestCase):
         )
         self.assertIn("Confirming Test CUDA", output.getvalue())
 
-    def test_legacy_precision_cache_resumes_as_fp32_and_tf32_mismatch_backs_up(self):
-        def write_batch(folder):
-            os.makedirs(folder, exist_ok=True)
-            path = os.path.join(folder, "batch_00000.h5")
-            with h5py.File(path, "w") as hf:
-                hf.attrs["embedding_checksum"] = "checksum"
-                hf.attrs["model_name"] = "model"
-                hf.attrs["gap_penalties"] = np.array([-2.0, 0.0], np.float32)
-                for name, values, dtype in (
-                    ("i", [0], np.uint32),
-                    ("j", [1], np.uint32),
-                    ("l_score", [1.0], np.float32),
-                    ("l_len", [1], np.uint16),
-                    ("g_score", [1.0], np.float32),
-                    ("g_len", [1], np.uint16),
-                ):
-                    hf.create_dataset(name, data=np.asarray(values, dtype=dtype))
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            results_dir = os.path.join(temp_dir, "batches")
-            write_batch(results_dir)
-            computed = np.zeros((2, 2), dtype=bool)
-            with mock.patch.object(
-                similarity_matrix, "RESULTS_DIR", results_dir
-            ):
-                precision = similarity_matrix.scan_existing_batches(
-                    2,
-                    "checksum",
-                    "model",
-                    "float32",
-                    [-2.0, 0.0],
-                    computed,
-                )
-            self.assertEqual(precision, "ieee_fp32")
-            self.assertTrue(computed[0, 1])
-
-            computed.fill(False)
-            with mock.patch.object(
-                similarity_matrix, "RESULTS_DIR", results_dir
-            ), redirect_stdout(io.StringIO()):
-                precision = similarity_matrix.scan_existing_batches(
-                    2,
-                    "checksum",
-                    "model",
-                    "float32",
-                    [-2.0, 0.0],
-                    computed,
-                    requested_matmul_precision="tf32",
-                )
-            self.assertIsNone(precision)
-            self.assertTrue(os.path.isdir(results_dir))
-            self.assertTrue(os.path.isdir(results_dir + "_BackUp"))
-
-    def test_partial_batch_writer_rolls_back_before_atomic_publish(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output = os.path.join(temp_dir, "batch_00000.h5")
-            writer = similarity_matrix._PartialBatchWriter(
-                output,
-                "checksum",
-                "model",
-                [-2.0, 0.0],
-                "ieee_fp32",
-            )
-            writer(
-                [
-                    (0, 1, 1.0, 1, 2.0, 1),
-                    (0, 2, 1.5, 2, 2.5, 2),
-                ]
-            )
-            checkpoint = writer.checkpoint()
-            writer([(1, 2, 3.0, 3, 4.0, 3)])
-            writer.rollback(checkpoint)
-            writer.publish()
-            writer.close()
-
-            self.assertFalse(os.path.exists(output + ".partial"))
-            with h5py.File(output, "r") as hf:
-                np.testing.assert_array_equal(hf["i"][:], [0, 0])
-                np.testing.assert_array_equal(hf["j"][:], [1, 2])
-
     def test_tiled_oom_rolls_back_then_requests_next_ranked_plan(self):
         tasks = [(0, 1, "a", "b")]
         sink = mock.Mock()
@@ -1802,57 +1557,6 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(tiled.call_count, 4)
         self.assertEqual(sink.rollback.call_count, 4)
         scalar.assert_not_called()
-
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is unavailable")
-    def test_tiled_process_batch_streams_and_publishes_complete_cuda_results(self):
-        rng = np.random.default_rng(20260823)
-        headers = ["a", "b", "c", "d"]
-        lengths = [5, 6, 7, 8]
-        tasks = [
-            (row, column, headers[row], headers[column])
-            for row in range(4)
-            for column in range(row + 1, 4)
-        ]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            input_h5 = os.path.join(temp_dir, "embeddings.h5")
-            results_dir = os.path.join(temp_dir, "batches")
-            os.makedirs(results_dir)
-            with h5py.File(input_h5, "w") as hf:
-                group = hf.create_group("embeddings")
-                for header, length in zip(headers, lengths):
-                    group.create_dataset(
-                        header,
-                        data=rng.normal(size=(length, 16)).astype(np.float32),
-                    )
-            store = alignment_engine.EmbeddingTileStore(input_h5, headers, 0)
-            with mock.patch.object(
-                similarity_matrix, "RESULTS_DIR", results_dir
-            ), mock.patch.object(
-                store, "get", wraps=store.get
-            ) as embedding_reads:
-                similarity_matrix.process_batch(
-                    tasks,
-                    batch_id=0,
-                    workers=2,
-                    input_h5=input_h5,
-                    embedding_checksum="checksum",
-                    model_name="model",
-                    gap_penalties=[-2.0, 0.0],
-                    device=torch.device("cuda:0"),
-                    accelerator_workers=2,
-                    execution_variant="tiled",
-                    matmul_precision="ieee_fp32",
-                    embedding_store=store,
-                    sequence_lengths=lengths,
-                )
-            self.assertEqual(embedding_reads.call_count, len(headers))
-            output = os.path.join(results_dir, "batch_00000.h5")
-            self.assertTrue(os.path.exists(output))
-            self.assertFalse(os.path.exists(output + ".partial"))
-            with h5py.File(output, "r") as hf:
-                self.assertEqual(len(hf["i"]), len(tasks))
-                self.assertEqual(hf.attrs["matmul_precision"], "ieee_fp32")
-
 
 if __name__ == "__main__":
     unittest.main()

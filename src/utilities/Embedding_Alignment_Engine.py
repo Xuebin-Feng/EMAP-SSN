@@ -4598,6 +4598,66 @@ class TiledAcceleratorSession(_LegacyTiledAcceleratorSession):
         )
         return returned_results
 
+    def run_pair_stream(
+        self,
+        tasks,
+        *,
+        chunk_size=65536,
+        progress=None,
+        result_callback=None,
+    ):
+        """Run a lazy stream of ``(output_ordinal, i, j)`` tasks.
+
+        The session, streams, workspaces, and embedding slabs remain alive
+        between bounded input chunks.  Results retain the supplied output
+        ordinal and are emitted as ``(ordinal, i, j, l_score, l_len,
+        g_score, g_len)`` tuples.
+        """
+
+        iterator = iter(tasks)
+        chunk_size = max(1, int(chunk_size))
+        while True:
+            ordinals = []
+            pairs = CompactPairTasks(chunk_size, self.store.headers)
+            for _ in range(chunk_size):
+                try:
+                    ordinal, left, right = next(iterator)
+                except StopIteration:
+                    break
+                ordinals.append(int(ordinal))
+                pairs.append(int(left), int(right))
+            if not ordinals:
+                return
+
+            emitted = 0
+            returned = []
+
+            def route(results):
+                nonlocal emitted
+                tagged = [
+                    (ordinals[emitted + offset],) + tuple(result)
+                    for offset, result in enumerate(results)
+                ]
+                emitted += len(results)
+                if result_callback is None:
+                    returned.extend(tagged)
+                else:
+                    result_callback(tagged)
+
+            self.run(
+                pairs,
+                progress=progress,
+                result_callback=route,
+                result_chunk_size=chunk_size,
+            )
+            if emitted != len(ordinals):
+                raise RuntimeError(
+                    f"Pair stream emitted {emitted} results for "
+                    f"{len(ordinals)} submitted pairs."
+                )
+            if result_callback is None:
+                yield from returned
+
     def run_batch_stream(
         self,
         batches,
