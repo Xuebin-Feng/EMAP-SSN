@@ -18,6 +18,8 @@ import threading
 import queue
 import json
 import os
+import re
+from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore
 
 class NumpyEncoder(json.JSONEncoder):
@@ -58,6 +60,7 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         super().__init__(server_address, RequestHandlerClass)
         self.viewer = viewer
         self.event_queues = []
+        self.event_clients = {}
         self.queues_lock = threading.Lock()
         registry = getattr(viewer, "web_plugin_registry", None)
         self.static_routes = (
@@ -70,6 +73,30 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         self.static_routes["/fonts/"] = os.path.join(
             os.path.dirname(BASE_DIR), "resources", "fonts"
         )
+
+    def register_event_queue(self, event_queue, client_id=None):
+        with self.queues_lock:
+            self.event_queues.append(event_queue)
+            if client_id:
+                self.event_clients.setdefault(client_id, set()).add(event_queue)
+                pending = getattr(self.viewer, "_web_ui_pending_opens", None)
+                if isinstance(pending, dict):
+                    pending.pop(client_id, None)
+
+    def unregister_event_queue(self, event_queue, client_id=None):
+        with self.queues_lock:
+            if event_queue in self.event_queues:
+                self.event_queues.remove(event_queue)
+            if client_id:
+                client_queues = self.event_clients.get(client_id)
+                if client_queues is not None:
+                    client_queues.discard(event_queue)
+                    if not client_queues:
+                        self.event_clients.pop(client_id, None)
+
+    def has_event_client(self, client_id):
+        with self.queues_lock:
+            return bool(self.event_clients.get(client_id))
 
     def handle_error(self, request, client_address):
         # Suppress traceback print for socket/connection abortions when browser tabs close
@@ -98,18 +125,29 @@ MIME_TYPES = {
     ".ttf": "font/ttf"
 }
 
+
+def event_client_from_path(path):
+    """Return a bounded client label from an SSE request URL, if present."""
+    values = parse_qs(urlsplit(path).query).get("client", [])
+    if len(values) != 1:
+        return None
+    client_id = values[0].strip().lower()
+    if re.fullmatch(r"[a-z0-9_-]{1,64}", client_id) is None:
+        return None
+    return client_id
+
 class WebServerHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silences console log spam
         pass
 
     def do_GET(self):
-        if self.path == "/api/events":
-            self.handle_sse()
+        clean_path = self.path.split('?', 1)[0]
+        if clean_path == "/api/events":
+            self.handle_sse(event_client_from_path(self.path))
             return
 
         # Strip query parameters (e.g. ?v=1)
-        clean_path = self.path.split('?')[0]
         if clean_path == "/" or clean_path == "":
             clean_path = "/index.html"
 
@@ -164,7 +202,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         with open(filepath, "rb") as f:
             self.wfile.write(f.read())
 
-    def handle_sse(self):
+    def handle_sse(self, client_id=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -172,8 +210,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         
         q = queue.Queue()
-        with self.server.queues_lock:
-            self.server.event_queues.append(q)
+        self.server.register_event_queue(q, client_id)
         
         try:
             # Send initial configuration
@@ -193,9 +230,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
         finally:
-            with self.server.queues_lock:
-                if q in self.server.event_queues:
-                    self.server.event_queues.remove(q)
+            self.server.unregister_event_queue(q, client_id)
 
     def do_POST(self):
         if self.path == "/api/action":

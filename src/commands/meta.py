@@ -93,18 +93,7 @@ def run(viewer, args):
 
     # 2. No arguments: Open spreadsheet browser page
     if not args:
-        import webbrowser
-        try:
-            url = viewer.get_web_url("/meta.html")
-        except RuntimeError as error:
-            if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = f"Metadata UI unavailable: {error}"
-            return
-        webbrowser.open(url)
-        if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = f"Metadata UI opened at {url}"
-            if hasattr(viewer, 'update_console_background'):
-                viewer.update_console_background()
+        viewer.open_metadata_ui()
         return
 
     first_arg = args[0].lower()

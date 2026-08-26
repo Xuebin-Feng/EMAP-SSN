@@ -717,11 +717,6 @@ def print_help(viewer, msg):
 def execute_reset(viewer, targets):
     """Executes reset on the specified targets."""
     lower_parts = [p.lower() for p in targets]
-    
-    if "help" in lower_parts or "-h" in lower_parts or "--help" in lower_parts:
-        msg = "Usage: reset <target_1> [target_2] ...\nDescription: Resets specific properties of the network to their default or backup states.\nValid Targets:\n  colors   - Resets all node colors to default\n  sizes    - Resets all node sizes to default\n  shapes   - Resets all node shapes to default\n  clusters - Clears all cluster labels\n  groups   - Clears all group labels\n  hide     - Unhides all hidden nodes\n  network  - Restores node layout positions to the original or last saved state\n  order/layer - Restores persistent node rendering to index order\nExamples:\n  reset network hide\n  reset colors sizes\n  reset order"
-        print_help(viewer, msg)
-        return
 
     targets_found = []
     needs_update = False

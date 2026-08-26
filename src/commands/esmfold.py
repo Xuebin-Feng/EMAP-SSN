@@ -112,7 +112,7 @@ def run(viewer, args):
     if not selected_indices:
         if not args:
             esmfold_backend.register(viewer)
-            esmfold_backend.open_esmfold_ui(viewer, force=True)
+            esmfold_backend.open_esmfold_ui(viewer)
             return
 
         print("Error: No nodes selected. Please select a node in the visualizer first.")

@@ -667,7 +667,7 @@
 
         function connectEventStream() {
             const statusBadge = document.getElementById("connection-status");
-            eventSource = new EventSource("/api/events");
+            eventSource = new EventSource("/api/events?client=meta");
 
             eventSource.onopen = () => {
                 statusBadge.innerText = "Connected";

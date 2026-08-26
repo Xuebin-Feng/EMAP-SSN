@@ -19,6 +19,7 @@ if str(SRC_DIR) not in sys.path:
 import Install_Dependencies  # noqa: E402
 from utilities import Desktop_Launcher_Monitor  # noqa: E402
 from web_ui import Web_Server  # noqa: E402
+from web_ui import Browser_Page  # noqa: E402
 from web_ui import esmfold_backend  # noqa: E402
 from commands import agent, meta  # noqa: E402
 
@@ -121,6 +122,15 @@ class InstanceUrlRoutingTests(unittest.TestCase):
         def update_console_background(self):
             pass
 
+        def _open_web_ui(self, path, label, client_id):
+            return Browser_Page.open_browser_page(self, path, label, client_id)
+
+        def open_agent_ui(self):
+            return self._open_web_ui("/agent.html", "Agent UI", "agent")
+
+        def open_metadata_ui(self):
+            return self._open_web_ui("/meta.html", "Metadata UI", "meta")
+
     def test_agent_meta_and_esmfold_use_viewer_instance_port(self):
         viewer = self.Viewer()
         expected = [
@@ -135,7 +145,7 @@ class InstanceUrlRoutingTests(unittest.TestCase):
                 mock.patch("webbrowser.open") as browser_open:
             agent.run(viewer, [])
             meta.run(viewer, [])
-            esmfold_backend.open_esmfold_ui(viewer, force=True)
+            esmfold_backend.open_esmfold_ui(viewer)
 
         self.assertEqual(
             [call.args[0] for call in browser_open.call_args_list], expected

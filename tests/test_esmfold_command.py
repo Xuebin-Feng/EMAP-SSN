@@ -60,7 +60,7 @@ class ESMFoldCommandTests(unittest.TestCase):
             esmfold_command.run(viewer, [])
 
         register.assert_called_once_with(viewer)
-        open_esmfold_ui.assert_called_once_with(viewer, force=True)
+        open_esmfold_ui.assert_called_once_with(viewer)
 
     def test_keywords_without_selection_report_error(self):
         for arguments in (["multi"], ["large"], ["large", "multi"]):

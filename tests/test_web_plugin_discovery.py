@@ -140,6 +140,85 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("/alpha/", server.static_routes)
         self.assertIn("/fonts/", server.static_routes)
 
+    def test_server_tracks_named_event_clients_independently(self):
+        from queue import Queue
+        from web_ui import Web_Server
+
+        viewer = FakeViewer()
+        registry = WebPluginRegistry(viewer)
+        viewer.web_plugin_registry = registry
+        server = Web_Server.start_server(viewer, preferred_port=0)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        meta_queue = Queue()
+        esmfold_queue = Queue()
+        viewer._web_ui_pending_opens = {"esmfold": float("inf")}
+
+        server.register_event_queue(meta_queue, "meta")
+        server.register_event_queue(esmfold_queue, "esmfold")
+        self.assertTrue(server.has_event_client("meta"))
+        self.assertTrue(server.has_event_client("esmfold"))
+        self.assertNotIn("esmfold", viewer._web_ui_pending_opens)
+
+        server.unregister_event_queue(esmfold_queue, "esmfold")
+        self.assertTrue(server.has_event_client("meta"))
+        self.assertFalse(server.has_event_client("esmfold"))
+        server.unregister_event_queue(meta_queue, "meta")
+
+    def test_event_client_url_labels_are_validated(self):
+        from web_ui import Web_Server
+
+        self.assertEqual(
+            Web_Server.event_client_from_path("/api/events?client=ESMFold"),
+            "esmfold",
+        )
+        self.assertIsNone(Web_Server.event_client_from_path("/api/events"))
+        self.assertIsNone(
+            Web_Server.event_client_from_path("/api/events?client=esmfold%2Fother")
+        )
+
+    def test_named_sse_request_registers_and_releases_client(self):
+        import time
+        from urllib.request import urlopen
+        from web_ui import Web_Server
+
+        viewer = FakeViewer()
+        registry = WebPluginRegistry(viewer)
+        viewer.web_plugin_registry = registry
+        server = Web_Server.start_server(viewer, preferred_port=0)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = (
+            f"http://localhost:{server.server_address[1]}"
+            "/api/events?client=esmfold"
+        )
+
+        response = urlopen(url, timeout=2)
+        try:
+            deadline = time.monotonic() + 2
+            while not server.has_event_client("esmfold") and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(server.has_event_client("esmfold"))
+        finally:
+            response.close()
+
+        deadline = time.monotonic() + 3
+        while server.has_event_client("esmfold") and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(server.has_event_client("esmfold"))
+
+    def test_bundled_pages_identify_their_event_streams(self):
+        expected_clients = {
+            "esmfold.html": "esmfold",
+            "meta.html": "meta",
+            "agent.html": "agent",
+        }
+        web_ui_dir = SRC_DIR / "web_ui"
+        for filename, client_id in expected_clients.items():
+            with self.subTest(filename=filename):
+                source = (web_ui_dir / filename).read_text(encoding="utf-8")
+                self.assertIn(f"/api/events?client={client_id}", source)
+
 
 class MetadataHighlightActionTests(unittest.TestCase):
     def make_viewer(self):

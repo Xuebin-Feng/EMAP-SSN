@@ -92,6 +92,7 @@ from utilities.Application_Identity import (
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
 )
+from web_ui.Browser_Page import open_browser_page
 
 
 def _remove_consumed_settings_snapshot():
@@ -2683,22 +2684,13 @@ class MainViewer:
                 self._update_hud_elements()
 
     def open_metadata_ui(self):
-        self._open_web_ui("/meta.html", "Metadata UI")
+        return self._open_web_ui("/meta.html", "Metadata UI", "meta")
 
     def open_agent_ui(self):
-        self._open_web_ui("/agent.html", "Agent UI")
+        return self._open_web_ui("/agent.html", "Agent UI", "agent")
 
-    def _open_web_ui(self, path, label):
-        import webbrowser
-        try:
-            url = self.get_web_url(path)
-        except RuntimeError as error:
-            if hasattr(self, "console_text"):
-                self.console_text.text = f"{label} unavailable: {error}"
-                self.update_console_background()
-            return False
-        webbrowser.open(url)
-        return True
+    def _open_web_ui(self, path, label, client_id):
+        return open_browser_page(self, path, label, client_id)
 
     def get_web_url(self, path="/"):
         """Return a URL served by this Viewer instance."""

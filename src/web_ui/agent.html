@@ -1186,7 +1186,7 @@
         // ─── SSE ──────────────────────────────────────────────────────────────────
         function connectEventStream() {
             const statusBadge = document.getElementById("connection-status");
-            eventSource = new EventSource("/api/events");
+            eventSource = new EventSource("/api/events?client=agent");
 
             eventSource.onopen = () => {
                 statusBadge.innerText = "Connected";

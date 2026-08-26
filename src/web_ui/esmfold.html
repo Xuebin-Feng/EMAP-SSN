@@ -99,7 +99,7 @@
 
         // Setup SSE connection to listen for events
         function setupSSE() {
-            const sse = new EventSource('/api/events');
+            const sse = new EventSource('/api/events?client=esmfold');
             
             // Backup safety timeout for session restore handshake
             setTimeout(() => {

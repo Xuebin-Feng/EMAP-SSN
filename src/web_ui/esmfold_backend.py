@@ -15,8 +15,8 @@
 import os
 import json
 import SSN_Config as cfg
-import webbrowser
 from web_ui.Plugin_Manager import ensure_registry
+from web_ui.Browser_Page import open_browser_page
 from utilities.Cache_Selection import resolve_selected_cache
 
 def register_backend(registry, viewer):
@@ -57,7 +57,7 @@ def activate(viewer):
         viewer.add_sidebar_button(
             "fold_view_btn",
             "🧬 Fold View",
-            lambda: open_esmfold_ui(viewer, force=True),
+            lambda: open_esmfold_ui(viewer),
             "Open ESMFold & Mol* structure viewer"
         )
 
@@ -69,26 +69,17 @@ def register(viewer):
     registry.registered_plugins.add("esmfold")
     return activate(viewer)
 
-def open_esmfold_ui(viewer, force=False):
+def open_esmfold_ui(viewer):
     """Opens the local Mol* page in the user's default browser."""
-    try:
-        url = viewer.get_web_url("/esmfold.html")
-    except RuntimeError as error:
-        if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = f"ESMFold UI unavailable: {error}"
-        return
-
-    # Check if there is already an active EventSource connection queue
-    is_already_connected = False
-    if hasattr(viewer, 'web_server') and viewer.web_server:
-        with viewer.web_server.queues_lock:
-            is_already_connected = len(viewer.web_server.event_queues) > 0
-            
-    if not force and is_already_connected:
-        return
-    webbrowser.open(url)
-    if hasattr(viewer, 'console_text'):
-        viewer.console_text.text = "ESMFold Mol* UI opened in browser"
+    opener = getattr(viewer, "_open_web_ui", None)
+    if callable(opener):
+        return opener("/esmfold.html", "ESMFold Mol* UI", "esmfold")
+    return open_browser_page(
+        viewer,
+        "/esmfold.html",
+        "ESMFold Mol* UI",
+        "esmfold",
+    )
 
 def handle_save_session(viewer, data):
     """Saves the serialized Mol* JSON session snapshot to the active layout cache folder."""
