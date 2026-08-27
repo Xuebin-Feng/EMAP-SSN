@@ -238,7 +238,7 @@ def run(viewer, args):
         return
 
     # 10. Open Mol* web browser tab immediately
-    esmfold_backend.open_esmfold_ui(viewer)
+    esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
     mode_label = "Biohub ESM3" if is_large else "local ESM3"
     _set_console_text(
         viewer,

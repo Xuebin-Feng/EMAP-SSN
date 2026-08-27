@@ -58,6 +58,7 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
             "/esmfold.html",
             "ESMFold Mol* UI",
             "esmfold",
+            show_existing_dialog=True,
         )
 
     def test_viewer_shared_opener_is_preferred(self):
@@ -70,8 +71,37 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
             "/esmfold.html",
             "ESMFold Mol* UI",
             "esmfold",
+            show_existing_dialog=True,
         )
         fallback.assert_not_called()
+
+    def test_non_modal_request_is_propagated_to_viewer_opener(self):
+        viewer = self.make_viewer()
+        viewer._open_web_ui = mock.Mock(return_value=False)
+
+        self.assertFalse(
+            esmfold_backend.open_esmfold_ui(
+                viewer,
+                show_existing_dialog=False,
+            )
+        )
+
+        viewer._open_web_ui.assert_called_once_with(
+            "/esmfold.html",
+            "ESMFold Mol* UI",
+            "esmfold",
+            show_existing_dialog=False,
+        )
+
+    def test_fold_view_sidebar_uses_default_modal_behavior(self):
+        viewer = SimpleNamespace(add_sidebar_button=mock.Mock())
+        esmfold_backend.activate(viewer)
+        callback = viewer.add_sidebar_button.call_args.args[2]
+
+        with mock.patch.object(esmfold_backend, "open_esmfold_ui") as open_ui:
+            callback()
+
+        open_ui.assert_called_once_with(viewer)
 
 
 if __name__ == "__main__":

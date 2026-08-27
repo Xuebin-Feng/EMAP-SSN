@@ -69,16 +69,22 @@ def register(viewer):
     registry.registered_plugins.add("esmfold")
     return activate(viewer)
 
-def open_esmfold_ui(viewer):
+def open_esmfold_ui(viewer, *, show_existing_dialog=True):
     """Opens the local Mol* page in the user's default browser."""
     opener = getattr(viewer, "_open_web_ui", None)
     if callable(opener):
-        return opener("/esmfold.html", "ESMFold Mol* UI", "esmfold")
+        return opener(
+            "/esmfold.html",
+            "ESMFold Mol* UI",
+            "esmfold",
+            show_existing_dialog=show_existing_dialog,
+        )
     return open_browser_page(
         viewer,
         "/esmfold.html",
         "ESMFold Mol* UI",
         "esmfold",
+        show_existing_dialog=show_existing_dialog,
     )
 
 def handle_save_session(viewer, data):

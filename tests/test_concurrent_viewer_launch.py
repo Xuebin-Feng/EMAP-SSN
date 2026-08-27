@@ -122,8 +122,21 @@ class InstanceUrlRoutingTests(unittest.TestCase):
         def update_console_background(self):
             pass
 
-        def _open_web_ui(self, path, label, client_id):
-            return Browser_Page.open_browser_page(self, path, label, client_id)
+        def _open_web_ui(
+            self,
+            path,
+            label,
+            client_id,
+            *,
+            show_existing_dialog=True,
+        ):
+            return Browser_Page.open_browser_page(
+                self,
+                path,
+                label,
+                client_id,
+                show_existing_dialog=show_existing_dialog,
+            )
 
         def open_agent_ui(self):
             return self._open_web_ui("/agent.html", "Agent UI", "agent")

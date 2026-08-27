@@ -331,6 +331,11 @@ def run(viewer, args):
     zoom_visible = viewer.zoom_text.visible if hasattr(viewer, 'zoom_text') else False
     tooltip_visible = viewer.tooltip.visible if hasattr(viewer, 'tooltip') else False
     hidden_visible = viewer.hidden_text.visible if hasattr(viewer, 'hidden_text') else False
+    meta_display = getattr(viewer, 'hud_displays', {}).get('meta_display')
+    meta_text_visual = getattr(meta_display, 'text_visual', None)
+    meta_text_visible = (
+        meta_text_visual.visible if meta_text_visual is not None else False
+    )
     
     orig_rect = viewer.view.camera.rect
     orig_aspect = viewer.view.camera.aspect
@@ -341,6 +346,8 @@ def run(viewer, args):
         if hasattr(viewer, 'zoom_text'): viewer.zoom_text.visible = False
         if hasattr(viewer, 'tooltip'): viewer.tooltip.visible = False
         if hasattr(viewer, 'hidden_text'): viewer.hidden_text.visible = False
+        if meta_text_visual is not None:
+            meta_text_visual.visible = False
         if hasattr(viewer, 'console_bg'):
             viewer.console_bg.visible = False
             viewer.console_text.text = ""
@@ -488,6 +495,8 @@ def run(viewer, args):
         if hasattr(viewer, 'zoom_text'): viewer.zoom_text.visible = zoom_visible
         if hasattr(viewer, 'tooltip'): viewer.tooltip.visible = tooltip_visible
         if hasattr(viewer, 'hidden_text'): viewer.hidden_text.visible = hidden_visible
+        if meta_text_visual is not None:
+            meta_text_visual.visible = meta_text_visible
             
         viewer.canvas.update()
         app.process_events()

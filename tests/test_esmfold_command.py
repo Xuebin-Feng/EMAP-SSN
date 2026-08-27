@@ -108,7 +108,10 @@ class ESMFoldCommandTests(unittest.TestCase):
                     "launch_in_terminal",
                 ) as launch,
                 mock.patch.object(esmfold_command.esmfold_backend, "register"),
-                mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui"),
+                mock.patch.object(
+                    esmfold_command.esmfold_backend,
+                    "open_esmfold_ui",
+                ) as open_esmfold_ui,
             ):
                 esmfold_command.run(viewer, [])
 
@@ -119,6 +122,10 @@ class ESMFoldCommandTests(unittest.TestCase):
                 self.assertNotIn("--mode", command)
                 with open(command[2], "r", encoding="utf-8") as handle:
                     self.assertEqual(json.load(handle), [["node_0", "ACDE"]])
+                open_esmfold_ui.assert_called_once_with(
+                    viewer,
+                    show_existing_dialog=False,
+                )
             finally:
                 self.remove_worker_input(launch)
 
@@ -141,7 +148,10 @@ class ESMFoldCommandTests(unittest.TestCase):
                     "launch_in_terminal",
                 ) as launch,
                 mock.patch.object(esmfold_command.esmfold_backend, "register"),
-                mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui"),
+                mock.patch.object(
+                    esmfold_command.esmfold_backend,
+                    "open_esmfold_ui",
+                ) as open_esmfold_ui,
             ):
                 esmfold_command.run(viewer, ["large"])
 
@@ -150,6 +160,10 @@ class ESMFoldCommandTests(unittest.TestCase):
                 command = launch.call_args.args[0]
                 self.assertEqual(command[-2:], ["--mode", "large"])
                 self.assertNotIn("ESM_API_TOKEN", " ".join(command))
+                open_esmfold_ui.assert_called_once_with(
+                    viewer,
+                    show_existing_dialog=False,
+                )
             finally:
                 self.remove_worker_input(launch)
 
@@ -173,7 +187,7 @@ class ESMFoldCommandTests(unittest.TestCase):
                         mock.patch.object(
                             esmfold_command.esmfold_backend,
                             "open_esmfold_ui",
-                        ),
+                        ) as open_esmfold_ui,
                     ):
                         esmfold_command.run(viewer, arguments)
 
@@ -183,6 +197,10 @@ class ESMFoldCommandTests(unittest.TestCase):
                             records = json.load(handle)
                         self.assertEqual([record[0] for record in records], ["node_0", "node_1"])
                         self.assertEqual(command[-2:], ["--mode", "large"])
+                        open_esmfold_ui.assert_called_once_with(
+                            viewer,
+                            show_existing_dialog=False,
+                        )
                     finally:
                         self.remove_worker_input(launch)
 

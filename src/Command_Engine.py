@@ -701,9 +701,9 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
             "are complete and do not place spaces inside individual predicates."
         ) from error
 
-def print_help(viewer, msg):
+def print_help(viewer, msg, *, terminal_msg=None):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""
-    print(f"\n{msg}")
+    print(f"\n{msg if terminal_msg is None else terminal_msg}")
     
     if hasattr(viewer, 'console_text'):
         # Display single-line status, errors, warnings, or help headers directly on the on-screen console

@@ -14,12 +14,47 @@
 
 import os
 import re
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.cm as cm
 import SSN_Config as cfg
 import Command_Engine
+
+
+if sys.platform == "win32" and not globals().get("_WINDOWS_ANSI_ENABLED", False):
+    os.system("")
+    _WINDOWS_ANSI_ENABLED = True
+
+
+ANSI_RESET = "\033[0m"
+
+
+def _stdout_supports_color():
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+
+def _terminal_endpoint_text(label, value, rgba):
+    text = f"{label}: {value}"
+    if not _stdout_supports_color():
+        return text
+
+    red, green, blue = (
+        int(round(float(channel) * 255.0)) for channel in rgba[:3]
+    )
+    return f"\033[38;2;{red};{green};{blue}m{text}{ANSI_RESET}"
+
+
+def _terminal_range_text(vmin, vmax, cmap):
+    if vmax == vmin:
+        min_position = max_position = 0.5
+    else:
+        min_position, max_position = 0.0, 1.0
+
+    min_text = _terminal_endpoint_text("min", vmin, cmap(min_position))
+    max_text = _terminal_endpoint_text("max", vmax, cmap(max_position))
+    return f"({min_text}, {max_text})"
 
 def print_help():
     print("""
@@ -243,12 +278,26 @@ def run(viewer, args):
     except Exception as e:
         print(f"Warning: Failed to automatically enable metadata display: {e}")
     
-    msg = f"Spectrum coloring applied to {np.sum(full_valid_mask)} nodes using property '{matched_key}' (min: {vmin}, max: {vmax}) with scheme '{scheme_name}'."
+    message_prefix = (
+        f"Spectrum coloring applied to {np.sum(full_valid_mask)} nodes using "
+        f"property '{matched_key}'"
+    )
+    message_suffix = f"with scheme '{scheme_name}'."
+    msg = f"{message_prefix} (min: {vmin}, max: {vmax}) {message_suffix}"
+    terminal_msg = (
+        f"{message_prefix} {_terminal_range_text(vmin, vmax, cmap)} "
+        f"{message_suffix}"
+    )
     if np.any(nan_mask):
-        msg += f" {np.sum(nan_mask)} nodes with invalid values colored gray."
+        invalid_values_msg = (
+            f" {np.sum(nan_mask)} nodes with invalid values colored gray."
+        )
+        msg += invalid_values_msg
+        terminal_msg += invalid_values_msg
     
     if not cmap_ok:
-        msg = f"[Warning: '{scheme_name}' not found, using coolwarm] " + msg
+        warning = f"[Warning: '{scheme_name}' not found, using coolwarm] "
+        msg = warning + msg
+        terminal_msg = warning + terminal_msg
     
-    Command_Engine.print_help(viewer, msg)
-    print(f"\nSuccess! {msg}")
+    Command_Engine.print_help(viewer, msg, terminal_msg=terminal_msg)

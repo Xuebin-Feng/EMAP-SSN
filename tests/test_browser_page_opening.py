@@ -78,6 +78,31 @@ class BrowserPageOpeningTests(unittest.TestCase):
             message,
         )
 
+    def test_connected_client_can_report_without_dialog(self):
+        viewer = self.make_viewer({"esmfold"})
+        with (
+            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(
+                Browser_Page.QMessageBox, "information"
+            ) as information,
+        ):
+            self.assertFalse(
+                Browser_Page.open_browser_page(
+                    viewer,
+                    "/esmfold.html",
+                    "ESMFold Mol* UI",
+                    "esmfold",
+                    show_existing_dialog=False,
+                )
+            )
+
+        browser_open.assert_not_called()
+        information.assert_not_called()
+        self.assertEqual(
+            viewer.console_text.text,
+            "ESMFold Mol* UI is already open in your browser.",
+        )
+
     def test_unrelated_connected_client_does_not_suppress_opening(self):
         viewer = self.make_viewer({"agent"})
         with mock.patch.object(
@@ -120,6 +145,33 @@ class BrowserPageOpeningTests(unittest.TestCase):
             viewer.main_window,
             "Browser Page Already Open",
             message,
+        )
+
+    def test_pending_open_can_report_without_dialog(self):
+        viewer = self.make_viewer()
+        viewer._web_ui_pending_opens = {"esmfold": 110.0}
+        with (
+            mock.patch.object(Browser_Page.time, "monotonic", return_value=100.0),
+            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(
+                Browser_Page.QMessageBox, "information"
+            ) as information,
+        ):
+            self.assertFalse(
+                Browser_Page.open_browser_page(
+                    viewer,
+                    "/esmfold.html",
+                    "ESMFold Mol* UI",
+                    "esmfold",
+                    show_existing_dialog=False,
+                )
+            )
+
+        browser_open.assert_not_called()
+        information.assert_not_called()
+        self.assertEqual(
+            viewer.console_text.text,
+            "ESMFold Mol* UI is already being opened in your browser.",
         )
 
     def test_expired_pending_open_allows_retry(self):

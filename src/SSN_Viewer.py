@@ -2689,8 +2689,21 @@ class MainViewer:
     def open_agent_ui(self):
         return self._open_web_ui("/agent.html", "Agent UI", "agent")
 
-    def _open_web_ui(self, path, label, client_id):
-        return open_browser_page(self, path, label, client_id)
+    def _open_web_ui(
+        self,
+        path,
+        label,
+        client_id,
+        *,
+        show_existing_dialog=True,
+    ):
+        return open_browser_page(
+            self,
+            path,
+            label,
+            client_id,
+            show_existing_dialog=show_existing_dialog,
+        )
 
     def get_web_url(self, path="/"):
         """Return a URL served by this Viewer instance."""

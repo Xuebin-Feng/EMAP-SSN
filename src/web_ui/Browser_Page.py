@@ -32,13 +32,14 @@ def _set_console_message(viewer, message):
             update_background()
 
 
-def _report_existing_page(viewer, message):
+def _report_existing_page(viewer, message, show_dialog):
     _set_console_message(viewer, message)
-    QMessageBox.information(
-        getattr(viewer, "main_window", None),
-        "Browser Page Already Open",
-        message,
-    )
+    if show_dialog:
+        QMessageBox.information(
+            getattr(viewer, "main_window", None),
+            "Browser Page Already Open",
+            message,
+        )
 
 
 def _pending_opens(viewer):
@@ -49,7 +50,14 @@ def _pending_opens(viewer):
     return pending
 
 
-def open_browser_page(viewer, path, label, client_id):
+def open_browser_page(
+    viewer,
+    path,
+    label,
+    client_id,
+    *,
+    show_existing_dialog=True,
+):
     """Open one bundled page unless that client is connected or opening."""
     pending = _pending_opens(viewer)
     now = time.monotonic()
@@ -61,6 +69,7 @@ def open_browser_page(viewer, path, label, client_id):
         _report_existing_page(
             viewer,
             f"{label} is already open in your browser.",
+            show_existing_dialog,
         )
         return False
 
@@ -69,6 +78,7 @@ def open_browser_page(viewer, path, label, client_id):
         _report_existing_page(
             viewer,
             f"{label} is already being opened in your browser.",
+            show_existing_dialog,
         )
         return False
     pending.pop(client_id, None)
