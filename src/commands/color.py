@@ -203,6 +203,10 @@ def run(viewer, args):
             Command_Engine.report_selection_error(viewer, expr, e, "Color")
             return
 
+        # Hidden nodes are outside the command's target domain, even when the
+        # logical expression itself matches them.
+        mask = mask & viewer.visible_mask
+
         evaluated_assignments.append(
             (expr, color_str, scale_val, shape_val, mask, int(np.sum(mask)))
         )

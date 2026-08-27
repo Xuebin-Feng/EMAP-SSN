@@ -399,6 +399,35 @@ class CommandPromotionTests(unittest.TestCase):
             viewer.promote_nodes.call_args.args[0], [True, False, True]
         )
 
+    def test_color_excludes_hidden_nodes_from_every_assignment(self):
+        viewer = self.make_viewer()
+        viewer.visible_mask = np.array([False, True, False])
+        viewer.selected_indices = []
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            cfg, "HEADER_LIST_DIR", temp_dir, create=True
+        ):
+            color_command.run(
+                viewer,
+                ['"A"|"B"|"C"', "red", "x2", "triangle"],
+            )
+
+        np.testing.assert_array_equal(
+            viewer.current_colors[:, 0], [0.0, 1.0, 0.0]
+        )
+        np.testing.assert_array_equal(
+            viewer.current_sizes, [1.0, cfg.NODE_SIZE * 2.0, 1.0]
+        )
+        np.testing.assert_array_equal(
+            viewer.current_shapes, ["disc", "triangle_up", "disc"]
+        )
+        np.testing.assert_array_equal(
+            viewer.promote_nodes.call_args.args[0], [False, True, False]
+        )
+        self.assertEqual(
+            viewer.console_text.text,
+            "Applied: 1 nodes (red, x2.0, triangle_up)",
+        )
+
     def test_spectrum_promotes_gradient_and_gray_nodes_together(self):
         viewer = self.make_viewer()
         viewer.selected_indices = []

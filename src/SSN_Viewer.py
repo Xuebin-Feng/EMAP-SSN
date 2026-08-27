@@ -556,8 +556,12 @@ class MainViewer:
             
         if self.min_threshold >= self.max_threshold:
             self.max_threshold = self.min_threshold + 1.0
-            
+
         self.current_slider_threshold = self.min_threshold
+        # The initial line visual is created from the complete topology. Apply
+        # the restored visibility mask and active threshold before the window
+        # is shown so cached hidden nodes cannot leave stale edges on screen.
+        self.update_edges()
 
         # Force light theme on the QApplication managed by Vispy
         if qapp:
