@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
@@ -88,6 +89,262 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(results, [(4, 9, 1.0, 2, 3.0, 4)])
         self.assertEqual(pending, {earlier})
         progress.update.assert_called_once_with(1)
+
+    def test_cpu_benchmark_drains_warmup_and_reuses_one_pool(self):
+        events = []
+
+        class FakePool:
+            instances = 0
+
+            def __init__(self, processes, initializer, initargs):
+                self.processes = processes
+                self.initializer = initializer
+                self.initargs = initargs
+                type(self).instances += 1
+                events.append("pool-open")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                events.append("pool-close")
+                return False
+
+            def imap_unordered(self, function, tasks, chunksize):
+                for task in tasks:
+                    events.append(f"pair-{task[1]}")
+                    yield function(task)
+
+        class Timer:
+            def start(self):
+                events.append("timer-start")
+
+            def stop(self):
+                events.append("timer-stop")
+
+        tasks = [(0, column, "a", f"h{column}") for column in range(1, 5)]
+        with mock.patch.object(
+            similarity_matrix, "Pool", FakePool
+        ), mock.patch.object(
+            similarity_matrix,
+            "calculate_cpu_pair",
+            side_effect=lambda task: (task[0], task[1], 1.0, 1, 2.0, 1),
+        ):
+            results = similarity_matrix.process_cpu_tasks(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                batch_id=-1,
+                show_progress=False,
+                warmup_task_count=2,
+                benchmark_timer=Timer(),
+            )
+
+        self.assertEqual(FakePool.instances, 1)
+        self.assertEqual(len(results), 4)
+        self.assertEqual(
+            events,
+            [
+                "pool-open",
+                "pair-1",
+                "pair-2",
+                "timer-start",
+                "pair-3",
+                "pair-4",
+                "timer-stop",
+                "pool-close",
+            ],
+        )
+
+    def test_scalar_benchmark_keeps_executors_alive_across_phase_boundary(self):
+        events = []
+        ImmediateExecutor.instances.clear()
+
+        class Timer:
+            def start(self):
+                events.append("timer-start")
+
+            def stop(self):
+                events.append("timer-stop")
+
+        def score(args):
+            row, column, _left, _right, _device = args
+            events.append(f"score-{column}")
+            return row, column, np.zeros((1, 1), dtype=np.float32)
+
+        def align(args):
+            row, column, _matrix = args
+            events.append(f"align-{column}")
+            return row, column, 1.0, 1, 2.0, 1
+
+        tasks = [(0, column, "a", f"h{column}") for column in range(1, 5)]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_h5 = os.path.join(temp_dir, "embeddings.h5")
+            with h5py.File(input_h5, "w") as hf:
+                group = hf.create_group("embeddings")
+                group.create_dataset("a", data=np.ones((1, 2), dtype=np.float32))
+                for column in range(1, 5):
+                    group.create_dataset(
+                        f"h{column}", data=np.ones((1, 2), dtype=np.float32)
+                    )
+
+            with mock.patch.object(
+                similarity_matrix, "ThreadPoolExecutor", ImmediateExecutor
+            ), mock.patch.object(
+                similarity_matrix,
+                "_compute_accelerated_matrix",
+                side_effect=score,
+            ), mock.patch.object(
+                similarity_matrix,
+                "calculate_alignment_data",
+                side_effect=align,
+            ):
+                results = similarity_matrix._run_scalar_accelerated_pipeline(
+                    tasks,
+                    workers=2,
+                    input_h5=input_h5,
+                    device=torch.device("cpu"),
+                    batch_id=-1,
+                    accelerator_workers=1,
+                    show_progress=False,
+                    warmup_task_count=2,
+                    benchmark_timer=Timer(),
+                )
+
+        timer_start = events.index("timer-start")
+        timer_stop = events.index("timer-stop")
+        before_timer = events[:timer_start]
+        timed_region = events[timer_start + 1:timer_stop]
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(ImmediateExecutor.instances), 2)
+        self.assertTrue(all(f"score-{column}" in before_timer for column in (1, 2)))
+        self.assertTrue(all(f"align-{column}" in before_timer for column in (1, 2)))
+        self.assertTrue(all(f"score-{column}" in timed_region for column in (3, 4)))
+        self.assertTrue(all(f"align-{column}" in timed_region for column in (3, 4)))
+
+    def test_tiled_benchmark_drains_midpoint_with_one_context(self):
+        events = []
+
+        class FakeEvent:
+            def record(self, stream):
+                return None
+
+            def query(self):
+                return True
+
+            def synchronize(self):
+                return None
+
+        class FakeBackend:
+            device_type = "cuda"
+
+            def __init__(self):
+                self.streams = []
+
+            def supports_tiled(self, require_memory=True):
+                return True, "mock backend"
+
+            def create_stream(self):
+                stream = object()
+                self.streams.append(stream)
+                return stream
+
+            def stream_context(self, stream):
+                return mock.MagicMock()
+
+            def create_event(self):
+                return FakeEvent()
+
+            def empty_cache(self):
+                events.append("empty-cache")
+
+        class Timer:
+            def start(self):
+                events.append("timer-start")
+
+            def stop(self):
+                events.append("timer-stop")
+
+        def score_batch(row_tensor, target_tensors, target_lengths):
+            columns = max(int(length) for length in target_lengths)
+            return torch.zeros(
+                (len(target_tensors), int(row_tensor.shape[0]), columns),
+                dtype=torch.float32,
+            )
+
+        def align(args):
+            row, column, _matrix = args
+            events.append(f"align-{column}")
+            return row, column, 1.0, 1, 2.0, 1
+
+        headers = ["a", "b", "c", "d", "e"]
+        tasks = [(0, column, "a", headers[column]) for column in range(1, 5)]
+        backend = FakeBackend()
+        plan = alignment_engine.CudaMemoryPlan(
+            free_bytes=1 << 30,
+            total_bytes=1 << 30,
+            usable_bytes=1 << 30,
+            tile_cache_bytes=1 << 20,
+            matrix_pool_bytes=1 << 20,
+            matrix_bytes=1 << 19,
+            reserve_bytes=0,
+            lanes=1,
+            inflight_slots=2,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_h5 = os.path.join(temp_dir, "embeddings.h5")
+            with h5py.File(input_h5, "w") as hf:
+                group = hf.create_group("embeddings")
+                for header in headers:
+                    group.create_dataset(
+                        header, data=np.ones((1, 2), dtype=np.float32)
+                    )
+            store = alignment_engine.EmbeddingTileStore(input_h5, headers, 0)
+            real_h5_file = h5py.File
+            with mock.patch.object(
+                alignment_engine,
+                "get_accelerator_backend",
+                return_value=backend,
+            ), mock.patch.object(
+                alignment_engine,
+                "_to_normalized_cuda",
+                side_effect=lambda array, device: torch.as_tensor(array),
+            ), mock.patch.object(
+                alignment_engine,
+                "_batched_score_matrices",
+                side_effect=score_batch,
+            ), mock.patch.object(
+                alignment_engine.h5py,
+                "File",
+                side_effect=real_h5_file,
+            ) as opened:
+                results = alignment_engine.run_tiled_accelerator_pipeline(
+                    tasks,
+                    store=store,
+                    lengths=[1] * len(headers),
+                    device=torch.device("cuda:0"),
+                    workers=2,
+                    lanes=1,
+                    alignment_callback=align,
+                    memory_plan_override=plan,
+                    warmup_task_count=2,
+                    benchmark_timer=Timer(),
+                )
+
+        timer_start = events.index("timer-start")
+        timer_stop = events.index("timer-stop")
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(backend.streams), 1)
+        self.assertEqual(opened.call_count, 1)
+        self.assertTrue(
+            all(f"align-{column}" in events[:timer_start] for column in (1, 2))
+        )
+        self.assertTrue(
+            all(
+                f"align-{column}" in events[timer_start + 1:timer_stop]
+                for column in (3, 4)
+            )
+        )
 
     def test_restored_engine_routes_memory_planning_to_xpu_runtime(self):
         fake_xpu = mock.MagicMock()
@@ -1122,7 +1379,7 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(
             events[:3],
             [
-                ("benchmark", 3),
+                ("benchmark", 2),
                 ("overall", "Overall Progress"),
                 ("batch", 3),
             ],
@@ -1174,6 +1431,73 @@ class AlignmentPipelineTests(unittest.TestCase):
             [(0, 1), (0, 3), (1, 2)],
         )
 
+    def test_shared_benchmark_sampler_builds_disjoint_global_halves(self):
+        headers = [f"h{index}" for index in range(12)]
+        lengths = [20 + index * 7 for index in range(12)]
+        columns = {
+            row: np.arange(row + 1, len(headers), dtype=np.int64)
+            for row in range(len(headers))
+        }
+        counts = np.asarray([len(columns[row]) for row in range(len(headers))])
+
+        first = alignment_engine.matched_benchmark_task_halves(
+            headers,
+            lengths,
+            counts,
+            lambda row: columns[row],
+            half_pairs=20,
+            row_limit=6,
+        )
+        second = alignment_engine.matched_benchmark_task_halves(
+            headers,
+            lengths,
+            counts,
+            lambda row: columns[row],
+            half_pairs=20,
+            row_limit=6,
+        )
+
+        self.assertEqual(first, second)
+        warmup, timed = first
+        self.assertEqual(len(warmup), 20)
+        self.assertEqual(len(timed), 20)
+        self.assertTrue(set(warmup).isdisjoint(timed))
+        self.assertEqual(warmup, sorted(warmup, key=lambda task: task[:2]))
+        self.assertEqual(timed, sorted(timed, key=lambda task: task[:2]))
+        self.assertGreater(len({task[0] for task in warmup + timed}), 1)
+        self.assertEqual(
+            Counter(task[0] for task in warmup),
+            Counter(task[0] for task in timed),
+        )
+        warmup_pairs = {(task[0], task[1]) for task in warmup}
+        timed_pairs = {(task[0], task[1]) for task in timed}
+        for row in sorted({task[0] for task in warmup + timed}):
+            selected = sorted(
+                (
+                    task for task in warmup + timed
+                    if task[0] == row
+                ),
+                key=lambda task: (lengths[row] * lengths[task[1]], task[1]),
+            )
+            for offset in range(0, len(selected), 2):
+                adjacent = {
+                    (selected[offset][0], selected[offset][1]),
+                    (selected[offset + 1][0], selected[offset + 1][1]),
+                }
+                self.assertEqual(len(adjacent & warmup_pairs), 1)
+                self.assertEqual(len(adjacent & timed_pairs), 1)
+
+    def test_shared_benchmark_sampler_times_one_remaining_pair(self):
+        warmup, timed = alignment_engine.matched_benchmark_task_halves(
+            ["a", "b"],
+            [10, 20],
+            np.asarray([1, 0]),
+            lambda row: np.asarray([1]) if row == 0 else np.asarray([]),
+            half_pairs=4096,
+        )
+        self.assertEqual(warmup, [])
+        self.assertEqual(timed, [(0, 1, "a", "b")])
+
     def test_auto_precision_benchmarks_all_four_plan_combinations(self):
         cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cuda:0",
@@ -1223,10 +1547,6 @@ class AlignmentPipelineTests(unittest.TestCase):
             similarity_matrix,
             "estimate_cuda_working_set",
             return_value=safe_estimate,
-        ), mock.patch.object(
-            similarity_matrix,
-            "_representative_alignment_tasks",
-            return_value=tasks,
         ), mock.patch.object(
             similarity_matrix,
             "_run_accelerated_pipeline",
@@ -1329,7 +1649,7 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(scalar.call_count, 3)
         tiled.assert_not_called()
 
-    def test_plan_tuner_confirms_selected_cuda_variants_on_larger_sample(self):
+    def test_plan_tuner_runs_each_setup_once_with_internal_warmup(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
@@ -1353,6 +1673,12 @@ class AlignmentPipelineTests(unittest.TestCase):
             per_microbatch_bytes=512 << 20,
             reason="within reserved-VRAM boundary",
         )
+        def complete_benchmark(*_args, **kwargs):
+            timer = kwargs["benchmark_timer"]
+            timer.start()
+            timer.stop()
+            return []
+
         with mock.patch.object(
             similarity_matrix, "DEVICE_SELECTION", "auto"
         ), mock.patch.object(
@@ -1376,21 +1702,20 @@ class AlignmentPipelineTests(unittest.TestCase):
             return_value=safe_estimate,
         ), mock.patch.object(
             similarity_matrix,
-            "_representative_alignment_tasks",
-            return_value=tasks[:2],
-        ), mock.patch.object(
-            similarity_matrix,
             "_accelerator_lane_candidates",
             return_value=[1, 2],
         ), mock.patch.object(
             similarity_matrix,
             "process_cpu_tasks",
+            side_effect=complete_benchmark,
         ) as cpu_pipeline, mock.patch.object(
             similarity_matrix,
             "_run_accelerated_pipeline",
+            side_effect=complete_benchmark,
         ) as scalar_pipeline, mock.patch.object(
             similarity_matrix,
             "run_tiled_accelerator_pipeline",
+            side_effect=complete_benchmark,
         ) as tiled_pipeline, redirect_stdout(output):
             plans = similarity_matrix._benchmark_processing_plans(
                 tasks,
@@ -1400,22 +1725,25 @@ class AlignmentPipelineTests(unittest.TestCase):
                 embedding_store=mock.Mock(),
                 sequence_lengths=[2] * 7,
                 matmul_precision="ieee_fp32",
+                warmup_task_count=3,
             )
 
         self.assertTrue(plans)
         self.assertEqual(
             [len(call.args[0]) for call in cpu_pipeline.call_args_list],
-            [2, 2],
+            [4],
         )
         self.assertEqual(
             [len(call.args[0]) for call in scalar_pipeline.call_args_list],
-            [2, 2, 2, 6],
+            [6, 6],
         )
         self.assertEqual(
             [len(call.args[0]) for call in tiled_pipeline.call_args_list],
-            [2, 2, 2, 6],
+            [6, 6],
         )
-        self.assertIn("Confirming Test CUDA", output.getvalue())
+        self.assertNotIn("Confirming Test CUDA", output.getvalue())
+        for call in scalar_pipeline.call_args_list + tiled_pipeline.call_args_list:
+            self.assertEqual(call.kwargs["warmup_task_count"], 3)
 
     def test_legacy_precision_cache_resumes_as_fp32_and_tf32_mismatch_backs_up(self):
         def write_batch(folder):

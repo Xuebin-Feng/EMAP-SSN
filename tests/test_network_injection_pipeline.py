@@ -172,6 +172,76 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 matmul_precision="ieee_fp32",
             )
 
+    def test_injection_benchmark_runs_each_setup_once_with_internal_warmup(self):
+        cpu = network_injection.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        cuda = network_injection.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        tasks = [(0, column, "a", f"h{column}") for column in range(1, 7)]
+        memory = mock.Mock(
+            free_bytes=12 << 30,
+            total_bytes=16 << 30,
+            matrix_bytes=8 << 30,
+        )
+        estimate = mock.Mock(
+            feasible=True,
+            projected_peak_bytes=10 << 30,
+            safe_peak_bytes=13 << 30,
+            reason="within reserved-VRAM boundary",
+        )
+
+        def complete_benchmark(*_args, **kwargs):
+            timer = kwargs["benchmark_timer"]
+            timer.start()
+            timer.stop()
+            return []
+
+        with mock.patch.object(
+            network_injection, "DEVICE_SELECTION", "auto"
+        ), mock.patch.object(
+            network_injection, "ACCELERATOR_TUNE_PAIRS", 2
+        ), mock.patch.object(
+            network_injection, "ACCELERATOR_CONFIRM_PAIRS", 3
+        ), mock.patch.object(
+            network_injection.Hardware_Utils,
+            "get_available_devices",
+            return_value=[cpu, cuda],
+        ), mock.patch.object(
+            network_injection.Hardware_Utils, "release_device_cache"
+        ), mock.patch.object(
+            network_injection, "tiled_accelerator_support",
+            return_value=(True, "supported"),
+        ), mock.patch.object(
+            network_injection, "_lane_candidates", return_value=[1, 2]
+        ), mock.patch.object(
+            network_injection, "cuda_memory_plan", return_value=memory
+        ), mock.patch.object(
+            network_injection, "estimate_cuda_working_set", return_value=estimate
+        ), mock.patch.object(
+            network_injection,
+            "_execute_injection_plan",
+            side_effect=complete_benchmark,
+        ) as execute, redirect_stdout(io.StringIO()):
+            plans = network_injection._benchmark_injection_plans(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                store=mock.Mock(),
+                lengths=[2] * 7,
+                matmul_precision="ieee_fp32",
+                warmup_task_count=3,
+            )
+
+        self.assertTrue(plans)
+        self.assertEqual(execute.call_count, 5)
+        self.assertEqual([len(call.args[1]) for call in execute.call_args_list], [4, 6, 6, 6, 6])
+        self.assertEqual(
+            [call.kwargs["warmup_task_count"] for call in execute.call_args_list],
+            [2, 3, 3, 3, 3],
+        )
+
     def test_input_path_configuration_preserves_none_as_unselected(self):
         with mock.patch.object(network_injection, "OLD_NETWORK", None), \
                 mock.patch.object(network_injection, "NEW_EMBEDDINGS", None):
@@ -308,6 +378,69 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
         self.assertEqual(int(result[3]), 2)
         self.assertEqual(float(result[4]), 6.0)
         self.assertEqual(int(result[5]), 2)
+
+    def test_cpu_benchmark_drains_warmup_and_reuses_one_pool(self):
+        events = []
+
+        class FakePool:
+            instances = 0
+
+            def __init__(self, processes, initializer, initargs):
+                type(self).instances += 1
+                events.append("pool-open")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                events.append("pool-close")
+                return False
+
+            def imap_unordered(self, function, tasks, chunksize):
+                for task in tasks:
+                    events.append(f"pair-{task[1]}")
+                    yield function(task)
+
+        class Timer:
+            def start(self):
+                events.append("timer-start")
+
+            def stop(self):
+                events.append("timer-stop")
+
+        tasks = [(0, column, "a", f"h{column}") for column in range(1, 5)]
+        with mock.patch.object(
+            network_injection, "Pool", FakePool
+        ), mock.patch.object(
+            network_injection,
+            "calculate_cpu_pair",
+            side_effect=lambda task: (task[0], task[1], 1.0, 1, 2.0, 1),
+        ):
+            results = network_injection.process_cpu_tasks(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                batch_id=-1,
+                show_progress=False,
+                warmup_task_count=2,
+                benchmark_timer=Timer(),
+            )
+
+        self.assertEqual(FakePool.instances, 1)
+        self.assertEqual(len(results), 4)
+        self.assertEqual(
+            events,
+            [
+                "pool-open",
+                "pair-1",
+                "pair-2",
+                "timer-start",
+                "pair-3",
+                "pair-4",
+                "timer-stop",
+                "pool-close",
+            ],
+        )
 
     def test_process_batch_never_writes_paths_dataset(self):
         expected = [(0, 1, 1.0, 1, 2.0, 1)]

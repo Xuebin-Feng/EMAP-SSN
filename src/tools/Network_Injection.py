@@ -73,7 +73,6 @@ import sys
 import hashlib
 import threading
 import time
-from itertools import chain, islice
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
@@ -82,13 +81,16 @@ from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_Alignment_Engine import (
+    BenchmarkPhaseTimer,
     EmbeddingTileStore,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
+    evenly_spaced_task_subset,
     estimate_cuda_working_set,
     get_accelerator_backend,
     is_nvidia_cuda,
+    matched_benchmark_task_halves,
     normalize_execution_mode,
     run_tiled_accelerator_pipeline,
     tiled_accelerator_support,
@@ -109,8 +111,10 @@ DEVICE_SELECTION = "auto"
 EXECUTION_MODE = "auto"
 HOST_CACHE_GB = "auto"
 ACCELERATOR_LANES = "auto"
-ACCELERATOR_TUNE_PAIRS = 256
-ACCELERATOR_CONFIRM_PAIRS = 2048
+ACCELERATOR_BENCHMARK_HALF_PAIRS = 4096
+CPU_BENCHMARK_HALF_PAIRS = 256
+ACCELERATOR_TUNE_PAIRS = None
+ACCELERATOR_CONFIRM_PAIRS = None
 LOCAL_GAP_P = None
 GLOBAL_GAP_P = None 
 
@@ -324,6 +328,20 @@ accelerator_thread_state = threading.local()
 accelerator_lane_cache = {}
 
 
+def _benchmark_half_sizes():
+    accelerator_half = (
+        ACCELERATOR_BENCHMARK_HALF_PAIRS
+        if ACCELERATOR_CONFIRM_PAIRS is None
+        else ACCELERATOR_CONFIRM_PAIRS
+    )
+    cpu_half = (
+        CPU_BENCHMARK_HALF_PAIRS
+        if ACCELERATOR_TUNE_PAIRS is None
+        else ACCELERATOR_TUNE_PAIRS
+    )
+    return max(1, int(accelerator_half)), max(1, int(cpu_half))
+
+
 def _device_type(device):
     return getattr(device, "type", str(device).split(":", 1)[0])
 
@@ -454,14 +472,17 @@ def _run_accelerated_pipeline(
     show_progress,
     matmul_precision="float32",
     result_callback=None,
+    warmup_task_count=0,
+    benchmark_timer=None,
 ):
+    tasks = list(tasks)
+    warmup_task_count = int(warmup_task_count)
+    if benchmark_timer is not None and (
+        warmup_task_count < 0 or warmup_task_count >= len(tasks)
+    ):
+        raise ValueError("Benchmark warm-up count must leave a timed task.")
     results = []
-    gpu_pending = set()
-    cpu_pending = set()
-    ready_for_cpu = deque()
     ready_limit = max(lanes, min(workers, 8))
-    task_iterator = iter(tasks)
-    tasks_exhausted = False
     cached_row_header = None
     cached_row_embedding = None
     progress_context = (
@@ -486,83 +507,95 @@ def _run_accelerated_pipeline(
                 thread_name_prefix="injection-cpu",
             ) as cpu_executor, \
             progress_context as progress:
-        while (
-            not tasks_exhausted
-            or gpu_pending
-            or ready_for_cpu
-            or cpu_pending
-        ):
-            while ready_for_cpu and len(cpu_pending) < workers:
-                cpu_pending.add(
-                    cpu_executor.submit(
-                        calculate_alignment_data,
-                        ready_for_cpu.popleft(),
-                    )
-                )
-
+        def run_phase(phase_tasks):
+            nonlocal cached_row_header, cached_row_embedding
+            gpu_pending = set()
+            cpu_pending = set()
+            ready_for_cpu = deque()
+            task_iterator = iter(phase_tasks)
+            tasks_exhausted = False
             while (
                 not tasks_exhausted
-                and len(gpu_pending) < lanes
-                and len(ready_for_cpu) + len(gpu_pending) < ready_limit
+                or gpu_pending
+                or ready_for_cpu
+                or cpu_pending
             ):
-                try:
-                    (
-                        idx_i,
-                        idx_j,
-                        safe_h_i,
-                        safe_h_j,
-                    ) = next(task_iterator)
-                except StopIteration:
-                    tasks_exhausted = True
-                    break
-
-                if safe_h_i != cached_row_header:
-                    cached_row_embedding = hf["embeddings"][safe_h_i][:]
-                    cached_row_header = safe_h_i
-                emb_j = hf["embeddings"][safe_h_j][:]
-                gpu_pending.add(
-                    accelerator_executor.submit(
-                        _compute_accelerated_matrix,
-                        (
-                            idx_i,
-                            idx_j,
-                            cached_row_embedding,
-                            emb_j,
-                            device,
-                            matmul_precision,
-                        ),
+                while ready_for_cpu and len(cpu_pending) < workers:
+                    cpu_pending.add(
+                        cpu_executor.submit(
+                            calculate_alignment_data,
+                            ready_for_cpu.popleft(),
+                        )
                     )
-                )
+                while (
+                    not tasks_exhausted
+                    and len(gpu_pending) < lanes
+                    and len(ready_for_cpu) + len(gpu_pending) < ready_limit
+                ):
+                    try:
+                        idx_i, idx_j, safe_h_i, safe_h_j = next(task_iterator)
+                    except StopIteration:
+                        tasks_exhausted = True
+                        break
+                    if safe_h_i != cached_row_header:
+                        cached_row_embedding = hf["embeddings"][safe_h_i][:]
+                        cached_row_header = safe_h_i
+                    emb_j = hf["embeddings"][safe_h_j][:]
+                    gpu_pending.add(
+                        accelerator_executor.submit(
+                            _compute_accelerated_matrix,
+                            (
+                                idx_i,
+                                idx_j,
+                                cached_row_embedding,
+                                emb_j,
+                                device,
+                                matmul_precision,
+                            ),
+                        )
+                    )
 
-            completed_gpu = {
-                future for future in gpu_pending if future.done()
-            }
-            completed_cpu = {
-                future for future in cpu_pending if future.done()
-            }
-            if not completed_gpu and not completed_cpu:
-                pending = gpu_pending | cpu_pending
-                if not pending:
-                    continue
-                completed, _ = wait(
-                    pending,
-                    return_when=FIRST_COMPLETED,
-                )
-                completed_gpu = completed & gpu_pending
-                completed_cpu = completed & cpu_pending
+                completed_gpu = {
+                    future for future in gpu_pending if future.done()
+                }
+                completed_cpu = {
+                    future for future in cpu_pending if future.done()
+                }
+                if not completed_gpu and not completed_cpu:
+                    pending = gpu_pending | cpu_pending
+                    if not pending:
+                        continue
+                    completed, _ = wait(
+                        pending,
+                        return_when=FIRST_COMPLETED,
+                    )
+                    completed_gpu = completed & gpu_pending
+                    completed_cpu = completed & cpu_pending
 
-            for future in completed_gpu:
-                gpu_pending.remove(future)
-                ready_for_cpu.append(future.result())
-            for future in completed_cpu:
-                cpu_pending.remove(future)
-                results.append(future.result())
-                if progress is not None:
-                    progress.update(1)
-            if result_callback is not None and len(results) >= 65536:
-                result_callback(results)
-                results.clear()
+                for future in completed_gpu:
+                    gpu_pending.remove(future)
+                    ready_for_cpu.append(future.result())
+                for future in completed_cpu:
+                    cpu_pending.remove(future)
+                    results.append(future.result())
+                    if progress is not None:
+                        progress.update(1)
+                if result_callback is not None and len(results) >= 65536:
+                    result_callback(results)
+                    results.clear()
 
+        if benchmark_timer is None:
+            run_phase(tasks)
+        else:
+            if warmup_task_count:
+                run_phase(tasks[:warmup_task_count])
+            benchmark_timer.start()
+            run_phase(tasks[warmup_task_count:])
+            benchmark_timer.stop()
+
+    if result_callback is not None and results:
+        result_callback(results)
+        results.clear()
     return results
 
 
@@ -584,25 +617,18 @@ def _select_lanes(
     if cache_key in accelerator_lane_cache:
         return accelerator_lane_cache[cache_key]
 
-    count = max(2, min(int(ACCELERATOR_TUNE_PAIRS), len(tasks)))
-    sample = list(tasks[:count])
+    half_count = min(_benchmark_half_sizes()[0], len(tasks) // 2)
+    if half_count < 1:
+        return 1
+    sample = evenly_spaced_task_subset(tasks, half_count * 2)
     print(
         f"  > Auto-tuning accelerator lanes on {cache_key[1]} "
-        f"using {count} representative pairs..."
-    )
-    _run_accelerated_pipeline(
-        sample,
-        workers,
-        input_h5,
-        device,
-        batch_id,
-        1,
-        False,
+        f"using {half_count} warm-up + {half_count} timed pairs..."
     )
 
     rates = {}
     for lanes in candidates:
-        started = time.perf_counter()
+        timer = BenchmarkPhaseTimer()
         try:
             _run_accelerated_pipeline(
                 sample,
@@ -612,13 +638,15 @@ def _select_lanes(
                 batch_id,
                 lanes,
                 False,
+                warmup_task_count=half_count,
+                benchmark_timer=timer,
             )
         except (RuntimeError, NotImplementedError) as error:
             if lanes == 1:
                 raise
             print(f"    {lanes} lanes unavailable: {error}")
             continue
-        rates[lanes] = count / max(time.perf_counter() - started, 1e-9)
+        rates[lanes] = half_count / timer.elapsed
 
     fastest = max(rates.values())
     selected = min(
@@ -670,46 +698,56 @@ def process_cpu_tasks(
     batch_id,
     show_progress=True,
     result_callback=None,
+    warmup_task_count=0,
+    benchmark_timer=None,
 ):
+    tasks = list(tasks)
+    warmup_task_count = int(warmup_task_count)
+    if benchmark_timer is not None and (
+        warmup_task_count < 0 or warmup_task_count >= len(tasks)
+    ):
+        raise ValueError("Benchmark warm-up count must leave a timed task.")
     results = []
     with Pool(
         processes=workers,
         initializer=init_worker,
         initargs=(input_h5,),
     ) as pool:
-        iterator = pool.imap_unordered(
-            calculate_cpu_pair,
-            tasks,
-            chunksize=10,
-        )
-        for result in tqdm(
-            iterator,
+        progress = tqdm(
             total=len(tasks),
             desc=f"  Batch {batch_id}",
             leave=False,
             disable=not show_progress,
-        ):
-            results.append(result)
-            if result_callback is not None and len(results) >= 65536:
-                result_callback(results)
-                results.clear()
+        )
+
+        def run_phase(phase_tasks):
+            iterator = pool.imap_unordered(
+                calculate_cpu_pair,
+                phase_tasks,
+                chunksize=10,
+            )
+            for result in iterator:
+                results.append(result)
+                progress.update(1)
+                if result_callback is not None and len(results) >= 65536:
+                    result_callback(results)
+                    results.clear()
+
+        try:
+            if benchmark_timer is None:
+                run_phase(tasks)
+            else:
+                if warmup_task_count:
+                    run_phase(tasks[:warmup_task_count])
+                benchmark_timer.start()
+                run_phase(tasks[warmup_task_count:])
+                benchmark_timer.stop()
+        finally:
+            progress.close()
+    if result_callback is not None and results:
+        result_callback(results)
+        results.clear()
     return results
-
-
-def _representative_injection_tasks(tasks, lengths, count):
-    count = min(max(1, int(count)), len(tasks))
-    if count >= len(tasks):
-        return list(tasks)
-    ordered = sorted(
-        tasks,
-        key=lambda task: (
-            int(lengths[int(task[0])]) * int(lengths[int(task[1])]),
-            int(task[0]),
-            int(task[1]),
-        ),
-    )
-    positions = np.linspace(0, len(ordered) - 1, num=count, dtype=np.int64)
-    return [ordered[int(position)] for position in positions]
 
 
 def _execution_variants(candidate):
@@ -761,13 +799,16 @@ def _validate_execution_mode_hardware():
 
 def _execute_injection_plan(
     plan, tasks, workers, input_h5, batch_id, store, lengths,
-    matmul_precision, show_progress=False,
+    matmul_precision, show_progress=False, warmup_task_count=0,
+    benchmark_timer=None,
 ):
     candidate, variant, lanes = plan
     if candidate.is_cpu:
         return process_cpu_tasks(
             tasks, workers, input_h5, batch_id,
             show_progress=show_progress,
+            warmup_task_count=warmup_task_count,
+            benchmark_timer=benchmark_timer,
         )
     if variant == "tiled":
         return run_tiled_accelerator_pipeline(
@@ -779,15 +820,20 @@ def _execute_injection_plan(
             lanes=lanes,
             alignment_callback=calculate_alignment_data,
             precision=matmul_precision,
+            warmup_task_count=warmup_task_count,
+            benchmark_timer=benchmark_timer,
         )
     return _run_accelerated_pipeline(
         tasks, workers, input_h5, candidate.device, batch_id, lanes,
         show_progress, matmul_precision=matmul_precision,
+        warmup_task_count=warmup_task_count,
+        benchmark_timer=benchmark_timer,
     )
 
 
 def _benchmark_injection_plans(
     tasks, workers, input_h5, store, lengths, matmul_precision,
+    warmup_task_count=0,
 ):
     execution_mode = normalize_execution_mode(EXECUTION_MODE)
     candidates = Hardware_Utils.get_available_devices()
@@ -820,6 +866,9 @@ def _benchmark_injection_plans(
             )
     if manual is not None:
         candidates = [manual]
+        if manual.is_cpu:
+            print(f"[Hardware] Using manually selected {manual.display_name}.")
+            return [Hardware_Utils.BenchmarkResult(manual, 0.0, variant="scalar")]
     if matmul_precision == "tf32" and (
         not candidates or any(
             candidate.backend != "cuda" or not is_nvidia_cuda(candidate.device)
@@ -831,20 +880,35 @@ def _benchmark_injection_plans(
             "an NVIDIA CUDA device."
         )
 
-    sample = _representative_injection_tasks(
-        tasks, lengths, min(ACCELERATOR_TUNE_PAIRS, len(tasks))
-    )
-    confirmation = list(tasks[:min(ACCELERATOR_CONFIRM_PAIRS, len(tasks))])
+    accelerator_tasks = list(tasks)
+    warmup_task_count = int(warmup_task_count)
+    accelerator_warmup = accelerator_tasks[:warmup_task_count]
+    accelerator_timed = accelerator_tasks[warmup_task_count:]
+    if not accelerator_timed:
+        raise ValueError("The hardware benchmark requires at least one timed pair.")
+    _accelerator_half, cpu_half = _benchmark_half_sizes()
+    cpu_warmup = evenly_spaced_task_subset(accelerator_warmup, cpu_half)
+    cpu_timed = evenly_spaced_task_subset(accelerator_timed, cpu_half)
+    cpu_tasks = cpu_warmup + cpu_timed
     print(
-        f"[Hardware] Benchmarking {len(candidates)} device(s) with "
-        f"{len(sample)} representative injection pairs..."
+        f"[Hardware] Benchmarking {len(candidates)} device(s): CUDA/XPU "
+        f"{len(accelerator_warmup)} warm + {len(accelerator_timed)} timed; "
+        f"CPU/other {len(cpu_warmup)} warm + {len(cpu_timed)} timed."
     )
     print(
         "Device/backend                 Plan      Lanes   VRAM peak/safe   "
         "Pairs/s      Status"
     )
-    short_results = []
+    results = []
     for candidate in candidates:
+        if candidate.backend in {"cuda", "xpu"}:
+            sample = accelerator_tasks
+            phase_count = len(accelerator_warmup)
+            timed_count = len(accelerator_timed)
+        else:
+            sample = cpu_tasks
+            phase_count = len(cpu_warmup)
+            timed_count = len(cpu_timed)
         variants = _execution_variants(candidate)
         lane_candidates = [1] if candidate.is_cpu else _lane_candidates(
             candidate.device, workers
@@ -878,21 +942,25 @@ def _benchmark_injection_plans(
                             f"skipped: {estimate.reason}"
                         )
                         continue
-                started = time.perf_counter()
+                timer = BenchmarkPhaseTimer()
                 try:
                     _execute_injection_plan(
                         (candidate, variant, lanes), sample, workers, input_h5,
                         -1, store, lengths, matmul_precision,
+                        warmup_task_count=phase_count,
+                        benchmark_timer=timer,
                     )
-                    rate = len(sample) / max(time.perf_counter() - started, 1e-9)
-                    short_results.append(
+                    elapsed = timer.elapsed
+                    rate = timed_count / elapsed
+                    results.append(
                         Hardware_Utils.BenchmarkResult(
                             candidate, rate, lanes=lanes, variant=variant
                         )
                     )
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
-                        f"{lanes:>5}   {vram:>14}   {rate:>9.2f}   ok"
+                        f"{lanes:>5}   {vram:>14}   {rate:>9.2f}   "
+                        f"ok ({timed_count} pairs, {elapsed:.3f}s)"
                     )
                 except Exception as error:
                     print(
@@ -902,54 +970,11 @@ def _benchmark_injection_plans(
                     )
         Hardware_Utils.release_device_cache(candidate)
 
-    ranked_short = Hardware_Utils.rank_benchmark_results(
-        short_results, higher_is_better=True
-    )
-    if not ranked_short:
-        raise RuntimeError("No injection processing plan completed successfully.")
-
-    selected = []
-    seen = set()
-    for result in ranked_short:
-        key = (result.candidate.spec, result.variant)
-        if key not in seen:
-            selected.append(result)
-            seen.add(key)
-    final_results = []
-    for result in selected:
-        if (
-            result.candidate.backend in {"cuda", "xpu"}
-            and len(confirmation) > len(sample)
-        ):
-            print(
-                f"[Hardware] Confirming {result.candidate.display_name} "
-                f"{result.variant}, lanes={result.lanes}, on "
-                f"{len(confirmation)} production-ordered pairs..."
-            )
-            started = time.perf_counter()
-            try:
-                _execute_injection_plan(
-                    (result.candidate, result.variant, result.lanes),
-                    confirmation, workers, input_h5, -1, store, lengths,
-                    matmul_precision,
-                )
-                final_results.append(
-                    Hardware_Utils.BenchmarkResult(
-                        result.candidate,
-                        len(confirmation) / max(time.perf_counter() - started, 1e-9),
-                        lanes=result.lanes,
-                        variant=result.variant,
-                    )
-                )
-            except Exception as error:
-                print(f"  Confirmation failed: {type(error).__name__}: {error}")
-        else:
-            final_results.append(result)
     ranked = Hardware_Utils.rank_benchmark_results(
-        final_results, higher_is_better=True
+        results, higher_is_better=True
     )
     if not ranked:
-        raise RuntimeError("No confirmed injection processing plan completed.")
+        raise RuntimeError("No injection processing plan completed successfully.")
     winner = ranked[0]
     print(
         f"[Hardware] Selected {winner.candidate.display_name}, "
@@ -1643,26 +1668,17 @@ def run_injection():
                 ):
                     yield (i, j, safe_new_headers[i], safe_new_headers[j])
 
-    num_tasks = sum(
-        pair_id not in cached_old_pairs and pair_id not in computed_pairs
-        for pair_id in required_pairs
-    )
+    pending_counts = np.zeros(new_N, dtype=np.int64)
+    for pair_id in required_pairs:
+        if pair_id not in cached_old_pairs and pair_id not in computed_pairs:
+            pending_counts[int(pair_id) // new_N] += 1
+    num_tasks = int(pending_counts.sum())
     print(f"Total Required pairs: {effective_total_pairs}")
     print(f"Pre-existing cached pairs: {len(cached_old_pairs & required_pairs)}")
     print(f"Already computed pairs: {len(computed_pairs & required_pairs)}")
     print(f"Pairs queued for calculation: {num_tasks}")
 
     if num_tasks > 0:
-        pending_iterator = iter_pending_tasks()
-        benchmark_seed = list(
-            islice(
-                pending_iterator,
-                min(
-                    num_tasks,
-                    max(ACCELERATOR_TUNE_PAIRS, ACCELERATOR_CONFIRM_PAIRS),
-                ),
-            )
-        )
         embedding_store = EmbeddingTileStore(
             NEW_EMBEDDINGS, safe_new_headers, HOST_CACHE_GB
         )
@@ -1674,13 +1690,47 @@ def run_injection():
         else:
             print("[Memory] Using byte-bounded embedding tiles.")
         sequence_lengths = [shape[0] for shape in embedding_store.shapes]
+
+        def pending_columns_for_row(row):
+            base = int(row) * new_N
+            return np.asarray(
+                [
+                    column
+                    for column in range(int(row) + 1, new_N)
+                    if (
+                        base + column in required_pairs
+                        and base + column not in cached_old_pairs
+                        and base + column not in computed_pairs
+                    )
+                ],
+                dtype=np.int64,
+            )
+
+        manual_candidate = Hardware_Utils.resolve_device_selection(
+            DEVICE_SELECTION,
+            Hardware_Utils.get_available_devices(),
+        )
+        if manual_candidate is not None and manual_candidate.is_cpu:
+            benchmark_warmup = []
+            benchmark_timed = [next(iter_pending_tasks())]
+        else:
+            accelerator_half, _cpu_half = _benchmark_half_sizes()
+            benchmark_warmup, benchmark_timed = matched_benchmark_task_halves(
+                safe_new_headers,
+                sequence_lengths,
+                pending_counts,
+                pending_columns_for_row,
+                accelerator_half,
+            )
+        benchmark_tasks = benchmark_warmup + benchmark_timed
         ranked_plans = _benchmark_injection_plans(
-            benchmark_seed,
+            benchmark_tasks,
             WORKERS,
             NEW_EMBEDDINGS,
             embedding_store,
             sequence_lengths,
             inherited_precision,
+            warmup_task_count=len(benchmark_warmup),
         )
         active_plan_index = 0
 
@@ -1728,7 +1778,7 @@ def run_injection():
         batch_id = next_batch_id
         
         pbar = tqdm(total=math.ceil(num_tasks / BATCH_SIZE), desc="Progress", unit="batch")
-        for t in chain(benchmark_seed, pending_iterator):
+        for t in iter_pending_tasks():
             current_batch.append(t)
             if len(current_batch) >= BATCH_SIZE:
                 publish_batch(current_batch, batch_id)

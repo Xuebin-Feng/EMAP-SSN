@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import ctypes
 import os
 import sys
+import time
 from typing import Callable
 
 import h5py
@@ -38,6 +39,182 @@ MATRIX_WORKSPACE_MULTIPLIER = 8
 CUDA_TILE_FRACTION = 0.30
 CUDA_MATRIX_FRACTION = 0.50
 SUPPORTED_TILED_BACKENDS = frozenset({"cuda", "xpu"})
+
+
+class BenchmarkPhaseTimer:
+    """Record the timed phase of one warm-up/timed pipeline invocation."""
+
+    def __init__(self):
+        self.started_at = None
+        self.stopped_at = None
+
+    def start(self):
+        if self.started_at is not None:
+            raise RuntimeError("Benchmark timed phase has already started.")
+        self.started_at = time.perf_counter()
+
+    def stop(self):
+        if self.started_at is None:
+            raise RuntimeError("Benchmark timed phase has not started.")
+        if self.stopped_at is not None:
+            raise RuntimeError("Benchmark timed phase has already stopped.")
+        self.stopped_at = time.perf_counter()
+
+    @property
+    def elapsed(self):
+        if self.started_at is None or self.stopped_at is None:
+            raise RuntimeError("Benchmark timed phase did not complete.")
+        return max(float(self.stopped_at - self.started_at), 1e-9)
+
+
+def evenly_spaced_task_subset(tasks, count):
+    """Return a deterministic evenly spaced subset without reordering it."""
+    tasks = list(tasks)
+    count = max(0, min(int(count), len(tasks)))
+    if count == 0:
+        return []
+    if count == len(tasks):
+        return tasks
+    positions = np.linspace(0, len(tasks) - 1, num=count, dtype=np.int64)
+    return [tasks[int(position)] for position in positions]
+
+
+def matched_benchmark_task_halves(
+    headers,
+    lengths,
+    pending_counts,
+    pending_columns_for_row,
+    half_pairs,
+    *,
+    row_limit=32,
+):
+    """Select disjoint, row/cost-matched warm-up and timed task halves.
+
+    ``pending_counts`` describes the complete pending workload by left row.
+    ``pending_columns_for_row`` is called only for the globally representative
+    rows selected here, avoiding materialization of the full pair workload.
+    """
+    headers = list(headers)
+    lengths = [int(value) for value in lengths]
+    counts = np.asarray(pending_counts, dtype=np.int64)
+    if len(headers) != len(lengths) or len(headers) != len(counts):
+        raise ValueError("Benchmark headers, lengths, and row counts must match.")
+    if np.any(counts < 0):
+        raise ValueError("Benchmark pending row counts cannot be negative.")
+
+    total = int(counts.sum())
+    if total == 0:
+        return [], []
+    requested_half = max(1, int(half_pairs))
+    if total == 1:
+        row = int(np.flatnonzero(counts)[0])
+        columns = np.asarray(pending_columns_for_row(row), dtype=np.int64)
+        if len(columns) != 1:
+            raise ValueError("Pending column provider disagrees with row counts.")
+        column = int(columns[0])
+        return [], [(row, column, headers[row], headers[column])]
+
+    half = min(requested_half, total // 2)
+    selected_total = half * 2
+    populated = np.flatnonzero(counts)
+    row_slots = min(max(1, int(row_limit)), len(populated), selected_total)
+    cumulative = np.cumsum(counts)
+    ordinal_targets = (
+        (np.arange(row_slots, dtype=np.float64) + 0.5) * total / row_slots
+    ).astype(np.int64)
+    selected_rows = set(
+        int(row) for row in np.searchsorted(cumulative, ordinal_targets, side="right")
+    )
+
+    selected_capacity = sum(int(counts[row]) for row in selected_rows)
+    paired_capacity = sum(int(counts[row]) // 2 for row in selected_rows)
+    remaining = sorted(
+        (int(row) for row in populated if int(row) not in selected_rows),
+        key=lambda row: (-int(counts[row]), row),
+    )
+    for row in remaining:
+        if selected_capacity >= selected_total and paired_capacity >= half:
+            break
+        selected_rows.add(row)
+        selected_capacity += int(counts[row])
+        paired_capacity += int(counts[row]) // 2
+    if selected_capacity < selected_total:
+        raise ValueError("Pending row counts cannot supply the benchmark sample.")
+
+    ordered_rows = sorted(selected_rows)
+    selected_counts = np.asarray([counts[row] for row in ordered_rows], dtype=np.int64)
+    paired_counts = selected_counts // 2
+    paired_capacity = int(paired_counts.sum())
+    if paired_capacity >= half:
+        paired_cumulative = np.cumsum(paired_counts)
+        quota_targets = (
+            (np.arange(half, dtype=np.float64) + 0.5)
+            * paired_capacity
+            / half
+        ).astype(np.int64)
+        quota_indices = np.searchsorted(
+            paired_cumulative, quota_targets, side="right"
+        )
+        quotas = 2 * np.bincount(
+            quota_indices, minlength=len(ordered_rows)
+        )
+    else:
+        selected_cumulative = np.cumsum(selected_counts)
+        quota_targets = (
+            (np.arange(selected_total, dtype=np.float64) + 0.5)
+            * selected_capacity
+            / selected_total
+        ).astype(np.int64)
+        quota_indices = np.searchsorted(
+            selected_cumulative, quota_targets, side="right"
+        )
+        quotas = np.bincount(quota_indices, minlength=len(ordered_rows))
+
+    warmup = []
+    timed = []
+    for row_offset, (row, quota) in enumerate(zip(ordered_rows, quotas)):
+        quota = int(quota)
+        if quota == 0:
+            continue
+        columns = np.asarray(pending_columns_for_row(row), dtype=np.int64)
+        if len(columns) != int(counts[row]):
+            raise ValueError("Pending column provider disagrees with row counts.")
+        ordered_columns = sorted(
+            (int(column) for column in columns),
+            key=lambda column: (lengths[row] * lengths[column], column),
+        )
+        positions = np.linspace(
+            0, len(ordered_columns) - 1, num=quota, dtype=np.int64
+        )
+        chosen = [ordered_columns[int(position)] for position in positions]
+        start_with_warmup = row_offset % 2 == 0
+        for offset in range(0, len(chosen) - 1, 2):
+            left = (row, chosen[offset], headers[row], headers[chosen[offset]])
+            right = (
+                row,
+                chosen[offset + 1],
+                headers[row],
+                headers[chosen[offset + 1]],
+            )
+            if start_with_warmup:
+                warmup.append(left)
+                timed.append(right)
+            else:
+                timed.append(left)
+                warmup.append(right)
+        if len(chosen) % 2:
+            column = chosen[-1]
+            task = (row, column, headers[row], headers[column])
+            if len(warmup) <= len(timed):
+                warmup.append(task)
+            else:
+                timed.append(task)
+
+    if len(warmup) != half or len(timed) != half:
+        raise RuntimeError("Benchmark sampler failed to produce equal task halves.")
+    warmup.sort(key=lambda task: (int(task[0]), int(task[1])))
+    timed.sort(key=lambda task: (int(task[0]), int(task[1])))
+    return warmup, timed
 
 
 def system_memory_bytes():
@@ -749,6 +926,8 @@ def run_tiled_accelerator_pipeline(
     result_callback=None,
     result_chunk_size=65536,
     memory_plan_override=None,
+    warmup_task_count=0,
+    benchmark_timer=None,
 ):
     """Run the Aug 22 tiled producer and completion-driven CPU consumers."""
     backend = get_accelerator_backend(device)
@@ -757,8 +936,16 @@ def run_tiled_accelerator_pipeline(
         raise RuntimeError(
             f"Tiled execution is unavailable on '{device}': {reason}."
         )
+    tasks = list(tasks)
     if not tasks:
         return []
+    warmup_task_count = int(warmup_task_count)
+    if warmup_task_count < 0 or warmup_task_count >= len(tasks):
+        if benchmark_timer is not None:
+            raise ValueError(
+                "Benchmark warm-up count must leave at least one timed task."
+            )
+        warmup_task_count = 0
 
     plan = memory_plan_override or cuda_memory_plan(device, lanes=lanes)
     if int(plan.lanes) != max(1, int(lanes)):
@@ -816,63 +1003,81 @@ def run_tiled_accelerator_pipeline(
                 thread_name_prefix="alignment-cpu",
             ) as cpu_executor:
         group = hf["embeddings"]
-        for tile_tasks in _partition_tiles(tasks, block_ids):
-            tile_indices = {int(task[0]) for task in tile_tasks}
-            tile_indices.update(int(task[1]) for task in tile_tasks)
-            host_embeddings = store.load_indices(tile_indices, group)
-            preload_stream = streams[stream_cursor % len(streams)]
-            with backend.stream_context(preload_stream):
-                gpu_embeddings = {
-                    index: _to_normalized_cuda(array, device)
-                    for index, array in host_embeddings.items()
-                }
-                preload_event = backend.create_event()
-                preload_event.record(preload_stream)
-            preload_event.synchronize()
-            del host_embeddings
 
-            rows = OrderedDict()
-            for task in tile_tasks:
-                rows.setdefault(int(task[0]), []).append(task)
-            for idx_i, row_tasks in rows.items():
-                for microbatch in _length_microbatches(
-                    row_tasks,
-                    lengths,
-                    lengths[idx_i],
-                    matrix_budget,
-                    store.feature_dimension,
-                ):
-                    stream = streams[stream_cursor % len(streams)]
-                    stream_cursor += 1
-                    target_lengths = [int(lengths[int(task[1])]) for task in microbatch]
-                    targets = [gpu_embeddings[int(task[1])] for task in microbatch]
-                    with backend.stream_context(stream):
-                        matrices = _batched_score_matrices(
-                            gpu_embeddings[idx_i],
-                            targets,
-                            target_lengths,
-                        )
-                        host_tensor = _host_output_buffer(matrices)
-                        host_tensor.copy_(matrices, non_blocking=host_tensor.is_pinned())
-                        event = backend.create_event()
-                        event.record(stream)
-                    metadata = [
-                        (int(task[0]), int(task[1]), length)
-                        for task, length in zip(microbatch, target_lengths)
-                    ]
-                    inflight.append((event, host_tensor, metadata))
-                    while len(inflight) >= max_inflight:
-                        submit_oldest(block=True)
-                    submit_oldest(block=False)
-                    collect_cpu(block=False)
+        def run_phase(phase_tasks):
+            nonlocal stream_cursor
+            for tile_tasks in _partition_tiles(phase_tasks, block_ids):
+                tile_indices = {int(task[0]) for task in tile_tasks}
+                tile_indices.update(int(task[1]) for task in tile_tasks)
+                host_embeddings = store.load_indices(tile_indices, group)
+                preload_stream = streams[stream_cursor % len(streams)]
+                with backend.stream_context(preload_stream):
+                    gpu_embeddings = {
+                        index: _to_normalized_cuda(array, device)
+                        for index, array in host_embeddings.items()
+                    }
+                    preload_event = backend.create_event()
+                    preload_event.record(preload_stream)
+                preload_event.synchronize()
+                del host_embeddings
 
-            while inflight:
-                submit_oldest(block=True)
-            del gpu_embeddings
-            backend.empty_cache()
+                rows = OrderedDict()
+                for task in tile_tasks:
+                    rows.setdefault(int(task[0]), []).append(task)
+                for idx_i, row_tasks in rows.items():
+                    for microbatch in _length_microbatches(
+                        row_tasks,
+                        lengths,
+                        lengths[idx_i],
+                        matrix_budget,
+                        store.feature_dimension,
+                    ):
+                        stream = streams[stream_cursor % len(streams)]
+                        stream_cursor += 1
+                        target_lengths = [
+                            int(lengths[int(task[1])]) for task in microbatch
+                        ]
+                        targets = [
+                            gpu_embeddings[int(task[1])] for task in microbatch
+                        ]
+                        with backend.stream_context(stream):
+                            matrices = _batched_score_matrices(
+                                gpu_embeddings[idx_i],
+                                targets,
+                                target_lengths,
+                            )
+                            host_tensor = _host_output_buffer(matrices)
+                            host_tensor.copy_(
+                                matrices, non_blocking=host_tensor.is_pinned()
+                            )
+                            event = backend.create_event()
+                            event.record(stream)
+                        metadata = [
+                            (int(task[0]), int(task[1]), length)
+                            for task, length in zip(microbatch, target_lengths)
+                        ]
+                        inflight.append((event, host_tensor, metadata))
+                        while len(inflight) >= max_inflight:
+                            submit_oldest(block=True)
+                        submit_oldest(block=False)
+                        collect_cpu(block=False)
 
-        while cpu_pending:
-            collect_cpu(block=True)
+                while inflight:
+                    submit_oldest(block=True)
+                del gpu_embeddings
+                backend.empty_cache()
+
+            while cpu_pending:
+                collect_cpu(block=True)
+
+        if benchmark_timer is None:
+            run_phase(tasks)
+        else:
+            if warmup_task_count:
+                run_phase(tasks[:warmup_task_count])
+            benchmark_timer.start()
+            run_phase(tasks[warmup_task_count:])
+            benchmark_timer.stop()
 
     if result_callback is not None and results:
         result_callback(results)

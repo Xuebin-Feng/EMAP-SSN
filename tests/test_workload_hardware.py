@@ -291,10 +291,6 @@ class AlignmentHardwareTests(unittest.TestCase):
                     return_value=[cpu],
                 ), mock.patch.object(
                     Alignment,
-                    "_representative_alignment_tasks",
-                    side_effect=AssertionError("manual CPU sampling ran"),
-                ), mock.patch.object(
-                    Alignment,
                     "_select_accelerator_lanes",
                     side_effect=AssertionError("manual CPU tuning ran"),
                 ):
@@ -325,6 +321,12 @@ class AlignmentHardwareTests(unittest.TestCase):
         Alignment.accelerator_lane_cache.clear()
         device = types.SimpleNamespace(type="cuda")
         tasks = [(0, 1), (0, 2), (1, 2), (0, 3)]
+
+        def complete_benchmark(*_args, **kwargs):
+            timer = kwargs["benchmark_timer"]
+            timer.started_at = 0.0
+            timer.stopped_at = 1.0
+
         with mock.patch.object(
             Alignment,
             "_accelerator_lane_candidates",
@@ -336,11 +338,8 @@ class AlignmentHardwareTests(unittest.TestCase):
         ), mock.patch.object(
             Alignment,
             "_run_accelerated_pipeline",
-        ) as run_pipeline, mock.patch.object(
-            Alignment.time,
-            "perf_counter",
-            side_effect=[0.0, 1.0, 1.0, 2.0],
-        ):
+            side_effect=complete_benchmark,
+        ) as run_pipeline:
             selected = Alignment._select_accelerator_lanes(
                 tasks, 4, "input.h5", device, 0
             )
@@ -348,7 +347,11 @@ class AlignmentHardwareTests(unittest.TestCase):
         self.assertEqual(selected, 1)
         self.assertEqual(
             [call.kwargs["accelerator_workers"] for call in run_pipeline.call_args_list],
-            [1, 1, 2],
+            [1, 2],
+        )
+        self.assertEqual(
+            [call.kwargs["warmup_task_count"] for call in run_pipeline.call_args_list],
+            [2, 2],
         )
         self.assertFalse(hasattr(Alignment, "ACCELERATOR_LANES"))
 
