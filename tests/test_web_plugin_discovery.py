@@ -408,7 +408,7 @@ class ManagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             structures_dir = Path(temp_dir) / "not-created-during-registration"
             with mock.patch.object(
-                esmfold_backend.cfg, "STRUCTURES_DIR", str(structures_dir)
+                esmfold_backend, "STRUCTURES_DIRECTORY", str(structures_dir)
             ):
                 esmfold_backend.register_backend(
                     viewer.web_plugin_registry, viewer

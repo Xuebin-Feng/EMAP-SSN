@@ -181,7 +181,7 @@ def run(viewer, args):
         return
 
     # 8. Set up Directory & Web Registration
-    structures_dir = getattr(cfg, 'STRUCTURES_DIR', os.path.join("Cache_Files", "Structures"))
+    structures_dir = esmfold_backend.get_structures_directory()
     os.makedirs(structures_dir, exist_ok=True)
     
     # Register web button and route mapping

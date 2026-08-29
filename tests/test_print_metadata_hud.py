@@ -19,8 +19,9 @@ if SRC_DIR not in sys.path:
 def load_print_command():
     command_engine = types.ModuleType("Command_Engine")
     config = types.ModuleType("SSN_Config")
-    config.PRINT_SAVE_DIR = os.path.join("Analysis_Results", "Saved_Images")
+    config.ANALYSIS_RESULT_DIR = "Analysis_Results"
     config.SEQUENCE_SET = "test_sequences"
+    config.resolve_directory_path = lambda value: value
 
     utilities = types.ModuleType("utilities")
     utilities.__path__ = []
@@ -74,7 +75,7 @@ class PrintMetadataHUDTests(unittest.TestCase):
             return np.zeros((2, 2, 4), dtype=np.float32)
 
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            print_command.cfg, "PRINT_SAVE_DIR", temp_dir
+            print_command, "PRINT_DIRECTORY", temp_dir
         ), mock.patch.object(
             print_command, "_capture_tile", side_effect=capture_while_hud_is_hidden
         ), mock.patch.object(

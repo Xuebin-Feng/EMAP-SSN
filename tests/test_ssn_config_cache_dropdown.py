@@ -46,30 +46,74 @@ class CacheDropdownRefreshTests(unittest.TestCase):
 
     def test_default_directory_layout_uses_input_and_analysis_roots(self):
         defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]
+        self.assertEqual(defaults["INPUT_FILE_DIR"], "Input_Files")
+        self.assertEqual(defaults["CACHE_FILE_DIR"], "Cache_Files")
+        self.assertEqual(defaults["ANALYSIS_RESULT_DIR"], "Analysis_Results")
         self.assertEqual(
             defaults["HEADER_LIST_DIR"],
-            os.path.join("Input_Files", "Header_Lists"),
+            os.path.join("$input_file$", "Header_Lists"),
         )
         self.assertEqual(
             defaults["METADATA_DIR"],
-            os.path.join("Input_Files", "Meta_Data"),
+            os.path.join("$input_file$", "Meta_Data"),
         )
         self.assertEqual(
-            defaults["SEQUENCE_EXPORT_DIR"],
-            os.path.join("Analysis_Results", "Sequence_Export"),
-        )
-        self.assertEqual(
-            defaults["PRINT_SAVE_DIR"],
-            os.path.join("Analysis_Results", "Saved_Images"),
-        )
-        self.assertEqual(
-            defaults["STRUCTURES_DIR"],
-            os.path.join("Cache_Files", "Predicted_Structures"),
+            defaults["SAVED_LAYOUT_DIR"],
+            os.path.join("$cache_file$", "Saved_Layouts"),
         )
         self.assertEqual(
             defaults["SETTING_EXPORT_DIR"],
-            os.path.join("Cache_Files", "Exported_Settings"),
+            os.path.join("$cache_file$", "Exported_Settings"),
         )
+        self.assertTrue(
+            self.namespace["DEPRECATED_DIRECTORY_KEYS"].isdisjoint(defaults)
+        )
+
+    def test_directory_alias_resolver_is_exact_leading_and_cross_separator(self):
+        resolve = self.namespace["resolve_directory_path"]
+        bases = {
+            "INPUT_FILE_DIR": os.path.join("custom", "inputs"),
+            "CACHE_FILE_DIR": os.path.abspath(os.path.join("custom", "cache")),
+            "ANALYSIS_RESULT_DIR": os.path.join("custom", "results"),
+        }
+        self.assertEqual(
+            resolve(r"$input_file$\Sequence_Sets", bases),
+            os.path.normpath(os.path.join("custom", "inputs", "Sequence_Sets")),
+        )
+        self.assertEqual(
+            resolve("$analysis_result$/Sequence_Logos", bases),
+            os.path.normpath(os.path.join("custom", "results", "Sequence_Logos")),
+        )
+        self.assertEqual(
+            resolve("$cache_file$", bases),
+            bases["CACHE_FILE_DIR"],
+        )
+        for unchanged in (
+            "$unknown$/folder",
+            "prefix/$input_file$/folder",
+            "$input_file$suffix/folder",
+            os.path.abspath(os.path.join("literal", "folder")),
+        ):
+            with self.subTest(unchanged=unchanged):
+                self.assertEqual(resolve(unchanged, bases), unchanged)
+
+    def test_legacy_child_defaults_are_linked_to_base_tokens(self):
+        migrate = self.namespace["_migrate_default_directory_path"]
+        defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]
+        legacy_defaults = self.namespace["LEGACY_DEFAULT_DIRECTORY_PATHS"]
+
+        for key, legacy_value in legacy_defaults.items():
+            for stored_value in (
+                legacy_value.replace("\\", "/"),
+                legacy_value.replace("/", "\\"),
+            ):
+                with self.subTest(key=key, stored_value=stored_value):
+                    self.assertEqual(migrate(key, stored_value), defaults[key])
+
+        custom_relative = os.path.join("My_Inputs", "Sequence_Sets")
+        custom_absolute = os.path.abspath(os.path.join("My_Inputs", "Sequence_Sets"))
+        self.assertEqual(migrate("FASTA_DIR", custom_relative), custom_relative)
+        self.assertEqual(migrate("FASTA_DIR", custom_absolute), custom_absolute)
 
     def test_shared_viewer_settings_file_is_at_project_root(self):
         self.assertEqual(
@@ -79,15 +123,19 @@ class CacheDropdownRefreshTests(unittest.TestCase):
 
     def test_requested_directory_labels_use_concise_names(self):
         expected_labels = {
+            "INPUT_FILE_DIR": "Input File Directory:",
+            "CACHE_FILE_DIR": "Cache File Directory:",
+            "ANALYSIS_RESULT_DIR": "Analysis Results Directory:",
             "FASTA_DIR": "Input FASTA Directory:",
             "SAVED_LAYOUT_DIR": "Layout Directory:",
             "SETTING_EXPORT_DIR": "Setting Export Directory:",
-            "SEQUENCE_EXPORT_DIR": "Sequence Export Directory:",
-            "PRINT_SAVE_DIR": "Print Directory:",
         }
         for key, expected in expected_labels.items():
             with self.subTest(key=key):
                 self.assertEqual(self.window.labels[key].text(), expected)
+        for key in self.namespace["DEPRECATED_DIRECTORY_KEYS"]:
+            self.assertNotIn(key, self.window.inputs)
+            self.assertNotIn(key, self.window.labels)
 
     def test_slider_spinboxes_match_tools_minimum_height(self):
         slider_keys = (
@@ -551,6 +599,30 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             finally:
                 self.window.inputs["SAVED_CONFIG_DIR"].setText(original_root)
 
+    def test_saved_config_token_follows_cache_base(self):
+        original_root = self.window.inputs["SAVED_CONFIG_DIR"].text()
+        original_cache_base = self.window.inputs["CACHE_FILE_DIR"].text()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                self.window.inputs["SAVED_CONFIG_DIR"].setText(
+                    os.path.join("$cache_file$", "Saved_Config")
+                )
+                self.window.inputs["CACHE_FILE_DIR"].setText(temp_dir)
+                with mock.patch.object(
+                    self.namespace["QDesktopServices"], "openUrl", return_value=True
+                ) as open_url:
+                    self.window.profile_folder_buttons["directories"].click()
+
+                expected = pathlib.Path(temp_dir, "Saved_Config", "directories").resolve()
+                self.assertTrue(expected.is_dir())
+                self.assertEqual(
+                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    expected,
+                )
+            finally:
+                self.window.inputs["CACHE_FILE_DIR"].setText(original_cache_base)
+                self.window.inputs["SAVED_CONFIG_DIR"].setText(original_root)
+
     def test_directory_open_buttons_precede_browse_and_open_selected_folder(self):
         expected_keys = {
             "SAVED_CONFIG_DIR",
@@ -588,6 +660,119 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             finally:
                 line_edit.setText(original_path)
 
+    def test_directory_rows_start_with_bases_and_aliases_rebase_live(self):
+        ordered_keys = (
+            "INPUT_FILE_DIR",
+            "CACHE_FILE_DIR",
+            "ANALYSIS_RESULT_DIR",
+            "FASTA_DIR",
+            "MSA_DIR",
+            "HDF5_DIR",
+            "METADATA_DIR",
+            "HEADER_LIST_DIR",
+            "SAVED_LAYOUT_DIR",
+            "SETTING_EXPORT_DIR",
+        )
+        form_layout = self.window.labels[ordered_keys[0]].parentWidget().layout()
+        rows = [form_layout.getWidgetPosition(self.window.labels[key])[0] for key in ordered_keys]
+        self.assertEqual(rows, sorted(rows))
+
+        original_base = self.window.inputs["INPUT_FILE_DIR"].text()
+        original_fasta = self.window.inputs["FASTA_DIR"].text()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sequence_dir = pathlib.Path(temp_dir, "Sequence_Sets")
+            sequence_dir.mkdir()
+            (sequence_dir / "rebased.fasta").write_text(
+                ">rebased\nAAAA\n", encoding="utf-8"
+            )
+            try:
+                self.window.inputs["FASTA_DIR"].setText(
+                    os.path.join("$input_file$", "Sequence_Sets")
+                )
+                self.window.inputs["INPUT_FILE_DIR"].setText(temp_dir)
+                self.app.processEvents()
+
+                self.assertGreaterEqual(
+                    self.window.cb_fasta.findText("rebased.fasta"), 0
+                )
+                with mock.patch.object(
+                    self.namespace["QDesktopServices"], "openUrl", return_value=True
+                ) as open_url:
+                    self.window.directory_open_buttons["FASTA_DIR"].click()
+                self.assertEqual(
+                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    sequence_dir.resolve(),
+                )
+            finally:
+                self.window.inputs["INPUT_FILE_DIR"].setText(original_base)
+                self.window.inputs["FASTA_DIR"].setText(original_fasta)
+                self.app.processEvents()
+
+    def test_directory_base_separator_matches_shared_geometry(self):
+        from PySide6.QtCore import QPoint
+
+        original_index = self.window.tabs.currentIndex()
+        directory_index = next(
+            index
+            for index in range(self.window.tabs.count())
+            if self.window.tabs.tabText(index) == "Directories"
+        )
+        try:
+            self.window.tabs.setCurrentIndex(directory_index)
+            self.app.processEvents()
+            tab = self.window.tabs.widget(directory_index)
+            separator = self.window.directory_base_separator
+            base_field = self.window.inputs["ANALYSIS_RESULT_DIR"].parentWidget()
+            first_child = self.window.labels["FASTA_DIR"]
+            separator_position = separator.mapTo(tab, QPoint(0, 0))
+            base_position = base_field.mapTo(tab, QPoint(0, 0))
+            child_position = first_child.mapTo(tab, QPoint(0, 0))
+            expected_spacing = self.namespace["CONFIG_SEPARATOR_PADDING"]
+
+            self.assertEqual(separator.height(), self.namespace["CONFIG_SEPARATOR_THICKNESS"])
+            self.assertEqual(
+                separator.width(),
+                tab.width() - (2 * self.namespace["CONFIG_TAB_CONTENT_MARGIN"]),
+            )
+            self.assertEqual(
+                separator_position.y() - base_position.y() - base_field.height(),
+                expected_spacing,
+            )
+            self.assertEqual(
+                child_position.y() - separator_position.y() - separator.height(),
+                expected_spacing,
+            )
+        finally:
+            self.window.tabs.setCurrentIndex(original_index)
+            self.app.processEvents()
+
+    def test_deprecated_directory_profile_keys_are_ignored_and_pruned(self):
+        defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]
+        raw = dict(defaults)
+        raw.update({key: "legacy/path" for key in self.namespace["DEPRECATED_DIRECTORY_KEYS"]})
+        raw["FASTA_DIR"] = r"Input_Files\Sequence_Sets"
+        raw["SAVED_LAYOUT_DIR"] = "Cache_Files/Saved_Layouts"
+        normalized = self.window._normalize_profile_data("directories", raw)
+        self.assertEqual(normalized, defaults)
+
+        raw["UNRELATED_UNKNOWN_KEY"] = "invalid"
+        with self.assertRaisesRegex(ValueError, "UNRELATED_UNKNOWN_KEY"):
+            self.window._normalize_profile_data("directories", raw)
+
+        method_globals = self.window._read_custom_settings.__func__.__globals__
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = pathlib.Path(temp_dir, "viewer_settings.json")
+            settings_path.write_text(json.dumps(raw), encoding="utf-8")
+            with mock.patch.dict(
+                method_globals, {"DEFAULT_SETTINGS_FILE": str(settings_path)}
+            ):
+                loaded = self.window._read_custom_settings()
+        for key in self.namespace["DEPRECATED_DIRECTORY_KEYS"]:
+            self.assertNotIn(key, loaded)
+        self.assertEqual(loaded["FASTA_DIR"], defaults["FASTA_DIR"])
+        self.assertEqual(loaded["SAVED_LAYOUT_DIR"], defaults["SAVED_LAYOUT_DIR"])
+        self.assertIn("UNRELATED_UNKNOWN_KEY", loaded)
+
     def test_all_tabs_share_padding_and_separator_spacing(self):
         from PySide6.QtCore import QPoint
 
@@ -596,7 +781,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             ("inputs_outputs", None, "NODE_FASTA_FILE"),
             ("visual_effects", None, "NODE_SIZE"),
             ("simulation_physics", None, "PHYSICS_ENGINE"),
-            ("directories", "SAVED_CONFIG_DIR", "FASTA_DIR"),
+            ("directories", "SAVED_CONFIG_DIR", "INPUT_FILE_DIR"),
         )
         expected_margin = self.namespace["CONFIG_TAB_CONTENT_MARGIN"]
         expected_spacing = self.namespace["CONFIG_SEPARATOR_PADDING"]
@@ -612,15 +797,28 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.assertEqual(expected_thickness, 2)
         self.assertEqual(
             self.namespace["DEFAULT_SAVED_CONFIG_DIR"],
-            os.path.join("Cache_Files", "Saved_Config"),
+            os.path.join("$cache_file$", "Saved_Config"),
         )
         self.assertEqual(
             self.namespace["_migrate_saved_config_dir"]("Saved_Config"),
-            os.path.join("Cache_Files", "Saved_Config"),
+            os.path.join("$cache_file$", "Saved_Config"),
+        )
+        self.assertEqual(
+            self.namespace["_migrate_saved_config_dir"](
+                r"Cache_Files\Saved_Config"
+            ),
+            os.path.join("$cache_file$", "Saved_Config"),
         )
         self.assertEqual(
             self.namespace["_migrate_saved_config_dir"]("D:/SSN/Profiles"),
             "D:/SSN/Profiles",
+        )
+        self.assertEqual(
+            self.namespace["_resolved_saved_config_root"](
+                os.path.join("$cache_file$", "Saved_Config"),
+                {"CACHE_FILE_DIR": os.path.join("custom", "cache")},
+            ),
+            (ROOT / "custom" / "cache" / "Saved_Config").resolve(),
         )
 
         try:

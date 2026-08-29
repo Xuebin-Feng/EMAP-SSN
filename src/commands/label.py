@@ -44,6 +44,8 @@ except ImportError:
     import cluster as cluster_cmd
     import logo as logo_cmd
 
+CLUSTER_LABEL_DIRECTORY = os.path.join("$analysis_result$", "Cluster_Label")
+
 
 GLOBAL_CONSERVATION_THRESHOLD = 0.97
 
@@ -128,7 +130,8 @@ def print_help():
     =======================================
     Generates a comprehensive XLSX report comparing the sequence properties and 
     conserved residues of each subset against the global dataset. Output is saved 
-    to the 'Analysis_Results/Cluster_Label/' directory.
+    beneath the configured Analysis Results directory
+    (default: 'Analysis_Results/Cluster_Label/').
 
     * PREREQUISITES: 
       1. A Multiple Sequence Alignment (MSA) must be loaded.
@@ -1554,11 +1557,7 @@ def run(viewer, args):
         return
 
     output_directory = os.path.abspath(
-        getattr(
-            cfg,
-            "CLUSTER_LABEL_DIR",
-            os.path.join("Analysis_Results", "Cluster_Label"),
-        )
+        cfg.resolve_directory_path(CLUSTER_LABEL_DIRECTORY)
     )
     requested_filename = parameters["requested_filename"]
     allow_overwrite = requested_filename is not None

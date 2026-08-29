@@ -20,6 +20,10 @@ import Cache_Manifest as cache_manifest
 from utilities.Application_Windows import open_in_file_manager
 from utilities.FASTA_Sanitization import write_fasta_atomic
 
+SEQUENCE_EXPORT_DIRECTORY = os.path.join(
+    "$analysis_result$", "Sequence_Export"
+)
+
 
 def _get_in_memory_sequence_records(viewer):
     """Return canonical header/sequence pairs already loaded by the viewer."""
@@ -49,7 +53,7 @@ def print_help():
     Description:
       Extracts sanitized sequence subsets from the currently active viewer state and
       saves them as standalone .fasta files. Files are automatically routed to strictly
-      organized subdirectories within that specified in the GUI.
+      organized subdirectories beneath the configured Analysis Results directory.
       
     [TARGET] Arguments (Default: clusters):
       clusters : Exports sequences based on their assigned topology cluster ID. 
@@ -147,11 +151,7 @@ def run(viewer, args):
     else:
         lvl2_name = lvl2_name_base
 
-    sequence_export_dir = getattr(
-        cfg,
-        "SEQUENCE_EXPORT_DIR",
-        os.path.join("Analysis_Results", "Sequence_Export"),
-    )
+    sequence_export_dir = cfg.resolve_directory_path(SEQUENCE_EXPORT_DIRECTORY)
     out_dir = os.path.join(sequence_export_dir, lvl1_name)
     
     if target_mode in ["groups", "specific"]:

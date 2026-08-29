@@ -106,10 +106,10 @@ Available CLI commands:
 19. `export [clusters | groups | group:<GROUP_NAME> ...]`
     - Exports source sequences as separate FASTA files using the current cluster or custom-group memberships.
     - With no target, or with `clusters`, exports every non-noise topology cluster and requires prior clustering. `group`/`groups` exports every defined custom group. One or more `group:<GROUP_NAME>` targets export only those named groups.
-    - Files are written to the viewer's organized `Analysis_Results/Sequence_Export/` hierarchy. This command chooses artifact names from cluster/group labels and does not accept a custom output filename.
+    - Files are written beneath the configured Analysis Results directory, using `Analysis_Results/Sequence_Export/` by default. This command chooses artifact names from cluster/group labels and does not accept a custom output filename.
 
 20. `label [cluster|clusters|group|groups] [gmax VALUE] [cmin VALUE] [IDENTITY] [FILENAME]`
-    - Performs legacy differential sequence analysis and writes an XLSX workbook under `Analysis_Results/Cluster_Label/`. It requires a loaded MSA and a valid active reference.
+    - Performs legacy differential sequence analysis and writes an XLSX workbook beneath the configured Analysis Results directory, using `Analysis_Results/Cluster_Label/` by default. It requires a loaded MSA and a valid active reference.
     - With no target keyword, analyzes all available topology clusters and custom groups. `cluster`/`clusters` restricts the report to topology clusters; `group`/`groups` restricts it to custom groups.
     - `gmax` is the maximum residue frequency allowed outside the deduplicated union of all analyzed subsets where the same amino acid meets `cmin` at the same position; it defaults to `40%`. `cmin` is the minimum gap-diluted within-subset amino-acid frequency and defaults to `98%`. Every amino acid at or above `cmin` is evaluated, qualifying clusters and groups share the union exclusion pool, and an empty outside background is not reported. Values accept decimal fractions or percentages. Global conservation is reported above a fixed `97%` threshold.
     - Optional identity-neighbor reweighting is off by default. Enable it with `id 0.9`, `id 90`, or `id 90%`; alternatively, a third positional number after gmax and cmin is identity. The first two positional numbers retain their gmax-then-cmin meanings, and positional thresholds must not follow keyword use.
@@ -118,21 +118,21 @@ Available CLI commands:
     - Calculation and workbook generation are queued in the viewer's shared sequential background scheduler. The command snapshots its alignment, mappings, cluster/group memberships, reference/offset, parameters, and output metadata when submitted; later viewer changes do not alter the queued report.
 
 21. `logo [EXPRESSION] <POSITIONS> [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]`
-    - Generates a sequence-logo SVG or PNG under `Analysis_Results/Sequence_Logos/`. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels. Explicit fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap. Every negative position or range endpoint must be enclosed individually in parentheses, such as `[(-1),0,1]` or `[(-3)-(-1)]`; never emit bare negative positions. Integer ranges remain integer-only, so insertion labels must be listed explicitly.
+    - Generates a sequence-logo SVG or PNG beneath the configured Analysis Results directory, using `Analysis_Results/Sequence_Logos/` by default. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels. Explicit fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap. Every negative position or range endpoint must be enclosed individually in parentheses, such as `[(-1),0,1]` or `[(-3)-(-1)]`; never emit bare negative positions. Integer ranges remain integer-only, so insertion labels must be listed explicitly.
     - If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. Arguments may appear in nearly any order, but the last otherwise-unrecognized token is treated as FILENAME.
     - MODE is `bits` by default or `pcts`/`percentages`. GAP_MODE is `with_gap` by default, which scales total height by occupancy, or `no_gap`.
     - COLOR_SCHEME may be a supported standalone preset or `color=SCHEME`/`scheme=SCHEME`; the default is `chemistry`. IDENTITY optionally enables sequence-redundancy weighting and accepts a fraction, percentage points, or a percent token; weighting is off when omitted.
     - Generation uses the same sequential background scheduler as `label`. Selection, aligned sequences, mapped positions, reference, and rendering options are snapshotted when submitted; later viewer changes do not alter the queued logo.
 
 22. `print [FILENAME] [MODIFIERS]`
-    - Exports an image under `Analysis_Results/Saved_Images/`. With no filename it creates a timestamped PNG of the current view; a supplied name receives the appropriate extension when absent.
+    - Exports an image beneath the configured Analysis Results directory, using `Analysis_Results/Saved_Images/` by default. With no filename it creates a timestamped PNG of the current view; a supplied name receives the appropriate extension when absent.
     - `transparent` creates a PNG without the background. `full` pans and stitches tiles to capture the entire network at high resolution and may be combined with `transparent`.
     - `svg` reconstructs the visible network as a layered vector graphic. SVG mode cannot be combined with PNG modifiers.
 
 23. `esmfold [large] [multi]`
     - With no keyword and no selected node, registers the Fold View sidebar button and opens the browser Mol* structure viewer. With selected nodes, the default mode runs local ESM3 1.4B structure prediction.
     - `large` routes structure prediction through the Biohub API using the ESM3 model configured in `src/resources/Biohub_API.json`; a selected or actively clicked node is required. `multi` processes all selected nodes sequentially and may appear before or after `large`.
-    - Sequences are resolved from the configured source FASTA and structures are stored in `Cache_Files/Structures/`. Local files use `<node>.pdb`; remote files include the configured model identifier. Local hardware is selected automatically, while `large` does not use local compute hardware.
+    - Sequences are resolved from the configured source FASTA and structures are stored beneath the configured Cache File directory, using `Cache_Files/Predicted_Structures/` by default. Local files use `<node>.pdb`; remote files include the configured model identifier. Local hardware is selected automatically, while `large` does not use local compute hardware.
 
 24. `agent [<MODEL_CUSTOM_NAME> | off | deactivate | MESSAGE]`
     - With no argument, opens the Agent Web UI. A configured model-card custom name enclosed literally in angle brackets activates that exact model card.

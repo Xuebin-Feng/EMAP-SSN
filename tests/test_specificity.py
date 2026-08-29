@@ -237,7 +237,7 @@ class SpecificityWorkbookTests(unittest.TestCase):
         metadata = SimpleNamespace(model_name="test-model", network_type="cosine")
 
         with tempfile.TemporaryDirectory() as directory:
-            with mock.patch.object(specificity.cfg, "CLUSTER_LABEL_DIR", directory), \
+            with mock.patch.object(specificity, "CLUSTER_LABEL_DIRECTORY", directory), \
                     mock.patch.object(specificity.cfg, "NODE_FASTA_FILE", "nodes.fasta"), \
                     mock.patch.object(specificity.cfg, "INPUT_HDF5", "network.h5"), \
                     mock.patch.object(specificity.cfg, "MSA_FILE", "alignment.fasta"), \

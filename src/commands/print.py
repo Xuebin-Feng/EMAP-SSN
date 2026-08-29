@@ -24,6 +24,8 @@ from vispy import app
 import SSN_Config as cfg
 from utilities.Application_Windows import open_in_file_manager
 
+PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
+
 def print_help():
     print("""
     SSN Image Export & Printing Tool
@@ -33,7 +35,8 @@ def print_help():
 
     Description:
       Exports a high-resolution snapshot of the current 3D viewer state. 
-      Images are automatically saved to your 'Analysis_Results/Saved_Images/' directory.
+      Images are saved beneath the configured Analysis Results directory
+      (default: 'Analysis_Results/Saved_Images/').
 
     Modifiers (Can be combined, except for SVG):
       transparent : Removes the white background (PNG only).
@@ -263,11 +266,7 @@ def _capture_tile(viewer, is_transparent):
 def run(viewer, args):
 
     # 1. Setup paths
-    save_dir = getattr(
-        cfg,
-        'PRINT_SAVE_DIR',
-        os.path.join("Analysis_Results", "Saved_Images"),
-    )
+    save_dir = cfg.resolve_directory_path(PRINT_DIRECTORY)
     os.makedirs(save_dir, exist_ok=True)
     
     # Check for help

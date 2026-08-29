@@ -25,6 +25,8 @@ from utilities.Position_Parsing import (
     reject_bare_negative_positions,
 )
 
+LOGO_DIRECTORY = os.path.join("$analysis_result$", "Sequence_Logos")
+
 try:
     from numba import get_num_threads, njit, prange, set_num_threads
 
@@ -672,7 +674,8 @@ def print_help():
 
     Description:
       Generates a high-resolution SVG or PNG sequence logo for a targeted subset of nodes.
-      Output is automatically saved to your 'Analysis_Results/Sequence_Logos/' directory.
+      Output is saved beneath the configured Analysis Results directory
+      (default: 'Analysis_Results/Sequence_Logos/').
       Label and logo jobs share one sequential background queue. Selection,
       aligned sequences, mapped positions, and rendering options are captured
       when the command is submitted.
@@ -941,11 +944,7 @@ def run(viewer, args):
         return
 
     # 9. Freeze the selected data and submit one background artifact job.
-    logo_dir = getattr(
-        cfg,
-        'LOGO_DIR',
-        os.path.join("Analysis_Results", "Sequence_Logos"),
-    )
+    logo_dir = cfg.resolve_directory_path(LOGO_DIRECTORY)
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
         Command_Engine.print_help(

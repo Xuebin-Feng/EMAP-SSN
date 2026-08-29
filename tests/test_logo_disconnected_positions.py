@@ -528,7 +528,7 @@ class LogoSnapshotTests(unittest.TestCase):
                 background_job_scheduler=scheduler,
             )
 
-            with mock.patch.object(logo_command.cfg, "LOGO_DIR", directory), \
+            with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory), \
                     mock.patch.object(
                         logo_command.cfg,
                         "HEADER_LIST_DIR",
@@ -572,7 +572,7 @@ class LogoSnapshotTests(unittest.TestCase):
                 background_job_scheduler=scheduler,
             )
 
-            with mock.patch.object(logo_command.cfg, "LOGO_DIR", directory), \
+            with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory), \
                     mock.patch.object(
                         logo_command.cfg,
                         "HEADER_LIST_DIR",
@@ -614,7 +614,7 @@ class LogoSnapshotTests(unittest.TestCase):
                 background_job_scheduler=scheduler,
             )
 
-            with mock.patch.object(logo_command.cfg, "LOGO_DIR", directory), \
+            with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory), \
                     mock.patch.object(
                         logo_command.cfg,
                         "HEADER_LIST_DIR",

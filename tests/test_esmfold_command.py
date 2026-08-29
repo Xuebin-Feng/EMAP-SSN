@@ -101,8 +101,8 @@ class ESMFoldCommandTests(unittest.TestCase):
                     return_value=FakeDevice("cuda"),
                 ) as get_device,
                 mock.patch.object(
-                    esmfold_command.cfg,
-                    "STRUCTURES_DIR",
+                    esmfold_command.esmfold_backend,
+                    "STRUCTURES_DIRECTORY",
                     structures_dir,
                     create=True,
                 ),
@@ -148,8 +148,8 @@ class ESMFoldCommandTests(unittest.TestCase):
                     "get_optimal_device",
                 ) as get_device,
                 mock.patch.object(
-                    esmfold_command.cfg,
-                    "STRUCTURES_DIR",
+                    esmfold_command.esmfold_backend,
+                    "STRUCTURES_DIRECTORY",
                     structures_dir,
                     create=True,
                 ),
@@ -192,8 +192,8 @@ class ESMFoldCommandTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as structures_dir:
                     with (
                         mock.patch.object(
-                            esmfold_command.cfg,
-                            "STRUCTURES_DIR",
+                            esmfold_command.esmfold_backend,
+                            "STRUCTURES_DIRECTORY",
                             structures_dir,
                             create=True,
                         ),
@@ -257,8 +257,8 @@ class ESMFoldCommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as structures_dir:
             with (
                 mock.patch.object(
-                    esmfold_command.cfg,
-                    "STRUCTURES_DIR",
+                    esmfold_command.esmfold_backend,
+                    "STRUCTURES_DIRECTORY",
                     structures_dir,
                     create=True,
                 ),
@@ -289,8 +289,8 @@ class ESMFoldCommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as structures_dir:
             with (
                 mock.patch.object(
-                    esmfold_command.cfg,
-                    "STRUCTURES_DIR",
+                    esmfold_command.esmfold_backend,
+                    "STRUCTURES_DIRECTORY",
                     structures_dir,
                     create=True,
                 ),
