@@ -9,6 +9,8 @@ Cache_Files/
 msa_benchmark/
 
 # User-specified files
+viewer_settings.json
+tools_settings.json
 src/resources/Biohub_API.json
 src/resources/agent/model_card.json
 src/resources/pLM_models/ankh_license.json

@@ -71,6 +71,12 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             os.path.join("Cache_Files", "Exported_Settings"),
         )
 
+    def test_shared_viewer_settings_file_is_at_project_root(self):
+        self.assertEqual(
+            pathlib.Path(self.namespace["DEFAULT_SETTINGS_FILE"]),
+            ROOT / "viewer_settings.json",
+        )
+
     def test_requested_directory_labels_use_concise_names(self):
         expected_labels = {
             "FASTA_DIR": "Input FASTA Directory:",

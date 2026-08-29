@@ -46,7 +46,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
 EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
 FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
-SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "tools_settings.json")
 
 if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:
