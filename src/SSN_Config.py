@@ -946,7 +946,7 @@ if __name__ == "__main__":
             self.cb_hdf5.currentTextChanged.connect(self.update_live_validators)
             self.cb_score_mode.currentTextChanged.connect(self.update_live_validators)
             self.cb_norm_mode.currentTextChanged.connect(self.update_live_validators)
-            self.line_ref.textChanged.connect(self.update_live_validators)
+            self.line_ref.textChanged.connect(self._update_reference_controls)
             self.spin_thresh.valueChanged.connect(self.update_live_validators)
             self.spin_top.valueChanged.connect(self.update_live_validators)
             self.cb_msa.currentTextChanged.connect(self.update_live_validators)
@@ -1596,10 +1596,12 @@ if __name__ == "__main__":
             self.btn_export_layout.setEnabled(
                 is_new_layout and self._cache_launch_allowed
             )
-            if is_new_layout:
-                self.line_new_cache.setFocus()
-            else:
+            if not is_new_layout:
                 self.line_new_cache.clear()
+
+        def _cache_file_activated(self, text):
+            if text == "(New Layout Cache)":
+                self.line_new_cache.setFocus()
 
         def _directory_base_values(self):
             return {
@@ -2346,6 +2348,7 @@ if __name__ == "__main__":
             
             # Hook up the toggle switch
             self.cb_cache_file.currentTextChanged.connect(self._toggle_new_cache_input)
+            self.cb_cache_file.textActivated.connect(self._cache_file_activated)
 
             self.tabs.addTab(tab, "Inputs && Outputs")
             
@@ -2367,14 +2370,18 @@ if __name__ == "__main__":
             self.cb_norm_mode.setCurrentText(current_norm)
             self.cb_norm_mode.blockSignals(False)
 
-        def update_live_validators(self):
-            has_fasta = bool(self.cb_fasta.currentText().strip())
-            has_hdf5 = bool(self.cb_hdf5.currentText().strip())
-            has_reference = bool(self.line_ref.text().strip())
+        def _update_reference_controls(self, text=None):
+            reference_text = self.line_ref.text() if text is None else text
+            has_reference = bool(reference_text.strip())
             if hasattr(self, 'spin_alignment_offset'):
                 self.spin_alignment_offset.setEnabled(has_reference)
             if hasattr(self, 'lbl_alignment_offset'):
                 self.lbl_alignment_offset.setEnabled(has_reference)
+
+        def update_live_validators(self):
+            has_fasta = bool(self.cb_fasta.currentText().strip())
+            has_hdf5 = bool(self.cb_hdf5.currentText().strip())
+            self._update_reference_controls()
             self.btn_stats.setEnabled(has_fasta and has_hdf5)
             if hasattr(self, 'btn_hist'):
                 self.btn_hist.setEnabled(has_fasta and has_hdf5)

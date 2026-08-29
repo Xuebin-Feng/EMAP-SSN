@@ -952,6 +952,91 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.window.tabs.setCurrentIndex(original_index)
             self.app.processEvents()
 
+    def test_new_cache_focus_is_user_initiated_and_reference_typing_stays_put(self):
+        from PySide6.QtTest import QTest
+
+        combo = self.window.cb_cache_file
+        original_tab = self.window.tabs.currentIndex()
+        original_focus = self.app.focusWidget()
+        original_items = [
+            (combo.itemText(index), combo.itemData(index))
+            for index in range(combo.count())
+        ]
+        original_combo_index = combo.currentIndex()
+        original_combo_enabled = combo.isEnabled()
+        original_cache_folder = self.window.current_cache_folder
+        original_cache_launch_allowed = self.window._cache_launch_allowed
+        original_reference = self.window.line_ref.text()
+        original_cache_name = self.window.line_new_cache.text()
+
+        try:
+            self.window.tabs.setCurrentIndex(0)
+            self.window.show()
+            self.window.activateWindow()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("(New Layout Cache)", None)
+            combo.setCurrentIndex(0)
+            combo.setEnabled(True)
+            combo.blockSignals(False)
+            self.window._cache_launch_allowed = True
+            self.window._toggle_new_cache_input(combo.currentText())
+            self.window.line_new_cache.setText("cache-name")
+
+            with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                self.window, "_request_cache_discovery"
+            ) as request_cache_discovery:
+                self.window.current_cache_folder = temp_dir
+                self.window.line_ref.clear()
+                self.window.line_ref.setFocus()
+                self.app.processEvents()
+
+                # A programmatic cache refresh may update the conditional field,
+                # but it must not redirect keyboard focus to that field.
+                self.window._refresh_cache_file_combo()
+                self.app.processEvents()
+                self.assertIs(self.app.focusWidget(), self.window.line_ref)
+
+                for character in "ref42":
+                    QTest.keyClicks(self.app.focusWidget(), character)
+                    self.app.processEvents()
+                    self.assertIs(self.app.focusWidget(), self.window.line_ref)
+
+                self.assertEqual(self.window.line_ref.text(), "ref42")
+                self.assertEqual(self.window.line_new_cache.text(), "cache-name")
+                self.assertEqual(combo.currentText(), "(New Layout Cache)")
+                self.assertTrue(self.window.spin_alignment_offset.isEnabled())
+                self.assertTrue(self.window.lbl_alignment_offset.isEnabled())
+
+                self.window.line_ref.setText("   ")
+                self.assertFalse(self.window.spin_alignment_offset.isEnabled())
+                self.assertFalse(self.window.lbl_alignment_offset.isEnabled())
+                request_cache_discovery.assert_not_called()
+
+                # textActivated is emitted only for a user selection, so this is
+                # the one path that should move focus to the cache-name field.
+                combo.textActivated.emit("(New Layout Cache)")
+                self.app.processEvents()
+                self.assertIs(self.app.focusWidget(), self.window.line_new_cache)
+        finally:
+            self.window.current_cache_folder = original_cache_folder
+            self.window._cache_launch_allowed = original_cache_launch_allowed
+            combo.blockSignals(True)
+            combo.clear()
+            for text, data in original_items:
+                combo.addItem(text, data)
+            combo.setCurrentIndex(original_combo_index)
+            combo.setEnabled(original_combo_enabled)
+            combo.blockSignals(False)
+            self.window._toggle_new_cache_input(combo.currentText())
+            if combo.currentText() == "(New Layout Cache)":
+                self.window.line_new_cache.setText(original_cache_name)
+            self.window.line_ref.setText(original_reference)
+            self.window.tabs.setCurrentIndex(original_tab)
+            if original_focus is not None and original_focus.isVisible():
+                original_focus.setFocus()
+            self.app.processEvents()
+
     def test_every_setting_input_and_nested_editor_has_a_shared_tip(self):
         from PySide6.QtWidgets import QLineEdit, QWidget
 
