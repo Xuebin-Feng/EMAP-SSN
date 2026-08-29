@@ -347,7 +347,7 @@ def _atomic_write_json(path, data):
 # --- JSON Settings Override ---
 import Cache_Manifest as cache_manifest
 
-DEFAULT_SETTINGS_FILE = str(PROJECT_ROOT / "Input_Files" / "viewer_settings.json")
+DEFAULT_SETTINGS_FILE = str(PROJECT_ROOT / "viewer_settings.json")
 SETTINGS_FILE = os.environ.get("SSN_VIEWER_SETTINGS_PATH") or DEFAULT_SETTINGS_FILE
 viewer_settings = {}
 if os.path.exists(SETTINGS_FILE):

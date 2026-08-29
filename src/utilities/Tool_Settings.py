@@ -18,7 +18,7 @@ class ToolSettingsError(ValueError):
 
 
 def default_settings_path(project_root):
-    return os.path.join(project_root, "Input_Files", "tools_settings.json")
+    return os.path.join(project_root, "tools_settings.json")
 
 
 def inherited_settings_path(script_path):
@@ -33,7 +33,7 @@ def _settings_parser(script_name):
         prog=script_name,
         description=(
             "Run this SSN tool with an exported JSON settings file. When the "
-            "argument is omitted, Input_Files/tools_settings.json is used."
+            "argument is omitted, the project-root tools_settings.json is used."
         ),
     )
     parser.add_argument(

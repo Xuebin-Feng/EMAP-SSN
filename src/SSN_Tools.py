@@ -2007,7 +2007,7 @@ class ToolsGUI(QMainWindow):
         
         # Load existing paths from JSON if available
         import json
-        settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
+        settings_file = os.path.join(_PROJECT_ROOT, "tools_settings.json")
         if os.path.exists(settings_file):
             try:
                 with open(settings_file, "r", encoding="utf-8") as f:
@@ -2111,7 +2111,7 @@ class ToolsGUI(QMainWindow):
             # Save the path exactly as written
             new_settings[key] = os.path.normpath(raw_path) if raw_path else ""
             
-        settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
+        settings_file = os.path.join(_PROJECT_ROOT, "tools_settings.json")
         combined_settings = {}
         os.makedirs(os.path.dirname(settings_file), exist_ok=True)
         if os.path.exists(settings_file):
@@ -2241,7 +2241,7 @@ class ToolsGUI(QMainWindow):
                         
                         # Then, try to overwrite it with the nested JSON value if it exists
                         settings_path = os.path.join(
-                            _PROJECT_ROOT, "Input_Files", "tools_settings.json"
+                            _PROJECT_ROOT, "tools_settings.json"
                         )
                         if os.path.exists(settings_path):
                             try:

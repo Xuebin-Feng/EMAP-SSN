@@ -119,7 +119,7 @@ GENERATE_FASTA = False
 import json
 import ast
 
-SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json")
+SETTINGS_FILE = inherited_settings_path(__file__) or os.path.join(PROJECT_ROOT, "tools_settings.json")
 
 if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     try:

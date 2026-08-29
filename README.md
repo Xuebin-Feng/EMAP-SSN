@@ -64,13 +64,13 @@ The settings-file argument is resolved from the terminal's current working
 directory. Directory values inside the JSON retain the GUI representation:
 absolute paths remain absolute, while relative paths are resolved from the
 project root. Omitting the argument preserves the GUI-compatible behavior of
-reading `Input_Files/tools_settings.json`. Model acknowledgement remains a
+reading `tools_settings.json` from the project root. Model acknowledgement remains a
 separate command, for example
 `python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID`.
 
 ### ⚙️ SSN Configuration GUI
 
-The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in `Input_Files/viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab (by default, `Cache_Files/Saved_Config/`). Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown.
+The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab (by default, `Cache_Files/Saved_Config/`). Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
@@ -400,14 +400,16 @@ Sequence_Similarity_Network_Viewer/
 ├── docs/                     # Screenshots, command reference, and metadata template
 │   └── list_of_commands.html # Interactive Viewer command reference
 │
-├── Input_Files/              # Viewer inputs and persisted launch settings
+├── viewer_settings.json      # Settings saved by the configuration GUI
+├── tools_settings.json       # Shared settings saved by the Tools GUI
+│
+├── Input_Files/              # Viewer and tool input files
 │   ├── Sequence_Sets/        # Protein sequence sets and subsets (.fasta)
 │   ├── Multiple_Alignments/  # Full or sparse multiple-sequence alignments
 │   ├── Networks_EValues/    # Embedding- or BLAST-derived network files (.h5)
 │   ├── Header_Lists/         # Reusable sequence-header cohorts
 │   ├── Meta_Data/            # Imported and exported node metadata
-│   ├── Batch Scripts/        # User batch and helper scripts
-│   └── viewer_settings.json  # Settings saved by the configuration GUI
+│   └── Batch Scripts/        # User batch and helper scripts
 │
 ├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
 │   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)

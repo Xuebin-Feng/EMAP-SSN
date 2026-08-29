@@ -123,7 +123,7 @@ class ToolSettingsLoaderTests(unittest.TestCase):
         self.assertFalse(explicit)
         self.assertEqual(
             path,
-            os.path.join(PROJECT_ROOT, "Input_Files", "tools_settings.json"),
+            os.path.join(PROJECT_ROOT, "tools_settings.json"),
         )
 
     def test_spawn_inheritance_is_scoped_to_the_originating_tool(self):
