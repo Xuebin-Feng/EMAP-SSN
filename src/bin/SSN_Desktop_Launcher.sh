@@ -95,18 +95,17 @@ STATE_ROOT="$PROJECT_ROOT/Cache_Files/Launcher_State"
 mkdir -p "$STATE_ROOT" || exit 1
 STATE_DIR=$(mktemp -d "$STATE_ROOT/${APP_KIND}.XXXXXX") || exit 1
 printf 'Launching the Qt window...\n'
-nohup "$VENV_PYTHON" "$PROJECT_ROOT/src/utilities/Desktop_Launcher_Monitor.py" \
-    "$APP_KIND" "$STATE_DIR" >/dev/null 2>&1 </dev/null &
-
-wait_count=0
-while [ "$wait_count" -lt 600 ]; do
-    if [ -f "$STATE_DIR/gui.ready" ]; then
+"$VENV_PYTHON" -u "$PROJECT_ROOT/src/utilities/Desktop_Launcher_Monitor.py" \
+    --launch-and-wait "$APP_KIND" "$STATE_DIR"
+launch_result=$?
+case "$launch_result" in
+    0)
         printf 'dismissed\n' >"$STATE_DIR/.terminal.dismissed.tmp"
         mv -f "$STATE_DIR/.terminal.dismissed.tmp" "$STATE_DIR/terminal.dismissed"
         printf '%s is ready.\n' "$APP_LABEL"
         exit 0
-    fi
-    if [ -f "$STATE_DIR/application.exit" ]; then
+        ;;
+    20)
         app_exit=$(head -n 1 "$STATE_DIR/application.exit" 2>/dev/null || printf '1')
         if [ "$app_exit" = "0" ]; then
             printf 'dismissed\n' >"$STATE_DIR/.terminal.dismissed.tmp"
@@ -119,13 +118,20 @@ while [ "$wait_count" -lt 600 ]; do
         printf 'Log retained at: %s\n' "$STATE_DIR/application.log" >&2
         read -r -p 'Press Enter to close...' _
         exit "$app_exit"
-    fi
-    sleep 1
-    wait_count=$((wait_count + 1))
-done
-
-printf '\n%s did not report a ready window within 10 minutes.\n' "$APP_LABEL" >&2
-printf 'The terminal will remain open. Diagnostic log:\n%s\n' \
-    "$STATE_DIR/application.log" >&2
-read -r -p 'Press Enter to close...' _
-exit 1
+        ;;
+    21)
+        printf '\n%s did not report a ready window within 10 minutes.\n' "$APP_LABEL" >&2
+        printf 'The terminal will remain open. Diagnostic log:\n%s\n' \
+            "$STATE_DIR/application.log" >&2
+        read -r -p 'Press Enter to close...' _
+        exit 1
+        ;;
+    *)
+        printf '\n' >&2
+        [ ! -f "$STATE_DIR/application.log" ] || cat "$STATE_DIR/application.log"
+        printf 'Failed to start the detached %s monitor.\n' "$APP_LABEL" >&2
+        printf 'Launcher state retained at: %s\n' "$STATE_DIR" >&2
+        read -r -p 'Press Enter to close...' _
+        exit "$launch_result"
+        ;;
+esac

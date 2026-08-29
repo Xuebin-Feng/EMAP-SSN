@@ -32,6 +32,12 @@ APP_SCRIPTS = {
     "viewer": Path("src") / "SSN_Config.py",
     "tools": Path("src") / "SSN_Tools.py",
 }
+STARTUP_READY = 0
+STARTUP_APPLICATION_EXITED = 20
+STARTUP_TIMEOUT = 21
+STARTUP_LAUNCH_FAILED = 22
+STARTUP_TIMEOUT_SECONDS = 600.0
+STARTUP_POLL_SECONDS = 0.05
 
 _MANAGED_ENVIRONMENT_PATH_OVERRIDES = (
     "PYTHONHOME",
@@ -146,6 +152,95 @@ def _cleanup_success(state_dir: Path) -> None:
         pass
 
 
+def launch_detached_monitor(
+    app_kind: str,
+    state_dir: Path,
+    *,
+    platform_name: str | None = None,
+) -> subprocess.Popen:
+    """Start the long-lived monitor without inheriting the startup terminal."""
+    if app_kind not in APP_SCRIPTS:
+        raise ValueError(f"Unknown desktop application kind: {app_kind}")
+
+    project_root = Path(__file__).resolve().parents[2]
+    state_dir = state_dir.resolve()
+    state_dir.mkdir(parents=True, exist_ok=True)
+    platform_name = platform_name or sys.platform
+    command = [
+        sys.executable,
+        "-u",
+        str(Path(__file__).resolve()),
+        app_kind,
+        str(state_dir),
+    ]
+    popen_kwargs: dict[str, object] = {
+        "cwd": str(project_root),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if platform_name == "win32":
+        popen_kwargs["creationflags"] = getattr(
+            subprocess, "CREATE_NO_WINDOW", 0x08000000
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    return subprocess.Popen(command, **popen_kwargs)
+
+
+def wait_for_startup_state(
+    state_dir: Path,
+    monitor_process: subprocess.Popen,
+    *,
+    timeout: float = STARTUP_TIMEOUT_SECONDS,
+    poll_interval: float = STARTUP_POLL_SECONDS,
+) -> str:
+    """Wait for readiness, an early application exit, or monitor failure."""
+    state_dir = state_dir.resolve()
+    ready_path = state_dir / "gui.ready"
+    exit_path = state_dir / "application.exit"
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    poll_interval = max(0.001, float(poll_interval))
+
+    while True:
+        if ready_path.is_file():
+            return "ready"
+        if exit_path.is_file():
+            return "application_exited"
+        if monitor_process.poll() is not None:
+            return "monitor_exited"
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "timeout"
+        time.sleep(min(poll_interval, remaining))
+
+
+def launch_and_wait(app_kind: str, state_dir: Path) -> int:
+    """Detach the monitor, then keep the startup terminal until Qt is ready."""
+    try:
+        monitor_process = launch_detached_monitor(app_kind, state_dir)
+    except (OSError, ValueError) as error:
+        print(f"Failed to launch the detached desktop monitor: {error}", file=sys.stderr)
+        return STARTUP_LAUNCH_FAILED
+
+    state = wait_for_startup_state(state_dir, monitor_process)
+    if state == "ready":
+        return STARTUP_READY
+    if state == "application_exited":
+        return STARTUP_APPLICATION_EXITED
+    if state == "timeout":
+        return STARTUP_TIMEOUT
+
+    print(
+        "The detached desktop monitor exited before reporting GUI readiness.",
+        file=sys.stderr,
+    )
+    return STARTUP_LAUNCH_FAILED
+
+
 def run_monitor(app_kind: str, state_dir: Path) -> int:
     project_root = Path(__file__).resolve().parents[2]
     app_script = project_root / APP_SCRIPTS[app_kind]
@@ -199,9 +294,16 @@ def run_monitor(app_kind: str, state_dir: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--launch-and-wait",
+        action="store_true",
+        help="detach the monitor and wait for GUI startup state",
+    )
     parser.add_argument("app_kind", choices=sorted(APP_SCRIPTS))
     parser.add_argument("state_dir", type=Path)
     args = parser.parse_args(argv)
+    if args.launch_and_wait:
+        return launch_and_wait(args.app_kind, args.state_dir)
     return run_monitor(args.app_kind, args.state_dir)
 
 
