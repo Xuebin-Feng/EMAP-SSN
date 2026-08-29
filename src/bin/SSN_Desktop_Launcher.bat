@@ -45,7 +45,7 @@ call :ACTIVATE_EXISTING_INSTANCE
 if !ERRORLEVEL! equ 0 exit /b 0
 
 for /f %%I in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"') do set "LAUNCH_TOKEN=%%I"
-set "STATE_DIR=%CD%\Cache_Files\Launcher_State\%APP_KIND%_!LAUNCH_TOKEN!"
+set "STATE_DIR=%CD%\temp\%APP_KIND%_!LAUNCH_TOKEN!"
 mkdir "!STATE_DIR!" >nul 2>nul
 if not exist "!STATE_DIR!" (
     echo Could not create launcher state directory: !STATE_DIR!

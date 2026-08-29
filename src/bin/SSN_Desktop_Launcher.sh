@@ -91,7 +91,7 @@ if activate_existing_instance; then
     exit 0
 fi
 
-STATE_ROOT="$PROJECT_ROOT/Cache_Files/Launcher_State"
+STATE_ROOT="$PROJECT_ROOT/temp"
 mkdir -p "$STATE_ROOT" || exit 1
 STATE_DIR=$(mktemp -d "$STATE_ROOT/${APP_KIND}.XXXXXX") || exit 1
 printf 'Launching the Qt window...\n'
