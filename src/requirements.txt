@@ -28,6 +28,8 @@ logomaker==0.8.7
 markdown>=3.10.2
 markov-clustering==0.0.6.dev0
 matplotlib==3.11.1
+# Official Model Context Protocol SDK used only by SSN_MCP_Server.py.
+mcp==2.1.1
 networkx==3.6.1
 # numba 0.66.0 caps numpy at <2.5; 2.4.6 is the highest stable release under it.
 # Do not jump to 2.5.x until numba raises the bound.

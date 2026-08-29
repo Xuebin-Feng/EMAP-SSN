@@ -68,6 +68,80 @@ reading `Input_Files/tools_settings.json`. Model acknowledgement remains a
 separate command, for example
 `python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID`.
 
+### 🔌 Local STDIO MCP server
+
+`src/SSN_MCP_Server.py` exposes the 14 pipeline programs and bounded,
+read-only Viewer inspection to local MCP clients. It uses STDIO only: the
+client starts one server process and communicates through its standard input
+and output. Run the normal project installer after updating this branch so the
+managed environment includes the pinned MCP SDK.
+
+Use absolute paths in client configuration. On Windows, replace `<PROJECT>`
+below with the absolute repository path:
+
+```powershell
+# Codex
+codex mcp add ssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\SSN_MCP_Server.py"
+
+# Claude Code (user scope)
+claude mcp add --transport stdio --scope user ssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\SSN_MCP_Server.py"
+```
+
+For VS Code, add this to the appropriate `mcp.json` file:
+
+```json
+{
+  "servers": {
+    "ssn": {
+      "type": "stdio",
+      "command": "<PROJECT>\\.venv\\Scripts\\python.exe",
+      "args": ["<PROJECT>\\src\\SSN_MCP_Server.py"]
+    }
+  }
+}
+```
+
+Antigravity and clients using the common `mcpServers` form, including many
+open-source harnesses, can use:
+
+```json
+{
+  "mcpServers": {
+    "ssn": {
+      "command": "<PROJECT>\\.venv\\Scripts\\python.exe",
+      "args": ["<PROJECT>\\src\\SSN_MCP_Server.py"]
+    }
+  }
+}
+```
+
+On Linux or macOS, use `<PROJECT>/.venv/bin/python` and forward-slash paths.
+No environment activation or wrapper script is required. A harness with a
+different configuration schema needs only the same executable and server-file
+arguments over its local STDIO transport.
+
+The MCP server provides a generic pipeline catalog plus start, status, log,
+and cancellation tools. A start request accepts either the exported JSON
+document itself or a path to that document. Each client connection owns one
+FIFO with one running and at most 16 pending jobs. Closing or restarting that
+client terminates its running job and cancels its queued jobs; different MCP
+clients do not share a queue and can start conflicting calculations. Pipeline
+jobs may create or overwrite files according to their settings, and cancelling
+a job does not roll back files already written.
+
+Job responses report captured stdout/stderr, the immutable settings snapshot,
+and the configured result directories. They do not guess the exact scientific
+files produced by a program. MCP-owned logs and snapshots are temporary and
+are removed on normal server shutdown; an abrupt crash can leave a private
+`sequence_similarity_network_viewer/mcp_jobs/server-*` directory below the
+operating system's temporary directory, which is safe to remove when no MCP
+server is running.
+
+Viewer tools discover normally running Viewer processes and reuse their
+authenticated, loopback-only inspection endpoints. They cannot modify the
+Viewer. When multiple Viewers are open, callers must provide a session ID.
+Discovery tokens and descriptor paths are never returned by MCP tools.
+
 ### ⚙️ SSN Configuration GUI
 
 The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in `Input_Files/viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab (by default, `Cache_Files/Saved_Config/`). Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown.

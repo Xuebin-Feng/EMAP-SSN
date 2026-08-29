@@ -67,6 +67,13 @@ class ToolExecutionTests(unittest.TestCase):
         self.assertEqual(captured.getvalue(), "")
         self.assertEqual(len(specs), 14)
         self.assertEqual(len({spec.tool_id for spec in specs}), 14)
+        self.assertTrue(all(spec.output_directories for spec in specs))
+        self.assertTrue(
+            all(
+                set(spec.output_directories).issubset(spec.required_directories)
+                for spec in specs
+            )
+        )
         self.assertEqual(
             get_tool_spec("sanitize_sequences").script_name,
             "Sanitize_Sequences.py",
