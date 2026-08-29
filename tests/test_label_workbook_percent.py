@@ -125,7 +125,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
         if identity_weights is None:
             identity_weights = np.array([0.5, 0.5, 1.0])
 
-        with mock.patch.object(label.cfg, "CLUSTER_LABEL_DIR", directory), \
+        with mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
                 mock.patch.object(label.cfg, "NODE_FASTA_FILE", "nodes.fasta"), \
                 mock.patch.object(label.cfg, "INPUT_HDF5", "network.h5"), \
                 mock.patch.object(label.cfg, "MSA_FILE", "alignment.fasta"), \
@@ -685,7 +685,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 model_name="test-model",
                 network_type="cosine",
             )
-            with mock.patch.object(label.cfg, "CLUSTER_LABEL_DIR", directory), \
+            with mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
                     mock.patch.object(label.cfg, "INPUT_HDF5", "network.h5"), \
                     mock.patch.object(
                         label.cache_manifest,

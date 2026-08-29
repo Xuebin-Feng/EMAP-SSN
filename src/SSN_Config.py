@@ -48,21 +48,39 @@ TARGET_CACHE_FILE = os.environ.get("SSN_TARGET_CACHE", None)
 TARGET_CACHE_PATH = os.environ.get("SSN_TARGET_CACHE_PATH", None)
 TARGET_CACHE_MODE = os.environ.get("SSN_TARGET_CACHE_MODE", None)
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 # --- Directory & File Paths ---
-FASTA_DIR = os.path.join("Input_Files", "Sequence_Sets")
-MSA_DIR = os.path.join("Input_Files", "Multiple_Alignments")
-HDF5_DIR = os.path.join("Input_Files", "Networks_EValues")
-SAVED_LAYOUT_DIR = os.path.join("Cache_Files", "Saved_Layouts")
-SETTING_EXPORT_DIR = os.path.join("Cache_Files", "Exported_Settings")
-METADATA_DIR = os.path.join("Input_Files", "Meta_Data")
-PRINT_SAVE_DIR = os.path.join("Analysis_Results", "Saved_Images")
-SEQUENCE_EXPORT_DIR = os.path.join("Analysis_Results", "Sequence_Export")
-CLUSTER_LABEL_DIR = os.path.join("Analysis_Results", "Cluster_Label")
-HEADER_LIST_DIR = os.path.join("Input_Files", "Header_Lists")
-LOGO_DIR = os.path.join("Analysis_Results", "Sequence_Logos")
-STRUCTURES_DIR = os.path.join("Cache_Files", "Predicted_Structures")
-DEFAULT_SAVED_CONFIG_DIR = os.path.join("Cache_Files", "Saved_Config")
+INPUT_FILE_ALIAS = "$input_file$"
+CACHE_FILE_ALIAS = "$cache_file$"
+ANALYSIS_RESULT_ALIAS = "$analysis_result$"
+
+INPUT_FILE_DIR = "Input_Files"
+CACHE_FILE_DIR = "Cache_Files"
+ANALYSIS_RESULT_DIR = "Analysis_Results"
+
+FASTA_DIR = os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets")
+MSA_DIR = os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments")
+HDF5_DIR = os.path.join(INPUT_FILE_ALIAS, "Networks_EValues")
+SAVED_LAYOUT_DIR = os.path.join(CACHE_FILE_ALIAS, "Saved_Layouts")
+SETTING_EXPORT_DIR = os.path.join(CACHE_FILE_ALIAS, "Exported_Settings")
+METADATA_DIR = os.path.join(INPUT_FILE_ALIAS, "Meta_Data")
+HEADER_LIST_DIR = os.path.join(INPUT_FILE_ALIAS, "Header_Lists")
+DEFAULT_SAVED_CONFIG_DIR = os.path.join(CACHE_FILE_ALIAS, "Saved_Config")
 SAVED_CONFIG_DIR = DEFAULT_SAVED_CONFIG_DIR
+
+DIRECTORY_PATH_ALIASES = {
+    INPUT_FILE_ALIAS: "INPUT_FILE_DIR",
+    CACHE_FILE_ALIAS: "CACHE_FILE_DIR",
+    ANALYSIS_RESULT_ALIAS: "ANALYSIS_RESULT_DIR",
+}
+DEPRECATED_DIRECTORY_KEYS = frozenset({
+    "LOGO_DIR",
+    "CLUSTER_LABEL_DIR",
+    "SEQUENCE_EXPORT_DIR",
+    "PRINT_SAVE_DIR",
+    "STRUCTURES_DIR",
+})
 
 # --- Explicit Input File Paths ---
 # You can manually replace these string paths to decouple file logic:
@@ -122,8 +140,6 @@ SGLD_K_PERCENT = 0.01
 SGLD_START_TEMP = 1.5
 SGLD_NOISE_SCALE = 1.0
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
 INPUT_PROFILE_DEFAULTS = {
     "NODE_FASTA_FILE": "",
     "MSA_FILE": "",
@@ -177,26 +193,35 @@ PHYSICS_PROFILE_DEFAULTS = {
 }
 
 DIRECTORY_PROFILE_DEFAULTS = {
+    "INPUT_FILE_DIR": "Input_Files",
+    "CACHE_FILE_DIR": "Cache_Files",
+    "ANALYSIS_RESULT_DIR": "Analysis_Results",
+    "FASTA_DIR": os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets"),
+    "MSA_DIR": os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments"),
+    "HDF5_DIR": os.path.join(INPUT_FILE_ALIAS, "Networks_EValues"),
+    "METADATA_DIR": os.path.join(INPUT_FILE_ALIAS, "Meta_Data"),
+    "HEADER_LIST_DIR": os.path.join(INPUT_FILE_ALIAS, "Header_Lists"),
+    "SAVED_LAYOUT_DIR": os.path.join(CACHE_FILE_ALIAS, "Saved_Layouts"),
+    "SETTING_EXPORT_DIR": os.path.join(CACHE_FILE_ALIAS, "Exported_Settings"),
+}
+
+LEGACY_DEFAULT_DIRECTORY_PATHS = {
     "FASTA_DIR": os.path.join("Input_Files", "Sequence_Sets"),
     "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
     "HDF5_DIR": os.path.join("Input_Files", "Networks_EValues"),
+    "METADATA_DIR": os.path.join("Input_Files", "Meta_Data"),
+    "HEADER_LIST_DIR": os.path.join("Input_Files", "Header_Lists"),
     "SAVED_LAYOUT_DIR": os.path.join("Cache_Files", "Saved_Layouts"),
     "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Exported_Settings"),
-    "METADATA_DIR": os.path.join("Input_Files", "Meta_Data"),
-    "SEQUENCE_EXPORT_DIR": os.path.join("Analysis_Results", "Sequence_Export"),
-    "HEADER_LIST_DIR": os.path.join("Input_Files", "Header_Lists"),
-    "STRUCTURES_DIR": os.path.join("Cache_Files", "Predicted_Structures"),
-    "PRINT_SAVE_DIR": os.path.join("Analysis_Results", "Saved_Images"),
-    "CLUSTER_LABEL_DIR": os.path.join("Analysis_Results", "Cluster_Label"),
-    "LOGO_DIR": os.path.join("Analysis_Results", "Sequence_Logos"),
 }
 
 DIRECTORY_DISPLAY_NAMES = {
+    "INPUT_FILE_DIR": "Input File Directory",
+    "CACHE_FILE_DIR": "Cache File Directory",
+    "ANALYSIS_RESULT_DIR": "Analysis Results Directory",
     "FASTA_DIR": "Input FASTA Directory",
     "SAVED_LAYOUT_DIR": "Layout Directory",
     "SETTING_EXPORT_DIR": "Setting Export Directory",
-    "SEQUENCE_EXPORT_DIR": "Sequence Export Directory",
-    "PRINT_SAVE_DIR": "Print Directory",
 }
 
 TAB_PROFILE_SPECS = {
@@ -271,8 +296,67 @@ PROFILE_RANGES = {
 }
 
 
-def _resolved_saved_config_root(value):
-    path = Path(str(value or DEFAULT_SAVED_CONFIG_DIR)).expanduser()
+def resolve_directory_path(value, base_directories=None):
+    """Expand one exact leading directory alias without changing other paths."""
+    if value is None:
+        return value
+    raw_path = os.fspath(value)
+    bases = base_directories or {}
+    for alias, setting_key in DIRECTORY_PATH_ALIASES.items():
+        if raw_path == alias:
+            suffix = ""
+        elif raw_path.startswith(alias) and raw_path[len(alias):len(alias) + 1] in {"/", "\\"}:
+            suffix = raw_path[len(alias):].lstrip("/\\")
+        else:
+            continue
+
+        base_path = os.fspath(
+            bases.get(setting_key, globals().get(setting_key, ""))
+        )
+        if not suffix:
+            return os.path.normpath(base_path)
+        suffix_parts = [part for part in re.split(r"[/\\]+", suffix) if part]
+        return os.path.normpath(os.path.join(base_path, *suffix_parts))
+    return raw_path
+
+
+def _migrate_default_directory_path(key, value):
+    """Link an old canonical child default to its configurable base alias."""
+    legacy_default = LEGACY_DEFAULT_DIRECTORY_PATHS.get(key)
+    if legacy_default is None or not isinstance(value, str):
+        return value
+    portable_value = value.replace("\\", "/").rstrip("/")
+    portable_legacy = legacy_default.replace("\\", "/").rstrip("/")
+    if portable_value == portable_legacy:
+        return DIRECTORY_PROFILE_DEFAULTS[key]
+    return value
+
+
+def _resolve_runtime_path_settings():
+    """Resolve aliases after settings overrides, before Viewer code consumes them."""
+    for key in (
+        "FASTA_DIR",
+        "MSA_DIR",
+        "HDF5_DIR",
+        "METADATA_DIR",
+        "HEADER_LIST_DIR",
+        "SAVED_LAYOUT_DIR",
+        "SETTING_EXPORT_DIR",
+        "NODE_FASTA_FILE",
+        "MSA_FILE",
+        "INPUT_HDF5",
+    ):
+        value = globals().get(key)
+        if value:
+            globals()[key] = resolve_directory_path(value)
+
+
+def _resolved_saved_config_root(value, base_directories=None):
+    resolved_value = resolve_directory_path(
+        value or DEFAULT_SAVED_CONFIG_DIR,
+        base_directories=base_directories,
+    )
+    path = Path(str(resolved_value)).expanduser()
     if not path.is_absolute():
         path = PROJECT_ROOT / path
     return path.resolve()
@@ -280,7 +364,7 @@ def _resolved_saved_config_root(value):
 
 def _migrate_saved_config_dir(value):
     normalized = os.path.normpath(str(value or "")).replace("\\", "/").rstrip("/")
-    if normalized.casefold() == "saved_config":
+    if normalized.casefold() in {"saved_config", "cache_files/saved_config"}:
         return DEFAULT_SAVED_CONFIG_DIR
     return value
 
@@ -363,6 +447,8 @@ if os.path.exists(SETTINGS_FILE):
                     k = LEGACY_KEYS_MAPPING[k]
                 if k == "SAVED_CONFIG_DIR":
                     v = _migrate_saved_config_dir(v)
+                if k in DIRECTORY_PROFILE_DEFAULTS:
+                    v = _migrate_default_directory_path(k, v)
                 if k in globals() and v is not None and (str(v).strip() != "" or k in ["MSA_FILE", "ALIGNMENT_REFERENCE"]):
                     orig = globals()[k]
                     if isinstance(orig, int) and not isinstance(orig, bool):
@@ -382,18 +468,17 @@ if os.path.exists(SETTINGS_FILE):
                             v = float(v) if '.' in str(v) else int(v)
                     globals()[k] = v
                         
-                # ---> NEW: SYNC LEGACY VARIABLES <---
-                if "NODE_FASTA_FILE" in globals() and globals()["NODE_FASTA_FILE"]:
-                    globals()["SEQUENCES_FILE"] = globals()["NODE_FASTA_FILE"]
-                    globals()["SEQUENCE_SET"] = os.path.splitext(os.path.basename(globals()["NODE_FASTA_FILE"]))[0]
-                    # Also update default fallback paths if they still contain "None" or are empty after SEQUENCE_SET is resolved
-                    if globals().get("MSA_FILE") and "none_[e1_ra]_alignment.fasta" in globals()["MSA_FILE"].lower():
-                        globals()["MSA_FILE"] = os.path.join(globals()["MSA_DIR"], f"{globals()['SEQUENCE_SET']}_[E1_RA]_alignment.fasta")
-                    if not globals().get("INPUT_HDF5") or "none_[e1_ra]_network.h5" in globals()["INPUT_HDF5"].lower():
-                        globals()["INPUT_HDF5"] = os.path.join(globals()["HDF5_DIR"], f"{globals()['SEQUENCE_SET']}_[E1_RA]_network.h5")
-                    
     except Exception as e:
         print(f"Failed to load viewer settings: {e}")
+
+_resolve_runtime_path_settings()
+if NODE_FASTA_FILE:
+    SEQUENCES_FILE = NODE_FASTA_FILE
+    SEQUENCE_SET = os.path.splitext(os.path.basename(NODE_FASTA_FILE))[0]
+    if MSA_FILE and "none_[e1_ra]_alignment.fasta" in MSA_FILE.lower():
+        MSA_FILE = os.path.join(MSA_DIR, f"{SEQUENCE_SET}_[E1_RA]_alignment.fasta")
+    if not INPUT_HDF5 or "none_[e1_ra]_network.h5" in INPUT_HDF5.lower():
+        INPUT_HDF5 = os.path.join(HDF5_DIR, f"{SEQUENCE_SET}_[E1_RA]_network.h5")
 
 
 def _handoff_to_viewer(
@@ -879,6 +964,11 @@ if __name__ == "__main__":
                     data["SAVED_CONFIG_DIR"] = _migrate_saved_config_dir(
                         data["SAVED_CONFIG_DIR"]
                     )
+                for key in DEPRECATED_DIRECTORY_KEYS:
+                    data.pop(key, None)
+                for key in DIRECTORY_PROFILE_DEFAULTS:
+                    if key in data:
+                        data[key] = _migrate_default_directory_path(key, data[key])
                 return dict(data)
             except FileNotFoundError:
                 return {}
@@ -891,7 +981,10 @@ if __name__ == "__main__":
             value = widget.text() if widget is not None else globals().get(
                 "SAVED_CONFIG_DIR", SAVED_CONFIG_DIR
             )
-            return _resolved_saved_config_root(value)
+            return _resolved_saved_config_root(
+                value,
+                base_directories=self._directory_base_values(),
+            )
 
         def _add_profile_selector(
             self,
@@ -1020,7 +1113,8 @@ if __name__ == "__main__":
                 raise ValueError("the JSON root must be an object")
 
             defaults = TAB_PROFILE_SPECS[tab_id]["defaults"]
-            unknown = set(raw_data) - set(defaults)
+            ignored = DEPRECATED_DIRECTORY_KEYS if tab_id == "directories" else set()
+            unknown = set(raw_data) - set(defaults) - ignored
             if unknown and not allow_extra:
                 names = ", ".join(sorted(unknown))
                 raise ValueError(f"unknown setting key(s): {names}")
@@ -1030,6 +1124,8 @@ if __name__ == "__main__":
                 if key not in raw_data:
                     continue
                 value = raw_data[key]
+                if tab_id == "directories":
+                    value = _migrate_default_directory_path(key, value)
                 default = defaults[key]
                 try:
                     if default is None:
@@ -1284,9 +1380,16 @@ if __name__ == "__main__":
                 return
             
             # 3. Build the paths safely
-            fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), fasta_file)
-            hdf5_path = os.path.join(self.inputs["HDF5_DIR"].text(), hdf5_file)
-            msa_path = os.path.join(self.inputs["MSA_DIR"].text(), msa_file) if msa_file else None
+            fasta_path = os.path.join(
+                self._resolved_directory_input("FASTA_DIR"), fasta_file
+            )
+            hdf5_path = os.path.join(
+                self._resolved_directory_input("HDF5_DIR"), hdf5_file
+            )
+            msa_path = (
+                os.path.join(self._resolved_directory_input("MSA_DIR"), msa_file)
+                if msa_file else None
+            )
                 
             self.tip_panel.setText("Running Consistency Check...")
             from PySide6.QtWidgets import QApplication
@@ -1439,13 +1542,11 @@ if __name__ == "__main__":
                 "SAVED_LAYOUT_DIR": "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks.",
                 "SETTING_EXPORT_DIR": "Directory where command-line layout generation JSON settings are exported.",
                 "METADATA_DIR": "Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.\nUsed for custom node coloring, categorization, and annotation in the visualizer.",
-                "PRINT_SAVE_DIR": "Directory where high-resolution image snapshots and vector graphics (PDF, PNG, SVG) are exported.\nEnsure this path is writable with sufficient disk space for graphic outputs.",
-                "SEQUENCE_EXPORT_DIR": "Directory where dynamically split or extracted sequence subset FASTA files are saved.\nUsed by sub-cluster extraction and downstream sequence analyses.",
-                "CLUSTER_LABEL_DIR": "Directory where exported cluster metadata, sequence IDs, and automated cluster labels are saved.\nUseful for downstream annotation pipelines and external inspection.",
                 "HEADER_LIST_DIR": "Directory containing text files with lists of sequence headers matching network query criteria.\nUsed to store and track sequence cohorts identified in the visualizer.",
-                "LOGO_DIR": "Directory where exported sequence logos representing consensus conservation are saved.\nOutputs PNG or vector graphics for publication and presentation.",
-                "STRUCTURES_DIR": "Directory where predicted 3D structures and PDB/mmCIF files are stored and loaded.\nUsed by the 3D structure viewer module for structural superposition and inspection.",
-                "SAVED_CONFIG_DIR": "Directory containing named per-tab configuration profiles.\nRelative paths are resolved from the project root; the location itself is always stored in viewer_settings.json."
+                "INPUT_FILE_DIR": "Base directory represented by $input_file$.\nRelative paths are resolved from the project root; absolute paths remain absolute.",
+                "CACHE_FILE_DIR": "Base directory represented by $cache_file$.\nRelative paths are resolved from the project root; absolute paths remain absolute.",
+                "ANALYSIS_RESULT_DIR": "Base directory represented by $analysis_result$.\nViewer commands place their output subdirectories beneath this location.",
+                "SAVED_CONFIG_DIR": "Directory containing named per-tab configuration profiles.\nThe default uses $cache_file$ and follows the Cache File Directory; custom relative and absolute paths remain supported."
             }
             
             self.tip_db = {}
@@ -1500,6 +1601,48 @@ if __name__ == "__main__":
             else:
                 self.line_new_cache.clear()
 
+        def _directory_base_values(self):
+            return {
+                key: (
+                    self.inputs[key].text()
+                    if key in self.inputs
+                    else globals().get(key, DIRECTORY_PROFILE_DEFAULTS[key])
+                )
+                for key in (
+                    "INPUT_FILE_DIR",
+                    "CACHE_FILE_DIR",
+                    "ANALYSIS_RESULT_DIR",
+                )
+            }
+
+        def _resolved_directory_value(self, value):
+            return resolve_directory_path(
+                value,
+                base_directories=self._directory_base_values(),
+            )
+
+        def _resolved_directory_input(self, key):
+            widget = self.inputs.get(key)
+            value = widget.text() if widget is not None else globals().get(key, "")
+            return self._resolved_directory_value(value)
+
+        def _base_directory_changed(self, base_key):
+            if base_key == "INPUT_FILE_DIR":
+                for combo, key, extensions in (
+                    (self.cb_fasta, "FASTA_DIR", [".fasta"]),
+                    (self.cb_msa, "MSA_DIR", [".fasta", ".h5"]),
+                    (self.cb_hdf5, "HDF5_DIR", [".h5"]),
+                ):
+                    self.refresh_combo(combo, key, extensions)
+            elif base_key == "CACHE_FILE_DIR":
+                self.update_live_validators()
+
+        def _absolute_project_path(self, value):
+            path = Path(self._resolved_directory_value(value)).expanduser()
+            if not path.is_absolute():
+                path = PROJECT_ROOT / path
+            return path.resolve()
+
         def _refresh_cache_file_combo(self):
             folder_path = self.current_cache_folder
             if not folder_path or not os.path.isdir(folder_path):
@@ -1513,7 +1656,7 @@ if __name__ == "__main__":
                 ]
                 cache_files.sort(key=lambda item: item[1], reverse=True)
                 saved_layout_dir = os.path.abspath(
-                    self.inputs["SAVED_LAYOUT_DIR"].text()
+                    self._resolved_directory_input("SAVED_LAYOUT_DIR")
                 )
                 cache_items = [
                     (
@@ -1559,7 +1702,7 @@ if __name__ == "__main__":
             current = combo.currentText()
             combo.clear()
             combo.addItem("")
-            dir_path = self.inputs[dir_key].text()
+            dir_path = self._resolved_directory_input(dir_key)
             
             if os.path.exists(dir_path):
                 files = [f for f in os.listdir(dir_path) if any(f.endswith(ext) for ext in ext_list)]
@@ -1587,8 +1730,12 @@ if __name__ == "__main__":
             network_name = self.cb_hdf5.currentText().strip()
             if not fasta_name or not network_name:
                 return None, None
-            fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), fasta_name)
-            network_path = os.path.join(self.inputs["HDF5_DIR"].text(), network_name)
+            fasta_path = os.path.join(
+                self._resolved_directory_input("FASTA_DIR"), fasta_name
+            )
+            network_path = os.path.join(
+                self._resolved_directory_input("HDF5_DIR"), network_name
+            )
             return os.path.abspath(fasta_path), os.path.abspath(network_path)
 
         def _cache_setting_values(self):
@@ -1640,7 +1787,7 @@ if __name__ == "__main__":
                     **settings,
                 )
                 saved_layout_dir = os.path.abspath(
-                    self.inputs["SAVED_LAYOUT_DIR"].text()
+                    self._resolved_directory_input("SAVED_LAYOUT_DIR")
                 )
                 canonical_name = cache_manifest.build_canonical_cache_name(
                     sequence_path,
@@ -1846,7 +1993,7 @@ if __name__ == "__main__":
                     import os
                     # Read from the directory input if it exists, otherwise use the default global
                     path = self.inputs[dir_key].text() if dir_key in self.inputs else globals().get(dir_key, default_dir)
-                    abs_path = os.path.abspath(path)
+                    abs_path = str(self._absolute_project_path(path))
                     os.makedirs(abs_path, exist_ok=True)
                     from PySide6.QtGui import QDesktopServices
                     from PySide6.QtCore import QUrl
@@ -2143,8 +2290,8 @@ if __name__ == "__main__":
                 # Exclusively open the parent directory
                 dir_input = self.inputs.get("SAVED_LAYOUT_DIR")
                 path = dir_input.text() if dir_input else globals().get("SAVED_LAYOUT_DIR", os.path.join("Cache_Files", "Saved_Layouts"))
-                
-                abs_path = os.path.abspath(path)
+
+                abs_path = str(self._absolute_project_path(path))
                 os.makedirs(abs_path, exist_ok=True)
                 QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
                 
@@ -2267,8 +2414,14 @@ if __name__ == "__main__":
             import math
             import sys
             
-            fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), self.cb_fasta.currentText())
-            hdf5_path = os.path.join(self.inputs["HDF5_DIR"].text(), self.cb_hdf5.currentText())
+            fasta_path = os.path.join(
+                self._resolved_directory_input("FASTA_DIR"),
+                self.cb_fasta.currentText(),
+            )
+            hdf5_path = os.path.join(
+                self._resolved_directory_input("HDF5_DIR"),
+                self.cb_hdf5.currentText(),
+            )
             
             self.tip_panel.setText("Computing network statistics... This may take a moment for large HDF5 networks.")
             QApplication.processEvents()
@@ -2415,8 +2568,14 @@ if __name__ == "__main__":
             import numpy as np
             import math
             
-            fasta_path = os.path.join(self.inputs["FASTA_DIR"].text(), self.cb_fasta.currentText())
-            hdf5_path = os.path.join(self.inputs["HDF5_DIR"].text(), self.cb_hdf5.currentText())
+            fasta_path = os.path.join(
+                self._resolved_directory_input("FASTA_DIR"),
+                self.cb_fasta.currentText(),
+            )
+            hdf5_path = os.path.join(
+                self._resolved_directory_input("HDF5_DIR"),
+                self.cb_hdf5.currentText(),
+            )
             
             self.tip_panel.setText("Computing score distribution... This may take a moment.")
             QApplication.processEvents()
@@ -3228,10 +3387,7 @@ if __name__ == "__main__":
                     raw_path = line_edit.text().strip()
                     if not raw_path:
                         return
-                    folder = Path(raw_path).expanduser()
-                    if not folder.is_absolute():
-                        folder = PROJECT_ROOT / folder
-                    folder = folder.resolve()
+                    folder = self._absolute_project_path(raw_path)
                     folder.mkdir(parents=True, exist_ok=True)
                     QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
@@ -3261,7 +3417,9 @@ if __name__ == "__main__":
 
             def browse_saved_config_directory(checked=False):
                 folder = QFileDialog.getExistingDirectory(
-                    self, "Select Saved Config Directory", saved_config_input.text() or ""
+                    self,
+                    "Select Saved Config Directory",
+                    str(self._saved_config_root()),
                 )
                 if folder:
                     saved_config_input.setText(os.path.normpath(folder))
@@ -3275,14 +3433,13 @@ if __name__ == "__main__":
             self.profile_content_widgets["directories"] = directory_profile_controls
             
             keys = [
-                # Input_Files
+                # Reusable roots
+                "INPUT_FILE_DIR", "CACHE_FILE_DIR", "ANALYSIS_RESULT_DIR",
+                # Input files
                 "FASTA_DIR", "MSA_DIR", "HDF5_DIR", "METADATA_DIR",
                 "HEADER_LIST_DIR",
-                # Cache_Files
-                "SAVED_LAYOUT_DIR", "SETTING_EXPORT_DIR", "STRUCTURES_DIR",
-                # Analysis_Results
-                "PRINT_SAVE_DIR", "SEQUENCE_EXPORT_DIR", "CLUSTER_LABEL_DIR",
-                "LOGO_DIR",
+                # Cache files
+                "SAVED_LAYOUT_DIR", "SETTING_EXPORT_DIR",
             ]
             
             for key in keys:
@@ -3291,13 +3448,19 @@ if __name__ == "__main__":
                 h_lay = QHBoxLayout(container)
                 h_lay.setContentsMargins(0, 0, 0, 0)
                 
-                val = globals().get(key, "")
+                val = DIRECTORY_PROFILE_DEFAULTS.get(key, globals().get(key, ""))
                 le = QLineEdit("" if val in [None, "None"] else str(val))
                 open_button = add_open_folder_button(le, key)
                 btn = QPushButton("Browse...")
                 
                 def browse_dir(checked, line_edit=le):
-                    folder = QFileDialog.getExistingDirectory(self, "Select Directory", line_edit.text() or "")
+                    starting_path = (
+                        str(self._absolute_project_path(line_edit.text()))
+                        if line_edit.text().strip() else ""
+                    )
+                    folder = QFileDialog.getExistingDirectory(
+                        self, "Select Directory", starting_path
+                    )
                     if folder:
                         import os
                         line_edit.setText(os.path.normpath(folder))
@@ -3321,12 +3484,24 @@ if __name__ == "__main__":
                 directory_profile_controls.extend((lbl, container))
                 self.labels[key] = lbl
                 self.inputs[key] = le
+                if key == "ANALYSIS_RESULT_DIR":
+                    self.directory_base_separator = self._add_padded_separator(
+                        layout, "directory_base_separator"
+                    )
 
             # Bind the text changes to dynamically refresh the dropdowns in Tab 1
             self.inputs["FASTA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_fasta, "FASTA_DIR", ['.fasta']))
             self.inputs["MSA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
             self.inputs["HDF5_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_hdf5, "HDF5_DIR", ['.h5']))
             self.inputs["SAVED_LAYOUT_DIR"].textChanged.connect(self.update_live_validators)
+            for base_key in (
+                "INPUT_FILE_DIR",
+                "CACHE_FILE_DIR",
+                "ANALYSIS_RESULT_DIR",
+            ):
+                self.inputs[base_key].textChanged.connect(
+                    lambda _text, key=base_key: self._base_directory_changed(key)
+                )
                 
             self.tabs.addTab(tab, "Directories")
 
@@ -3517,6 +3692,14 @@ if __name__ == "__main__":
             collected["TOP_EDGE_PERCENT"] = self.spin_top.optionalValue()
             collected["LAYOUT_DEVICE_SELECTION"] = self.cb_layout_device.currentData()
             collected["SAVED_LAYOUT_DIR"] = self.inputs["SAVED_LAYOUT_DIR"].text()
+            for path_key in (
+                "NODE_FASTA_FILE",
+                "INPUT_HDF5",
+                "SAVED_LAYOUT_DIR",
+            ):
+                collected[path_key] = self._resolved_directory_value(
+                    collected.get(path_key, "")
+                )
             for hidden_key in (
                 "BOX_SCALE",
                 "PACKING_PADDING",
@@ -3535,8 +3718,10 @@ if __name__ == "__main__":
             try:
                 settings = self._collect_layout_generation_settings()
                 export_directory = Path(
-                    self.inputs["SETTING_EXPORT_DIR"].text().strip()
-                    or DIRECTORY_PROFILE_DEFAULTS["SETTING_EXPORT_DIR"]
+                    self._resolved_directory_value(
+                        self.inputs["SETTING_EXPORT_DIR"].text().strip()
+                        or DIRECTORY_PROFILE_DEFAULTS["SETTING_EXPORT_DIR"]
+                    )
                 ).expanduser()
                 if not export_directory.is_absolute():
                     export_directory = PROJECT_ROOT / export_directory
@@ -3597,7 +3782,9 @@ if __name__ == "__main__":
                 return
 
             selected_cache = self.cb_cache_file.currentText()
-            saved_layout_dir = os.path.abspath(self.inputs["SAVED_LAYOUT_DIR"].text())
+            saved_layout_dir = os.path.abspath(
+                self._resolved_directory_input("SAVED_LAYOUT_DIR")
+            )
             try:
                 if selected_cache == "(New Layout Cache)":
                     cache_name = self._selected_new_cache_filename()
