@@ -163,7 +163,7 @@ if not defined SSN_SETUP_OWNER_PID exit /b 1
 exit /b 0
 
 :ACQUIRE_SETUP_LOCK
-set "SSN_SETUP_LOCK_ROOT=%CD%\Cache_Files\Launcher_State"
+set "SSN_SETUP_LOCK_ROOT=%CD%\temp"
 set "SSN_SETUP_LOCK_DIR=!SSN_SETUP_LOCK_ROOT!\dependency_setup.lock"
 set "SSN_SETUP_LOCK_OWNED=0"
 set /a SSN_SETUP_WAIT_COUNT=0

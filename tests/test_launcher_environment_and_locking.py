@@ -261,7 +261,7 @@ class PosixSetupLockTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             lock_dir = (
-                root / "Cache_Files" / "Launcher_State" / "dependency_setup.lock"
+                root / "temp" / "dependency_setup.lock"
             )
             lock_dir.mkdir(parents=True)
             (lock_dir / "owner.pid").write_text("99999999\n", encoding="utf-8")
