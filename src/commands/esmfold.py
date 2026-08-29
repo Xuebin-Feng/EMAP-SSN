@@ -187,6 +187,16 @@ def run(viewer, args):
     # Register web button and route mapping
     esmfold_backend.register(viewer)
 
+    try:
+        action_url = viewer.get_web_url("/api/action")
+    except Exception as error:
+        message = f"ESMFold cannot start because the Viewer web server is unavailable:\n{error}"
+        print(f"Error: {message}")
+        parent = getattr(viewer, 'main_window', None)
+        QMessageBox.critical(parent, "ESMFold Web Server Error", message)
+        _set_console_text(viewer, "Error: Viewer web server unavailable.")
+        return
+
     # 9. Save nodes to fold to a temporary JSON file and spawn background worker process
     import json
     import tempfile
@@ -211,11 +221,21 @@ def run(viewer, args):
             abs_structures_dir,
             "--mode",
             "large",
+            "--action-url",
+            action_url,
         ]
         terminal_title = "SSN ESMFold Large"
     else:
         print("Launching local ESM3 3D structure prediction background worker in a separate console...")
-        cmd = [python_exe, abs_worker_script, tmp_path, abs_structures_dir, device_str]
+        cmd = [
+            python_exe,
+            abs_worker_script,
+            tmp_path,
+            abs_structures_dir,
+            device_str,
+            "--action-url",
+            action_url,
+        ]
         terminal_title = "SSN ESMFold"
     try:
         launch_in_terminal(

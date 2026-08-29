@@ -85,8 +85,34 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         self.assertEqual(local.mode, "local")
         self.assertEqual(local.device, "cuda")
+        self.assertEqual(local.action_url, esmfold_worker.DEFAULT_ACTION_URL)
         self.assertEqual(large.mode, "large")
         self.assertIsNone(large.device)
+
+        custom = esmfold_worker.parse_arguments(
+            [
+                "input.json",
+                "structures",
+                "--action-url",
+                "http://127.0.0.1:49123/api/action",
+            ]
+        )
+        self.assertEqual(
+            custom.action_url,
+            "http://127.0.0.1:49123/api/action",
+        )
+
+    def test_notify_server_posts_to_the_supplied_instance_url(self):
+        action_url = "http://127.0.0.1:49123/api/action"
+        with mock.patch.object(esmfold_worker.urllib.request, "urlopen") as urlopen:
+            esmfold_worker.notify_server("node_1", "node_1.pdb", action_url)
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, action_url)
+        self.assertEqual(
+            request.get_header("Content-type"),
+            "application/json",
+        )
 
     def test_large_client_uses_hidden_worker_terminal_prompt(self):
         settings = {
@@ -215,6 +241,37 @@ class ESMFoldWorkerTests(unittest.TestCase):
                     auth_state,
                 )
         refresh.assert_called_once()
+
+    def test_main_binds_the_action_url_without_changing_notifier_shape(self):
+        action_url = "http://127.0.0.1:49123/api/action"
+        with tempfile.TemporaryDirectory() as structures_dir:
+            with (
+                mock.patch.object(
+                    esmfold_worker,
+                    "_load_nodes",
+                    return_value=[["node_1", "ACDE"]],
+                ),
+                mock.patch.object(
+                    esmfold_worker,
+                    "run_predictions",
+                    return_value=(1, False),
+                ) as run_predictions,
+                mock.patch.object(esmfold_worker, "notify_server") as notify_server,
+            ):
+                result = esmfold_worker.main(
+                    [
+                        "input.json",
+                        structures_dir,
+                        "--action-url",
+                        action_url,
+                    ]
+                )
+
+                notifier = run_predictions.call_args.kwargs["notifier"]
+                notifier("node_1", "node_1.pdb")
+
+        self.assertEqual(result, 0)
+        notify_server.assert_called_once_with("node_1", "node_1.pdb", action_url)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,9 @@ class ESMFoldCommandTests(unittest.TestCase):
             full_headers=headers,
             sequences_map={header: "ACDE" for header in headers},
             console_text=SimpleNamespace(text=""),
+            get_web_url=mock.Mock(
+                return_value="http://127.0.0.1:49123/api/action"
+            ),
         )
 
     def remove_worker_input(self, launch):
@@ -118,7 +121,14 @@ class ESMFoldCommandTests(unittest.TestCase):
             try:
                 get_device.assert_called_once_with()
                 command = launch.call_args.args[0]
-                self.assertEqual(command[-1], "cuda")
+                self.assertEqual(
+                    command[-3:],
+                    [
+                        "cuda",
+                        "--action-url",
+                        "http://127.0.0.1:49123/api/action",
+                    ],
+                )
                 self.assertNotIn("--mode", command)
                 with open(command[2], "r", encoding="utf-8") as handle:
                     self.assertEqual(json.load(handle), [["node_0", "ACDE"]])
@@ -158,7 +168,15 @@ class ESMFoldCommandTests(unittest.TestCase):
             try:
                 get_device.assert_not_called()
                 command = launch.call_args.args[0]
-                self.assertEqual(command[-2:], ["--mode", "large"])
+                self.assertEqual(
+                    command[-4:],
+                    [
+                        "--mode",
+                        "large",
+                        "--action-url",
+                        "http://127.0.0.1:49123/api/action",
+                    ],
+                )
                 self.assertNotIn("ESM_API_TOKEN", " ".join(command))
                 open_esmfold_ui.assert_called_once_with(
                     viewer,
@@ -196,7 +214,15 @@ class ESMFoldCommandTests(unittest.TestCase):
                         with open(command[2], "r", encoding="utf-8") as handle:
                             records = json.load(handle)
                         self.assertEqual([record[0] for record in records], ["node_0", "node_1"])
-                        self.assertEqual(command[-2:], ["--mode", "large"])
+                        self.assertEqual(
+                            command[-4:],
+                            [
+                                "--mode",
+                                "large",
+                                "--action-url",
+                                "http://127.0.0.1:49123/api/action",
+                            ],
+                        )
                         open_esmfold_ui.assert_called_once_with(
                             viewer,
                             show_existing_dialog=False,
@@ -245,9 +271,38 @@ class ESMFoldCommandTests(unittest.TestCase):
             try:
                 launch.assert_called_once()
                 self.assertFalse(hasattr(esmfold_command, "Biohub_API"))
-                self.assertEqual(launch.call_args.args[0][-2:], ["--mode", "large"])
+                self.assertEqual(
+                    launch.call_args.args[0][-4:],
+                    [
+                        "--mode",
+                        "large",
+                        "--action-url",
+                        "http://127.0.0.1:49123/api/action",
+                    ],
+                )
             finally:
                 self.remove_worker_input(launch)
+
+    def test_unavailable_web_server_prevents_worker_launch(self):
+        viewer = self.make_viewer(1)
+        viewer.get_web_url.side_effect = RuntimeError("bind failed")
+        with tempfile.TemporaryDirectory() as structures_dir:
+            with (
+                mock.patch.object(
+                    esmfold_command.cfg,
+                    "STRUCTURES_DIR",
+                    structures_dir,
+                    create=True,
+                ),
+                mock.patch.object(esmfold_command, "launch_in_terminal") as launch,
+                mock.patch.object(esmfold_command.esmfold_backend, "register"),
+                mock.patch.object(esmfold_command.QMessageBox, "critical") as critical,
+            ):
+                esmfold_command.run(viewer, ["large"])
+
+        launch.assert_not_called()
+        critical.assert_called_once()
+        self.assertEqual(viewer.console_text.text, "Error: Viewer web server unavailable.")
 
 
 if __name__ == "__main__":

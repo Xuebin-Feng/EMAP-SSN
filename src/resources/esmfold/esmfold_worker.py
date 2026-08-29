@@ -32,12 +32,14 @@ if SRC_DIR not in sys.path:
 from resources import Biohub_API
 
 
+DEFAULT_ACTION_URL = "http://127.0.0.1:8000/api/action"
+
+
 def sanitize_filename(name):
     return re.sub(r"[^a-zA-Z0-9_\-\.]", "_", name)
 
 
-def notify_server(node_id, pdb_filename):
-    url = "http://localhost:8000/api/action"
+def notify_server(node_id, pdb_filename, action_url=DEFAULT_ACTION_URL):
     payload = {
         "action": "structure_folded",
         "node_id": node_id,
@@ -45,7 +47,7 @@ def notify_server(node_id, pdb_filename):
     }
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
-        url,
+        action_url,
         data=data,
         headers={"Content-Type": "application/json"},
     )
@@ -72,6 +74,11 @@ def parse_arguments(argv=None):
         choices=("local", "large"),
         default="local",
         help="local ESM3 1.4B or remote Biohub ESM3",
+    )
+    parser.add_argument(
+        "--action-url",
+        default=DEFAULT_ACTION_URL,
+        help="Viewer instance endpoint that receives structure-folded notifications",
     )
     return parser.parse_args(argv)
 
@@ -322,11 +329,17 @@ def main(argv=None):
 
     warnings.filterwarnings("ignore", category=UserWarning, module="esm")
     try:
+        notifier = lambda node_id, pdb_filename: notify_server(
+            node_id,
+            pdb_filename,
+            arguments.action_url,
+        )
         folded_count, errors_occurred = run_predictions(
             nodes_to_fold,
             arguments.structures_dir,
             mode=arguments.mode,
             target_device=arguments.device,
+            notifier=notifier,
         )
     except Exception as error:
         print(f"Error initializing ESM3 prediction: {error}")

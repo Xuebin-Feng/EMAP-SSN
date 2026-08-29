@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import socket
 import sys
 import tempfile
 import unittest
+import urllib.request
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -89,8 +92,7 @@ class DependencyReadinessTests(unittest.TestCase):
 
 class ConcurrentWebServerTests(unittest.TestCase):
     def _close_server(self, server):
-        server.shutdown()
-        server.server_close()
+        Web_Server.stop_server(server)
 
     def test_server_uses_requested_available_port(self):
         server = Web_Server.start_server(object(), preferred_port=0)
@@ -109,6 +111,74 @@ class ConcurrentWebServerTests(unittest.TestCase):
         self.assertNotEqual(server.server_address[1], occupied_port)
         self.assertGreater(server.server_address[1], 0)
 
+    def test_two_viewer_servers_never_share_the_preferred_port(self):
+        first = Web_Server.start_server(object(), preferred_port=0)
+        self.addCleanup(self._close_server, first)
+        preferred_port = first.server_address[1]
+
+        second = Web_Server.start_server(object(), preferred_port=preferred_port)
+        self.addCleanup(self._close_server, second)
+
+        self.assertEqual(first.server_address[1], preferred_port)
+        self.assertNotEqual(second.server_address[1], preferred_port)
+        for server in (first, second):
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{server.server_address[1]}/meta.html",
+                timeout=2,
+            ) as response:
+                self.assertEqual(response.status, 200)
+
+    def test_stop_is_idempotent_and_ensure_replaces_stopped_server(self):
+        first = Web_Server.start_server(object(), preferred_port=0)
+        first_port = first.server_address[1]
+        self.assertTrue(Web_Server.is_running(first))
+
+        Web_Server.stop_server(first)
+        Web_Server.stop_server(first)
+        self.assertFalse(Web_Server.is_running(first))
+        with self.assertRaises(OSError):
+            socket.create_connection((Web_Server.LOOPBACK_HOST, first_port), timeout=0.2)
+
+        replacement = Web_Server.ensure_server(
+            object(), first, preferred_port=first_port
+        )
+        self.addCleanup(self._close_server, replacement)
+        self.assertIsNot(replacement, first)
+        self.assertTrue(Web_Server.is_running(replacement))
+
+    def test_platform_address_reuse_policy(self):
+        windows_server = SimpleNamespace(
+            allow_reuse_address=True,
+            socket=mock.Mock(),
+        )
+        with mock.patch.object(
+            Web_Server.socket,
+            "SO_EXCLUSIVEADDRUSE",
+            12345,
+            create=True,
+        ):
+            Web_Server._configure_address_reuse(
+                windows_server,
+                platform_name="nt",
+            )
+        self.assertFalse(windows_server.allow_reuse_address)
+        windows_server.socket.setsockopt.assert_called_once_with(
+            socket.SOL_SOCKET,
+            12345,
+            1,
+        )
+
+        posix_server = SimpleNamespace(
+            allow_reuse_address=False,
+            socket=mock.Mock(),
+        )
+        Web_Server._configure_address_reuse(
+            posix_server,
+            platform_name="posix",
+        )
+        self.assertTrue(posix_server.allow_reuse_address)
+        posix_server.socket.setsockopt.assert_not_called()
+
 
 class InstanceUrlRoutingTests(unittest.TestCase):
     class Viewer:
@@ -117,7 +187,7 @@ class InstanceUrlRoutingTests(unittest.TestCase):
             self.web_server = None
 
         def get_web_url(self, path):
-            return f"http://localhost:49123/{path.lstrip('/')}"
+            return f"http://127.0.0.1:49123/{path.lstrip('/')}"
 
         def update_console_background(self):
             pass
@@ -147,9 +217,9 @@ class InstanceUrlRoutingTests(unittest.TestCase):
     def test_agent_meta_and_esmfold_use_viewer_instance_port(self):
         viewer = self.Viewer()
         expected = [
-            "http://localhost:49123/agent.html",
-            "http://localhost:49123/meta.html",
-            "http://localhost:49123/esmfold.html",
+            "http://127.0.0.1:49123/agent.html",
+            "http://127.0.0.1:49123/meta.html",
+            "http://127.0.0.1:49123/esmfold.html",
         ]
         with tempfile.TemporaryDirectory() as temp_dir, \
                 mock.patch.object(agent, "register"), \

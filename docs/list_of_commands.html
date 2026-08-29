@@ -1439,19 +1439,19 @@
                     <div class="syntax-content">esmfold [large] [multi]  |  esmfold help</div>
                     <button class="copy-btn" onclick="copyText('esmfold', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The esmfold command predicts protein structures locally with the EvolutionaryScale ESM3 1.4B open-weights model (<code>biohub/esm3-sm-open-v1</code>) or remotely through Biohub with the configured ESM3 model. It registers the "🧬 Fold View" sidebar button and launches a web-based Mol* 3D structure visualizer in the default browser.</p>
+                <p><strong>Overview:</strong> The esmfold command predicts protein structures with ESM3 and opens them in a web-based Mol* 3D structure visualizer. Without the <code>large</code> modifier, it runs the EvolutionaryScale ESM3 1.4B open-weights model (<code>biohub/esm3-sm-open-v1</code>) locally and writes backbone-coordinate PDB files containing N, C&alpha;, C, and geometrically inferred carbonyl O atoms. Adding <code>large</code> sends the prediction to the ESM3 model configured for Biohub&mdash;currently <code>esm3-large-2024-03</code> (98B)&mdash;whose current output includes side-chain heavy-atom coordinates. Neither mode adds hydrogen atoms. The command also registers the "🧬 Fold View" sidebar button.</p>
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>No Arguments:</strong> Folds one selected node locally. With no selection, registers the Fold View button and opens Mol* without launching a prediction.</li>
-                    <li><strong>multi:</strong> Folds all currently selected nodes sequentially in the background console.</li>
-                    <li><strong>large:</strong> Folds one selected node remotely using the model in <code>src/resources/Biohub_API.json</code>. Combine with <code>multi</code> in either order for a sequential remote batch.</li>
+                    <li><strong>No Arguments:</strong> Predicts one selected node locally with ESM3 1.4B and produces a backbone-coordinate PDB file. With no selection, registers the Fold View button and opens Mol* without launching a prediction.</li>
+                    <li><strong>multi:</strong> Processes all currently selected nodes sequentially in the background console. It uses the local backbone-only mode unless combined with <code>large</code>.</li>
+                    <li><strong>large:</strong> Predicts one selected node remotely using the model in <code>src/resources/Biohub_API.json</code>, currently ESM3 Large 98B. The current Biohub output includes side-chain heavy atoms, unlike the local backbone-only output. Combine with <code>multi</code> in either order for a sequential remote batch.</li>
                     <li><strong>help:</strong> Prints CLI help and usage instructions.</li>
                 </ul>
 
                 <div class="subheading">Hardware &amp; System Integration</div>
                 <ul>
-                    <li><strong>GPU Acceleration:</strong> Automatically detects and utilizes CUDA, Apple Metal (MPS), or fallback CPU devices.</li>
+                    <li><strong>Local GPU Acceleration:</strong> Local inference automatically detects and utilizes CUDA, Apple Metal (MPS), or fallback CPU devices.</li>
                     <li><strong>Biohub Mode:</strong> Remote inference bypasses local hardware selection, keeps local and remote PDB files separate, and prompts for a hidden shared API token in the worker terminal on first use.</li>
                     <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the PyQt viewer.</li>
                     <li><strong>Mol* Interface:</strong> Hosts a web server that loads the predicted structure in a rich interactive 3D viewer.</li>

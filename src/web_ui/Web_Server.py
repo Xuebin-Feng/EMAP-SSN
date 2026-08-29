@@ -14,6 +14,7 @@
 
 import http.server
 import errno
+import socket
 import threading
 import queue
 import json
@@ -21,6 +22,9 @@ import os
 import re
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore
+
+
+LOOPBACK_HOST = "127.0.0.1"
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -56,9 +60,18 @@ class QtCommunicator(QtCore.QObject):
             self.viewer.handle_web_action(data)
 
 class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        _configure_address_reuse(self, platform_name=os.name)
+        super().server_bind()
+
     def __init__(self, server_address, RequestHandlerClass, viewer):
         super().__init__(server_address, RequestHandlerClass)
         self.viewer = viewer
+        self.serve_thread = None
+        self.serve_error = None
+        self._lifecycle_lock = threading.Lock()
+        self._stopping = False
+        self._stopped = False
         self.event_queues = []
         self.event_clients = {}
         self.queues_lock = threading.Lock()
@@ -105,6 +118,17 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         if exc_type in (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             return
         super().handle_error(request, client_address)
+
+
+def _configure_address_reuse(server, *, platform_name):
+    """Apply portable loopback address-ownership policy before ``bind``."""
+    if platform_name == "nt":
+        server.allow_reuse_address = False
+        exclusive_option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive_option is not None:
+            server.socket.setsockopt(socket.SOL_SOCKET, exclusive_option, 1)
+        return
+    server.allow_reuse_address = True
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # src/web_ui/
 
@@ -249,18 +273,86 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
 
+def _address_unavailable(error):
+    return (
+        error.errno in {errno.EADDRINUSE, errno.EACCES}
+        or getattr(error, "winerror", None) in {10013, 10048}
+    )
+
+
+def _serve(server):
+    try:
+        server.serve_forever()
+    except Exception as error:
+        server.serve_error = error
+        print(f"WebServer serving thread stopped unexpectedly: {error}")
+
+
+def is_running(server):
+    """Return whether ``server`` still owns an open socket and serving thread."""
+    if server is None or getattr(server, "_stopping", False):
+        return False
+    thread = getattr(server, "serve_thread", None)
+    server_socket = getattr(server, "socket", None)
+    try:
+        socket_open = server_socket is not None and server_socket.fileno() >= 0
+    except (OSError, ValueError):
+        socket_open = False
+    return bool(thread is not None and thread.is_alive() and socket_open)
+
+
+def stop_server(server):
+    """Stop and close ``server`` once; repeated calls are safe."""
+    if server is None:
+        return
+    lifecycle_lock = getattr(server, "_lifecycle_lock", None)
+    if lifecycle_lock is None:
+        lifecycle_lock = threading.Lock()
+        server._lifecycle_lock = lifecycle_lock
+    with lifecycle_lock:
+        if getattr(server, "_stopping", False) or getattr(server, "_stopped", False):
+            return
+        server._stopping = True
+
+    thread = getattr(server, "serve_thread", None)
+    try:
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            server.shutdown()
+    finally:
+        try:
+            server.server_close()
+        finally:
+            server._stopped = True
+
+
 def start_server(viewer, preferred_port=8000):
     """Start on the traditional port, falling back when another Viewer owns it."""
     try:
         server = ThreadSafeHTTPServer(
-            ("localhost", preferred_port), WebServerHandler, viewer
+            (LOOPBACK_HOST, preferred_port), WebServerHandler, viewer
         )
     except OSError as error:
-        address_unavailable = error.errno in {errno.EADDRINUSE, errno.EACCES}
-        windows_address_unavailable = getattr(error, "winerror", None) in {10013, 10048}
-        if not address_unavailable and not windows_address_unavailable:
+        if not _address_unavailable(error):
             raise
-        server = ThreadSafeHTTPServer(("localhost", 0), WebServerHandler, viewer)
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
+        server = ThreadSafeHTTPServer((LOOPBACK_HOST, 0), WebServerHandler, viewer)
+    thread = threading.Thread(
+        target=_serve,
+        args=(server,),
+        daemon=True,
+        name=f"SSNWebServer:{server.server_address[1]}",
+    )
+    server.serve_thread = thread
+    try:
+        thread.start()
+    except Exception:
+        server.server_close()
+        raise
     return server
+
+
+def ensure_server(viewer, server, preferred_port=8000):
+    """Return a live server, replacing a stopped instance when necessary."""
+    if is_running(server):
+        return server
+    stop_server(server)
+    return start_server(viewer, preferred_port=preferred_port)

@@ -517,8 +517,12 @@ class MainViewer:
             self.canvas.events.close.connect(
                 lambda _event: self.background_job_scheduler.shutdown()
             )
+            self.canvas.events.close.connect(
+                lambda _event: self.shutdown_web_server()
+            )
         if qapp:
             qapp.aboutToQuit.connect(self.background_job_scheduler.shutdown)
+            qapp.aboutToQuit.connect(self.shutdown_web_server)
         
         # 1. Find the extreme coordinates of the final grid
         min_x, min_y = np.min(self.pos[:, :2], axis=0)
@@ -2711,6 +2715,7 @@ class MainViewer:
 
     def get_web_url(self, path="/"):
         """Return a URL served by this Viewer instance."""
+        self.ensure_web_server()
         if not self.web_server_url:
             raise RuntimeError("This Viewer instance's web server is unavailable.")
         return f"{self.web_server_url}/{str(path).lstrip('/')}"
@@ -2747,12 +2752,48 @@ class MainViewer:
             from web_ui import Web_Server
             self.web_server = Web_Server.start_server(self)
             port = int(self.web_server.server_address[1])
-            self.web_server_url = f"http://localhost:{port}"
+            self.web_server_url = f"http://{Web_Server.LOOPBACK_HOST}:{port}"
             print(f"WebServer started at {self.web_server_url}")
+            return True
         except Exception as e:
             self.web_server = None
             self.web_server_url = None
             print(f"Error starting WebServer: {e}")
+            return False
+
+    def ensure_web_server(self):
+        """Keep this Viewer attached to one live local web server."""
+        from web_ui import Web_Server
+
+        current_server = getattr(self, "web_server", None)
+        if Web_Server.is_running(current_server):
+            return current_server
+        try:
+            self.web_server = Web_Server.ensure_server(self, current_server)
+        except Exception as error:
+            self.web_server = None
+            self.web_server_url = None
+            raise RuntimeError(
+                f"This Viewer instance's web server is unavailable: {error}"
+            ) from error
+        port = int(self.web_server.server_address[1])
+        self.web_server_url = f"http://{Web_Server.LOOPBACK_HOST}:{port}"
+        print(f"WebServer restarted at {self.web_server_url}")
+        return self.web_server
+
+    def shutdown_web_server(self):
+        """Release this Viewer's local web server and port exactly once."""
+        from web_ui import Web_Server
+
+        server = getattr(self, "web_server", None)
+        try:
+            Web_Server.stop_server(server)
+        except Exception as error:
+            print(f"Error stopping WebServer: {error}")
+        finally:
+            if getattr(self, "web_server", None) is server:
+                self.web_server = None
+                self.web_server_url = None
 
     def broadcast_event(self, event):
         if hasattr(self, 'web_server') and self.web_server:
