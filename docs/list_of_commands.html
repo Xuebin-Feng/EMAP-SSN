@@ -1371,7 +1371,7 @@
                 <p>Thresholds accept fractions or percentages. The first two positional numbers remain <code>gmax</code> and <code>cmin</code>; an optional third positional number is identity (for example, <code>label 0.4 0.9 90%</code>). Use <code>id VALUE</code> to enable identity weighting while retaining default or keyword-based <code>gmax</code>/<code>cmin</code>. Do not mix positional numbers after keyword parameters.</p>
 
                 <div class="subheading">Understanding the Excel Output</div>
-                <p>Output is written to <code>Analysis_Results/Cluster_Label/</code> and contains three worksheets:</p>
+                <p>Output is written beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Cluster_Label/</code>) and contains three worksheets:</p>
                 <ul>
                     <li><strong>Meta Data:</strong> Records network, alignment, clustering, and label parameters. A compact Statistics value reports <code>Aligned N of N | Excluded N | Effective N</code>; without identity reweighting, Effective equals the aligned count.</li>
                     <li><strong>Subset Stats (SDP Matrix):</strong> Lists clusters/groups in rows and alignment positions in columns. Displays conserved amino acids colored by gap-occupancy. If multiple amino acids independently pass at one subset-position, the cell joins them in descending subset-frequency order, for example <code>Y120 | F120</code>.</li>
@@ -1563,7 +1563,7 @@
                     <div class="syntax-content">print [filename] [modifiers]</div>
                     <button class="copy-btn" onclick="copyText('print', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The print command captures exactly what you see in the viewer and exports it as a 2D image file, ready for publication or presentation. All images are automatically routed to the Analysis_Results/Saved_Images/ directory.</p>
+                <p><strong>Overview:</strong> The print command captures exactly what you see in the viewer and exports it as a 2D image file, ready for publication or presentation. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>).</p>
                 
                 <div class="subheading">Modifiers</div>
                 <ul>
@@ -1605,7 +1605,7 @@
                 <div class="subheading">Core Arguments</div>
                 <ul>
                     <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior.</li>
-                    <li><strong>FILENAME:</strong> Output file ending in <code>.svg</code> or <code>.png</code>. Saved to <code>Analysis_Results/Sequence_Logos/</code>.</li>
+                    <li><strong>FILENAME:</strong> Output file ending in <code>.svg</code> or <code>.png</code>. Saved beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Sequence_Logos/</code>).</li>
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
                     <li><strong>COLOR_SCHEME:</strong> Preset color scheme. Defaults to <code>chemistry</code>. Presets: chemistry, classic, grays, base_pairing, colorblind_safe, charge, hydrophobicity, etc.</li>

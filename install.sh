@@ -75,7 +75,7 @@ ssn_sanitize_managed_environment() {
 }
 
 ssn_setup_lock_path() {
-    printf '%s\n' "$1/Cache_Files/Launcher_State/dependency_setup.lock"
+    printf '%s\n' "$1/temp/dependency_setup.lock"
 }
 
 ssn_release_dependency_setup_lock() {
@@ -104,7 +104,7 @@ ssn_acquire_dependency_setup_lock() {
         ''|*[!0-9]*) timeout_seconds=3600 ;;
     esac
 
-    lock_root="$project_root/Cache_Files/Launcher_State"
+    lock_root="$project_root/temp"
     lock_dir=$(ssn_setup_lock_path "$project_root") || return 1
     mkdir -p "$lock_root" || return 1
 

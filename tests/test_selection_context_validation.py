@@ -353,10 +353,9 @@ class AtomicCommandTests(unittest.TestCase):
                 mock.patch.object(cfg, "NODE_FASTA_FILE", fasta_path),
                 mock.patch.object(cfg, "INPUT_HDF5", "network.h5"),
                 mock.patch.object(
-                    cfg,
-                    "SEQUENCE_EXPORT_DIR",
+                    export_command,
+                    "SEQUENCE_EXPORT_DIRECTORY",
                     export_root,
-                    create=True,
                 ),
                 mock.patch.object(cfg, "TOP_EDGE_PERCENT", None),
                 mock.patch.object(cfg, "SIMILARITY_THRESHOLD", 0.5),

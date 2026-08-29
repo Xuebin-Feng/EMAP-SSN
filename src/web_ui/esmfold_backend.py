@@ -19,6 +19,14 @@ from web_ui.Plugin_Manager import ensure_registry
 from web_ui.Browser_Page import open_browser_page
 from utilities.Cache_Selection import resolve_selected_cache
 
+STRUCTURES_DIRECTORY = os.path.join("$cache_file$", "Predicted_Structures")
+
+
+def get_structures_directory():
+    """Return the command and web route's shared effective output directory."""
+    return cfg.resolve_directory_path(STRUCTURES_DIRECTORY)
+
+
 def register_backend(registry, viewer):
     """Register Mol* web capabilities without changing sidebar state."""
     registry.register_action(
@@ -41,9 +49,7 @@ def register_backend(registry, viewer):
         "console_debug_err",
         lambda data: handle_console_debug_err(viewer, data),
     )
-    structures_dir = getattr(
-        cfg, "STRUCTURES_DIR", os.path.join("Cache_Files", "Structures")
-    )
+    structures_dir = get_structures_directory()
     src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     registry.register_static_route("esmfold", "/structures/", structures_dir)
     registry.register_static_route(
