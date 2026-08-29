@@ -81,7 +81,7 @@ ssn_launch_in_terminal() {
             -e 'end repeat' \
             -e 'if not launchStarted then error "Terminal did not start the SSN command." number 1' \
             -e 'repeat while busy of launchTab' \
-            -e 'delay 0.2' \
+            -e 'delay 0.05' \
             -e 'end repeat' \
             -e 'try' \
             -e 'close launchWindow' \

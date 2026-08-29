@@ -246,6 +246,13 @@ class TerminalPolicyTests(unittest.TestCase):
         self.assertIn("project path", script)
         self.assertIn("echo unsafe", script)
 
+    def test_macos_startup_terminal_checks_for_exit_every_fifty_milliseconds(self):
+        source = (SRC_DIR / "bin" / "SSN_Terminal_Launcher.sh").read_text(
+            encoding="utf-8"
+        )
+        busy_loop = source.split("repeat while busy of launchTab", 1)[1]
+        self.assertIn("delay 0.05", busy_loop.split("end repeat", 1)[0])
+
     def test_launch_missing_terminal_does_not_spawn_background_process(self):
         with mock.patch.object(launcher.shutil, "which", return_value=None), mock.patch.object(
             launcher.subprocess, "Popen"
