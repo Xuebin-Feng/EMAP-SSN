@@ -26,6 +26,35 @@ import markdown
 import re
 import traceback
 
+
+def _configure_linux_qtwebengine_rendering(
+    environment=None,
+    platform_name=sys.platform,
+):
+    """Use Chromium's software renderer for the static help panel on Linux.
+
+    QtWebEngine can load the documentation DOM successfully but paint a blank
+    surface when Chromium's GBM/Vulkan fallback is unavailable on Linux
+    Wayland.  Disabling Chromium GPU rendering avoids that compositor path.
+    Preserve caller-supplied Chromium flags and leave other platforms alone.
+    """
+    environment = os.environ if environment is None else environment
+    if not str(platform_name).startswith("linux"):
+        return False
+
+    existing_flags = environment.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    if "--disable-gpu" in existing_flags.split():
+        return False
+
+    environment["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(
+        flag for flag in (existing_flags.strip(), "--disable-gpu") if flag
+    )
+    return True
+
+
+# Chromium reads this before the QtWebEngine renderer process starts.
+_configure_linux_qtwebengine_rendering()
+
 from utilities import Hardware_Utils
 from utilities.Embedding_Alignment_Engine import (
     DEFAULT_HOST_CACHE_CAP,
