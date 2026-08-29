@@ -229,21 +229,45 @@ class ToolDirectoryDefaultTests(unittest.TestCase):
                 os.path.normpath(os.path.join(PROJECT_ROOT, relative_path)),
             )
 
-    def test_save_and_run_populates_missing_global_directories(self):
-        source = (PROJECT_ROOT / "src" / "SSN_Tools.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
+    def test_shared_execution_populates_missing_global_directories(self):
+        gui_source = (PROJECT_ROOT / "src" / "SSN_Tools.py").read_text(
+            encoding="utf-8"
+        )
+        gui_tree = ast.parse(gui_source)
         save_and_run = next(
             node
-            for node in ast.walk(tree)
+            for node in ast.walk(gui_tree)
             if isinstance(node, ast.FunctionDef) and node.name == "save_and_run"
         )
-
-        calls = {
+        gui_calls = {
             node.func.id
             for node in ast.walk(save_and_run)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        self.assertIn("fill_missing_directory_defaults", calls)
+        self.assertIn("load_shared_settings", gui_calls)
+        self.assertIn("save_shared_tool_settings", gui_calls)
+
+        service_source = (
+            PROJECT_ROOT / "src" / "utilities" / "Tool_Execution.py"
+        ).read_text(encoding="utf-8")
+        service_tree = ast.parse(service_source)
+        shared_functions = {
+            node.name: node
+            for node in ast.walk(service_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"load_shared_settings", "save_shared_tool_settings"}
+        }
+        self.assertEqual(
+            set(shared_functions),
+            {"load_shared_settings", "save_shared_tool_settings"},
+        )
+        for function in shared_functions.values():
+            calls = {
+                node.func.id
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            self.assertIn("fill_missing_directory_defaults", calls)
 
     def test_every_tool_uses_the_shared_project_anchored_fallbacks(self):
         tools_dir = PROJECT_ROOT / "src" / "tools"

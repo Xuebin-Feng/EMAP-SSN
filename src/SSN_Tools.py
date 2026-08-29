@@ -45,10 +45,16 @@ from utilities.Model_License_Utils import (
     is_model_license_accepted,
     record_model_license_acceptance,
 )
-from utilities.Tool_Directories import (
-    DEFAULT_DIRECTORY_PATHS,
-    TOOL_DIRECTORY_KEYS,
-    fill_missing_directory_defaults,
+from utilities.Tool_Directories import DEFAULT_DIRECTORY_PATHS
+from utilities.Tool_Execution import (
+    build_settings_document,
+    format_invocation_command,
+    get_tool_spec_for_script,
+    load_shared_settings,
+    prepare_exported_invocation,
+    prepare_gui_invocation,
+    save_shared_tool_settings,
+    write_json_document,
 )
 from utilities.Application_Windows import (
     SingleInstanceController,
@@ -4007,9 +4013,7 @@ class ToolsGUI(QMainWindow):
                 if answer != QMessageBox.StandardButton.Yes:
                     return
 
-            directory_keys = TOOL_DIRECTORY_KEYS.get(script_name)
-            if directory_keys is None:
-                raise ValueError(f"No directory export contract is registered for {script_name}.")
+            tool_spec = get_tool_spec_for_script(script_path)
             tool_settings = self._collect_tool_settings(script_path)
             tool_settings = {
                 key: (
@@ -4019,31 +4023,30 @@ class ToolsGUI(QMainWindow):
                 )
                 for key, value in tool_settings.items()
             }
-            payload = {
-                "DIRECTORIES": {
+            payload = build_settings_document(
+                tool_spec,
+                {
                     key: self._portable_export_directory_path(
                         current_directories.get(key, "")
                     )
-                    for key in directory_keys
+                    for key in tool_spec.required_directories
                 },
-                script_name: tool_settings,
-            }
-
-            os.makedirs(export_directory, exist_ok=True)
-            partial_path = f"{target_path}.{os.getpid()}.partial"
-            try:
-                with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
-                    json.dump(payload, handle, indent=4)
-                    handle.write("\n")
-                os.replace(partial_path, target_path)
-            finally:
-                if os.path.exists(partial_path):
-                    os.unlink(partial_path)
-
-            command = (
-                f'"{sys.executable}" -u "{os.path.abspath(script_path)}" '
-                f'"{os.path.abspath(target_path)}"'
+                tool_settings,
             )
+
+            write_json_document(
+                target_path,
+                payload,
+                atomic=True,
+                trailing_newline=True,
+            )
+            invocation = prepare_exported_invocation(
+                tool_spec.tool_id,
+                target_path,
+                _PROJECT_ROOT,
+                python_executable=sys.executable,
+            )
+            command = format_invocation_command(invocation)
             QMessageBox.information(
                 self,
                 "Settings Exported",
@@ -4054,27 +4057,13 @@ class ToolsGUI(QMainWindow):
             QMessageBox.critical(self, "Export Settings Error", str(error))
 
     def save_and_run(self, script_path):
-        import json
-
         # 1. Collect current values from GUI
         new_settings = self._collect_tool_settings(script_path)
 
         # 2. Load existing JSON to avoid overwriting unrelated settings
-        settings_file = os.path.join(_PROJECT_ROOT, "Input_Files", "tools_settings.json")
-        combined_settings = {}
-        os.makedirs(os.path.dirname(settings_file), exist_ok=True)
-        if os.path.exists(settings_file):
-            try:
-                with open(settings_file, "r", encoding="utf-8") as f:
-                    combined_settings = json.load(f)
-            except: pass
-
-        # A first-run Save and Run must persist the same usable directory
-        # defaults shown in the Directories tab. Existing nonblank custom paths
-        # remain authoritative.
-        fill_missing_directory_defaults(combined_settings)
-
-        script_name = os.path.basename(script_path)
+        combined_settings = load_shared_settings(_PROJECT_ROOT)
+        tool_spec = get_tool_spec_for_script(script_path)
+        script_name = tool_spec.script_name
         selected_model = None
         if script_name == "Generate_Embeddings.py":
             selected_model = new_settings.get("MODEL_NAME")
@@ -4216,27 +4205,31 @@ class ToolsGUI(QMainWindow):
         # 3. Replace and save only the selected script's complete settings section.
         # This removes stale keys that are no longer represented in the GUI while
         # preserving DIRECTORIES and every other script section.
-        combined_settings[script_name] = new_settings
-        
         try:
-            with open(settings_file, "w", encoding="utf-8") as f:
-                json.dump(combined_settings, f, indent=4)
+            save_shared_tool_settings(
+                _PROJECT_ROOT,
+                tool_spec,
+                new_settings,
+                base_document=combined_settings,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save JSON settings:\n{e}")
             return
             
         # 4. Run the script
         try:
-            # Resolve script path, folder directory, and name to absolute values to avoid execution context errors
-            abs_script_path = os.path.abspath(script_path)
-            script_dir = os.path.dirname(abs_script_path)
-            script_name = os.path.basename(abs_script_path)
+            invocation = prepare_gui_invocation(
+                script_path,
+                _PROJECT_ROOT,
+                python_executable=sys.executable,
+            )
+            script_name = invocation.tool.script_name
             
-            print(f"Executing: {script_name} in {script_dir}")
+            print(f"Executing: {script_name} in {invocation.cwd}")
             
             launch_in_terminal(
-                [sys.executable, "-u", abs_script_path],
-                cwd=script_dir,
+                list(invocation.argv),
+                cwd=invocation.cwd,
                 hold=HoldMode.ALWAYS,
                 title=script_name,
             )

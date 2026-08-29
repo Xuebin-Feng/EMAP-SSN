@@ -88,6 +88,7 @@ from utilities.Application_Fonts import (
 from utilities.Application_Windows import show_window_in_front
 from utilities.Cache_Selection import resolve_selected_cache
 from utilities.Network_Preparation import prepare_network
+from utilities.Viewer_Inspection import ViewerInspectionService
 from utilities.Application_Identity import (
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
@@ -736,6 +737,7 @@ class MainViewer:
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server
         self.communicator = Web_Server.QtCommunicator(self)
+        self.viewer_inspection = ViewerInspectionService(self, cfg)
         
         # Discover bundled web plugins before the server begins accepting requests.
         self.web_server = None

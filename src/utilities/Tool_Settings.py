@@ -72,8 +72,24 @@ def read_settings_document(settings_path, script_name, *, explicit):
         print(f"Failed to load user settings: {error}")
         return {}
 
+    return validate_settings_document(
+        document,
+        script_name,
+        explicit=explicit,
+        source_label=f"Settings file '{path}'",
+    )
+
+
+def validate_settings_document(
+    document,
+    script_name,
+    *,
+    explicit=True,
+    source_label="Settings document",
+):
+    """Validate and copy an in-memory tool settings document."""
     if not isinstance(document, MutableMapping):
-        message = f"Settings file '{path}' must contain a JSON object."
+        message = f"{source_label} must contain a JSON object."
         if explicit:
             raise ToolSettingsError(message)
         print(f"Failed to load user settings: {message}")
@@ -86,11 +102,11 @@ def read_settings_document(settings_path, script_name, *, explicit):
             directories, MutableMapping
         ):
             raise ToolSettingsError(
-                f"Settings file '{path}' must contain a DIRECTORIES object."
+                f"{source_label} must contain a DIRECTORIES object."
             )
         if not isinstance(tool_settings, MutableMapping):
             raise ToolSettingsError(
-                f"Settings file '{path}' does not contain the required "
+                f"{source_label} does not contain the required "
                 f"'{script_name}' object. Export settings for this tool and try again."
             )
     else:

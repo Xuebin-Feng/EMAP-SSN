@@ -14,14 +14,28 @@
 
 import http.server
 import errno
+import hmac
 import socket
 import threading
 import queue
 import json
 import os
 import re
+import secrets
+import uuid
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore
+
+from utilities.Viewer_Inspection import (
+    ViewerInspectionError,
+    ViewerInspectionService,
+)
+from utilities.Viewer_Sessions import (
+    SESSION_PROTOCOL_VERSION,
+    publish_viewer_session,
+    remove_viewer_session,
+)
 
 
 LOOPBACK_HOST = "127.0.0.1"
@@ -59,6 +73,51 @@ class QtCommunicator(QtCore.QObject):
         if hasattr(self.viewer, "handle_web_action"):
             self.viewer.handle_web_action(data)
 
+
+class _InspectionCall:
+    def __init__(self, method_name, arguments):
+        self.method_name = method_name
+        self.arguments = arguments
+        self.event = threading.Event()
+        self.result = None
+        self.error = None
+
+
+class QtInspectionBridge(QtCore.QObject):
+    """Run read-only snapshots on the Viewer's owning Qt thread."""
+
+    inspection_signal = QtCore.Signal(object)
+
+    def __init__(self, viewer):
+        super().__init__()
+        self.service = getattr(viewer, "viewer_inspection", None)
+        if self.service is None:
+            self.service = ViewerInspectionService(viewer)
+        self.inspection_signal.connect(
+            self._dispatch,
+            QtCore.Qt.ConnectionType.QueuedConnection,
+        )
+
+    def request(self, method_name, *, timeout=5.0, **arguments):
+        if QtCore.QThread.currentThread() == self.thread():
+            return getattr(self.service, method_name)(**arguments)
+        call = _InspectionCall(method_name, arguments)
+        self.inspection_signal.emit(call)
+        if not call.event.wait(timeout):
+            raise TimeoutError("The Viewer did not answer the inspection request in time.")
+        if call.error is not None:
+            raise call.error
+        return call.result
+
+    @QtCore.Slot(object)
+    def _dispatch(self, call):
+        try:
+            call.result = getattr(self.service, call.method_name)(**call.arguments)
+        except Exception as error:
+            call.error = error
+        finally:
+            call.event.set()
+
 class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
     def server_bind(self):
         _configure_address_reuse(self, platform_name=os.name)
@@ -67,6 +126,13 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
     def __init__(self, server_address, RequestHandlerClass, viewer):
         super().__init__(server_address, RequestHandlerClass)
         self.viewer = viewer
+        self.inspection_bridge = QtInspectionBridge(viewer)
+        self.inspection_token = secrets.token_urlsafe(32)
+        self.inspection_session_id = str(uuid.uuid4())
+        self.inspection_started_at = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+        self.inspection_descriptor = None
         self.serve_thread = None
         self.serve_error = None
         self._lifecycle_lock = threading.Lock()
@@ -166,7 +232,11 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        clean_path = self.path.split('?', 1)[0]
+        parsed_path = urlsplit(self.path)
+        clean_path = parsed_path.path
+        if clean_path.startswith("/api/mcp/v1/"):
+            self.handle_mcp_inspection(clean_path, parsed_path.query)
+            return
         if clean_path == "/api/events":
             self.handle_sse(event_client_from_path(self.path))
             return
@@ -214,6 +284,73 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         ext = os.path.splitext(filepath)[1].lower()
         content_type = MIME_TYPES.get(ext, "application/octet-stream")
         self.serve_file(filepath, content_type)
+
+    def _send_json(self, status, payload, *, headers=None):
+        body = json.dumps(payload, cls=NumpyEncoder).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _inspection_authorized(self):
+        supplied = self.headers.get("Authorization", "")
+        expected = f"Bearer {self.server.inspection_token}"
+        return hmac.compare_digest(supplied, expected)
+
+    def handle_mcp_inspection(self, clean_path, query_string):
+        if not self._inspection_authorized():
+            self._send_json(
+                401,
+                {"error": "Missing or invalid Viewer inspection token."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            return
+        try:
+            if clean_path == "/api/mcp/v1/session":
+                payload = {
+                    "protocol_version": SESSION_PROTOCOL_VERSION,
+                    "session_id": self.server.inspection_session_id,
+                    "pid": os.getpid(),
+                    "started_at": self.server.inspection_started_at,
+                }
+            elif clean_path == "/api/mcp/v1/summary":
+                payload = self.server.inspection_bridge.request("get_summary")
+            elif clean_path == "/api/mcp/v1/nodes":
+                query = parse_qs(query_string, keep_blank_values=True)
+                raw_columns = query.get("columns")
+                columns = None
+                if raw_columns is not None:
+                    columns = []
+                    for value in raw_columns:
+                        columns.extend(
+                            column.strip()
+                            for column in value.split(",")
+                            if column.strip()
+                        )
+                payload = self.server.inspection_bridge.request(
+                    "query_nodes",
+                    scope=query.get("scope", ["all"])[0],
+                    offset=query.get("offset", [0])[0],
+                    limit=query.get("limit", [100])[0],
+                    columns=columns,
+                )
+            else:
+                self._send_json(404, {"error": "Inspection endpoint not found."})
+                return
+        except ViewerInspectionError as error:
+            self._send_json(400, {"error": str(error)})
+            return
+        except TimeoutError as error:
+            self._send_json(503, {"error": str(error)})
+            return
+        except Exception as error:
+            self._send_json(500, {"error": f"Viewer inspection failed: {error}"})
+            return
+        self._send_json(200, payload)
 
     def serve_file(self, filepath, content_type):
         if not os.path.exists(filepath):
@@ -322,6 +459,10 @@ def stop_server(server):
         try:
             server.server_close()
         finally:
+            descriptor = getattr(server, "inspection_descriptor", None)
+            if descriptor is not None:
+                remove_viewer_session(descriptor)
+                server.inspection_descriptor = None
             server._stopped = True
 
 
@@ -347,6 +488,19 @@ def start_server(viewer, preferred_port=8000):
     except Exception:
         server.server_close()
         raise
+    try:
+        server.inspection_descriptor = publish_viewer_session(
+            session_id=server.inspection_session_id,
+            pid=os.getpid(),
+            host=LOOPBACK_HOST,
+            port=int(server.server_address[1]),
+            token=server.inspection_token,
+            started_at=server.inspection_started_at,
+        )
+    except Exception as error:
+        # The existing browser server remains useful even when discovery cannot
+        # be published (for example, a locked-down temporary directory).
+        print(f"Warning: Could not publish Viewer inspection session: {error}")
     return server
 
 
