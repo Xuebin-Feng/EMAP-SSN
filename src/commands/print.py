@@ -19,12 +19,16 @@ import datetime
 import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+from matplotlib import colors as mcolors
 from matplotlib.collections import LineCollection
 from vispy import app
 import SSN_Config as cfg
 from utilities.Application_Windows import open_in_file_manager
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
+PNG_TRIM_PADDING_PX = 20
+PNG_ALPHA_TOLERANCE = 1.0 / 255.0
+PNG_BACKGROUND_TOLERANCE = 2.0 / 255.0
 
 def print_help():
     print("""
@@ -37,6 +41,8 @@ def print_help():
       Exports a high-resolution snapshot of the current 3D viewer state. 
       Images are saved beneath the configured Analysis Results directory
       (default: 'Analysis_Results/Saved_Images/').
+      PNG exports automatically trim empty margins while retaining a 20-pixel
+      border around all rendered content. SVG view-box padding is unchanged.
 
     Modifiers (Can be combined, except for SVG):
       transparent : Removes the white background (PNG only).
@@ -263,6 +269,50 @@ def _capture_tile(viewer, is_transparent):
             return rgba
         return img
 
+
+def _background_rgb(background_color):
+    """Return the canvas background color quantized to rendered 8-bit RGB."""
+    if hasattr(background_color, 'rgba'):
+        rgba = background_color.rgba
+    else:
+        rgba = mcolors.to_rgba(background_color)
+    rgb = np.asarray(rgba, dtype=np.float32)[:3]
+    return np.round(np.clip(rgb, 0.0, 1.0) * 255.0) / 255.0
+
+
+def _trim_png_margins(
+    image,
+    is_transparent,
+    background_color,
+    padding_px=PNG_TRIM_PADDING_PX,
+):
+    """Crop background-only PNG margins while preserving a fixed pixel border."""
+    image = np.asarray(image)
+    if image.ndim != 3 or image.shape[2] < 3:
+        raise ValueError("PNG image must have height, width, and RGB channels.")
+
+    if is_transparent:
+        if image.shape[2] < 4:
+            raise ValueError("Transparent PNG trimming requires an alpha channel.")
+        content_mask = image[..., 3] > PNG_ALPHA_TOLERANCE
+    else:
+        background_rgb = _background_rgb(background_color)
+        content_mask = np.any(
+            np.abs(image[..., :3] - background_rgb) > PNG_BACKGROUND_TOLERANCE,
+            axis=2,
+        )
+
+    content_rows, content_cols = np.nonzero(content_mask)
+    if content_rows.size == 0:
+        return image
+
+    padding_px = max(int(padding_px), 0)
+    top = max(int(content_rows.min()) - padding_px, 0)
+    bottom = min(int(content_rows.max()) + padding_px + 1, image.shape[0])
+    left = max(int(content_cols.min()) - padding_px, 0)
+    right = min(int(content_cols.max()) + padding_px + 1, image.shape[1])
+    return image[top:bottom, left:right]
+
 def run(viewer, args):
 
     # 1. Setup paths
@@ -454,12 +504,26 @@ def run(viewer, args):
             target_px_h = min(target_px_h, final_img.shape[0])
             
             final_img = final_img[:target_px_h, :target_px_w]
-            
-            mpimg.imsave(filepath, final_img)
-            
+
         else:
             # Standard single-shot render
             final_img = _capture_tile(viewer, is_transparent)
+
+        if not is_svg:
+            original_height, original_width = final_img.shape[:2]
+            final_img = _trim_png_margins(
+                final_img,
+                is_transparent,
+                original_bgcolor,
+            )
+            trimmed_height, trimmed_width = final_img.shape[:2]
+            if (trimmed_width, trimmed_height) != (original_width, original_height):
+                print(
+                    "Trimmed empty PNG margins: "
+                    f"{original_width}x{original_height} -> "
+                    f"{trimmed_width}x{trimmed_height} px "
+                    f"({PNG_TRIM_PADDING_PX} px border)."
+                )
             mpimg.imsave(filepath, final_img)
         
         msg_type = "SVG snapshot" if is_svg else "snapshot"
