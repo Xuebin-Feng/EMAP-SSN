@@ -45,8 +45,9 @@ def print_help():
                                     (Supports .txt for headers or .fasta for sequences)
 
     Syntax & Targets:
-      1. AA Position:  [AA][Pos] (e.g., P106, _100); negative positions require
-                       parentheses (e.g., K(-1), K(-1.1))
+      1. AA Position:  [AA][Pos] (e.g., P106, _100), or ([AA...])[Pos] for
+                       alternatives (e.g., (RHK)71); negative positions require
+                       parentheses (e.g., K(-1), (RHK)(-1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@
@@ -61,6 +62,7 @@ def print_help():
 
     Examples:
       select P106                       (Selects only P106 nodes)
+      select (RHK)71                    (Selects nodes with R, H, or K at pos 71)
       select add "ATA"                  (Adds nodes with "ATA" to selection)
       select remove #noise#             (Drops noise nodes from current selection)
       select keep P106                  (Filters current selection, keeping ONLY P106 nodes)

@@ -38,6 +38,127 @@ _QUERY_POSITION_RANGE_RE = re.compile(
     rf"({_QUERY_POSITION_ENDPOINT_PATTERN})$",
     re.IGNORECASE,
 )
+_FREQUENCY_TARGET_PATTERN = r"(?:\([A-Za-z]*\)|[A-Za-z_]+)"
+_FREQUENCY_VALUE_PATTERN = r"\d+(?:\.\d+)?%?"
+_PARENTHESIZED_FREQUENCY_CONDITION_RE = re.compile(
+    rf"\(\s*({_FREQUENCY_TARGET_PATTERN})\s*(>=|<=|>|<)\s*"
+    rf"({_FREQUENCY_VALUE_PATTERN})\s*\)"
+)
+_SINGLE_FREQUENCY_CONDITION_RE = re.compile(
+    rf"\s*({_FREQUENCY_TARGET_PATTERN})\s*(>=|<=|>|<)\s*"
+    rf"({_FREQUENCY_VALUE_PATTERN})\s*"
+)
+_FREQUENCY_PARENTHESES_MESSAGE = (
+    "Error: Individual frequency arguments in multi-condition queries must be "
+    "enclosed in parentheses '()'.\n"
+    "Example: [K>10%], [(K>0.1) & (R>0.05)], "
+    "[((RHK)>50%) & ((DE)>20%)]"
+)
+
+
+class _FrequencyParenthesesError(ValueError):
+    """Raised when a compound frequency comparison lacks its outer parentheses."""
+
+
+def _normalize_frequency_target(target_raw):
+    target = target_raw.strip().upper()
+    if target.startswith('(') and target.endswith(')'):
+        target_aas = target[1:-1]
+        if len(target_aas) < 2:
+            raise ValueError(
+                f"Grouped amino-acid target '{target}' must contain at least two "
+                "one-letter residue symbols."
+            )
+        return tuple(dict.fromkeys(target_aas))
+    return target
+
+
+def _parse_frequency_threshold(value_text):
+    value_clean = value_text.strip()
+    if value_clean.endswith('%'):
+        return float(value_clean[:-1]) / 100.0
+    value = float(value_clean)
+    return value if value <= 1.0 else (value / 100.0)
+
+
+def _evaluate_frequency_condition(
+    target_raw,
+    operator,
+    value_text,
+    gap_fractions,
+    aa_fractions,
+):
+    target = _normalize_frequency_target(target_raw)
+    threshold = _parse_frequency_threshold(value_text)
+
+    if isinstance(target, tuple):
+        column_frequencies = np.zeros_like(gap_fractions, dtype=float)
+        for target_aa in target:
+            column_frequencies += aa_fractions.get(
+                target_aa,
+                np.zeros_like(gap_fractions, dtype=float),
+            )
+    elif target in {'_', 'GAP'}:
+        column_frequencies = gap_fractions
+    else:
+        column_frequencies = aa_fractions.get(
+            target,
+            np.zeros_like(gap_fractions, dtype=float),
+        )
+
+    comparisons = {
+        '>': np.greater,
+        '<': np.less,
+        '>=': np.greater_equal,
+        '<=': np.less_equal,
+    }
+    return comparisons[operator](column_frequencies, threshold)
+
+
+def evaluate_frequency_logic(inner, gap_fractions, aa_fractions):
+    """Evaluate query frequency logic against precomputed per-column fractions."""
+    masks = {}
+    mask_idx = 0
+
+    def condition_repl(match):
+        nonlocal mask_idx
+        target_raw, operator, value_text = match.groups()
+        mask_key = f"M_{mask_idx}"
+        masks[mask_key] = _evaluate_frequency_condition(
+            target_raw,
+            operator,
+            value_text,
+            gap_fractions,
+            aa_fractions,
+        )
+        mask_idx += 1
+        return f"masks['{mask_key}']"
+
+    expression = _PARENTHESIZED_FREQUENCY_CONDITION_RE.sub(
+        condition_repl,
+        inner,
+    )
+    if mask_idx == 0:
+        single_match = _SINGLE_FREQUENCY_CONDITION_RE.fullmatch(inner)
+        if single_match:
+            expression = condition_repl(single_match)
+
+    if re.search(r'[><]', expression) or mask_idx == 0:
+        raise _FrequencyParenthesesError(_FREQUENCY_PARENTHESES_MESSAGE)
+
+    final_expression = expression.replace('!', '~')
+    try:
+        result = eval(final_expression, {"__builtins__": {}}, {"masks": masks})
+    except Exception as error:
+        raise ValueError(str(error)) from error
+
+    result_mask = np.asarray(result, dtype=bool)
+    expected_shape = np.asarray(gap_fractions).shape
+    if result_mask.shape != expected_shape:
+        raise ValueError(
+            "Frequency logic did not resolve to one value per alignment position."
+        )
+    return result_mask
 
 
 def parse_query_positions(position_spec, valid_labels):
@@ -110,11 +231,14 @@ def print_help():
          Multi-condition queries MUST enclose each individual argument in ().
          Spaces are allowed. Accepts percentages (e.g. 10%) or decimals (e.g. 0.1).
          Accepts residue codes (A-Z) and 'GAP' or '_' for gaps (case-insensitive).
-         Example: [K>10%], [(K>0.1) & (R>0.05)], [!(GAP>50%) & ((K>10%) | (R>10%))]
+         Parenthesized residue sets sum their frequencies, e.g. [(RHK)>50%].
+         In multi-condition logic, an outer pair still encloses each comparison:
+         [((RHK)>50%) & ((DE)>20%)] or [((RHK)>50%) & (GAP<20%)].
 
     Sequence Selection Expression Targets (Do NOT use spaces inside expressions!):
-      1. AA Position:  [AA][Pos] (e.g., P106, _100); negative positions require
-                       parentheses (e.g., K(-1), K(-1.1))
+      1. AA Position:  [AA][Pos] (e.g., P106, _100), or ([AA...])[Pos] for
+                       alternatives (e.g., (RHK)71); negative positions require
+                       parentheses (e.g., K(-1), (RHK)(-1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list@, @my_seqs.fasta@)
       4. NCBI List:    @[NCBI][File]@ (Extracts & matches NCBI IDs from file and headers)
@@ -135,6 +259,8 @@ def print_help():
       query [(-1),0,10.1]                           (Queries negative, zero, and insertion positions)
       query #cluster_1# [(-3)-2]                    (Queries a range crossing zero in cluster 1)
       query [K>10%]                                 (Finds positions where Lysine > 10%)
+      query [(RHK)>50%]                             (Finds positions where R+H+K > 50%)
+      query [((RHK)>50%) & ((DE)>20%)]              (Combines grouped comparisons)
       query [(K>0.1) & (R>0.05)]                    (Finds positions where K > 10% and R > 5%)
       query P106 [(K>20%) | (R>20%)]                (Finds positions with K or R > 20% in Pro106 subset)
       query {Length>500} [!(GAP>30%) & (K>5%)]     (Finds positions with <30% gaps and >5% Lys in length>500)
@@ -368,68 +494,22 @@ def run(viewer, args):
                             all_aa_fracs[aa_clean] = np.zeros(n_cols, dtype=float)
                         all_aa_fracs[aa_clean][idx] += (count / n_seqs) if n_seqs > 0 else 0.0
 
-        # Tokenize and evaluate atomic logical conditions
-        masks = {}
-        mask_idx = 0
-
-        def cond_repl(match):
-            nonlocal mask_idx
-            target_aa_raw, op, val_str = match.groups()
-            aa_clean = target_aa_raw.strip().upper()
-            is_gap = (aa_clean == '_' or aa_clean == 'GAP')
-
-            val_clean = val_str.strip()
-            if val_clean.endswith('%'):
-                thresh = float(val_clean[:-1]) / 100.0
-            else:
-                v = float(val_clean)
-                thresh = v if v <= 1.0 else (v / 100.0)
-
-            if is_gap:
-                col_freqs = all_gap_fracs
-            else:
-                col_freqs = all_aa_fracs.get(aa_clean, np.zeros(n_cols, dtype=float))
-
-            if op == '>':
-                cond_mask = col_freqs > thresh
-            elif op == '<':
-                cond_mask = col_freqs < thresh
-            elif op == '>=':
-                cond_mask = col_freqs >= thresh
-            elif op == '<=':
-                cond_mask = col_freqs <= thresh
-            else:
-                cond_mask = np.zeros(n_cols, dtype=bool)
-
-            mask_key = f"M_{mask_idx}"
-            masks[mask_key] = cond_mask
-            mask_idx += 1
-            return f"masks['{mask_key}']"
-
-        # 1. Replace parenthesized frequency arguments (e.g. (K>10%), ( GAP <= 0.5 ))
-        expr_sub = re.sub(r'\(\s*([A-Za-z_]+)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?%?)\s*\)', cond_repl, inner)
-
-        # 2. Fallback: single unparenthesized argument (e.g. [K>10%], [gap<=0.2])
-        if mask_idx == 0:
-            single_match = re.fullmatch(r'\s*([A-Za-z_]+)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?%?)\s*', inner)
-            if single_match:
-                expr_sub = cond_repl(single_match)
-
-        # 3. Enforcement: ensure all comparison operators in multi-condition queries are inside ()
-        if re.search(r'[><]', expr_sub) or mask_idx == 0:
-            msg = f"Error: Individual frequency arguments in multi-condition queries must be enclosed in parentheses '()'.\nExample: [K>10%], [(K>0.1) & (R>0.05)], [!(GAP>50%) & ((K>10%) | (R>10%))]"
+        try:
+            pos_mask = evaluate_frequency_logic(
+                inner,
+                all_gap_fracs,
+                all_aa_fracs,
+            )
+        except _FrequencyParenthesesError as error:
+            msg = str(error)
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = "Error: Individual frequency arguments must be enclosed in ()"
             print("-" * 50)
             print(msg)
             print("-" * 50)
             return
-
-        try:
-            final_expr = expr_sub.replace("!", "~").replace("&", "&").replace("|", "|").replace("^", "^")
-            pos_mask = eval(final_expr, {"__builtins__": {}}, {"masks": masks})
-        except Exception as e:
-            msg = f"Error parsing position logic '[{inner}]': {e}"
+        except ValueError as error:
+            msg = f"Error parsing position logic '[{inner}]': {error}"
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = msg
             print(msg)
