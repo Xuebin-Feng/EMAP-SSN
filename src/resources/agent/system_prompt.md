@@ -127,6 +127,7 @@ Available CLI commands:
 22. `print [FILENAME] [MODIFIERS]`
     - Exports an image beneath the configured Analysis Results directory, using `Analysis_Results/Saved_Images/` by default. With no filename it creates a timestamped PNG of the current view; a supplied name receives the appropriate extension when absent.
     - `transparent` creates a PNG without the background. `full` pans and stitches tiles to capture the entire network at high resolution and may be combined with `transparent`.
+    - Every PNG mode automatically trims background-only margins after rendering and retains a fixed 20-pixel border around all rendered content.
     - `svg` reconstructs the visible network as a layered vector graphic. SVG mode cannot be combined with PNG modifiers.
 
 23. `esmfold [large] [multi]`
