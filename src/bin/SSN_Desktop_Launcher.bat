@@ -35,8 +35,8 @@ if !ERRORLEVEL! neq 0 (
     )
 )
 
-if not exist ".venv\Scripts\pythonw.exe" (
-    echo Expected .venv\Scripts\pythonw.exe after setup, but it was not found.
+if not exist ".venv\Scripts\python.exe" (
+    echo Expected .venv\Scripts\python.exe after setup, but it was not found.
     pause
     exit /b 1
 )
@@ -54,16 +54,17 @@ if not exist "!STATE_DIR!" (
 )
 
 echo Launching the Qt window...
-start "" /b ".venv\Scripts\pythonw.exe" "src\utilities\Desktop_Launcher_Monitor.py" "%APP_KIND%" "!STATE_DIR!"
-
-set /a WAIT_COUNT=0
-:WAIT_FOR_GUI
-if exist "!STATE_DIR!\gui.ready" goto GUI_READY
-if exist "!STATE_DIR!\application.exit" goto GUI_EXITED
-if !WAIT_COUNT! geq 600 goto GUI_TIMEOUT
-set /a WAIT_COUNT+=1
-timeout /t 1 /nobreak >nul
-goto WAIT_FOR_GUI
+".venv\Scripts\python.exe" -u "src\utilities\Desktop_Launcher_Monitor.py" --launch-and-wait "%APP_KIND%" "!STATE_DIR!"
+set "LAUNCH_RESULT=!ERRORLEVEL!"
+if !LAUNCH_RESULT! equ 0 goto GUI_READY
+if !LAUNCH_RESULT! equ 20 goto GUI_EXITED
+if !LAUNCH_RESULT! equ 21 goto GUI_TIMEOUT
+echo.
+if exist "!STATE_DIR!\application.log" type "!STATE_DIR!\application.log"
+echo Failed to start the detached !APP_LABEL! monitor.
+echo Launcher state retained at: !STATE_DIR!
+pause
+exit /b !LAUNCH_RESULT!
 
 :GUI_READY
 >"!STATE_DIR!\terminal.dismissed" echo dismissed

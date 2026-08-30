@@ -309,6 +309,138 @@ class DesktopLauncherMonitorTests(unittest.TestCase):
 
         self.assertEqual(popen.call_args.kwargs["creationflags"], 0x08000000)
 
+    def test_windows_monitor_bootstrap_is_detached_without_pythonw(self):
+        process = self._process(0)
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Desktop_Launcher_Monitor.sys,
+            "executable",
+            r"C:\project\.venv\Scripts\python.exe",
+        ), mock.patch.object(
+            Desktop_Launcher_Monitor.subprocess,
+            "Popen",
+            return_value=process,
+        ) as popen:
+            result = Desktop_Launcher_Monitor.launch_detached_monitor(
+                "viewer",
+                Path(temp_dir) / "state",
+                platform_name="win32",
+            )
+
+        self.assertIs(result, process)
+        command = popen.call_args.args[0]
+        kwargs = popen.call_args.kwargs
+        self.assertEqual(command[0], r"C:\project\.venv\Scripts\python.exe")
+        self.assertNotIn("pythonw.exe", " ".join(command).lower())
+        self.assertEqual(kwargs["creationflags"], 0x08000000)
+        self.assertIs(kwargs["stdin"], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+        self.assertIs(kwargs["stdout"], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+        self.assertTrue(kwargs["close_fds"])
+        self.assertNotIn("start_new_session", kwargs)
+
+    def test_posix_monitor_bootstrap_starts_a_new_session(self):
+        process = self._process(0)
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Desktop_Launcher_Monitor.subprocess,
+            "Popen",
+            return_value=process,
+        ) as popen:
+            result = Desktop_Launcher_Monitor.launch_detached_monitor(
+                "tools",
+                Path(temp_dir) / "state",
+                platform_name="linux",
+            )
+
+        self.assertIs(result, process)
+        kwargs = popen.call_args.kwargs
+        self.assertTrue(kwargs["start_new_session"])
+        self.assertNotIn("creationflags", kwargs)
+        self.assertIs(kwargs["stdin"], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+        self.assertIs(kwargs["stdout"], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+        self.assertTrue(kwargs["close_fds"])
+
+    def test_startup_waiter_observes_ready_at_fifty_millisecond_intervals(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = Path(temp_dir) / "state"
+            state.mkdir()
+
+            def signal_ready(delay):
+                self.assertEqual(delay, 0.05)
+                (state / "gui.ready").write_text("ready\n", encoding="utf-8")
+
+            with mock.patch.object(
+                Desktop_Launcher_Monitor.time, "monotonic", side_effect=[0.0, 0.0]
+            ), mock.patch.object(
+                Desktop_Launcher_Monitor.time, "sleep", side_effect=signal_ready
+            ) as sleep:
+                result = Desktop_Launcher_Monitor.wait_for_startup_state(
+                    state, process, timeout=1.0
+                )
+
+        self.assertEqual(result, "ready")
+        sleep.assert_called_once_with(0.05)
+
+    def test_startup_waiter_distinguishes_exit_monitor_failure_and_timeout(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = Path(temp_dir) / "state"
+            state.mkdir()
+            process = mock.Mock()
+            process.poll.return_value = None
+            (state / "application.exit").write_text("7\n", encoding="utf-8")
+            self.assertEqual(
+                Desktop_Launcher_Monitor.wait_for_startup_state(state, process),
+                "application_exited",
+            )
+            (state / "application.exit").unlink()
+            process.poll.return_value = 2
+            self.assertEqual(
+                Desktop_Launcher_Monitor.wait_for_startup_state(state, process),
+                "monitor_exited",
+            )
+            process.poll.return_value = None
+            self.assertEqual(
+                Desktop_Launcher_Monitor.wait_for_startup_state(
+                    state, process, timeout=0
+                ),
+                "timeout",
+            )
+
+    def test_launch_and_wait_maps_startup_states_and_spawn_failure(self):
+        process = self._process(0)
+        expected = {
+            "ready": Desktop_Launcher_Monitor.STARTUP_READY,
+            "application_exited": Desktop_Launcher_Monitor.STARTUP_APPLICATION_EXITED,
+            "timeout": Desktop_Launcher_Monitor.STARTUP_TIMEOUT,
+            "monitor_exited": Desktop_Launcher_Monitor.STARTUP_LAUNCH_FAILED,
+        }
+        for state, exit_code in expected.items():
+            with self.subTest(state=state), mock.patch.object(
+                Desktop_Launcher_Monitor,
+                "launch_detached_monitor",
+                return_value=process,
+            ), mock.patch.object(
+                Desktop_Launcher_Monitor,
+                "wait_for_startup_state",
+                return_value=state,
+            ), mock.patch.object(Desktop_Launcher_Monitor.sys.stderr, "write"):
+                self.assertEqual(
+                    Desktop_Launcher_Monitor.launch_and_wait("viewer", Path("state")),
+                    exit_code,
+                )
+
+        with mock.patch.object(
+            Desktop_Launcher_Monitor,
+            "launch_detached_monitor",
+            side_effect=OSError("blocked"),
+        ), mock.patch.object(Desktop_Launcher_Monitor.sys.stderr, "write"):
+            self.assertEqual(
+                Desktop_Launcher_Monitor.launch_and_wait("tools", Path("state")),
+                Desktop_Launcher_Monitor.STARTUP_LAUNCH_FAILED,
+            )
+
 
 class LauncherStructureTests(unittest.TestCase):
     def test_desktop_launchers_show_then_dismiss_and_keep_direct_diagnostics(self):
@@ -338,6 +470,11 @@ class LauncherStructureTests(unittest.TestCase):
         self.assertIn("--check-only", windows_supervisor)
         self.assertIn("--setup-only", windows_supervisor)
         self.assertIn("terminal.dismissed", windows_supervisor)
+        self.assertIn("--launch-and-wait", shell_supervisor)
+        self.assertIn("--launch-and-wait", windows_supervisor)
+        self.assertNotIn("nohup", shell_supervisor)
+        self.assertNotIn("start \"\" /b", windows_supervisor)
+        self.assertNotIn("pythonw.exe", windows_supervisor)
         self.assertIn("Starting SSN_Config", direct_windows)
         self.assertIn("Starting SSN_Config", direct_posix)
         self.assertNotIn("terminal.dismissed", direct_windows)
