@@ -51,6 +51,10 @@ class StrictExpressionTests(unittest.TestCase):
             aln=FakeAlignmentRows(
                 {
                     (0, "A"): [False, False, False],
+                    (0, "R"): [True, False, False],
+                    (0, "H"): [False, True, False],
+                    (0, "K"): [False, False, True],
+                    (1, "R"): [True, False, False],
                     (2, "K"): [True, False, True],
                     (3, "K"): [False, True, False],
                     (4, "A"): [True, True, False],
@@ -138,6 +142,45 @@ class StrictExpressionTests(unittest.TestCase):
                     re.escape(replacement),
                 ):
                     self.evaluate(expression)
+
+    def test_grouped_amino_acids_match_explicit_or_expression(self):
+        expected = self.evaluate("R10|H10|K10")
+        np.testing.assert_array_equal(self.evaluate("(RHK)10"), expected)
+        np.testing.assert_array_equal(self.evaluate("(rrhk)10"), expected)
+        np.testing.assert_array_equal(
+            self.evaluate("(RHK)10&!A0"),
+            [False, False, True],
+        )
+
+    def test_grouped_amino_acids_support_insertion_and_negative_positions(self):
+        np.testing.assert_array_equal(
+            self.evaluate("(RHK)10.1"),
+            [True, False, False],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate("(RHK)(-1)"),
+            [True, False, True],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate("(RHK)(-1.1)"),
+            [False, True, False],
+        )
+
+    def test_grouped_amino_acids_deduplicate_and_validate_targets(self):
+        np.testing.assert_array_equal(
+            self.evaluate("(RRHK)10"),
+            self.evaluate("(RHK)10"),
+        )
+        with self.assertRaisesRegex(
+            Command_Engine.SelectionExpressionError,
+            "at least two one-letter residue symbols",
+        ):
+            self.evaluate("(R)10")
+        with self.assertRaisesRegex(
+            Command_Engine.SelectionExpressionError,
+            re.escape("(RHK)(-1)"),
+        ):
+            self.evaluate("(RHK)-1")
 
     def test_empty_or_malformed_target_does_not_produce_scalar_mask(self):
         with self.assertRaisesRegex(Command_Engine.SelectionExpressionError, "malformed targets"):

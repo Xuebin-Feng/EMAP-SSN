@@ -760,6 +760,7 @@
                         <p>Allows targeting based on the Multiple Sequence Alignment (MSA) residue distribution.</p>
                         <ul>
                             <li><strong>Specific Amino Acid:</strong> <code>P106</code> targets all nodes that have a Proline (P) at alignment column 106.</li>
+                            <li><strong>Grouped Amino Acids:</strong> <code>(RHK)71</code> targets nodes with R, H, or K at position 71. Grouped insertion and negative positions use forms such as <code>(RHK)71.1</code> and <code>(RHK)(-1)</code>.</li>
                             <li><strong>Gap Queries:</strong> <code>_100</code> targets all nodes that have a gap (<code>-</code> or <code>.</code>) at alignment column 100.</li>
                             <li><strong>Negative Offset Positions:</strong> Parentheses are required around negative displayed positions: use <code>K(-1)</code> or <code>K(-1.1)</code>. Bare forms such as <code>K-1</code> are invalid, preserving <code>-</code> for future expression functions.</li>
                         </ul>
@@ -1009,7 +1010,7 @@
                     <li><strong>With one integer:</strong> Applies a positive, negative, or zero offset. A loaded MSA and valid active reference are required.</li>
                     <li><strong>Session-only:</strong> The command changes the running viewer. Configure Alignment Offset in SSN Config to set the value for future sessions.</li>
                     <li><strong>Affected commands:</strong> Position-aware <code>query</code>, <code>label</code>, <code>logo</code>, and amino-acid expressions used by <code>color</code>, <code>select</code>, <code>group</code>, <code>hide</code>, and <code>spectrum</code>.</li>
-                    <li><strong>Negative amino-acid positions:</strong> In Boolean expressions, wrap negative displayed positions in parentheses, for example <code>K(-1)</code> or <code>K(-1.1)</code>. Do not use <code>K-1</code>.</li>
+                    <li><strong>Negative amino-acid positions:</strong> In Boolean expressions, wrap negative displayed positions in parentheses, for example <code>K(-1)</code>, <code>K(-1.1)</code>, or <code>(RHK)(-1)</code>. Do not use <code>K-1</code> or <code>(RHK)-1</code>.</li>
                 </ul>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -1083,7 +1084,7 @@
                 <ul>
                     <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last reference residue (for example, <code>[10,15.1,20-30,250-E]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),(-1.1),0]</code> or <code>[(-3)-2]</code>; bare forms such as <code>[-1]</code> and <code>[-3--1]</code> are invalid.</li>
                     <li><strong>Insertions (Decimals):</strong> Insertion residues are marked using decimals (e.g., <code>106.1</code>, <code>106.2</code>). Querying <code>[106-107]</code> natively prints statistics for 106, 106.1, 106.2, and 107 in order.</li>
-                    <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. A single criterion can be written as <code>[K&gt;10%]</code>; multi-condition searches require parentheses around each criterion, for example <code>[(K&gt;10%) &amp; (R&gt;5%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
+                    <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. A grouped target sums its residue frequencies, as in <code>[(RHK)&gt;50%]</code>. Multi-condition searches still require parentheses around each complete comparison: <code>[((RHK)&gt;50%) &amp; ((DE)&gt;20%)]</code> or <code>[((RHK)&gt;50%) &amp; (GAP&lt;20%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1094,6 +1095,8 @@
                     <li class="example-item"><span>query P106 [150-160]</span><button class="copy-btn" onclick="copyText('query P106 [150-160]', this)">Copy</button></li>
                     <li class="example-item"><span>query {Length&gt;500} [10-20]</span><button class="copy-btn" onclick="copyText('query {Length>500} [10-20]', this)">Copy</button></li>
                     <li class="example-item"><span>query [K&gt;10%]</span><button class="copy-btn" onclick="copyText('query [K>10%]', this)">Copy</button></li>
+                    <li class="example-item"><span>query [(RHK)&gt;50%]</span><button class="copy-btn" onclick="copyText('query [(RHK)>50%]', this)">Copy</button></li>
+                    <li class="example-item"><span>query [((RHK)&gt;50%) &amp; ((DE)&gt;20%)]</span><button class="copy-btn" onclick="copyText('query [((RHK)>50%) &amp; ((DE)>20%)]', this)">Copy</button></li>
                     <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%) &amp; (K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%) &amp; (K>5%)]', this)">Copy</button></li>
                 </ul>
             </section>

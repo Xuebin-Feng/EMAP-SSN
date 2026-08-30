@@ -54,6 +54,8 @@ def print_help():
       in SSN_Config to set the value used when launching a new session.
       In Boolean amino-acid expressions, parentheses are required around a
       negative displayed position: use K(-1) or K(-1.1), never K-1 or K-1.1.
+      Grouped alternatives use (RHK)(-1), where the first parentheses define
+      the residue set and the second parentheses contain the negative position.
 
     Examples:
       offset

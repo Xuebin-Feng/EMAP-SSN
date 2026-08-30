@@ -56,8 +56,9 @@ def print_help():
         the group name to the nodes currently selected in the viewer.
 
     Expression Targets (Do NOT use spaces inside expressions!):
-      1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap); negative positions
-                       require parentheses (e.g., K(-1), K(-1.1))
+      1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap), or ([AA...])[Pos]
+                       for alternatives (e.g., (RHK)71); negative positions require
+                       parentheses (e.g., K(-1), (RHK)(-1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@
@@ -81,6 +82,7 @@ def print_help():
     Examples:
       group active_site                        (Assigns to currently selected nodes)
       group P106 mutant                        (Assigns "mutant" to P106 nodes)
+      group (RHK)71 basic                      (Groups nodes with R, H, or K at pos 71)
       group "ATA"&#cluster_2# kinase           (Assigns "kinase" using boolean logic)
       group {Length<300} short_seqs            (Assigns "short_seqs" to nodes with Length < 300)
       group list                               (Prints all active groups)

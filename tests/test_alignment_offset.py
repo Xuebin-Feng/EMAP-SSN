@@ -259,6 +259,7 @@ class OffsetCommandTests(unittest.TestCase):
         self.assertIn("insertion", help_text)
         self.assertIn("query, label, logo", help_text)
         self.assertIn("K(-1)", help_text)
+        self.assertIn("(RHK)(-1)", help_text)
         self.assertIn("never K-1", help_text)
         self.assertIn("offset 0", help_text)
 

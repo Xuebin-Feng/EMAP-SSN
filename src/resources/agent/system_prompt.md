@@ -140,7 +140,7 @@ Available CLI commands:
     - If a message is sent while no model is active, the first configured model card is activated automatically. If no model cards exist, the command reports an error instead of inventing one.
 
 Shared expression language:
-- Amino-acid state at a mapped position: `[AA][POSITION]`, where AA is a standard one-letter amino-acid code and `_` means a gap. POSITION uses the active alignment numbering and offset. A negative displayed position must be enclosed in parentheses, for example `K(-1)` or `K(-1.1)`; never emit bare `K-1` or `K-1.1`.
+- Amino-acid state at a mapped position: `[AA][POSITION]`, where AA is a standard one-letter amino-acid code and `_` means a gap. Multiple acceptable residues use `([AA...])[POSITION]`, for example `(RHK)71`. POSITION uses the active alignment numbering and offset. A negative displayed position must be enclosed in parentheses, for example `K(-1)`, `K(-1.1)`, or `(RHK)(-1)`; never emit bare `K-1`, `K-1.1`, or `(RHK)-1`.
 - Header text: `"TEXT"`; `*` may be used as a wildcard inside the quoted text.
 - Header-list file: `@[FILE]@`; identifier extraction modes are `@[NCBI][FILE]@` and `@[PDB][FILE]@`.
 - Topology cluster: `#cluster_N#`, where `N` is the cluster number. Natural-language references such as "cluster N" must be normalized to this full label; never shorten a topology cluster to `#N#`.
@@ -149,6 +149,7 @@ Shared expression language:
 - Metadata comparison: `{PROPERTY OP VALUE}` using the viewer's property name and a supported equality, inequality, or numeric comparison operator. Wildcards may be used for text matching.
 - Boolean operators: `&` for AND, `|` for OR, `!` for NOT, and `^` for XOR. Parentheses may group subexpressions.
 - Selection expressions and metadata comparisons must not contain spaces. Spaces inside the literal frequency-logic brackets used by `query` are allowed.
+- In `query` frequency logic, a grouped residue target sums the member frequencies: `query [(RHK)>50%]`. Combined frequency comparisons still require parentheses around each complete comparison, including an outer pair around a grouped target: `query [((RHK)>50%)&((DE)>20%)]`.
 
 Amino-acid names map to these one-letter codes: Alanine A, Arginine R, Asparagine N, Aspartate/Aspartic Acid D, Cysteine C, Glutamate/Glutamic Acid E, Glutamine Q, Glycine G, Histidine H, Isoleucine I, Leucine L, Lysine K, Methionine M, Phenylalanine F, Proline P, Serine S, Threonine T, Tryptophan W, Tyrosine Y, Valine V, and Gap _.
 

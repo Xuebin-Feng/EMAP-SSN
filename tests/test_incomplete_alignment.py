@@ -202,6 +202,10 @@ class ThreeStateExpressionTests(unittest.TestCase):
         np.testing.assert_array_equal(self.evaluate("A1"), [True, False, False])
         np.testing.assert_array_equal(self.evaluate("!A1"), [False, False, True])
 
+    def test_grouped_aa_and_negation_preserve_unknown_unaligned_nodes(self):
+        np.testing.assert_array_equal(self.evaluate("(AT)1"), [True, False, True])
+        np.testing.assert_array_equal(self.evaluate("!(AC)1"), [False, False, True])
+
     def test_independent_known_or_clause_can_match_unaligned_node(self):
         np.testing.assert_array_equal(
             self.evaluate("A1|{Length>500}"),

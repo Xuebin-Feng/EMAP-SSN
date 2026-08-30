@@ -33,8 +33,14 @@ _METADATA_QUERY_PATTERN = re.compile(
 _AA_PREDICATE_PATTERN = re.compile(
     r'(?<!\w)([a-zA-Z_])(?:\((-\d+(?:\.\d+)?)\)|([\d.]+))(?![\w.])'
 )
+_AA_GROUP_PREDICATE_PATTERN = re.compile(
+    r'(?<!\w)\(([a-zA-Z]*)\)(?:\((-\d+(?:\.\d+)?)\)|([\d.]+))(?![\w.])'
+)
 _BARE_NEGATIVE_AA_PATTERN = re.compile(
     r'(?<!\w)([a-zA-Z_])(-\d+(?:\.\d+)?)(?![\w.])'
+)
+_BARE_NEGATIVE_AA_GROUP_PATTERN = re.compile(
+    r'(?<!\w)\(([a-zA-Z]+)\)(-\d+(?:\.\d+)?)(?![\w.])'
 )
 _SUGGESTION_LIMIT = 10
 
@@ -175,6 +181,17 @@ def _validate_aa_target(alignment, target_aa, target_pos_label):
             "does not exist in the current displayed numbering.\n"
             + _format_available(ordered_labels, "alignment positions")
         )
+
+
+def _normalize_aa_group(target_aas):
+    """Return a stable, case-insensitive residue set for a grouped predicate."""
+    if len(target_aas) < 2:
+        display = f"({target_aas})"
+        raise SelectionExpressionError(
+            f"Grouped amino-acid target '{display}' must contain at least two "
+            "one-letter residue symbols."
+        )
+    return tuple(dict.fromkeys(target_aas.upper()))
 
 
 def _validate_metadata_target(metadata, target):
@@ -500,6 +517,29 @@ def evaluate_aa_mask(full_headers, alignment, target_aa, target_pos_label, viewe
                 
     return mask
 
+
+def evaluate_aa_group_mask(
+    full_headers,
+    alignment,
+    target_aas,
+    target_pos_label,
+    viewer_to_aln,
+    valid_indices,
+):
+    """Evaluate membership in a residue set at one displayed alignment position."""
+    mask = np.zeros(len(full_headers), dtype=bool)
+    for target_aa in target_aas:
+        mask |= evaluate_aa_mask(
+            full_headers,
+            alignment,
+            target_aa,
+            target_pos_label,
+            viewer_to_aln,
+            valid_indices,
+        )
+    return mask
+
+
 def evaluate_metadata_mask(full_headers, metadata, target):
     """Evaluates a metadata query of the form 'PropertyOperatorValue' into a boolean mask.
     
@@ -647,7 +687,39 @@ def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, 
         return repl
     expr = re.sub(r'#([^#]+)#', label_repl, expr)
     
-    # 4. AA Positions (Remaining unmatched text)
+    # 4. Grouped AA positions, e.g. (RHK)71 or (RHK)(-1).
+    def aa_group_repl(match):
+        nonlocal mask_idx
+        target_aas = _normalize_aa_group(match.group(1))
+        pos = match.group(2) or match.group(3)
+        display_target = f"({''.join(target_aas)})"
+        _validate_aa_target(alignment, display_target, pos)
+        aa_mask = evaluate_aa_group_mask(
+            full_headers,
+            alignment,
+            target_aas,
+            pos,
+            viewer_to_aln,
+            valid_indices,
+        )
+        masks[f'M_{mask_idx}'] = _LogicMask.partially_known(
+            aa_mask,
+            np.asarray(viewer_to_aln) >= 0,
+        )
+        repl = f"masks['M_{mask_idx}']"
+        mask_idx += 1
+        return repl
+    expr = _AA_GROUP_PREDICATE_PATTERN.sub(aa_group_repl, expr)
+
+    bare_negative_group = _BARE_NEGATIVE_AA_GROUP_PATTERN.search(expr)
+    if bare_negative_group:
+        target_aas, position = bare_negative_group.groups()
+        raise SelectionExpressionError(
+            f"Negative alignment position '({target_aas}){position}' must be written as "
+            f"'({target_aas})({position})'. Parentheses are required around negative positions."
+        )
+
+    # 5. Single AA positions (Remaining unmatched text)
     def aa_repl(match):
         nonlocal mask_idx
         if match.group(0).startswith('M_') or match.group(0) == 'masks':

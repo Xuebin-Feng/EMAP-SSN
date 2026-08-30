@@ -40,8 +40,9 @@ def print_help():
       3. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
 
     Expression Targets (Do NOT use spaces inside expressions!):
-      1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap); negative positions
-                       require parentheses (e.g., K(-1), K(-1.1))
+      1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap), or ([AA...])[Pos]
+                       for alternatives (e.g., (RHK)71); negative positions require
+                       parentheses (e.g., K(-1), (RHK)(-1))
       2. Header Text:  "[Text]"  (e.g., "3HMU", "*4A6T*")
       3. File Search:  @[File]@  (e.g., @my_list.txt@)
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@ (Regex extraction)
@@ -60,6 +61,7 @@ def print_help():
     Examples:
       color red x2 triangle             (Modifies currently selected nodes)
       color P106 red                    (Colors nodes with Proline at pos 106 red)
+      color (RHK)71 blue                (Colors nodes with R, H, or K at pos 71 blue)
       color "ATA"&#cluster_2# blue x1.5 (Colors "ATA" matches inside Cluster 2)
       color {Organism=*coli*} green     (Colors nodes where Organism matches *coli* green)
       color #cluster_1# red #noise# x0  (Chains multiple commands together)
