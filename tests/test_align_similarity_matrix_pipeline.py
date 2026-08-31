@@ -1431,6 +1431,27 @@ class AlignmentPipelineTests(unittest.TestCase):
             [(0, 1), (0, 3), (1, 2)],
         )
 
+    def test_sparse_resume_counts_upper_triangle_pairs_once(self):
+        required = np.triu(np.ones((4, 4), dtype=bool), k=1)
+        computed = required | required.T
+
+        self.assertEqual(
+            similarity_matrix._count_computed_required_pairs(computed, required),
+            6,
+        )
+
+        computed[1, 3] = False
+        computed[3, 1] = False
+        self.assertEqual(
+            similarity_matrix._count_computed_required_pairs(computed, required),
+            5,
+        )
+
+        self.assertEqual(
+            similarity_matrix._count_computed_required_pairs(computed, None),
+            5,
+        )
+
     def test_shared_benchmark_sampler_builds_disjoint_global_halves(self):
         headers = [f"h{index}" for index in range(12)]
         lengths = [20 + index * 7 for index in range(12)]

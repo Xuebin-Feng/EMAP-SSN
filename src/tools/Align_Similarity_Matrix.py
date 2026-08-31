@@ -1983,6 +1983,14 @@ def scan_existing_batches(
             pass
     return established_precision
 
+
+def _count_computed_required_pairs(computed_mask, required_mask):
+    """Count unique cached pairs represented by the active workload mask."""
+    if required_mask is not None:
+        # Sparse required masks contain only canonical upper-triangle entries.
+        return int(np.count_nonzero(computed_mask & required_mask))
+    return int(np.count_nonzero(computed_mask) // 2)
+
 def compile_final_output(
     headers,
     seq_lens,
@@ -2226,10 +2234,10 @@ def run_job_distributor():
 
     # Calculate stats
     effective_total_pairs = np.sum(required_mask) if required_mask is not None else total_pairs
-    if required_mask is not None:
-        num_computed_and_required = np.sum(computed_mask & required_mask) // 2
-    else:
-        num_computed_and_required = np.sum(computed_mask) // 2
+    num_computed_and_required = _count_computed_required_pairs(
+        computed_mask,
+        required_mask,
+    )
 
     num_tasks = effective_total_pairs - num_computed_and_required
     print(f"Total Required pairs: {effective_total_pairs}")
