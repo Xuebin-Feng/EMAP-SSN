@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
 # Bootstrap-safe terminal selection for desktop launchers. This file must not
