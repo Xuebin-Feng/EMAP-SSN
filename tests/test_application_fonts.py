@@ -261,7 +261,7 @@ class ApplicationFontTests(unittest.TestCase):
                 self.assertEqual(set(glyphs), set("Ag09"))
 
     def test_embedded_web_surfaces_use_only_local_noto_assets(self):
-        tools_source = (SRC_DIR / "SSN_Tools.py").read_text(encoding="utf-8")
+        tools_source = (SRC_DIR / "emapssn_tools.py").read_text(encoding="utf-8")
         self.assertIn('href="fonts/fonts.css"', tools_source)
         self.assertIn("__UI_FONT_STACK__", tools_source)
         self.assertIn("__MONOSPACE_FONT_STACK__", tools_source)

@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Executable processing tools exposed by :mod:`SSN_Tools`."""
+"""Executable processing tools exposed by :mod:`emapssn_tools`."""

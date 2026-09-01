@@ -52,7 +52,7 @@ except Exception:
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # Ensure src/ (the directory containing all project modules) is on sys.path.
-# This is needed when the script is launched as a subprocess (e.g. from SSN_Config.py).
+# This is needed when the script is launched as a subprocess (e.g. from emapssn_config.py).
 _SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
@@ -65,7 +65,7 @@ import queue
 from vispy import scene, app
 from PySide6 import QtWidgets, QtCore, QtGui
 
-import SSN_Config as cfg
+import emapssn_config as cfg
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Layout_Cache_Generator import (
@@ -90,6 +90,7 @@ from utilities.Cache_Selection import resolve_selected_cache
 from utilities.Network_Preparation import prepare_network
 from utilities.Viewer_Inspection import ViewerInspectionService
 from utilities.Application_Identity import (
+    VIEWER_DISPLAY_NAME,
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
 )
@@ -97,7 +98,7 @@ from web_ui.Browser_Page import open_browser_page
 
 
 def _remove_consumed_settings_snapshot():
-    """Remove a per-launch settings snapshot after SSN_Config imported it."""
+    """Remove a per-launch settings snapshot after emapssn_config imported it."""
     snapshot_path = os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
     if not snapshot_path:
         return
@@ -453,7 +454,12 @@ class MainViewer:
         self.load_global_alignment()
         
         # --- 3. Setup Window & Canvas ---
-        self.canvas = scene.SceneCanvas(keys=None, show=False, title="SSN Viewer (Live)", bgcolor='white')
+        self.canvas = scene.SceneCanvas(
+            keys=None,
+            show=False,
+            title=f"{VIEWER_DISPLAY_NAME} (Live)",
+            bgcolor='white',
+        )
         # Keep the complete traceback available if a future VisPy draw
         # callback fails; the default logarithmic reminders hide the cause
         # after the first occurrence.
@@ -655,7 +661,7 @@ class MainViewer:
         # --- 6. Set up MainWindow & WebServer ---
         self._panel_w = 180
         self.main_window = QtWidgets.QMainWindow()
-        self.main_window.setWindowTitle("Sequence Similarity Network Viewer")
+        self.main_window.setWindowTitle(VIEWER_DISPLAY_NAME)
         
         # Set Window Icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.ico")
@@ -1210,7 +1216,7 @@ class MainViewer:
                 except Exception as e:
                     raise RuntimeError(
                         f"Selected cache is incompatible or invalid: {e}. "
-                        "Choose '(New Layout Cache)' in SSN Config."
+                        "Choose '(New Layout Cache)' in EMAP-SSN Configuration."
                     ) from e
 
             # --- Calculate from Scratch (if cache failed or missing) ---

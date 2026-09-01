@@ -577,7 +577,7 @@ def _handle_model_license_cli(argv=None):
     parser.add_argument(
         "settings_json",
         nargs="?",
-        help="JSON file exported for this tool by SSN_Tools.py",
+        help="JSON file exported for this tool by emapssn_tools.py",
     )
     args = parser.parse_args(argv)
     if args.accept_model_license and args.settings_json:

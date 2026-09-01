@@ -22,6 +22,7 @@ from utilities.MCP_Pipeline_Jobs import (
     PipelineJobManager,
 )
 from utilities.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
+from utilities.Application_Identity import PRODUCT_NAME
 from utilities.Tool_Execution import list_tool_specs
 
 
@@ -110,8 +111,8 @@ async def app_lifespan(_server: MCPServer) -> AsyncIterator[AppContext]:
 
 
 mcp = MCPServer(
-    "sequence-similarity-network-viewer",
-    title="Sequence Similarity Network Viewer",
+    "emap-ssn",
+    title=PRODUCT_NAME,
     description="Run allowlisted SSN pipelines and inspect local Viewers read-only.",
     instructions=(
         "Pipeline jobs may create or overwrite files according to the supplied "
@@ -287,7 +288,7 @@ async def cancel_pipeline_job(
 
 
 @mcp.tool(
-    title="List local SSN Viewer sessions",
+    title="List local EMAP-SSN Viewer sessions",
     annotations=_READ_ONLY,
     structured_output=True,
 )
@@ -300,7 +301,7 @@ async def list_viewer_sessions(
 
 
 @mcp.tool(
-    title="Get SSN Viewer summary",
+    title="Get EMAP-SSN Viewer summary",
     annotations=_READ_ONLY,
     structured_output=True,
 )
@@ -316,7 +317,7 @@ async def get_viewer_summary(
 
 
 @mcp.tool(
-    title="Query SSN Viewer nodes",
+    title="Query EMAP-SSN Viewer nodes",
     annotations=_READ_ONLY,
     structured_output=True,
 )

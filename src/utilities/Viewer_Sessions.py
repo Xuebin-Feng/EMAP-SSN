@@ -1,7 +1,7 @@
 # Copyright 2026 Xuebin Feng
 # SPDX-License-Identifier: Apache-2.0
 
-"""Publish and discover authenticated local SSN Viewer sessions."""
+"""Publish and discover authenticated local EMAP-SSN Viewer sessions."""
 
 from __future__ import annotations
 

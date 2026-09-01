@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-commands/meta.py — Thin CLI portal stub for the SSN Viewer metadata spreadsheet.
+commands/meta.py — Thin CLI portal stub for the EMAP-SSN Viewer metadata spreadsheet.
 
 Delegates core backend models, widgets, uploads, and downloads to web_ui/meta_backend.py.
 """
@@ -22,7 +22,7 @@ import os
 import re
 import pandas as pd
 import Command_Engine
-import SSN_Config as cfg
+import emapssn_config as cfg
 from web_ui.meta_backend import (
     MetadataColumnDeleteError,
     delete_metadata_columns,
@@ -158,7 +158,7 @@ def run(viewer, args):
         viewer.meta_display_prop = resolved_prop
 
         if 'meta_display' not in viewer.hud_displays:
-            from SSN_Viewer import HUDDisplay
+            from emapssn_viewer import HUDDisplay
             
             class MetaHUDDisplay(HUDDisplay):
                 def __init__(self, main_viewer):

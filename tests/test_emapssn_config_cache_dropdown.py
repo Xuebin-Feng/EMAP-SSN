@@ -20,14 +20,14 @@ class CacheDropdownRefreshTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from utilities import Hardware_Utils  # noqa: F401 - load torch before PySide6
-        from SSN_Tools import DynamicComboBox
+        from emapssn_tools import DynamicComboBox
         from PySide6.QtWidgets import QApplication
         test_app = QApplication.instance() or QApplication([])
 
         with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
             sys, "exit", return_value=None
         ):
-            namespace = runpy.run_path(str(SRC / "SSN_Config.py"), run_name="__main__")
+            namespace = runpy.run_path(str(SRC / "emapssn_config.py"), run_name="__main__")
 
         cls.app = namespace["app"]
         cls.window = namespace["window"]

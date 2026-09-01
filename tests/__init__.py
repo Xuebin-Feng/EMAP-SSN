@@ -1,1 +1,1 @@
-"""Regression tests for the SSN Viewer."""
+"""Regression tests for the EMAP-SSN Viewer."""

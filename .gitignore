@@ -242,13 +242,16 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Generated launchers & icons
-# install.bat writes .lnk; install.command writes .command wrappers;
-# install.sh writes .desktop entries plus extensionless symlinks.
+# install.bat writes .lnk files; install.sh writes .desktop entries,
+# application bundles, and extensionless symlinks.
 *.lnk
 *.desktop
+# Pre-EMAP generated launchers remain ignored while installers remove them.
 /SSN_Viewer.command
 /SSN_Tools.command
 /SSN_Viewer
 /SSN_Tools
+/emapssn
+/emapssn_tools
 *.ico
 !src/bin/logos/*.ico

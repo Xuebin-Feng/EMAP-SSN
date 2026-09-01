@@ -61,6 +61,7 @@ from utilities.Application_Windows import (
     show_window_in_front,
 )
 from utilities.Application_Identity import (
+    TOOLS_DISPLAY_NAME,
     TOOLS_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
 )
@@ -479,12 +480,12 @@ def _sync_alignment_tiled_option(device_combo, execution_combo, candidates=None)
 
 
 QTWEBENGINE_MISSING_MESSAGE = """\
-SSN Tools could not load QtWebEngine, which renders the documentation panel.
+EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
 
 QtWebEngine is installed with PySide6, but its bundled Chromium needs system
-libraries that pip cannot provide. Install them, then start SSN Tools again.
+libraries that pip cannot provide. Install them, then start EMAP-SSN Tools again.
 
 Ubuntu / Debian:
   sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \\
@@ -951,7 +952,7 @@ class ToolsGUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SSN Utilities Tools")
+        self.setWindowTitle(TOOLS_DISPLAY_NAME)
         self.tool_titles = get_tool_titles()
         
         # Set Window Icon
@@ -2109,7 +2110,7 @@ class ToolsGUI(QMainWindow):
         import json
         import os
         
-        # Determine the absolute path of the project root (where SSN_Tools.py lives)
+        # Determine the absolute path of the project root (where emapssn_tools.py lives)
         project_root = os.path.dirname(os.path.abspath(__file__))
         
         new_settings = {}
@@ -4256,7 +4257,9 @@ if __name__ == "__main__":
         try:
             is_primary_instance = single_instance.acquire_or_notify()
         except RuntimeError as error:
-            QMessageBox.critical(None, "SSN Tools Startup Error", str(error))
+            QMessageBox.critical(
+                None, f"{TOOLS_DISPLAY_NAME} Startup Error", str(error)
+            )
             raise SystemExit(1)
         if not is_primary_instance:
             raise SystemExit(0)

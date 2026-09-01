@@ -10,7 +10,7 @@ import unittest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER = PROJECT_ROOT / "src" / "bin" / "SSN_Terminal_Launcher.sh"
+LAUNCHER = PROJECT_ROOT / "src" / "bin" / "emapssn_terminal_launcher.sh"
 
 
 class ShellTerminalLauncherTests(unittest.TestCase):
@@ -204,10 +204,8 @@ class ShellTerminalLauncherTests(unittest.TestCase):
         self.assertIn('"$app_kind" --terminal-session', installer)
         self.assertNotIn("NSAppleEventsUsageDescription", installer)
 
-    def test_legacy_macos_installer_forwards_to_shared_installer(self):
-        wrapper = (PROJECT_ROOT / "install.command").read_text(encoding="utf-8")
-        self.assertIn('exec /bin/bash "$SCRIPT_DIR/install.sh" "$@"', wrapper)
-        self.assertNotIn("ssn_create_macos_app_launcher", wrapper)
+    def test_clean_cutover_has_no_legacy_macos_installer(self):
+        self.assertFalse((PROJECT_ROOT / "install.command").exists())
 
 
 if __name__ == "__main__":

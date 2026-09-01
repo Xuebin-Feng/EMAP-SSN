@@ -15,8 +15,8 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from PySide6 import QtCore
-import SSN_Config as cfg
-from SSN_Viewer import (
+import emapssn_config as cfg
+from emapssn_viewer import (
     HUDDisplay,
     MainViewer,
     _configure_linux_vispy_platform,

@@ -19,7 +19,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import Command_Engine
-import SSN_Config as cfg
+import emapssn_config as cfg
 from commands import color as color_command
 from commands import export as export_command
 from commands import group as group_command

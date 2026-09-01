@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-agent_backend.py — Core LLM agent logic for SSN Viewer.
+agent_backend.py — Core LLM agent logic for EMAP-SSN Viewer.
 
 All heavy lifting: model card loading, server activation/deactivation,
 API calls, worker threads, viewer context extraction, query execution,
@@ -336,7 +336,7 @@ class RefinementWorker(QtCore.QThread):
 def get_viewer_session_context(viewer):
     """Builds a snapshot of the current viewer state for the LLM system prompt."""
     import numpy as np
-    lines = ["\n--- ACTIVE SSN VIEWER STATE ---"]
+    lines = ["\n--- ACTIVE EMAP-SSN VIEWER STATE ---"]
 
     n_nodes = getattr(viewer, "n_nodes", 0)
     lines.append(f"Number of Nodes: {n_nodes}")
@@ -391,13 +391,13 @@ def get_viewer_session_context(viewer):
 
 def get_agent_history_path(viewer):
     try:
-        import SSN_Config as cfg
+        import emapssn_config as cfg
 
         cache_path, _ = resolve_selected_cache(cfg)
         return os.path.join(os.path.dirname(cache_path), "agent_history.json")
     except Exception as e:
         print(f"Warning: Could not resolve agent history path ({e})")
-        import SSN_Config as cfg
+        import emapssn_config as cfg
 
         saved_layout_dir = getattr(cfg, 'SAVED_LAYOUT_DIR', os.path.join("Cache_Files", "Saved_Layouts"))
         return os.path.join(saved_layout_dir, "agent_chat_history_fallback.json")

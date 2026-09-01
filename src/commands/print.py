@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 from matplotlib.collections import LineCollection
 from vispy import app
-import SSN_Config as cfg
+import emapssn_config as cfg
 from utilities.Application_Windows import open_in_file_manager
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")

@@ -8,8 +8,17 @@ from __future__ import annotations
 import sys
 
 
-TOOLS_DESKTOP_FILE_NAME = "SSN_Tools"
-VIEWER_DESKTOP_FILE_NAME = "SSN_Viewer"
+PRODUCT_NAME = "EMAP-SSN"
+PRODUCT_LONG_NAME = (
+    f"{PRODUCT_NAME}: Embedding- and Multiple-Alignment-integrated Protein "
+    "Sequence Similarity Network Platform"
+)
+CONFIG_DISPLAY_NAME = f"{PRODUCT_NAME} Configuration"
+VIEWER_DISPLAY_NAME = f"{PRODUCT_NAME} Viewer"
+TOOLS_DISPLAY_NAME = f"{PRODUCT_NAME} Tools"
+
+TOOLS_DESKTOP_FILE_NAME = "emapssn_tools"
+VIEWER_DESKTOP_FILE_NAME = "emapssn"
 
 
 def configure_linux_qt_desktop_identity(application, desktop_file_name):

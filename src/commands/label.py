@@ -31,7 +31,7 @@ from Bio import AlignIO
 from Bio.Align import MultipleSeqAlignment 
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-import SSN_Config as cfg
+import emapssn_config as cfg
 import Cache_Manifest as cache_manifest
 from utilities.Position_Parsing import (
     format_alignment_offset_display,

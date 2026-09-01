@@ -16,7 +16,7 @@ if str(SRC_DIR) not in sys.path:
 
 from mcp import Client, StdioServerParameters  # noqa: E402
 
-from SSN_MCP_Server import mcp  # noqa: E402
+from emapssn_mcp_server import mcp  # noqa: E402
 from utilities.MCP_Pipeline_Jobs import (  # noqa: E402
     PipelineJobManager,
     PipelineQueueFullError,
@@ -238,7 +238,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             environment[SESSION_DIRECTORY_ENV] = session_directory
             parameters = StdioServerParameters(
                 command=sys.executable,
-                args=[str(SRC_DIR / "SSN_MCP_Server.py")],
+                args=[str(SRC_DIR / "emapssn_mcp_server.py")],
                 cwd=PROJECT_ROOT,
                 env=environment,
             )

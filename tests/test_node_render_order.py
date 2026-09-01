@@ -16,8 +16,8 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import Command_Engine
-import SSN_Config as cfg
-from SSN_Viewer import MainViewer
+import emapssn_config as cfg
+from emapssn_viewer import MainViewer
 from commands import color as color_command
 from commands import spectrum as spectrum_command
 

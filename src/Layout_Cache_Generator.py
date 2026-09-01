@@ -131,7 +131,7 @@ class LayoutGenerationSettings:
     SGLD_START_TEMP: float
     SGLD_NOISE_SCALE: float
 
-    # Coordinate-affecting values which are currently hidden in SSN Config.
+    # Coordinate-affecting values which are currently hidden in EMAP-SSN Configuration.
     BOX_SCALE: float = 2.0
     PACKING_PADDING: float = 10.0
     MAX_FORCE_LIMIT: float = 20.0
@@ -257,7 +257,7 @@ class LayoutGenerationSettings:
                 "CACHE_FILENAME": cache_filename,
             }
         )
-        # SSN Config historically stores several numeric widget values as strings.
+        # EMAP-SSN Configuration historically stores several numeric widget values as strings.
         for key, value in tuple(values.items()):
             default = defaults.get(key)
             if isinstance(default, bool):
@@ -700,11 +700,11 @@ def generate_layout_cache(
 
 def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate an SSN layout cache without opening SSN Viewer."
+        description="Generate an SSN layout cache without opening EMAP-SSN Viewer."
     )
     parser.add_argument(
         "settings_json",
-        help="Layout settings JSON exported by SSN_Config.py",
+        help="Layout settings JSON exported by emapssn_config.py",
     )
     return parser
 

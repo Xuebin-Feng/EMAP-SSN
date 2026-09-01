@@ -1,7 +1,7 @@
 # Copyright 2026 Xuebin Feng
 # SPDX-License-Identifier: Apache-2.0
 
-"""Bounded, JSON-ready, read-only inspection of an SSN Viewer."""
+"""Bounded, JSON-ready, read-only inspection of an EMAP-SSN Viewer."""
 
 from __future__ import annotations
 

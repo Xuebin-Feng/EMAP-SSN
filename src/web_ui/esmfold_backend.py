@@ -14,7 +14,7 @@
 
 import os
 import json
-import SSN_Config as cfg
+import emapssn_config as cfg
 from web_ui.Plugin_Manager import ensure_registry
 from web_ui.Browser_Page import open_browser_page
 from utilities.Cache_Selection import resolve_selected_cache

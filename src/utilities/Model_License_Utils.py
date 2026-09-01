@@ -122,7 +122,7 @@ def format_model_usage_terms(model_name, terms):
         f"Restriction: {terms['restriction']}\n"
         f"Model source: {terms['source_url']}\n"
         f"License information: {terms['license_url']}\n\n"
-        "The SSN Viewer integration code is Apache-2.0, but the separately "
+        "The EMAP-SSN integration code is Apache-2.0, but the separately "
         "downloaded model weights are not."
     )
 

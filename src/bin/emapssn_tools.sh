@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # =========================================================================
-# Portable Startup Script for SSN_Config.py (Linux/macOS)
+# Portable Startup Script for emapssn_tools.py (Linux/macOS)
 # =========================================================================
 
 # Load dependency checks and desktop-launch failure handling from the installer.
@@ -22,7 +22,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ -f "$SCRIPT_DIR/../../install.sh" ]; then
     PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 elif [ -f "$SCRIPT_DIR/install.sh" ]; then
-    # Invoked through the project-root SSN_Viewer symlink.
+    # Invoked through the project-root emapssn_tools symlink.
     PROJECT_ROOT="$SCRIPT_DIR"
 else
     echo "Could not locate install.sh from $SCRIPT_DIR." >&2
@@ -41,7 +41,7 @@ cd "$PROJECT_ROOT"
 
 activate_existing_instance() {
     [ -x ".venv/bin/python" ] || return 1
-    ".venv/bin/python" src/utilities/Single_Instance_Probe.py viewer \
+    ".venv/bin/python" src/utilities/Single_Instance_Probe.py tools \
         >/dev/null 2>&1
 }
 
@@ -52,17 +52,15 @@ fi
 
 # 0. Prefer XWayland on Wayland sessions. The vispy OpenGL canvas hosted inside
 # Qt6 is unreliable on the native Wayland platform plugin; xcb is the known-good
-# path. VisPy 0.16's desktop GLSL shaders do not compile in the OpenGL ES
-# context exposed by the affected native Wayland driver.
-if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
-    case "${QT_QPA_PLATFORM:-}" in
-        ""|wayland*) export QT_QPA_PLATFORM=xcb ;;
-    esac
+# path. Only applied when the user has not chosen a platform themselves, so
+# `QT_QPA_PLATFORM=wayland ./emapssn_tools` still overrides this.
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM=xcb
 fi
 
-# On Ubuntu/Debian, fail with an exact apt command before Qt attempts to load
-# the xcb platform plugin. Other distributions keep their documented path.
-if ! ssn_require_linux_gui_dependencies viewer; then
+# EMAP-SSN Tools also embeds QtWebEngine, so its preflight includes the Chromium
+# runtime libraries in addition to the shared xcb dependencies.
+if ! ssn_require_linux_gui_dependencies tools; then
     exit 1
 fi
 
@@ -96,7 +94,7 @@ if [ "$LAUNCH_MODE" = "--run-only" ]; then
         printf 'Managed Python is unavailable; run setup before --run-only.\n' >&2
         exit 10
     fi
-    exec "$VENV_PYTHON" src/SSN_Config.py
+    exec "$VENV_PYTHON" src/emapssn_tools.py
 fi
 
 # Healthy direct launches take the same read-only fast path as desktop launches.
@@ -136,9 +134,9 @@ if [ "$LAUNCH_MODE" = "--setup-only" ]; then
     exit 0
 fi
 
-# 4. Run the configuration tool
+# 4. Run the tools
 if activate_existing_instance; then
     exit 0
 fi
-echo "Starting SSN_Config..."
-"$VENV_PYTHON" src/SSN_Config.py
+echo "Starting emapssn_tools..."
+"$VENV_PYTHON" src/emapssn_tools.py

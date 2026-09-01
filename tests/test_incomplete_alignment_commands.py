@@ -18,7 +18,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import Alignment_Manager
-import SSN_Config as cfg
+import emapssn_config as cfg
 from commands import alignment as alignment_command
 from commands import label as label_command
 from commands import logo as logo_command

@@ -14,7 +14,7 @@
 
 import os
 import fnmatch
-import SSN_Config as cfg
+import emapssn_config as cfg
 import Command_Engine
 from PySide6 import QtWidgets
 

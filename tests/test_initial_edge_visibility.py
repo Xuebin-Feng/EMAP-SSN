@@ -4,7 +4,7 @@ import unittest
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-VIEWER_PATH = PROJECT_ROOT / "src" / "SSN_Viewer.py"
+VIEWER_PATH = PROJECT_ROOT / "src" / "emapssn_viewer.py"
 
 
 def _main_viewer_init():

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-commands/agent.py — CLI portal and registration stub for the SSN Viewer LLM agent.
+commands/agent.py — CLI portal and registration stub for the EMAP-SSN Viewer LLM agent.
 
 All backend logic lives in web_ui/agent_backend.py.
 """
@@ -60,7 +60,7 @@ def print_help():
     """)
 
 def run(viewer, args):
-    """Called by SSN_Viewer at startup (--register-only) and when user types 'agent'."""
+    """Called by emapssn_viewer at startup (--register-only) and when user types 'agent'."""
     register(viewer)
 
     if args and args[0] == "--register-only":

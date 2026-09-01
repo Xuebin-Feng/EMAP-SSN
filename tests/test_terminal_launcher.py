@@ -31,6 +31,17 @@ class FakeApplication:
 
 
 class ApplicationIdentityTests(unittest.TestCase):
+    def test_canonical_product_and_component_names(self):
+        self.assertEqual(identity.PRODUCT_NAME, "EMAP-SSN")
+        self.assertEqual(
+            identity.PRODUCT_LONG_NAME,
+            "EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein "
+            "Sequence Similarity Network Platform",
+        )
+        self.assertEqual(identity.CONFIG_DISPLAY_NAME, "EMAP-SSN Configuration")
+        self.assertEqual(identity.VIEWER_DISPLAY_NAME, "EMAP-SSN Viewer")
+        self.assertEqual(identity.TOOLS_DISPLAY_NAME, "EMAP-SSN Tools")
+
     def test_linux_identity_matches_desktop_file_basename(self):
         application = FakeApplication()
 
@@ -39,8 +50,8 @@ class ApplicationIdentityTests(unittest.TestCase):
                 application, identity.VIEWER_DESKTOP_FILE_NAME
             )
 
-        self.assertEqual(application.application_name, "SSN_Viewer")
-        self.assertEqual(application.desktop_file_name, "SSN_Viewer")
+        self.assertEqual(application.application_name, "emapssn")
+        self.assertEqual(application.desktop_file_name, "emapssn")
 
     def test_non_linux_platform_is_unchanged(self):
         application = FakeApplication()
@@ -201,10 +212,10 @@ class TerminalPolicyTests(unittest.TestCase):
     def test_posix_hold_wrapper_preserves_each_argument(self):
         command = ["/tmp/python path", "worker's.py", "; echo unsafe", "雪"]
         child = launcher._posix_child_command(
-            command, launcher.HoldMode.ON_ERROR, "SSN Viewer"
+            command, launcher.HoldMode.ON_ERROR, "EMAP-SSN Viewer"
         )
         self.assertEqual(child[:2], ["bash", "-c"])
-        self.assertEqual(child[3:6], ["ssn-terminal", "on_error", "SSN Viewer"])
+        self.assertEqual(child[3:6], ["ssn-terminal", "on_error", "EMAP-SSN Viewer"])
         self.assertEqual(child[6:], command)
 
     def test_windows_never_hold_runs_command_directly_without_title(self):
@@ -220,7 +231,7 @@ class TerminalPolicyTests(unittest.TestCase):
             command, launcher.HoldMode.ALWAYS, "SSN & Tools"
         )
         on_error = launcher._build_windows_argv(
-            command, launcher.HoldMode.ON_ERROR, "SSN Viewer"
+            command, launcher.HoldMode.ON_ERROR, "EMAP-SSN Viewer"
         )
         self.assertEqual(always[-2], "--windows-child")
         self.assertEqual(on_error[-2], "--windows-child")
@@ -230,7 +241,7 @@ class TerminalPolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             launcher._decode_windows_payload(on_error[-1]),
-            (command, launcher.HoldMode.ON_ERROR, "SSN Viewer"),
+            (command, launcher.HoldMode.ON_ERROR, "EMAP-SSN Viewer"),
         )
 
     def test_macos_command_quotes_paths_and_closes_when_requested(self):
@@ -247,7 +258,7 @@ class TerminalPolicyTests(unittest.TestCase):
         self.assertIn("echo unsafe", script)
 
     def test_macos_startup_terminal_checks_for_exit_every_fifty_milliseconds(self):
-        source = (SRC_DIR / "bin" / "SSN_Terminal_Launcher.sh").read_text(
+        source = (SRC_DIR / "bin" / "emapssn_terminal_launcher.sh").read_text(
             encoding="utf-8"
         )
         busy_loop = source.split("repeat while busy of launchTab", 1)[1]
@@ -295,8 +306,8 @@ class TerminalPolicyTests(unittest.TestCase):
 class CallerIntegrationTests(unittest.TestCase):
     def test_python_callers_use_shared_helper_without_terminal_lists(self):
         callers = (
-            SRC_DIR / "SSN_Tools.py",
-            SRC_DIR / "SSN_Config.py",
+            SRC_DIR / "emapssn_tools.py",
+            SRC_DIR / "emapssn_config.py",
             SRC_DIR / "commands" / "esmfold.py",
             SRC_DIR / "utilities" / "Desktop_Launcher_Monitor.py",
         )
