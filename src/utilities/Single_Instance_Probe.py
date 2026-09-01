@@ -1,4 +1,5 @@
 # Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
 """Lightweight launcher probe for activating an existing SSN Qt window."""

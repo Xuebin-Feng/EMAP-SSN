@@ -1,4 +1,5 @@
 # Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
 """Server-local FIFO execution for MCP-started pipeline tools."""

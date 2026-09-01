@@ -510,6 +510,10 @@ EMAP-SSN/
 
 ---
 
+## Acknowledgements
+
+EMAP-SSN was developed by Xuebin Feng while affiliated with the University of Toronto.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to open Issues or submit Pull Requests to enhance computational efficiency, layout performance, UI responsiveness, or commands for analyses.
@@ -521,6 +525,7 @@ manifest, registration, activation, and failure-isolation rules.
 ## 📄 License
 
 Copyright 2026 Xuebin Feng
+Author affiliation: University of Toronto
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 this file except in compliance with the License. You may obtain a copy of the
