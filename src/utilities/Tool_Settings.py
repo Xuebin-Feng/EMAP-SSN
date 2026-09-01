@@ -39,7 +39,7 @@ def _settings_parser(script_name):
     parser.add_argument(
         "settings_json",
         nargs="?",
-        help="JSON file exported for this tool by emapssn_tools.py",
+        help="JSON file exported for this tool by EMAPSSN_Tools.py",
     )
     return parser
 

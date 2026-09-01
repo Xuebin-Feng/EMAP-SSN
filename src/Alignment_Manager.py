@@ -19,7 +19,7 @@ import numpy as np
 from collections import Counter
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 from utilities.FASTA_Sanitization import simplify_node_label
 from utilities.MSA_Sanitization import (
     AA_TO_INT,

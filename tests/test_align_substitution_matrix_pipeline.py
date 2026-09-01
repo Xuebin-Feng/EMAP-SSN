@@ -86,7 +86,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
         )
 
     def test_tools_panel_keeps_fasta_input_but_not_temp_directory_control(self):
-        tools_source = (PROJECT_ROOT / "src" / "emapssn_tools.py").read_text(
+        tools_source = (PROJECT_ROOT / "src" / "EMAPSSN_Tools.py").read_text(
             encoding="utf-8"
         )
         combined_start = tools_source.index('"Sequence_Similarity_Calculations"')

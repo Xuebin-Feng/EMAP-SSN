@@ -2139,7 +2139,7 @@ class ToolsGUI(QMainWindow):
         import json
         import os
         
-        # Determine the absolute path of the project root (where emapssn_tools.py lives)
+        # Determine the absolute path of the project root (where EMAPSSN_Tools.py lives)
         project_root = os.path.dirname(os.path.abspath(__file__))
         
         new_settings = {}

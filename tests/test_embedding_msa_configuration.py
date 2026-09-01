@@ -473,7 +473,7 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
             )
 
     def test_msa_gui_exposes_persisted_device_selection(self):
-        tools_source = (PROJECT_ROOT / "src" / "emapssn_tools.py").read_text(
+        tools_source = (PROJECT_ROOT / "src" / "EMAPSSN_Tools.py").read_text(
             encoding="utf-8"
         )
         panel = tools_source.split('"Embedding_MSA": {', 1)[1].split(

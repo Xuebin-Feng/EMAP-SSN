@@ -15,8 +15,8 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import emapssn_config as cfg
-from emapssn_viewer import MainViewer
+import EMAPSSN_Config as cfg
+from EMAPSSN_Viewer import MainViewer
 
 
 def write_fasta(path, records):

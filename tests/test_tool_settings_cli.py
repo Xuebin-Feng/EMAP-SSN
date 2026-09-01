@@ -185,7 +185,7 @@ class ToolEntryPointTests(unittest.TestCase):
                 self.assertIn("load_tool_settings(globals(), __file__, PROJECT_ROOT", source)
 
     def test_parse_blast_gui_contract_has_required_order_and_custom_gating(self):
-        source = (SRC_DIR / "emapssn_tools.py").read_text(encoding="utf-8")
+        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         manual_settings = source.index("self.MANUAL_SETTINGS")
         start = source.index('"Parse_BLAST_Output.py": [', manual_settings)
         end = source.index('"Embedding_MSA": {', start)
@@ -296,7 +296,7 @@ class ToolExportGuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication
-        from emapssn_tools import (
+        from EMAPSSN_Tools import (
             HostCacheControl,
             ToolsGUI,
             _selection_supports_tf32,
@@ -346,7 +346,7 @@ class ToolExportGuiTests(unittest.TestCase):
     def test_execution_mode_gui_contract_and_export_round_trip(self):
         from PySide6.QtWidgets import QComboBox, QInputDialog, QLineEdit, QMessageBox
 
-        source = (SRC_DIR / "emapssn_tools.py").read_text(encoding="utf-8")
+        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         self.assertGreaterEqual(source.count('"var_name": "EXECUTION_MODE"'), 2)
         self.assertGreaterEqual(
             source.count('"options": ["auto", "scalar", "tiled"]'), 2
@@ -427,7 +427,7 @@ class ToolExportGuiTests(unittest.TestCase):
         precision.setCurrentIndex(precision.findData("tf32"))
 
         with mock.patch(
-            "emapssn_tools.is_nvidia_cuda",
+            "EMAPSSN_Tools.is_nvidia_cuda",
             side_effect=lambda selected: selected.type == "cuda",
         ):
             self.assertFalse(
@@ -527,7 +527,7 @@ class ToolExportGuiTests(unittest.TestCase):
         self.assertGreaterEqual(execution.findText("tiled"), 0)
 
     def test_host_cache_control_uses_auto_or_linear_manual_gib(self):
-        source = (SRC_DIR / "emapssn_tools.py").read_text(encoding="utf-8")
+        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('"type": "host_cache"'), 2)
 
         control = self.host_cache_control_class("auto")
@@ -601,7 +601,7 @@ class ToolExportGuiTests(unittest.TestCase):
     def test_alignment_and_injection_hardware_rows_follow_requested_order(self):
         from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QWidget
 
-        source = (SRC_DIR / "emapssn_tools.py").read_text(encoding="utf-8")
+        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         manual_start = source.index("self.MANUAL_SETTINGS =")
         align_start = source.index('"Align_Similarity_Matrix.py": [', manual_start)
         align_end = source.index('"Align_Substitution_Matrix.py": [', align_start)

@@ -12,7 +12,7 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from emapssn_viewer import (
+from EMAPSSN_Viewer import (
     MainViewer,
     _apply_safe_rectangle_geometry,
     _vispy_text_line_height_pixels,
@@ -392,11 +392,11 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "emapssn_viewer.scene.visuals.Rectangle",
+                "EMAPSSN_Viewer.scene.visuals.Rectangle",
                 side_effect=make_visual,
             ) as rectangle_mock,
             mock.patch(
-                "emapssn_viewer.scene.visuals.Text",
+                "EMAPSSN_Viewer.scene.visuals.Text",
                 side_effect=make_visual,
             ),
         ):

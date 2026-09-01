@@ -507,8 +507,8 @@ class LayoutHardwareTests(unittest.TestCase):
 
 class GuiContractTests(unittest.TestCase):
     def test_remote_and_layout_device_controls_are_visible_and_persist_specs(self):
-        tools_source = (SRC / "emapssn_tools.py").read_text(encoding="utf-8")
-        config_source = (SRC / "emapssn_config.py").read_text(encoding="utf-8")
+        tools_source = (SRC / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
+        config_source = (SRC / "EMAPSSN_Config.py").read_text(encoding="utf-8")
         generator_source = (SRC / "Layout_Cache_Generator.py").read_text(
             encoding="utf-8"
         )
@@ -519,7 +519,7 @@ class GuiContractTests(unittest.TestCase):
         self.assertIn('"LAYOUT_DEVICE_SELECTION"', generator_source)
 
     def test_align_similarity_matrix_has_batch_size_control(self):
-        tools_source = (SRC / "emapssn_tools.py").read_text(encoding="utf-8")
+        tools_source = (SRC / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         calculation_tools = tools_source.split(
             '"Sequence_Similarity_Calculations": {', 1
         )[1]

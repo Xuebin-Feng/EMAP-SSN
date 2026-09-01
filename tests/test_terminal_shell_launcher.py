@@ -10,7 +10,7 @@ import unittest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER = PROJECT_ROOT / "src" / "bin" / "emapssn_terminal_launcher.sh"
+LAUNCHER = PROJECT_ROOT / "src" / "bin" / "EMAPSSN_Terminal_Launcher.sh"
 
 
 class ShellTerminalLauncherTests(unittest.TestCase):

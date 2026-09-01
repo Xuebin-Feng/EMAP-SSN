@@ -29,8 +29,8 @@ except ModuleNotFoundError:
 
 
 APP_SCRIPTS = {
-    "viewer": Path("src") / "emapssn_config.py",
-    "tools": Path("src") / "emapssn_tools.py",
+    "viewer": Path("src") / "EMAPSSN_Config.py",
+    "tools": Path("src") / "EMAPSSN_Tools.py",
 }
 STARTUP_READY = 0
 STARTUP_APPLICATION_EXITED = 20

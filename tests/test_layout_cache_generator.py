@@ -427,7 +427,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                     "import utilities.Cache_Selection; "
                     "import utilities.Network_Clustering; "
                     "import utilities.Network_Preparation; "
-                    "assert 'emapssn_viewer' not in sys.modules; "
+                    "assert 'EMAPSSN_Viewer' not in sys.modules; "
                     "assert 'vispy' not in sys.modules; "
                     "assert 'PySide6' not in sys.modules; "
                     "assert 'torch' not in sys.modules; "

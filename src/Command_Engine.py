@@ -18,7 +18,7 @@ import re
 import os
 from dataclasses import dataclass
 from enum import Enum
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 
 
 class SelectionExpressionError(ValueError):

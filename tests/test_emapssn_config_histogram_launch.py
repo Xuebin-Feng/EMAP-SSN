@@ -20,8 +20,8 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import emapssn_config  # noqa: E402
-from emapssn_config import build_score_histogram_figure  # noqa: E402
+import EMAPSSN_Config  # noqa: E402
+from EMAPSSN_Config import build_score_histogram_figure  # noqa: E402
 
 
 class ScoreHistogramFigureTests(unittest.TestCase):
@@ -59,9 +59,9 @@ class ViewerHandoffTests(unittest.TestCase):
         process = object()
         env = {"SSN_TARGET_CACHE_MODE": "new", "SSN_VIEWER_SETTINGS_PATH": "/tmp/a.json"}
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            emapssn_config.subprocess, "Popen", return_value=process
+            EMAPSSN_Config.subprocess, "Popen", return_value=process
         ) as popen:
-            result = emapssn_config._handoff_to_viewer(
+            result = EMAPSSN_Config._handoff_to_viewer(
                 temp_dir, env, platform_name="darwin", executable="/python"
             )
 
@@ -74,9 +74,9 @@ class ViewerHandoffTests(unittest.TestCase):
         process = object()
         env = {"SSN_TARGET_CACHE_MODE": "existing"}
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            emapssn_config.shutil, "which", side_effect=lambda name: "/terminal" if name == "gnome-terminal" else None
-        ), mock.patch.object(emapssn_config.subprocess, "Popen", return_value=process) as popen:
-            result = emapssn_config._handoff_to_viewer(
+            EMAPSSN_Config.shutil, "which", side_effect=lambda name: "/terminal" if name == "gnome-terminal" else None
+        ), mock.patch.object(EMAPSSN_Config.subprocess, "Popen", return_value=process) as popen:
+            result = EMAPSSN_Config._handoff_to_viewer(
                 temp_dir, env, platform_name="linux", executable="/python"
             )
 
@@ -86,10 +86,10 @@ class ViewerHandoffTests(unittest.TestCase):
 
     def test_linux_reports_missing_terminal(self):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            emapssn_config.shutil, "which", return_value=None
+            EMAPSSN_Config.shutil, "which", return_value=None
         ):
             with self.assertRaisesRegex(RuntimeError, "No supported terminal emulator"):
-                emapssn_config._handoff_to_viewer(
+                EMAPSSN_Config._handoff_to_viewer(
                     temp_dir, {}, platform_name="linux", executable="/python"
                 )
 
@@ -97,11 +97,11 @@ class ViewerHandoffTests(unittest.TestCase):
         process = object()
         env = {"SSN_TARGET_CACHE_MODE": "existing"}
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            emapssn_config.subprocess,
+            EMAPSSN_Config.subprocess,
             "Popen",
             return_value=process,
         ) as popen:
-            result = emapssn_config._handoff_to_viewer(
+            result = EMAPSSN_Config._handoff_to_viewer(
                 temp_dir,
                 env,
                 platform_name="win32",
@@ -113,11 +113,11 @@ class ViewerHandoffTests(unittest.TestCase):
         self.assertEqual(kwargs["cwd"], os.path.abspath(temp_dir))
         self.assertIs(kwargs["env"], env)
         self.assertNotEqual(kwargs["creationflags"], 0)
-        self.assertIn("src\\emapssn_viewer.py", popen.call_args.args[0])
+        self.assertIn("src\\EMAPSSN_Viewer.py", popen.call_args.args[0])
 
     def test_settings_snapshots_are_unique_and_immutable_copies(self):
-        first = emapssn_config._create_viewer_settings_snapshot({"SEQUENCE_SET": "first"})
-        second = emapssn_config._create_viewer_settings_snapshot({"SEQUENCE_SET": "second"})
+        first = EMAPSSN_Config._create_viewer_settings_snapshot({"SEQUENCE_SET": "first"})
+        second = EMAPSSN_Config._create_viewer_settings_snapshot({"SEQUENCE_SET": "second"})
         self.addCleanup(lambda: os.path.exists(first) and os.unlink(first))
         self.addCleanup(lambda: os.path.exists(second) and os.unlink(second))
 
@@ -153,7 +153,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
                 sys, "exit", return_value=None
             ):
-                namespace = runpy.run_path(str(src / "emapssn_config.py"), run_name="__main__")
+                namespace = runpy.run_path(str(src / "EMAPSSN_Config.py"), run_name="__main__")
 
             app = namespace["app"]
             window = namespace["window"]
@@ -275,13 +275,13 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             from utilities import Hardware_Utils  # preload torch before PySide6
             from PySide6.QtCore import QTimer, qInstallMessageHandler
             from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-            from emapssn_config import build_score_histogram_figure
+            from EMAPSSN_Config import build_score_histogram_figure
             test_app = QApplication.instance() or QApplication([])
 
             with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
                 sys, "exit", return_value=None
             ):
-                namespace = runpy.run_path(str(src / "emapssn_config.py"), run_name="__main__")
+                namespace = runpy.run_path(str(src / "EMAPSSN_Config.py"), run_name="__main__")
 
             app = namespace["app"]
             window = namespace["window"]

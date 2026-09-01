@@ -20,7 +20,7 @@ if SRC_DIR not in sys.path:
 
 def load_print_command():
     command_engine = types.ModuleType("Command_Engine")
-    config = types.ModuleType("emapssn_config")
+    config = types.ModuleType("EMAPSSN_Config")
     config.ANALYSIS_RESULT_DIR = "Analysis_Results"
     config.SEQUENCE_SET = "test_sequences"
     config.resolve_directory_path = lambda value: value
@@ -38,7 +38,7 @@ def load_print_command():
         sys.modules,
         {
             "Command_Engine": command_engine,
-            "emapssn_config": config,
+            "EMAPSSN_Config": config,
             "utilities": utilities,
             "utilities.Application_Windows": application_windows,
         },

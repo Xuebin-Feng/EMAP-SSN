@@ -52,7 +52,7 @@ except Exception:
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # Ensure src/ (the directory containing all project modules) is on sys.path.
-# This is needed when the script is launched as a subprocess (e.g. from emapssn_config.py).
+# This is needed when the script is launched as a subprocess (e.g. from EMAPSSN_Config.py).
 _SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
@@ -65,7 +65,7 @@ import queue
 from vispy import scene, app
 from PySide6 import QtWidgets, QtCore, QtGui
 
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Layout_Cache_Generator import (
@@ -98,7 +98,7 @@ from web_ui.Browser_Page import open_browser_page
 
 
 def _remove_consumed_settings_snapshot():
-    """Remove a per-launch settings snapshot after emapssn_config imported it."""
+    """Remove a per-launch settings snapshot after EMAPSSN_Config imported it."""
     snapshot_path = os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
     if not snapshot_path:
         return

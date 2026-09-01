@@ -391,13 +391,13 @@ def get_viewer_session_context(viewer):
 
 def get_agent_history_path(viewer):
     try:
-        import emapssn_config as cfg
+        import EMAPSSN_Config as cfg
 
         cache_path, _ = resolve_selected_cache(cfg)
         return os.path.join(os.path.dirname(cache_path), "agent_history.json")
     except Exception as e:
         print(f"Warning: Could not resolve agent history path ({e})")
-        import emapssn_config as cfg
+        import EMAPSSN_Config as cfg
 
         saved_layout_dir = getattr(cfg, 'SAVED_LAYOUT_DIR', os.path.join("Cache_Files", "Saved_Layouts"))
         return os.path.join(saved_layout_dir, "agent_chat_history_fallback.json")

@@ -704,7 +704,7 @@ def _argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "settings_json",
-        help="Layout settings JSON exported by emapssn_config.py",
+        help="Layout settings JSON exported by EMAPSSN_Config.py",
     )
     return parser
 

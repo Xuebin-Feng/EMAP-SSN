@@ -14,7 +14,7 @@ REM See the License for the specific language governing permissions and
 REM limitations under the License.
 
 REM =========================================================================
-REM Portable Startup Script for emapssn_tools.py
+REM Portable Startup Script for the EMAP-SSN platform (EMAPSSN_Config.py)
 REM =========================================================================
 setlocal EnableDelayedExpansion
 set "LAUNCH_MODE=%~1"
@@ -120,12 +120,12 @@ if /I "%LAUNCH_MODE%"=="--locked-setup" exit /b 0
 :SETUP_COMPLETE
 if /I "%LAUNCH_MODE%"=="--setup-only" exit /b 0
 
-:: 4. Run the tools
+:: 4. Run the configuration tool
 :RUN_APPLICATION
 call :ACTIVATE_EXISTING_INSTANCE
 if !ERRORLEVEL! equ 0 exit /b 0
-echo Starting emapssn_tools...
-"!VENV_PYTHON!" src\emapssn_tools.py
+echo Starting EMAPSSN_Config...
+"!VENV_PYTHON!" src\EMAPSSN_Config.py
 set "APP_EXIT=!ERRORLEVEL!"
 
 :: Keep window open on error or exit
@@ -137,7 +137,7 @@ exit /b !APP_EXIT!
 
 :ACTIVATE_EXISTING_INSTANCE
 if not exist ".venv\Scripts\python.exe" exit /b 1
-".venv\Scripts\python.exe" "src\utilities\Single_Instance_Probe.py" tools >nul 2>nul
+".venv\Scripts\python.exe" "src\utilities\Single_Instance_Probe.py" viewer >nul 2>nul
 exit /b !ERRORLEVEL!
 
 :SANITIZE_MANAGED_ENVIRONMENT

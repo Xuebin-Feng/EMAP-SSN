@@ -85,5 +85,5 @@ once, so the Viewer-side button identifier must remain stable.
 4. Add focused tests for discovery, registration, initial state, command
    activation, and any routes or actions introduced by the plugin.
 
-No edit to `emapssn_viewer.py` or `Web_Server.py` is required for subsequent
+No edit to `EMAPSSN_Viewer.py` or `Web_Server.py` is required for subsequent
 bundled utilities that follow this contract.
