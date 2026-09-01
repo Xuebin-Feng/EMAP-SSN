@@ -816,6 +816,15 @@ def run(viewer, args):
         automatic_filename = False
         expr = "".join(args)
 
+    if expr != "$sele$":
+        classification = Command_Engine.classify_selection_expression(expr)
+        if classification.kind != Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
+            error = classification.error or Command_Engine.SelectionExpressionError(
+                f"'{expr}' is not a Boolean selection expression."
+            )
+            Command_Engine.report_selection_error(viewer, expr, error, "Logo")
+            return
+
     try:
         filename = _normalize_logo_filename(filename)
     except ValueError as exc:
@@ -828,23 +837,6 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "No selection found. Defaulting to ALL nodes."
         print("No nodes selected. Defaulting to ALL nodes in the network.")
-
-    # 4. Handle UI Selection dynamically
-    if "$sele$" in expr.lower(): 
-        header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-        os.makedirs(header_dir, exist_ok=True)
-        sele_path = os.path.join(header_dir, "_sele.txt")
-        
-        if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-            with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-                for idx in viewer.selected_indices:
-                    f.write(viewer.full_headers[idx] + "\n")
-        else:
-            if os.path.exists(sele_path):
-                open(sele_path, "w", encoding="utf-8").close()
-                    
-        # <--- UPDATED REGEX TO \$sele\$
-        expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
 
     # 5. Parse Position Array
     try:
@@ -884,6 +876,7 @@ def run(viewer, args):
             getattr(viewer, 'group_labels', None),
             getattr(viewer, 'alignment', None),
             metadata=getattr(viewer, 'metadata', None),
+            selection_mask=Command_Engine.get_selected_mask(viewer),
         )
         selected_nodes = np.where(mask)[0]
     except Exception as e:

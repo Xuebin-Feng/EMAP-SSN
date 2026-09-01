@@ -435,7 +435,7 @@ class CommandPromotionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             cfg, "HEADER_LIST_DIR", temp_dir, create=True
         ), mock.patch("importlib.import_module", return_value=fake_meta):
-            spectrum_command.run(viewer, ["prop:Length"])
+            spectrum_command.run(viewer, ["{Length}"])
 
         viewer._save_state.assert_called_once_with()
         viewer.promote_nodes.assert_called_once()

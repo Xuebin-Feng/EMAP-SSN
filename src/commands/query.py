@@ -15,9 +15,6 @@
 import os
 import re
 import fnmatch
-import os
-import re
-import fnmatch
 import numpy as np
 from collections import Counter
 import SSN_Config as cfg
@@ -58,6 +55,92 @@ _FREQUENCY_PARENTHESES_MESSAGE = (
 
 class _FrequencyParenthesesError(ValueError):
     """Raised when a compound frequency comparison lacks its outer parentheses."""
+
+
+class _FrequencyLogicParser:
+    """Evaluate mask atoms with the shared Boolean-operator precedence."""
+
+    def __init__(self, text, masks):
+        self.text = text
+        self.masks = masks
+        self.position = 0
+
+    def _skip_space(self):
+        while self.position < len(self.text) and self.text[self.position].isspace():
+            self.position += 1
+
+    def _error(self):
+        raise ValueError(
+            "Invalid frequency Boolean expression. Ensure operators and "
+            "parentheses are complete."
+        )
+
+    def parse(self):
+        self._skip_space()
+        if self.position >= len(self.text):
+            self._error()
+        result = self._parse_or()
+        self._skip_space()
+        if self.position != len(self.text):
+            self._error()
+        return result
+
+    def _parse_or(self):
+        result = self._parse_xor()
+        while True:
+            self._skip_space()
+            if self.position >= len(self.text) or self.text[self.position] != "|":
+                return result
+            self.position += 1
+            result = result | self._parse_xor()
+
+    def _parse_xor(self):
+        result = self._parse_and()
+        while True:
+            self._skip_space()
+            if self.position >= len(self.text) or self.text[self.position] != "^":
+                return result
+            self.position += 1
+            result = result ^ self._parse_and()
+
+    def _parse_and(self):
+        result = self._parse_unary()
+        while True:
+            self._skip_space()
+            if self.position >= len(self.text) or self.text[self.position] != "&":
+                return result
+            self.position += 1
+            result = result & self._parse_unary()
+
+    def _parse_unary(self):
+        self._skip_space()
+        if self.position < len(self.text) and self.text[self.position] == "!":
+            self.position += 1
+            return ~self._parse_unary()
+        return self._parse_primary()
+
+    def _parse_primary(self):
+        self._skip_space()
+        if self.position >= len(self.text):
+            self._error()
+        if self.text[self.position] == "(":
+            self.position += 1
+            result = self._parse_or()
+            self._skip_space()
+            if self.position >= len(self.text) or self.text[self.position] != ")":
+                self._error()
+            self.position += 1
+            return result
+
+        match = re.match(r"M_\d+", self.text[self.position:])
+        if not match:
+            self._error()
+        key = match.group(0)
+        self.position += len(key)
+        try:
+            return self.masks[key]
+        except KeyError:
+            self._error()
 
 
 def _normalize_frequency_target(target_raw):
@@ -132,7 +215,7 @@ def evaluate_frequency_logic(inner, gap_fractions, aa_fractions):
             aa_fractions,
         )
         mask_idx += 1
-        return f"masks['{mask_key}']"
+        return mask_key
 
     expression = _PARENTHESIZED_FREQUENCY_CONDITION_RE.sub(
         condition_repl,
@@ -146,11 +229,7 @@ def evaluate_frequency_logic(inner, gap_fractions, aa_fractions):
     if re.search(r'[><]', expression) or mask_idx == 0:
         raise _FrequencyParenthesesError(_FREQUENCY_PARENTHESES_MESSAGE)
 
-    final_expression = expression.replace('!', '~')
-    try:
-        result = eval(final_expression, {"__builtins__": {}}, {"masks": masks})
-    except Exception as error:
-        raise ValueError(str(error)) from error
+    result = _FrequencyLogicParser(expression, masks).parse()
 
     result_mask = np.asarray(result, dtype=bool)
     expected_shape = np.asarray(gap_fractions).shape
@@ -344,20 +423,6 @@ def run(viewer, args):
             viewer.console_text.text = "No selection found. Defaulting to ALL nodes."
         print("No nodes selected. Defaulting to ALL nodes in the network.")
 
-    # Handle UI Selection dynamically
-    if "$sele$" in expr.lower():
-        header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-        os.makedirs(header_dir, exist_ok=True)
-        sele_path = os.path.join(header_dir, "_sele.txt")
-        
-        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-            if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-                for idx in viewer.selected_indices:
-                    f.write(viewer.full_headers[idx] + "\n")
-                    
-        # Replace $sele$ shorthand with explicit file mask syntax
-        expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
-
     # --- 3. Compute Subset Rows ---
     target_rows = None
     n_seqs = len(viewer.alignment.aln)
@@ -366,9 +431,18 @@ def run(viewer, args):
     if expr:
         viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
         
-        expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
         try:
-            mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
+            mask = Command_Engine.parse_advanced_expression(
+                expr,
+                viewer_to_aln,
+                valid_indices,
+                viewer.full_headers,
+                getattr(viewer, 'cluster_labels', None),
+                getattr(viewer, 'group_labels', None),
+                getattr(viewer, 'alignment', None),
+                metadata=getattr(viewer, 'metadata', None),
+                selection_mask=Command_Engine.get_selected_mask(viewer),
+            )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Query")
             return

@@ -33,6 +33,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 | Gap Open Penalty **`GAP_OPEN`** | The gap open penalty score. More negative values penalize opening new gaps more severely. |
 | Gap Extend Penalty **`GAP_EXTEND`** | The gap extend penalty score. More negative values penalize extending existing gaps. |
 | CPU Worker Processes **`WORKERS`** | The number of CPU processes allocated for parallel noise-perturbed guide-tree calculations. |
+| Compute Device **`DEVICE_SELECTION`** | Selects `auto` or a specific available CPU, CUDA, XPU, or MPS device for sequential profile score-matrix construction. Auto benchmarks three real leaf-to-leaf guide-tree merges near the 25th, 50th, and 90th score-matrix cost percentiles and selects one device for the full progressive merge. Guide-tree calculations and dynamic-programming traceback remain on CPU. |
 | Temporary Working Directory **`SAFE_TEMP_DIR`** | The temporary directory used to cache intermediate files and memory-mapped matrices. |
 
 ### 📤 Output
@@ -92,6 +93,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 
 6. **Progressive Profile Alignment**:
      Traverses the guide tree from leaves to the root. At each internal node, it merges the two child clusters (which could be single sequences or alignment profiles) by:
+     - Resolving a manual compute device or, in Auto mode, benchmarking representative real leaf merges after guide-tree construction. The benchmark includes score-matrix host/device transfers but excludes HDF5 loading and CPU traceback.
      - Unit-normalizing each leaf residue embedding before it enters a profile.
      - Averaging those unit vectors across every sequence in the cluster while treating gaps as zero. The resulting vector norm therefore records both non-gap occupancy and directional agreement within the column.
      - Calculating reciprocal cosine similarity from the profile-vector directions, then weighting each cell by the two column norms so weakly supported or inconsistent columns contribute less alignment evidence.

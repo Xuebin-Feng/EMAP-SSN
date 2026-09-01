@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.cm as cm
-import SSN_Config as cfg
 import Command_Engine
 
 
@@ -60,7 +59,7 @@ def print_help():
     print("""
     Spectrum Coloring Tool
     ======================
-    Usage: spectrum [EXPRESSION] prop:<PROPERTY_NAME> [scheme:<COLOR_SCHEME>]
+    Usage: spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]
            spectrum help
 
     Description:
@@ -71,10 +70,8 @@ def print_help():
       * IMPORTANT: This command only applies to visible nodes.
 
     Arguments:
-      prop:<PROPERTY_NAME> or property:<PROPERTY_NAME>
-                              - The target numerical property name (e.g., prop:Length, property:Length).
-      scheme:<COLOR_SCHEME> or color:<COLOR_SCHEME>
-                              - (Optional) Matplotlib colormap name. Defaults to 'coolwarm'.
+      {PROPERTY_NAME}         - The required numerical metadata property (e.g., {Length}).
+      COLOR_SCHEME            - (Optional) Matplotlib colormap name. Defaults to 'coolwarm'.
                                 Supported schemes:
                                 * Perceptually Uniform: viridis, plasma, inferno, magma, cividis
                                 * Sequential: Blues, BuGn, BuPu, GnBu, Greens, Greys, Oranges, 
@@ -96,10 +93,10 @@ def print_help():
       A valid expression may match zero nodes.
 
     Examples:
-      spectrum prop:Length
-      spectrum property:Length color:plasma
-      spectrum #cluster_1# prop:Length scheme:coolwarm
-      spectrum {Organism=*coli*} property:Length
+      spectrum {Length}
+      spectrum {Length} plasma
+      spectrum #cluster_1# {Length} coolwarm
+      spectrum {Organism=*coli*} {Length}
     """)
 
 def get_colormap(scheme_name):
@@ -126,6 +123,20 @@ def get_colormap(scheme_name):
         pass
     return cm.get_cmap('coolwarm'), False
 
+
+def is_registered_colormap(scheme_name):
+    try:
+        if hasattr(mpl, 'colormaps'):
+            mpl.colormaps[scheme_name]
+            return True
+    except KeyError:
+        pass
+    try:
+        cm.get_cmap(scheme_name)
+        return True
+    except Exception:
+        return False
+
 def run(viewer, args):
     if not args:
         print_help()
@@ -133,31 +144,76 @@ def run(viewer, args):
             viewer.console_text.text = "Error: Missing arguments for spectrum coloring."
         return
 
-    # Parse arguments
+    # Parse command-specific roles before Boolean-expression classification.
     expr = None
     prop_name = None
     scheme_name = 'coolwarm'
+    scheme_supplied = False
 
     for arg in args:
-        if arg.startswith('prop:'):
-            prop_name = arg[len('prop:'):].strip()
-        elif arg.startswith('property:'):
-            prop_name = arg[len('property:'):].strip()
-        elif arg.startswith('scheme:'):
-            scheme_name = arg[len('scheme:'):].strip()
-        elif arg.startswith('color:'):
-            scheme_name = arg[len('color:'):].strip()
-        elif arg.lower() in ['help', '-h', '--help']:
+        arg_lower = arg.lower()
+        if arg_lower in ['help', '-h', '--help']:
             print_help()
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = "Help information printed to the terminal"
             return
-        else:
-            expr = arg.strip()
+        if arg_lower.startswith(('prop:', 'property:', 'scheme:', 'color:')):
+            Command_Engine.print_help(
+                viewer,
+                "Error: Legacy spectrum prefixes are no longer supported. Use "
+                "'spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]'.",
+            )
+            return
+
+        property_match = re.fullmatch(r'\{([a-zA-Z0-9_\-.]+)\}', arg)
+        if property_match:
+            if prop_name is not None:
+                Command_Engine.print_help(
+                    viewer, "Error: Spectrum accepts exactly one {PROPERTY_NAME}."
+                )
+                return
+            prop_name = property_match.group(1)
+            continue
+
+        if is_registered_colormap(arg):
+            if scheme_supplied:
+                Command_Engine.print_help(
+                    viewer, "Error: Spectrum accepts at most one color scheme."
+                )
+                return
+            scheme_name = arg
+            scheme_supplied = True
+            continue
+
+        classification = Command_Engine.classify_selection_expression(arg)
+        if classification.kind == Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
+            if expr is not None:
+                Command_Engine.print_help(
+                    viewer, "Error: Spectrum accepts at most one Boolean expression."
+                )
+                return
+            expr = arg
+            continue
+        if classification.kind == Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION:
+            Command_Engine.report_selection_error(
+                viewer, arg, classification.error, "Spectrum"
+            )
+            return
+        if scheme_supplied:
+            Command_Engine.print_help(
+                viewer,
+                f"Error: Unrecognized extra spectrum argument '{arg}'. Only one "
+                "color scheme may be supplied.",
+            )
+            return
+        scheme_name = arg
+        scheme_supplied = True
 
     if not prop_name:
         print_help()
-        Command_Engine.print_help(viewer, "Error: Target property must be specified using prop:<property_name> or property:<property_name>.")
+        Command_Engine.print_help(
+            viewer, "Error: Target property must be specified as {PROPERTY_NAME}."
+        )
         return
 
     if not getattr(viewer, 'metadata', None):
@@ -181,24 +237,6 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, f"Error: Property '{matched_key}' is not numerical (type is '{prop_data['type']}'). Spectrum coloring requires a numerical property.")
         return
 
-    # Keep selection cache fresh if selection expression is used
-    header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-    os.makedirs(header_dir, exist_ok=True)
-    sele_path = os.path.join(header_dir, "_sele.txt")
-    
-    if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-            for idx in viewer.selected_indices:
-                f.write(viewer.full_headers[idx] + "\n")
-    else:
-        if os.path.exists(sele_path):
-            open(sele_path, "w", encoding="utf-8").close()
-
-    # Preprocess expression (replace $sele$ and remove spaces in {})
-    if expr:
-        expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
-        expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
-
     # Determine mask
     if expr:
         viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
@@ -207,7 +245,8 @@ def run(viewer, args):
             mask = Command_Engine.parse_advanced_expression(
                 expr, viewer_to_aln, valid_indices, viewer.full_headers,
                 getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None),
-                getattr(viewer, 'alignment', None), metadata=viewer.metadata
+                getattr(viewer, 'alignment', None), metadata=viewer.metadata,
+                selection_mask=Command_Engine.get_selected_mask(viewer),
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Spectrum")

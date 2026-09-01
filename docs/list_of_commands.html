@@ -750,6 +750,7 @@
                             <li><strong>Clusters:</strong> <code>#cluster_1#</code>, <code>#cluster_2#</code>, etc.</li>
                             <li><strong>Noise:</strong> <code>#noise#</code> isolates unclustered/filtered nodes (Cluster -1).</li>
                             <li><strong>Custom Groups:</strong> <code>#human#</code> matches nodes you have manually grouped and labeled as "human".</li>
+                            <li><strong>Canonical Resolution:</strong> Cluster labels use their exact decimal spelling. Thus <code>#cluster_001#</code> may name a custom group rather than cluster 1. A label that simultaneously names an existing cluster and custom group is rejected as ambiguous.</li>
                         </ul>
                     </div>
                 </div>
@@ -1270,7 +1271,7 @@
                     <li><strong>No Spaces:</strong> Group names must be continuous strings. Use underscores instead of spaces (e.g. <code>active_site</code>).</li>
                     <li><strong>Case-Insensitive:</strong> All group names are converted to lowercase internally to prevent matching errors.</li>
                     <li><strong>Reserved Words:</strong> The exact case-insensitive names <code>noise</code>, <code>reset</code>, <code>remove</code>, <code>delete</code>, <code>list</code>, <code>help</code>, <code>cluster</code>, <code>group</code>, <code>groups</code>, and <code>clusters</code> are prohibited.</li>
-                    <li><strong>Generated Labels:</strong> Canonical labels that the topology commands can generate are prohibited: <code>cluster_N</code> and <code>subcluster_N_M</code>, where every component is a positive integer written without leading zeros. Thus <code>cluster_1</code> and <code>subcluster_1_2</code> are reserved, while noncanonical names such as <code>cluster_001</code>, <code>subcluster_001_2</code>, and <code>subcluster_1_002</code> are allowed.</li>
+                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical <code>subcluster_N_M</code> names remain reserved; leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed.</li>
                 </ul>
 
                 <div class="subheading">Usage Mechanics</div>
@@ -1412,7 +1413,8 @@
                 <ul>
                     <li><strong>clusters (Default):</strong> Run as <code>export</code> or <code>export clusters</code>. Generates a separate <code>.fasta</code> file for every valid mathematical cluster (e.g. <code>Cluster_0.fasta</code>). Noise nodes are skipped to ensure data conservation.</li>
                     <li><strong>groups / group:</strong> Run as <code>export groups</code>. Generates a separate <code>.fasta</code> file for every custom group label currently defined in the session.</li>
-                    <li><strong>group:&lt;Name&gt;:</strong> Exports only specific custom groups (e.g. <code>export group:kinase</code>). Multiple specific groups can be chained.</li>
+                    <li><strong>#LABEL#:</strong> Exports one specific custom group, topology cluster, or noise subset. Repeat and mix label targets as needed (for example, <code>export #kinase# #cluster_1# #noise#</code>); repeated labels are deduplicated.</li>
+                    <li><strong>Validation:</strong> All labels are resolved before any output is created. All-target modes cannot be mixed with specific labels, ambiguous cluster/group names are rejected, and the former <code>group:NAME</code> syntax is no longer accepted.</li>
                 </ul>
 
                 <div class="subheading">Fidelity &amp; Routing</div>
@@ -1425,7 +1427,8 @@
                 <ul class="example-list">
                     <li class="example-item"><span>export</span><button class="copy-btn" onclick="copyText('export', this)">Copy</button></li>
                     <li class="example-item"><span>export groups</span><button class="copy-btn" onclick="copyText('export groups', this)">Copy</button></li>
-                    <li class="example-item"><span>export group:human</span><button class="copy-btn" onclick="copyText('export group:human', this)">Copy</button></li>
+                    <li class="example-item"><span>export #human#</span><button class="copy-btn" onclick="copyText('export #human#', this)">Copy</button></li>
+                    <li class="example-item"><span>export #cluster_1# #noise#</span><button class="copy-btn" onclick="copyText('export #cluster_1# #noise#', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1522,16 +1525,17 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">spectrum [expression] prop:&lt;property_name&gt; [scheme:&lt;color_scheme&gt;]</div>
+                    <div class="syntax-content">spectrum [expression] {&lt;property_name&gt;} [&lt;color_scheme&gt;]</div>
                     <button class="copy-btn" onclick="copyText('spectrum', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> Colors visible nodes along a color gradient (spectrum) based on the values of a numerical property and brings all nodes colored by that invocation to the top in stable node-index order. Automatically calls the <code>meta display</code> command to display the selected property in the HUD when a node is clicked.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
-                    <li><strong>prop:&lt;property_name&gt; / property:&lt;property_name&gt;:</strong> The target numerical property name from the loaded metadata (e.g. <code>prop:Length</code>).</li>
-                    <li><strong>scheme:&lt;color_scheme&gt; / color:&lt;color_scheme&gt;:</strong> (Optional) Matplotlib colormap name. Defaults to <code>coolwarm</code>.</li>
+                    <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression.</li>
+                    <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>; an unrecognized name warns and falls back to that default.</li>
                     <li><strong>[expression]:</strong> (Optional) Logical expression to select which nodes are colored. If omitted, all nodes in the network are colored.</li>
+                    <li><strong>Ordering:</strong> The property, expression, and color scheme may appear in any order because each role is classified before execution. The former <code>prop:</code>, <code>property:</code>, <code>scheme:</code>, and <code>color:</code> forms are no longer accepted.</li>
                 </ul>
 
                 <div class="subheading">Colormap Schemes</div>
@@ -1545,10 +1549,10 @@
 
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>spectrum prop:Length</span><button class="copy-btn" onclick="copyText('spectrum prop:Length', this)">Copy</button></li>
-                    <li class="example-item"><span>spectrum property:Length color:plasma</span><button class="copy-btn" onclick="copyText('spectrum property:Length color:plasma', this)">Copy</button></li>
-                    <li class="example-item"><span>spectrum #cluster_1# prop:Length scheme:coolwarm</span><button class="copy-btn" onclick="copyText('spectrum #cluster_1# prop:Length scheme:coolwarm', this)">Copy</button></li>
-                    <li class="example-item"><span>spectrum {Organism=*coli*} property:Length</span><button class="copy-btn" onclick="copyText('spectrum {{Organism=*coli*}} property:Length', this)">Copy</button></li>
+                    <li class="example-item"><span>spectrum {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Length}', this)">Copy</button></li>
+                    <li class="example-item"><span>spectrum plasma {Length}</span><button class="copy-btn" onclick="copyText('spectrum plasma {Length}', this)">Copy</button></li>
+                    <li class="example-item"><span>spectrum #cluster_1# {Length} coolwarm</span><button class="copy-btn" onclick="copyText('spectrum #cluster_1# {Length} coolwarm', this)">Copy</button></li>
+                    <li class="example-item"><span>spectrum {Organism=*coli*} {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Organism=*coli*} {Length}', this)">Copy</button></li>
                 </ul>
             </section>
 

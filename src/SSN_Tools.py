@@ -110,6 +110,7 @@ COMPACT_ROW_GROUPS = {
     ],
     "Embedding_MSA.py": [
         ("GAP_OPEN", "GAP_EXTEND"),
+        ("WORKERS", "DEVICE_SELECTION"),
     ],
     "Embedding_PWA.py": [
         ("HIGHLIGHT_POSITIONS", "EMBEDDING_MODEL"),
@@ -1018,6 +1019,7 @@ class ToolsGUI(QMainWindow):
                 "GAP_OPEN": "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions.",
                 "GAP_EXTEND": "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths.",
                 "WORKERS": "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems.",
+                "DEVICE_SELECTION": "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.",
                 "SAFE_TEMP_DIR": "Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.\nEnsures large guide tree and distance matrix calculations do not exceed system RAM."
             },
             "Sparse_MSA_Converter.py": {
@@ -1496,6 +1498,11 @@ class ToolsGUI(QMainWindow):
                             "min": 1,
                             "max": MAX_CORES,
                             "display": "CPU Workers:"
+                        },
+                        {
+                            "var_name": "DEVICE_SELECTION",
+                            "type": "device_dropdown",
+                            "display": "Device:"
                         }
                     ],
                     "Sparse_MSA_Converter.py": [
@@ -4112,6 +4119,7 @@ class ToolsGUI(QMainWindow):
             "Align_Similarity_Matrix.py",
             "Network_Injection.py",
             "Embedding_SSEARCH.py",
+            "Embedding_MSA.py",
         }:
             available_devices = Hardware_Utils.get_available_devices()
             try:

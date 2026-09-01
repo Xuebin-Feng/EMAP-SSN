@@ -1010,32 +1010,19 @@ def download_metadata(viewer, filepath, expr=None):
     try:
         mask = np.ones(viewer.n_nodes, dtype=bool)
         if expr:
-            header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-            os.makedirs(header_dir, exist_ok=True)
-            sele_path = os.path.join(header_dir, "_sele.txt")
-            if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-                with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-                    for idx in viewer.selected_indices:
-                        f.write(viewer.full_headers[idx] + "\n")
-            else:
-                if os.path.exists(sele_path):
-                    open(sele_path, "w", encoding="utf-8").close()
-
-            expr_cleaned = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
-            expr_cleaned = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr_cleaned)
-            
             viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
             
             try:
                 mask = Command_Engine.parse_advanced_expression(
-                    expr_cleaned,
+                    expr,
                     viewer_to_aln,
                     valid_indices,
                     viewer.full_headers,
                     getattr(viewer, 'cluster_labels', None),
                     getattr(viewer, 'group_labels', None),
                     getattr(viewer, 'alignment', None),
-                    metadata=viewer.metadata
+                    metadata=viewer.metadata,
+                    selection_mask=Command_Engine.get_selected_mask(viewer),
                 )
             except Command_Engine.SelectionExpressionError as error:
                 Command_Engine.report_selection_error(

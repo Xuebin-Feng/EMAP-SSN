@@ -85,10 +85,10 @@ Available CLI commands:
     - Supports the same Leiden, MCL, and Jaccard parameters and defaults as `cluster`; MIN_SIZE defaults to `10`, and smaller subcommunities are treated as subcluster noise.
     - Requires existing main clusters and internal edges within the target cluster. `subcluster clear` removes only custom groups matching the subcluster naming pattern.
 
-16. `spectrum [EXPRESSION] prop:<PROPERTY_NAME> [scheme:<COLOR_SCHEME>]`
-    - Colors visible nodes by values from a loaded numerical metadata property. `property:` aliases `prop:`, and `color:` aliases `scheme:`; argument order is flexible.
+16. `spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]`
+    - Colors visible nodes by values from exactly one loaded numerical metadata property enclosed in braces. A bare target such as `{Length}` selects the spectrum property, while a complete predicate such as `{Length>500}` remains a Boolean selection expression. The expression, property, and optional standalone color scheme may appear in any order.
     - If EXPRESSION is omitted, all visible nodes are targeted. Text properties are invalid for spectrum coloring, and nodes lacking a usable numerical value are not assigned a gradient value.
-    - The default Matplotlib color scheme is `coolwarm`. A valid Matplotlib colormap name may be supplied; an unrecognized scheme falls back to the default.
+    - The default Matplotlib color scheme is `coolwarm`. An unrecognized scheme warns and falls back to the default. Do not emit the removed `prop:`, `property:`, `scheme:`, or `color:` forms.
     - All nodes colored by one invocation, including invalid-value nodes colored gray, are promoted as one node-index-ordered render group.
 
 17. `meta | meta [upload|import] <FILENAME> | meta show <PROPERTY_NAME> | meta download [FILENAME] | meta delete|remove|clear <PROPERTY_NAME> [PROPERTY_NAME ...]`
@@ -99,13 +99,14 @@ Available CLI commands:
     - `download`/`retrieve`/`export` writes all current session metadata. Without a filename it chooses the next free generic CSV name; with a filename it adds `.csv` if no extension is present and overwrites an existing target of that name. This form does not accept a node expression.
 
 18. `group [EXPRESSION] <GROUP_NAME> [<EXPRESSION_2> <GROUP_NAME_2> ...] | group list | group remove <GROUP_NAME...>`
-    - Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens and should use underscores instead of spaces or special characters. Do not use the reserved names `noise`, `reset`, `remove`, `delete`, `list`, `help`, `cluster`, `group`, `groups`, or `clusters`. Canonical generated labels `cluster_N` and `subcluster_N_M` are also reserved when each numeric component is a positive integer without leading zeros; noncanonical names such as `cluster_001` remain allowed.
+    - Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens and should use underscores instead of spaces or special characters. Do not use the reserved names `noise`, `reset`, `remove`, `delete`, `list`, `help`, `cluster`, `group`, `groups`, or `clusters`. A canonical `cluster_N` group name is rejected when cluster `N` currently exists, including cluster 0 from an older cache; otherwise it may be a custom group. Leading-zero names such as `cluster_001` remain custom groups. Canonical generated `subcluster_N_M` names remain reserved.
     - A single group name with no expression targets the current selection. Otherwise, arguments are expression/name pairs and multiple assignments may be made in one command.
     - `group list` prints group sizes and proportions. `remove` and `delete` remove the named groups from every node. Group assignments and removals participate in undo state.
 
-19. `export [clusters | groups | group:<GROUP_NAME> ...]`
+19. `export [clusters | groups | #LABEL# ...]`
     - Exports source sequences as separate FASTA files using the current cluster or custom-group memberships.
-    - With no target, or with `clusters`, exports every non-noise topology cluster and requires prior clustering. `group`/`groups` exports every defined custom group. One or more `group:<GROUP_NAME>` targets export only those named groups.
+    - With no target, or with `clusters`, exports every non-noise topology cluster and requires prior clustering. `group`/`groups` exports every defined custom group. One or more repeatable `#LABEL#` targets export specific custom groups, topology clusters, or `#noise#`; mixed targets are allowed and duplicates are removed.
+    - Do not combine an all-target mode with specific labels. The removed `group:NAME` form is invalid. Every label is resolved before any output is created, and an ambiguous name shared by a cluster and custom group is rejected.
     - Files are written beneath the configured Analysis Results directory, using `Analysis_Results/Sequence_Export/` by default. This command chooses artifact names from cluster/group labels and does not accept a custom output filename.
 
 20. `label [cluster|clusters|group|groups] [gmax VALUE] [cmin VALUE] [IDENTITY] [FILENAME]`
@@ -144,7 +145,7 @@ Shared expression language:
 - Amino-acid state at a mapped position: `[AA][POSITION]`, where AA is a standard one-letter amino-acid code and `_` means a gap. Multiple acceptable residues use `([AA...])[POSITION]`, for example `(RHK)71`. POSITION uses the active alignment numbering and offset. A negative displayed position must be enclosed in parentheses, for example `K(-1)`, `K(-1.1)`, or `(RHK)(-1)`; never emit bare `K-1`, `K-1.1`, or `(RHK)-1`.
 - Header text: `"TEXT"`; `*` may be used as a wildcard inside the quoted text.
 - Header-list file: `@[FILE]@`; identifier extraction modes are `@[NCBI][FILE]@` and `@[PDB][FILE]@`.
-- Topology cluster: `#cluster_N#`, where `N` is the cluster number. Natural-language references such as "cluster N" must be normalized to this full label; never shorten a topology cluster to `#N#`.
+- Topology cluster: `#cluster_N#`, where `N` uses the exact decimal spelling of the cluster number. Natural-language references such as "cluster N" must be normalized to this full label; never shorten a topology cluster to `#N#` or add leading zeros. A label shared by an existing cluster and custom group is ambiguous and must not be emitted until the user resolves the name collision.
 - Custom group: `#GROUP_NAME#`, using the group's defined name exactly. The special topology-noise label is `#noise#` when present.
 - Current mouse selection: `$sele$`.
 - Metadata comparison: `{PROPERTY OP VALUE}` using the viewer's property name and a supported equality, inequality, or numeric comparison operator. Wildcards may be used for text matching.

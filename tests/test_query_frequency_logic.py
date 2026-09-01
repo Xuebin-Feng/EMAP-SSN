@@ -90,6 +90,18 @@ class QueryFrequencyLogicTests(unittest.TestCase):
             [False, True, False],
         )
 
+    def test_boolean_precedence_negation_and_complete_consumption(self):
+        np.testing.assert_array_equal(
+            self.evaluate("(K>20%)|(R>20%)&(GAP>=50%)"),
+            [True, True, True],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate("!(K>20%)"),
+            [False, True, False],
+        )
+        with self.assertRaisesRegex(ValueError, "Invalid frequency Boolean expression"):
+            self.evaluate("(K>20%) trailing")
+
     def test_absent_residues_and_malformed_groups(self):
         np.testing.assert_array_equal(
             self.evaluate("(WY)>0"),

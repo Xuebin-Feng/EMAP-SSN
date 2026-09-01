@@ -16,6 +16,8 @@ import numpy as np
 import fnmatch
 import re
 import os
+from dataclasses import dataclass
+from enum import Enum
 import SSN_Config as cfg
 
 
@@ -25,6 +27,52 @@ class SelectionExpressionError(ValueError):
 
 class SelectionContextError(SelectionExpressionError):
     """Raised when an expression references data absent from the current SSN."""
+
+
+class SelectionClassificationKind(Enum):
+    """Syntax-only classification for a possible selection-expression argument."""
+
+    VALID_EXPRESSION = "valid_expression"
+    NOT_EXPRESSION = "not_expression"
+    MALFORMED_EXPRESSION = "malformed_expression"
+
+
+@dataclass(frozen=True)
+class SelectionClassification:
+    kind: SelectionClassificationKind
+    expression: object = None
+    error: SelectionExpressionError = None
+
+
+@dataclass(frozen=True)
+class _SelectionAtom:
+    kind: str
+    value: object
+
+
+@dataclass(frozen=True)
+class _SelectionUnary:
+    operand: object
+
+
+@dataclass(frozen=True)
+class _SelectionBinary:
+    operator: str
+    left: object
+    right: object
+
+
+@dataclass(frozen=True)
+class ResolvedLabelTarget:
+    """A context-validated #label# target shared by expressions and export."""
+
+    kind: str
+    name: str
+    cluster_id: int = None
+
+
+class _NotSelectionExpression(Exception):
+    """Internal signal that a plain argument is not expression-shaped."""
 
 
 _METADATA_QUERY_PATTERN = re.compile(
@@ -94,9 +142,24 @@ def _validate_file_target(target):
         )
 
 
-def _validate_label_target(cluster_labels, group_labels, target):
-    target_name = target.strip()
+def _available_group_lookup(group_labels):
+    lookup = {}
+    if group_labels is not None:
+        for groups in group_labels:
+            if not groups:
+                continue
+            for group_name in groups:
+                display = str(group_name)
+                lookup.setdefault(display.lower(), display)
+    return lookup
+
+
+def resolve_label_target(cluster_labels, group_labels, target):
+    """Resolve one label using canonical cluster spelling and explicit ambiguity."""
+    target_name = str(target).strip()
     target_lower = target_name.lower()
+    group_lookup = _available_group_lookup(group_labels)
+    group_name = group_lookup.get(target_lower)
 
     if target_lower == "noise":
         if cluster_labels is None:
@@ -115,40 +178,50 @@ def _validate_label_target(cluster_labels, group_labels, target):
                 "Noise does not exist in the current clustering.\n"
                 + _format_available(available, "clusters")
             )
-        return
+        return ResolvedLabelTarget("noise", "noise", -1)
 
-    cluster_match = re.fullmatch(r'cluster_(\d+)', target_lower)
-    if cluster_match:
-        requested_id = int(cluster_match.group(1))
+    cluster_match = re.fullmatch(r'cluster_(0|[1-9]\d*)', target_lower)
+    cluster_id = int(cluster_match.group(1)) if cluster_match else None
+    cluster_exists = False
+    cluster_values = None
+    if cluster_id is not None and cluster_labels is not None:
+        cluster_values = np.asarray(cluster_labels)
+        cluster_exists = bool(np.any(cluster_values == cluster_id))
+
+    if cluster_exists and group_name is not None:
+        raise SelectionContextError(
+            f"Label '{target_name}' is ambiguous because it names both topology "
+            "cluster " + f"cluster_{cluster_id} and a custom group. Rename or remove "
+            "the custom group before using this label."
+        )
+    if cluster_exists:
+        return ResolvedLabelTarget("cluster", f"cluster_{cluster_id}", cluster_id)
+    if group_name is not None:
+        return ResolvedLabelTarget("group", group_name)
+
+    if cluster_id is not None:
         if cluster_labels is None:
             raise SelectionContextError(
-                f"Cluster 'cluster_{requested_id}' cannot be selected because clusters "
+                f"Cluster 'cluster_{cluster_id}' cannot be selected because clusters "
                 "have not been defined.\nRun the cluster command first."
             )
-        cluster_values = np.asarray(cluster_labels)
-        if not np.any(cluster_values == requested_id):
-            available = [
-                "noise" if int(cluster_id) == -1 else f"cluster_{int(cluster_id)}"
-                for cluster_id in np.unique(cluster_values)
-            ]
-            raise SelectionContextError(
-                f"Cluster 'cluster_{requested_id}' does not exist in the current SSN.\n"
-                + _format_available(available, "clusters")
-            )
-        return
-
-    available_groups = []
-    if group_labels is not None:
-        for groups in group_labels:
-            if groups:
-                available_groups.extend(str(group_name) for group_name in groups)
-
-    group_lookup = {group_name.lower() for group_name in available_groups}
-    if target_lower not in group_lookup:
+        available = [
+            "noise" if int(value) == -1 else f"cluster_{int(value)}"
+            for value in np.unique(cluster_values)
+        ]
         raise SelectionContextError(
-            f"Group '{target_name}' does not exist in the current SSN.\n"
-            + _format_available(available_groups, "groups")
+            f"Cluster 'cluster_{cluster_id}' does not exist in the current SSN.\n"
+            + _format_available(available, "clusters")
         )
+
+    raise SelectionContextError(
+        f"Group '{target_name}' does not exist in the current SSN.\n"
+        + _format_available(group_lookup.values(), "groups")
+    )
+
+
+def _validate_label_target(cluster_labels, group_labels, target):
+    return resolve_label_target(cluster_labels, group_labels, target)
 
 
 def _validate_aa_target(alignment, target_aa, target_pos_label):
@@ -458,25 +531,20 @@ def evaluate_file_mask(full_headers, target):
 def evaluate_label_mask(full_headers, cluster_labels, group_labels, target):
     """Evaluates a #Cluster_N#, #Noise#, or #Custom_Group# into a boolean mask."""
     mask = np.zeros(len(full_headers), dtype=bool)
-    t_lower = target.strip().lower()
+    resolved = resolve_label_target(cluster_labels, group_labels, target)
 
-    if t_lower == "noise":
-        if cluster_labels is not None:
-            mask = (cluster_labels == -1)
-        return mask
+    if resolved.kind == "noise":
+        return np.asarray(cluster_labels) == -1
+    if resolved.kind == "cluster":
+        return np.asarray(cluster_labels) == resolved.cluster_id
 
-    cluster_match = re.match(r'^cluster_(\d+)$', t_lower)
-    if cluster_match:
-        c_id = int(cluster_match.group(1))
-        if cluster_labels is not None:
-            mask = (cluster_labels == c_id)
-        return mask
+    target_lower = resolved.name.lower()
+    for i in range(len(full_headers)):
+        if i >= len(group_labels) or not group_labels[i]:
+            continue
+        if any(str(group).lower() == target_lower for group in group_labels[i]):
+            mask[i] = True
 
-    if group_labels is not None:
-        for i in range(len(full_headers)):
-            if t_lower in group_labels[i]:
-                mask[i] = True
-                
     return mask
 
 def evaluate_aa_mask(full_headers, alignment, target_aa, target_pos_label, viewer_to_aln, valid_indices):
@@ -632,146 +700,402 @@ def evaluate_metadata_mask(full_headers, metadata, target):
                         
     return mask
 
-def parse_advanced_expression(expr, viewer_to_aln, valid_indices, full_headers, cluster_labels=None, group_labels=None, alignment=None, metadata=None):
-    """Tokenizes and evaluates complex boolean logic expressions with explicit syntax."""
-    if not isinstance(expr, str) or not expr.strip():
-        raise SelectionExpressionError("Boolean selection expression is empty.")
+def _validate_metadata_syntax(target):
+    match = _METADATA_QUERY_PATTERN.fullmatch(target.strip())
+    if not match:
+        raise SelectionExpressionError(
+            f"Invalid metadata predicate '{{{target}}}'. Use '{{PropertyOperatorValue}}', "
+            "for example '{{Length>500}}'."
+        )
+    if not match.group(3).strip():
+        raise SelectionExpressionError(
+            f"Metadata predicate '{{{target}}}' is missing a comparison value."
+        )
 
-    masks = {}
-    mask_idx = 0
-    
-    # 1. Strings: "Text" (EXECUTED FIRST to protect wildcards containing @ or #)
-    def string_repl(match):
-        nonlocal mask_idx
-        masks[f'M_{mask_idx}'] = _LogicMask.known(
-            evaluate_string_mask(full_headers, match.group(1))
-        )
-        repl = f"masks['M_{mask_idx}']"
-        mask_idx += 1
-        return repl
-    expr = re.sub(r'"([^"]+)"', string_repl, expr)
-    
-    # 2. Files: @file_name@
-    def file_repl(match):
-        nonlocal mask_idx
-        _validate_file_target(match.group(1))
-        masks[f'M_{mask_idx}'] = _LogicMask.known(
-            evaluate_file_mask(full_headers, match.group(1))
-        )
-        repl = f"masks['M_{mask_idx}']"
-        mask_idx += 1
-        return repl
-    expr = re.sub(r'@([^@]+)@', file_repl, expr)
 
-    # 2.5. Metadata: {key op val}
-    def metadata_repl(match):
-        nonlocal mask_idx
-        _validate_metadata_target(metadata, match.group(1))
-        masks[f'M_{mask_idx}'] = _LogicMask.known(
-            evaluate_metadata_mask(full_headers, metadata, match.group(1))
-        )
-        repl = f"masks['M_{mask_idx}']"
-        mask_idx += 1
-        return repl
-    expr = re.sub(r'\{([^}]+)\}', metadata_repl, expr)
+class _SelectionSyntaxParser:
+    """Recursive-descent parser for the shared Boolean selection language."""
 
-    # 3. Labels (Clusters/Groups): #label_name#
-    def label_repl(match):
-        nonlocal mask_idx
-        _validate_label_target(cluster_labels, group_labels, match.group(1))
-        masks[f'M_{mask_idx}'] = _LogicMask.known(
-            evaluate_label_mask(full_headers, cluster_labels, group_labels, match.group(1))
+    def __init__(self, text):
+        self.text = text
+        self.length = len(text)
+        self.position = 0
+
+    def _skip_space(self):
+        while self.position < self.length and self.text[self.position].isspace():
+            self.position += 1
+
+    def _error(self, message=None):
+        if message is None:
+            message = (
+                f"Invalid Boolean expression '{self.text}'. Ensure operators and "
+                "parentheses are complete and do not place spaces inside individual "
+                "predicates."
+            )
+        raise SelectionExpressionError(message)
+
+    def parse(self):
+        self._skip_space()
+        if self.position >= self.length:
+            raise SelectionExpressionError("Boolean selection expression is empty.")
+        expression = self._parse_or()
+        self._skip_space()
+        if self.position != self.length:
+            self._error()
+        return expression
+
+    def _parse_or(self):
+        node = self._parse_xor()
+        while True:
+            self._skip_space()
+            if self.position >= self.length or self.text[self.position] != "|":
+                return node
+            self.position += 1
+            node = _SelectionBinary("|", node, self._parse_xor())
+
+    def _parse_xor(self):
+        node = self._parse_and()
+        while True:
+            self._skip_space()
+            if self.position >= self.length or self.text[self.position] != "^":
+                return node
+            self.position += 1
+            node = _SelectionBinary("^", node, self._parse_and())
+
+    def _parse_and(self):
+        node = self._parse_unary()
+        while True:
+            self._skip_space()
+            if self.position >= self.length or self.text[self.position] != "&":
+                return node
+            self.position += 1
+            node = _SelectionBinary("&", node, self._parse_unary())
+
+    def _parse_unary(self):
+        self._skip_space()
+        if self.position < self.length and self.text[self.position] == "!":
+            self.position += 1
+            return _SelectionUnary(self._parse_unary())
+        return self._parse_primary()
+
+    def _delimited_atom(self, delimiter, kind):
+        start = self.position
+        end = self.text.find(delimiter, start + 1)
+        if end == -1:
+            self._error(f"Unterminated {kind} target in Boolean expression '{self.text}'.")
+        value = self.text[start + 1:end]
+        if not value:
+            self._error(
+                f"Boolean expression '{self.text}' contains empty or malformed targets."
+            )
+        self.position = end + 1
+        if kind == "metadata":
+            _validate_metadata_syntax(value)
+        if kind == "string" and value.lower() == "$sele$":
+            return _SelectionAtom("selection", "$sele$")
+        return _SelectionAtom(kind, value)
+
+    def _parse_primary(self):
+        self._skip_space()
+        if self.position >= self.length:
+            self._error()
+
+        start = self.position
+        lower_remaining = self.text[start:].lower()
+        if lower_remaining.startswith("$sele$"):
+            self.position += len("$sele$")
+            return _SelectionAtom("selection", "$sele$")
+
+        char = self.text[start]
+        if char == '"':
+            return self._delimited_atom('"', "string")
+        if char == "@":
+            return self._delimited_atom("@", "file")
+        if char == "#":
+            return self._delimited_atom("#", "label")
+        if char == "{":
+            return self._delimited_atom("}", "metadata")
+
+        grouped = _AA_GROUP_PREDICATE_PATTERN.match(self.text, start)
+        if grouped:
+            self.position = grouped.end()
+            target_aas = _normalize_aa_group(grouped.group(1))
+            position = grouped.group(2) or grouped.group(3)
+            return _SelectionAtom("aa_group", (target_aas, position))
+
+        bare_group = _BARE_NEGATIVE_AA_GROUP_PATTERN.match(self.text, start)
+        if bare_group:
+            target_aas, position = bare_group.groups()
+            raise SelectionExpressionError(
+                f"Negative alignment position '({target_aas}){position}' must be written as "
+                f"'({target_aas})({position})'. Parentheses are required around negative positions."
+            )
+
+        if char == "(":
+            self.position += 1
+            node = self._parse_or()
+            self._skip_space()
+            if self.position >= self.length or self.text[self.position] != ")":
+                self._error()
+            self.position += 1
+            return node
+
+        aa_match = _AA_PREDICATE_PATTERN.match(self.text, start)
+        if aa_match:
+            self.position = aa_match.end()
+            aa = aa_match.group(1)
+            position = aa_match.group(2) or aa_match.group(3)
+            return _SelectionAtom("aa", (aa, position))
+
+        bare_negative = _BARE_NEGATIVE_AA_PATTERN.match(self.text, start)
+        if bare_negative:
+            aa, position = bare_negative.groups()
+            raise SelectionExpressionError(
+                f"Negative alignment position '{aa}{position}' must be written as "
+                f"'{aa}({position})'. Parentheses are required around negative positions."
+            )
+
+        raise _NotSelectionExpression()
+
+
+def _looks_expression_like(text):
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if stripped.lower() == "$sele$" or stripped[0] in '"@#{(!':
+        return True
+    if any(operator in stripped for operator in "&|^!"):
+        return True
+    if re.match(r'^[a-zA-Z_]\(?-?[\d.]', stripped):
+        return True
+    if re.match(r'^\([a-zA-Z]+\)', stripped):
+        return True
+    return False
+
+
+def _parse_selection_expression(text):
+    if not isinstance(text, str):
+        raise _NotSelectionExpression()
+    return _SelectionSyntaxParser(text).parse()
+
+
+def classify_selection_expression(text):
+    """Classify text without consulting viewer data or the filesystem."""
+    try:
+        expression = _parse_selection_expression(text)
+        return SelectionClassification(
+            SelectionClassificationKind.VALID_EXPRESSION,
+            expression=expression,
         )
-        repl = f"masks['M_{mask_idx}']"
-        mask_idx += 1
-        return repl
-    expr = re.sub(r'#([^#]+)#', label_repl, expr)
-    
-    # 4. Grouped AA positions, e.g. (RHK)71 or (RHK)(-1).
-    def aa_group_repl(match):
-        nonlocal mask_idx
-        target_aas = _normalize_aa_group(match.group(1))
-        pos = match.group(2) or match.group(3)
+    except _NotSelectionExpression:
+        if _looks_expression_like(str(text)):
+            error = SelectionExpressionError(
+                f"Invalid Boolean expression '{text}'. Ensure operators and parentheses "
+                "are complete and do not place spaces inside individual predicates."
+            )
+            return SelectionClassification(
+                SelectionClassificationKind.MALFORMED_EXPRESSION,
+                error=error,
+            )
+        return SelectionClassification(SelectionClassificationKind.NOT_EXPRESSION)
+    except SelectionExpressionError as error:
+        return SelectionClassification(
+            SelectionClassificationKind.MALFORMED_EXPRESSION,
+            error=error,
+        )
+
+
+def parse_selection_expression(text):
+    """Return a context-free Boolean AST or raise a syntax error."""
+    classification = classify_selection_expression(text)
+    if classification.kind == SelectionClassificationKind.VALID_EXPRESSION:
+        return classification.expression
+    if classification.kind == SelectionClassificationKind.MALFORMED_EXPRESSION:
+        raise classification.error
+    raise SelectionExpressionError(
+        f"'{text}' is not a Boolean selection expression."
+    )
+
+
+def get_selected_mask(viewer):
+    """Return the current UI selection as a stable node-length Boolean mask."""
+    n_nodes = int(getattr(viewer, "n_nodes", len(getattr(viewer, "full_headers", []))))
+    mask = np.zeros(n_nodes, dtype=bool)
+    for index in getattr(viewer, "selected_indices", []) or []:
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < n_nodes:
+            mask[index] = True
+    return mask
+
+
+def _evaluate_selection_node(
+    node,
+    viewer_to_aln,
+    valid_indices,
+    full_headers,
+    cluster_labels,
+    group_labels,
+    alignment,
+    metadata,
+    selection_mask,
+):
+    if isinstance(node, _SelectionUnary):
+        return ~_evaluate_selection_node(
+            node.operand,
+            viewer_to_aln,
+            valid_indices,
+            full_headers,
+            cluster_labels,
+            group_labels,
+            alignment,
+            metadata,
+            selection_mask,
+        )
+    if isinstance(node, _SelectionBinary):
+        left = _evaluate_selection_node(
+            node.left,
+            viewer_to_aln,
+            valid_indices,
+            full_headers,
+            cluster_labels,
+            group_labels,
+            alignment,
+            metadata,
+            selection_mask,
+        )
+        right = _evaluate_selection_node(
+            node.right,
+            viewer_to_aln,
+            valid_indices,
+            full_headers,
+            cluster_labels,
+            group_labels,
+            alignment,
+            metadata,
+            selection_mask,
+        )
+        if node.operator == "&":
+            return left & right
+        if node.operator == "|":
+            return left | right
+        if node.operator == "^":
+            return left ^ right
+        raise SelectionExpressionError(f"Unsupported Boolean operator '{node.operator}'.")
+
+    if not isinstance(node, _SelectionAtom):
+        raise SelectionExpressionError("Boolean expression contains an unsupported syntax node.")
+
+    if node.kind == "string":
+        return _LogicMask.known(evaluate_string_mask(full_headers, node.value))
+    if node.kind == "file":
+        _validate_file_target(node.value)
+        return _LogicMask.known(evaluate_file_mask(full_headers, node.value))
+    if node.kind == "metadata":
+        _validate_metadata_target(metadata, node.value)
+        return _LogicMask.known(
+            evaluate_metadata_mask(full_headers, metadata, node.value)
+        )
+    if node.kind == "label":
+        return _LogicMask.known(
+            evaluate_label_mask(full_headers, cluster_labels, group_labels, node.value)
+        )
+    if node.kind == "selection":
+        if selection_mask is None:
+            raise SelectionContextError(
+                "$sele$ cannot be evaluated because the current UI selection was not supplied."
+            )
+        selected = np.asarray(selection_mask, dtype=bool)
+        if selected.shape != (len(full_headers),):
+            raise SelectionContextError(
+                "$sele$ selection mask does not match the current SSN node count."
+            )
+        return _LogicMask.known(selected)
+    if node.kind == "aa_group":
+        target_aas, position = node.value
         display_target = f"({''.join(target_aas)})"
-        _validate_aa_target(alignment, display_target, pos)
-        aa_mask = evaluate_aa_group_mask(
+        _validate_aa_target(alignment, display_target, position)
+        mask = evaluate_aa_group_mask(
             full_headers,
             alignment,
             target_aas,
-            pos,
+            position,
             viewer_to_aln,
             valid_indices,
         )
-        masks[f'M_{mask_idx}'] = _LogicMask.partially_known(
-            aa_mask,
-            np.asarray(viewer_to_aln) >= 0,
-        )
-        repl = f"masks['M_{mask_idx}']"
-        mask_idx += 1
-        return repl
-    expr = _AA_GROUP_PREDICATE_PATTERN.sub(aa_group_repl, expr)
-
-    bare_negative_group = _BARE_NEGATIVE_AA_GROUP_PATTERN.search(expr)
-    if bare_negative_group:
-        target_aas, position = bare_negative_group.groups()
-        raise SelectionExpressionError(
-            f"Negative alignment position '({target_aas}){position}' must be written as "
-            f"'({target_aas})({position})'. Parentheses are required around negative positions."
-        )
-
-    # 5. Single AA positions (Remaining unmatched text)
-    def aa_repl(match):
-        nonlocal mask_idx
-        if match.group(0).startswith('M_') or match.group(0) == 'masks':
-            return match.group(0)
-        aa = match.group(1)
-        pos = match.group(2) or match.group(3)
-        _validate_aa_target(alignment, aa, pos)
-        aa_mask = evaluate_aa_mask(
+        return _LogicMask.partially_known(mask, np.asarray(viewer_to_aln) >= 0)
+    if node.kind == "aa":
+        aa, position = node.value
+        _validate_aa_target(alignment, aa, position)
+        mask = evaluate_aa_mask(
             full_headers,
             alignment,
             aa,
-            pos,
+            position,
             viewer_to_aln,
             valid_indices,
         )
-        masks[f'M_{mask_idx}'] = _LogicMask.partially_known(
-            aa_mask,
-            np.asarray(viewer_to_aln) >= 0,
-        )
-        repl = f"masks['M_{mask_idx}']"
-        mask_idx += 1
-        return repl
-    expr = _AA_PREDICATE_PATTERN.sub(aa_repl, expr)
+        return _LogicMask.partially_known(mask, np.asarray(viewer_to_aln) >= 0)
+    raise SelectionExpressionError(f"Unsupported Boolean target kind '{node.kind}'.")
 
-    bare_negative = _BARE_NEGATIVE_AA_PATTERN.search(expr)
-    if bare_negative:
-        aa, position = bare_negative.groups()
+
+def evaluate_selection_expression(
+    expression,
+    viewer_to_aln,
+    valid_indices,
+    full_headers,
+    cluster_labels=None,
+    group_labels=None,
+    alignment=None,
+    metadata=None,
+    selection_mask=None,
+):
+    """Evaluate a parsed Boolean AST against current viewer context."""
+    result = _evaluate_selection_node(
+        expression,
+        viewer_to_aln,
+        valid_indices,
+        full_headers,
+        cluster_labels,
+        group_labels,
+        alignment,
+        metadata,
+        selection_mask,
+    ).to_bool()
+    if result.shape != (len(full_headers),):
         raise SelectionExpressionError(
-            f"Negative alignment position '{aa}{position}' must be written as "
-            f"'{aa}({position})'. Parentheses are required around negative positions."
+            "Boolean expression did not resolve to one selection value per SSN node. "
+            "Check for empty or malformed targets."
         )
-    
-    final_expr = expr.replace("!", "~").replace("&", "&").replace("|", "|").replace("^", "^")
-    try:
-        result = eval(final_expr, {"__builtins__": {}}, {"masks": masks})
-        if isinstance(result, _LogicMask):
-            result_mask = result.to_bool()
-        else:
-            result_mask = np.asarray(result, dtype=bool)
-        if result_mask.shape != (len(full_headers),):
-            raise SelectionExpressionError(
-                "Boolean expression did not resolve to one selection value per SSN "
-                "node. Check for empty or malformed targets."
-            )
-        return result_mask
-    except SelectionExpressionError:
-        raise
-    except Exception as error:
-        raise SelectionExpressionError(
-            f"Invalid Boolean expression '{expr}'. Ensure operators and parentheses "
-            "are complete and do not place spaces inside individual predicates."
-        ) from error
+    return result
+
+
+def parse_advanced_expression(
+    expr,
+    viewer_to_aln,
+    valid_indices,
+    full_headers,
+    cluster_labels=None,
+    group_labels=None,
+    alignment=None,
+    metadata=None,
+    selection_mask=None,
+):
+    """Compatibility wrapper that parses and evaluates one Boolean expression."""
+    expression = parse_selection_expression(expr)
+    return evaluate_selection_expression(
+        expression,
+        viewer_to_aln,
+        valid_indices,
+        full_headers,
+        cluster_labels,
+        group_labels,
+        alignment,
+        metadata,
+        selection_mask,
+    )
 
 def print_help(viewer, msg, *, terminal_msg=None):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""

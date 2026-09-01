@@ -12,11 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import re
 import Command_Engine
 import numpy as np
-import SSN_Config as cfg
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
@@ -89,24 +86,6 @@ def run(viewer, args):
         
         viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
         
-        # Update _sele.txt for $sele$ references
-        if "$sele$" in expr.lower():
-            header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-            os.makedirs(header_dir, exist_ok=True)
-            sele_path = os.path.join(header_dir, "_sele.txt")
-            
-            if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-                with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-                    for idx in viewer.selected_indices:
-                        f.write(viewer.full_headers[idx] + "\n")
-            else:
-                if os.path.exists(sele_path):
-                    open(sele_path, "w", encoding="utf-8").close()
-            
-            expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
-
-        expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
-        
         try:
             mask = Command_Engine.parse_advanced_expression(
                 expr, 
@@ -116,7 +95,8 @@ def run(viewer, args):
                 cluster_labels=getattr(viewer, 'cluster_labels', None), 
                 group_labels=getattr(viewer, 'group_labels', None), 
                 alignment=getattr(viewer, 'alignment', None), 
-                metadata=getattr(viewer, 'metadata', None)
+                metadata=getattr(viewer, 'metadata', None),
+                selection_mask=Command_Engine.get_selected_mask(viewer),
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Hide")

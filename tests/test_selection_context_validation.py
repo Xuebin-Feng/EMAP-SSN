@@ -95,6 +95,81 @@ class StrictExpressionTests(unittest.TestCase):
         np.testing.assert_array_equal(self.evaluate("#noise#"), [False, False, True])
         np.testing.assert_array_equal(self.evaluate("#ALPHA#"), [True, False, False])
 
+    def test_classifier_distinguishes_valid_plain_and_malformed_arguments(self):
+        valid = (
+            '"node"',
+            "@missing.txt@",
+            "#missing#",
+            "{Missing>1}",
+            "P106",
+            "(RHK)71",
+            "$sele$",
+            "(#alpha#|#omega#)&!A10",
+        )
+        for text in valid:
+            with self.subTest(text=text):
+                result = Command_Engine.classify_selection_expression(text)
+                self.assertEqual(
+                    result.kind,
+                    Command_Engine.SelectionClassificationKind.VALID_EXPRESSION,
+                )
+                self.assertIsNotNone(result.expression)
+
+        for text in ("virids", "target_logo.svg", "active_site"):
+            with self.subTest(text=text):
+                result = Command_Engine.classify_selection_expression(text)
+                self.assertEqual(
+                    result.kind,
+                    Command_Engine.SelectionClassificationKind.NOT_EXPRESSION,
+                )
+
+        for text in ("#missing", "{Length}", "P106&", "K-1", "(RHK)-1"):
+            with self.subTest(text=text):
+                result = Command_Engine.classify_selection_expression(text)
+                self.assertEqual(
+                    result.kind,
+                    Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION,
+                )
+                self.assertIsInstance(result.error, Command_Engine.SelectionExpressionError)
+
+    def test_native_selection_atom_and_operator_precedence(self):
+        np.testing.assert_array_equal(
+            self.evaluate("$sele$", selection_mask=np.array([False, True, False])),
+            [False, True, False],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate("#alpha#|#omega#&#cluster_2#"),
+            [True, False, False],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate("(#alpha#|#omega#)^#cluster_2#"),
+            [True, True, True],
+        )
+
+    def test_canonical_cluster_spelling_and_ambiguity(self):
+        np.testing.assert_array_equal(
+            self.evaluate(
+                "#cluster_0#",
+                cluster_labels=np.array([0, 1, -1]),
+                group_labels=[set(), set(), set()],
+            ),
+            [True, False, False],
+        )
+        np.testing.assert_array_equal(
+            self.evaluate(
+                "#cluster_001#",
+                cluster_labels=np.array([1, 2, -1]),
+                group_labels=[{"cluster_001"}, set(), set()],
+            ),
+            [True, False, False],
+        )
+        with self.assertRaisesRegex(Command_Engine.SelectionContextError, "ambiguous"):
+            self.evaluate(
+                "#cluster_0#",
+                cluster_labels=np.array([0, 1, -1]),
+                group_labels=[{"cluster_0"}, set(), set()],
+            )
+
     def test_missing_cluster_group_and_noise_raise_context_errors(self):
         with self.assertRaisesRegex(Command_Engine.SelectionContextError, "cluster_99"):
             self.evaluate("#cluster_99#")
@@ -307,6 +382,14 @@ class AtomicCommandTests(unittest.TestCase):
         viewer._save_state.assert_called_once_with()
         viewer.update_nodes.assert_called_once_with()
 
+    def test_group_name_position_overrides_expression_classification(self):
+        viewer = self.make_viewer()
+
+        group_command.run(viewer, ['"node"', "P106"])
+
+        self.assertEqual(viewer.group_labels, [{"p106"}])
+        viewer._save_state.assert_called_once_with()
+
     def test_group_rejects_reserved_words_and_canonical_generated_labels(self):
         prohibited_names = (
             "noise",
@@ -320,7 +403,6 @@ class AtomicCommandTests(unittest.TestCase):
             "groups",
             "clusters",
             "cluster_1",
-            "cluster_27",
             "subcluster_1_1",
             "subcluster_12_34",
             "GROUP",
@@ -343,6 +425,7 @@ class AtomicCommandTests(unittest.TestCase):
     def test_group_allows_noncanonical_generated_label_lookalikes(self):
         allowed_names = (
             "cluster_0",
+            "cluster_27",
             "cluster_001",
             "subcluster_0_1",
             "subcluster_001_2",
@@ -358,6 +441,25 @@ class AtomicCommandTests(unittest.TestCase):
                 self.assertEqual(viewer.group_labels, [{name}])
                 viewer._save_state.assert_called_once_with()
                 viewer.update_nodes.assert_called_once_with()
+
+    def test_group_rejects_any_loaded_canonical_cluster_name(self):
+        for cluster_id in (0, 27):
+            with self.subTest(cluster_id=cluster_id):
+                viewer = self.make_viewer()
+                viewer.cluster_labels = np.array([cluster_id])
+
+                with mock.patch("builtins.print"):
+                    group_command.run(
+                        viewer,
+                        ['"node"', f"cluster_{cluster_id}"],
+                    )
+
+                self.assertEqual(viewer.group_labels, [set()])
+                self.assertIn(
+                    "conflicts with an existing topology cluster",
+                    viewer.console_text.text,
+                )
+                viewer._save_state.assert_not_called()
 
     def test_invalid_select_does_not_replace_current_selection(self):
         viewer = self.make_viewer()
@@ -421,6 +523,117 @@ class AtomicCommandTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(output_path))
             with open(output_path, "r", encoding="utf-8") as handle:
                 self.assertEqual(handle.read(), ">node\nCCCC\n")
+
+    def test_export_specific_labels_support_groups_clusters_noise_and_overlap(self):
+        viewer = self.make_viewer()
+        viewer.n_nodes = 4
+        viewer.full_headers = ["node_0", "node_1", "node_2", "node_3"]
+        viewer.cluster_labels = np.array([0, 1, -1, 1])
+        viewer.group_labels = [
+            {"alpha"},
+            {"cluster_001"},
+            {"alpha", "beta"},
+            set(),
+        ]
+        viewer._selected_fasta_records = list(
+            zip(viewer.full_headers, ["AAAA", "CCCC", "DDDD", "EEEE"])
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            metadata = SimpleNamespace(model_name="test", network_type="blast")
+            with mock.patch.object(cfg, "NODE_FASTA_FILE", os.path.join(temp_dir, "source.fasta")), mock.patch.object(
+                cfg, "INPUT_HDF5", "network.h5"
+            ), mock.patch.object(
+                cfg, "TOP_EDGE_PERCENT", None
+            ), mock.patch.object(
+                cfg, "SIMILARITY_THRESHOLD", 0.5
+            ), mock.patch.object(
+                export_command, "SEQUENCE_EXPORT_DIRECTORY", temp_dir
+            ), mock.patch.object(
+                export_command.cache_manifest,
+                "validate_network_schema",
+                return_value=metadata,
+            ), mock.patch.object(
+                export_command, "open_in_file_manager"
+            ):
+                with redirect_stdout(io.StringIO()):
+                    export_command.run(
+                        viewer,
+                        ["#alpha#", "#cluster_1#", "#noise#", "#alpha#"],
+                    )
+
+            output_dir = os.path.join(
+                temp_dir,
+                "source_[test]",
+                "Score0.5_LABELS",
+            )
+            expected = {
+                "alpha.fasta": (">node_0\nAAAA\n>node_2\nDDDD\n"),
+                "Cluster_1.fasta": (">node_1\nCCCC\n>node_3\nEEEE\n"),
+                "Noise.fasta": (">node_2\nDDDD\n"),
+            }
+            self.assertEqual(set(os.listdir(output_dir)), set(expected))
+            for filename, content in expected.items():
+                with open(os.path.join(output_dir, filename), "r", encoding="utf-8") as handle:
+                    self.assertEqual(handle.read(), content)
+
+    def test_export_noncanonical_cluster_name_resolves_as_group(self):
+        viewer = self.make_viewer()
+        viewer.cluster_labels = np.array([1])
+        viewer.group_labels = [{"cluster_001"}]
+        viewer._selected_fasta_records = [("node", "AAAA")]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            metadata = SimpleNamespace(model_name="test", network_type="blast")
+            with mock.patch.object(cfg, "NODE_FASTA_FILE", os.path.join(temp_dir, "source.fasta")), mock.patch.object(
+                cfg, "INPUT_HDF5", "network.h5"
+            ), mock.patch.object(cfg, "TOP_EDGE_PERCENT", None), mock.patch.object(
+                cfg, "SIMILARITY_THRESHOLD", 0.5
+            ), mock.patch.object(
+                export_command, "SEQUENCE_EXPORT_DIRECTORY", temp_dir
+            ), mock.patch.object(
+                export_command.cache_manifest,
+                "validate_network_schema",
+                return_value=metadata,
+            ), mock.patch.object(export_command, "open_in_file_manager"):
+                with redirect_stdout(io.StringIO()):
+                    export_command.run(viewer, ["#cluster_001#"])
+
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(
+                        temp_dir,
+                        "source_[test]",
+                        "Score0.5_GROUPS",
+                        "cluster_001.fasta",
+                    )
+                )
+            )
+
+    def test_export_rejects_legacy_mixed_missing_and_ambiguous_targets_preflight(self):
+        cases = (
+            (["group:alpha"], "Legacy export"),
+            (["groups", "#alpha#"], "cannot be combined"),
+            (["#missing#"], "does not exist"),
+            (["#cluster_0#"], "ambiguous"),
+        )
+        for args, message in cases:
+            with self.subTest(args=args):
+                viewer = self.make_viewer()
+                viewer.cluster_labels = np.array([0])
+                viewer.group_labels = [{"alpha", "cluster_0"}]
+                viewer._selected_fasta_records = [("node", "AAAA")]
+                with mock.patch.object(
+                    export_command.cache_manifest, "validate_network_schema"
+                ) as schema, mock.patch.object(
+                    export_command, "write_fasta_atomic"
+                ) as writer:
+                    with redirect_stdout(io.StringIO()):
+                        export_command.run(viewer, args)
+
+                self.assertIn(message, viewer.console_text.text)
+                schema.assert_not_called()
+                writer.assert_not_called()
 
     def test_invalid_hide_does_not_change_visibility_or_undo_state(self):
         viewer = self.make_viewer()
