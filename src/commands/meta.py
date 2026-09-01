@@ -22,7 +22,7 @@ import os
 import re
 import pandas as pd
 import Command_Engine
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 from web_ui.meta_backend import (
     MetadataColumnDeleteError,
     delete_metadata_columns,
@@ -158,7 +158,7 @@ def run(viewer, args):
         viewer.meta_display_prop = resolved_prop
 
         if 'meta_display' not in viewer.hud_displays:
-            from emapssn_viewer import HUDDisplay
+            from EMAPSSN_Viewer import HUDDisplay
             
             class MetaHUDDisplay(HUDDisplay):
                 def __init__(self, main_viewer):

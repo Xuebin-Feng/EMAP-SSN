@@ -12,7 +12,7 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from emapssn_viewer import _topmost_nearest_visible_node_index
+from EMAPSSN_Viewer import _topmost_nearest_visible_node_index
 
 
 class NodePickingOrderTests(unittest.TestCase):

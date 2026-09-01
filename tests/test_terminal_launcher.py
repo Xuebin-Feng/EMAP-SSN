@@ -258,7 +258,7 @@ class TerminalPolicyTests(unittest.TestCase):
         self.assertIn("echo unsafe", script)
 
     def test_macos_startup_terminal_checks_for_exit_every_fifty_milliseconds(self):
-        source = (SRC_DIR / "bin" / "emapssn_terminal_launcher.sh").read_text(
+        source = (SRC_DIR / "bin" / "EMAPSSN_Terminal_Launcher.sh").read_text(
             encoding="utf-8"
         )
         busy_loop = source.split("repeat while busy of launchTab", 1)[1]
@@ -306,8 +306,8 @@ class TerminalPolicyTests(unittest.TestCase):
 class CallerIntegrationTests(unittest.TestCase):
     def test_python_callers_use_shared_helper_without_terminal_lists(self):
         callers = (
-            SRC_DIR / "emapssn_tools.py",
-            SRC_DIR / "emapssn_config.py",
+            SRC_DIR / "EMAPSSN_Tools.py",
+            SRC_DIR / "EMAPSSN_Config.py",
             SRC_DIR / "commands" / "esmfold.py",
             SRC_DIR / "utilities" / "Desktop_Launcher_Monitor.py",
         )

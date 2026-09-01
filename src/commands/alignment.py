@@ -14,7 +14,7 @@
 
 import os
 import fnmatch
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 import Command_Engine
 from PySide6 import QtWidgets
 

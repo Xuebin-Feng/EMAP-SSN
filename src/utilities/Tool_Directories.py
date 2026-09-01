@@ -19,7 +19,7 @@ DEFAULT_DIRECTORY_PATHS = {
 }
 
 
-# Global directory settings consumed by each script exposed in emapssn_tools.py.
+# Global directory settings consumed by each script exposed in EMAPSSN_Tools.py.
 # Tool-specific paths such as SAFE_TEMP_DIR and BLASTP_DIR remain part of the
 # script's own settings section rather than this shared directory registry.
 TOOL_DIRECTORY_KEYS = {

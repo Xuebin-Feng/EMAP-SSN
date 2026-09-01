@@ -60,7 +60,7 @@ def print_help():
     """)
 
 def run(viewer, args):
-    """Called by emapssn_viewer at startup (--register-only) and when user types 'agent'."""
+    """Called by EMAPSSN_Viewer at startup (--register-only) and when user types 'agent'."""
     register(viewer)
 
     if args and args[0] == "--register-only":

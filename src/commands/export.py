@@ -15,7 +15,7 @@
 import Command_Engine
 import os
 import re
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from utilities.Application_Windows import open_in_file_manager
 from utilities.FASTA_Sanitization import write_fasta_atomic

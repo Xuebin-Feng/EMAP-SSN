@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from PySide6 import QtWidgets, QtCore, QtGui
 import Command_Engine
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 from utilities.Application_Fonts import UI_QSS_FONT_STACK
 from web_ui.Plugin_Manager import ensure_registry
 

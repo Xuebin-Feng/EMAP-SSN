@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # =========================================================================
-# Portable Startup Script for emapssn_config.py (Linux/macOS)
+# Portable Startup Script for EMAPSSN_Config.py (Linux/macOS)
 # =========================================================================
 
 # Load dependency checks and desktop-launch failure handling from the installer.
@@ -96,7 +96,7 @@ if [ "$LAUNCH_MODE" = "--run-only" ]; then
         printf 'Managed Python is unavailable; run setup before --run-only.\n' >&2
         exit 10
     fi
-    exec "$VENV_PYTHON" src/emapssn_config.py
+    exec "$VENV_PYTHON" src/EMAPSSN_Config.py
 fi
 
 # Healthy direct launches take the same read-only fast path as desktop launches.
@@ -140,5 +140,5 @@ fi
 if activate_existing_instance; then
     exit 0
 fi
-echo "Starting emapssn_config..."
-"$VENV_PYTHON" src/emapssn_config.py
+echo "Starting EMAPSSN_Config..."
+"$VENV_PYTHON" src/EMAPSSN_Config.py

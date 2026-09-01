@@ -33,7 +33,7 @@ The application streamlines the entire SSN pipeline—from generation to interac
 
 ### 🛠️ EMAP-SSN Tools GUI
 
-All calculations related to SSN generation are centralized in the `emapssn_tools.py` GUI. The interface is organized into intuitive tabs, each representing a distinct stage of the pipeline. It includes interactive tooltips at the bottom for parameter input fields and a script description panel on the right highlighting the function of each processing script.
+All calculations related to SSN generation are centralized in the `EMAPSSN_Tools.py` GUI. The interface is organized into intuitive tabs, each representing a distinct stage of the pipeline. It includes interactive tooltips at the bottom for parameter input fields and a script description panel on the right highlighting the function of each processing script.
 
 ![EMAP-SSN Tools GUI](docs/assets/emapssn_tools_gui.png)
 
@@ -77,7 +77,7 @@ separate command, for example
 
 ### 🔌 Local STDIO MCP server
 
-`src/emapssn_mcp_server.py` exposes the 14 pipeline programs and bounded,
+`src/EMAPSSN_MCP_Server.py` exposes the 14 pipeline programs and bounded,
 read-only Viewer inspection to local MCP clients. It uses STDIO only: the
 client starts one server process and communicates through its standard input
 and output. Run the normal project installer after updating this branch so the
@@ -88,10 +88,10 @@ below with the absolute repository path:
 
 ```powershell
 # Codex
-codex mcp add emapssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\emapssn_mcp_server.py"
+codex mcp add emapssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\EMAPSSN_MCP_Server.py"
 
 # Claude Code (user scope)
-claude mcp add --transport stdio --scope user emapssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\emapssn_mcp_server.py"
+claude mcp add --transport stdio --scope user emapssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\EMAPSSN_MCP_Server.py"
 ```
 
 For VS Code, add this to the appropriate `mcp.json` file:
@@ -102,7 +102,7 @@ For VS Code, add this to the appropriate `mcp.json` file:
     "emapssn": {
       "type": "stdio",
       "command": "<PROJECT>\\.venv\\Scripts\\python.exe",
-      "args": ["<PROJECT>\\src\\emapssn_mcp_server.py"]
+      "args": ["<PROJECT>\\src\\EMAPSSN_MCP_Server.py"]
     }
   }
 }
@@ -116,7 +116,7 @@ open-source harnesses, can use:
   "mcpServers": {
     "emapssn": {
       "command": "<PROJECT>\\.venv\\Scripts\\python.exe",
-      "args": ["<PROJECT>\\src\\emapssn_mcp_server.py"]
+      "args": ["<PROJECT>\\src\\EMAPSSN_MCP_Server.py"]
     }
   }
 }
@@ -151,7 +151,7 @@ Discovery tokens and descriptor paths are never returned by MCP tools.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
-The configuration GUI in `emapssn_config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
+The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
@@ -159,7 +159,7 @@ The GUI also features a **Compute Network Statistics** utility that analyzes net
 
 ### 🔍 EMAP-SSN Viewer GUI
 
-The main visualization window, `emapssn_viewer.py`, serves as the interactive core for network exploration, formatting, and analysis. It provides full mouse and keyboard controls for 3D navigation and graphic customization, along with an in-line command console (HUD) to execute analytical operations, highlight specific residues, select clusters, and export figures.
+The main visualization window, `EMAPSSN_Viewer.py`, serves as the interactive core for network exploration, formatting, and analysis. It provides full mouse and keyboard controls for 3D navigation and graphic customization, along with an in-line command console (HUD) to execute analytical operations, highlight specific residues, select clusters, and export figures.
 
 ![EMAP-SSN Viewer GUI](docs/assets/emapssn_viewer_gui.png)
 
@@ -180,7 +180,7 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 *   **High-Performance Visualization**: Powered by PySide6 and VisPy, allowing real-time rendering, rotation, zooming, and manipulation of large networks containing thousands of nodes and edges.
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
-*   **Comprehensive Utilities Suite**: Centralized GUI in `emapssn_tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
+*   **Comprehensive Utilities Suite**: Centralized GUI in `EMAPSSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
 *   **Cross-Platform Hardware Acceleration**: Automatic eligibility checks and runtime validation for supported NVIDIA CUDA, AMD ROCm, Intel XPU, and Apple MPS configurations, with safe fallback to CPU.
 
 ---
@@ -458,23 +458,23 @@ EMAP-SSN/
 ├── install.sh                # Linux/macOS installer with platform-specific launchers
 │
 ├── src/                      # Source code directory
-│   ├── emapssn_viewer.py         # Main PySide6 / VisPy desktop visualization application
-│   ├── emapssn_tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
-│   ├── emapssn_config.py         # GUI configuration manager for inputs, thresholds, and models
+│   ├── EMAPSSN_Viewer.py         # Main PySide6 / VisPy desktop visualization application
+│   ├── EMAPSSN_Tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
+│   ├── EMAPSSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
 │   │
 │   ├── bin/                  # Startup scripts and launchers
-│   │   ├── emapssn.bat          # Windows platform startup script
-│   │   ├── emapssn_tools.bat     # Windows Tools startup script
-│   │   ├── emapssn.sh           # Linux/macOS platform startup script
-│   │   ├── emapssn_tools.sh      # Linux/macOS Tools startup script
-│   │   ├── emapssn_desktop_launcher.bat
-│   │   ├── emapssn_desktop_launcher.sh
-│   │   ├── emapssn_terminal_launcher.sh
+│   │   ├── EMAPSSN.bat          # Windows platform startup script
+│   │   ├── EMAPSSN_Tools.bat     # Windows Tools startup script
+│   │   ├── EMAPSSN.sh           # Linux/macOS platform startup script
+│   │   ├── EMAPSSN_Tools.sh      # Linux/macOS Tools startup script
+│   │   ├── EMAPSSN_Desktop_Launcher.bat
+│   │   ├── EMAPSSN_Desktop_Launcher.sh
+│   │   ├── EMAPSSN_Terminal_Launcher.sh
 │   │   └── logos/            # Application custom icon files (.png and .ico)
 │   │
 │   ├── commands/             # Command modules for interactive viewer console
 │   ├── resources/            # Configuration and system prompts
-│   ├── tools/                # Executable processing scripts exposed by emapssn_tools
+│   ├── tools/                # Executable processing scripts exposed by EMAPSSN_Tools
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
 │   ├── utilities/            # Focused cache, network, hardware, alignment, and FASTA helpers
 │   └── web_ui/               # Embedded web UI backend and interfaces

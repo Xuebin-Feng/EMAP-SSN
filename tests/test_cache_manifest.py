@@ -517,7 +517,7 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
     def test_new_cache_and_manifest_are_reloaded_only_when_bound(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         import Layout_Engine_SSN_MolecularDynamics as layout_engine
-        import emapssn_viewer
+        import EMAPSSN_Viewer
 
         with tempfile.TemporaryDirectory() as temp_dir:
             fasta_path = pathlib.Path(temp_dir) / "set.fasta"
@@ -577,12 +577,12 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
             (preexisting_cache_folder / fasta_path.name).write_bytes(
                 fasta_path.read_bytes()
             )
-            with mock.patch.multiple(emapssn_viewer.cfg, **settings), mock.patch.object(
+            with mock.patch.multiple(EMAPSSN_Viewer.cfg, **settings), mock.patch.object(
                 layout_engine,
                 "calculate_layout",
                 return_value=(expected_positions, 10.0),
             ):
-                created = emapssn_viewer.MainViewer.__new__(emapssn_viewer.MainViewer)
+                created = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
                 created.load_and_simulate()
 
             self.assertEqual(
@@ -615,8 +615,8 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
                 )
 
             settings["TARGET_CACHE_MODE"] = "existing"
-            with mock.patch.multiple(emapssn_viewer.cfg, **settings):
-                loaded = emapssn_viewer.MainViewer.__new__(emapssn_viewer.MainViewer)
+            with mock.patch.multiple(EMAPSSN_Viewer.cfg, **settings):
+                loaded = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
                 loaded.load_and_simulate()
             np.testing.assert_allclose(loaded.pos, expected_positions)
             np.testing.assert_array_equal(loaded.node_render_order, [1, 0])

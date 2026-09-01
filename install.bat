@@ -36,7 +36,7 @@ if not exist "src\bin\logos\viewer_logo_large.ico" (
         "!PY_EXE!" -c "import sys, os; from PySide6.QtWidgets import QApplication; from PySide6.QtGui import QPixmap; app = QApplication(sys.argv); logo_dir = r'src/bin/logos'; [QPixmap(os.path.join(logo_dir, f)).save(os.path.join(logo_dir, os.path.splitext(f)[0] + '.ico'), 'ICO') for f in os.listdir(logo_dir) if f.endswith('.png')]"
         echo [OK] Generated .ico files from png files.
     ) else (
-        echo [INFO] Python virtual environment not found. Please run src\bin\emapssn.bat or src\bin\emapssn_tools.bat once first to set up the environment, or ensure the .ico files are synced.
+        echo [INFO] Python virtual environment not found. Please run src\bin\EMAPSSN.bat or src\bin\EMAPSSN_Tools.bat once first to set up the environment, or ensure the .ico files are synced.
     )
 )
 
@@ -46,14 +46,14 @@ set "TOOL_ICON=!PROJECT_ROOT!\src\bin\logos\tool_logo_large.ico"
 
 :: 3. Create a visible-startup Windows shortcut for the EMAP-SSN platform.
 echo Creating shortcut for EMAP-SSN...
-powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\emapssn_desktop_launcher.bat' + $q + ' viewer' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
+powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' viewer' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
 if exist "EMAP-SSN.lnk" (
     echo [OK] Created EMAP-SSN.lnk in project root.
 )
 
 :: 4. Create a visible-startup Windows shortcut for EMAP-SSN Tools.
 echo Creating shortcut for EMAP-SSN Tools...
-powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN Tools.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\emapssn_desktop_launcher.bat' + $q + ' tools' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
+powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN Tools.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' tools' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
 if exist "EMAP-SSN Tools.lnk" (
     echo [OK] Created EMAP-SSN Tools.lnk in project root.
 )

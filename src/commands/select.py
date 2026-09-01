@@ -14,7 +14,7 @@
 
 import os
 import numpy as np
-import emapssn_config as cfg
+import EMAPSSN_Config as cfg
 import Command_Engine
 
 def print_help():

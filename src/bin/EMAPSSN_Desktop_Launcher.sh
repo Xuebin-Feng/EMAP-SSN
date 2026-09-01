@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd) || exit 1
 APP_KIND="${1:-}"
 LAUNCH_MODE="${2:---open-terminal}"
-TERMINAL_LAUNCHER="$SCRIPT_DIR/emapssn_terminal_launcher.sh"
+TERMINAL_LAUNCHER="$SCRIPT_DIR/EMAPSSN_Terminal_Launcher.sh"
 
 if [ ! -r "$PROJECT_ROOT/install.sh" ]; then
     printf 'Could not load launcher support: %s\n' "$PROJECT_ROOT/install.sh" >&2
@@ -21,16 +21,16 @@ if [ ! -r "$TERMINAL_LAUNCHER" ]; then
     printf 'Could not load terminal launcher: %s\n' "$TERMINAL_LAUNCHER" >&2
     exit 1
 fi
-# shellcheck source=emapssn_terminal_launcher.sh
+# shellcheck source=EMAPSSN_Terminal_Launcher.sh
 . "$TERMINAL_LAUNCHER"
 
 case "$APP_KIND" in
     viewer)
-        PORTABLE_LAUNCHER="$SCRIPT_DIR/emapssn.sh"
+        PORTABLE_LAUNCHER="$SCRIPT_DIR/EMAPSSN.sh"
         APP_LABEL="EMAP-SSN Configuration"
         ;;
     tools)
-        PORTABLE_LAUNCHER="$SCRIPT_DIR/emapssn_tools.sh"
+        PORTABLE_LAUNCHER="$SCRIPT_DIR/EMAPSSN_Tools.sh"
         APP_LABEL="EMAP-SSN Tools"
         ;;
     *)

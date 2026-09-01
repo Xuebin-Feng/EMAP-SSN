@@ -493,7 +493,7 @@ def _handoff_to_viewer(
     """Launch the viewer while preserving each platform's terminal contract."""
     executable = executable or sys.executable
     project_root = os.path.abspath(project_root)
-    viewer_script = os.path.join(project_root, "src", "emapssn_viewer.py")
+    viewer_script = os.path.join(project_root, "src", "EMAPSSN_Viewer.py")
     return launch_in_terminal(
         [executable, "-u", viewer_script],
         cwd=project_root,
@@ -3818,7 +3818,7 @@ if __name__ == "__main__":
                 )
                 return
 
-            print("Launching emapssn_viewer.py...")
+            print("Launching EMAPSSN_Viewer.py...")
             env = os.environ.copy()
             env.pop("SSN_TARGET_CACHE", None)
             env["SSN_TARGET_CACHE_PATH"] = relative_path.replace("\\", "/")
@@ -3838,7 +3838,7 @@ if __name__ == "__main__":
                 QMessageBox.critical(
                     self,
                     "Viewer Launch Error",
-                    f"Failed to launch emapssn_viewer.py:\n{error}",
+                    f"Failed to launch EMAPSSN_Viewer.py:\n{error}",
                 )
                 return
 

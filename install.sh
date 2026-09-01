@@ -282,7 +282,7 @@ EOF
     cat > "$resources_dir/start.command" <<EOF
 #!/bin/bash
 PROJECT_ROOT=\$(cd "\$(dirname "\$0")/../../.." && pwd)
-exec "\$PROJECT_ROOT/src/bin/emapssn_desktop_launcher.sh" "$app_kind" --terminal-session
+exec "\$PROJECT_ROOT/src/bin/EMAPSSN_Desktop_Launcher.sh" "$app_kind" --terminal-session
 EOF
     chmod +x "$resources_dir/start.command"
 
@@ -370,8 +370,8 @@ ssn_install_linux() {
 
     # 2. Remove exact pre-EMAP launchers, then create the new root links.
     rm -f SSN_Viewer SSN_Tools SSN_Viewer.desktop SSN_Tools.desktop
-    ln -sf src/bin/emapssn.sh emapssn
-    ln -sf src/bin/emapssn_tools.sh emapssn_tools
+    ln -sf src/bin/EMAPSSN.sh emapssn
+    ln -sf src/bin/EMAPSSN_Tools.sh emapssn_tools
     chmod +x emapssn emapssn_tools
     echo "[OK] Created emapssn and emapssn_tools executables in project root."
 
@@ -387,7 +387,7 @@ ssn_install_linux() {
 Type=Application
 Name=EMAP-SSN
 Comment=EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein Sequence Similarity Network Platform
-Exec="${PROJECT_ROOT}/src/bin/emapssn_desktop_launcher.sh" viewer
+Exec="${PROJECT_ROOT}/src/bin/EMAPSSN_Desktop_Launcher.sh" viewer
 Path=${PROJECT_ROOT}
 Icon=${VIEWER_ICON}
 Terminal=false
@@ -401,7 +401,7 @@ EOF
 Type=Application
 Name=EMAP-SSN Tools
 Comment=Sequence Similarity Network Utilities
-Exec="${PROJECT_ROOT}/src/bin/emapssn_desktop_launcher.sh" tools
+Exec="${PROJECT_ROOT}/src/bin/EMAPSSN_Desktop_Launcher.sh" tools
 Path=${PROJECT_ROOT}
 Icon=${TOOL_ICON}
 Terminal=false

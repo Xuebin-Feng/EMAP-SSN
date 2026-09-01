@@ -230,7 +230,7 @@ class ToolDirectoryDefaultTests(unittest.TestCase):
             )
 
     def test_shared_execution_populates_missing_global_directories(self):
-        gui_source = (PROJECT_ROOT / "src" / "emapssn_tools.py").read_text(
+        gui_source = (PROJECT_ROOT / "src" / "EMAPSSN_Tools.py").read_text(
             encoding="utf-8"
         )
         gui_tree = ast.parse(gui_source)
