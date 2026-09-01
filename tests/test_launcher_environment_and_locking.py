@@ -105,33 +105,33 @@ class ManagedEnvironmentTests(unittest.TestCase):
             path.name: path.read_text(encoding="utf-8")
             for path in (
                 PROJECT_ROOT / "install.sh",
-                SRC_DIR / "bin" / "SSN_Desktop_Launcher.sh",
-                SRC_DIR / "bin" / "SSN_Viewer.sh",
-                SRC_DIR / "bin" / "SSN_Tools.sh",
-                SRC_DIR / "bin" / "SSN_Desktop_Launcher.bat",
-                SRC_DIR / "bin" / "SSN_Viewer.bat",
-                SRC_DIR / "bin" / "SSN_Tools.bat",
+                SRC_DIR / "bin" / "emapssn_desktop_launcher.sh",
+                SRC_DIR / "bin" / "emapssn.sh",
+                SRC_DIR / "bin" / "emapssn_tools.sh",
+                SRC_DIR / "bin" / "emapssn_desktop_launcher.bat",
+                SRC_DIR / "bin" / "emapssn.bat",
+                SRC_DIR / "bin" / "emapssn_tools.bat",
             )
         }
 
         self.assertIn("ssn_sanitize_managed_environment", sources["install.sh"])
         self.assertIn(
-            "ssn_sanitize_managed_environment", sources["SSN_Desktop_Launcher.sh"]
+            "ssn_sanitize_managed_environment", sources["emapssn_desktop_launcher.sh"]
         )
-        self.assertIn(":SANITIZE_MANAGED_ENVIRONMENT", sources["SSN_Desktop_Launcher.bat"])
-        for name in ("SSN_Viewer.bat", "SSN_Tools.bat"):
+        self.assertIn(":SANITIZE_MANAGED_ENVIRONMENT", sources["emapssn_desktop_launcher.bat"])
+        for name in ("emapssn.bat", "emapssn_tools.bat"):
             self.assertIn("dependency_setup.lock", sources[name])
             self.assertIn("--locked-setup", sources[name])
             self.assertIn('"%COMSPEC%" /d /c', sources[name])
 
     def test_launchers_probe_for_existing_windows_before_validation(self):
         paths = (
-            SRC_DIR / "bin" / "SSN_Desktop_Launcher.bat",
-            SRC_DIR / "bin" / "SSN_Desktop_Launcher.sh",
-            SRC_DIR / "bin" / "SSN_Viewer.bat",
-            SRC_DIR / "bin" / "SSN_Viewer.sh",
-            SRC_DIR / "bin" / "SSN_Tools.bat",
-            SRC_DIR / "bin" / "SSN_Tools.sh",
+            SRC_DIR / "bin" / "emapssn_desktop_launcher.bat",
+            SRC_DIR / "bin" / "emapssn_desktop_launcher.sh",
+            SRC_DIR / "bin" / "emapssn.bat",
+            SRC_DIR / "bin" / "emapssn.sh",
+            SRC_DIR / "bin" / "emapssn_tools.bat",
+            SRC_DIR / "bin" / "emapssn_tools.sh",
         )
         for path in paths:
             source = path.read_text(encoding="utf-8")

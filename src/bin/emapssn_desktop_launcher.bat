@@ -1,15 +1,15 @@
 @echo off
-REM Visible desktop startup terminal for SSN Config and SSN Tools.
+REM Visible desktop startup terminal for EMAP-SSN Configuration and EMAP-SSN Tools.
 setlocal EnableDelayedExpansion
 call :SANITIZE_MANAGED_ENVIRONMENT
 
 set "APP_KIND=%~1"
 if /I "%APP_KIND%"=="viewer" (
-    set "APP_LABEL=SSN Config"
-    set "PORTABLE_LAUNCHER=%~dp0SSN_Viewer.bat"
+    set "APP_LABEL=EMAP-SSN Configuration"
+    set "PORTABLE_LAUNCHER=%~dp0emapssn.bat"
 ) else if /I "%APP_KIND%"=="tools" (
-    set "APP_LABEL=SSN Tools"
-    set "PORTABLE_LAUNCHER=%~dp0SSN_Tools.bat"
+    set "APP_LABEL=EMAP-SSN Tools"
+    set "PORTABLE_LAUNCHER=%~dp0emapssn_tools.bat"
 ) else (
     echo Usage: %~nx0 viewer^|tools
     pause

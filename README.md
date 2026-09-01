@@ -1,12 +1,19 @@
-# Embedding-based Sequence Similarity Network (SSN) Viewer
+# EMAP-SSN
 
 [![Python Version](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS%20(Apple%20Silicon)-lightgrey.svg)](https://github.com/)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS%20(Apple%20Silicon)-lightgrey.svg)](https://github.com/Xuebin-Feng/EMAP-SSN)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Framework PySide6](https://img.shields.io/badge/UI-PySide6-orange.svg)](https://doc.qt.io/qtforpython/)
 [![Render VisPy](https://img.shields.io/badge/Render-VisPy-red.svg)](https://vispy.org/)
 
-The **Embedding-based SSN Viewer (name: TBD)** is an interactive, high-performance graphical application designed to streamline the generation, visualization, and analysis of both traditional and embedding-based Sequence Similarity Networks (SSNs). By integrating **Multiple Sequence Alignments (MSAs)** directly into network exploration, the viewer bridges macroscopic sequence relationships with microscopic residue-level conservation, providing a comprehensive, multi-scale view of the protein sequence space.
+**EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein Sequence
+Similarity Network Platform** is an interactive, high-performance
+graphical application for generating, visualizing, and analyzing traditional
+and embedding-based Sequence Similarity Networks (SSNs). By integrating
+Multiple Sequence Alignments (MSAs) directly into network exploration, the
+platform bridges macroscopic sequence relationships with microscopic
+residue-level conservation to provide a multi-scale view of protein sequence
+space.
 
 ---
 ## ⚠️ Important Note
@@ -24,11 +31,11 @@ The application streamlines the entire SSN pipeline—from generation to interac
 ---
 ## 🖥️ Graphical User Interface
 
-### 🛠️ SSN Tools GUI
+### 🛠️ EMAP-SSN Tools GUI
 
-All calculations related to SSN generation are centralized in the `SSN_Tools.py` GUI. The interface is organized into intuitive tabs, each representing a distinct stage of the pipeline. It includes interactive tooltips at the bottom for parameter input fields and a script description panel on the right highlighting the function of each processing script.
+All calculations related to SSN generation are centralized in the `emapssn_tools.py` GUI. The interface is organized into intuitive tabs, each representing a distinct stage of the pipeline. It includes interactive tooltips at the bottom for parameter input fields and a script description panel on the right highlighting the function of each processing script.
 
-![SSN Tools GUI](docs/assets/ssn_tools_gui.png)
+![EMAP-SSN Tools GUI](docs/assets/emapssn_tools_gui.png)
 
 Each tool card also provides **Export Setting** below **Save & Run**. The
 Directories tab controls the export location through **Setting Export
@@ -68,19 +75,19 @@ reading `tools_settings.json` from the project root. Model acknowledgement remai
 separate command, for example
 `python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID`.
 
-### ⚙️ SSN Configuration GUI
+### ⚙️ EMAP-SSN Configuration GUI
 
-The configuration GUI in `SSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
+The configuration GUI in `emapssn_config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
-![SSN Configuration GUI](docs/assets/ssn_config_gui.png)
+![EMAP-SSN Configuration GUI](docs/assets/emapssn_config_gui.png)
 
-### 🔍 SSN Viewer GUI
+### 🔍 EMAP-SSN Viewer GUI
 
-The main visualization window, `SSN_Viewer.py`, serves as the interactive core for network exploration, formatting, and analysis. It provides full mouse and keyboard controls for 3D navigation and graphic customization, along with an in-line command console (HUD) to execute analytical operations, highlight specific residues, select clusters, and export figures.
+The main visualization window, `emapssn_viewer.py`, serves as the interactive core for network exploration, formatting, and analysis. It provides full mouse and keyboard controls for 3D navigation and graphic customization, along with an in-line command console (HUD) to execute analytical operations, highlight specific residues, select clusters, and export figures.
 
-![SSN Viewer GUI](docs/assets/ssn_viewer_gui.png)
+![EMAP-SSN Viewer GUI](docs/assets/emapssn_viewer_gui.png)
 
 ---
 ## 🧬 System Workflow
@@ -99,7 +106,7 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 *   **High-Performance Visualization**: Powered by PySide6 and VisPy, allowing real-time rendering, rotation, zooming, and manipulation of large networks containing thousands of nodes and edges.
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
-*   **Comprehensive Utilities Suite**: Centralized GUI in `SSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
+*   **Comprehensive Utilities Suite**: Centralized GUI in `emapssn_tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
 *   **Cross-Platform Hardware Acceleration**: Automatic eligibility checks and runtime validation for supported NVIDIA CUDA, AMD ROCm, Intel XPU, and Apple MPS configurations, with safe fallback to CPU.
 
 ---
@@ -240,8 +247,8 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    Download the repository or clone it into a local project directory:
 
    ```bash
-   git clone https://github.com/Xuebin-Feng/Embedding-based-SSN-and-Viewer.git Sequence_Similarity_Network_Viewer
-   cd Sequence_Similarity_Network_Viewer
+   git clone https://github.com/Xuebin-Feng/EMAP-SSN.git
+   cd EMAP-SSN
    ```
 
 2. **Set up the environment:**
@@ -276,7 +283,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      ./install.sh
      ```
 
-     The shared installer detects macOS, configures permissions for scripts in `src/bin/`, and generates Finder-native `SSN Viewer.app` and `SSN Tools.app` launchers in the project root. The legacy `install.command` file remains only as a compatibility wrapper that forwards to `install.sh`.
+     The shared installer detects macOS, configures permissions for scripts in `src/bin/`, and generates Finder-native `EMAP-SSN.app` and `EMAP-SSN Tools.app` launchers in the project root.
 
      > [!IMPORTANT]
      > Only Apple Silicon Macs are supported. Intel-based Macs are not supported by the pinned PyTorch runtime.
@@ -298,19 +305,19 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      >                  libXtst mesa-libgbm mesa-libEGL libxslt alsa-lib cups-libs
      > ```
 
-     This will configure execution permissions and generate launchers (`SSN_Viewer` and `SSN_Tools`) as well as system `.desktop` application entries.
+     This will configure execution permissions and generate launchers (`emapssn` and `emapssn_tools`) as well as system `.desktop` application entries.
 
 3. **Launch the application:**
 
-   - **Windows:** Open `SSN_Viewer.lnk` or `SSN_Tools.lnk` from the project root or from the Desktop if you selected that installer option.
-   - **macOS:** Open `SSN Viewer.app` or `SSN Tools.app` from the project root.
-   - **Linux:** Run `./SSN_Viewer` or `./SSN_Tools`, or use the generated desktop application entries.
+   - **Windows:** Open `EMAP-SSN.lnk` or `EMAP-SSN Tools.lnk` from the project root or from the Desktop if you selected that installer option.
+   - **macOS:** Open `EMAP-SSN.app` or `EMAP-SSN Tools.app` from the project root.
+   - **Linux:** Run `./emapssn` or `./emapssn_tools`, or use the generated desktop application entries.
 
-   `SSN_Viewer` opens the configuration GUI first. Select the input files and layout settings there, then click **Save & Run** to save the settings and launch the visualization window. On the first application launch, the managed launcher creates `.venv`, installs the pinned dependencies, and validates the selected compute backend; later launches reuse that environment while it remains compatible.
+   `emapssn` opens the configuration GUI first. Select the input files and layout settings there, then click **Save & Run** to save the settings and launch the visualization window. On the first application launch, the managed launcher creates `.venv`, installs the pinned dependencies, and validates the selected compute backend; later launches reuse that environment while it remains compatible.
 
 ### Headless layout-cache generation
 
-When **(New Layout Cache)** is selected in SSN Config, **Export Layout
+When **(New Layout Cache)** is selected in EMAP-SSN Configuration, **Export Layout
 Settings** saves a generation-only JSON file. Run that file with the same
 managed Python environment to calculate and save the cache without opening the
 viewer:
@@ -357,10 +364,10 @@ VisPy network labels remain limited to the bundled Noto Sans face.
 * **The application closes immediately when launched from a desktop icon.**
   The Ubuntu/Debian launchers now check the Qt/XCB libraries before startup and print the exact `sudo apt install` command for anything missing. If any later startup step fails, a desktop-launched terminal remains open until you press Enter so the original error stays visible.
 
-* **SSN Tools exits immediately, or crashes inside Chromium.**
+* **EMAP-SSN Tools exits immediately, or crashes inside Chromium.**
   If the documentation panel fails after the libraries above are installed — common inside containers or on hardened kernels where the Chromium sandbox cannot start — disable the sandbox:
   ```bash
-  QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox ./SSN_Tools
+  QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox ./emapssn_tools
   ```
 
 * **`unable to lock file` when opening an HDF5 network.**
@@ -371,27 +378,29 @@ VisPy network labels remain limited to the bundled Noto Sans face.
 ## 📂 File Structure
 
 ```directory
-Sequence_Similarity_Network_Viewer/
+EMAP-SSN/
 │
 ├── install.bat               # Windows installer (creates .lnk shortcuts)
-├── install.command           # Legacy macOS compatibility wrapper for install.sh
 ├── install.sh                # Linux/macOS installer with platform-specific launchers
 │
 ├── src/                      # Source code directory
-│   ├── SSN_Viewer.py         # Main PySide6 / VisPy desktop visualization application
-│   ├── SSN_Tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
-│   ├── SSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
+│   ├── emapssn_viewer.py         # Main PySide6 / VisPy desktop visualization application
+│   ├── emapssn_tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
+│   ├── emapssn_config.py         # GUI configuration manager for inputs, thresholds, and models
 │   │
 │   ├── bin/                  # Startup scripts and launchers
-│   │   ├── SSN_Viewer.bat    # Windows Viewer startup script
-│   │   ├── SSN_Tools.bat     # Windows Tools startup script
-│   │   ├── SSN_Viewer.sh     # Linux/macOS Viewer startup script
-│   │   ├── SSN_Tools.sh      # Linux/macOS Tools startup script
+│   │   ├── emapssn.bat          # Windows platform startup script
+│   │   ├── emapssn_tools.bat     # Windows Tools startup script
+│   │   ├── emapssn.sh           # Linux/macOS platform startup script
+│   │   ├── emapssn_tools.sh      # Linux/macOS Tools startup script
+│   │   ├── emapssn_desktop_launcher.bat
+│   │   ├── emapssn_desktop_launcher.sh
+│   │   ├── emapssn_terminal_launcher.sh
 │   │   └── logos/            # Application custom icon files (.png and .ico)
 │   │
 │   ├── commands/             # Command modules for interactive viewer console
 │   ├── resources/            # Configuration and system prompts
-│   ├── tools/                # Executable processing scripts exposed by SSN_Tools
+│   ├── tools/                # Executable processing scripts exposed by emapssn_tools
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
 │   ├── utilities/            # Focused cache, network, hardware, alignment, and FASTA helpers
 │   └── web_ui/               # Embedded web UI backend and interfaces

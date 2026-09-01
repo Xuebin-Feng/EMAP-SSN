@@ -19,7 +19,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sequence Similarity Network (SSN) Viewer Command Reference</title>
+    <title>EMAP-SSN Viewer Command Reference</title>
     <!-- Fonts are vendored locally so this page renders offline. They live in
          docs/fonts/ rather than src/, so this page is self-contained and does
          not depend on the application source tree. -->
@@ -712,7 +712,7 @@
     <main>
         <div class="content-wrapper">
             <header id="docs-intro">
-                <h1>Sequence Similarity Network (SSN) Viewer</h1>
+                <h1>EMAP-SSN Viewer</h1>
                 <div class="subtitle">Command Line Interface (CLI) Manual &amp; Reference Guide</div>
                 <p style="margin-top: 16px; font-size: 1rem; color: var(--text-secondary);">
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
@@ -1009,7 +1009,7 @@
                 <ul>
                     <li><strong>Without arguments:</strong> Reports the configured offset and whether reference numbering is active.</li>
                     <li><strong>With one integer:</strong> Applies a positive, negative, or zero offset. A loaded MSA and valid active reference are required.</li>
-                    <li><strong>Session-only:</strong> The command changes the running viewer. Configure Alignment Offset in SSN Config to set the value for future sessions.</li>
+                    <li><strong>Session-only:</strong> The command changes the running viewer. Configure Alignment Offset in EMAP-SSN Configuration to set the value for future sessions.</li>
                     <li><strong>Affected commands:</strong> Position-aware <code>query</code>, <code>label</code>, <code>logo</code>, and amino-acid expressions used by <code>color</code>, <code>select</code>, <code>group</code>, <code>hide</code>, and <code>spectrum</code>.</li>
                     <li><strong>Negative amino-acid positions:</strong> In Boolean expressions, wrap negative displayed positions in parentheses, for example <code>K(-1)</code>, <code>K(-1.1)</code>, or <code>(RHK)(-1)</code>. Do not use <code>K-1</code> or <code>(RHK)-1</code>.</li>
                 </ul>

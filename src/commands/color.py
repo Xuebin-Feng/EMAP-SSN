@@ -14,7 +14,7 @@
 
 import numpy as np
 import matplotlib.colors as mcolors
-import SSN_Config as cfg
+import emapssn_config as cfg
 import Command_Engine
 
 def print_help():

@@ -1,7 +1,7 @@
 # Copyright 2026 Xuebin Feng
 # SPDX-License-Identifier: Apache-2.0
 
-"""Canonical directory defaults shared by SSN Tools and its tool scripts."""
+"""Canonical directory defaults shared by EMAP-SSN Tools and its tool scripts."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DEFAULT_DIRECTORY_PATHS = {
 }
 
 
-# Global directory settings consumed by each script exposed in SSN_Tools.py.
+# Global directory settings consumed by each script exposed in emapssn_tools.py.
 # Tool-specific paths such as SAFE_TEMP_DIR and BLASTP_DIR remain part of the
 # script's own settings section rather than this shared directory registry.
 TOOL_DIRECTORY_KEYS = {

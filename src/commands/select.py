@@ -14,7 +14,7 @@
 
 import os
 import numpy as np
-import SSN_Config as cfg
+import emapssn_config as cfg
 import Command_Engine
 
 def print_help():

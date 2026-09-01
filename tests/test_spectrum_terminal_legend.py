@@ -14,7 +14,7 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import SSN_Config as cfg
+import emapssn_config as cfg
 from commands import spectrum
 
 

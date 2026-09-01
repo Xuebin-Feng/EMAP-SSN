@@ -17,7 +17,7 @@ import os
 import h5py
 import numpy as np
 import json
-import SSN_Config as cfg
+import emapssn_config as cfg
 import Cache_Manifest as cache_manifest
 from utilities.Cache_Selection import resolve_selected_cache
 

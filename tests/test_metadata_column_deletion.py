@@ -17,7 +17,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from SSN_Viewer import MainViewer
+from emapssn_viewer import MainViewer
 from commands import meta as meta_command
 from commands import save as save_command
 from web_ui import meta_backend

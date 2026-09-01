@@ -10,7 +10,7 @@ from unittest import mock
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BACKEND_PATH = os.path.join(PROJECT_ROOT, "src", "web_ui", "esmfold_backend.py")
 
-config_stub = types.ModuleType("SSN_Config")
+config_stub = types.ModuleType("emapssn_config")
 config_stub.resolve_directory_path = lambda value: value
 plugin_manager_stub = types.ModuleType("web_ui.Plugin_Manager")
 plugin_manager_stub.ensure_registry = mock.Mock()
@@ -22,7 +22,7 @@ esmfold_backend = importlib.util.module_from_spec(spec)
 with mock.patch.dict(
     sys.modules,
     {
-        "SSN_Config": config_stub,
+        "emapssn_config": config_stub,
         "web_ui.Plugin_Manager": plugin_manager_stub,
         "utilities.Cache_Selection": cache_selection_stub,
     },

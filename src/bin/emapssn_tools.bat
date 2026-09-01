@@ -14,7 +14,7 @@ REM See the License for the specific language governing permissions and
 REM limitations under the License.
 
 REM =========================================================================
-REM Portable Startup Script for SSN_Tools.py
+REM Portable Startup Script for emapssn_tools.py
 REM =========================================================================
 setlocal EnableDelayedExpansion
 set "LAUNCH_MODE=%~1"
@@ -124,8 +124,8 @@ if /I "%LAUNCH_MODE%"=="--setup-only" exit /b 0
 :RUN_APPLICATION
 call :ACTIVATE_EXISTING_INSTANCE
 if !ERRORLEVEL! equ 0 exit /b 0
-echo Starting SSN_Tools...
-"!VENV_PYTHON!" src\SSN_Tools.py
+echo Starting emapssn_tools...
+"!VENV_PYTHON!" src\emapssn_tools.py
 set "APP_EXIT=!ERRORLEVEL!"
 
 :: Keep window open on error or exit

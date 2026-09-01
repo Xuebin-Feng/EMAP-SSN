@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
 )
 
-from SSN_Tools import (  # noqa: E402
+from emapssn_tools import (  # noqa: E402
     SpacedTipLabel,
     ToolsGUI,
     _configure_linux_qtwebengine_rendering,

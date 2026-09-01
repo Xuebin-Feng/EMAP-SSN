@@ -1,5 +1,5 @@
 #!/bin/bash
-# Visible desktop startup terminal for SSN Config and SSN Tools.
+# Visible desktop startup terminal for EMAP-SSN Configuration and EMAP-SSN Tools.
 
 set -u
 
@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd) || exit 1
 APP_KIND="${1:-}"
 LAUNCH_MODE="${2:---open-terminal}"
-TERMINAL_LAUNCHER="$SCRIPT_DIR/SSN_Terminal_Launcher.sh"
+TERMINAL_LAUNCHER="$SCRIPT_DIR/emapssn_terminal_launcher.sh"
 
 if [ ! -r "$PROJECT_ROOT/install.sh" ]; then
     printf 'Could not load launcher support: %s\n' "$PROJECT_ROOT/install.sh" >&2
@@ -21,17 +21,17 @@ if [ ! -r "$TERMINAL_LAUNCHER" ]; then
     printf 'Could not load terminal launcher: %s\n' "$TERMINAL_LAUNCHER" >&2
     exit 1
 fi
-# shellcheck source=SSN_Terminal_Launcher.sh
+# shellcheck source=emapssn_terminal_launcher.sh
 . "$TERMINAL_LAUNCHER"
 
 case "$APP_KIND" in
     viewer)
-        PORTABLE_LAUNCHER="$SCRIPT_DIR/SSN_Viewer.sh"
-        APP_LABEL="SSN Config"
+        PORTABLE_LAUNCHER="$SCRIPT_DIR/emapssn.sh"
+        APP_LABEL="EMAP-SSN Configuration"
         ;;
     tools)
-        PORTABLE_LAUNCHER="$SCRIPT_DIR/SSN_Tools.sh"
-        APP_LABEL="SSN Tools"
+        PORTABLE_LAUNCHER="$SCRIPT_DIR/emapssn_tools.sh"
+        APP_LABEL="EMAP-SSN Tools"
         ;;
     *)
         printf 'Usage: %s viewer|tools [--open-terminal|--terminal-session]\n' "$0" >&2

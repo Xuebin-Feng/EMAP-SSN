@@ -27,6 +27,8 @@ import traceback
 from pathlib import Path
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from utilities.Application_Identity import (
+    CONFIG_DISPLAY_NAME,
+    VIEWER_DISPLAY_NAME,
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
 )
@@ -491,13 +493,13 @@ def _handoff_to_viewer(
     """Launch the viewer while preserving each platform's terminal contract."""
     executable = executable or sys.executable
     project_root = os.path.abspath(project_root)
-    viewer_script = os.path.join(project_root, "src", "SSN_Viewer.py")
+    viewer_script = os.path.join(project_root, "src", "emapssn_viewer.py")
     return launch_in_terminal(
         [executable, "-u", viewer_script],
         cwd=project_root,
         env=env,
         hold=HoldMode.ON_ERROR,
-        title="SSN Viewer",
+        title=VIEWER_DISPLAY_NAME,
         platform_name=platform_name,
     )
 
@@ -807,7 +809,7 @@ if __name__ == "__main__":
     class ConfigGUI(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("SSN Configuration Editor")
+            self.setWindowTitle(CONFIG_DISPLAY_NAME)
             
             # Set Window Icon
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.ico")
@@ -3823,7 +3825,7 @@ if __name__ == "__main__":
                 )
                 return
 
-            print("Launching SSN_Viewer.py...")
+            print("Launching emapssn_viewer.py...")
             env = os.environ.copy()
             env.pop("SSN_TARGET_CACHE", None)
             env["SSN_TARGET_CACHE_PATH"] = relative_path.replace("\\", "/")
@@ -3843,7 +3845,7 @@ if __name__ == "__main__":
                 QMessageBox.critical(
                     self,
                     "Viewer Launch Error",
-                    f"Failed to launch SSN_Viewer.py:\n{error}",
+                    f"Failed to launch emapssn_viewer.py:\n{error}",
                 )
                 return
 
@@ -3858,7 +3860,9 @@ if __name__ == "__main__":
         try:
             is_primary_instance = single_instance.acquire_or_notify()
         except RuntimeError as error:
-            QMessageBox.critical(None, "SSN Config Startup Error", str(error))
+            QMessageBox.critical(
+                None, f"{CONFIG_DISPLAY_NAME} Startup Error", str(error)
+            )
             raise SystemExit(1)
         if not is_primary_instance:
             raise SystemExit(0)

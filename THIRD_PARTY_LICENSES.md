@@ -112,7 +112,7 @@ They are served locally as follows:
 |---|---|
 | `marked.min.js` | `Web_Server.py` static route `/agent_resource/` |
 | `fonts.css`, `*.woff2` | `Web_Server.py` static route `/fonts/` |
-| KaTeX CSS/JS | `SSN_Tools.py`, via a `file://` baseUrl on `setHtml()` |
+| KaTeX CSS/JS | `emapssn_tools.py`, via a `file://` baseUrl on `setHtml()` |
 | Fonts in `docs/list_of_commands.html` | relative path, page is opened from disk |
 
 Remaining network use is by design rather than asset loading: model weights are

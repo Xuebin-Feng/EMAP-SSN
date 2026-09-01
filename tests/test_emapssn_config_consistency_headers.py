@@ -11,7 +11,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import SSN_Config  # noqa: E402
+import emapssn_config  # noqa: E402
 
 
 class ConsistencyHeaderSanitizationTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class ConsistencyHeaderSanitizationTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            headers = SSN_Config._load_consistency_fasta_headers(fasta_path)
+            headers = emapssn_config._load_consistency_fasta_headers(fasta_path)
 
         self.assertEqual(headers, ["Alpha_Beta"])
 
@@ -39,10 +39,10 @@ class ConsistencyHeaderSanitizationTests(unittest.TestCase):
             with h5py.File(msa_hdf5_path, "w") as hf:
                 hf.create_dataset("headers", data=[b"Alpha   Beta"])
 
-            fasta_headers = SSN_Config._load_consistency_msa_headers(
+            fasta_headers = emapssn_config._load_consistency_msa_headers(
                 msa_fasta_path
             )
-            hdf5_headers = SSN_Config._load_consistency_msa_headers(
+            hdf5_headers = emapssn_config._load_consistency_msa_headers(
                 msa_hdf5_path
             )
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import Command_Engine
-import SSN_Config as cfg
+import emapssn_config as cfg
 
 
 def print_help():
@@ -51,7 +51,7 @@ def print_help():
     Notes:
       Positive and negative integers are accepted. Changes made with this
       command apply to the current viewer session. Configure Alignment Offset
-      in SSN_Config to set the value used when launching a new session.
+      in emapssn_config to set the value used when launching a new session.
       In Boolean amino-acid expressions, parentheses are required around a
       negative displayed position: use K(-1) or K(-1.1), never K-1 or K-1.1.
       Grouped alternatives use (RHK)(-1), where the first parentheses define

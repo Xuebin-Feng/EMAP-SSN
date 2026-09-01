@@ -1,4 +1,4 @@
-# SSN Viewer Requirements
+# EMAP-SSN Requirements
 
 # --- Core Dependencies ---
 # PySide6 (LGPL-3.0) replaces PyQt6 (GPL-3.0-only) so this project can be
@@ -9,10 +9,10 @@
 # PySide6 6.11.1 avoids the transient QPainter warning cascade produced by
 # Qt 6.9.1 when a Vispy QOpenGLWidget is maximized or restored on Windows.
 # The metapackage pulls PySide6-Essentials and
-# PySide6-Addons; QtWebEngine lives in Addons and renders the SSN_Tools
+# PySide6-Addons; QtWebEngine lives in Addons and renders the emapssn_tools
 # documentation panel only. The esmfold, meta and agent panels do NOT use it --
 # they open in the system browser against the local web server. On Linux
-# QtWebEngine also needs system libraries that pip cannot install; SSN_Tools
+# QtWebEngine also needs system libraries that pip cannot install; emapssn_tools
 # names them if the import fails.
 PySide6==6.11.1
 biopython==1.87
