@@ -1,6 +1,7 @@
 # EMAP-SSN
 
 [![Python Version](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![Release](https://img.shields.io/github/v/release/Xuebin-Feng/EMAP-SSN?display_name=tag)](https://github.com/Xuebin-Feng/EMAP-SSN/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS%20(Apple%20Silicon)-lightgrey.svg)](https://github.com/Xuebin-Feng/EMAP-SSN)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Framework PySide6](https://img.shields.io/badge/UI-PySide6-orange.svg)](https://doc.qt.io/qtforpython/)
@@ -15,12 +16,17 @@ platform bridges macroscopic sequence relationships with microscopic
 residue-level conservation to provide a multi-scale view of protein sequence
 space.
 
+The current release is **v0.1.0**, the first stable GitHub release of the
+source distribution. Because EMAP-SSN remains below version 1.0, command
+interfaces and persisted formats may evolve between releases. See the
+[changelog](CHANGELOG.md) for release history and [citation metadata](CITATION.cff)
+for how to cite the software.
+
 ---
 ## ⚠️ Important Note
 
 1. **Cross-Platform Support**: Host architecture, operating-system, and accelerator support is conditional. See [Compatibility](#-compatibility) before installation; Linux and Apple Silicon macOS support remains under active development.
-2. **Work in Progress**: This documentation and the repository structure are undergoing active updates.
-3. **Recommended Hardware**: A compatible **NVIDIA GPU** is highly recommended for CUDA acceleration of embeddings and layout solvers. Selected AMD and Intel devices and Apple Silicon GPUs can use the backends listed in [Compatibility](#-compatibility); every accelerator must pass runtime validation.
+2. **Recommended Hardware**: A compatible **NVIDIA GPU** is highly recommended for CUDA acceleration of embeddings and layout solvers. Selected AMD and Intel devices and Apple Silicon GPUs can use the backends listed in [Compatibility](#-compatibility); every accelerator must pass runtime validation.
 
 ---
 
@@ -99,8 +105,6 @@ The pipeline supports two primary pathways for Sequence Similarity Network (SSN)
 ---
 
 ## 🚀 Key Features
-
-*Work in Progress*
 
 *   **Embedding-Based Dynamic Programming Alignment**: Align sequences using high-dimensional dense embedding similarity vectors instead of simple substitution matrices (BLOSUM/PAM), resolving structural and functional relationships even at low sequence identity.
 *   **High-Performance Visualization**: Powered by PySide6 and VisPy, allowing real-time rendering, rotation, zooming, and manipulation of large networks containing thousands of nodes and edges.

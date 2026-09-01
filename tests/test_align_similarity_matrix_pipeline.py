@@ -1273,8 +1273,13 @@ class AlignmentPipelineTests(unittest.TestCase):
         events = []
 
         class ProgressRecorder:
-            def __init__(self, *args, **kwargs):
-                events.append(("overall", kwargs.get("desc")))
+            def __init__(self, iterable=None, *args, **kwargs):
+                self.iterable = iterable
+                if kwargs.get("desc") == "Overall Progress":
+                    events.append(("overall", kwargs.get("desc")))
+
+            def __iter__(self):
+                return iter(self.iterable or ())
 
             def update(self, amount):
                 events.append(("update", amount))
@@ -1289,8 +1294,12 @@ class AlignmentPipelineTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             input_h5 = os.path.join(temp_dir, "embeddings.h5")
-            with h5py.File(input_h5, "w"):
-                pass
+            with h5py.File(input_h5, "w") as hf:
+                embeddings = hf.create_group("embeddings")
+                for header in ("a", "b", "c"):
+                    embeddings.create_dataset(
+                        header, data=np.ones((2, 2), dtype=np.float32)
+                    )
 
             with mock.patch.object(
                 similarity_matrix,

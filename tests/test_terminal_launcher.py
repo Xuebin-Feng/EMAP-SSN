@@ -33,6 +33,7 @@ class FakeApplication:
 class ApplicationIdentityTests(unittest.TestCase):
     def test_canonical_product_and_component_names(self):
         self.assertEqual(identity.PRODUCT_NAME, "EMAP-SSN")
+        self.assertEqual(identity.APPLICATION_VERSION, "0.1.0")
         self.assertEqual(
             identity.PRODUCT_LONG_NAME,
             "EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein "

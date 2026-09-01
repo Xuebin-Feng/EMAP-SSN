@@ -77,7 +77,7 @@ class ManualSequenceControlTests(unittest.TestCase):
         self.assertEqual((ref, tar, model), ("ACXD", "BZXU", "manual_model"))
         self.assertEqual(
             sanitize_alignment_header(' protein[1]/chain  A '),
-            "protein(1)_chain A",
+            "protein(1)_chain_A",
         )
 
     def test_pairwise_rejects_enabled_empty_manual_sequence(self):

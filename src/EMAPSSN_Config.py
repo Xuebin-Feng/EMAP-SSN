@@ -28,6 +28,7 @@ import traceback
 from pathlib import Path
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from utilities.Application_Identity import (
+    APPLICATION_VERSION,
     CONFIG_DISPLAY_NAME,
     VIEWER_DISPLAY_NAME,
     VIEWER_DESKTOP_FILE_NAME,
@@ -3855,6 +3856,7 @@ if __name__ == "__main__":
 
     existing_qt_application = QApplication.instance()
     app = existing_qt_application or QApplication(sys.argv)
+    app.setApplicationVersion(APPLICATION_VERSION)
     single_instance = None
     if existing_qt_application is None:
         single_instance = SingleInstanceController("SSN_Config", app)

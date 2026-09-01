@@ -10,6 +10,7 @@ import sys
 
 
 PRODUCT_NAME = "EMAP-SSN"
+APPLICATION_VERSION = "0.1.0"
 PRODUCT_LONG_NAME = (
     f"{PRODUCT_NAME}: Embedding- and Multiple-Alignment-integrated Protein "
     "Sequence Similarity Network Platform"

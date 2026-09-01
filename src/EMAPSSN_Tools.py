@@ -91,6 +91,7 @@ from utilities.Application_Windows import (
     show_window_in_front,
 )
 from utilities.Application_Identity import (
+    APPLICATION_VERSION,
     TOOLS_DISPLAY_NAME,
     TOOLS_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
@@ -4281,6 +4282,7 @@ class ToolsGUI(QMainWindow):
 if __name__ == "__main__":
     existing_qt_application = QApplication.instance()
     app = existing_qt_application or QApplication(sys.argv)
+    app.setApplicationVersion(APPLICATION_VERSION)
     single_instance = None
     if existing_qt_application is None:
         single_instance = SingleInstanceController("SSN_Tools", app)

@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use EMAP-SSN in your research, please cite this software release."
+title: "EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein Sequence Similarity Network Platform"
+type: software
+authors:
+  - family-names: Feng
+    given-names: Xuebin
+    affiliation: University of Toronto
+repository-code: "https://github.com/Xuebin-Feng/EMAP-SSN"
+url: "https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.1.0"
+license: Apache-2.0
+version: "0.1.0"
+date-released: 2026-09-01
+keywords:
+  - protein sequence similarity network
+  - protein language model
+  - multiple sequence alignment
+  - bioinformatics

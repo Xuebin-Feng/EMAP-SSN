@@ -56,65 +56,35 @@ class ScoreHistogramFigureTests(unittest.TestCase):
 
 
 class ViewerHandoffTests(unittest.TestCase):
-    def test_macos_launches_viewer_in_terminal_without_replacing_config(self):
+    def test_handoff_uses_shared_terminal_launcher_contract(self):
         process = object()
-        env = {"SSN_TARGET_CACHE_MODE": "new", "SSN_VIEWER_SETTINGS_PATH": "/tmp/a.json"}
+        env = {
+            "SSN_TARGET_CACHE_MODE": "new",
+            "SSN_VIEWER_SETTINGS_PATH": "/tmp/a.json",
+        }
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            EMAPSSN_Config.subprocess, "Popen", return_value=process
-        ) as popen:
+            EMAPSSN_Config, "launch_in_terminal", return_value=process
+        ) as launch:
             result = EMAPSSN_Config._handoff_to_viewer(
                 temp_dir, env, platform_name="darwin", executable="/python"
             )
 
         self.assertIs(result, process)
-        self.assertEqual(popen.call_args.args[0][0], "osascript")
-        self.assertIn("SSN_VIEWER_SETTINGS_PATH", " ".join(popen.call_args.args[0]))
-        self.assertIs(popen.call_args.kwargs["env"], env)
-
-    def test_linux_launches_viewer_in_detected_terminal(self):
-        process = object()
-        env = {"SSN_TARGET_CACHE_MODE": "existing"}
-        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            EMAPSSN_Config.shutil, "which", side_effect=lambda name: "/terminal" if name == "gnome-terminal" else None
-        ), mock.patch.object(EMAPSSN_Config.subprocess, "Popen", return_value=process) as popen:
-            result = EMAPSSN_Config._handoff_to_viewer(
-                temp_dir, env, platform_name="linux", executable="/python"
-            )
-
-        self.assertIs(result, process)
-        self.assertEqual(popen.call_args.args[0][:3], ["gnome-terminal", "--", "bash"])
-        self.assertIs(popen.call_args.kwargs["env"], env)
-
-    def test_linux_reports_missing_terminal(self):
-        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            EMAPSSN_Config.shutil, "which", return_value=None
-        ):
-            with self.assertRaisesRegex(RuntimeError, "No supported terminal emulator"):
-                EMAPSSN_Config._handoff_to_viewer(
-                    temp_dir, {}, platform_name="linux", executable="/python"
-                )
-
-    def test_windows_uses_new_console_popen(self):
-        process = object()
-        env = {"SSN_TARGET_CACHE_MODE": "existing"}
-        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            EMAPSSN_Config.subprocess,
-            "Popen",
-            return_value=process,
-        ) as popen:
-            result = EMAPSSN_Config._handoff_to_viewer(
-                temp_dir,
-                env,
-                platform_name="win32",
-                executable=r"C:\Python\python.exe",
-            )
-
-        self.assertIs(result, process)
-        _, kwargs = popen.call_args
-        self.assertEqual(kwargs["cwd"], os.path.abspath(temp_dir))
-        self.assertIs(kwargs["env"], env)
-        self.assertNotEqual(kwargs["creationflags"], 0)
-        self.assertIn("src\\EMAPSSN_Viewer.py", popen.call_args.args[0])
+        command = launch.call_args.args[0]
+        self.assertEqual(command[0:2], ["/python", "-u"])
+        self.assertEqual(
+            command[2],
+            os.path.join(os.path.abspath(temp_dir), "src", "EMAPSSN_Viewer.py"),
+        )
+        self.assertEqual(launch.call_args.kwargs["cwd"], os.path.abspath(temp_dir))
+        self.assertIs(launch.call_args.kwargs["env"], env)
+        self.assertEqual(
+            launch.call_args.kwargs["hold"], EMAPSSN_Config.HoldMode.ON_ERROR
+        )
+        self.assertEqual(
+            launch.call_args.kwargs["title"], EMAPSSN_Config.VIEWER_DISPLAY_NAME
+        )
+        self.assertEqual(launch.call_args.kwargs["platform_name"], "darwin")
 
     def test_settings_snapshots_are_unique_and_immutable_copies(self):
         first = EMAPSSN_Config._create_viewer_settings_snapshot({"SEQUENCE_SET": "first"})

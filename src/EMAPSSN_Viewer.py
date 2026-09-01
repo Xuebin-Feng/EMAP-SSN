@@ -91,6 +91,7 @@ from utilities.Cache_Selection import resolve_selected_cache
 from utilities.Network_Preparation import prepare_network
 from utilities.Viewer_Inspection import ViewerInspectionService
 from utilities.Application_Identity import (
+    APPLICATION_VERSION,
     VIEWER_DISPLAY_NAME,
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
@@ -3050,6 +3051,7 @@ class MainViewer:
         
 if __name__ == '__main__':
     # Set the identity before VisPy creates QApplication or any native window.
+    QtWidgets.QApplication.setApplicationVersion(APPLICATION_VERSION)
     configure_linux_qt_desktop_identity(
         QtWidgets.QApplication, VIEWER_DESKTOP_FILE_NAME
     )
