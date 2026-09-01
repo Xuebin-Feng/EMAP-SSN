@@ -90,14 +90,13 @@ class PopulationStandardDeviationTests(unittest.TestCase):
             self.assert_supports_singletons(builder)
 
     def test_msa_score_builder_supports_singletons(self):
-        with mock.patch.object(
-            embedding_msa,
-            "DEVICE",
-            torch.device("cpu"),
-        ):
-            self.assert_supports_singletons(
-                embedding_msa.compute_score_matrix_torch,
+        self.assert_supports_singletons(
+            lambda emb_i, emb_j: embedding_msa.compute_score_matrix_torch(
+                emb_i,
+                emb_j,
+                "cpu",
             )
+        )
 
     def test_primary_score_builder_uses_population_standard_deviation(self):
         t_i = torch.nn.functional.normalize(

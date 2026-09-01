@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import re
-import fnmatch
 import numpy as np
 import matplotlib.colors as mcolors
 import SSN_Config as cfg
@@ -83,23 +80,6 @@ def run(viewer, args):
             viewer.console_text.text = "Help information printed to the terminal"
         return
 
-    # ALWAYS update the _sele.txt file to keep the cache fresh for implicit selection
-    header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-    os.makedirs(header_dir, exist_ok=True)
-    sele_path = os.path.join(header_dir, "_sele.txt")
-    
-    if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-            for idx in viewer.selected_indices:
-                f.write(viewer.full_headers[idx] + "\n")
-    else:
-        # Clear it out so old selections don't apply if nothing is selected
-        if os.path.exists(sele_path):
-            open(sele_path, "w", encoding="utf-8").close()
-
-    # FIX: Replace with correct file syntax, removing the literal quotes
-    args = [re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', arg, flags=re.IGNORECASE) for arg in args]
-
     vispy_symbols = ['disc', 'arrow', 'ring', 'clobber', 'square', 'x', 'diamond', 'vbar', 'hbar', 
                      'cross', 'tailed_arrow', 'triangle_up', 'triangle_down', 'star', 'cross_lines', 
                      'o', '+', '++', 's', '-', '|', '->', '>', '^', 'v', '*']
@@ -120,7 +100,7 @@ def run(viewer, args):
         
         # NEW: Default to targeting selected nodes if properties exist but no expression is given
         if not current_expr and (current_color or current_scale or current_shape):
-            current_expr = '@_sele.txt@'
+            current_expr = '$sele$'
             
         if current_expr and (current_color or current_scale or current_shape):
             assignments.append((current_expr, current_color, current_scale, current_shape))
@@ -149,15 +129,7 @@ def run(viewer, args):
                 current_shape = mapped_shape
             continue
 
-        # 3. Check if explicitly an expression
-        if any(c in arg for c in '&|!^"@') or arg.count('#') >= 2 or re.match(r'^[a-zA-Z_][\d\.]+$', arg):
-            if current_expr:
-                push_assignment()
-                current_color = None; current_scale = None; current_shape = None
-            current_expr = arg
-            continue
-            
-        # 4. Check if Color
+        # 3. Check if Color
         is_color = False
         try:
             mcolors.to_rgba(arg)
@@ -174,12 +146,26 @@ def run(viewer, args):
             else:
                 current_color = arg
             continue
-            
-        # 5. Fallback for unrecognized tokens
-        if current_expr:
-            push_assignment()
-            current_color = None; current_scale = None; current_shape = None
-        current_expr = arg
+
+        # 4. Classify a complete Boolean expression.
+        classification = Command_Engine.classify_selection_expression(arg)
+        if classification.kind == Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
+            if current_expr:
+                push_assignment()
+                current_color = None; current_scale = None; current_shape = None
+            current_expr = arg
+            continue
+        if classification.kind == Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION:
+            Command_Engine.report_selection_error(
+                viewer, arg, classification.error, "Color"
+            )
+            return
+        Command_Engine.print_help(
+            viewer,
+            f"Error: Unrecognized color argument '{arg}'. Expected a Boolean "
+            "expression, color, x-scale, or shape.",
+        )
+        return
 
     if current_expr or current_color or current_scale or current_shape: 
         push_assignment()
@@ -197,10 +183,18 @@ def run(viewer, args):
 
     evaluated_assignments = []
     for expr, color_str, scale_val, shape_val in assignments:
-        if expr:
-            expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
         try:
-            mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
+            mask = Command_Engine.parse_advanced_expression(
+                expr,
+                viewer_to_aln,
+                valid_indices,
+                viewer.full_headers,
+                getattr(viewer, 'cluster_labels', None),
+                getattr(viewer, 'group_labels', None),
+                getattr(viewer, 'alignment', None),
+                metadata=getattr(viewer, 'metadata', None),
+                selection_mask=Command_Engine.get_selected_mask(viewer),
+            )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Color")
             return

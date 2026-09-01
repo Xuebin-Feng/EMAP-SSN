@@ -13,8 +13,6 @@
 # limitations under the License.
 
 import os
-import re
-import fnmatch
 import numpy as np
 import SSN_Config as cfg
 import Command_Engine
@@ -156,7 +154,7 @@ def run(viewer, args):
         return
 
     mode = "change"
-    expr = None
+    expr_args = []
     
     # Map keywords to their respective modes
     mode_map = {
@@ -173,7 +171,24 @@ def run(viewer, args):
         if clean_arg in mode_map:
             mode = mode_map[clean_arg]
         else:
-            expr = arg
+            expr_args.append(arg)
+
+    if len(expr_args) > 1:
+        Command_Engine.print_help(
+            viewer,
+            "Error: Select accepts exactly one whitespace-free Boolean expression.",
+        )
+        return
+    expr = expr_args[0] if expr_args else None
+
+    if expr:
+        classification = Command_Engine.classify_selection_expression(expr)
+        if classification.kind != Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
+            error = classification.error or Command_Engine.SelectionExpressionError(
+                f"'{expr}' is not a Boolean selection expression."
+            )
+            Command_Engine.report_selection_error(viewer, expr, error, "Selection")
+            return
 
     # --- Strict Invert Mode ---
     if mode == "invert":
@@ -202,25 +217,20 @@ def run(viewer, args):
         print("\nError: Please provide a valid boolean expression.")
         return
 
-    if "$sele$" in expr.lower():
-        header_dir = getattr(cfg, 'HEADER_LIST_DIR', os.path.join("Input_Files", "Header_Lists"))
-        os.makedirs(header_dir, exist_ok=True)
-        sele_path = os.path.join(header_dir, "_sele.txt")
-        
-        with open(sele_path, "w", encoding="utf-8", newline="\n") as f:
-            if hasattr(viewer, 'selected_indices') and viewer.selected_indices:
-                for idx in viewer.selected_indices:
-                    f.write(viewer.full_headers[idx] + "\n")
-                    
-        expr = re.sub(r'["\']?\$sele\$["\']?', '@_sele.txt@', expr, flags=re.IGNORECASE)
-
     viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
-    
-    if expr:
-        expr = re.sub(r'\{([^}]+)\}', lambda m: '{' + m.group(1).replace(' ', '') + '}', expr)
 
     try:
-        mask = Command_Engine.parse_advanced_expression(expr, viewer_to_aln, valid_indices, viewer.full_headers, getattr(viewer, 'cluster_labels', None), getattr(viewer, 'group_labels', None), getattr(viewer, 'alignment', None), metadata=getattr(viewer, 'metadata', None))
+        mask = Command_Engine.parse_advanced_expression(
+            expr,
+            viewer_to_aln,
+            valid_indices,
+            viewer.full_headers,
+            getattr(viewer, 'cluster_labels', None),
+            getattr(viewer, 'group_labels', None),
+            getattr(viewer, 'alignment', None),
+            metadata=getattr(viewer, 'metadata', None),
+            selection_mask=Command_Engine.get_selected_mask(viewer),
+        )
         visible_indices = set(np.where(viewer.visible_mask)[0].tolist())
         new_indices = set(np.where(mask)[0].tolist()).intersection(visible_indices)
     except Exception as e:

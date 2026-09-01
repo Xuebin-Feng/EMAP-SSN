@@ -66,7 +66,7 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         viewer = self.make_viewer([1.0, np.nan, 3.0])
         output = TTYStringIO()
 
-        self.run_spectrum(viewer, ["prop:Length", "scheme:coolwarm"], output)
+        self.run_spectrum(viewer, ["{Length}", "coolwarm"], output)
 
         cmap, _ = spectrum.get_colormap("coolwarm")
         self.assertIn(
@@ -83,7 +83,7 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         viewer = self.make_viewer([2.0, 2.0])
         output = TTYStringIO()
 
-        self.run_spectrum(viewer, ["prop:Length", "scheme:viridis"], output)
+        self.run_spectrum(viewer, ["viridis", "{Length}"], output)
 
         cmap, _ = spectrum.get_colormap("viridis")
         midpoint = ansi_foreground(cmap(0.5))
@@ -94,7 +94,7 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         viewer = self.make_viewer([1.0, 3.0])
         output = io.StringIO()
 
-        self.run_spectrum(viewer, ["prop:Length"], output)
+        self.run_spectrum(viewer, ["{Length}"], output)
 
         self.assertNotIn("\033[", output.getvalue())
         self.assertIn("(min: 1.0, max: 3.0)", output.getvalue())
@@ -103,7 +103,7 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         viewer = self.make_viewer([1.0, 3.0])
         output = TTYStringIO()
 
-        self.run_spectrum(viewer, ["prop:Length", "scheme:not-a-map"], output)
+        self.run_spectrum(viewer, ["not-a-map", "{Length}"], output)
 
         cmap, _ = spectrum.get_colormap("coolwarm")
         self.assertIn(
@@ -114,6 +114,69 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         )
         self.assertIn("using coolwarm", viewer.console_text.text)
         self.assertNotIn("\033[", viewer.console_text.text)
+
+    def test_flexible_expression_property_and_scheme_order(self):
+        viewer = self.make_viewer([1.0, 2.0, 3.0])
+        output = io.StringIO()
+
+        self.run_spectrum(viewer, ["plasma", '"node_1"', "{Length}"], output)
+
+        promoted_mask = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted_mask, [False, True, False])
+        viewer._save_state.assert_called_once_with()
+
+    def test_metadata_predicate_is_distinct_from_property_selector(self):
+        viewer = self.make_viewer([1.0, 2.0, 3.0])
+        output = io.StringIO()
+
+        self.run_spectrum(viewer, ["{Length>1}", "{Length}"], output)
+
+        promoted_mask = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted_mask, [False, True, True])
+
+    def test_native_selection_expression_targets_selected_nodes(self):
+        viewer = self.make_viewer([1.0, 2.0, 3.0])
+        viewer.selected_indices = [0, 2]
+        output = io.StringIO()
+
+        self.run_spectrum(viewer, ["$sele$", "{Length}"], output)
+
+        promoted_mask = viewer.promote_nodes.call_args.args[0]
+        np.testing.assert_array_equal(promoted_mask, [True, False, True])
+
+    def test_legacy_prefixes_are_rejected_without_mutation(self):
+        for legacy in ("prop:Length", "property:Length", "scheme:viridis", "color:plasma"):
+            with self.subTest(legacy=legacy):
+                viewer = self.make_viewer([1.0, 2.0])
+                self.run_spectrum(viewer, [legacy, "{Length}"], io.StringIO())
+                self.assertIn("Legacy spectrum prefixes", viewer.console_text.text)
+                viewer._save_state.assert_not_called()
+
+    def test_duplicate_or_missing_roles_are_rejected(self):
+        cases = (
+            (["{Length}", "{Length}"], "exactly one"),
+            (["{Length}", "viridis", "plasma"], "at most one color"),
+            (["{Length}", '"node_0"', '"node_1"'], "at most one Boolean"),
+            (["viridis"], "{PROPERTY_NAME}"),
+        )
+        for args, message in cases:
+            with self.subTest(args=args):
+                viewer = self.make_viewer([1.0, 2.0])
+                self.run_spectrum(viewer, args, io.StringIO())
+                self.assertIn(message, viewer.console_text.text)
+                viewer._save_state.assert_not_called()
+
+    def test_text_property_is_rejected(self):
+        viewer = self.make_viewer([1.0, 2.0])
+        viewer.metadata["Organism"] = {
+            "type": "text",
+            "values": np.array(["a", "b"], dtype=object),
+        }
+
+        self.run_spectrum(viewer, ["{Organism}"], io.StringIO())
+
+        self.assertIn("is not numerical", viewer.console_text.text)
+        viewer._save_state.assert_not_called()
 
 
 if __name__ == "__main__":

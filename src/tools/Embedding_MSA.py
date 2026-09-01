@@ -43,6 +43,7 @@ Settings:
 - NOISE_SCALE: Standard deviation of structural noise applied during bootstrap resampling.
 - INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS: Whether missing pairs receive replicate-averaged cophenetic distances in the final matrix. Imputed pairs always participate in replicate trees.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
+- DEVICE_SELECTION: Auto-benchmarked or manually selected score-matrix device.
 
 Algorithm:
 1. Loads IDs from all three inputs and computes the mathematical intersection set.
@@ -124,6 +125,7 @@ SAFE_TEMP_DIR = MSA_DIR
 GAP_OPEN = -0.5
 GAP_EXTEND = 0.0           
 WORKERS = 1   
+DEVICE_SELECTION = "auto"
 SHOW_REGRESSION_PLOT = False
 POOLING_METHOD = "max"    # ("mean", "max") - method to pool residue embeddings into sequence vectors
 LENGTH_RATIO_POWER = 2.0  # (float) - exponent to scale the sequence length ratio penalty
@@ -257,8 +259,6 @@ FULL_INPUT_NETWORK = ""
 OUTPUT_FASTA = ""
 _seq_set = ""
 _model_name = ""
-
-DEVICE = Hardware_Utils.get_optimal_device()
 
 # ==========================================
 # CORE CLASSES
@@ -414,9 +414,9 @@ def validate_sequence_embedding_match(seq_dict, valid_headers, emb_seq_dict, emb
 # ==========================================
 # ALIGNMENT KERNELS
 # ==========================================
-def compute_score_matrix_torch(emb_i, emb_j):
-    t_i = torch.as_tensor(emb_i, device=DEVICE, dtype=torch.float32)
-    t_j = torch.as_tensor(emb_j, device=DEVICE, dtype=torch.float32)
+def compute_score_matrix_torch(emb_i, emb_j, device):
+    t_i = torch.as_tensor(emb_i, device=device, dtype=torch.float32)
+    t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
 
     # Profile-vector magnitude is meaningful: it decreases when a column has
     # gaps or contains disagreeing residue directions. Preserve that signal
@@ -441,6 +441,250 @@ def compute_score_matrix_torch(emb_i, emb_j):
     final_score = ((z_r + z_c) / 2.0) * profile_confidence
     
     return final_score.to(dtype=torch.float32, device="cpu").numpy()
+
+
+def representative_leaf_merge_pairs(
+    linkage_matrix,
+    valid_headers,
+    embeddings_group,
+):
+    """Select real leaf-to-leaf merges near fixed score-matrix cost quantiles."""
+    num_sequences = len(valid_headers)
+    candidates = []
+    for row_index, link in enumerate(linkage_matrix):
+        left = int(link[0])
+        right = int(link[1])
+        if left >= num_sequences or right >= num_sequences:
+            continue
+
+        left_header = valid_headers[left]
+        right_header = valid_headers[right]
+        left_key = left_header.replace("/", "_").replace("\\", "_")
+        right_key = right_header.replace("/", "_").replace("\\", "_")
+        left_length = int(embeddings_group[left_key].shape[0])
+        right_length = int(embeddings_group[right_key].shape[0])
+        candidates.append(
+            (
+                left_length * right_length,
+                row_index,
+                left,
+                right,
+                left_length,
+                right_length,
+            )
+        )
+
+    if not candidates:
+        return []
+
+    ordered = sorted(candidates, key=lambda item: (item[0], item[1]))
+    selected = []
+    selected_pairs = set()
+    for fraction in (0.25, 0.50, 0.90):
+        index = round((len(ordered) - 1) * fraction)
+        _, _, left, right, left_length, right_length = ordered[index]
+        pair = (left, right)
+        if pair in selected_pairs:
+            continue
+        selected_pairs.add(pair)
+        selected.append((left, right, left_length, right_length))
+    return selected
+
+
+def _load_benchmark_embedding_pairs(samples, valid_headers, embeddings_group):
+    """Load and normalize benchmark inputs before any device timing begins."""
+    loaded = []
+    for left, right, left_length, right_length in samples:
+        left_key = valid_headers[left].replace("/", "_").replace("\\", "_")
+        right_key = valid_headers[right].replace("/", "_").replace("\\", "_")
+        left_embedding = _normalize_residue_embeddings(
+            embeddings_group[left_key][:]
+        )
+        right_embedding = _normalize_residue_embeddings(
+            embeddings_group[right_key][:]
+        )
+        loaded.append(
+            (
+                left,
+                right,
+                left_length,
+                right_length,
+                left_embedding,
+                right_embedding,
+            )
+        )
+    return loaded
+
+
+def benchmark_msa_devices(
+    linkage_matrix,
+    valid_headers,
+    embeddings_group,
+    selection,
+):
+    """Benchmark one sequential score-matrix lane and return ranked devices."""
+    candidates = Hardware_Utils.get_available_devices()
+    manual = Hardware_Utils.resolve_device_selection(selection, candidates)
+    if manual is not None:
+        print(f"[Hardware] Using manually selected {manual.display_name}.")
+        return [Hardware_Utils.BenchmarkResult(manual, 0.0)]
+    if len(candidates) == 1:
+        only_candidate = candidates[0]
+        print(f"[Hardware] Only {only_candidate.display_name} is available.")
+        return [Hardware_Utils.BenchmarkResult(only_candidate, 0.0)]
+
+    sample_metadata = representative_leaf_merge_pairs(
+        linkage_matrix,
+        valid_headers,
+        embeddings_group,
+    )
+    if not sample_metadata:
+        cpu_candidate = next(
+            (candidate for candidate in candidates if candidate.is_cpu),
+            candidates[0],
+        )
+        print(
+            "[Hardware] No progressive profile merge requires benchmarking; "
+            f"using {cpu_candidate.display_name}."
+        )
+        return [Hardware_Utils.BenchmarkResult(cpu_candidate, 0.0)]
+    samples = _load_benchmark_embedding_pairs(
+        sample_metadata,
+        valid_headers,
+        embeddings_group,
+    )
+    sample_shapes = [
+        f"{left_length}x{right_length}"
+        for _, _, left_length, right_length, _, _ in samples
+    ]
+    print(
+        "[Hardware] Benchmarking MSA profile score matrices on "
+        f"{len(candidates)} available device(s) using {sample_shapes}."
+    )
+    print("Device/backend                 Samples   Median time (s)   Status")
+
+    results = []
+    for candidate in candidates:
+        elapsed_runs = []
+        error = None
+        try:
+            first_left = samples[0][4]
+            first_right = samples[0][5]
+            compute_score_matrix_torch(
+                first_left[:64],
+                first_right[:64],
+                candidate.device,
+            )
+            Hardware_Utils.synchronize_device(candidate)
+
+            for _ in range(3):
+                elapsed = 0.0
+                for (
+                    _left,
+                    _right,
+                    left_length,
+                    right_length,
+                    left_embedding,
+                    right_embedding,
+                ) in samples:
+                    Hardware_Utils.synchronize_device(candidate)
+                    started = time.perf_counter()
+                    score_matrix = compute_score_matrix_torch(
+                        left_embedding,
+                        right_embedding,
+                        candidate.device,
+                    )
+                    Hardware_Utils.synchronize_device(candidate)
+                    elapsed += time.perf_counter() - started
+                    if score_matrix.shape != (left_length, right_length):
+                        raise ValueError(
+                            "score matrix shape mismatch: expected "
+                            f"{(left_length, right_length)}, got "
+                            f"{score_matrix.shape}"
+                        )
+                    if not np.isfinite(score_matrix).all():
+                        raise ValueError("score matrix contains non-finite values")
+                elapsed_runs.append(elapsed)
+            median_elapsed = float(np.median(elapsed_runs))
+            result = Hardware_Utils.BenchmarkResult(candidate, median_elapsed)
+        except Exception as failure:
+            median_elapsed = None
+            error = f"{type(failure).__name__}: {failure}"
+            result = Hardware_Utils.BenchmarkResult(
+                candidate,
+                None,
+                error=error,
+            )
+        finally:
+            Hardware_Utils.release_device_cache(candidate)
+
+        elapsed_text = (
+            f"{median_elapsed:.4f}" if median_elapsed is not None else "--"
+        )
+        print(
+            f"{candidate.display_name[:30]:30}  {len(samples):>7}   "
+            f"{elapsed_text:>15}   {error or 'ok'}"
+        )
+        results.append(result)
+
+    ranked = Hardware_Utils.rank_benchmark_results(
+        results,
+        higher_is_better=False,
+    )
+    if not ranked:
+        failures = "; ".join(result.error or "unknown" for result in results)
+        raise RuntimeError(f"No device completed the MSA benchmark: {failures}")
+
+    selected = ranked[0]
+    fastest = min(
+        (result for result in results if result.succeeded),
+        key=lambda result: float(result.value),
+    )
+    tie_applied = selected.candidate.spec != fastest.candidate.spec
+    print(
+        f"[Hardware] Selected {selected.candidate.display_name} for MSA score "
+        "matrices; 3% tie preference "
+        f"{'applied' if tie_applied else 'not applied'}."
+    )
+    return ranked
+
+
+def compute_score_matrix_with_fallback(
+    emb_i,
+    emb_j,
+    ranked_devices,
+    selection,
+):
+    """Compute one score matrix, permanently dropping failed Auto devices."""
+    automatic = (
+        Hardware_Utils.normalize_device_selection(selection)
+        == Hardware_Utils.AUTO_DEVICE
+    )
+    failures = []
+    while ranked_devices:
+        candidate = ranked_devices[0].candidate
+        try:
+            return compute_score_matrix_torch(emb_i, emb_j, candidate.device)
+        except (RuntimeError, MemoryError, NotImplementedError) as error:
+            Hardware_Utils.release_device_cache(candidate)
+            if not automatic:
+                raise RuntimeError(
+                    f"MSA score-matrix calculation failed on manually selected "
+                    f"device '{candidate.spec}': {error}"
+                ) from error
+            failures.append(f"{candidate.spec}: {error}")
+            ranked_devices.pop(0)
+            if ranked_devices:
+                print(
+                    f"[Hardware] MSA score calculation failed on "
+                    f"{candidate.display_name}: {error}. Retrying on "
+                    f"{ranked_devices[0].candidate.display_name}."
+                )
+
+    raise RuntimeError(
+        "MSA score-matrix calculation failed on every ranked device: "
+        + "; ".join(failures)
+    )
 
 @jit(nopython=True, fastmath=True)
 def populate_condensed_matrix(D_condensed, num_seqs, edge_i, edge_j, edge_dists):
@@ -1352,6 +1596,13 @@ def run_msa_builder():
     gc.collect()
     tree_building_seconds = time.perf_counter() - tree_building_started
 
+    ranked_devices = benchmark_msa_devices(
+        linkage_matrix,
+        valid_headers,
+        f_emb["embeddings"],
+        DEVICE_SELECTION,
+    )
+
     # 9. INITIALIZE CLUSTERS (No embeddings loaded here!)
     print("Initializing clusters...")
     clusters = {}
@@ -1389,10 +1640,15 @@ def run_msa_builder():
             else: cluster_b.sequences[0] = seq.ljust(emb_b.shape[0], "-")
 
         # --- ALIGNMENT ---
-        score_mat = compute_score_matrix_torch(emb_a, emb_b)
+        score_mat = compute_score_matrix_with_fallback(
+            emb_a,
+            emb_b,
+            ranked_devices,
+            DEVICE_SELECTION,
+        )
         path = run_global_traceback(score_mat, GAP_OPEN, GAP_EXTEND)
 
-        # You will need to pass emb_a and emb_b into your merge_clusters function now, 
+        # You will need to pass emb_a and emb_b into your merge_clusters function now,
         # since they are no longer stored inside the cluster objects by default.
         new_cluster = merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b)
         new_idx = num_seqs + iteration

@@ -47,7 +47,7 @@ def print_help():
     print("""
     FASTA Export Tool
     =================
-    Usage: export [TARGET] [<TARGET_2> ...]
+    Usage: export [clusters | groups | #LABEL# ...]
            export help
 
     Description:
@@ -59,13 +59,14 @@ def print_help():
       clusters : Exports sequences based on their assigned topology cluster ID. 
                  (Note: Unclustered 'Noise' nodes are automatically ignored).
       groups / group : Exports separate .fasta files for ALL custom group labels currently defined.
-      group:<Name> : Exports only specific groups by prefixing with group: (e.g., group:kinase).
-                     You can chain multiple specific groups (e.g., export group:kinase group:receptor).
+      #LABEL# : Exports a specific custom group, topology cluster, or noise label.
+                Multiple labels may be mixed and repeated labels are deduplicated.
 
     Examples:
       export             (Defaults to exporting all clusters)
       export group       (Exports all custom groups)
-      export group:human (Exports only the sequences in the 'human' group)
+      export #human# (Exports only the sequences in the 'human' group)
+      export #cluster_1# #noise# (Exports one cluster and the explicit noise subset)
     """)
     
 def run(viewer, args):
@@ -77,17 +78,72 @@ def run(viewer, args):
 
     # --- 1. Parse Arguments ---
     target_mode = "clusters"
-    specific_groups = []
+    specific_targets = []
+    mode_tokens = []
+    label_tokens = []
 
     for arg in args:
         arg_lower = arg.lower()
+        if arg_lower.startswith("group:"):
+            Command_Engine.print_help(
+                viewer,
+                "Error: Legacy export group:NAME syntax is no longer supported. "
+                "Use export #NAME#.",
+            )
+            return
         if arg_lower == "clusters":
-            target_mode = "clusters"
-        elif arg_lower in ["group", "groups"]:
-            target_mode = "groups"
-        elif arg_lower.startswith("group:"):
-            target_mode = "specific"
-            specific_groups.append(arg_lower[6:].strip())
+            mode_tokens.append("clusters")
+            continue
+        if arg_lower in ["group", "groups"]:
+            mode_tokens.append("groups")
+            continue
+        label_match = re.fullmatch(r'#([^#]+)#', arg)
+        if label_match:
+            label_tokens.append(label_match.group(1))
+            continue
+        Command_Engine.print_help(
+            viewer,
+            f"Error: Unrecognized export target '{arg}'. Use clusters, groups, or #LABEL#.",
+        )
+        return
+
+    if mode_tokens and label_tokens:
+        Command_Engine.print_help(
+            viewer,
+            "Error: Export all-target modes cannot be combined with specific #LABEL# targets.",
+        )
+        return
+    if len(mode_tokens) > 1:
+        Command_Engine.print_help(
+            viewer, "Error: Export accepts only one all-target mode: clusters or groups."
+        )
+        return
+    if mode_tokens:
+        target_mode = mode_tokens[0]
+    elif label_tokens:
+        target_mode = "specific"
+        seen_targets = set()
+        try:
+            for label in label_tokens:
+                resolved = Command_Engine.resolve_label_target(
+                    getattr(viewer, 'cluster_labels', None),
+                    getattr(viewer, 'group_labels', None),
+                    label,
+                )
+                key = (
+                    resolved.kind,
+                    resolved.cluster_id
+                    if resolved.kind in ("cluster", "noise")
+                    else resolved.name.lower(),
+                )
+                if key not in seen_targets:
+                    seen_targets.add(key)
+                    specific_targets.append(resolved)
+        except Command_Engine.SelectionExpressionError as error:
+            Command_Engine.report_selection_error(
+                viewer, " ".join(f"#{label}#" for label in label_tokens), error, "Export"
+            )
+            return
 
     # --- Validations ---
     if target_mode == "clusters" and getattr(viewer, 'cluster_labels', None) is None:
@@ -95,7 +151,7 @@ def run(viewer, args):
         print("Error: Run 'cluster' first to export clusters.")
         return
         
-    if target_mode in ["groups", "specific"] and getattr(viewer, 'group_labels', None) is None:
+    if target_mode == "groups" and getattr(viewer, 'group_labels', None) is None:
         viewer.console_text.text = "Error: No groups defined."
         print("Error: No groups defined. Use the 'group' command first.")
         return
@@ -139,7 +195,18 @@ def run(viewer, args):
         try: lvl2_name_base += f"Score{float(thresh)}"
         except: pass
         
-    if target_mode == "clusters":
+    uses_cluster_directory = target_mode == "clusters" or (
+        target_mode == "specific"
+        and specific_targets
+        and all(target.kind in ("cluster", "noise") for target in specific_targets)
+    )
+    uses_group_directory = target_mode == "groups" or (
+        target_mode == "specific"
+        and specific_targets
+        and all(target.kind == "group" for target in specific_targets)
+    )
+
+    if uses_cluster_directory:
         if getattr(viewer, 'last_cluster_params', None):
             c_mode_param, c_min_param = viewer.last_cluster_params
             if lvl2_name_base:
@@ -154,14 +221,14 @@ def run(viewer, args):
     sequence_export_dir = cfg.resolve_directory_path(SEQUENCE_EXPORT_DIRECTORY)
     out_dir = os.path.join(sequence_export_dir, lvl1_name)
     
-    if target_mode in ["groups", "specific"]:
+    if uses_group_directory:
         final_dir_name = f"{lvl2_name}_GROUPS" if lvl2_name else "GROUPS"
+        out_dir = os.path.join(out_dir, final_dir_name)
+    elif target_mode == "specific" and not uses_cluster_directory:
+        final_dir_name = f"{lvl2_name}_LABELS" if lvl2_name else "LABELS"
         out_dir = os.path.join(out_dir, final_dir_name)
     else:
         out_dir = os.path.join(out_dir, lvl2_name) if lvl2_name else out_dir
-
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
 
     # --- 4. Group Sequences ---
     file_map = {}
@@ -191,13 +258,28 @@ def run(viewer, args):
                 if file_name not in file_map: file_map[file_name] = []
                 file_map[file_name].append(record)
                 
-        elif target_mode == "specific":
-            if i >= len(viewer.group_labels): continue
-            for g_name in viewer.group_labels[i]:
-                if g_name.lower() in specific_groups:
-                    file_name = f"{g_name}.fasta"
-                    if file_name not in file_map: file_map[file_name] = []
-                    file_map[file_name].append(record)
+    if target_mode == "specific":
+        file_map = {}
+        for target in specific_targets:
+            if target.kind == "cluster":
+                filename = f"Cluster_{target.cluster_id}.fasta"
+            elif target.kind == "noise":
+                filename = "Noise.fasta"
+            else:
+                filename = f"{target.name}.fasta"
+            target_mask = Command_Engine.evaluate_label_mask(
+                viewer.full_headers,
+                getattr(viewer, 'cluster_labels', None),
+                getattr(viewer, 'group_labels', None),
+                target.name,
+            )
+            records = [
+                (header, source_records[header])
+                for index, header in enumerate(viewer.full_headers)
+                if target_mask[index] and header in source_records
+            ]
+            if records:
+                file_map[filename] = records
 
     if missing_count > 0:
         print(f"Warning: {missing_count} viewer nodes were not found in the original FASTA file.")
@@ -207,6 +289,8 @@ def run(viewer, args):
         viewer.console_text.text = msg
         print(msg)
         return
+
+    os.makedirs(out_dir, exist_ok=True)
 
     # --- 5. Write Files ---
     print(f"Exporting to: {out_dir}")
