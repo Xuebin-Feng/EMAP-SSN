@@ -1,6 +1,6 @@
 # 🧬 Embedding Multiple Sequence Alignment (`Embedding_MSA.py`)
 
-This script generates progressive Multiple Sequence Alignments (MSAs) using protein language model embeddings. By evaluating the high-dimensional similarity of sequence residue representations, it maps out evolutionary pathways and constructs robust guide trees. It then progressively aligns sequence clusters using gap-aware dynamic programming.
+This script generates progressive Multiple Sequence Alignments (MSAs) using protein language model embeddings. It builds a complete guide-tree distance matrix from network scores, with regression-imputed values when the network is sparse, and then progressively aligns sequence clusters using gap-aware dynamic programming.
 
 ### 📥 Input
 

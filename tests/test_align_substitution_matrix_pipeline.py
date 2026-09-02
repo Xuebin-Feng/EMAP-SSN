@@ -65,7 +65,7 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
 
             self.assertEqual(
                 headers,
-                ["a much longer_header", "other(one)"],
+                ["a_much_longer_header", "other(one)"],
             )
             self.assertEqual(sequences, ["ACXD", "MNPXXQ"])
             with open(output_path, "r", encoding="utf-8") as safe_fasta:

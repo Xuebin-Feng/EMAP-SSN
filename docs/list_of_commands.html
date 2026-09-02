@@ -721,9 +721,9 @@
             </header>
 
 
-            <div class="section-divider" id="expr-interpreter">Expression Interpreter Syntax Rules</div>
-            <div class="command-card">
-                <p><strong>Overview:</strong> The Common Expression Interpreter is the underlying engine that parses text queries into mathematical selections. It is shared across multiple tools in the SSN software (like <code>color</code>, <code>hide</code>, <code>label</code>, etc.) and allows for highly complex, multi-layered targeting of network nodes.</p>
+            <div class="section-divider" id="sec-expression">Expression Interpreter Syntax Rules</div>
+            <div class="command-card" id="expr-interpreter">
+                <p><strong>Overview:</strong> The Common Expression Interpreter is the underlying engine that parses text queries into mathematical selections. It is used by <code>color</code>, <code>group</code>, <code>hide</code>, <code>logo</code>, <code>query</code>, <code>select</code>, and <code>spectrum</code>, and allows complex, multi-layered targeting of network nodes.</p>
                 <div class="callout">
                     <div class="callout-title">⚠️ Important Space Rule</div>
                     <p>Expressions must be written continuously <strong>without spaces</strong>. Spaces are strictly reserved to separate different commands, parameters, or attributes.</p>
@@ -789,7 +789,7 @@
                 </div>
 
                 <div class="collapsible-container">
-                    <div class="collapsible-header"><span>6. Metadata Queries (<code>{Key Op Val}</code>)</span></div>
+                    <div class="collapsible-header"><span>6. Metadata Queries (<code>{KeyOpVal}</code>)</span></div>
                     <div class="collapsible-content">
                         <p>Allows targeting based on custom metadata fields uploaded using Excel or CSV tables.</p>
                         <ul>
@@ -849,7 +849,7 @@
                     <div class="syntax-content">save [filename / filename.h5]</div>
                     <button class="copy-btn" onclick="copyText('save [filename / filename.h5]', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Atomically saves positions, colors, sizes, shapes, visibility, persistent node render order, clusters, groups, and cache-manifest identity to an HDF5 layout cache. If no filename is provided, it creates the next available simple version name (for example, <code>version_00.h5</code>, then <code>version_01.h5</code>) in the active cache folder. A supplied name receives <code>.h5</code> when omitted and must be a safe basename.</p>
+                <p><strong>Function:</strong> Atomically saves positions, colors, sizes, shapes, visibility, persistent node render order, clusters, groups, metadata, supported cacheable node attributes, the latest clustering parameters, and cache-manifest identity to an HDF5 layout cache. If no filename is provided, it creates the next available simple version name (for example, <code>version_00.h5</code>, then <code>version_01.h5</code>) in the active cache folder. A supplied name receives <code>.h5</code> when omitted and must be a safe basename.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>save</span><button class="copy-btn" onclick="copyText('save', this)">Copy</button></li>
@@ -984,7 +984,7 @@
                     <div class="syntax-content">reference [target]</div>
                     <button class="copy-btn" onclick="copyText('reference [target]', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Dynamically changes the active sequence used as the global alignment reference and reloads the multiple sequence alignment to use the new reference indexing. The &lt;target&gt; can be a substring or wildcard that matches a specific FASTA header. If a substring matches multiple headers, it defaults to the first match and issues a warning. Calling reference without an argument will display the current active reference name.</p>
+                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; can be a substring or wildcard that matches a network FASTA header. If a substring matches multiple headers, the first match is used and a warning is issued. If the matched network header is absent from the active MSA, the MSA remains loaded in reference-free occupancy mode and positions are numbered sequentially. Calling <code>reference</code> without an argument displays the current active reference state.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>reference</span><button class="copy-btn" onclick="copyText('reference', this)">Copy</button></li>
@@ -1072,7 +1072,7 @@
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
-                    <p>Requires an active MSA loaded and a reference sequence set (via <code>reference</code> command) to anchor position coordinate numbers.</p>
+                    <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, the command remains available in occupancy mode and labels retained alignment columns sequentially from 1; the offset is inactive.</p>
                 </div>
 
                 <div class="subheading">Targeting &amp; Fallbacks</div>
@@ -1086,7 +1086,7 @@
                 <ul>
                     <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last reference residue (for example, <code>[10,15.1,20-30,250-E]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),(-1.1),0]</code> or <code>[(-3)-2]</code>; bare forms such as <code>[-1]</code> and <code>[-3--1]</code> are invalid.</li>
                     <li><strong>Insertions (Decimals):</strong> Insertion residues are marked using decimals (e.g., <code>106.1</code>, <code>106.2</code>). Querying <code>[106-107]</code> natively prints statistics for 106, 106.1, 106.2, and 107 in order.</li>
-                    <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. A grouped target sums its residue frequencies, as in <code>[(RHK)&gt;50%]</code>. Multi-condition searches still require parentheses around each complete comparison: <code>[((RHK)&gt;50%) &amp; ((DE)&gt;20%)]</code> or <code>[((RHK)&gt;50%) &amp; (GAP&lt;20%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
+                    <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. Frequencies divide by all MSA rows mapped from the selected/global node subset, so gaps dilute residue percentages. A grouped target sums its residue frequencies, as in <code>[(RHK)&gt;50%]</code>. Multi-condition searches still require parentheses around each complete comparison: <code>[((RHK)&gt;50%)&amp;((DE)&gt;20%)]</code> or <code>[((RHK)&gt;50%)&amp;(GAP&lt;20%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1098,8 +1098,8 @@
                     <li class="example-item"><span>query {Length&gt;500} [10-20]</span><button class="copy-btn" onclick="copyText('query {Length>500} [10-20]', this)">Copy</button></li>
                     <li class="example-item"><span>query [K&gt;10%]</span><button class="copy-btn" onclick="copyText('query [K>10%]', this)">Copy</button></li>
                     <li class="example-item"><span>query [(RHK)&gt;50%]</span><button class="copy-btn" onclick="copyText('query [(RHK)>50%]', this)">Copy</button></li>
-                    <li class="example-item"><span>query [((RHK)&gt;50%) &amp; ((DE)&gt;20%)]</span><button class="copy-btn" onclick="copyText('query [((RHK)>50%) &amp; ((DE)>20%)]', this)">Copy</button></li>
-                    <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%) &amp; (K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%) &amp; (K>5%)]', this)">Copy</button></li>
+                    <li class="example-item"><span>query [((RHK)&gt;50%)&amp;((DE)&gt;20%)]</span><button class="copy-btn" onclick="copyText('query [((RHK)>50%)&amp;((DE)>20%)]', this)">Copy</button></li>
+                    <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%)&amp;(K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%)&amp;(K>5%)]', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1117,7 +1117,7 @@
                     <div class="syntax-content">cluster [mode] [parameter] [min_size]</div>
                     <button class="copy-btn" onclick="copyText('cluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The cluster command partitions the currently loaded sequence similarity network into distinct functional communities. It applies visually distinct color-coded labels generated dynamically using a custom HLS color generator that mimics the pastel look of <code>tab20c</code>, automatically scaling the number of distinct hues and lightness levels based on the number of clusters to color, and records these boundaries for downstream tools (such as sub-alignment and group extraction).</p>
+                <p><strong>Overview:</strong> The cluster command partitions the currently loaded sequence similarity network into topology-derived communities that may serve as candidate subfamilies. It applies visually distinct color-coded labels generated dynamically using a custom HLS color generator that mimics the pastel look of <code>tab20c</code>, automatically scaling the number of distinct hues and lightness levels based on the number of clusters to color, and records these boundaries for downstream tools (such as sub-alignment and group extraction).</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -1182,12 +1182,12 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Unlike main clusters, these are saved as custom group labels so nodes can keep their original cluster identities. The terminal output report is color-coded using a dynamic, highly saturated color scheme to clearly distinguish subclusters from main clusters.</p>
+                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. The terminal report uses the same highly saturated subcluster palette.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
                     <li><strong>&lt;cluster_name&gt;:</strong> Name of the cluster to subcluster (e.g. <code>cluster_2</code>, <code>cluster_5</code>).</li>
-                    <li><strong>clear:</strong> Clears all subcluster groups (<code>subcluster_N_M</code>) from the viewer session.</li>
+                    <li><strong>clear:</strong> Clears all subcluster group labels (<code>subcluster_N_M</code>) from the viewer session. It does not restore the colors applied by earlier subclustering.</li>
                     <li><strong>[min_size]:</strong> (Optional) Minimum size of subclusters to keep (Default: 10). Smaller groups are treated as Noise.</li>
                 </ul>
 
@@ -1207,7 +1207,7 @@
 
                 <div class="subheading">Important Notes</div>
                 <ul>
-                    <li>Subclustering does not modify the visual colors of the nodes in the viewer, allowing nodes to preserve their main cluster identity.</li>
+                    <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state; <code>subcluster clear</code> removes generated group labels only.</li>
                     <li>The terminal statistics report is color-coded using a rich, highly saturated HLS scheme (saturation 0.95, lightness 0.35 - 0.65) to differentiate subclusters from the pastel colors used for main clusters.</li>
                 </ul>
             </section>
@@ -1225,7 +1225,7 @@
                     <div class="syntax-content">color [expression] [color] [scale] [shape] [&lt;expression_2&gt; ...]</div>
                     <button class="copy-btn" onclick="copyText('color', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The color command allows you to rapidly alter the visual state of the network nodes (color, size, and shape) without needing to dig into complex UI menus. It utilizes the Expression Interpreter to pinpoint specific nodes.</p>
+                <p><strong>Overview:</strong> The color command alters the color, size, and shape of visible network nodes selected through the Expression Interpreter or the current mouse selection. Hidden nodes are never changed by this command.</p>
                 
                 <div class="subheading">Attributes</div>
                 <ul>
@@ -1269,10 +1269,10 @@
                 
                 <div class="subheading">Group Naming Rules</div>
                 <ul>
-                    <li><strong>No Spaces:</strong> Group names must be continuous strings. Use underscores instead of spaces (e.g. <code>active_site</code>).</li>
+                    <li><strong>Allowed Characters:</strong> Group names may contain letters, digits, underscores, hyphens, and periods, but no spaces (for example, <code>active_site</code>).</li>
                     <li><strong>Case-Insensitive:</strong> All group names are converted to lowercase internally to prevent matching errors.</li>
                     <li><strong>Reserved Words:</strong> The exact case-insensitive names <code>noise</code>, <code>reset</code>, <code>remove</code>, <code>delete</code>, <code>list</code>, <code>help</code>, <code>cluster</code>, <code>group</code>, <code>groups</code>, and <code>clusters</code> are prohibited.</li>
-                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical <code>subcluster_N_M</code> names remain reserved; leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed.</li>
+                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical positive-ID <code>subcluster_N_M</code> names remain reserved; <code>subcluster_0_M</code> and leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed as custom groups.</li>
                 </ul>
 
                 <div class="subheading">Usage Mechanics</div>
@@ -1307,7 +1307,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">select [mode] &lt;expression&gt;  |  select invert  |  select save &lt;filename&gt;</div>
+                    <div class="syntax-content">select [mode] &lt;expression&gt;  |  select &lt;expression&gt; [mode]  |  select invert  |  select save &lt;filename&gt;</div>
                     <button class="copy-btn" onclick="copyText('select', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The select command bridges the gap between visual intuition and rigorous mathematical querying. While you can always select nodes by right-clicking or dragging a box with your mouse, the select tool allows you to instantly highlight thousands of specific nodes using the Common Expression Interpreter. It features powerful modifiers to combine mathematical queries with your manual mouse selections, as well as export capabilities.</p>
@@ -1316,6 +1316,7 @@
                 
                 <div class="subheading">Selection Modes</div>
                 <ul>
+                    <li><strong>Mode position:</strong> A mode may appear immediately before or after the expression.</li>
                     <li><strong>change (Default):</strong> Wipes your current selection clean and selects only nodes matching the expression.</li>
                     <li><strong>add / plus / include:</strong> Keeps the current selection and adds new matches to it.</li>
                     <li><strong>subtract / minus / remove:</strong> Keeps the current selection but deselects nodes matching the expression.</li>
@@ -1420,8 +1421,8 @@
 
                 <div class="subheading">Fidelity &amp; Routing</div>
                 <ul>
-                    <li><strong>Source Fidelity:</strong> Maps visual nodes back to the original source sequence file defined in configuration, preserving full sequence data.</li>
-                    <li><strong>Auto-Open:</strong> On Windows, successfully completing an export will automatically open the output directory in File Explorer.</li>
+                    <li><strong>Sequence Source:</strong> Writes the viewer's canonical in-memory FASTA records (sanitized headers and sequences), so output matches the records used to build the current network rather than re-reading a possibly changed source file.</li>
+                    <li><strong>Auto-Open:</strong> After a successful export, the command asks the current desktop platform to open the output directory in its file manager.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1458,7 +1459,7 @@
 
                 <div class="subheading">Hardware &amp; System Integration</div>
                 <ul>
-                    <li><strong>Local GPU Acceleration:</strong> Local inference automatically detects and utilizes CUDA, Apple Metal (MPS), or fallback CPU devices.</li>
+                    <li><strong>Local Acceleration:</strong> Local inference automatically selects among CUDA/ROCm, Intel XPU, Apple Metal (MPS), and CPU devices supported by the installed runtime.</li>
                     <li><strong>Biohub Mode:</strong> Remote inference bypasses local hardware selection, keeps local and remote PDB files separate, and prompts for a hidden shared API token in the worker terminal on first use.</li>
                     <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the PyQt viewer.</li>
                     <li><strong>Mol* Interface:</strong> Hosts a web server that loads the predicted structure in a rich interactive 3D viewer.</li>
@@ -1487,7 +1488,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt;  |  meta show &lt;property_name&gt;  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt; [property_name ...]</div>
+                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt; [filename ...]  |  meta show &lt;property_name&gt;  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt; [property_name ...]</div>
                     <button class="copy-btn" onclick="copyText('meta', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Opens the browser metadata editor, loads Excel/CSV metadata into the current session, controls the clicked-node HUD property, deletes metadata columns, or exports the complete current session metadata.</p>
@@ -1495,7 +1496,7 @@
                 <div class="subheading">Subcommands &amp; Usage</div>
                 <ul>
                     <li><strong><code>meta</code> (no arguments):</strong> Opens the viewer's HTML5 metadata spreadsheet page in the default browser and registers its sidebar shortcut.</li>
-                    <li><strong><code>meta &lt;filename&gt;</code>, <code>meta upload &lt;filename&gt;</code>, or <code>meta import &lt;filename&gt;</code>:</strong> Loads and merges <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> metadata. Paths may be absolute, relative, or names inside the configured metadata directory; supported extensions are tried when omitted. Input tables use sequence headers in the first column, property names in the first row, and property types in the second row.</li>
+                    <li><strong><code>meta &lt;filename&gt; [filename ...]</code>, <code>meta upload ...</code>, or <code>meta import ...</code>:</strong> Loads and merges one or more <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> metadata files in argument order. Paths may be absolute, relative, or names inside the configured metadata directory; supported extensions are tried when omitted. Input tables use sequence headers in the first column, property names in the first row, and property types in the second row.</li>
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>:</strong> Activates a HUD text box in the bottom-right corner of the viewer displaying the value of the specified property when a node is clicked.</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>:</strong> Deactivates and hides the metadata property HUD.</li>
                     <li><strong><code>meta retrieve|download|export [filename]</code>:</strong> Exports all current session metadata to the configured metadata directory. With no filename, chooses the next free <code>metadata.csv</code>, <code>metadata1.csv</code>, and so on. An explicit filename defaults to <code>.csv</code> when it has no extension and overwrites an existing file. This subcommand does not accept an expression filter.</li>
@@ -1535,7 +1536,7 @@
                 <ul>
                     <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression.</li>
                     <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>; an unrecognized name warns and falls back to that default.</li>
-                    <li><strong>[expression]:</strong> (Optional) Logical expression to select which nodes are colored. If omitted, all nodes in the network are colored.</li>
+                    <li><strong>[expression]:</strong> (Optional) Logical expression to select which visible nodes are colored. If omitted, all visible nodes in the network are colored. Targeted nodes whose property value is missing or non-numeric are colored light gray and excluded from the numeric minimum/maximum range.</li>
                     <li><strong>Ordering:</strong> The property, expression, and color scheme may appear in any order because each role is classified before execution. The former <code>prop:</code>, <code>property:</code>, <code>scheme:</code>, and <code>color:</code> forms are no longer accepted.</li>
                 </ul>
 
@@ -1571,13 +1572,13 @@
                     <div class="syntax-content">print [filename] [modifiers]</div>
                     <button class="copy-btn" onclick="copyText('print', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The print command captures exactly what you see in the viewer and exports it as a 2D image file, ready for publication or presentation. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>). Every PNG mode automatically trims background-only margins after rendering while retaining a fixed 20-pixel border around the rendered content; SVG view-box padding is unchanged.</p>
+                <p><strong>Overview:</strong> The print command exports the network view while temporarily suppressing interactive overlays such as instructions, zoom/tooltip text, hidden-node count, metadata HUD, and command-console text. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>). Every PNG mode automatically trims background-only margins after rendering while retaining a fixed 20-pixel border around the rendered content; SVG view-box padding is unchanged.</p>
                 
                 <div class="subheading">Modifiers</div>
                 <ul>
                     <li><strong>transparent:</strong> Removes the solid background, making the output PNG transparent.</li>
                     <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Automatically pans the camera across the network, captures high-resolution tiles, and stitches them into a massive, ultra-high-resolution PNG. Can be combined with transparency.</li>
-                    <li><strong>svg:</strong> Shuts down the OpenGL viewer, ports data into Matplotlib, and plots a Scalable Vector Graphic (SVG) for infinite zoom. Cannot be combined with other modifiers.</li>
+                    <li><strong>svg:</strong> Reconstructs the currently visible node and edge data with Matplotlib and writes a Scalable Vector Graphic without shutting down the OpenGL viewer. Cannot be combined with other modifiers.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1607,7 +1608,7 @@
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
-                    <p>Requires an active MSA loaded and a reference sequence set (via <code>reference</code> command) to anchor position coordinate numbers.</p>
+                    <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, the command uses occupancy-mode labels numbered sequentially from 1.</p>
                 </div>
 
                 <div class="subheading">Core Arguments</div>
@@ -1743,7 +1744,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-alignment, #cmd-query'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-query'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold'))
@@ -1757,7 +1758,7 @@
                 } else if (targetId === 'sec-agent') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-agent'))
                         .some(el => el.style.display !== 'none');
-                } else if (targetId === 'expr-interpreter' || targetId === 'expr-boolean') {
+                } else if (targetId === 'sec-expression' || targetId === 'expr-boolean') {
                     const exprCard = document.querySelector('.command-card[id="expr-interpreter"]');
                     visibleChildren = exprCard && exprCard.style.display !== 'none';
                 }

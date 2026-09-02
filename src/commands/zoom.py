@@ -16,7 +16,7 @@
 import Command_Engine
 def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: zoom <width>\nDescription: Sets the camera view width to exactly <width>+10% while keeping the current center point.\nExamples:\n  zoom 500  (Sets the view width to 500 units)"
+        msg = "Usage: zoom <width>\nDescription: Sets the camera view width to exactly <width> while keeping the current center point and canvas aspect ratio.\nExamples:\n  zoom 500  (Sets the view width to 500 units)"
         Command_Engine.print_help(viewer, msg)
         return
     

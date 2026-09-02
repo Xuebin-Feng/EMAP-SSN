@@ -86,7 +86,7 @@ def print_help():
                                 * Miscellaneous: jet, rainbow, turbo, ocean, terrain, cubehelix, 
                                   gnuplot, gnuplot2, flag, prism, gist_earth, nipy_spectral
       [EXPRESSION]            - (Optional) Logical expression to select which nodes are colored.
-                                If omitted, all nodes in the network are colored.
+                                If omitted, all visible nodes in the network are colored.
 
     Selection Validation:
       Referenced clusters, groups, alignment positions, metadata properties, and

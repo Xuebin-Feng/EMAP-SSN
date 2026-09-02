@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = PROJECT_ROOT / "src" / "bin" / "EMAPSSN_Terminal_Launcher.sh"
 
 
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires /bin/bash")
 class ShellTerminalLauncherTests(unittest.TestCase):
     def _run_with_terminal(self, terminal: str) -> list[str]:
         with tempfile.TemporaryDirectory() as temporary:

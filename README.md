@@ -549,6 +549,10 @@ including which components are redistributed and which are merely required at
 runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
+This MCP-enabled branch also installs the official `mcp` 2.1.1 Python SDK and
+its Pydantic runtime dependency; both are MIT-licensed and are not bundled in
+the source repository.
+
 The optional Ankh weights are licensed separately under **CC BY-NC-SA 4.0** and
 are restricted to non-commercial use. The application labels these models and
 requires explicit acknowledgement before accessing their files; the integration
