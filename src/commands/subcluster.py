@@ -66,7 +66,8 @@ def print_help():
       Performs subclustering on a specific topology cluster, creating custom group labels 
       named 'subcluster_N_M' (where N is the original cluster ID, and M is the subcluster ID).
       Unlike main clusters, these are saved as custom group labels so nodes can keep their 
-      original cluster identities.
+      original cluster identities. Nodes in the target cluster are recolored by subcluster;
+      nodes below MIN_SIZE are gray. 'subcluster clear' removes labels but leaves colors as-is.
 
     Arguments:
       <CLUSTER_NAME>    - Name of the cluster to subcluster (e.g., cluster_2, cluster_5).
@@ -392,4 +393,3 @@ def run(viewer, args):
     if hasattr(viewer, 'console_text'):
         viewer.console_text.text = msg
     print(msg)
-

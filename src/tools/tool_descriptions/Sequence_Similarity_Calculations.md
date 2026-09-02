@@ -2,7 +2,7 @@
 
 This script computes an all-vs-all sequence similarity network (SSN) using residue-level protein embeddings. Instead of using traditional amino acid substitution matrices, it calculates similarity matrices by comparing the dense high-dimensional embedding vectors of each residue.
 
-It performs sequence alignment scoring using dynamic programming (Smith-Waterman for local alignment and Needleman-Wunsch for global alignment) implemented in optimized Numba JIT functions for maximum performance. To accelerate alignment of massive datasets, it includes an optional pre-filtering step that computes the global cosine similarity of sequence mean embeddings to skip full alignments for highly dissimilar sequences.
+It performs sequence alignment scoring using dynamic programming (Smith-Waterman for local alignment and Needleman-Wunsch for global alignment) implemented in optimized Numba JIT functions. To accelerate large datasets, it includes an optional pre-filtering step that computes global cosine similarity from pooled sequence embeddings (max pooling by default; mean pooling is supported internally) and skips full alignments for the lowest-scoring pairs.
 
 ### 📥 Input
 

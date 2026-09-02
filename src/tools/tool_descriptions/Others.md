@@ -49,7 +49,7 @@ This script aligns two sequences using their residue-level language model embedd
      Traceback yields the alignment string mapping.
 
 4. **Residue Position Mapping**:
-     For each 1-indexed target highlight position $p_{\text{ref}}$ in the reference sequence, it tracks the aligned index:
+     For each 1-indexed reference highlight position $p_{\text{ref}}$, it tracks the aligned index:
      $$p_{\text{ref}} \to p_{\text{aligned}} \to p_{\text{tar}}$$
      
      This maps catalytic residues or features from the reference directly onto the target sequence.

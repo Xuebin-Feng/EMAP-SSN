@@ -47,8 +47,8 @@ def print_help():
 
     Description:
       Assigns custom, searchable group labels to nodes. Unlike topology clusters, 
-      a single node can belong to multiple groups simultaneously. Group names must 
-      NOT contain spaces or special characters (use underscores).
+      a single node can belong to multiple groups simultaneously. Group names may
+      contain letters, digits, underscores, hyphens, and periods, but no spaces.
       
       * QUICK USE: If no expression is provided, the command automatically applies
         the group name to the nodes currently selected in the viewer.

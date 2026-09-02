@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-09-02
 
 ---
 
@@ -116,9 +116,10 @@ They are served locally as follows:
 | Fonts in `docs/list_of_commands.html` | relative path, page is opened from disk |
 
 Remaining network use is by design rather than asset loading: model weights are
-downloaded from Hugging Face on first use and cached, the ESM C 6B backend calls
-a remote inference API, and the agent calls whichever LLM endpoint is configured
-(the Ollama, LM Studio and llama.cpp options are fully local).
+downloaded from Hugging Face on first use and cached, the ESM C 6B embedding and
+ESM3 Large structure backends call remote inference APIs, and the agent calls
+whichever LLM endpoint is configured (the Ollama, LM Studio and llama.cpp
+options are fully local).
 
 ## 3. Python dependencies
 
@@ -147,6 +148,7 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | torch | BSD-3-Clause — CPU, CUDA, XPU, Linux ROCm, or Windows ROCm build selected at installation |
 | AMD ROCm 7.14 runtime wheel components | MIT — downloaded dynamically from AMD's official index only for supported Windows AMD GPUs |
 | accelerate | Apache-2.0 |
+| sentencepiece 0.2.1 | Apache-2.0 |
 | numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown | BSD-3-Clause |
 | numba | BSD-2-Clause |
@@ -208,6 +210,7 @@ that acknowledgement is not a sublicense or a substitute for reading the terms.
 | ESM C 600M | `biohub/esmc-600m-2024-12` | MIT (card also carries a legacy `other` tag) |
 | ESM3-open 1.4B | `biohub/esm3-sm-open-v1` | MIT |
 | ESM C 6B (remote API) | `https://biohub.ai` | Governed by the API provider's terms of use |
+| ESM3 Large (remote API; currently `esm3-large-2024-03`) | `https://biohub.ai` | Governed by the API provider's terms of use |
 | ProtBERT | [`Rostlab/prot_bert`](https://huggingface.co/Rostlab/prot_bert) | Academic Free License 3.0 (AFL-3.0). The Hugging Face repository has no license tag, but the official [`ProtTrans`](https://github.com/agemagician/ProtTrans#license) project explicitly states that its pretrained models are released under AFL-3.0. ProtTrans source code is separately MIT-licensed. |
 | ProstT5 | [`Rostlab/ProstT5_fp16`](https://huggingface.co/Rostlab/ProstT5_fp16) | MIT (declared by the model repository) |
 | Ankh Base, Ankh Large | [`ElnaggarLab/ankh-base`](https://huggingface.co/ElnaggarLab/ankh-base), [`ankh-large`](https://huggingface.co/ElnaggarLab/ankh-large) | CC-BY-NC-SA-4.0 — non-commercial, attribution, and ShareAlike terms; explicit application acknowledgement required before access |

@@ -59,7 +59,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 
 # 🧬 Generate Embeddings (`Generate_Embeddings.py`)
 
-This script extracts sequence embeddings from pre-trained protein language models (like ESM-2, ESM-C, ProtBERT, or ProstT5). It maps residues to high-dimensional representation vectors and stores them in metadata-first HDF5 databases using the selected `float16` or `float32` precision.
+This script extracts sequence embeddings from pre-trained protein language models such as ESM-2, ESM-C, Ankh, ProtBERT, and ProstT5. It maps residues to high-dimensional representation vectors and stores them in metadata-first HDF5 databases using the selected `float16` or `float32` precision.
 
 ### 📥 Input
 
@@ -73,10 +73,12 @@ This script extracts sequence embeddings from pre-trained protein language model
 | Parameter | Description |
 | :--- | :--- |
 | Model Name **`MODEL_NAME`** | The protein language model architecture to use and the label written into the output filename. Identifiers are always lower case (e.g. `esmc_600m`, `esmc_6b`, `esm2_t33_650m`, `esm2_t30_150m`, `ankh_base`, `prot_bert`, `prost_t5`). |
-| Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`float16` or `float32`). `float16` is recommended to reduce disk space by 50% with negligible loss of accuracy. |
+| Saving Precision **`SAVING_MODE`** | The numeric precision format used to store vectors in HDF5 (`float16` or `float32`). `float16` uses roughly half the embedding storage of `float32` at reduced numeric precision; use `float32` when downstream numeric fidelity is more important than file size. |
 | Compute Device **`DEVICE_SELECTION`** | `auto` benchmarks the available installer-validated CPU/accelerator candidates on representative sequence lengths and uses the fastest successful device, with ranked fallback if a runtime failure occurs. Selecting a specific CPU, CUDA, XPU, or MPS device pins generation to that device and reports an error instead of silently switching. |
 
 > **Shared Biohub API access:** Select `esmc_6b`; the plugin maps that filename-friendly label to Biohub's `esmc-6b-2024-12` API identifier. On first use, the `Generate_Embeddings.py` terminal prompts for a hidden token and stores it in the Git-ignored `src/resources/Biohub_API.json`. The same token and optional `ESM_API_URL` are shared with `esmfold large`, whose worker terminal uses the same hidden prompt when the shared file and `ESM_API_KEY` environment variable are absent.
+
+> **Model terms:** Model weights are downloaded separately and retain their publishers' licenses. In particular, Ankh Base and Ankh Large weights are under CC-BY-NC-SA-4.0; the program requires an acknowledgement before access. See `THIRD_PARTY_LICENSES.md` for the model inventory. These model terms do not relicense the Apache-2.0 program source.
 
 ### 📤 Output
 
@@ -101,14 +103,8 @@ This script extracts sequence embeddings from pre-trained protein language model
      Discovers installer-validated CPU, CUDA, Intel XPU, and Apple MPS devices. In `auto` mode, it benchmarks representative sanitized sequences on every available candidate, ranks successful devices, and can fall back to the next ranked device if embedding fails. A manually selected device is used exclusively.
 
 4. **Residue Embedding Generation**:
-     For each sanitized sequence $s$:
-     - Tokenizes and formats the sequence with start/stop tokens:
-       $$s_{\text{token}} = \langle\text{cls}\rangle \, s_1 \, s_2 \, \dots \, s_L \, \langle\text{eos}\rangle$$
-     - Executes a forward pass without gradient calculations:
-       $$H = \text{TransformerEncoder}(s_{\text{token}})$$
-     - Extracts the final hidden states tensor $E \in \mathbb{R}^{(L+2) \times D}$ from the last hidden layer.
-     - Slices off the start/stop boundary tokens, yielding the residue embedding matrix:
-       $$E_{\text{residue}} = E_{1 \dots L} \in \mathbb{R}^{L \times D}$$
+     For each sanitized sequence $s$, the selected model adapter applies that model's required residue formatting and tokenization, executes inference without gradients, and removes its model-specific special tokens. ESM and Rostlab-family adapters remove their boundary tokens; Ankh uses its own tokenizer layout and removes its trailing special token. Every adapter validates that the final residue matrix has exactly one row per sanitized residue:
+     $$E_{\text{residue}} \in \mathbb{R}^{L \times D}$$
 
 5. **HDF5 Database Compilation**:
      Writes and flushes sanitized `/headers` and `/sequences` before generating any embeddings. Each validated residue matrix is then stored under its sanitized header and flushed individually. `generation_complete` becomes true only after the complete database passes validation.

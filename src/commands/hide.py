@@ -15,6 +15,7 @@
 
 import Command_Engine
 import numpy as np
+import EMAPSSN_Config as cfg
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:

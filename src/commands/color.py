@@ -100,10 +100,14 @@ def run(viewer, args):
         nonlocal current_expr, current_color, current_scale, current_shape
         
         # NEW: Default to targeting selected nodes if properties exist but no expression is given
-        if not current_expr and (current_color or current_scale or current_shape):
+        if not current_expr and (
+            current_color or current_scale is not None or current_shape
+        ):
             current_expr = '$sele$'
             
-        if current_expr and (current_color or current_scale or current_shape):
+        if current_expr and (
+            current_color or current_scale is not None or current_shape
+        ):
             assignments.append((current_expr, current_color, current_scale, current_shape))
         elif current_expr:
             print(f"Warning: Skipping '{current_expr}' (No valid color, scale, or shape provided)")
@@ -168,7 +172,7 @@ def run(viewer, args):
         )
         return
 
-    if current_expr or current_color or current_scale or current_shape: 
+    if current_expr or current_color or current_scale is not None or current_shape:
         push_assignment()
         
     if not assignments:
@@ -226,7 +230,8 @@ def run(viewer, args):
             new_rgba = mcolors.to_rgba(color_str)
             viewer.current_colors[mask] = new_rgba
 
-        if scale_val: viewer.current_sizes[mask] = cfg.NODE_SIZE * scale_val
+        if scale_val is not None:
+            viewer.current_sizes[mask] = cfg.NODE_SIZE * scale_val
         if shape_val: viewer.current_shapes[mask] = shape_val
 
         modified_nodes |= mask
@@ -234,7 +239,8 @@ def run(viewer, args):
 
         labels = []
         if color_str: labels.append(color_str)
-        if scale_val: labels.append(f"x{scale_val}")
+        if scale_val is not None:
+            labels.append(f"x{scale_val}")
         if shape_val: labels.append(shape_val)
         stats.append(f"{count} nodes ({', '.join(labels)})")
             

@@ -360,6 +360,30 @@ class AtomicCommandTests(unittest.TestCase):
         viewer.promote_nodes.assert_not_called()
         viewer.update_nodes.assert_not_called()
 
+    def test_color_zero_scale_is_applied(self):
+        viewer = self.make_viewer()
+
+        color_command.run(viewer, ['"node"', "x0"])
+
+        np.testing.assert_array_equal(viewer.current_sizes, np.array([0.0]))
+        viewer._save_state.assert_called_once_with()
+        viewer.update_nodes.assert_called_once_with()
+
+    def test_hide_single_uses_configured_threshold(self):
+        viewer = self.make_viewer()
+        viewer.edges = np.empty((0, 2), dtype=int)
+        viewer.edge_scores = np.array([], dtype=float)
+        viewer.current_slider_threshold = 0.5
+        viewer.hovered_node_idx = 0
+        viewer.selected_node_idx = 0
+        viewer.tooltip = SimpleNamespace(text="node")
+
+        hide_command.run(viewer, ["single"])
+
+        np.testing.assert_array_equal(viewer.visible_mask, np.array([False]))
+        viewer._save_state.assert_called_once_with()
+        viewer.update_edges.assert_called_once_with()
+
     def test_group_does_not_apply_earlier_pair_when_later_pair_is_invalid(self):
         viewer = self.make_viewer()
         group_command.run(

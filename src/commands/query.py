@@ -312,8 +312,10 @@ def print_help():
          Spaces are allowed. Accepts percentages (e.g. 10%) or decimals (e.g. 0.1).
          Accepts residue codes (A-Z) and 'GAP' or '_' for gaps (case-insensitive).
          Parenthesized residue sets sum their frequencies, e.g. [(RHK)>50%].
+         Frequencies divide by all mapped sequences in the selected subset, so gaps
+         reduce residue percentages.
          In multi-condition logic, an outer pair still encloses each comparison:
-         [((RHK)>50%) & ((DE)>20%)] or [((RHK)>50%) & (GAP<20%)].
+         [((RHK)>50%)&((DE)>20%)] or [((RHK)>50%)&(GAP<20%)].
 
     Sequence Selection Expression Targets (Do NOT use spaces inside expressions!):
       1. AA Position:  [AA][Pos] (e.g., P106, _100), or ([AA...])[Pos] for
