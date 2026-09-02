@@ -4,7 +4,7 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
-## [0.1.0] - 2026-09-01
+## [0.1.0] - 2026-09-02
 
 ### Highlights
 

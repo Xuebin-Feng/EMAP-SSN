@@ -10,7 +10,7 @@ repository-code: "https://github.com/Xuebin-Feng/EMAP-SSN"
 url: "https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.1.0"
 license: Apache-2.0
 version: "0.1.0"
-date-released: 2026-09-01
+date-released: 2026-09-02
 keywords:
   - protein sequence similarity network
   - protein language model
