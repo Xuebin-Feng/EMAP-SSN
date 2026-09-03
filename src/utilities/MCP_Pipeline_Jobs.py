@@ -104,12 +104,22 @@ class PipelineJobManager:
                 "mcp_jobs",
             )
         )
-        os.makedirs(parent, mode=0o700, exist_ok=True)
-        self.temporary_root = tempfile.mkdtemp(prefix="server-", dir=parent)
         try:
-            os.chmod(self.temporary_root, 0o700)
-        except OSError:
-            pass
+            os.makedirs(parent, mode=0o700, exist_ok=True)
+            self.temporary_root = tempfile.mkdtemp(prefix="server-", dir=parent)
+        except (OSError, PermissionError):
+            parent = os.path.join(
+                tempfile.gettempdir(),
+                "sequence_similarity_network_viewer_jobs",
+            )
+            os.makedirs(parent, mode=0o700, exist_ok=True)
+            self.temporary_root = tempfile.mkdtemp(prefix="server-", dir=parent)
+
+        if sys.platform != "win32":
+            try:
+                os.chmod(self.temporary_root, 0o700)
+            except OSError:
+                pass
 
         self._jobs: dict[str, PipelineJob] = {}
         self._pending: deque[str] = deque()
@@ -163,10 +173,11 @@ class PipelineJobManager:
             for path in (stdout_path, stderr_path):
                 with open(path, "wb"):
                     pass
-                try:
-                    os.chmod(path, 0o600)
-                except OSError:
-                    pass
+                if sys.platform != "win32":
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:
+                        pass
             job = PipelineJob(
                 job_id=job_id,
                 tool_id=invocation.tool.tool_id,
