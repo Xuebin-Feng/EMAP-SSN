@@ -10,7 +10,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import os
+import sys
 from typing import Annotated, Any, Literal
+
+_SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SRC_DIR)
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
@@ -28,8 +36,6 @@ from utilities.Tool_Execution import list_tool_specs
 
 
 MCP_SERVER_VERSION = "0.1.0"
-_SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_SRC_DIR)
 
 
 class PipelineToolInfo(BaseModel):
