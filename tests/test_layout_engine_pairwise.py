@@ -16,6 +16,12 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Layout_Engine_SSN_MolecularDynamics as molecular_dynamics
 
 
+CUDA_AVAILABLE = (
+    molecular_dynamics.HAS_TORCH
+    and molecular_dynamics.torch.cuda.is_available()
+)
+
+
 def brute_force_repulsion_step(
     positions,
     component_labels,
@@ -73,6 +79,118 @@ def brute_force_repulsion_step(
 
 
 class MolecularDynamicsPairwiseTests(unittest.TestCase):
+    def _assert_torch_matches_cpu(
+        self,
+        positions,
+        component_labels,
+        params,
+        *,
+        active_mask=None,
+        box_limits=100.0,
+        device=None,
+        atol=1e-5,
+    ):
+        no_springs = np.zeros((0, 2), dtype=np.int32)
+        cpu_simulation = molecular_dynamics.SSNSimulationCPU(
+            positions.copy(),
+            no_springs,
+            component_labels,
+            box_limits,
+            params,
+            active_mask=active_mask,
+        )
+        torch_simulation = molecular_dynamics.SSNSimulationGPU(
+            positions.copy(),
+            no_springs,
+            component_labels,
+            box_limits,
+            params,
+            active_mask=active_mask,
+            device=device,
+        )
+
+        cpu_rmsd = cpu_simulation.step(0)
+        torch_rmsd = torch_simulation.step(0)
+
+        np.testing.assert_allclose(
+            torch_simulation.get_pos(),
+            cpu_simulation.get_pos(),
+            rtol=0.0,
+            atol=atol,
+        )
+        self.assertAlmostEqual(cpu_rmsd, torch_rmsd, delta=atol)
+        return torch_simulation
+
+    def _assert_all_pairs_forces_match_cpu(self, device=None):
+        positions = np.array(
+            [
+                [-2.0, 0.0],
+                [2.0, 0.0],
+                [20.0, 0.0],
+                [-1.0, 0.0],
+                [1.0, 0.0],
+                [50.0, 50.0],
+            ],
+            dtype=np.float32,
+        )
+        component_labels = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+        active_mask = np.array([True, True, True, True, True, False])
+        params = {
+            "DT": 0.05,
+            "DAMPING": 0.25,
+            "COULOMB_K": 20.0,
+            "COULOMB_CUTOFF": 5.0,
+            "MAX_FORCE_LIMIT": 50.0,
+            "MAX_TOTAL_REPULSION_FORCE": 10.0,
+        }
+
+        simulation = self._assert_torch_matches_cpu(
+            positions,
+            component_labels,
+            params,
+            active_mask=active_mask,
+            device=device,
+        )
+        self.assertFalse(hasattr(simulation, "neighbor_pairs"))
+
+    def _assert_near_coincident_pair_matches_cpu(self, device=None):
+        positions = np.array(
+            [[0.0, 0.0], [1e-12, 0.0]],
+            dtype=np.float32,
+        )
+        params = {
+            "DT": 1.0,
+            "DAMPING": 0.0,
+            "COULOMB_K": 50.0,
+            "COULOMB_CUTOFF": 5.0,
+            "MAX_FORCE_LIMIT": 20.0,
+            "MAX_TOTAL_REPULSION_FORCE": 0.0,
+        }
+        self._assert_torch_matches_cpu(
+            positions,
+            np.array([0, 0], dtype=np.int32),
+            params,
+            device=device,
+        )
+
+    def _assert_coincident_pair_matches_cpu(self, device=None):
+        positions = np.zeros((2, 2), dtype=np.float32)
+        params = {
+            "DT": 1.0,
+            "DAMPING": 0.0,
+            "COULOMB_K": 50.0,
+            "COULOMB_CUTOFF": 5.0,
+            "MAX_FORCE_LIMIT": 20.0,
+            "MAX_TOTAL_REPULSION_FORCE": 0.0,
+        }
+        simulation = self._assert_torch_matches_cpu(
+            positions,
+            np.array([0, 0], dtype=np.int32),
+            params,
+            device=device,
+        )
+        self.assertTrue(np.isfinite(simulation.get_pos()).all())
+
     def test_pair_moved_inside_cutoff_is_used_on_next_step(self):
         positions = np.array([[-6.1, 0.0], [6.1, 0.0]], dtype=np.float32)
         simulation = molecular_dynamics.SSNSimulationCPU(
@@ -145,56 +263,85 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
         )
 
     @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
-    def test_gpu_all_pairs_forces_match_cpu(self):
-        positions = np.array(
-            [
-                [-2.0, 0.0],
-                [2.0, 0.0],
-                [20.0, 0.0],
-                [-1.0, 0.0],
-                [1.0, 0.0],
-                [50.0, 50.0],
-            ],
-            dtype=np.float32,
+    def test_torch_all_pairs_forces_match_cpu(self):
+        self._assert_all_pairs_forces_match_cpu()
+
+    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
+    def test_torch_near_coincident_pair_matches_cpu(self):
+        self._assert_near_coincident_pair_matches_cpu()
+
+    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
+    def test_torch_coincident_pair_matches_cpu(self):
+        self._assert_coincident_pair_matches_cpu()
+
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
+    def test_cuda_all_pairs_forces_match_cpu(self):
+        self._assert_all_pairs_forces_match_cpu(
+            device=molecular_dynamics.torch.device("cuda")
         )
-        component_labels = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
-        active_mask = np.array([True, True, True, True, True, False])
+
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
+    def test_cuda_near_coincident_pair_matches_cpu(self):
+        self._assert_near_coincident_pair_matches_cpu(
+            device=molecular_dynamics.torch.device("cuda")
+        )
+
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
+    def test_cuda_coincident_pair_matches_cpu(self):
+        self._assert_coincident_pair_matches_cpu(
+            device=molecular_dynamics.torch.device("cuda")
+        )
+
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
+    def test_cuda_boundary_collision_matches_cpu(self):
+        positions = np.array([[0.9, 0.0], [-0.9, 0.0]], dtype=np.float32)
+        velocities = np.array([[1.0, 2.0], [-1.0, -2.0]], dtype=np.float32)
+        labels = np.array([0, 0], dtype=np.int32)
         params = {
-            "DT": 0.05,
-            "DAMPING": 0.25,
-            "COULOMB_K": 20.0,
+            "DT": 0.2,
+            "DAMPING": 0.0,
+            "COULOMB_K": 0.0,
             "COULOMB_CUTOFF": 5.0,
-            "MAX_FORCE_LIMIT": 50.0,
-            "MAX_TOTAL_REPULSION_FORCE": 10.0,
+            "MAX_FORCE_LIMIT": 20.0,
+            "MAX_TOTAL_REPULSION_FORCE": 0.0,
         }
         no_springs = np.zeros((0, 2), dtype=np.int32)
         cpu_simulation = molecular_dynamics.SSNSimulationCPU(
+            positions.copy(), no_springs, labels, 1.0, params
+        )
+        cuda_simulation = molecular_dynamics.SSNSimulationGPU(
             positions.copy(),
             no_springs,
-            component_labels,
-            100.0,
+            labels,
+            1.0,
             params,
-            active_mask=active_mask,
+            device=molecular_dynamics.torch.device("cuda"),
         )
-        gpu_simulation = molecular_dynamics.SSNSimulationGPU(
-            positions.copy(),
-            no_springs,
-            component_labels,
-            100.0,
-            params,
-            active_mask=active_mask,
+        cpu_simulation.vel[:] = velocities
+        cuda_simulation.vel.copy_(
+            molecular_dynamics.torch.tensor(
+                velocities,
+                dtype=molecular_dynamics.torch.float32,
+                device=cuda_simulation.device,
+            )
         )
 
-        cpu_simulation.step(0)
-        gpu_simulation.step(0)
+        cpu_rmsd = cpu_simulation.step(0)
+        cuda_rmsd = cuda_simulation.step(0)
 
-        self.assertFalse(hasattr(gpu_simulation, "neighbor_pairs"))
         np.testing.assert_allclose(
-            gpu_simulation.get_pos(),
+            cuda_simulation.get_pos(),
             cpu_simulation.get_pos(),
             rtol=0.0,
-            atol=1e-5,
+            atol=1e-6,
         )
+        np.testing.assert_allclose(
+            cuda_simulation.vel.cpu().numpy(),
+            cpu_simulation.vel,
+            rtol=0.0,
+            atol=1e-6,
+        )
+        self.assertAlmostEqual(cpu_rmsd, cuda_rmsd, delta=1e-6)
 
 
 if __name__ == "__main__":

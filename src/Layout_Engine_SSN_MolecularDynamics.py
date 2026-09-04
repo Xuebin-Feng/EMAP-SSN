@@ -213,7 +213,12 @@ if HAS_TORCH:
             # --- PHYSICS ---
             delta = self.pos.unsqueeze(1) - self.pos.unsqueeze(0)
             dist_sq = (delta * delta).sum(dim=2)
-            dist = torch.sqrt(dist_sq) + 1e-9
+            dist = torch.sqrt(dist_sq)
+            direction_denominator = torch.where(
+                dist_sq > 0.0,
+                dist,
+                torch.ones_like(dist),
+            )
 
             pair_mask = (
                 self.active_mask.unsqueeze(1)
@@ -239,7 +244,8 @@ if HAS_TORCH:
             f_mag = torch.where(pair_mask, f_mag * taper, 0.0)
 
             repulsion = (
-                f_mag.unsqueeze(2) * (delta / dist.unsqueeze(2))
+                f_mag.unsqueeze(2)
+                * (delta / direction_denominator.unsqueeze(2))
             ).sum(dim=1)
 
             max_total_repulsion = self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0)
@@ -296,7 +302,8 @@ if HAS_TORCH:
             else:
                 rmsd = 0.0
             
-            del delta, dist_sq, dist, pair_mask, f_mag, taper
+            del delta, dist_sq, dist, direction_denominator
+            del pair_mask, f_mag, taper
             del repulsion, acc, old, limits, active_pos
             if max_total_repulsion > 0.0:
                 del repulsion_norm, repulsion_scale
