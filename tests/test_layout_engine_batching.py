@@ -123,7 +123,7 @@ class SegmentedBatchTests(unittest.TestCase):
         np.testing.assert_allclose(batched.get_pos(), expected, rtol=0.0, atol=1e-6)
 
     @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
-    def test_molecular_dynamics_gpu_batch_matches_individual_components(self):
+    def test_molecular_dynamics_torch_batch_matches_individual_components(self):
         pair = np.array([[-1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
         batch = np.vstack((pair, pair))
         no_springs = np.zeros((0, 2), dtype=np.int32)
@@ -204,7 +204,7 @@ class SegmentedBatchTests(unittest.TestCase):
         np.testing.assert_allclose(batched.get_pos(), expected, rtol=0.0, atol=1e-6)
 
     @unittest.skipUnless(monte_carlo.HAS_TORCH, "PyTorch is unavailable")
-    def test_monte_carlo_gpu_batch_matches_individual_two_node_components(self):
+    def test_monte_carlo_torch_batch_matches_individual_two_node_components(self):
         pair = np.array([[-1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
         batch = np.vstack((pair, pair))
         no_springs = np.zeros((0, 2), dtype=np.int32)
@@ -336,7 +336,7 @@ class SegmentedBatchTests(unittest.TestCase):
         np.testing.assert_allclose(capped, [3.0, 3.0], atol=1e-5)
 
     @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
-    def test_cuda_force_taper_and_caps_match_cpu(self):
+    def test_torch_force_taper_and_caps_match_cpu(self):
         md_tapered = self._run_md_repulsive_pair(
             13.5,
             13.5**2,
