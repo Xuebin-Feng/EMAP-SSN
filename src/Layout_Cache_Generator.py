@@ -13,6 +13,7 @@ import json
 import math
 import os
 from pathlib import Path
+import secrets
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -350,6 +351,14 @@ class LayoutGenerationSettings:
                 raise LayoutGenerationError(
                     f"{name} must be an integer of at least {minimum}."
                 )
+        for name, value in {
+            "MC_SWEEPS": self.MC_SWEEPS,
+            "MC_QUENCH_SWEEPS": self.MC_QUENCH_SWEEPS,
+        }.items():
+            if value > 1_000_000:
+                raise LayoutGenerationError(
+                    f"{name} must be an integer no greater than 1000000."
+                )
 
         numeric_ranges = {
             "UMAP_MIN_DIST": (self.UMAP_MIN_DIST, 0.0, 1.0),
@@ -381,11 +390,20 @@ class LayoutGenerationSettings:
         }
         for name, (value, minimum, maximum) in numeric_ranges.items():
             _finite_number(name, value, minimum=minimum, maximum=maximum)
+        if self.BOX_SCALE <= 0.0:
+            raise LayoutGenerationError("BOX_SCALE must be greater than 0.")
+        if self.PACKING_GRID_SIZE <= 0.0:
+            raise LayoutGenerationError(
+                "PACKING_GRID_SIZE must be greater than 0."
+            )
         if self.MC_RANDOM_SEED is not None and (
             isinstance(self.MC_RANDOM_SEED, bool)
             or not isinstance(self.MC_RANDOM_SEED, int)
+            or self.MC_RANDOM_SEED < 0
         ):
-            raise LayoutGenerationError("MC_RANDOM_SEED must be an integer or null.")
+            raise LayoutGenerationError(
+                "MC_RANDOM_SEED must be a non-negative integer or null."
+            )
         if (
             self.PHYSICS_ENGINE == "Monte Carlo (Style)"
             and self.MAX_TOTAL_REPULSION_FORCE != 0.0
@@ -472,10 +490,11 @@ def _manifest_settings(settings: LayoutGenerationSettings) -> dict[str, Any]:
 
 def _layout_compatibility_metadata(
     settings: LayoutGenerationSettings,
+    engine_params: Mapping[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Return canonical, per-cache coordinate settings and their digest."""
     canonical = json.dumps(
-        settings.engine_params(),
+        settings.engine_params() if engine_params is None else dict(engine_params),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -682,6 +701,13 @@ def generate_layout_cache(
         import Layout_Engine_SSN_MolecularDynamics as layout_engine
 
     params = settings.engine_params()
+    effective_monte_carlo_seed = None
+    if settings.PHYSICS_ENGINE == "Monte Carlo (Style)":
+        requested_seed = params.get("MC_RANDOM_SEED")
+        effective_monte_carlo_seed = (
+            secrets.randbits(128) if requested_seed is None else int(requested_seed)
+        )
+        params["MC_RANDOM_SEED"] = effective_monte_carlo_seed
     params["SIMILARITY_THRESHOLD"] = preparation_settings.SIMILARITY_THRESHOLD
     positions, box_limit = layout_engine.calculate_layout(
         connectivity, n_nodes, params
@@ -720,11 +746,15 @@ def generate_layout_cache(
         with h5py.File(staged_cache, "w") as output:
             string_dtype = h5py.string_dtype(encoding="utf-8")
             layout_compatibility, layout_compatibility_id = (
-                _layout_compatibility_metadata(settings)
+                _layout_compatibility_metadata(settings, params)
             )
             output.attrs["cache_manifest_id"] = manifest["manifest_id"]
             output.attrs["layout_compatibility_json"] = layout_compatibility
             output.attrs["layout_compatibility_id"] = layout_compatibility_id
+            if effective_monte_carlo_seed is not None:
+                output.attrs["mc_effective_random_seed"] = str(
+                    effective_monte_carlo_seed
+                )
             output.create_dataset(
                 "headers",
                 data=np.asarray(full_headers, dtype=object),

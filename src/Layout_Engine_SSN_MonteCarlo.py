@@ -23,20 +23,10 @@ try:
 except ImportError:
     NUMBA_AVAILABLE = False
 
-try:
-    from utilities import Hardware_Utils, Layout_Hardware
-except ImportError:
-    import Hardware_Utils, Layout_Hardware
+from utilities import Hardware_Utils, Layout_Hardware
+import torch
 
-try:
-    import torch
-    HAS_TORCH = True
-except Exception as e:
-    import traceback
-    print("Warning: PyTorch or Hardware_Utils could not be imported. GPU acceleration will be disabled.")
-    print(f"Detail: {e}")
-    traceback.print_exc()
-    HAS_TORCH = False
+HAS_TORCH = True
 
 # --- SGLD / Monte Carlo Parameters (Defaults defined here as requested) ---
 SGLD_NEGATIVE_SAMPLES = 20     # Number of random negative (repulsive) pairs sampled per node
@@ -677,9 +667,69 @@ class ComponentEnergyMonteCarlo:
     """Metropolis annealing over the exact total energy of one component."""
 
     def __init__(self, positions, edges, box_limit, params, rng):
-        self.pos = np.asarray(positions, dtype=np.float64).copy()
-        self.edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
-        self.box_limit = float(np.asarray(box_limit).reshape(-1)[0])
+        _validate_energy_monte_carlo_params(params)
+        try:
+            position_array = np.asarray(positions)
+        except (TypeError, ValueError) as error:
+            raise ValueError("positions must be a numeric N x 2 array.") from error
+        if position_array.ndim != 2 or position_array.shape[1] != 2:
+            raise ValueError("positions must be a two-dimensional N x 2 array.")
+        if position_array.shape[0] < 1:
+            raise ValueError("A component must contain at least one position.")
+        if not np.issubdtype(position_array.dtype, np.number) or np.issubdtype(
+            position_array.dtype, np.complexfloating
+        ):
+            raise ValueError("positions must contain finite real numeric values.")
+        try:
+            finite_positions = np.isfinite(position_array).all()
+        except TypeError as error:
+            raise ValueError("positions must contain finite numeric values.") from error
+        if not finite_positions:
+            raise ValueError("positions must contain finite numeric values.")
+
+        try:
+            edge_array = np.asarray(edges)
+        except (TypeError, ValueError) as error:
+            raise ValueError("edges must be a numeric M x 2 array.") from error
+        if edge_array.size == 0:
+            edge_array = np.zeros((0, 2), dtype=np.int32)
+        elif edge_array.ndim != 2 or edge_array.shape[1] != 2:
+            raise ValueError("edges must be a two-dimensional M x 2 array.")
+        if not np.issubdtype(edge_array.dtype, np.number) or np.issubdtype(
+            edge_array.dtype, np.complexfloating
+        ):
+            raise ValueError("edges must contain finite integer node indices.")
+        try:
+            finite_edges = np.isfinite(edge_array).all()
+        except TypeError as error:
+            raise ValueError("edges must contain finite integer node indices.") from error
+        if not finite_edges or not np.equal(edge_array, np.floor(edge_array)).all():
+            raise ValueError("edges must contain finite integer node indices.")
+        if edge_array.size and (
+            np.min(edge_array) < 0 or np.max(edge_array) >= len(position_array)
+        ):
+            raise ValueError("edges contain a node index outside positions.")
+
+        try:
+            limit_array = np.asarray(box_limit, dtype=np.float64).reshape(-1)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "box_limit must contain finite positive values."
+            ) from error
+        if (
+            limit_array.size == 0
+            or not np.isfinite(limit_array).all()
+            or np.any(limit_array <= 0.0)
+        ):
+            raise ValueError("box_limit must contain finite positive values.")
+        if not np.all(limit_array == limit_array[0]):
+            raise ValueError("One component must use one uniform box_limit.")
+
+        self.pos = position_array.astype(np.float64, copy=True)
+        self.edges = edge_array.astype(np.int32, copy=False)
+        self.box_limit = float(limit_array[0])
+        if np.any(np.abs(self.pos) > self.box_limit):
+            raise ValueError("Initial component positions must lie within box_limit.")
         self.params = params
         self.rng = rng
         self.spring_k = float(params.get('SPRING_K', 0.1))
@@ -737,7 +787,7 @@ class ComponentEnergyMonteCarlo:
         if self.cutoff > 0.0 and self.k_coul > 0.0:
             for node_a, position in enumerate(self.pos):
                 candidate_indices = np.fromiter(
-                    (
+                    sorted(
                         node_b
                         for node_b in self.spatial.candidates(position)
                         if node_b > node_a
@@ -768,7 +818,7 @@ class ComponentEnergyMonteCarlo:
         candidates = self.spatial.candidates(old_position)
         candidates.update(self.spatial.candidates(proposed_position))
         candidate_indices = np.fromiter(
-            (other for other in candidates if other != node),
+            sorted(other for other in candidates if other != node),
             dtype=np.int32,
         )
         delta_energy += repulsive_energy_sum(
@@ -839,8 +889,13 @@ class ComponentEnergyMonteCarlo:
         self.spatial.update(node, proposed)
         self.current_energy += delta_energy
         if self.current_energy < self.best_energy:
-            self.best_energy = self.current_energy
-            self.best_pos = self.pos.copy()
+            exact_energy = self.total_energy()
+            drift = abs(exact_energy - self.current_energy)
+            self.max_energy_drift = max(self.max_energy_drift, drift)
+            self.current_energy = exact_energy
+            if exact_energy < self.best_energy:
+                self.best_energy = exact_energy
+                self.best_pos = self.pos.copy()
         return True, proposal_kind
 
     def _calibrate_temperature(self):
@@ -864,6 +919,7 @@ class ComponentEnergyMonteCarlo:
         drift = abs(exact_energy - self.current_energy)
         self.max_energy_drift = max(self.max_energy_drift, drift)
         self.current_energy = exact_energy
+        self.best_energy = self.total_energy_for(self.best_pos)
         if exact_energy < self.best_energy:
             self.best_energy = exact_energy
             self.best_pos = self.pos.copy()
@@ -939,9 +995,11 @@ class ComponentEnergyMonteCarlo:
                 inactive_sweeps = 0
 
         self._reconcile_energy()
-        best_energy = self.total_energy_for(self.best_pos)
+        returned_positions = self.best_pos.astype(np.float32)
+        best_energy = self.total_energy_for(returned_positions)
+        self.best_pos = returned_positions.astype(np.float64)
         self.best_energy = best_energy
-        return self.best_pos.astype(np.float32), float(best_energy)
+        return returned_positions, float(best_energy)
 
     def total_energy_for(self, positions):
         current_pos = self.pos
@@ -1514,7 +1572,37 @@ def _calculate_layout_sgld_legacy(connectivity, n_nodes, params):
     return final_pos, final_box_limit
 
 
+def _finite_parameter(params, name, default, *, minimum=0.0, positive=False):
+    value = params.get(name, default)
+    if isinstance(value, bool) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        raise ValueError(f"{name} must be a finite number.")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError(f"{name} must be a finite number.")
+    if positive and numeric <= 0.0:
+        raise ValueError(f"{name} must be greater than 0.")
+    if not positive and numeric < minimum:
+        raise ValueError(f"{name} must be at least {minimum}.")
+    return numeric
+
+
+def _integer_parameter(params, name, default, *, minimum, maximum):
+    value = params.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{name} must be an integer of at least {minimum}.")
+    numeric = int(value)
+    if numeric < minimum or numeric > maximum:
+        raise ValueError(
+            f"{name} must be an integer from {minimum} to {maximum}."
+        )
+    return numeric
+
+
 def _validate_energy_monte_carlo_params(params):
+    if not isinstance(params, dict):
+        raise ValueError("Monte Carlo params must be a dictionary.")
     selection = Hardware_Utils.normalize_device_selection(
         params.get('LAYOUT_DEVICE_SELECTION', 'auto')
     )
@@ -1523,47 +1611,101 @@ def _validate_energy_monte_carlo_params(params):
             "Monte Carlo (Style) currently requires CPU execution; select "
             "Auto Benchmark or CPU."
         )
-    pair_force_limit = float(params.get('MAX_FORCE_LIMIT', 20.0))
-    if not math.isfinite(pair_force_limit) or pair_force_limit < 0.0:
-        raise ValueError("MAX_FORCE_LIMIT must be a finite non-negative value.")
-    if float(params.get('MAX_TOTAL_REPULSION_FORCE', 0.0)) != 0.0:
+    _finite_parameter(params, 'SPRING_K', 0.1)
+    _finite_parameter(params, 'COULOMB_K', 50.0)
+    _finite_parameter(params, 'COULOMB_CUTOFF', 30.0)
+    _finite_parameter(params, 'MAX_FORCE_LIMIT', 20.0)
+    _finite_parameter(params, 'BOX_SCALE', 1.0, positive=True)
+    _finite_parameter(params, 'PACKING_GRID_SIZE', 200.0, positive=True)
+    _finite_parameter(params, 'PACKING_PADDING', 50.0)
+    total_repulsion_limit = _finite_parameter(
+        params, 'MAX_TOTAL_REPULSION_FORCE', 0.0
+    )
+    if total_repulsion_limit != 0.0:
         raise ValueError(
             "MAX_TOTAL_REPULSION_FORCE must be 0 for energy Monte Carlo "
             "because accumulated-force clipping has no scalar pair energy."
         )
-    if bool(params.get('ENABLE_PROGRESSIVE_SIMULATION', False)):
+    progressive = params.get('ENABLE_PROGRESSIVE_SIMULATION', False)
+    if not isinstance(progressive, (bool, np.bool_)):
+        raise ValueError("ENABLE_PROGRESSIVE_SIMULATION must be a boolean.")
+    if progressive:
         raise ValueError(
             "Progressive simulation is unavailable for energy Monte Carlo "
             "because it changes the component objective during optimization."
         )
+    if params.get('PACKING_GEOMETRY', 'Square') not in {'Square', 'Circle'}:
+        raise ValueError("PACKING_GEOMETRY must be Square or Circle.")
 
-    sweeps = params.get('MC_SWEEPS', MC_SWEEPS)
-    quench_sweeps = params.get('MC_QUENCH_SWEEPS', MC_QUENCH_SWEEPS)
+    _integer_parameter(
+        params, 'MC_SWEEPS', MC_SWEEPS, minimum=1, maximum=1_000_000
+    )
+    _integer_parameter(
+        params,
+        'MC_QUENCH_SWEEPS',
+        MC_QUENCH_SWEEPS,
+        minimum=0,
+        maximum=1_000_000,
+    )
     teleport_probability = params.get(
         'MC_TELEPORT_PROBABILITY', MC_TELEPORT_PROBABILITY
     )
     random_seed = params.get('MC_RANDOM_SEED', MC_RANDOM_SEED)
-    if isinstance(sweeps, bool) or int(sweeps) != sweeps or int(sweeps) < 1:
-        raise ValueError("MC_SWEEPS must be an integer of at least 1.")
-    if (
-        isinstance(quench_sweeps, bool)
-        or int(quench_sweeps) != quench_sweeps
-        or int(quench_sweeps) < 0
+    if isinstance(teleport_probability, bool) or not isinstance(
+        teleport_probability, (int, float, np.integer, np.floating)
     ):
-        raise ValueError("MC_QUENCH_SWEEPS must be a non-negative integer.")
-    if not math.isfinite(float(teleport_probability)) or not (
-        0.0 <= float(teleport_probability) <= 1.0
+        raise ValueError("MC_TELEPORT_PROBABILITY must be between 0 and 1.")
+    teleport_probability = float(teleport_probability)
+    if not math.isfinite(teleport_probability) or not (
+        0.0 <= teleport_probability <= 1.0
     ):
         raise ValueError("MC_TELEPORT_PROBABILITY must be between 0 and 1.")
     if random_seed is not None and (
-        isinstance(random_seed, bool) or not isinstance(random_seed, (int, np.integer))
+        isinstance(random_seed, bool)
+        or not isinstance(random_seed, (int, np.integer))
+        or int(random_seed) < 0
     ):
-        raise ValueError("MC_RANDOM_SEED must be an integer or None.")
+        raise ValueError("MC_RANDOM_SEED must be a non-negative integer or None.")
+
+
+def _validate_layout_inputs(connectivity, n_nodes):
+    if isinstance(n_nodes, bool) or not isinstance(n_nodes, (int, np.integer)):
+        raise ValueError("n_nodes must be a non-negative integer.")
+    node_count = int(n_nodes)
+    if node_count < 0:
+        raise ValueError("n_nodes must be a non-negative integer.")
+
+    try:
+        array = np.asarray(connectivity)
+    except (TypeError, ValueError) as error:
+        raise ValueError("connectivity must be a numeric M x 3 array.") from error
+    if array.ndim != 2 or array.shape[1] != 3:
+        raise ValueError("connectivity must be a two-dimensional M x 3 array.")
+    if not np.issubdtype(array.dtype, np.number) or np.issubdtype(
+        array.dtype, np.complexfloating
+    ):
+        raise ValueError("connectivity must contain finite real numeric values.")
+    try:
+        finite = np.isfinite(array).all()
+    except TypeError as error:
+        raise ValueError("connectivity must contain finite numeric values.") from error
+    if not finite:
+        raise ValueError("connectivity must contain finite numeric values.")
+
+    endpoints = array[:, :2]
+    if endpoints.size and not np.equal(endpoints, np.floor(endpoints)).all():
+        raise ValueError("connectivity endpoints must be integer node indices.")
+    if endpoints.size and (
+        np.min(endpoints) < 0 or np.max(endpoints) >= node_count
+    ):
+        raise ValueError("connectivity contains a node index outside n_nodes.")
+    return array, node_count
 
 
 def calculate_layout(connectivity, n_nodes, params):
-    """Generate a layout by minimizing exact per-component endpoint energy."""
+    """Minimize topology-only energy with uniform springs on retained edges."""
     _validate_energy_monte_carlo_params(params)
+    connectivity, n_nodes = _validate_layout_inputs(connectivity, n_nodes)
     edges = np.asarray(connectivity[:, :2], dtype=np.int32)
     edge_scores = np.asarray(connectivity[:, 2], dtype=np.float64)
 

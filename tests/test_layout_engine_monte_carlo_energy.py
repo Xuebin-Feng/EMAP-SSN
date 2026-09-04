@@ -125,6 +125,43 @@ class ComponentEnergyTests(unittest.TestCase):
         )
         self.assertEqual(len(simulation.spatial.node_cells), len(positions))
 
+    def test_spatial_candidates_are_sorted_before_every_repulsive_sum(self):
+        simulation = _optimizer(
+            [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]],
+            np.zeros((0, 2), dtype=np.int32),
+        )
+        real_sum = monte_carlo.repulsive_energy_sum
+        candidate_orders = []
+
+        def recording_sum(position, positions, candidate_indices, *args):
+            candidate_orders.append(candidate_indices.tolist())
+            return real_sum(position, positions, candidate_indices, *args)
+
+        with mock.patch.object(
+            monte_carlo, "repulsive_energy_sum", side_effect=recording_sum
+        ):
+            simulation.total_energy()
+            simulation.energy_delta(1, np.asarray([1.5, 0.0]))
+
+        self.assertTrue(candidate_orders)
+        for order in candidate_orders:
+            self.assertEqual(order, sorted(order))
+
+    def test_spring_energy_is_a_uniform_sum_over_retained_edges(self):
+        positions = np.asarray(
+            [[0.0, 0.0], [2.0, 0.0], [2.0, 3.0]], dtype=np.float64
+        )
+        edges = np.asarray([[0, 1], [1, 2]], dtype=np.int32)
+        simulation = _optimizer(
+            positions,
+            edges,
+            SPRING_K=2.5,
+            COULOMB_K=0.0,
+            COULOMB_CUTOFF=0.0,
+        )
+        expected = 0.5 * 2.5 * (2.0**2 + 3.0**2)
+        self.assertEqual(simulation.current_energy, expected)
+
     def test_accepted_and_rejected_moves_update_state_atomically(self):
         simulation = _optimizer(
             [[-15.0, 0.0], [0.0, 0.0]],
@@ -274,6 +311,52 @@ class AcceptanceAndAnnealingTests(unittest.TestCase):
         self.assertEqual(results[0][1], results[1][1])
         self.assertEqual(results[0][2], results[1][2])
 
+    def test_incremental_drift_and_stale_best_energy_are_reconciled_exactly(self):
+        simulation = _optimizer(
+            [[-2.0, 0.0], [2.0000003, 0.0]],
+            [[0, 1]],
+            COULOMB_K=0.0,
+            MC_SWEEPS=1,
+            MC_QUENCH_SWEEPS=0,
+        )
+        proposed = np.asarray([-1.123456789, 0.0])
+        exact_delta = simulation.energy_delta(0, proposed)
+        simulation._proposal = lambda node, local_only=False: (
+            proposed.copy(), 0.0, "local"
+        )
+        simulation.energy_delta = lambda node, position: exact_delta + 0.125
+
+        accepted, _ = simulation._attempt(0, 0.0)
+        self.assertTrue(accepted)
+        self.assertGreaterEqual(simulation.max_energy_drift, 0.125 - 1.0e-12)
+        self.assertAlmostEqual(
+            simulation.current_energy, simulation.total_energy(), places=12
+        )
+        np.testing.assert_array_equal(simulation.best_pos, simulation.pos)
+        self.assertAlmostEqual(simulation.best_energy, simulation.total_energy(), places=12)
+
+        simulation.best_energy -= 10.0
+        simulation._reconcile_energy()
+        self.assertAlmostEqual(
+            simulation.best_energy,
+            simulation.total_energy_for(simulation.best_pos),
+            places=12,
+        )
+
+        simulation._calibrate_temperature = lambda: 0.0
+        simulation._attempt = lambda node, temperature, local_only=False: (
+            False, "local"
+        )
+        returned, reported_energy = simulation.optimize()
+        self.assertEqual(returned.dtype, np.float32)
+        np.testing.assert_array_equal(
+            simulation.best_pos, returned.astype(np.float64)
+        )
+        self.assertEqual(
+            reported_energy, simulation.total_energy_for(returned.astype(np.float64))
+        )
+        self.assertEqual(simulation.best_energy, reported_energy)
+
 
 class EngineBehaviorTests(unittest.TestCase):
     def test_public_layout_is_repeatable_with_seed_42_and_float32(self):
@@ -390,6 +473,83 @@ class EngineBehaviorTests(unittest.TestCase):
             monte_carlo._validate_energy_monte_carlo_params(
                 dict(base, ENABLE_PROGRESSIVE_SIMULATION=True)
             )
+
+    def test_parameter_validation_rejects_nonfinite_and_invalid_ranges(self):
+        base = {
+            "LAYOUT_DEVICE_SELECTION": "cpu",
+            "MC_SWEEPS": 1,
+            "MC_QUENCH_SWEEPS": 0,
+            "MC_TELEPORT_PROBABILITY": 0.10,
+            "MC_RANDOM_SEED": 42,
+        }
+        invalid_cases = (
+            ("SPRING_K", float("nan")),
+            ("COULOMB_K", -1.0),
+            ("COULOMB_CUTOFF", float("inf")),
+            ("MAX_FORCE_LIMIT", -1.0),
+            ("PACKING_PADDING", -1.0),
+            ("BOX_SCALE", 0.0),
+            ("PACKING_GRID_SIZE", 0.0),
+            ("MC_SWEEPS", 1.0),
+            ("MC_SWEEPS", 1_000_001),
+            ("MC_QUENCH_SWEEPS", -1),
+            ("MC_TELEPORT_PROBABILITY", 1.01),
+            ("MC_RANDOM_SEED", -1),
+        )
+        for name, value in invalid_cases:
+            with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                monte_carlo._validate_energy_monte_carlo_params(
+                    dict(base, **{name: value})
+                )
+
+    def test_layout_input_validation_rejects_malformed_connectivity(self):
+        params = {
+            "LAYOUT_DEVICE_SELECTION": "cpu",
+            "MC_SWEEPS": 1,
+            "MC_QUENCH_SWEEPS": 0,
+        }
+        invalid_cases = (
+            (np.zeros((1, 2)), 2),
+            (np.asarray([[0.5, 1.0, 1.0]]), 2),
+            (np.asarray([[0.0, 2.0, 1.0]]), 2),
+            (np.asarray([[0.0, 1.0, np.nan]]), 2),
+            (np.asarray([[0, 1, "score"]]), 2),
+            (np.asarray([[0 + 1j, 1, 1]]), 2),
+            (np.zeros((0, 3)), -1),
+            (np.zeros((0, 3)), 2.0),
+        )
+        for connectivity, node_count in invalid_cases:
+            with self.subTest(
+                shape=connectivity.shape, node_count=node_count
+            ), self.assertRaises(ValueError):
+                monte_carlo.calculate_layout(connectivity, node_count, params)
+
+    def test_component_input_validation_rejects_invalid_initial_state(self):
+        params = {
+            "LAYOUT_DEVICE_SELECTION": "cpu",
+            "MC_SWEEPS": 1,
+            "MC_QUENCH_SWEEPS": 0,
+        }
+        cases = (
+            (np.asarray([0.0, 0.0]), np.zeros((0, 2)), 10.0),
+            (np.asarray([[np.nan, 0.0]]), np.zeros((0, 2)), 10.0),
+            (np.asarray([[0 + 1j, 0.0]]), np.zeros((0, 2)), 10.0),
+            (np.asarray([[11.0, 0.0]]), np.zeros((0, 2)), 10.0),
+            (np.asarray([[0.0, 0.0]]), np.asarray([[0.0, 0.5]]), 10.0),
+            (np.asarray([[0.0, 0.0]]), np.asarray([[0, 1]]), 10.0),
+            (np.asarray([[0.0, 0.0]]), np.zeros((0, 2)), 0.0),
+        )
+        for positions, edges, box_limit in cases:
+            with self.subTest(
+                positions_shape=positions.shape, edges_shape=edges.shape
+            ), self.assertRaises(ValueError):
+                monte_carlo.ComponentEnergyMonteCarlo(
+                    positions,
+                    edges,
+                    box_limit,
+                    params,
+                    np.random.default_rng(42),
+                )
 
 
 if __name__ == "__main__":

@@ -613,8 +613,14 @@ if __name__ == "__main__":
         QStyle, QStyleOptionSlider, QFileDialog, QColorDialog, QSizePolicy,
         QFrame,
     )
-    from PySide6.QtCore import Qt, QUrl, QThread, Signal
-    from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPalette
+    from PySide6.QtCore import Qt, QUrl, QThread, Signal, QRegularExpression
+    from PySide6.QtGui import (
+        QColor,
+        QDesktopServices,
+        QIcon,
+        QPalette,
+        QRegularExpressionValidator,
+    )
     from matplotlib.backends.backend_qtagg import (
         FigureCanvasQTAgg,
         NavigationToolbar2QT,
@@ -1151,10 +1157,18 @@ if __name__ == "__main__":
                             "", "none", "null",
                         }:
                             value = None
-                        elif isinstance(value, bool) or float(value) != int(float(value)):
+                        elif isinstance(value, bool):
                             raise ValueError("expected an integer or None")
+                        elif isinstance(value, int):
+                            value = int(value)
+                        elif isinstance(value, str) and value.strip().isdigit():
+                            value = int(value.strip())
                         else:
-                            value = int(float(value))
+                            raise ValueError("expected an integer or None")
+                        if value is not None and value < 0:
+                            raise ValueError(
+                                "expected a non-negative integer or None"
+                            )
                     elif default is None:
                         if value is None or str(value).strip().lower() in {"", "none"}:
                             value = None
@@ -1272,9 +1286,13 @@ if __name__ == "__main__":
 
             if tab_id == "inputs_outputs":
                 self.update_norm_mode_options()
+            self._set_profile_content_enabled(tab_id, not read_only)
             if hasattr(self, "update_live_validators"):
                 self.update_live_validators()
-            self._set_profile_content_enabled(tab_id, not read_only)
+            if tab_id == "simulation_physics" and hasattr(
+                self, "update_engine_ui"
+            ):
+                self.update_engine_ui()
 
         def _set_profile_content_enabled(self, tab_id, enabled):
             content = self.profile_content_widgets[tab_id]
@@ -1339,6 +1357,10 @@ if __name__ == "__main__":
             if text == "(new)":
                 self._set_new_profile_field_visible(tab_id, True)
                 self._set_profile_content_enabled(tab_id, True)
+                if tab_id == "simulation_physics" and hasattr(
+                    self, "update_engine_ui"
+                ):
+                    self.update_engine_ui()
                 self._profile_previous_selection[tab_id] = text
                 return
 
@@ -1542,12 +1564,12 @@ if __name__ == "__main__":
                 "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node.\nProvides visual contrast to cleanly separate adjacent and overlapping nodes.",
                 "NODE_BOUNDARY_WIDTH": "Stroke width (in pixels) of the outer border ring outline drawn around each node.\nSetting a non-zero width helps distinguish overlapping nodes in dense clusters.",
                 "LOW_RESOURCE_MODE": "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.\nSignificantly improves responsiveness and reduces rendering latency for large networks.",
-                "PHYSICS_ENGINE": "Selects the 2D layout engine.\nMolecular Dynamics performs local force relaxation; Monte Carlo minimizes exact connected-component energy with local and nonlocal proposals.",
-                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for physics layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark tests CPU and available accelerators separately for each layout size class.",
-                "SPRING_K": "Attractive Hookean spring constant pulling connected sequence nodes closer together.\nLarger values draw highly similar sequences into tighter, more compact clusters.",
-                "COULOMB_K": "Repulsive constant controlling the electrostatic-like force pushing all nodes apart.\nLarger values push unrelated nodes and clusters apart, increasing family separation.",
+                "PHYSICS_ENGINE": "Selects the 2D layout engine.\nMolecular Dynamics performs force relaxation; Monte Carlo minimizes exact energy independently within each connected component using local and nonlocal proposals.",
+                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for Molecular Dynamics layout generation (CPU, CUDA, XPU, MPS).\nMonte Carlo is CPU-only and selects CPU automatically; Auto Benchmark tests available devices only for Molecular Dynamics.",
+                "SPRING_K": "Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.\nEvery retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.",
+                "COULOMB_K": "Repulsive constant controlling the electrostatic-like force between nodes in the same connected component.\nLarger values spread nearby nodes apart; disconnected components are positioned later by component packing.",
                 "COULOMB_CUTOFF": "Maximum spatial distance threshold beyond which node repulsive forces drop to zero.\nLower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.",
-                "DAMPING": "Frictional resistance coefficient applied to node velocities to dissipate kinetic energy.\nValues near 1.0 allow smooth movement; lower values freeze oscillations quickly.",
+                "DAMPING": "Frictional resistance coefficient applied to Molecular Dynamics node velocities.\nHigher values dissipate kinetic energy and suppress oscillatory motion more quickly.",
                 "DT": "Timestep size for each numerical integration step of the physics simulation.\nSmaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter.",
                 "MAX_STEPS": "Maximum number of physics iterations the simulation engine will run before terminating.\nEnsure this is large enough to allow node positions to settle into a stable configuration.",
                 "RMSD_THRESHOLD": "Root-Mean-Square Deviation convergence threshold for early simulation termination.\nIf average node displacement between consecutive steps falls below this value, layout halts as converged.",
@@ -1559,7 +1581,7 @@ if __name__ == "__main__":
                 "MC_SWEEPS": "Number of Monte Carlo sweeps per connected component.\nOne sweep proposes one move for every active node in randomized order.",
                 "MC_QUENCH_SWEEPS": "Maximum downhill-only refinement sweeps after annealing.\nThe quench stops early after five consecutive sweeps accept no moves.",
                 "MC_TELEPORT_PROBABILITY": "Probability that a node proposal is nonlocal.\nEighty percent of teleports target the node's graph-neighbor centroid and twenty percent sample the component box.",
-                "MC_RANDOM_SEED": "Random seed for reproducible component-energy Monte Carlo layouts.\nUse an integer such as 42, or None for a new random layout on each run.",
+                "MC_RANDOM_SEED": "Non-negative random seed for reproducible component-energy Monte Carlo layouts.\nUse an integer such as 42, or leave blank/use None or null for a new recorded seed on each run.",
                 "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
                 "UMAP_NEIGHBORS": "Size of the local neighborhood (n_neighbors) used by UMAP to learn manifold topology.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
                 "UMAP_MIN_DIST": "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly.",
@@ -2414,10 +2436,28 @@ if __name__ == "__main__":
                 self.btn_hist.setEnabled(has_fasta and has_hdf5)
             
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
+            is_monte_carlo = (
+                "PHYSICS_ENGINE" in self.inputs
+                and self.inputs["PHYSICS_ENGINE"].currentText()
+                == "Monte Carlo (Style)"
+            )
+            physics_selector = self.profile_selectors.get("simulation_physics")
+            physics_profile_editable = (
+                physics_selector is None
+                or physics_selector.currentText() != "(default)"
+            )
             if hasattr(self, 'cb_layout_device'):
-                self.cb_layout_device.setEnabled(not is_umap)
+                self.cb_layout_device.setEnabled(
+                    physics_profile_editable
+                    and not is_umap
+                    and not is_monte_carlo
+                )
             if "LAYOUT_DEVICE_SELECTION" in self.labels:
-                self.labels["LAYOUT_DEVICE_SELECTION"].setEnabled(not is_umap)
+                self.labels["LAYOUT_DEVICE_SELECTION"].setEnabled(
+                    physics_profile_editable
+                    and not is_umap
+                    and not is_monte_carlo
+                )
             
             if hasattr(self, 'spin_thresh') and hasattr(self, 'spin_top'):
                 has_top_edge = self.spin_top.optionalValue() is not None
@@ -3316,29 +3356,45 @@ if __name__ == "__main__":
             monte_carlo_grid.setColumnStretch(6, 1)
 
             lbl_mc_sweeps = QLabel("MC Sweeps:")
-            le_mc_sweeps = QLineEdit(str(globals().get("MC_SWEEPS", 250)))
-            self.inputs["MC_SWEEPS"] = le_mc_sweeps
+            spin_mc_sweeps = NoScrollSpinBox()
+            spin_mc_sweeps.setRange(1, 1_000_000)
+            spin_mc_sweeps.setValue(int(globals().get("MC_SWEEPS", 250)))
+            self.inputs["MC_SWEEPS"] = spin_mc_sweeps
             self.labels["MC_SWEEPS"] = lbl_mc_sweeps
 
             lbl_mc_quench = QLabel("Quench Sweeps:")
-            le_mc_quench = QLineEdit(str(globals().get("MC_QUENCH_SWEEPS", 25)))
-            self.inputs["MC_QUENCH_SWEEPS"] = le_mc_quench
+            spin_mc_quench = NoScrollSpinBox()
+            spin_mc_quench.setRange(0, 1_000_000)
+            spin_mc_quench.setValue(int(globals().get("MC_QUENCH_SWEEPS", 25)))
+            self.inputs["MC_QUENCH_SWEEPS"] = spin_mc_quench
             self.labels["MC_QUENCH_SWEEPS"] = lbl_mc_quench
 
             monte_carlo_grid.addWidget(lbl_mc_sweeps, 0, 0)
-            monte_carlo_grid.addWidget(le_mc_sweeps, 0, 2)
+            monte_carlo_grid.addWidget(spin_mc_sweeps, 0, 2)
             monte_carlo_grid.addWidget(lbl_mc_quench, 0, 4)
-            monte_carlo_grid.addWidget(le_mc_quench, 0, 6)
+            monte_carlo_grid.addWidget(spin_mc_quench, 0, 6)
 
             lbl_mc_teleport = QLabel("Teleport Probability:")
-            le_mc_teleport = QLineEdit(
-                str(globals().get("MC_TELEPORT_PROBABILITY", 0.10))
+            spin_mc_teleport = NoScrollDoubleSpinBox()
+            spin_mc_teleport.setRange(0.0, 1.0)
+            spin_mc_teleport.setDecimals(4)
+            spin_mc_teleport.setSingleStep(0.01)
+            spin_mc_teleport.setValue(
+                float(globals().get("MC_TELEPORT_PROBABILITY", 0.10))
             )
-            self.inputs["MC_TELEPORT_PROBABILITY"] = le_mc_teleport
+            self.inputs["MC_TELEPORT_PROBABILITY"] = spin_mc_teleport
             self.labels["MC_TELEPORT_PROBABILITY"] = lbl_mc_teleport
 
             lbl_mc_seed = QLabel("Random Seed:")
             le_mc_seed = QLineEdit(str(globals().get("MC_RANDOM_SEED", 42)))
+            le_mc_seed.setValidator(
+                QRegularExpressionValidator(
+                    QRegularExpression(
+                        r"^(?:[0-9]+|none|null)?$",
+                        QRegularExpression.PatternOption.CaseInsensitiveOption,
+                    )
+                )
+            )
             self.inputs["MC_RANDOM_SEED"] = le_mc_seed
             self.labels["MC_RANDOM_SEED"] = lbl_mc_seed
 
@@ -3360,30 +3416,59 @@ if __name__ == "__main__":
                 paired_label.setFixedWidth(right_label_width)
 
             monte_carlo_grid.addWidget(lbl_mc_teleport, 1, 0)
-            monte_carlo_grid.addWidget(le_mc_teleport, 1, 2)
+            monte_carlo_grid.addWidget(spin_mc_teleport, 1, 2)
             monte_carlo_grid.addWidget(lbl_mc_seed, 1, 4)
             monte_carlo_grid.addWidget(le_mc_seed, 1, 6)
             form_layout.addRow(monte_carlo_grid)
 
             # Apply styling for disabled states to match other tabs
-            disabled_lineedit_style = "QLineEdit:disabled { background-color: #f0f0f0; color: #888; }"
+            disabled_input_style = (
+                "QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled { "
+                "background-color: #f0f0f0; color: #888; }"
+            )
             disabled_label_style = "QLabel:disabled { color: #888; }"
             monte_carlo_edits = (
-                le_mc_sweeps, le_mc_quench, le_mc_teleport, le_mc_seed,
+                spin_mc_sweeps,
+                spin_mc_quench,
+                spin_mc_teleport,
+                le_mc_seed,
             )
             monte_carlo_labels = (
                 lbl_mc_sweeps, lbl_mc_quench, lbl_mc_teleport, lbl_mc_seed,
             )
             for edit in monte_carlo_edits:
-                edit.setStyleSheet(disabled_lineedit_style)
+                edit.setStyleSheet(disabled_input_style)
             for label in monte_carlo_labels:
                 label.setStyleSheet(disabled_label_style)
             
             # --- Toggle Dependencies Function ---
+            previous_md_device = cb_layout_device.currentData() or "auto"
+            previous_md_progressive = cb_prog.isChecked()
+            previous_engine_was_mc = False
+
             def update_engine_ui():
+                nonlocal previous_md_device
+                nonlocal previous_md_progressive
+                nonlocal previous_engine_was_mc
                 is_mc = cb_engine.currentText() == "Monte Carlo (Style)"
+                physics_selector = self.profile_selectors.get(
+                    "simulation_physics"
+                )
+                profile_editable = (
+                    physics_selector is None
+                    or physics_selector.currentText() != "(default)"
+                )
+                if is_mc and not previous_engine_was_mc:
+                    previous_md_device = cb_layout_device.currentData() or "auto"
+                    previous_md_progressive = cb_prog.isChecked()
+                elif not is_mc and previous_engine_was_mc:
+                    restore_index = cb_layout_device.findData(previous_md_device)
+                    if restore_index >= 0:
+                        cb_layout_device.setCurrentIndex(restore_index)
+                    cb_prog.setChecked(previous_md_progressive)
+
                 for widget in monte_carlo_edits + monte_carlo_labels:
-                    widget.setEnabled(is_mc)
+                    widget.setEnabled(profile_editable and is_mc)
 
                 md_only_widgets = (
                     physics_slider_controls["DAMPING"][1],
@@ -3393,16 +3478,19 @@ if __name__ == "__main__":
                     ui_window, lbl_window, prog_field, lbl_prog,
                 )
                 for widget in md_only_widgets:
-                    widget.setEnabled(not is_mc)
+                    widget.setEnabled(profile_editable and not is_mc)
 
                 if is_mc:
-                    auto_index = cb_layout_device.findData("auto")
-                    if auto_index >= 0:
-                        cb_layout_device.setCurrentIndex(auto_index)
-                cb_layout_device.setEnabled(not is_mc)
-                lbl_layout_device.setEnabled(not is_mc)
+                    cpu_index = cb_layout_device.findData("cpu")
+                    if cpu_index >= 0:
+                        cb_layout_device.setCurrentIndex(cpu_index)
+                    cb_prog.setChecked(False)
+                cb_layout_device.setEnabled(profile_editable and not is_mc)
+                lbl_layout_device.setEnabled(profile_editable and not is_mc)
+                previous_engine_was_mc = is_mc
                 
             cb_engine.currentTextChanged.connect(update_engine_ui)
+            self.update_engine_ui = update_engine_ui
             update_engine_ui()
             
             main_layout.addLayout(form_layout)
@@ -3578,6 +3666,10 @@ if __name__ == "__main__":
                     val = widget.isChecked()
                 elif isinstance(widget, QLineEdit):
                     val = widget.text()
+                    if key == "MC_RANDOM_SEED" and val.strip().lower() in {
+                        "", "none", "null",
+                    }:
+                        val = None
                 else: 
                     val = str(widget)
                 
@@ -3637,7 +3729,9 @@ if __name__ == "__main__":
                 key: self._widget_profile_value(key)
                 for key in TAB_PROFILE_SPECS[tab_id]["defaults"]
             }
-            self._normalize_profile_data(tab_id, data)
+            normalized = self._normalize_profile_data(tab_id, data)
+            if tab_id == "simulation_physics":
+                data["MC_RANDOM_SEED"] = normalized["MC_RANDOM_SEED"]
             return data
 
         def _prepare_profile_writes(self):
