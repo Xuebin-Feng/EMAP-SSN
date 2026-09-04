@@ -437,9 +437,9 @@ class LayoutHardwareTests(unittest.TestCase):
             "PACKING_GRID_SIZE": 20.0,
             "PACKING_PADDING": 5.0,
             "PACKING_GEOMETRY": "Square",
-            "SGLD_START_TEMP": 0.0,
-            "SGLD_MIN_K": 1,
-            "SGLD_K_PERCENT": 0.01,
+            "MC_SWEEPS": 1,
+            "MC_QUENCH_SWEEPS": 0,
+            "MC_RANDOM_SEED": 42,
         }
         with mock.patch.object(
             molecular.Layout_Hardware,

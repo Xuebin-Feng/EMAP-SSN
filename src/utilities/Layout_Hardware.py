@@ -60,6 +60,7 @@ def prepare_layout_batch(
     *,
     add_noise: bool = True,
     verbose: bool = True,
+    rng: np.random.Generator | None = None,
 ) -> PreparedLayoutBatch:
     """Build one vectorized physics batch without mutating source inputs."""
     node_count = sum(len(component) for component in batch_components)
@@ -117,7 +118,18 @@ def prepare_layout_batch(
                     shape=(component_node_count, component_node_count),
                 )
                 graph_laplacian = laplacian(adjacency, normed=True)
-                _, vectors = eigsh(graph_laplacian, k=3, which="SM", tol=1e-3)
+                eigsh_v0 = (
+                    None
+                    if rng is None
+                    else rng.standard_normal(component_node_count)
+                )
+                _, vectors = eigsh(
+                    graph_laplacian,
+                    k=3,
+                    which="SM",
+                    tol=1e-3,
+                    v0=eigsh_v0,
+                )
                 x_coordinates = vectors[:, 1]
                 y_coordinates = vectors[:, 2]
                 x_normalized = (x_coordinates - np.min(x_coordinates)) / (
@@ -167,7 +179,11 @@ def prepare_layout_batch(
 
     positions = np.vstack(position_blocks).astype(np.float32)
     if add_noise:
-        positions += np.random.normal(0, 0.1, positions.shape).astype(np.float32)
+        if rng is None:
+            noise = np.random.normal(0, 0.1, positions.shape)
+        else:
+            noise = rng.normal(0, 0.1, positions.shape)
+        positions += noise.astype(np.float32)
 
     return PreparedLayoutBatch(
         global_nodes=global_nodes,

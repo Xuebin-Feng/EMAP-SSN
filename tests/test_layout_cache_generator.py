@@ -1,5 +1,7 @@
 import json
 import copy
+import hashlib
+import json
 import os
 import pathlib
 import subprocess
@@ -199,6 +201,11 @@ class LayoutSettingsTests(unittest.TestCase):
             self.assertEqual(payload["PACKING_PADDING"], 10.0)
             self.assertEqual(payload["MAX_FORCE_LIMIT"], 20.0)
             self.assertEqual(payload["MAX_TOTAL_REPULSION_FORCE"], 0.0)
+            self.assertEqual(payload["MC_SWEEPS"], 250)
+            self.assertEqual(payload["MC_QUENCH_SWEEPS"], 25)
+            self.assertEqual(payload["MC_TELEPORT_PROBABILITY"], 0.10)
+            self.assertEqual(payload["MC_RANDOM_SEED"], 42)
+            self.assertFalse(any(key.startswith("SGLD_") for key in payload))
             self.assertNotIn("NODE_SIZE", payload)
             self.assertNotIn("MSA_FILE", payload)
             self.assertNotIn("TARGET_CACHE_PATH", payload)
@@ -206,6 +213,23 @@ class LayoutSettingsTests(unittest.TestCase):
             document["Layout_Cache_Generator.py"]["NODE_SIZE"] = 10
             with self.assertRaisesRegex(
                 LayoutGenerationError, "Unknown layout-generation setting"
+            ):
+                LayoutGenerationSettings.from_document(document)
+
+    def test_monte_carlo_validation_and_explicit_null_seed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            document = _settings_document(temp_path)
+            payload = document["Layout_Cache_Generator.py"]
+            payload["PHYSICS_ENGINE"] = "Monte Carlo (Style)"
+            payload["LAYOUT_DEVICE_SELECTION"] = "cpu"
+            payload["MC_RANDOM_SEED"] = None
+            settings = LayoutGenerationSettings.from_document(document)
+            self.assertIsNone(settings.MC_RANDOM_SEED)
+
+            payload["MAX_TOTAL_REPULSION_FORCE"] = 1.0
+            with self.assertRaisesRegex(
+                LayoutGenerationError, "MAX_TOTAL_REPULSION_FORCE must be 0"
             ):
                 LayoutGenerationSettings.from_document(document)
 
@@ -349,6 +373,26 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertEqual(set(cache.keys()), {"headers", "positions"})
                 self.assertEqual(
                     cache.attrs["cache_manifest_id"], result.manifest["manifest_id"]
+                )
+                layout_metadata = json.loads(
+                    cache.attrs["layout_compatibility_json"]
+                )
+                self.assertEqual(layout_metadata["MC_SWEEPS"], 250)
+                self.assertEqual(layout_metadata["MC_QUENCH_SWEEPS"], 25)
+                self.assertEqual(
+                    layout_metadata["MC_TELEPORT_PROBABILITY"], 0.10
+                )
+                self.assertEqual(layout_metadata["MC_RANDOM_SEED"], 42)
+                canonical = json.dumps(
+                    layout_metadata,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                )
+                self.assertEqual(
+                    cache.attrs["layout_compatibility_id"],
+                    hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
                 )
             manifest_path = cache_path.parent / Cache_Manifest.MANIFEST_FILENAME
             self.assertTrue(manifest_path.exists())

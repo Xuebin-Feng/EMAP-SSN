@@ -85,6 +85,12 @@ DEPRECATED_DIRECTORY_KEYS = frozenset({
     "PRINT_SAVE_DIR",
     "STRUCTURES_DIR",
 })
+LEGACY_MONTE_CARLO_KEYS = frozenset({
+    "SGLD_MIN_K",
+    "SGLD_K_PERCENT",
+    "SGLD_START_TEMP",
+    "SGLD_NOISE_SCALE",
+})
 
 # --- Explicit Input File Paths ---
 # You can manually replace these string paths to decouple file logic:
@@ -138,11 +144,11 @@ RMSD_WINDOW = 50
 ENABLE_PROGRESSIVE_SIMULATION = False
 PACKING_GEOMETRY = "Square"
 
-# --- Monte Carlo / SGLD Settings ---
-SGLD_MIN_K = 20
-SGLD_K_PERCENT = 0.01
-SGLD_START_TEMP = 1.5
-SGLD_NOISE_SCALE = 1.0
+# --- Component-Energy Monte Carlo Settings ---
+MC_SWEEPS = 250
+MC_QUENCH_SWEEPS = 25
+MC_TELEPORT_PROBABILITY = 0.10
+MC_RANDOM_SEED = 42
 
 INPUT_PROFILE_DEFAULTS = {
     "NODE_FASTA_FILE": "",
@@ -190,10 +196,10 @@ PHYSICS_PROFILE_DEFAULTS = {
     "ENABLE_PROGRESSIVE_SIMULATION": False,
     "PACKING_GEOMETRY": "Square",
     "PACKING_GRID_SIZE": 20.0,
-    "SGLD_MIN_K": 20,
-    "SGLD_K_PERCENT": 0.01,
-    "SGLD_START_TEMP": 1.5,
-    "SGLD_NOISE_SCALE": 1.0,
+    "MC_SWEEPS": 250,
+    "MC_QUENCH_SWEEPS": 25,
+    "MC_TELEPORT_PROBABILITY": 0.10,
+    "MC_RANDOM_SEED": 42,
 }
 
 DIRECTORY_PROFILE_DEFAULTS = {
@@ -297,6 +303,9 @@ PROFILE_RANGES = {
     "DAMPING": (0.1, 2.0),
     "RMSD_WINDOW": (10, 1000),
     "PACKING_GRID_SIZE": (1.0, 200.0),
+    "MC_SWEEPS": (1, 1000000),
+    "MC_QUENCH_SWEEPS": (0, 1000000),
+    "MC_TELEPORT_PROBABILITY": (0.0, 1.0),
 }
 
 
@@ -1117,7 +1126,12 @@ if __name__ == "__main__":
                 raise ValueError("the JSON root must be an object")
 
             defaults = TAB_PROFILE_SPECS[tab_id]["defaults"]
-            ignored = DEPRECATED_DIRECTORY_KEYS if tab_id == "directories" else set()
+            if tab_id == "directories":
+                ignored = DEPRECATED_DIRECTORY_KEYS
+            elif tab_id == "simulation_physics":
+                ignored = LEGACY_MONTE_CARLO_KEYS
+            else:
+                ignored = set()
             unknown = set(raw_data) - set(defaults) - ignored
             if unknown and not allow_extra:
                 names = ", ".join(sorted(unknown))
@@ -1132,7 +1146,16 @@ if __name__ == "__main__":
                     value = _migrate_default_directory_path(key, value)
                 default = defaults[key]
                 try:
-                    if default is None:
+                    if key == "MC_RANDOM_SEED":
+                        if value is None or str(value).strip().lower() in {
+                            "", "none", "null",
+                        }:
+                            value = None
+                        elif isinstance(value, bool) or float(value) != int(float(value)):
+                            raise ValueError("expected an integer or None")
+                        else:
+                            value = int(float(value))
+                    elif default is None:
                         if value is None or str(value).strip().lower() in {"", "none"}:
                             value = None
                         else:
@@ -1519,7 +1542,7 @@ if __name__ == "__main__":
                 "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node.\nProvides visual contrast to cleanly separate adjacent and overlapping nodes.",
                 "NODE_BOUNDARY_WIDTH": "Stroke width (in pixels) of the outer border ring outline drawn around each node.\nSetting a non-zero width helps distinguish overlapping nodes in dense clusters.",
                 "LOW_RESOURCE_MODE": "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.\nSignificantly improves responsiveness and reduces rendering latency for large networks.",
-                "PHYSICS_ENGINE": "Selects the simulation engine for 2D layout: Molecular Dynamics or Monte Carlo (SGLD).\nMolecular Dynamics uses deterministic force integration; Monte Carlo uses stochastic Langevin sampling.",
+                "PHYSICS_ENGINE": "Selects the 2D layout engine.\nMolecular Dynamics performs local force relaxation; Monte Carlo minimizes exact connected-component energy with local and nonlocal proposals.",
                 "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for physics layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark tests CPU and available accelerators separately for each layout size class.",
                 "SPRING_K": "Attractive Hookean spring constant pulling connected sequence nodes closer together.\nLarger values draw highly similar sequences into tighter, more compact clusters.",
                 "COULOMB_K": "Repulsive constant controlling the electrostatic-like force pushing all nodes apart.\nLarger values push unrelated nodes and clusters apart, increasing family separation.",
@@ -1533,10 +1556,10 @@ if __name__ == "__main__":
                 "ENABLE_PROGRESSIVE_SIMULATION": "Progressively lowers the similarity threshold in stages for massive connected components.\nHelps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.",
                 "PACKING_GEOMETRY": "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window.",
                 "PACKING_GRID_SIZE": "Base grid square unit size used for macro-grid component packing.\nControls spacing and separation between packed independent clusters in the final layout.",
-                "SGLD_MIN_K": "Minimum number of nearest neighbors (K) retained per node in Monte Carlo / SGLD simulation.\nPrevents small or disconnected clusters from collapsing by maintaining a baseline neighborhood.",
-                "SGLD_K_PERCENT": "Fraction of component nodes used to set dynamic negative sampling size (K) in SGLD mode.\nCalculated as max(SGLD_MIN_K, Fraction * total_nodes) to balance global topology and memory.",
-                "SGLD_START_TEMP": "Starting temperature for Simulated Annealing in Monte Carlo / SGLD mode.\nHigher initial temperatures inject stochastic noise to help nodes escape local energy minima.",
-                "SGLD_NOISE_SCALE": "Scaling factor for stochastic Brownian noise added to node velocities in SGLD simulation.\nAdjusts random thermal fluctuations to prevent premature layout freezing.",
+                "MC_SWEEPS": "Number of Monte Carlo sweeps per connected component.\nOne sweep proposes one move for every active node in randomized order.",
+                "MC_QUENCH_SWEEPS": "Maximum downhill-only refinement sweeps after annealing.\nThe quench stops early after five consecutive sweeps accept no moves.",
+                "MC_TELEPORT_PROBABILITY": "Probability that a node proposal is nonlocal.\nEighty percent of teleports target the node's graph-neighbor centroid and twenty percent sample the component box.",
+                "MC_RANDOM_SEED": "Random seed for reproducible component-energy Monte Carlo layouts.\nUse an integer such as 42, or None for a new random layout on each run.",
                 "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
                 "UMAP_NEIGHBORS": "Size of the local neighborhood (n_neighbors) used by UMAP to learn manifold topology.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
                 "UMAP_MIN_DIST": "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly.",
@@ -3292,38 +3315,40 @@ if __name__ == "__main__":
             monte_carlo_grid.setColumnStretch(2, 1)
             monte_carlo_grid.setColumnStretch(6, 1)
 
-            lbl_min_k = QLabel("Minimum K:")
-            le_min_k = QLineEdit(str(globals().get("SGLD_MIN_K", 20)))
-            self.inputs["SGLD_MIN_K"] = le_min_k
-            self.labels["SGLD_MIN_K"] = lbl_min_k
+            lbl_mc_sweeps = QLabel("MC Sweeps:")
+            le_mc_sweeps = QLineEdit(str(globals().get("MC_SWEEPS", 250)))
+            self.inputs["MC_SWEEPS"] = le_mc_sweeps
+            self.labels["MC_SWEEPS"] = lbl_mc_sweeps
 
-            lbl_pct_k = QLabel("Fraction K:")
-            le_pct_k = QLineEdit(str(globals().get("SGLD_K_PERCENT", 0.01)))
-            self.inputs["SGLD_K_PERCENT"] = le_pct_k
-            self.labels["SGLD_K_PERCENT"] = lbl_pct_k
+            lbl_mc_quench = QLabel("Quench Sweeps:")
+            le_mc_quench = QLineEdit(str(globals().get("MC_QUENCH_SWEEPS", 25)))
+            self.inputs["MC_QUENCH_SWEEPS"] = le_mc_quench
+            self.labels["MC_QUENCH_SWEEPS"] = lbl_mc_quench
 
-            monte_carlo_grid.addWidget(lbl_min_k, 0, 0)
-            monte_carlo_grid.addWidget(le_min_k, 0, 2)
-            monte_carlo_grid.addWidget(lbl_pct_k, 0, 4)
-            monte_carlo_grid.addWidget(le_pct_k, 0, 6)
+            monte_carlo_grid.addWidget(lbl_mc_sweeps, 0, 0)
+            monte_carlo_grid.addWidget(le_mc_sweeps, 0, 2)
+            monte_carlo_grid.addWidget(lbl_mc_quench, 0, 4)
+            monte_carlo_grid.addWidget(le_mc_quench, 0, 6)
 
-            lbl_start_temp = QLabel("Starting Temp:")
-            le_start_temp = QLineEdit(str(globals().get("SGLD_START_TEMP", 1.5)))
-            self.inputs["SGLD_START_TEMP"] = le_start_temp
-            self.labels["SGLD_START_TEMP"] = lbl_start_temp
+            lbl_mc_teleport = QLabel("Teleport Probability:")
+            le_mc_teleport = QLineEdit(
+                str(globals().get("MC_TELEPORT_PROBABILITY", 0.10))
+            )
+            self.inputs["MC_TELEPORT_PROBABILITY"] = le_mc_teleport
+            self.labels["MC_TELEPORT_PROBABILITY"] = lbl_mc_teleport
 
-            lbl_noise_scale = QLabel("Thermal Noise Scale:")
-            le_noise_scale = QLineEdit(str(globals().get("SGLD_NOISE_SCALE", 1.0)))
-            self.inputs["SGLD_NOISE_SCALE"] = le_noise_scale
-            self.labels["SGLD_NOISE_SCALE"] = lbl_noise_scale
+            lbl_mc_seed = QLabel("Random Seed:")
+            le_mc_seed = QLineEdit(str(globals().get("MC_RANDOM_SEED", 42)))
+            self.inputs["MC_RANDOM_SEED"] = le_mc_seed
+            self.labels["MC_RANDOM_SEED"] = lbl_mc_seed
 
             paired_left_labels = (
-                lbl_dt, lbl_rmsd, lbl_min_k, lbl_start_temp,
+                lbl_dt, lbl_rmsd, lbl_mc_sweeps, lbl_mc_teleport,
             )
             paired_right_labels = (
                 physics_slider_controls["COULOMB_K"][0],
                 physics_slider_controls["DAMPING"][0],
-                lbl_steps, lbl_drop, lbl_pct_k, lbl_noise_scale,
+                lbl_steps, lbl_drop, lbl_mc_quench, lbl_mc_seed,
             )
             for paired_label in paired_left_labels:
                 paired_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
@@ -3334,36 +3359,48 @@ if __name__ == "__main__":
             for paired_label in paired_right_labels:
                 paired_label.setFixedWidth(right_label_width)
 
-            monte_carlo_grid.addWidget(lbl_start_temp, 1, 0)
-            monte_carlo_grid.addWidget(le_start_temp, 1, 2)
-            monte_carlo_grid.addWidget(lbl_noise_scale, 1, 4)
-            monte_carlo_grid.addWidget(le_noise_scale, 1, 6)
+            monte_carlo_grid.addWidget(lbl_mc_teleport, 1, 0)
+            monte_carlo_grid.addWidget(le_mc_teleport, 1, 2)
+            monte_carlo_grid.addWidget(lbl_mc_seed, 1, 4)
+            monte_carlo_grid.addWidget(le_mc_seed, 1, 6)
             form_layout.addRow(monte_carlo_grid)
 
             # Apply styling for disabled states to match other tabs
             disabled_lineedit_style = "QLineEdit:disabled { background-color: #f0f0f0; color: #888; }"
             disabled_label_style = "QLabel:disabled { color: #888; }"
-            le_min_k.setStyleSheet(disabled_lineedit_style)
-            le_pct_k.setStyleSheet(disabled_lineedit_style)
-            le_start_temp.setStyleSheet(disabled_lineedit_style)
-            le_noise_scale.setStyleSheet(disabled_lineedit_style)
-            lbl_min_k.setStyleSheet(disabled_label_style)
-            lbl_pct_k.setStyleSheet(disabled_label_style)
-            lbl_start_temp.setStyleSheet(disabled_label_style)
-            lbl_noise_scale.setStyleSheet(disabled_label_style)
+            monte_carlo_edits = (
+                le_mc_sweeps, le_mc_quench, le_mc_teleport, le_mc_seed,
+            )
+            monte_carlo_labels = (
+                lbl_mc_sweeps, lbl_mc_quench, lbl_mc_teleport, lbl_mc_seed,
+            )
+            for edit in monte_carlo_edits:
+                edit.setStyleSheet(disabled_lineedit_style)
+            for label in monte_carlo_labels:
+                label.setStyleSheet(disabled_label_style)
             
             # --- Toggle Dependencies Function ---
             def update_engine_ui():
                 is_mc = cb_engine.currentText() == "Monte Carlo (Style)"
-                le_min_k.setEnabled(is_mc)
-                le_pct_k.setEnabled(is_mc)
-                lbl_min_k.setEnabled(is_mc)
-                lbl_pct_k.setEnabled(is_mc)
-                
-                le_start_temp.setEnabled(is_mc)
-                le_noise_scale.setEnabled(is_mc)
-                lbl_start_temp.setEnabled(is_mc)
-                lbl_noise_scale.setEnabled(is_mc)
+                for widget in monte_carlo_edits + monte_carlo_labels:
+                    widget.setEnabled(is_mc)
+
+                md_only_widgets = (
+                    physics_slider_controls["DAMPING"][1],
+                    physics_slider_controls["DAMPING"][0],
+                    le_dt, lbl_dt, le_steps, lbl_steps,
+                    le_rmsd, lbl_rmsd, le_drop, lbl_drop,
+                    ui_window, lbl_window, prog_field, lbl_prog,
+                )
+                for widget in md_only_widgets:
+                    widget.setEnabled(not is_mc)
+
+                if is_mc:
+                    auto_index = cb_layout_device.findData("auto")
+                    if auto_index >= 0:
+                        cb_layout_device.setCurrentIndex(auto_index)
+                cb_layout_device.setEnabled(not is_mc)
+                lbl_layout_device.setEnabled(not is_mc)
                 
             cb_engine.currentTextChanged.connect(update_engine_ui)
             update_engine_ui()
