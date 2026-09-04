@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field, fields
+import hashlib
 import json
 import math
 import os
@@ -58,6 +59,9 @@ _REQUIRED_JSON_KEYS = {
     "ENABLE_PROGRESSIVE_SIMULATION",
     "PACKING_GEOMETRY",
     "PACKING_GRID_SIZE",
+}
+
+_LEGACY_MONTE_CARLO_KEYS = {
     "SGLD_MIN_K",
     "SGLD_K_PERCENT",
     "SGLD_START_TEMP",
@@ -127,10 +131,10 @@ class LayoutGenerationSettings:
     ENABLE_PROGRESSIVE_SIMULATION: bool
     PACKING_GEOMETRY: str
     PACKING_GRID_SIZE: float
-    SGLD_MIN_K: int
-    SGLD_K_PERCENT: float
-    SGLD_START_TEMP: float
-    SGLD_NOISE_SCALE: float
+    MC_SWEEPS: int = 250
+    MC_QUENCH_SWEEPS: int = 25
+    MC_TELEPORT_PROBABILITY: float = 0.10
+    MC_RANDOM_SEED: int | None = 42
 
     # Coordinate-affecting values which are currently hidden in EMAP-SSN Configuration.
     BOX_SCALE: float = 2.0
@@ -163,7 +167,9 @@ class LayoutGenerationSettings:
         if not isinstance(values, Mapping):
             raise LayoutGenerationError(f"{SCRIPT_NAME} must be a JSON object.")
 
-        allowed = {item.name for item in fields(cls) if not item.name.startswith("_")}
+        allowed = {
+            item.name for item in fields(cls) if not item.name.startswith("_")
+        } | _LEGACY_MONTE_CARLO_KEYS
         unknown = sorted(set(values) - allowed)
         missing = sorted(_REQUIRED_JSON_KEYS - set(values))
         if unknown:
@@ -177,6 +183,8 @@ class LayoutGenerationSettings:
 
         root = Path(project_root).resolve()
         payload = dict(values)
+        for legacy_key in _LEGACY_MONTE_CARLO_KEYS:
+            payload.pop(legacy_key, None)
         payload["SAVED_LAYOUT_DIR"] = _resolve_project_path(
             directories["SAVED_LAYOUT_DIR"], root
         )
@@ -237,10 +245,10 @@ class LayoutGenerationSettings:
             "ENABLE_PROGRESSIVE_SIMULATION": False,
             "PACKING_GEOMETRY": "Square",
             "PACKING_GRID_SIZE": 20.0,
-            "SGLD_MIN_K": 20,
-            "SGLD_K_PERCENT": 0.01,
-            "SGLD_START_TEMP": 1.5,
-            "SGLD_NOISE_SCALE": 1.0,
+            "MC_SWEEPS": 250,
+            "MC_QUENCH_SWEEPS": 25,
+            "MC_TELEPORT_PROBABILITY": 0.10,
+            "MC_RANDOM_SEED": 42,
             "BOX_SCALE": 2.0,
             "PACKING_PADDING": 10.0,
             "MAX_FORCE_LIMIT": 20.0,
@@ -265,7 +273,12 @@ class LayoutGenerationSettings:
                 if isinstance(value, str):
                     values[key] = value.strip().lower() in {"true", "1", "yes", "on"}
             elif isinstance(default, int) and isinstance(value, str):
-                values[key] = int(value)
+                if key == "MC_RANDOM_SEED" and value.strip().lower() in {
+                    "", "none", "null"
+                }:
+                    values[key] = None
+                else:
+                    values[key] = int(value)
             elif isinstance(default, float) and isinstance(value, str):
                 values[key] = float(value)
         for key in ("SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"):
@@ -329,7 +342,8 @@ class LayoutGenerationSettings:
             "UMAP_NEIGHBORS": (self.UMAP_NEIGHBORS, 2),
             "MAX_STEPS": (self.MAX_STEPS, 1),
             "RMSD_WINDOW": (self.RMSD_WINDOW, 1),
-            "SGLD_MIN_K": (self.SGLD_MIN_K, 1),
+            "MC_SWEEPS": (self.MC_SWEEPS, 1),
+            "MC_QUENCH_SWEEPS": (self.MC_QUENCH_SWEEPS, 0),
         }
         for name, (value, minimum) in integer_ranges.items():
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
@@ -351,9 +365,11 @@ class LayoutGenerationSettings:
                 None,
             ),
             "PACKING_GRID_SIZE": (self.PACKING_GRID_SIZE, 0.0, None),
-            "SGLD_K_PERCENT": (self.SGLD_K_PERCENT, 0.0, None),
-            "SGLD_START_TEMP": (self.SGLD_START_TEMP, 0.0, None),
-            "SGLD_NOISE_SCALE": (self.SGLD_NOISE_SCALE, 0.0, None),
+            "MC_TELEPORT_PROBABILITY": (
+                self.MC_TELEPORT_PROBABILITY,
+                0.0,
+                1.0,
+            ),
             "BOX_SCALE": (self.BOX_SCALE, 0.0, None),
             "PACKING_PADDING": (self.PACKING_PADDING, 0.0, None),
             "MAX_FORCE_LIMIT": (self.MAX_FORCE_LIMIT, 0.0, None),
@@ -365,6 +381,35 @@ class LayoutGenerationSettings:
         }
         for name, (value, minimum, maximum) in numeric_ranges.items():
             _finite_number(name, value, minimum=minimum, maximum=maximum)
+        if self.MC_RANDOM_SEED is not None and (
+            isinstance(self.MC_RANDOM_SEED, bool)
+            or not isinstance(self.MC_RANDOM_SEED, int)
+        ):
+            raise LayoutGenerationError("MC_RANDOM_SEED must be an integer or null.")
+        if (
+            self.PHYSICS_ENGINE == "Monte Carlo (Style)"
+            and self.MAX_TOTAL_REPULSION_FORCE != 0.0
+        ):
+            raise LayoutGenerationError(
+                "MAX_TOTAL_REPULSION_FORCE must be 0 for Monte Carlo (Style)."
+            )
+        if (
+            self.PHYSICS_ENGINE == "Monte Carlo (Style)"
+            and self.ENABLE_PROGRESSIVE_SIMULATION
+        ):
+            raise LayoutGenerationError(
+                "ENABLE_PROGRESSIVE_SIMULATION is unavailable for Monte Carlo (Style)."
+            )
+        if self.PHYSICS_ENGINE == "Monte Carlo (Style)":
+            from utilities import Hardware_Utils
+
+            selection = Hardware_Utils.normalize_device_selection(
+                self.LAYOUT_DEVICE_SELECTION
+            )
+            if selection not in {"auto", "cpu"}:
+                raise LayoutGenerationError(
+                    "Monte Carlo (Style) currently requires Auto Benchmark or CPU."
+                )
 
     def to_document(
         self, *, project_root: str | os.PathLike[str] = PROJECT_ROOT
@@ -423,6 +468,21 @@ def _manifest_settings(settings: LayoutGenerationSettings) -> dict[str, Any]:
         "top_edge_percent": settings.TOP_EDGE_PERCENT,
         "similarity_threshold": settings.SIMILARITY_THRESHOLD,
     }
+
+
+def _layout_compatibility_metadata(
+    settings: LayoutGenerationSettings,
+) -> tuple[str, str]:
+    """Return canonical, per-cache coordinate settings and their digest."""
+    canonical = json.dumps(
+        settings.engine_params(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return canonical, digest
 
 
 def _resolve_cache_target(
@@ -659,7 +719,12 @@ def generate_layout_cache(
         staged_paths.append(staged_cache)
         with h5py.File(staged_cache, "w") as output:
             string_dtype = h5py.string_dtype(encoding="utf-8")
+            layout_compatibility, layout_compatibility_id = (
+                _layout_compatibility_metadata(settings)
+            )
             output.attrs["cache_manifest_id"] = manifest["manifest_id"]
+            output.attrs["layout_compatibility_json"] = layout_compatibility
+            output.attrs["layout_compatibility_id"] = layout_compatibility_id
             output.create_dataset(
                 "headers",
                 data=np.asarray(full_headers, dtype=object),

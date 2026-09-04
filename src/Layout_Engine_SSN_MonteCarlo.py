@@ -24,11 +24,12 @@ except ImportError:
     NUMBA_AVAILABLE = False
 
 try:
+    from utilities import Hardware_Utils, Layout_Hardware
+except ImportError:
+    import Hardware_Utils, Layout_Hardware
+
+try:
     import torch
-    try:
-        from utilities import Hardware_Utils, Layout_Hardware
-    except ImportError:
-        import Hardware_Utils, Layout_Hardware
     HAS_TORCH = True
 except Exception as e:
     import traceback
@@ -515,6 +516,445 @@ if HAS_TORCH:
         def get_pos(self): return self.pos.cpu().numpy()
 
 
+# --- Component-energy Monte Carlo optimizer ---
+
+MC_SWEEPS = 250
+MC_QUENCH_SWEEPS = 25
+MC_TELEPORT_PROBABILITY = 0.10
+MC_RANDOM_SEED = 42
+_MIN_REPULSION_DISTANCE = 0.5
+_TEMPERATURE_END_RATIO = 1.0e-3
+
+
+def _repulsive_potential_scalar(distance, k_coul, max_force, cutoff):
+    """Return the pair potential whose negative derivative is the MC force.
+
+    The potential is anchored to zero at ``cutoff`` and exactly integrates the
+    force law used by the physics engines: a finite-distance core, optional
+    per-pair force cap, and the linear taper over the outer 20% of the cutoff.
+    """
+    if cutoff <= 0.0 or k_coul <= 0.0 or distance >= cutoff:
+        return 0.0
+
+    lower = max(float(distance), 0.0)
+    taper_start = cutoff * 0.8
+    taper_width = max(cutoff * 0.2, 1.0e-12)
+
+    flat_radius = _MIN_REPULSION_DISTANCE
+    if max_force > 0.0:
+        cap_radius = math.sqrt(k_coul / max_force)
+        if cap_radius > flat_radius:
+            flat_radius = cap_radius
+    flat_force = k_coul / (flat_radius * flat_radius)
+
+    def integrate_flat(lo, hi):
+        if hi <= lo:
+            return 0.0
+        value = 0.0
+        inner_hi = min(hi, taper_start)
+        if inner_hi > lo:
+            value += flat_force * (inner_hi - lo)
+        taper_lo = max(lo, taper_start)
+        if hi > taper_lo:
+            value += (flat_force / taper_width) * (
+                cutoff * (hi - taper_lo)
+                - 0.5 * (hi * hi - taper_lo * taper_lo)
+            )
+        return value
+
+    def integrate_inverse_square(lo, hi):
+        if hi <= lo:
+            return 0.0
+        value = 0.0
+        inner_hi = min(hi, taper_start)
+        if inner_hi > lo:
+            value += k_coul * (1.0 / lo - 1.0 / inner_hi)
+        taper_lo = max(lo, taper_start)
+        if hi > taper_lo:
+            value += (k_coul / taper_width) * (
+                cutoff / taper_lo
+                - cutoff / hi
+                + math.log(taper_lo / hi)
+            )
+        return value
+
+    energy = 0.0
+    flat_hi = min(flat_radius, cutoff)
+    if lower < flat_hi:
+        energy += integrate_flat(lower, flat_hi)
+    inverse_lo = max(lower, flat_radius)
+    if inverse_lo < cutoff:
+        energy += integrate_inverse_square(inverse_lo, cutoff)
+    return energy
+
+
+if NUMBA_AVAILABLE:
+    repulsive_pair_energy = jit(
+        nopython=True, fastmath=True
+    )(_repulsive_potential_scalar)
+else:
+    repulsive_pair_energy = _repulsive_potential_scalar
+
+
+def _repulsive_energy_sum_scalar(
+    position,
+    positions,
+    candidate_indices,
+    k_coul,
+    max_force,
+    cutoff,
+):
+    total = 0.0
+    for offset in range(candidate_indices.shape[0]):
+        other = candidate_indices[offset]
+        dx = position[0] - positions[other, 0]
+        dy = position[1] - positions[other, 1]
+        distance = math.sqrt(dx * dx + dy * dy)
+        total += repulsive_pair_energy(
+            distance, k_coul, max_force, cutoff
+        )
+    return total
+
+
+if NUMBA_AVAILABLE:
+    repulsive_energy_sum = jit(
+        nopython=True, fastmath=True
+    )(_repulsive_energy_sum_scalar)
+else:
+    repulsive_energy_sum = _repulsive_energy_sum_scalar
+
+
+class ComponentSpatialHash:
+    """Exact cutoff-neighbor index for one independently optimized component."""
+
+    def __init__(self, positions, cutoff):
+        self.cutoff = float(cutoff)
+        self.cells = {}
+        self.node_cells = [None] * len(positions)
+        if self.cutoff > 0.0:
+            for node, position in enumerate(positions):
+                self._insert(node, position)
+
+    def _key(self, position):
+        return (
+            int(math.floor(float(position[0]) / self.cutoff)),
+            int(math.floor(float(position[1]) / self.cutoff)),
+        )
+
+    def _insert(self, node, position):
+        key = self._key(position)
+        self.cells.setdefault(key, set()).add(int(node))
+        self.node_cells[node] = key
+
+    def candidates(self, position):
+        if self.cutoff <= 0.0:
+            return set()
+        cell_x, cell_y = self._key(position)
+        result = set()
+        for offset_x in (-1, 0, 1):
+            for offset_y in (-1, 0, 1):
+                result.update(
+                    self.cells.get((cell_x + offset_x, cell_y + offset_y), ())
+                )
+        return result
+
+    def update(self, node, position):
+        if self.cutoff <= 0.0:
+            return
+        old_key = self.node_cells[node]
+        new_key = self._key(position)
+        if old_key == new_key:
+            return
+        old_nodes = self.cells[old_key]
+        old_nodes.remove(node)
+        if not old_nodes:
+            del self.cells[old_key]
+        self.cells.setdefault(new_key, set()).add(node)
+        self.node_cells[node] = new_key
+
+
+class ComponentEnergyMonteCarlo:
+    """Metropolis annealing over the exact total energy of one component."""
+
+    def __init__(self, positions, edges, box_limit, params, rng):
+        self.pos = np.asarray(positions, dtype=np.float64).copy()
+        self.edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+        self.box_limit = float(np.asarray(box_limit).reshape(-1)[0])
+        self.params = params
+        self.rng = rng
+        self.spring_k = float(params.get('SPRING_K', 0.1))
+        self.k_coul = float(params.get('COULOMB_K', 50.0))
+        self.cutoff = float(params.get('COULOMB_CUTOFF', 30.0))
+        self.max_force = float(params.get('MAX_FORCE_LIMIT', 20.0))
+        self.teleport_probability = float(
+            params.get('MC_TELEPORT_PROBABILITY', MC_TELEPORT_PROBABILITY)
+        )
+        self.proposal_scale = (
+            self.cutoff if self.cutoff > 0.0 else max(self.box_limit, 1.0)
+        )
+        self.local_sigma = 0.1 * self.proposal_scale
+        self.teleport_sigma = 0.25 * self.proposal_scale
+        self.incident_nodes = [[] for _ in range(len(self.pos))]
+        graph_neighbor_sets = [set() for _ in range(len(self.pos))]
+        for node_a, node_b in self.edges:
+            if node_a == node_b:
+                continue
+            self.incident_nodes[int(node_a)].append(int(node_b))
+            self.incident_nodes[int(node_b)].append(int(node_a))
+            graph_neighbor_sets[int(node_a)].add(int(node_b))
+            graph_neighbor_sets[int(node_b)].add(int(node_a))
+        self.graph_neighbors = [
+            np.asarray(sorted(neighbors), dtype=np.int32)
+            for neighbors in graph_neighbor_sets
+        ]
+        self.spatial = ComponentSpatialHash(self.pos, self.cutoff)
+        self.current_energy = self.total_energy()
+        self.best_energy = self.current_energy
+        self.best_pos = self.pos.copy()
+        self.energy_history = [self.current_energy]
+        self.max_energy_drift = 0.0
+        self.quench_energy_history = []
+        self.quench_sweeps_completed = 0
+
+    def _pair_energy(self, position_a, position_b):
+        distance = float(np.linalg.norm(position_a - position_b))
+        return float(repulsive_pair_energy(
+            distance, self.k_coul, self.max_force, self.cutoff
+        ))
+
+    def total_energy(self):
+        if len(self.edges):
+            spring_deltas = (
+                self.pos[self.edges[:, 0]] - self.pos[self.edges[:, 1]]
+            )
+            spring_energy = 0.5 * self.spring_k * float(
+                np.einsum('ij,ij->', spring_deltas, spring_deltas)
+            )
+        else:
+            spring_energy = 0.0
+
+        repulsive_energy = 0.0
+        if self.cutoff > 0.0 and self.k_coul > 0.0:
+            for node_a, position in enumerate(self.pos):
+                candidate_indices = np.fromiter(
+                    (
+                        node_b
+                        for node_b in self.spatial.candidates(position)
+                        if node_b > node_a
+                    ),
+                    dtype=np.int32,
+                )
+                repulsive_energy += repulsive_energy_sum(
+                    position,
+                    self.pos,
+                    candidate_indices,
+                    self.k_coul,
+                    self.max_force,
+                    self.cutoff,
+                )
+        return float(spring_energy + repulsive_energy)
+
+    def energy_delta(self, node, proposed_position):
+        old_position = self.pos[node]
+        delta_energy = 0.0
+        for other in self.incident_nodes[node]:
+            old_delta = old_position - self.pos[other]
+            new_delta = proposed_position - self.pos[other]
+            delta_energy += 0.5 * self.spring_k * (
+                float(np.dot(new_delta, new_delta))
+                - float(np.dot(old_delta, old_delta))
+            )
+
+        candidates = self.spatial.candidates(old_position)
+        candidates.update(self.spatial.candidates(proposed_position))
+        candidate_indices = np.fromiter(
+            (other for other in candidates if other != node),
+            dtype=np.int32,
+        )
+        delta_energy += repulsive_energy_sum(
+            proposed_position,
+            self.pos,
+            candidate_indices,
+            self.k_coul,
+            self.max_force,
+            self.cutoff,
+        ) - repulsive_energy_sum(
+            old_position,
+            self.pos,
+            candidate_indices,
+            self.k_coul,
+            self.max_force,
+            self.cutoff,
+        )
+        return float(delta_energy)
+
+    def _proposal(self, node, *, local_only=False):
+        old_position = self.pos[node]
+        if local_only or self.rng.random() >= self.teleport_probability:
+            return (
+                old_position + self.rng.normal(0.0, self.local_sigma, 2),
+                0.0,
+                'local',
+            )
+
+        if self.rng.random() < 0.8 and self.graph_neighbors[node].size:
+            centroid = self.pos[self.graph_neighbors[node]].mean(axis=0)
+            proposed = centroid + self.rng.normal(
+                0.0, self.teleport_sigma, 2
+            )
+            inverse_variance = 1.0 / (self.teleport_sigma * self.teleport_sigma)
+            old_sq = float(np.dot(old_position - centroid, old_position - centroid))
+            new_sq = float(np.dot(proposed - centroid, proposed - centroid))
+            log_hastings = -0.5 * (old_sq - new_sq) * inverse_variance
+            return proposed, log_hastings, 'neighbor'
+
+        proposed = self.rng.uniform(-self.box_limit, self.box_limit, 2)
+        return proposed, 0.0, 'uniform'
+
+    def _attempt(self, node, temperature, *, local_only=False):
+        proposed, log_hastings, proposal_kind = self._proposal(
+            node, local_only=local_only
+        )
+        if not np.isfinite(proposed).all() or np.any(
+            np.abs(proposed) > self.box_limit
+        ):
+            return False, proposal_kind
+
+        delta_energy = self.energy_delta(node, proposed)
+        if not math.isfinite(delta_energy):
+            return False, proposal_kind
+
+        if temperature <= 0.0:
+            accepted = delta_energy < 0.0
+        else:
+            log_acceptance = -delta_energy / temperature + log_hastings
+            accepted = log_acceptance >= 0.0 or math.log(
+                max(float(self.rng.random()), 1.0e-300)
+            ) < log_acceptance
+
+        if not accepted:
+            return False, proposal_kind
+
+        self.pos[node] = proposed
+        self.spatial.update(node, proposed)
+        self.current_energy += delta_energy
+        if self.current_energy < self.best_energy:
+            self.best_energy = self.current_energy
+            self.best_pos = self.pos.copy()
+        return True, proposal_kind
+
+    def _calibrate_temperature(self):
+        proposal_count = min(256, max(32, len(self.pos)))
+        positive_deltas = []
+        for _ in range(proposal_count):
+            node = int(self.rng.integers(0, len(self.pos)))
+            proposed, _, _ = self._proposal(node)
+            if np.isfinite(proposed).all() and not np.any(
+                np.abs(proposed) > self.box_limit
+            ):
+                delta_energy = self.energy_delta(node, proposed)
+                if math.isfinite(delta_energy) and delta_energy > 0.0:
+                    positive_deltas.append(delta_energy)
+        if not positive_deltas:
+            return 0.0
+        return float(np.median(positive_deltas) / math.log(2.0))
+
+    def _reconcile_energy(self):
+        exact_energy = self.total_energy()
+        drift = abs(exact_energy - self.current_energy)
+        self.max_energy_drift = max(self.max_energy_drift, drift)
+        self.current_energy = exact_energy
+        if exact_energy < self.best_energy:
+            self.best_energy = exact_energy
+            self.best_pos = self.pos.copy()
+        self.energy_history.append(exact_energy)
+
+    def optimize(self):
+        sweeps = int(self.params.get('MC_SWEEPS', MC_SWEEPS))
+        quench_sweeps = int(
+            self.params.get('MC_QUENCH_SWEEPS', MC_QUENCH_SWEEPS)
+        )
+        start_temperature = self._calibrate_temperature()
+        adaptation_sweeps = max(1, int(math.ceil(0.2 * sweeps)))
+        local_attempts = 0
+        local_accepts = 0
+
+        for sweep in range(sweeps):
+            if start_temperature > 0.0 and sweeps > 1:
+                progress = sweep / float(sweeps - 1)
+                temperature = start_temperature * (
+                    _TEMPERATURE_END_RATIO ** progress
+                )
+            else:
+                temperature = 0.0
+
+            for node in self.rng.permutation(len(self.pos)):
+                accepted, proposal_kind = self._attempt(
+                    int(node), temperature
+                )
+                if proposal_kind == 'local':
+                    local_attempts += 1
+                    local_accepts += int(accepted)
+
+            if (
+                sweep < adaptation_sweeps
+                and (sweep + 1) % 10 == 0
+                and local_attempts > 0
+            ):
+                acceptance_rate = local_accepts / float(local_attempts)
+                if acceptance_rate < 0.25:
+                    self.local_sigma *= 0.8
+                elif acceptance_rate > 0.45:
+                    self.local_sigma *= 1.2
+                self.local_sigma = min(
+                    max(self.local_sigma, 0.01 * self.proposal_scale),
+                    self.proposal_scale,
+                )
+                local_attempts = 0
+                local_accepts = 0
+
+            if (sweep + 1) % 10 == 0:
+                self._reconcile_energy()
+
+        quench_start_sigma = self.local_sigma
+        inactive_sweeps = 0
+        for sweep in range(quench_sweeps):
+            if quench_sweeps > 1:
+                progress = sweep / float(quench_sweeps - 1)
+                self.local_sigma = quench_start_sigma * (0.1 ** progress)
+            accepted_count = 0
+            for node in self.rng.permutation(len(self.pos)):
+                accepted, _ = self._attempt(
+                    int(node), 0.0, local_only=True
+                )
+                accepted_count += int(accepted)
+            self._reconcile_energy()
+            self.quench_sweeps_completed = sweep + 1
+            self.quench_energy_history.append(self.current_energy)
+            if accepted_count == 0:
+                inactive_sweeps += 1
+                if inactive_sweeps >= 5:
+                    break
+            else:
+                inactive_sweeps = 0
+
+        self._reconcile_energy()
+        best_energy = self.total_energy_for(self.best_pos)
+        self.best_energy = best_energy
+        return self.best_pos.astype(np.float32), float(best_energy)
+
+    def total_energy_for(self, positions):
+        current_pos = self.pos
+        current_spatial = self.spatial
+        try:
+            self.pos = np.asarray(positions, dtype=np.float64)
+            self.spatial = ComponentSpatialHash(self.pos, self.cutoff)
+            return self.total_energy()
+        finally:
+            self.pos = current_pos
+            self.spatial = current_spatial
+
+
 # --- 2. Components & Packing Logic (Identical API for seamless integration) ---
 
 def find_connected_components(n_nodes, edges):
@@ -857,7 +1297,7 @@ def _run_layout_stage(
         Hardware_Utils.release_device_cache(candidate)
 
 
-def calculate_layout(connectivity, n_nodes, params):
+def _calculate_layout_sgld_legacy(connectivity, n_nodes, params):
     """
     Main layout generation pipeline using Monte Carlo SGLD.
     """
@@ -1070,5 +1510,148 @@ def calculate_layout(connectivity, n_nodes, params):
         params.get('PACKING_GRID_SIZE', 200.0), 
         params.get('PACKING_PADDING', 50.0),
         params.get('PACKING_GEOMETRY', 'Square')
+    )
+    return final_pos, final_box_limit
+
+
+def _validate_energy_monte_carlo_params(params):
+    selection = Hardware_Utils.normalize_device_selection(
+        params.get('LAYOUT_DEVICE_SELECTION', 'auto')
+    )
+    if selection not in {'auto', 'cpu'}:
+        raise ValueError(
+            "Monte Carlo (Style) currently requires CPU execution; select "
+            "Auto Benchmark or CPU."
+        )
+    pair_force_limit = float(params.get('MAX_FORCE_LIMIT', 20.0))
+    if not math.isfinite(pair_force_limit) or pair_force_limit < 0.0:
+        raise ValueError("MAX_FORCE_LIMIT must be a finite non-negative value.")
+    if float(params.get('MAX_TOTAL_REPULSION_FORCE', 0.0)) != 0.0:
+        raise ValueError(
+            "MAX_TOTAL_REPULSION_FORCE must be 0 for energy Monte Carlo "
+            "because accumulated-force clipping has no scalar pair energy."
+        )
+    if bool(params.get('ENABLE_PROGRESSIVE_SIMULATION', False)):
+        raise ValueError(
+            "Progressive simulation is unavailable for energy Monte Carlo "
+            "because it changes the component objective during optimization."
+        )
+
+    sweeps = params.get('MC_SWEEPS', MC_SWEEPS)
+    quench_sweeps = params.get('MC_QUENCH_SWEEPS', MC_QUENCH_SWEEPS)
+    teleport_probability = params.get(
+        'MC_TELEPORT_PROBABILITY', MC_TELEPORT_PROBABILITY
+    )
+    random_seed = params.get('MC_RANDOM_SEED', MC_RANDOM_SEED)
+    if isinstance(sweeps, bool) or int(sweeps) != sweeps or int(sweeps) < 1:
+        raise ValueError("MC_SWEEPS must be an integer of at least 1.")
+    if (
+        isinstance(quench_sweeps, bool)
+        or int(quench_sweeps) != quench_sweeps
+        or int(quench_sweeps) < 0
+    ):
+        raise ValueError("MC_QUENCH_SWEEPS must be a non-negative integer.")
+    if not math.isfinite(float(teleport_probability)) or not (
+        0.0 <= float(teleport_probability) <= 1.0
+    ):
+        raise ValueError("MC_TELEPORT_PROBABILITY must be between 0 and 1.")
+    if random_seed is not None and (
+        isinstance(random_seed, bool) or not isinstance(random_seed, (int, np.integer))
+    ):
+        raise ValueError("MC_RANDOM_SEED must be an integer or None.")
+
+
+def calculate_layout(connectivity, n_nodes, params):
+    """Generate a layout by minimizing exact per-component endpoint energy."""
+    _validate_energy_monte_carlo_params(params)
+    edges = np.asarray(connectivity[:, :2], dtype=np.int32)
+    edge_scores = np.asarray(connectivity[:, 2], dtype=np.float64)
+
+    print("Computing initial node positions using Laplacian Spectral / Grid layouts...")
+    side = int(np.ceil(np.sqrt(n_nodes))) if n_nodes else 0
+    base_box = np.sqrt(n_nodes) * 2.5 + 5.0 if n_nodes else 5.0
+    initial_box_limit = base_box * params.get('BOX_SCALE', 1.0)
+    if n_nodes:
+        axis = np.linspace(
+            -initial_box_limit * 0.5,
+            initial_box_limit * 0.5,
+            side,
+        )
+        grid_x, grid_y = np.meshgrid(axis, axis)
+        final_pos = np.column_stack(
+            (grid_x.flatten(), grid_y.flatten())
+        )[:n_nodes].astype(np.float32)
+    else:
+        final_pos = np.zeros((0, 2), dtype=np.float32)
+
+    components = find_connected_components(n_nodes, edges)
+    components.sort(key=len, reverse=True)
+    active_components = [component for component in components if len(component) > 1]
+    print(f"Found {len(active_components)} active components.")
+    print("  > Energy Monte Carlo uses exact CPU component objectives.")
+
+    node_to_component = {}
+    for component_index, component in enumerate(active_components):
+        for node in component:
+            node_to_component[node] = component_index
+    component_edges = {
+        component_index: [] for component_index in range(len(active_components))
+    }
+    component_scores = {
+        component_index: [] for component_index in range(len(active_components))
+    }
+    for edge_index, (source, target) in enumerate(edges):
+        component_index = node_to_component.get(int(source))
+        if component_index is not None:
+            component_edges[component_index].append((int(source), int(target)))
+            component_scores[component_index].append(float(edge_scores[edge_index]))
+
+    random_seed = params.get('MC_RANDOM_SEED', MC_RANDOM_SEED)
+    seed_sequence = np.random.SeedSequence(
+        None if random_seed is None else int(random_seed)
+    )
+    component_seeds = seed_sequence.spawn(len(active_components))
+
+    for component_index, (component, component_seed) in enumerate(
+        zip(active_components, component_seeds)
+    ):
+        rng = np.random.default_rng(component_seed)
+        prepared = Layout_Hardware.prepare_layout_batch(
+            [component],
+            node_to_component,
+            component_edges,
+            component_scores,
+            params,
+            add_noise=True,
+            verbose=True,
+            rng=rng,
+        )
+        optimizer = ComponentEnergyMonteCarlo(
+            prepared.positions,
+            prepared.edges,
+            prepared.box_limits,
+            params,
+            rng,
+        )
+        print(
+            f"\nOptimizing component {component_index + 1}/"
+            f"{len(active_components)} ({len(component)} nodes)..."
+        )
+        component_positions, component_energy = optimizer.optimize()
+        print(
+            f"  > Best component energy: {component_energy:.8g}; "
+            f"maximum reconciliation drift: {optimizer.max_energy_drift:.3g}"
+        )
+        final_pos[prepared.global_nodes] = component_positions
+
+    if n_nodes == 0:
+        return final_pos, 0.0
+    final_pos, final_box_limit = pack_components_to_grid(
+        final_pos,
+        edges,
+        n_nodes,
+        params.get('PACKING_GRID_SIZE', 200.0),
+        params.get('PACKING_PADDING', 50.0),
+        params.get('PACKING_GEOMETRY', 'Square'),
     )
     return final_pos, final_box_limit
