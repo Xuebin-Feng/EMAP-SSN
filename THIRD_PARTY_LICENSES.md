@@ -148,6 +148,8 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | torch | BSD-3-Clause — CPU, CUDA, XPU, Linux ROCm, or Windows ROCm build selected at installation |
 | AMD ROCm 7.14 runtime wheel components | MIT — downloaded dynamically from AMD's official index only for supported Windows AMD GPUs |
 | accelerate | Apache-2.0 |
+| mcp 2.1.1 (official Model Context Protocol Python SDK) | MIT |
+| pydantic (MCP runtime dependency) | MIT |
 | sentencepiece 0.2.1 | Apache-2.0 |
 | numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown | BSD-3-Clause |

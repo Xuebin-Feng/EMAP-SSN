@@ -15,7 +15,6 @@ Multiple Sequence Alignments (MSAs) directly into network exploration, the
 platform bridges macroscopic sequence relationships with microscopic
 residue-level conservation to provide a multi-scale view of protein sequence
 space.
-
 The current release is **v0.1.0**, the first stable GitHub release of the
 source distribution. Because EMAP-SSN remains below version 1.0, command
 interfaces and persisted formats may evolve between releases. See the
@@ -80,6 +79,80 @@ project root. Omitting the argument preserves the GUI-compatible behavior of
 reading `tools_settings.json` from the project root. Model acknowledgement remains a
 separate command, for example
 `python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID`.
+
+### 🔌 Local STDIO MCP server
+
+`src/EMAPSSN_MCP_Server.py` exposes the 14 pipeline programs and bounded,
+read-only Viewer inspection to local MCP clients. It uses STDIO only: the
+client starts one server process and communicates through its standard input
+and output. Run the normal project installer after updating this branch so the
+managed environment includes the pinned MCP SDK.
+
+Use absolute paths in client configuration. On Windows, replace `<PROJECT>`
+below with the absolute repository path:
+
+```powershell
+# Codex
+codex mcp add emapssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\EMAPSSN_MCP_Server.py"
+
+# Claude Code (user scope)
+claude mcp add --transport stdio --scope user emapssn -- "<PROJECT>\.venv\Scripts\python.exe" "<PROJECT>\src\EMAPSSN_MCP_Server.py"
+```
+
+For VS Code, add this to the appropriate `mcp.json` file:
+
+```json
+{
+  "servers": {
+    "emapssn": {
+      "type": "stdio",
+      "command": "<PROJECT>\\.venv\\Scripts\\python.exe",
+      "args": ["<PROJECT>\\src\\EMAPSSN_MCP_Server.py"]
+    }
+  }
+}
+```
+
+Antigravity and clients using the common `mcpServers` form, including many
+open-source harnesses, can use:
+
+```json
+{
+  "mcpServers": {
+    "emapssn": {
+      "command": "<PROJECT>\\.venv\\Scripts\\python.exe",
+      "args": ["<PROJECT>\\src\\EMAPSSN_MCP_Server.py"]
+    }
+  }
+}
+```
+
+On Linux or macOS, use `<PROJECT>/.venv/bin/python` and forward-slash paths.
+No environment activation or wrapper script is required. A harness with a
+different configuration schema needs only the same executable and server-file
+arguments over its local STDIO transport.
+
+The MCP server provides a generic pipeline catalog plus start, status, log,
+and cancellation tools. A start request accepts either the exported JSON
+document itself or a path to that document. Each client connection owns one
+FIFO with one running and at most 16 pending jobs. Closing or restarting that
+client terminates its running job and cancels its queued jobs; different MCP
+clients do not share a queue and can start conflicting calculations. Pipeline
+jobs may create or overwrite files according to their settings, and cancelling
+a job does not roll back files already written.
+
+Job responses report captured stdout/stderr, the immutable settings snapshot,
+and the configured result directories. They do not guess the exact scientific
+files produced by a program. MCP-owned logs and snapshots are temporary and
+are removed on normal server shutdown; an abrupt crash can leave a private
+`sequence_similarity_network_viewer/mcp_jobs/server-*` directory below the
+operating system's temporary directory, which is safe to remove when no MCP
+server is running.
+
+Viewer tools discover normally running Viewer processes and reuse their
+authenticated, loopback-only inspection endpoints. They cannot modify the
+Viewer. When multiple Viewers are open, callers must provide a session ID.
+Discovery tokens and descriptor paths are never returned by MCP tools.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
@@ -478,6 +551,10 @@ protein-language-model weights governed by their own terms. A full inventory,
 including which components are redistributed and which are merely required at
 runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+This MCP-enabled branch also installs the official `mcp` 2.1.1 Python SDK and
+its Pydantic runtime dependency; both are MIT-licensed and are not bundled in
+the source repository.
 
 The optional Ankh weights are licensed separately under **CC BY-NC-SA 4.0** and
 are restricted to non-commercial use. The application labels these models and

@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 import os
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -41,19 +42,30 @@ def session_directory():
     configured = os.environ.get(SESSION_DIRECTORY_ENV)
     if configured:
         return os.path.abspath(os.fspath(configured))
-    return os.path.join(
+    base = os.path.join(
         tempfile.gettempdir(),
         "sequence_similarity_network_viewer",
         "viewer_sessions",
     )
+    try:
+        os.makedirs(base, exist_ok=True)
+        os.listdir(base)
+    except (OSError, PermissionError):
+        base = os.path.join(
+            tempfile.gettempdir(),
+            "sequence_similarity_network_viewer_sessions",
+        )
+        os.makedirs(base, exist_ok=True)
+    return base
 
 
 def _secure_directory(path):
     os.makedirs(path, mode=0o700, exist_ok=True)
-    try:
-        os.chmod(path, 0o700)
-    except OSError:
-        pass
+    if sys.platform != "win32":
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
 
 
 def publish_viewer_session(
@@ -91,10 +103,11 @@ def publish_viewer_session(
         with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, indent=2)
             handle.write("\n")
-        try:
-            os.chmod(partial_path, 0o600)
-        except OSError:
-            pass
+        if sys.platform != "win32":
+            try:
+                os.chmod(partial_path, 0o600)
+            except OSError:
+                pass
         os.replace(partial_path, descriptor_path)
     finally:
         if os.path.exists(partial_path):
@@ -193,7 +206,7 @@ def discover_viewer_sessions(*, timeout=0.5, prune_stale=True):
     root = session_directory()
     try:
         names = sorted(os.listdir(root))
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError, OSError):
         return []
     sessions = []
     for name in names:
@@ -201,12 +214,16 @@ def discover_viewer_sessions(*, timeout=0.5, prune_stale=True):
             continue
         path = os.path.join(root, name)
         descriptor = _load_descriptor(path)
-        if descriptor is not None and _validate_live_session(descriptor, timeout):
-            sessions.append(descriptor)
+        if descriptor is None:
             continue
-        if prune_stale and descriptor is not None:
-            if _process_is_running(descriptor.pid) is False:
+        if _process_is_running(descriptor.pid) is False:
+            if prune_stale:
                 remove_viewer_session(path)
+            continue
+        if _validate_live_session(descriptor, timeout):
+            sessions.append(descriptor)
+        elif prune_stale and _process_is_running(descriptor.pid) is False:
+            remove_viewer_session(path)
     return sorted(sessions, key=lambda item: (item.started_at, item.session_id))
 
 

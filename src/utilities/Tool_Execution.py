@@ -15,6 +15,7 @@ import tempfile
 import uuid
 
 from utilities.Tool_Directories import (
+    DEFAULT_DIRECTORY_PATHS,
     TOOL_DIRECTORY_KEYS,
     fill_missing_directory_defaults,
 )
@@ -34,6 +35,7 @@ class ToolSpec:
     script_name: str
     settings_section: str
     required_directories: tuple[str, ...]
+    output_directories: tuple[str, ...]
     relative_script: str
 
     def script_path(self, project_root):
@@ -68,8 +70,32 @@ _TOOL_IDS = {
     "Sparse_MSA_Converter.py": "sparse_msa_converter",
 }
 
+_TOOL_OUTPUT_DIRECTORIES = {
+    "Align_Similarity_Matrix.py": ("NETWORK_DIR",),
+    "Align_Substitution_Matrix.py": ("NETWORK_DIR",),
+    "Embedding_Cropping.py": ("EMBED_DIR",),
+    "Embedding_Extraction.py": ("EMBED_DIR",),
+    "Embedding_Injection.py": ("EMBED_DIR",),
+    "Embedding_MSA.py": ("MSA_DIR",),
+    "Embedding_PWA.py": ("REPORT_DIR",),
+    "Embedding_SSEARCH.py": ("REPORT_DIR",),
+    "Generate_Embeddings.py": ("EMBED_DIR",),
+    "Network_Extraction.py": ("NETWORK_DIR",),
+    "Network_Injection.py": ("NETWORK_DIR",),
+    "Parse_BLAST_Output.py": ("NETWORK_DIR",),
+    "Sanitize_Sequences.py": ("FASTA_DIR",),
+    "Sparse_MSA_Converter.py": ("MSA_DIR",),
+}
+
 if set(_TOOL_IDS) != set(TOOL_DIRECTORY_KEYS):
     raise RuntimeError("The tool execution catalog does not match Tool_Directories.")
+if set(_TOOL_OUTPUT_DIRECTORIES) != set(_TOOL_IDS):
+    raise RuntimeError("The tool output catalog does not match the tool catalog.")
+for _script_name, _directory_keys in _TOOL_OUTPUT_DIRECTORIES.items():
+    if not set(_directory_keys).issubset(TOOL_DIRECTORY_KEYS[_script_name]):
+        raise RuntimeError(
+            f"Output directories for {_script_name} must be required directories."
+        )
 
 TOOL_SPECS = tuple(
     ToolSpec(
@@ -77,6 +103,7 @@ TOOL_SPECS = tuple(
         script_name=script_name,
         settings_section=script_name,
         required_directories=tuple(TOOL_DIRECTORY_KEYS[script_name]),
+        output_directories=tuple(_TOOL_OUTPUT_DIRECTORIES[script_name]),
         relative_script=os.path.join("src", "tools", script_name),
     )
     for script_name, tool_id in _TOOL_IDS.items()
@@ -220,6 +247,31 @@ def create_settings_snapshot(spec, settings_source, *, snapshot_directory=None):
     return snapshot_path
 
 
+def resolve_tool_directories(
+    spec,
+    settings_source,
+    project_root,
+    *,
+    output_only=False,
+):
+    """Resolve effective configured directories without changing the document."""
+    if not isinstance(spec, ToolSpec):
+        spec = get_tool_spec(spec)
+    document = _normalized_source_document(spec, settings_source)
+    configured = document.get("DIRECTORIES", {})
+    keys = spec.output_directories if output_only else spec.required_directories
+    resolved = {}
+    for key in keys:
+        value = configured.get(key)
+        if value is None or not str(value).strip():
+            value = DEFAULT_DIRECTORY_PATHS[key]
+        path = os.fspath(value)
+        if not os.path.isabs(path):
+            path = os.path.join(project_root, path)
+        resolved[key] = os.path.abspath(os.path.normpath(path))
+    return resolved
+
+
 def prepare_gui_invocation(script_path, project_root, *, python_executable=None):
     """Resolve the GUI's unchanged visible-terminal invocation."""
     spec = get_tool_spec_for_script(script_path)
@@ -319,6 +371,7 @@ __all__ = [
     "prepare_gui_invocation",
     "prepare_exported_invocation",
     "prepare_headless_invocation",
+    "resolve_tool_directories",
     "save_shared_tool_settings",
     "write_json_document",
 ]
