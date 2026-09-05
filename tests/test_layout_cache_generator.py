@@ -43,7 +43,6 @@ def _settings_document(temp_path, *, cache_filename="version_00.h5"):
             "UMAP_MODE": False,
             "UMAP_NEIGHBORS": 15,
             "UMAP_MIN_DIST": 0.1,
-            "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
             "LAYOUT_DEVICE_SELECTION": "auto",
             "SPRING_K": 5.0,
             "COULOMB_K": 10.0,
@@ -57,10 +56,6 @@ def _settings_document(temp_path, *, cache_filename="version_00.h5"):
             "ENABLE_PROGRESSIVE_SIMULATION": False,
             "PACKING_GEOMETRY": "Square",
             "PACKING_GRID_SIZE": 20.0,
-            "SGLD_MIN_K": 20,
-            "SGLD_K_PERCENT": 0.01,
-            "SGLD_START_TEMP": 1.5,
-            "SGLD_NOISE_SCALE": 1.0,
         },
     }
 
@@ -201,10 +196,8 @@ class LayoutSettingsTests(unittest.TestCase):
             self.assertEqual(payload["PACKING_PADDING"], 10.0)
             self.assertEqual(payload["MAX_FORCE_LIMIT"], 20.0)
             self.assertEqual(payload["MAX_TOTAL_REPULSION_FORCE"], 0.0)
-            self.assertEqual(payload["MC_SWEEPS"], 250)
-            self.assertEqual(payload["MC_QUENCH_SWEEPS"], 25)
-            self.assertEqual(payload["MC_TELEPORT_PROBABILITY"], 0.10)
-            self.assertEqual(payload["MC_RANDOM_SEED"], 42)
+            self.assertNotIn("PHYSICS_ENGINE", payload)
+            self.assertFalse(any(key.startswith("MC_") for key in payload))
             self.assertFalse(any(key.startswith("SGLD_") for key in payload))
             self.assertNotIn("NODE_SIZE", payload)
             self.assertNotIn("MSA_FILE", payload)
@@ -216,22 +209,31 @@ class LayoutSettingsTests(unittest.TestCase):
             ):
                 LayoutGenerationSettings.from_document(document)
 
-    def test_monte_carlo_validation_and_explicit_null_seed(self):
+    def test_obsolete_layout_engine_settings_are_ignored(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = pathlib.Path(temp_dir)
             document = _settings_document(temp_path)
             payload = document["Layout_Cache_Generator.py"]
-            payload["PHYSICS_ENGINE"] = "Monte Carlo (Style)"
-            payload["LAYOUT_DEVICE_SELECTION"] = "cpu"
-            payload["MC_RANDOM_SEED"] = None
+            payload.update(
+                {
+                    "PHYSICS_ENGINE": "historical engine value",
+                    "MC_SWEEPS": "ignored",
+                    "MC_QUENCH_SWEEPS": -1,
+                    "MC_TELEPORT_PROBABILITY": object(),
+                    "MC_RANDOM_SEED": None,
+                    "SGLD_MIN_K": 20,
+                    "SGLD_K_PERCENT": 0.01,
+                    "SGLD_START_TEMP": 1.5,
+                    "SGLD_NOISE_SCALE": 1.0,
+                }
+            )
             settings = LayoutGenerationSettings.from_document(document)
-            self.assertIsNone(settings.MC_RANDOM_SEED)
-
-            payload["MAX_TOTAL_REPULSION_FORCE"] = 1.0
-            with self.assertRaisesRegex(
-                LayoutGenerationError, "MAX_TOTAL_REPULSION_FORCE must be 0"
-            ):
-                LayoutGenerationSettings.from_document(document)
+            exported = settings.to_document(project_root=ROOT)[
+                "Layout_Cache_Generator.py"
+            ]
+            self.assertNotIn("PHYSICS_ENGINE", exported)
+            self.assertFalse(any(key.startswith("MC_") for key in exported))
+            self.assertFalse(any(key.startswith("SGLD_") for key in exported))
 
     def test_missing_unsafe_and_wrong_typed_settings_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -377,12 +379,13 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 layout_metadata = json.loads(
                     cache.attrs["layout_compatibility_json"]
                 )
-                self.assertEqual(layout_metadata["MC_SWEEPS"], 250)
-                self.assertEqual(layout_metadata["MC_QUENCH_SWEEPS"], 25)
-                self.assertEqual(
-                    layout_metadata["MC_TELEPORT_PROBABILITY"], 0.10
+                self.assertNotIn("PHYSICS_ENGINE", layout_metadata)
+                self.assertFalse(
+                    any(key.startswith("MC_") for key in layout_metadata)
                 )
-                self.assertEqual(layout_metadata["MC_RANDOM_SEED"], 42)
+                self.assertFalse(
+                    any(key.startswith("SGLD_") for key in layout_metadata)
+                )
                 canonical = json.dumps(
                     layout_metadata,
                     sort_keys=True,
@@ -413,27 +416,26 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             _write_inputs(temp_path)
 
             cases = (
+                (False, "md.h5", "Layout_Engine_SSN_MolecularDynamics", {}),
                 (
-                    "Monte Carlo (Style)",
                     False,
-                    "mc.h5",
-                    "Layout_Engine_SSN_MonteCarlo",
+                    "legacy_mc.h5",
+                    "Layout_Engine_SSN_MolecularDynamics",
+                    {
+                        "PHYSICS_ENGINE": "Monte Carlo (Style)",
+                        "MC_RANDOM_SEED": None,
+                    },
                 ),
-                (
-                    "Molecular Dynamics (Style)",
-                    True,
-                    "umap.h5",
-                    "Layout_Engine_UMAP",
-                ),
+                (True, "umap.h5", "Layout_Engine_UMAP", {}),
             )
-            for engine, umap_mode, filename, module_name in cases:
+            for umap_mode, filename, module_name, legacy in cases:
                 with self.subTest(module=module_name):
                     document = _settings_document(
                         temp_path, cache_filename=filename
                     )
                     payload = document["Layout_Cache_Generator.py"]
-                    payload["PHYSICS_ENGINE"] = engine
                     payload["UMAP_MODE"] = umap_mode
+                    payload.update(legacy)
                     settings = LayoutGenerationSettings.from_document(document)
                     fake_engine = SimpleNamespace(
                         calculate_layout=lambda connectivity, count, params: (

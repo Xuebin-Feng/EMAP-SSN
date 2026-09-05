@@ -84,7 +84,12 @@ DEPRECATED_DIRECTORY_KEYS = frozenset({
     "PRINT_SAVE_DIR",
     "STRUCTURES_DIR",
 })
-LEGACY_MONTE_CARLO_KEYS = frozenset({
+OBSOLETE_LAYOUT_ENGINE_KEYS = frozenset({
+    "PHYSICS_ENGINE",
+    "MC_SWEEPS",
+    "MC_QUENCH_SWEEPS",
+    "MC_TELEPORT_PROBABILITY",
+    "MC_RANDOM_SEED",
     "SGLD_MIN_K",
     "SGLD_K_PERCENT",
     "SGLD_START_TEMP",
@@ -125,7 +130,6 @@ PACKING_GRID_SIZE = 20.0  # The base size of one grid square
 PACKING_PADDING = 10.0     # Extra padding applied to the bounding box of each cluster
 
 # --- Simulation & Physics Settings ---
-PHYSICS_ENGINE = "Molecular Dynamics (Style)"
 LAYOUT_DEVICE_SELECTION = "auto"
 SPRING_K = 5.0             
 COULOMB_K = 10.0            
@@ -142,12 +146,6 @@ PERCENTAGE_DROP_THRESHOLD = 0.1
 RMSD_WINDOW = 50
 ENABLE_PROGRESSIVE_SIMULATION = False
 PACKING_GEOMETRY = "Square"
-
-# --- Component-Energy Monte Carlo Settings ---
-MC_SWEEPS = 250
-MC_QUENCH_SWEEPS = 25
-MC_TELEPORT_PROBABILITY = 0.10
-MC_RANDOM_SEED = 42
 
 INPUT_PROFILE_DEFAULTS = {
     "NODE_FASTA_FILE": "",
@@ -181,7 +179,6 @@ VISUAL_PROFILE_DEFAULTS = {
 }
 
 PHYSICS_PROFILE_DEFAULTS = {
-    "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
     "LAYOUT_DEVICE_SELECTION": "auto",
     "SPRING_K": 5.0,
     "COULOMB_K": 10.0,
@@ -195,10 +192,6 @@ PHYSICS_PROFILE_DEFAULTS = {
     "ENABLE_PROGRESSIVE_SIMULATION": False,
     "PACKING_GEOMETRY": "Square",
     "PACKING_GRID_SIZE": 20.0,
-    "MC_SWEEPS": 250,
-    "MC_QUENCH_SWEEPS": 25,
-    "MC_TELEPORT_PROBABILITY": 0.10,
-    "MC_RANDOM_SEED": 42,
 }
 
 DIRECTORY_PROFILE_DEFAULTS = {
@@ -281,7 +274,6 @@ PROFILE_ENUM_VALUES = {
     "NORM_MODE": {
         "alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"
     },
-    "PHYSICS_ENGINE": {"Molecular Dynamics (Style)", "Monte Carlo (Style)"},
     "PACKING_GEOMETRY": {"Square", "Circle"},
 }
 
@@ -302,9 +294,6 @@ PROFILE_RANGES = {
     "DAMPING": (0.1, 2.0),
     "RMSD_WINDOW": (10, 1000),
     "PACKING_GRID_SIZE": (1.0, 200.0),
-    "MC_SWEEPS": (1, 1000000),
-    "MC_QUENCH_SWEEPS": (0, 1000000),
-    "MC_TELEPORT_PROBABILITY": (0.0, 1.0),
 }
 
 
@@ -1128,7 +1117,7 @@ if __name__ == "__main__":
             if tab_id == "directories":
                 ignored = DEPRECATED_DIRECTORY_KEYS
             elif tab_id == "simulation_physics":
-                ignored = LEGACY_MONTE_CARLO_KEYS
+                ignored = OBSOLETE_LAYOUT_ENGINE_KEYS
             else:
                 ignored = set()
             unknown = set(raw_data) - set(defaults) - ignored
@@ -1145,16 +1134,7 @@ if __name__ == "__main__":
                     value = _migrate_default_directory_path(key, value)
                 default = defaults[key]
                 try:
-                    if key == "MC_RANDOM_SEED":
-                        if value is None or str(value).strip().lower() in {
-                            "", "none", "null",
-                        }:
-                            value = None
-                        elif isinstance(value, bool) or float(value) != int(float(value)):
-                            raise ValueError("expected an integer or None")
-                        else:
-                            value = int(float(value))
-                    elif default is None:
+                    if default is None:
                         if value is None or str(value).strip().lower() in {"", "none"}:
                             value = None
                         else:
@@ -1541,8 +1521,7 @@ if __name__ == "__main__":
                 "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node.\nProvides visual contrast to cleanly separate adjacent and overlapping nodes.",
                 "NODE_BOUNDARY_WIDTH": "Stroke width (in pixels) of the outer border ring outline drawn around each node.\nSetting a non-zero width helps distinguish overlapping nodes in dense clusters.",
                 "LOW_RESOURCE_MODE": "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.\nSignificantly improves responsiveness and reduces rendering latency for large networks.",
-                "PHYSICS_ENGINE": "Selects the 2D layout engine.\nMolecular Dynamics performs local force relaxation; Monte Carlo minimizes exact connected-component energy with local and nonlocal proposals.",
-                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for physics layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark tests CPU and available accelerators separately for each layout size class.",
+                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for Molecular Dynamics layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark tests CPU and available accelerators separately for each layout size class.",
                 "SPRING_K": "Attractive Hookean spring constant pulling connected sequence nodes closer together.\nLarger values draw highly similar sequences into tighter, more compact clusters.",
                 "COULOMB_K": "Repulsive constant controlling the electrostatic-like force pushing all nodes apart.\nLarger values push unrelated nodes and clusters apart, increasing family separation.",
                 "COULOMB_CUTOFF": "Maximum spatial distance threshold beyond which node repulsive forces drop to zero.\nLower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.",
@@ -1555,10 +1534,6 @@ if __name__ == "__main__":
                 "ENABLE_PROGRESSIVE_SIMULATION": "Progressively lowers the similarity threshold in stages for massive connected components.\nHelps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.",
                 "PACKING_GEOMETRY": "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window.",
                 "PACKING_GRID_SIZE": "Base grid square unit size used for macro-grid component packing.\nControls spacing and separation between packed independent clusters in the final layout.",
-                "MC_SWEEPS": "Number of Monte Carlo sweeps per connected component.\nOne sweep proposes one move for every active node in randomized order.",
-                "MC_QUENCH_SWEEPS": "Maximum downhill-only refinement sweeps after annealing.\nThe quench stops early after five consecutive sweeps accept no moves.",
-                "MC_TELEPORT_PROBABILITY": "Probability that a node proposal is nonlocal.\nEighty percent of teleports target the node's graph-neighbor centroid and twenty percent sample the component box.",
-                "MC_RANDOM_SEED": "Random seed for reproducible component-energy Monte Carlo layouts.\nUse an integer such as 42, or None for a new random layout on each run.",
                 "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
                 "UMAP_NEIGHBORS": "Size of the local neighborhood (n_neighbors) used by UMAP to learn manifold topology.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
                 "UMAP_MIN_DIST": "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly.",
@@ -2406,10 +2381,21 @@ if __name__ == "__main__":
                 self.btn_hist.setEnabled(has_fasta and has_hdf5)
             
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
+            physics_selector = self.profile_selectors.get("simulation_physics")
+            physics_profile_editable = (
+                physics_selector is None
+                or physics_selector.currentText() != "(default)"
+            )
             if hasattr(self, 'cb_layout_device'):
-                self.cb_layout_device.setEnabled(not is_umap)
+                self.cb_layout_device.setEnabled(
+                    physics_profile_editable
+                    and not is_umap
+                )
             if "LAYOUT_DEVICE_SELECTION" in self.labels:
-                self.labels["LAYOUT_DEVICE_SELECTION"].setEnabled(not is_umap)
+                self.labels["LAYOUT_DEVICE_SELECTION"].setEnabled(
+                    physics_profile_editable
+                    and not is_umap
+                )
             
             if hasattr(self, 'spin_thresh') and hasattr(self, 'spin_top'):
                 has_top_edge = self.spin_top.optionalValue() is not None
@@ -2971,17 +2957,6 @@ if __name__ == "__main__":
             
             self.physics_defaults = PHYSICS_PROFILE_DEFAULTS
             
-            # --- 1. Physics Engine Choice ---
-            cb_engine = NoScrollComboBox()
-            cb_engine.addItems(["Molecular Dynamics (Style)", "Monte Carlo (Style)"])
-            initial_engine = globals().get("PHYSICS_ENGINE", "Molecular Dynamics (Style)")
-            cb_engine.setCurrentText(initial_engine)
-            lbl_engine = QLabel("Physics Engine:")
-            lbl_engine.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
-            form_layout.addRow(lbl_engine, cb_engine)
-            self.inputs["PHYSICS_ENGINE"] = cb_engine
-            self.labels["PHYSICS_ENGINE"] = lbl_engine
-
             cb_layout_device = NoScrollComboBox()
             for display_name, specification in Hardware_Utils.device_selection_options():
                 cb_layout_device.addItem(display_name, specification)
@@ -3002,7 +2977,7 @@ if __name__ == "__main__":
             self.labels["LAYOUT_DEVICE_SELECTION"] = lbl_layout_device
             self.cb_layout_device = cb_layout_device
             
-            # --- 2. Existing Physics Sliders ---
+            # --- Physics sliders ---
             slider_settings = [
                 {"key": "SPRING_K", "type": "float", "min": 1.0, "max": 20.0, "scale": 10.0, "decimals": 1, "default": 5.0, "tick": 10},
                 {"key": "COULOMB_K", "type": "float", "min": 1.0, "max": 30.0, "scale": 10.0, "decimals": 1, "default": 10.0, "tick": 10},
@@ -3294,53 +3269,12 @@ if __name__ == "__main__":
             packing_controls_grid.setRowMinimumHeight(0, cb_prog.height())
             form_layout.addRow(packing_controls_grid)
 
-            # --- 6. Monte Carlo settings (two columns) ---
-            monte_carlo_grid = QGridLayout()
-            monte_carlo_grid.setObjectName("monteCarloGrid")
-            monte_carlo_grid.setContentsMargins(0, 8, 0, 0)
-            monte_carlo_grid.setHorizontalSpacing(0)
-            monte_carlo_grid.setVerticalSpacing(12)
-            monte_carlo_grid.setColumnMinimumWidth(0, CONFIG_FIELD_LABEL_WIDTH)
-            monte_carlo_grid.setColumnMinimumWidth(1, field_label_gap)
-            monte_carlo_grid.setColumnMinimumWidth(3, paired_group_padding)
-            monte_carlo_grid.setColumnMinimumWidth(5, field_label_gap)
-            monte_carlo_grid.setColumnStretch(2, 1)
-            monte_carlo_grid.setColumnStretch(6, 1)
-
-            lbl_mc_sweeps = QLabel("MC Sweeps:")
-            le_mc_sweeps = QLineEdit(str(globals().get("MC_SWEEPS", 250)))
-            self.inputs["MC_SWEEPS"] = le_mc_sweeps
-            self.labels["MC_SWEEPS"] = lbl_mc_sweeps
-
-            lbl_mc_quench = QLabel("Quench Sweeps:")
-            le_mc_quench = QLineEdit(str(globals().get("MC_QUENCH_SWEEPS", 25)))
-            self.inputs["MC_QUENCH_SWEEPS"] = le_mc_quench
-            self.labels["MC_QUENCH_SWEEPS"] = lbl_mc_quench
-
-            monte_carlo_grid.addWidget(lbl_mc_sweeps, 0, 0)
-            monte_carlo_grid.addWidget(le_mc_sweeps, 0, 2)
-            monte_carlo_grid.addWidget(lbl_mc_quench, 0, 4)
-            monte_carlo_grid.addWidget(le_mc_quench, 0, 6)
-
-            lbl_mc_teleport = QLabel("Teleport Probability:")
-            le_mc_teleport = QLineEdit(
-                str(globals().get("MC_TELEPORT_PROBABILITY", 0.10))
-            )
-            self.inputs["MC_TELEPORT_PROBABILITY"] = le_mc_teleport
-            self.labels["MC_TELEPORT_PROBABILITY"] = lbl_mc_teleport
-
-            lbl_mc_seed = QLabel("Random Seed:")
-            le_mc_seed = QLineEdit(str(globals().get("MC_RANDOM_SEED", 42)))
-            self.inputs["MC_RANDOM_SEED"] = le_mc_seed
-            self.labels["MC_RANDOM_SEED"] = lbl_mc_seed
-
-            paired_left_labels = (
-                lbl_dt, lbl_rmsd, lbl_mc_sweeps, lbl_mc_teleport,
-            )
+            paired_left_labels = (lbl_dt, lbl_rmsd)
             paired_right_labels = (
                 physics_slider_controls["COULOMB_K"][0],
                 physics_slider_controls["DAMPING"][0],
-                lbl_steps, lbl_drop, lbl_mc_quench, lbl_mc_seed,
+                lbl_steps,
+                lbl_drop,
             )
             for paired_label in paired_left_labels:
                 paired_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
@@ -3350,52 +3284,6 @@ if __name__ == "__main__":
             )
             for paired_label in paired_right_labels:
                 paired_label.setFixedWidth(right_label_width)
-
-            monte_carlo_grid.addWidget(lbl_mc_teleport, 1, 0)
-            monte_carlo_grid.addWidget(le_mc_teleport, 1, 2)
-            monte_carlo_grid.addWidget(lbl_mc_seed, 1, 4)
-            monte_carlo_grid.addWidget(le_mc_seed, 1, 6)
-            form_layout.addRow(monte_carlo_grid)
-
-            # Apply styling for disabled states to match other tabs
-            disabled_lineedit_style = "QLineEdit:disabled { background-color: #f0f0f0; color: #888; }"
-            disabled_label_style = "QLabel:disabled { color: #888; }"
-            monte_carlo_edits = (
-                le_mc_sweeps, le_mc_quench, le_mc_teleport, le_mc_seed,
-            )
-            monte_carlo_labels = (
-                lbl_mc_sweeps, lbl_mc_quench, lbl_mc_teleport, lbl_mc_seed,
-            )
-            for edit in monte_carlo_edits:
-                edit.setStyleSheet(disabled_lineedit_style)
-            for label in monte_carlo_labels:
-                label.setStyleSheet(disabled_label_style)
-            
-            # --- Toggle Dependencies Function ---
-            def update_engine_ui():
-                is_mc = cb_engine.currentText() == "Monte Carlo (Style)"
-                for widget in monte_carlo_edits + monte_carlo_labels:
-                    widget.setEnabled(is_mc)
-
-                md_only_widgets = (
-                    physics_slider_controls["DAMPING"][1],
-                    physics_slider_controls["DAMPING"][0],
-                    le_dt, lbl_dt, le_steps, lbl_steps,
-                    le_rmsd, lbl_rmsd, le_drop, lbl_drop,
-                    ui_window, lbl_window, prog_field, lbl_prog,
-                )
-                for widget in md_only_widgets:
-                    widget.setEnabled(not is_mc)
-
-                if is_mc:
-                    auto_index = cb_layout_device.findData("auto")
-                    if auto_index >= 0:
-                        cb_layout_device.setCurrentIndex(auto_index)
-                cb_layout_device.setEnabled(not is_mc)
-                lbl_layout_device.setEnabled(not is_mc)
-                
-            cb_engine.currentTextChanged.connect(update_engine_ui)
-            update_engine_ui()
             
             main_layout.addLayout(form_layout)
             main_layout.addStretch()

@@ -201,9 +201,6 @@ def representative_job_indices(
     jobs: list[list[list[int]]],
     node_to_component: dict[int, int],
     component_edges: dict[int, list[tuple[int, int]]],
-    params: dict[str, Any],
-    *,
-    engine: str,
 ) -> dict[str, int]:
     """Choose the median estimated-cost job in each populated size class."""
     grouped: dict[str, list[tuple[float, int]]] = {}
@@ -213,13 +210,7 @@ def representative_job_indices(
             len(component_edges[node_to_component[component[0]]])
             for component in job
         )
-        if engine == "monte_carlo":
-            minimum_k = int(params.get("SGLD_MIN_K", 20))
-            fraction_k = float(params.get("SGLD_K_PERCENT", 0.01))
-            k_value = max(minimum_k, int(fraction_k * node_count))
-            cost = node_count * k_value + edge_count
-        else:
-            cost = node_count * node_count + edge_count
+        cost = node_count * node_count + edge_count
         grouped.setdefault(layout_size_class(node_count), []).append((cost, index))
 
     selected = {}

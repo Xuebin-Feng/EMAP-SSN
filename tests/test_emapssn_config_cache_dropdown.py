@@ -154,28 +154,18 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(self.window.inputs[key].minimumHeight(), 28)
 
-    def test_monte_carlo_rows_have_extra_top_clearance(self):
-        monte_carlo_grid = self.window.findChild(
-            self.namespace["QGridLayout"], "monteCarloGrid"
-        )
-
-        self.assertIsNotNone(monte_carlo_grid)
-        self.assertEqual(monte_carlo_grid.contentsMargins().top(), 8)
-
-    def test_monte_carlo_selection_enables_mc_and_disables_md_controls(self):
+    def test_physics_tab_exposes_only_molecular_dynamics_controls(self):
         self.window.profile_selectors["simulation_physics"].setCurrentText("(new)")
-        engine = self.window.inputs["PHYSICS_ENGINE"]
-        engine.setCurrentText("Monte Carlo (Style)")
+        device = self.window.inputs["LAYOUT_DEVICE_SELECTION"]
+        progressive = self.window.inputs["ENABLE_PROGRESSIVE_SIMULATION"]
+        device.setCurrentIndex(device.findData("auto"))
+        progressive.setChecked(True)
         self.app.processEvents()
 
-        for key in (
-            "MC_SWEEPS",
-            "MC_QUENCH_SWEEPS",
-            "MC_TELEPORT_PROBABILITY",
-            "MC_RANDOM_SEED",
-        ):
-            self.assertTrue(self.window.inputs[key].isEnabled())
-            self.assertTrue(self.window.labels[key].isEnabled())
+        obsolete = self.namespace["OBSOLETE_LAYOUT_ENGINE_KEYS"]
+        for key in obsolete:
+            self.assertNotIn(key, self.window.inputs)
+            self.assertNotIn(key, self.window.labels)
         for key in (
             "DAMPING",
             "DT",
@@ -184,13 +174,16 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             "PERCENTAGE_DROP_THRESHOLD",
             "RMSD_WINDOW",
             "ENABLE_PROGRESSIVE_SIMULATION",
-            "LAYOUT_DEVICE_SELECTION",
         ):
-            self.assertFalse(self.window.inputs[key].isEnabled())
-            self.assertFalse(self.window.labels[key].isEnabled())
-        self.assertEqual(
-            self.window.inputs["LAYOUT_DEVICE_SELECTION"].currentData(), "auto"
-        )
+            self.assertTrue(self.window.inputs[key].isEnabled())
+            self.assertTrue(self.window.labels[key].isEnabled())
+        self.assertTrue(device.isEnabled())
+        self.assertTrue(self.window.labels["LAYOUT_DEVICE_SELECTION"].isEnabled())
+        self.assertEqual(device.currentData(), "auto")
+        self.assertTrue(progressive.isChecked())
+        collected = self.window.collect_data()
+        self.assertEqual(collected["LAYOUT_DEVICE_SELECTION"], "auto")
+        self.assertTrue(collected["ENABLE_PROGRESSIVE_SIMULATION"])
 
     def test_low_resource_mode_row_has_extra_top_clearance(self):
         low_resource_row = self.window.findChild(
@@ -569,7 +562,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         physics_selector.setCurrentText("(default)")
         self.app.processEvents()
         for key in (
-            "PHYSICS_ENGINE",
+            "LAYOUT_DEVICE_SELECTION",
             "DT",
             "ENABLE_PROGRESSIVE_SIMULATION",
         ):
@@ -581,7 +574,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.window.labels[key].styleSheet(),
             )
         self.assertEqual(
-            self.window.inputs["PHYSICS_ENGINE"].palette().color(
+            self.window.inputs["LAYOUT_DEVICE_SELECTION"].palette().color(
                 disabled_group,
                 palette_type.ColorRole.Text,
             ).name(),
@@ -803,29 +796,23 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.assertEqual(loaded["SAVED_LAYOUT_DIR"], defaults["SAVED_LAYOUT_DIR"])
         self.assertIn("UNRELATED_UNKNOWN_KEY", loaded)
 
-    def test_legacy_monte_carlo_profile_keys_are_ignored_and_new_defaults_used(self):
+    def test_obsolete_layout_engine_profile_keys_are_ignored(self):
         defaults = self.namespace["PHYSICS_PROFILE_DEFAULTS"]
         raw = dict(defaults)
-        for key in self.namespace["LEGACY_MONTE_CARLO_KEYS"]:
+        for key in self.namespace["OBSOLETE_LAYOUT_ENGINE_KEYS"]:
             raw[key] = 123
-        for key in ("MC_SWEEPS", "MC_QUENCH_SWEEPS", "MC_TELEPORT_PROBABILITY", "MC_RANDOM_SEED"):
-            raw.pop(key)
 
         normalized = self.window._normalize_profile_data(
             "simulation_physics", raw
         )
-        self.assertEqual(normalized["MC_SWEEPS"], 250)
-        self.assertEqual(normalized["MC_QUENCH_SWEEPS"], 25)
-        self.assertEqual(normalized["MC_TELEPORT_PROBABILITY"], 0.10)
-        self.assertEqual(normalized["MC_RANDOM_SEED"], 42)
+        self.assertEqual(normalized, defaults)
+        self.assertNotIn("PHYSICS_ENGINE", normalized)
+        self.assertFalse(any(key.startswith("MC_") for key in normalized))
         self.assertFalse(any(key.startswith("SGLD_") for key in normalized))
 
-        raw["MC_RANDOM_SEED"] = None
-        self.assertIsNone(
-            self.window._normalize_profile_data(
-                "simulation_physics", raw
-            )["MC_RANDOM_SEED"]
-        )
+        raw["UNRELATED_UNKNOWN_KEY"] = "invalid"
+        with self.assertRaisesRegex(ValueError, "UNRELATED_UNKNOWN_KEY"):
+            self.window._normalize_profile_data("simulation_physics", raw)
 
     def test_all_tabs_share_padding_and_separator_spacing(self):
         from PySide6.QtCore import QPoint
@@ -834,7 +821,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         checks = (
             ("inputs_outputs", None, "NODE_FASTA_FILE"),
             ("visual_effects", None, "NODE_SIZE"),
-            ("simulation_physics", None, "PHYSICS_ENGINE"),
+            ("simulation_physics", None, "LAYOUT_DEVICE_SELECTION"),
             ("directories", "SAVED_CONFIG_DIR", "INPUT_FILE_DIR"),
         )
         expected_margin = self.namespace["CONFIG_TAB_CONTENT_MARGIN"]
@@ -1296,7 +1283,6 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             "UMAP_MODE": False,
             "UMAP_NEIGHBORS": 15,
             "UMAP_MIN_DIST": 0.1,
-            "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
             "LAYOUT_DEVICE_SELECTION": "auto",
             "SPRING_K": 5.0,
             "COULOMB_K": 10.0,
@@ -1310,10 +1296,6 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             "ENABLE_PROGRESSIVE_SIMULATION": False,
             "PACKING_GEOMETRY": "Square",
             "PACKING_GRID_SIZE": 20.0,
-            "MC_SWEEPS": 250,
-            "MC_QUENCH_SWEEPS": 25,
-            "MC_TELEPORT_PROBABILITY": 0.10,
-            "MC_RANDOM_SEED": 42,
             "NODE_SIZE": 10,
             "MSA_FILE": "example.fasta",
             "PRINT_SAVE_DIR": "Analysis_Results/Saved_Images",
@@ -1353,7 +1335,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertEqual(payload["CACHE_FILENAME"], "exact.h5")
                 self.assertIs(payload["UMAP_MODE"], False)
                 self.assertIsInstance(payload["MAX_STEPS"], int)
-                self.assertEqual(payload["MC_RANDOM_SEED"], 42)
+                self.assertNotIn("PHYSICS_ENGINE", payload)
+                self.assertFalse(any(key.startswith("MC_") for key in payload))
                 self.assertFalse(any(key.startswith("SGLD_") for key in payload))
                 self.assertNotIn("NODE_SIZE", payload)
                 self.assertNotIn("MSA_FILE", payload)
