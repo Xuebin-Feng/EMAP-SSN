@@ -47,12 +47,11 @@ TILE_MEMORY_PROFILES = (
 )
 SUPPORTED_TILED_BACKENDS = frozenset({"cuda", "xpu", "mps"})
 BF16_ACCELERATOR_BACKENDS = frozenset({"cuda", "xpu", "mps"})
-BF16_PER_RESIDUE_TOLERANCE = 1e-2
-BF16_CHANGED_CASE_NUMERATOR = 64
-BF16_CHANGED_CASE_DENOMINATOR = 2048
-BF16_RELATIVE_LENGTH_LIMIT = 0.05
-BF16_RELATIVE_SCORE_LIMIT = 0.05
 bf16_support_cache = {}
+
+
+class BF16ValidationIntegrityError(ValueError):
+    """Raised when an FP32/BF16 comparison cannot produce a valid report."""
 
 
 @dataclass(frozen=True)
@@ -63,19 +62,46 @@ class BF16ValidationExtreme:
     identity: object
     baseline_value: object
     candidate_value: object
-    relative_change: float
+    signed_difference: float
+    percentage_change: float
 
 
 @dataclass(frozen=True)
-class BF16ValidationResult:
-    """Structured outcome of the two-stage BF16 numerical validation."""
+class BF16DistributionStatistics:
+    """Descriptive statistics for one non-negative BF16 drift series."""
 
-    accepted: bool
-    warning: bool
+    count: int
+    mean: float
+    median: float
+    p95: float
+    p99: float
+    maximum: float
+
+
+@dataclass(frozen=True)
+class BF16ModeStatistics:
+    """Alignment-length and raw-score drift for one alignment mode."""
+
+    mode: str
+    exact_length_count: int
+    changed_length_count: int
+    absolute_length_difference: BF16DistributionStatistics
+    length_percentage_drift: BF16DistributionStatistics
+    changed_absolute_length_difference: BF16DistributionStatistics | None
+    changed_length_percentage_drift: BF16DistributionStatistics | None
+    score_percentage_drift: BF16DistributionStatistics
+    worst_absolute_length: BF16ValidationExtreme
+    worst_relative_length: BF16ValidationExtreme
+    worst_score: BF16ValidationExtreme
+
+
+@dataclass(frozen=True)
+class BF16ValidationReport:
+    """Informational FP32/BF16 comparison with no numerical rejection gate."""
+
     sample_count: int
-    changed_count: int
-    reason: str
-    extremes: tuple[BF16ValidationExtreme, ...] = ()
+    changed_case_count: int
+    modes: tuple[BF16ModeStatistics, ...]
 
 
 class BenchmarkPhaseTimer:
@@ -2066,22 +2092,53 @@ def compare_precision_results(
     return True, "alignment lengths and per-residue scores passed"
 
 
-def _bf16_relative_change(baseline, candidate):
-    """Return candidate drift relative to the FP32 baseline."""
+def _bf16_percentage_change(baseline, candidate):
+    """Return absolute candidate drift as a percentage of the FP32 value."""
     baseline = float(baseline)
     candidate = float(candidate)
     if baseline == 0.0:
         return 0.0 if candidate == 0.0 else float("inf")
-    return abs(candidate - baseline) / abs(baseline)
+    return abs(candidate - baseline) / abs(baseline) * 100.0
 
 
-def _bf16_failure(sample_count, changed_count, reason):
-    return BF16ValidationResult(
-        accepted=False,
-        warning=False,
-        sample_count=int(sample_count),
-        changed_count=int(changed_count),
-        reason=str(reason),
+def _bf16_distribution(values):
+    """Summarize a non-empty series using deterministic nearest-rank tails."""
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        raise ValueError("Cannot summarize an empty BF16 drift series.")
+    count = len(ordered)
+    if any(np.isinf(value) for value in ordered):
+        mean = float("inf")
+    else:
+        mean = float(sum(ordered) / count)
+    midpoint = count // 2
+    if count % 2:
+        median = ordered[midpoint]
+    else:
+        median = (ordered[midpoint - 1] + ordered[midpoint]) / 2.0
+
+    def nearest_rank(fraction):
+        index = max(0, min(count - 1, int(np.ceil(fraction * count)) - 1))
+        return ordered[index]
+
+    return BF16DistributionStatistics(
+        count=count,
+        mean=mean,
+        median=float(median),
+        p95=float(nearest_rank(0.95)),
+        p99=float(nearest_rank(0.99)),
+        maximum=float(ordered[-1]),
+    )
+
+
+def _bf16_extreme(metric, identity, baseline, candidate, percentage_change):
+    return BF16ValidationExtreme(
+        metric=str(metric),
+        identity=identity,
+        baseline_value=baseline,
+        candidate_value=candidate,
+        signed_difference=float(candidate) - float(baseline),
+        percentage_change=float(percentage_change),
     )
 
 
@@ -2090,36 +2147,64 @@ def compare_bf16_metric_results(
     candidate_results,
     *,
     identity_label="pair",
-    per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
     candidate_label="BF16",
 ):
-    """Apply the shared clean-pass/warning/fail policy to normalized metrics.
+    """Build an informational BF16 report from normalized alignment metrics.
 
     Each input maps an identity to an ordered mapping whose values are
-    ``(raw_score, alignment_length)`` tuples. A case is length-changing when
-    any supplied alignment mode differs from its FP32 baseline.
+    ``(raw_score, alignment_length)`` tuples. Finite numerical differences of
+    any magnitude are reported and never rejected.
     """
     sample_count = len(fp32_results)
     if sample_count == 0:
-        return _bf16_failure(0, 0, "BF16 validation sample is empty")
+        raise BF16ValidationIntegrityError("BF16 validation sample is empty")
     if fp32_results.keys() != candidate_results.keys():
-        return _bf16_failure(
-            sample_count, 0, f"{identity_label} identities differ"
+        raise BF16ValidationIntegrityError(
+            f"{identity_label} identities differ"
         )
 
-    changed_count = 0
-    extremes = {}
+    first_metrics = next(iter(fp32_results.values()))
+    try:
+        mode_order = tuple(first_metrics.keys())
+    except AttributeError as error:
+        raise BF16ValidationIntegrityError(
+            f"invalid FP32 alignment metrics: {error}"
+        ) from error
+    if not mode_order:
+        raise BF16ValidationIntegrityError("BF16 validation has no alignment modes")
+    accumulators = {
+        str(mode): {
+            "absolute_length": [],
+            "length_percentage": [],
+            "changed_absolute_length": [],
+            "changed_length_percentage": [],
+            "score_percentage": [],
+            "worst_absolute_length": None,
+            "worst_relative_length": None,
+            "worst_score": None,
+        }
+        for mode in mode_order
+    }
+    changed_case_count = 0
     for identity, baseline_metrics in fp32_results.items():
         candidate_metrics = candidate_results[identity]
-        if baseline_metrics.keys() != candidate_metrics.keys():
-            return _bf16_failure(
-                sample_count,
-                changed_count,
+        try:
+            baseline_modes = tuple(baseline_metrics.keys())
+            candidate_modes = tuple(candidate_metrics.keys())
+        except AttributeError as error:
+            raise BF16ValidationIntegrityError(
+                f"invalid alignment metrics for {identity_label} {identity}: {error}"
+            ) from error
+        if set(baseline_modes) != set(mode_order) or set(candidate_modes) != set(
+            mode_order
+        ):
+            raise BF16ValidationIntegrityError(
                 f"alignment modes differ for {identity_label} {identity}",
             )
 
         parsed = []
-        for mode, baseline_values in baseline_metrics.items():
+        for mode in mode_order:
+            baseline_values = baseline_metrics[mode]
             candidate_values = candidate_metrics[mode]
             try:
                 baseline_score = float(baseline_values[0])
@@ -2127,21 +2212,15 @@ def compare_bf16_metric_results(
                 candidate_score = float(candidate_values[0])
                 candidate_length = int(candidate_values[1])
             except (IndexError, OverflowError, TypeError, ValueError) as error:
-                return _bf16_failure(
-                    sample_count,
-                    changed_count,
+                raise BF16ValidationIntegrityError(
                     f"invalid {mode} result for {identity_label} {identity}: {error}",
-                )
+                ) from error
             if baseline_length < 0 or candidate_length < 0:
-                return _bf16_failure(
-                    sample_count,
-                    changed_count,
+                raise BF16ValidationIntegrityError(
                     f"negative {mode} alignment length for {identity_label} {identity}",
                 )
             if not np.isfinite(baseline_score) or not np.isfinite(candidate_score):
-                return _bf16_failure(
-                    sample_count,
-                    changed_count,
+                raise BF16ValidationIntegrityError(
                     f"non-finite {candidate_label} {mode} score for "
                     f"{identity_label} {identity}",
                 )
@@ -2155,7 +2234,7 @@ def compare_bf16_metric_results(
                 )
             )
 
-        length_changed = any(
+        case_changed = any(
             baseline_length != candidate_length
             for (
                 _mode,
@@ -2165,36 +2244,8 @@ def compare_bf16_metric_results(
                 candidate_length,
             ) in parsed
         )
-        for mode, baseline_score, _baseline_length, candidate_score, _length in parsed:
-            if baseline_score == 0.0 and candidate_score != 0.0:
-                return _bf16_failure(
-                    sample_count,
-                    changed_count,
-                    f"{mode} FP32 score is zero but {candidate_label} score is "
-                    f"{candidate_score} for {identity_label} {identity}",
-                )
-        if not length_changed:
-            for (
-                mode,
-                baseline_score,
-                baseline_length,
-                candidate_score,
-                _length,
-            ) in parsed:
-                scale = max(1, baseline_length)
-                if (
-                    abs(candidate_score - baseline_score) / scale
-                    > per_residue_tolerance
-                ):
-                    return _bf16_failure(
-                        sample_count,
-                        changed_count,
-                        f"{mode} score tolerance exceeded for "
-                        f"{identity_label} {identity}",
-                    )
-            continue
-
-        changed_count += 1
+        if case_changed:
+            changed_case_count += 1
         for (
             mode,
             baseline_score,
@@ -2202,75 +2253,98 @@ def compare_bf16_metric_results(
             candidate_score,
             candidate_length,
         ) in parsed:
-            length_change = _bf16_relative_change(
+            accumulator = accumulators[mode]
+            signed_length_difference = candidate_length - baseline_length
+            absolute_length_difference = abs(signed_length_difference)
+            length_percentage = _bf16_percentage_change(
                 baseline_length, candidate_length
             )
-            score_change = _bf16_relative_change(baseline_score, candidate_score)
-            for metric, baseline_value, candidate_value, relative_change in (
-                (
-                    f"{mode} length",
+            score_percentage = _bf16_percentage_change(
+                baseline_score, candidate_score
+            )
+            accumulator["absolute_length"].append(absolute_length_difference)
+            accumulator["length_percentage"].append(length_percentage)
+            accumulator["score_percentage"].append(score_percentage)
+            if signed_length_difference:
+                accumulator["changed_absolute_length"].append(
+                    absolute_length_difference
+                )
+                accumulator["changed_length_percentage"].append(length_percentage)
+
+            worst_absolute = accumulator["worst_absolute_length"]
+            if (
+                worst_absolute is None
+                or absolute_length_difference
+                > abs(worst_absolute.signed_difference)
+            ):
+                accumulator["worst_absolute_length"] = _bf16_extreme(
+                    f"{mode} absolute length difference",
+                    identity,
                     baseline_length,
                     candidate_length,
-                    length_change,
-                ),
-                (
-                    f"{mode} score",
+                    length_percentage,
+                )
+            worst_relative = accumulator["worst_relative_length"]
+            if (
+                worst_relative is None
+                or length_percentage > worst_relative.percentage_change
+            ):
+                accumulator["worst_relative_length"] = _bf16_extreme(
+                    f"{mode} relative length drift",
+                    identity,
+                    baseline_length,
+                    candidate_length,
+                    length_percentage,
+                )
+            worst_score = accumulator["worst_score"]
+            if worst_score is None or score_percentage > worst_score.percentage_change:
+                accumulator["worst_score"] = _bf16_extreme(
+                    f"{mode} raw-score drift",
+                    identity,
                     baseline_score,
                     candidate_score,
-                    score_change,
-                ),
-            ):
-                previous = extremes.get(metric)
-                if previous is None or relative_change > previous.relative_change:
-                    extremes[metric] = BF16ValidationExtreme(
-                        metric=metric,
-                        identity=identity,
-                        baseline_value=baseline_value,
-                        candidate_value=candidate_value,
-                        relative_change=relative_change,
-                    )
-            if length_change >= BF16_RELATIVE_LENGTH_LIMIT:
-                return _bf16_failure(
-                    sample_count,
-                    changed_count,
-                    f"{mode} alignment length changed by "
-                    f"{length_change * 100.0:.3f}% for "
-                    f"{identity_label} {identity}; the BF16 limit is <5%",
-                )
-            if score_change >= BF16_RELATIVE_SCORE_LIMIT:
-                return _bf16_failure(
-                    sample_count,
-                    changed_count,
-                    f"{mode} score changed by {score_change * 100.0:.3f}% for "
-                    f"{identity_label} {identity}; the BF16 limit is <5%",
+                    score_percentage,
                 )
 
-    if (
-        changed_count * BF16_CHANGED_CASE_DENOMINATOR
-        >= sample_count * BF16_CHANGED_CASE_NUMERATOR
-    ):
-        return _bf16_failure(
-            sample_count,
-            changed_count,
-            f"alignment lengths changed for {changed_count}/{sample_count} "
-            f"{identity_label}s ({changed_count / sample_count * 100.0:.3f}%); "
-            "the BF16 limit is <3.125%",
+    mode_statistics = []
+    for mode in mode_order:
+        accumulator = accumulators[str(mode)]
+        changed_count = len(accumulator["changed_absolute_length"])
+        changed_absolute = accumulator["changed_absolute_length"]
+        changed_percentage = accumulator["changed_length_percentage"]
+        mode_statistics.append(
+            BF16ModeStatistics(
+                mode=str(mode),
+                exact_length_count=sample_count - changed_count,
+                changed_length_count=changed_count,
+                absolute_length_difference=_bf16_distribution(
+                    accumulator["absolute_length"]
+                ),
+                length_percentage_drift=_bf16_distribution(
+                    accumulator["length_percentage"]
+                ),
+                changed_absolute_length_difference=(
+                    _bf16_distribution(changed_absolute)
+                    if changed_absolute
+                    else None
+                ),
+                changed_length_percentage_drift=(
+                    _bf16_distribution(changed_percentage)
+                    if changed_percentage
+                    else None
+                ),
+                score_percentage_drift=_bf16_distribution(
+                    accumulator["score_percentage"]
+                ),
+                worst_absolute_length=accumulator["worst_absolute_length"],
+                worst_relative_length=accumulator["worst_relative_length"],
+                worst_score=accumulator["worst_score"],
+            )
         )
-    if changed_count:
-        return BF16ValidationResult(
-            accepted=True,
-            warning=True,
-            sample_count=sample_count,
-            changed_count=changed_count,
-            reason="bounded BF16 alignment-length changes accepted with warning",
-            extremes=tuple(extremes.values()),
-        )
-    return BF16ValidationResult(
-        accepted=True,
-        warning=False,
+    return BF16ValidationReport(
         sample_count=sample_count,
-        changed_count=0,
-        reason="alignment lengths and per-residue scores passed",
+        changed_case_count=changed_case_count,
+        modes=tuple(mode_statistics),
     )
 
 
@@ -2278,10 +2352,9 @@ def compare_bf16_precision_results(
     fp32_results,
     candidate_results,
     *,
-    per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
     candidate_label="BF16",
 ):
-    """Compare Align/Network Injection global and local BF16 results."""
+    """Report Align/Network Injection global and local BF16 differences."""
     fp32_results = list(fp32_results)
     candidate_results = list(candidate_results)
     try:
@@ -2290,12 +2363,12 @@ def compare_bf16_precision_results(
             tuple(result[:2]): result for result in candidate_results
         }
     except TypeError as error:
-        return _bf16_failure(
-            len(fp32_results), 0, f"invalid alignment identity: {error}"
-        )
+        raise BF16ValidationIntegrityError(
+            f"invalid alignment identity: {error}"
+        ) from error
     if len(fp32) != len(fp32_results) or len(candidate_map) != len(candidate_results):
-        return _bf16_failure(
-            len(fp32_results), 0, "duplicate pair identities in validation results"
+        raise BF16ValidationIntegrityError(
+            "duplicate pair identities in validation results"
         )
     try:
         fp32_metrics = {
@@ -2313,44 +2386,120 @@ def compare_bf16_precision_results(
             for pair, result in candidate_map.items()
         }
     except (IndexError, TypeError) as error:
-        return _bf16_failure(
-            len(fp32_results), 0, f"invalid alignment result: {error}"
-        )
+        raise BF16ValidationIntegrityError(
+            f"invalid alignment result: {error}"
+        ) from error
     return compare_bf16_metric_results(
         fp32_metrics,
         candidate_metrics,
         identity_label="pair",
-        per_residue_tolerance=per_residue_tolerance,
         candidate_label=candidate_label,
     )
 
 
-def format_bf16_validation_warning(
-    result,
+def bf16_validation_notice(*, tool_name, sample_count):
+    """Return the once-per-job warning shown before informational validation."""
+    return (
+        f"[Precision] WARNING: {tool_name} is using explicit low-precision BF16. "
+        f"The FP32 comparison on up to {int(sample_count)} representative cases "
+        "is informational: finite alignment-length and score differences of any "
+        "magnitude will be reported but will not prevent BF16 production work."
+    )
+
+
+def _format_bf16_number(value):
+    value = float(value)
+    if np.isposinf(value):
+        return "inf"
+    return f"{value:.3f}"
+
+
+def _format_bf16_distribution(label, statistics, unit=""):
+    suffix = str(unit)
+    return (
+        f"[Precision]   {label}: n={statistics.count}, "
+        f"mean={_format_bf16_number(statistics.mean)}{suffix}, "
+        f"median={_format_bf16_number(statistics.median)}{suffix}, "
+        f"P95={_format_bf16_number(statistics.p95)}{suffix}, "
+        f"P99={_format_bf16_number(statistics.p99)}{suffix}, "
+        f"max={_format_bf16_number(statistics.maximum)}{suffix}"
+    )
+
+
+def _format_bf16_extreme(extreme, identity_label):
+    return (
+        f"[Precision]   worst {extreme.metric}: {identity_label} "
+        f"{extreme.identity}, FP32={extreme.baseline_value}, "
+        f"BF16={extreme.candidate_value}, "
+        f"signed difference={extreme.signed_difference:+.6g}, "
+        f"absolute change={_format_bf16_number(extreme.percentage_change)}%"
+    )
+
+
+def format_bf16_validation_report(
+    report,
     *,
     context,
     identity_label="pair",
 ):
-    """Format one consolidated warning for a conditionally accepted result."""
-    if not result.accepted or not result.warning:
-        raise ValueError("A BF16 warning can only format a warning-pass result.")
-    first_failing_count = (
-        result.sample_count * BF16_CHANGED_CASE_NUMERATOR
-        + BF16_CHANGED_CASE_DENOMINATOR
-        - 1
-    ) // BF16_CHANGED_CASE_DENOMINATOR
+    """Format a complete informational BF16 validation report."""
     lines = [
-        f"[Precision] WARNING: {context} changed alignment lengths for "
-        f"{result.changed_count}/{result.sample_count} {identity_label}s "
-        f"({result.changed_count / result.sample_count * 100.0:.3f}%). "
-        f"BF16 validation accepted this because the rate is <3.125% "
-        f"(failure begins at {first_failing_count}/{result.sample_count})."
+        f"[Precision] BF16 validation report: {context}; "
+        f"cases={report.sample_count}; any-length-changed="
+        f"{report.changed_case_count}/{report.sample_count} "
+        f"({report.changed_case_count / report.sample_count * 100.0:.3f}%)."
     ]
-    for extreme in result.extremes:
+    for mode in report.modes:
         lines.append(
-            f"[Precision] WARNING: worst {extreme.metric}: "
-            f"{identity_label} {extreme.identity}, FP32={extreme.baseline_value}, "
-            f"BF16={extreme.candidate_value}, "
-            f"change={extreme.relative_change * 100.0:.3f}%."
+            f"[Precision] {mode.mode}: exact lengths="
+            f"{mode.exact_length_count}/{report.sample_count}; changed lengths="
+            f"{mode.changed_length_count}/{report.sample_count} "
+            f"({mode.changed_length_count / report.sample_count * 100.0:.3f}%)."
+        )
+        lines.append(
+            _format_bf16_distribution(
+                "all-case absolute length difference",
+                mode.absolute_length_difference,
+                " residues",
+            )
+        )
+        lines.append(
+            _format_bf16_distribution(
+                "all-case FP32-relative length drift",
+                mode.length_percentage_drift,
+                "%",
+            )
+        )
+        if mode.changed_absolute_length_difference is not None:
+            lines.append(
+                _format_bf16_distribution(
+                    "changed-only absolute length difference",
+                    mode.changed_absolute_length_difference,
+                    " residues",
+                )
+            )
+            lines.append(
+                _format_bf16_distribution(
+                    "changed-only FP32-relative length drift",
+                    mode.changed_length_percentage_drift,
+                    "%",
+                )
+            )
+        else:
+            lines.append("[Precision]   changed-only length statistics: n=0")
+        lines.append(
+            _format_bf16_distribution(
+                "all-case FP32-relative raw-score drift",
+                mode.score_percentage_drift,
+                "%",
+            )
+        )
+        lines.extend(
+            _format_bf16_extreme(extreme, identity_label)
+            for extreme in (
+                mode.worst_absolute_length,
+                mode.worst_relative_length,
+                mode.worst_score,
+            )
         )
     return "\n".join(lines)

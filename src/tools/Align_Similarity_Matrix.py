@@ -83,9 +83,9 @@ from utilities.Embedding_Alignment_Engine import (
     AcceleratorMemorySnapshot,
     AdaptiveTilePlan,
     BenchmarkPhaseTimer,
-    BF16_PER_RESIDUE_TOLERANCE,
     EmbeddingTileStore,
     bf16_accelerator_support,
+    bf16_validation_notice,
     build_adaptive_tile_plans,
     compare_bf16_precision_results,
     compare_precision_results,
@@ -93,7 +93,7 @@ from utilities.Embedding_Alignment_Engine import (
     cuda_memory_plan,
     evenly_spaced_task_subset,
     estimate_cuda_working_set,
-    format_bf16_validation_warning,
+    format_bf16_validation_report,
     get_accelerator_backend,
     is_nvidia_cuda,
     matched_benchmark_task_halves,
@@ -206,7 +206,7 @@ FINAL_OUTPUT_NET = None
 active_matmul_precision = "ieee_fp32"
 active_embedding_store = None
 active_sequence_lengths = None
-bf16_validated_device_keys = set()
+bf16_validated_plan_keys = set()
 
 
 def _benchmark_half_sizes():
@@ -1310,7 +1310,7 @@ def _resolve_active_matmul_precision(
     sequence_lengths,
 ):
     """Resolve Automatic 32-bit or validate explicit BF16 execution."""
-    global bf16_validated_device_keys
+    global bf16_validated_plan_keys
     normalized = normalize_precision_setting(setting)
     execution_mode = normalize_execution_mode(EXECUTION_MODE)
     variants = (
@@ -1337,7 +1337,13 @@ def _resolve_active_matmul_precision(
         )
         if not validation_tasks:
             raise ValueError("BF16 validation requires at least one pending pair.")
-        bf16_validated_device_keys = set()
+        print(
+            bf16_validation_notice(
+                tool_name="Align Similarity Matrix",
+                sample_count=len(validation_tasks),
+            )
+        )
+        bf16_validated_plan_keys = set()
         failures = []
         for candidate in eligible:
             if candidate is None or candidate.is_cpu:
@@ -1368,7 +1374,19 @@ def _resolve_active_matmul_precision(
                     show_progress=False,
                     matmul_precision="float32",
                 )
-                for variant in variants_for_candidate:
+            except Exception as error:
+                failure = (
+                    f"{candidate.display_name} FP32 baseline: "
+                    f"{type(error).__name__}: {error}"
+                )
+                failures.append(failure)
+                print(f"[Precision] Excluding BF16 on {failure}.")
+                _release_alignment_device_cache(candidate)
+                continue
+
+            completed_variants = []
+            for variant in variants_for_candidate:
+                try:
                     if variant == "scalar":
                         candidate_results = _run_accelerated_pipeline(
                             validation_tasks,
@@ -1391,43 +1409,46 @@ def _resolve_active_matmul_precision(
                             alignment_callback=calculate_alignment_data,
                             precision="bf16",
                         )
-                    validation = compare_bf16_precision_results(
+                    report = compare_bf16_precision_results(
                         baseline,
                         candidate_results,
-                        per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
                         candidate_label="BF16",
                     )
-                    if not validation.accepted:
-                        raise ValueError(
-                            f"{variant} validation failed: {validation.reason}"
+                    print(
+                        format_bf16_validation_report(
+                            report,
+                            context=(
+                                f"tool=Align Similarity Matrix; "
+                                f"device={candidate.display_name}; "
+                                f"backend={candidate.backend}; variant={variant}"
+                            ),
+                            identity_label="pair",
                         )
-                    if validation.warning:
-                        print(
-                            format_bf16_validation_warning(
-                                validation,
-                                context=(
-                                    f"BF16 {variant} on "
-                                    f"{candidate.display_name}"
-                                ),
-                                identity_label="pair",
-                            )
-                        )
-            except Exception as error:
-                failures.append(
-                    f"{candidate.display_name}: {type(error).__name__}: {error}"
+                    )
+                except Exception as error:
+                    failure = (
+                        f"{candidate.display_name} {variant}: "
+                        f"{type(error).__name__}: {error}"
+                    )
+                    failures.append(failure)
+                    print(f"[Precision] Excluding BF16 plan {failure}.")
+                    continue
+                bf16_validated_plan_keys.add(
+                    (_device_cache_key(candidate.device), variant)
                 )
-                _release_alignment_device_cache(candidate)
-                continue
-            bf16_validated_device_keys.add(_device_cache_key(candidate.device))
-            print(
-                f"[Precision] BF16 passed scalar FP32 comparison for "
-                f"{', '.join(variants_for_candidate)} on {candidate.display_name}."
-            )
+                completed_variants.append(variant)
+            if completed_variants:
+                print(
+                    f"[Precision] Completed informational BF16 comparison for "
+                    f"{', '.join(completed_variants)} on {candidate.display_name}."
+                )
             _release_alignment_device_cache(candidate)
 
-        if not bf16_validated_device_keys:
+        if not bf16_validated_plan_keys:
             detail = "; ".join(failures) or "no accelerator candidates"
-            raise ValueError(f"No accelerator passed BF16 validation ({detail}).")
+            raise ValueError(
+                f"No accelerator completed BF16 validation ({detail})."
+            )
         if cached_precision == "bf16":
             print("[Precision] Resuming established BF16 batches.")
         return "bf16"
@@ -1591,7 +1612,10 @@ def _benchmark_processing_plans(
     elif matmul_precision == "bf16":
         candidates = [
             candidate for candidate in candidates
-            if _device_cache_key(candidate.device) in bf16_validated_device_keys
+            if any(
+                device_key == _device_cache_key(candidate.device)
+                for device_key, _variant in bf16_validated_plan_keys
+            )
         ]
         if not candidates:
             raise RuntimeError("No accelerator remains validated for BF16 execution.")
@@ -1743,6 +1767,13 @@ def _benchmark_processing_plans(
             else _accelerator_lane_candidates(candidate.device, workers)
         )
         variants = _execution_variants(candidate)
+        if matmul_precision == "bf16":
+            device_key = _device_cache_key(candidate.device)
+            variants = [
+                variant
+                for variant in variants
+                if (device_key, variant) in bf16_validated_plan_keys
+            ]
         if "tiled" in variants and (
             embedding_store is None or sequence_lengths is None
         ):

@@ -1073,7 +1073,7 @@ class ToolsGUI(QMainWindow):
                 "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
                 "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 requires blocking validation; rare length changes below the strict count, length, and score limits are accepted with a detailed warning."
+                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution."
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.",
@@ -1164,7 +1164,7 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems.",
                 "GENERATE_FASTA": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences.",
                 "DEVICE_SELECTION": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 requires blocking validation; rare length changes below the strict count, length, and score limits are accepted with a detailed warning."
+                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution."
             }
         }
         

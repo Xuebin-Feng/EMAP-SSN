@@ -57,16 +57,16 @@ import time
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
 from utilities.Embedding_Alignment_Engine import (
-    BF16_PER_RESIDUE_TOLERANCE,
-    BF16ValidationResult,
+    BF16ValidationIntegrityError,
     EmbeddingTileStore,
     bf16_accelerator_support,
+    bf16_validation_notice,
     compare_bf16_metric_results,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
     estimate_fixed_query_cuda_working_set,
-    format_bf16_validation_warning,
+    format_bf16_validation_report,
     is_nvidia_cuda,
     normalize_precision_setting,
     precision_element_bytes,
@@ -649,12 +649,22 @@ def _finish_fixed_query(task, query_length, target_length, matrix):
 
 def _cost_stratified_search_sample(tasks, lengths):
     count = min(256, max(16, int(len(tasks) * 0.01)))
-    count = min(count, len(tasks))
+    return _length_stratified_search_sample(tasks, lengths, count)
+
+
+def _length_stratified_search_sample(tasks, lengths, count):
+    count = min(max(0, int(count)), len(tasks))
     ordered = sorted(tasks, key=lambda task: (int(lengths[int(task[0])]), int(task[0])))
     if count >= len(ordered):
         return ordered
+    if count == 0:
+        return []
     positions = np.linspace(0, len(ordered) - 1, num=count, dtype=np.int64)
     return [ordered[int(position)] for position in positions]
+
+
+def _bf16_search_validation_sample(tasks, lengths):
+    return _length_stratified_search_sample(tasks, lengths, 2048)
 
 
 def _search_results_equivalent(
@@ -695,9 +705,8 @@ def _search_results_equivalent(
 def _search_bf16_validation(
     fp32_results,
     candidate_results,
-    tolerance=BF16_PER_RESIDUE_TOLERANCE,
 ):
-    """Apply two-stage BF16 validation to SSEARCH's selected alignment mode."""
+    """Build an informational BF16 report for SSEARCH's selected mode."""
     fp32_results = list(fp32_results)
     candidate_results = list(candidate_results)
     try:
@@ -706,32 +715,18 @@ def _search_bf16_validation(
             int(result["index"]): result for result in candidate_results
         }
     except (KeyError, OverflowError, TypeError, ValueError) as error:
-        return BF16ValidationResult(
-            accepted=False,
-            warning=False,
-            sample_count=len(fp32_results),
-            changed_count=0,
-            reason=f"invalid SSEARCH identity: {error}",
-        )
+        raise BF16ValidationIntegrityError(
+            f"invalid SSEARCH identity: {error}"
+        ) from error
     if (
         len(fp32) != len(fp32_results)
         or len(candidate_map) != len(candidate_results)
     ):
-        return BF16ValidationResult(
-            accepted=False,
-            warning=False,
-            sample_count=len(fp32_results),
-            changed_count=0,
-            reason="duplicate target identities in validation results",
+        raise BF16ValidationIntegrityError(
+            "duplicate target identities in validation results"
         )
     if fp32.keys() != candidate_map.keys():
-        return BF16ValidationResult(
-            accepted=False,
-            warning=False,
-            sample_count=len(fp32_results),
-            changed_count=0,
-            reason="target identities differ",
-        )
+        raise BF16ValidationIntegrityError("target identities differ")
 
     for index, baseline in fp32.items():
         candidate = candidate_map[index]
@@ -743,20 +738,12 @@ def _search_bf16_validation(
                 float(candidate["norm_score"]),
             )
         except (KeyError, OverflowError, TypeError, ValueError) as error:
-            return BF16ValidationResult(
-                accepted=False,
-                warning=False,
-                sample_count=len(fp32_results),
-                changed_count=0,
-                reason=f"invalid SSEARCH result for target {index}: {error}",
-            )
+            raise BF16ValidationIntegrityError(
+                f"invalid SSEARCH result for target {index}: {error}"
+            ) from error
         if not all(np.isfinite(value) for value in values):
-            return BF16ValidationResult(
-                accepted=False,
-                warning=False,
-                sample_count=len(fp32_results),
-                changed_count=0,
-                reason=f"non-finite BF16 result for target {index}",
+            raise BF16ValidationIntegrityError(
+                f"non-finite BF16 result for target {index}"
             )
 
     try:
@@ -769,18 +756,13 @@ def _search_bf16_validation(
             for index, result in candidate_map.items()
         }
     except (KeyError, TypeError) as error:
-        return BF16ValidationResult(
-            accepted=False,
-            warning=False,
-            sample_count=len(fp32_results),
-            changed_count=0,
-            reason=f"invalid SSEARCH result: {error}",
-        )
+        raise BF16ValidationIntegrityError(
+            f"invalid SSEARCH result: {error}"
+        ) from error
     return compare_bf16_metric_results(
         baseline_metrics,
         candidate_metrics,
         identity_label="target",
-        per_residue_tolerance=tolerance,
         candidate_label="BF16",
     )
 
@@ -862,6 +844,15 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             )
 
     sample = _cost_stratified_search_sample(tasks, lengths)
+    bf16_validation_sample = None
+    if precision_setting == "bf16":
+        bf16_validation_sample = _bf16_search_validation_sample(tasks, lengths)
+        print(
+            bf16_validation_notice(
+                tool_name="Embedding SSEARCH",
+                sample_count=len(bf16_validation_sample),
+            )
+        )
     print(
         f"[Hardware] Testing SSEARCH plans on {len(sample)} length-stratified "
         f"targets ({len(tasks)} total)."
@@ -869,7 +860,6 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
     print("Device/backend                 Plan      Prec.    Lanes   Targets/s   Status")
     benchmark_rows = []
     result_payloads = {}
-    bf16_baselines = {}
     for candidate in candidates:
         variants = ["scalar"]
         if candidate.backend == "cuda" and len(tasks) >= TILED_SEARCH_MIN_TARGETS:
@@ -886,12 +876,11 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             and is_nvidia_cuda(candidate.device)
         ):
             precisions.append("tf32")
-        lane_candidates = [1] if candidate.is_cpu else _lane_candidates(candidate.device, workers)
         if precision_setting == "bf16":
             try:
-                bf16_baselines[candidate.spec] = _execute_search_plan(
+                bf16_baseline = _execute_search_plan(
                     (candidate, "scalar", "float32", 1),
-                    sample,
+                    bf16_validation_sample,
                     workers,
                     input_h5,
                     store,
@@ -906,6 +895,64 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
                 )
                 Hardware_Utils.release_device_cache(candidate)
                 continue
+            validated_variants = []
+            for variant in variants:
+                try:
+                    if variant == "tiled":
+                        validation_estimate = (
+                            estimate_fixed_query_cuda_working_set(
+                                bf16_validation_sample,
+                                query_embedding=query_embedding,
+                                store=store,
+                                lengths=lengths,
+                                device=candidate.device,
+                                lanes=1,
+                                precision="bf16",
+                            )
+                        )
+                        if not validation_estimate.feasible:
+                            raise RuntimeError(validation_estimate.reason)
+                    bf16_results = _execute_search_plan(
+                        (candidate, variant, "bf16", 1),
+                        bf16_validation_sample,
+                        workers,
+                        input_h5,
+                        store,
+                        lengths,
+                        query_embedding,
+                        False,
+                    )
+                    report = _search_bf16_validation(
+                        bf16_baseline,
+                        bf16_results,
+                    )
+                    print(
+                        format_bf16_validation_report(
+                            report,
+                            context=(
+                                f"tool=Embedding SSEARCH; "
+                                f"device={candidate.display_name}; "
+                                f"backend={candidate.backend}; variant={variant}"
+                            ),
+                            identity_label="target",
+                        )
+                    )
+                    validated_variants.append(variant)
+                except Exception as error:
+                    print(
+                        f"[Precision] Cannot report {variant} BF16 on "
+                        f"{candidate.display_name}: "
+                        f"{type(error).__name__}: {error}."
+                    )
+            variants = validated_variants
+            if not variants:
+                Hardware_Utils.release_device_cache(candidate)
+                continue
+        lane_candidates = (
+            [1]
+            if candidate.is_cpu
+            else _lane_candidates(candidate.device, workers)
+        )
         for variant in variants:
             for precision in precisions:
                 if precision == "tf32" and not is_nvidia_cuda(candidate.device):
@@ -998,44 +1045,6 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             row for row in benchmark_rows
             if not row.variant.endswith(":tf32") or id(row) in allowed_tf32
         ]
-    elif precision_setting == "bf16":
-        validated_bf16 = []
-        for row in benchmark_rows:
-            variant, precision = row.variant.split(":", 1)
-            if precision != "bf16":
-                continue
-            baseline = bf16_baselines.get(row.candidate.spec)
-            payload = result_payloads.get(
-                (row.candidate.spec, variant, precision, row.lanes)
-            )
-            if baseline is None or payload is None:
-                continue
-            validation = _search_bf16_validation(
-                baseline,
-                payload,
-                tolerance=BF16_PER_RESIDUE_TOLERANCE,
-            )
-            if validation.accepted:
-                validated_bf16.append(row)
-                if validation.warning:
-                    print(
-                        format_bf16_validation_warning(
-                            validation,
-                            context=(
-                                f"BF16 {variant} on "
-                                f"{row.candidate.display_name} "
-                                f"(lanes={row.lanes})"
-                            ),
-                            identity_label="target",
-                        )
-                    )
-            else:
-                print(
-                    f"[Precision] Rejected {variant} BF16 on "
-                    f"{row.candidate.display_name}: {validation.reason}."
-                )
-        benchmark_rows = validated_bf16
-
     ranked_rows = Hardware_Utils.rank_benchmark_results(
         benchmark_rows, higher_is_better=True
     )

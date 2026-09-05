@@ -82,17 +82,17 @@ from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_Alignment_Engine import (
-    BF16_PER_RESIDUE_TOLERANCE,
     BenchmarkPhaseTimer,
     EmbeddingTileStore,
     bf16_accelerator_support,
+    bf16_validation_notice,
     compare_bf16_precision_results,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
     evenly_spaced_task_subset,
     estimate_cuda_working_set,
-    format_bf16_validation_warning,
+    format_bf16_validation_report,
     get_accelerator_backend,
     is_nvidia_cuda,
     matched_benchmark_task_halves,
@@ -901,7 +901,14 @@ def _benchmark_injection_plans(
 
     if matmul_precision == "bf16":
         validation_tasks = evenly_spaced_task_subset(tasks, min(2048, len(tasks)))
+        print(
+            bf16_validation_notice(
+                tool_name="Network Injection",
+                sample_count=len(validation_tasks),
+            )
+        )
         validated = []
+        validated_variants_by_spec = {}
         failures = []
         for candidate in candidates:
             if candidate.is_cpu:
@@ -918,7 +925,19 @@ def _benchmark_injection_plans(
                     False,
                     matmul_precision="float32",
                 )
-                for variant in _execution_variants(candidate):
+            except Exception as error:
+                failure = (
+                    f"{candidate.display_name} FP32 baseline: "
+                    f"{type(error).__name__}: {error}"
+                )
+                failures.append(failure)
+                print(f"[Precision] Excluding BF16 on {failure}.")
+                Hardware_Utils.release_device_cache(candidate)
+                continue
+
+            completed_variants = []
+            for variant in _execution_variants(candidate):
+                try:
                     candidate_results = _execute_injection_plan(
                         (candidate, variant, 1),
                         validation_tasks,
@@ -929,41 +948,45 @@ def _benchmark_injection_plans(
                         lengths,
                         "bf16",
                     )
-                    validation = compare_bf16_precision_results(
+                    report = compare_bf16_precision_results(
                         baseline,
                         candidate_results,
-                        per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
                         candidate_label="BF16",
                     )
-                    if not validation.accepted:
-                        raise ValueError(f"{variant}: {validation.reason}")
-                    if validation.warning:
-                        print(
-                            format_bf16_validation_warning(
-                                validation,
-                                context=(
-                                    f"BF16 {variant} on "
-                                    f"{candidate.display_name}"
-                                ),
-                                identity_label="pair",
-                            )
+                    print(
+                        format_bf16_validation_report(
+                            report,
+                            context=(
+                                f"tool=Network Injection; "
+                                f"device={candidate.display_name}; "
+                                f"backend={candidate.backend}; variant={variant}"
+                            ),
+                            identity_label="pair",
                         )
-            except Exception as error:
-                failures.append(
-                    f"{candidate.display_name}: {type(error).__name__}: {error}"
+                    )
+                except Exception as error:
+                    failure = (
+                        f"{candidate.display_name} {variant}: "
+                        f"{type(error).__name__}: {error}"
+                    )
+                    failures.append(failure)
+                    print(f"[Precision] Excluding BF16 plan {failure}.")
+                    continue
+                completed_variants.append(variant)
+            if completed_variants:
+                validated.append(candidate)
+                validated_variants_by_spec[candidate.spec] = set(
+                    completed_variants
                 )
-                Hardware_Utils.release_device_cache(candidate)
-                continue
-            validated.append(candidate)
-            print(
-                f"[Precision] BF16 passed blocking validation on "
-                f"{candidate.display_name}."
-            )
+                print(
+                    f"[Precision] Completed informational BF16 validation for "
+                    f"{', '.join(completed_variants)} on {candidate.display_name}."
+                )
             Hardware_Utils.release_device_cache(candidate)
         candidates = validated
         if not candidates:
             raise RuntimeError(
-                "No selected accelerator passed BF16 numerical validation ("
+                "No selected accelerator completed BF16 validation ("
                 + "; ".join(failures)
                 + ")."
             )
@@ -998,6 +1021,12 @@ def _benchmark_injection_plans(
             phase_count = len(cpu_warmup)
             timed_count = len(cpu_timed)
         variants = _execution_variants(candidate)
+        if matmul_precision == "bf16":
+            variants = [
+                variant
+                for variant in variants
+                if variant in validated_variants_by_spec.get(candidate.spec, set())
+            ]
         lane_candidates = [1] if candidate.is_cpu else _lane_candidates(
             candidate.device, workers
         )

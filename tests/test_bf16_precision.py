@@ -209,7 +209,7 @@ class Bf16PrecisionTests(unittest.TestCase):
         self.assertLess(bf16.tile_bytes, fp32.tile_bytes)
         self.assertGreater(bf16.transient_bytes, 0)
 
-    def test_bf16_tolerance_is_one_hundredth_per_aligned_residue(self):
+    def test_tf32_comparison_retains_strict_per_residue_tolerance(self):
         baseline = [(0, 1, 10.0, 10, 20.0, 20)]
         within = [(0, 1, 10.099, 10, 20.199, 20)]
         outside = [(0, 1, 10.101, 10, 20.201, 20)]
@@ -218,7 +218,7 @@ class Bf16PrecisionTests(unittest.TestCase):
                 baseline,
                 within,
                 per_residue_tolerance=0.01,
-                candidate_label="BF16",
+                candidate_label="TF32",
             )[0]
         )
         self.assertFalse(
@@ -226,7 +226,7 @@ class Bf16PrecisionTests(unittest.TestCase):
                 baseline,
                 outside,
                 per_residue_tolerance=0.01,
-                candidate_label="BF16",
+                candidate_label="TF32",
             )[0]
         )
 
@@ -248,109 +248,88 @@ class Bf16PrecisionTests(unittest.TestCase):
             )
         return baseline, candidate
 
-    def test_bf16_clean_pass_keeps_per_residue_score_tolerance(self):
-        baseline = [(0, 1, 100.0, 100, 200.0, 100)]
-        at_limit = [(0, 1, 101.0, 100, 199.0, 100)]
-        over_limit = [(0, 1, 101.001, 100, 200.0, 100)]
-
-        accepted = engine.compare_bf16_precision_results(baseline, at_limit)
-        rejected = engine.compare_bf16_precision_results(baseline, over_limit)
-
-        self.assertTrue(accepted.accepted)
-        self.assertFalse(accepted.warning)
-        self.assertFalse(rejected.accepted)
-        self.assertIn("global score tolerance", rejected.reason)
-
-    def test_bf16_changed_pair_ceiling_is_strict(self):
-        baseline, candidate = self._alignment_validation_rows(2048, 63)
-        warning = engine.compare_bf16_precision_results(baseline, candidate)
-        self.assertTrue(warning.accepted)
-        self.assertTrue(warning.warning)
-        self.assertEqual(warning.changed_count, 63)
-
-        baseline, candidate = self._alignment_validation_rows(2048, 64)
-        rejected = engine.compare_bf16_precision_results(baseline, candidate)
-        self.assertFalse(rejected.accepted)
-        self.assertIn("64/2048", rejected.reason)
-
-    def test_bf16_changed_pair_limits_are_strict_and_check_both_modes(self):
-        baseline = [(0, 1, 100.0, 100, 200.0, 100)] * 33
-        baseline = [
-            (index, index + 1, *row[2:]) for index, row in enumerate(baseline)
+    def test_bf16_report_accepts_all_finite_drift_for_all_pairs(self):
+        baseline, candidate = self._alignment_validation_rows(2048, 2048)
+        candidate = [
+            (row, column, 1000.0, 300, -600.0, 275)
+            for row, column, *_values in candidate
         ]
-        below = list(baseline)
-        below[0] = (0, 1, 104.999, 104, 190.002, 100)
-        warning = engine.compare_bf16_precision_results(baseline, below)
-        self.assertTrue(warning.accepted)
-        self.assertTrue(warning.warning)
 
-        length_at_limit = list(baseline)
-        length_at_limit[0] = (0, 1, 100.0, 105, 200.0, 100)
-        self.assertFalse(
-            engine.compare_bf16_precision_results(
-                baseline, length_at_limit
-            ).accepted
+        report = engine.compare_bf16_precision_results(baseline, candidate)
+
+        self.assertEqual(report.sample_count, 2048)
+        self.assertEqual(report.changed_case_count, 2048)
+        self.assertEqual(report.modes[0].changed_length_count, 2048)
+        self.assertEqual(report.modes[0].length_percentage_drift.maximum, 200.0)
+        self.assertEqual(report.modes[0].score_percentage_drift.maximum, 900.0)
+        self.assertEqual(report.modes[1].changed_length_count, 2048)
+
+    def test_bf16_report_statistics_and_extremes_are_deterministic(self):
+        baseline = [
+            (index, index + 1, 100.0, 100, 200.0, 100)
+            for index in range(4)
+        ]
+        candidate = [
+            (0, 1, 100.0, 100, 200.0, 100),
+            (1, 2, 110.0, 110, 180.0, 90),
+            (2, 3, 120.0, 120, 160.0, 80),
+            (3, 4, 140.0, 140, 120.0, 60),
+        ]
+
+        report = engine.compare_bf16_precision_results(baseline, candidate)
+        global_stats, local_stats = report.modes
+
+        self.assertEqual(report.changed_case_count, 3)
+        self.assertEqual(global_stats.exact_length_count, 1)
+        self.assertEqual(global_stats.changed_length_count, 3)
+        self.assertEqual(global_stats.absolute_length_difference.mean, 17.5)
+        self.assertEqual(global_stats.absolute_length_difference.median, 15.0)
+        self.assertEqual(global_stats.absolute_length_difference.p95, 40.0)
+        self.assertAlmostEqual(
+            global_stats.changed_absolute_length_difference.mean,
+            70.0 / 3.0,
         )
+        self.assertEqual(global_stats.worst_absolute_length.identity, (3, 4))
+        self.assertEqual(global_stats.worst_absolute_length.signed_difference, 40.0)
+        self.assertEqual(global_stats.worst_score.percentage_change, 40.0)
+        self.assertEqual(local_stats.worst_relative_length.identity, (3, 4))
 
-        local_score_at_limit = list(baseline)
-        local_score_at_limit[0] = (0, 1, 100.0, 101, 190.0, 100)
-        rejected = engine.compare_bf16_precision_results(
-            baseline, local_score_at_limit
-        )
-        self.assertFalse(rejected.accepted)
-        self.assertIn("local score changed", rejected.reason)
+    def test_bf16_zero_baselines_report_infinite_drift(self):
+        baseline = [(0, 1, 0.0, 0, 0.0, 100)]
+        candidate = [(0, 1, 1.0, 1, 2.0, 300)]
 
-    def test_bf16_zero_baselines_require_exact_zero(self):
-        baseline = [(index, index + 1, 0.0, 0, 0.0, 100) for index in range(33)]
-        unchanged_nonzero_score = list(baseline)
-        unchanged_nonzero_score[0] = (0, 1, 0.001, 0, 0.0, 100)
-        self.assertFalse(
-            engine.compare_bf16_precision_results(
-                baseline, unchanged_nonzero_score
-            ).accepted
-        )
+        report = engine.compare_bf16_precision_results(baseline, candidate)
+        global_stats, local_stats = report.modes
 
-        candidate = list(baseline)
-        candidate[0] = (0, 1, 0.0, 0, 0.0, 101)
-        accepted = engine.compare_bf16_precision_results(baseline, candidate)
-        self.assertTrue(accepted.accepted)
-        self.assertTrue(accepted.warning)
+        self.assertTrue(np.isinf(global_stats.length_percentage_drift.maximum))
+        self.assertTrue(np.isinf(global_stats.score_percentage_drift.maximum))
+        self.assertEqual(local_stats.length_percentage_drift.maximum, 200.0)
+        self.assertTrue(np.isinf(local_stats.score_percentage_drift.maximum))
 
-        nonzero_score = list(candidate)
-        nonzero_score[0] = (0, 1, 0.001, 0, 0.0, 101)
-        self.assertFalse(
-            engine.compare_bf16_precision_results(
-                baseline, nonzero_score
-            ).accepted
-        )
-
-        changed_zero_length = list(baseline)
-        changed_zero_length[0] = (0, 1, 0.0, 1, 0.0, 100)
-        self.assertFalse(
-            engine.compare_bf16_precision_results(
-                baseline, changed_zero_length
-            ).accepted
-        )
-
-    def test_bf16_warning_reports_each_extreme_metric(self):
+    def test_bf16_report_prints_distributions_and_each_extreme(self):
         baseline, candidate = self._alignment_validation_rows(33, 1)
-        result = engine.compare_bf16_precision_results(baseline, candidate)
-        warning = engine.format_bf16_validation_warning(
-            result,
-            context="BF16 tiled on Test GPU",
+        report = engine.compare_bf16_precision_results(baseline, candidate)
+        text = engine.format_bf16_validation_report(
+            report,
+            context="tool=Align; device=Test GPU; backend=cuda; variant=tiled",
             identity_label="pair",
         )
 
-        self.assertIn("1/33 pairs", warning)
-        self.assertIn("failure begins at 2/33", warning)
+        self.assertIn("cases=33", text)
+        self.assertIn("any-length-changed=1/33", text)
+        self.assertIn("mean=", text)
+        self.assertIn("median=", text)
+        self.assertIn("P95=", text)
+        self.assertIn("P99=", text)
         for metric in (
-            "global length",
-            "local length",
-            "global score",
-            "local score",
+            "global absolute length difference",
+            "global relative length drift",
+            "global raw-score drift",
+            "local absolute length difference",
+            "local relative length drift",
+            "local raw-score drift",
         ):
-            self.assertIn(f"worst {metric}", warning)
-        self.assertEqual(warning.count("pair (0, 1)"), 4)
+            self.assertIn(f"worst {metric}", text)
 
     def test_bf16_validation_rejects_invalid_result_sets(self):
         baseline = [(0, 1, 100.0, 100, 200.0, 100)]
@@ -358,17 +337,13 @@ class Bf16PrecisionTests(unittest.TestCase):
         nonfinite = [(0, 1, np.nan, 100, 200.0, 100)]
         duplicate = baseline + baseline
 
-        self.assertFalse(
-            engine.compare_bf16_precision_results(baseline, missing).accepted
-        )
-        self.assertFalse(
-            engine.compare_bf16_precision_results(baseline, nonfinite).accepted
-        )
-        self.assertFalse(
-            engine.compare_bf16_precision_results(duplicate, duplicate).accepted
-        )
+        for candidate in (missing, nonfinite, duplicate):
+            with self.subTest(candidate=candidate), self.assertRaises(
+                engine.BF16ValidationIntegrityError
+            ):
+                engine.compare_bf16_precision_results(baseline, candidate)
 
-    def test_align_bf16_warning_identifies_device_and_variant(self):
+    def test_align_bf16_notice_and_report_identify_device_and_variant(self):
         device = align.Hardware_Utils.DeviceCandidate(
             "cuda:0", "Test GPU", torch.device("cuda:0"), "cuda"
         )
@@ -403,14 +378,23 @@ class Bf16PrecisionTests(unittest.TestCase):
             )
 
         self.assertEqual(precision, "bf16")
-        self.assertIn("WARNING: BF16 scalar on Test GPU", output.getvalue())
-        self.assertIn("worst global length", output.getvalue())
+        self.assertEqual(output.getvalue().count("explicit low-precision BF16"), 1)
+        self.assertIn(
+            "device=Test GPU [cuda:0]; backend=cuda; variant=scalar",
+            output.getvalue(),
+        )
+        self.assertIn("worst global relative length drift", output.getvalue())
 
-    def test_align_manual_bf16_fails_at_proportional_ceiling(self):
+    def test_align_manual_bf16_proceeds_with_extreme_finite_drift(self):
         device = align.Hardware_Utils.DeviceCandidate(
             "cuda:0", "Test GPU", torch.device("cuda:0"), "cuda"
         )
-        baseline, candidate = self._alignment_validation_rows(32, 1)
+        baseline, candidate = self._alignment_validation_rows(32, 32)
+        candidate = [
+            (row, column, 1000.0, 300, -600.0, 275)
+            for row, column, *_values in candidate
+        ]
+        output = io.StringIO()
         with mock.patch.object(
             align.Hardware_Utils,
             "get_available_devices",
@@ -429,16 +413,99 @@ class Bf16PrecisionTests(unittest.TestCase):
             side_effect=[baseline, candidate],
         ), mock.patch.object(
             align, "_release_alignment_device_cache"
-        ), redirect_stdout(io.StringIO()), self.assertRaisesRegex(
-            ValueError, "1/32"
-        ):
-            align._resolve_active_matmul_precision(
+        ), redirect_stdout(output):
+            precision = align._resolve_active_matmul_precision(
                 "bf16",
                 None,
                 [(index, index + 1, "a", "b") for index in range(32)],
                 1,
                 mock.Mock(path="unused.h5"),
                 [100] * 33,
+            )
+        self.assertEqual(precision, "bf16")
+        self.assertIn("any-length-changed=32/32", output.getvalue())
+        self.assertIn("max=200.000%", output.getvalue())
+
+    def test_align_auto_excludes_only_integrity_failure_and_continues(self):
+        bad_device = align.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Bad GPU", torch.device("cuda:0"), "cuda"
+        )
+        good_device = align.Hardware_Utils.DeviceCandidate(
+            "xpu:0", "Good GPU", torch.device("xpu:0"), "xpu"
+        )
+        baseline = [(0, 1, 100.0, 100, 200.0, 100)]
+        nonfinite = [(0, 1, np.nan, 100, 200.0, 100)]
+        output = io.StringIO()
+        with mock.patch.object(
+            align.Hardware_Utils,
+            "get_available_devices",
+            return_value=[bad_device, good_device],
+        ), mock.patch.object(
+            align.Hardware_Utils,
+            "resolve_device_selection",
+            return_value=None,
+        ), mock.patch.object(
+            align, "bf16_accelerator_support", return_value=(True, "supported")
+        ), mock.patch.object(
+            align, "_execution_variants", return_value=["scalar"]
+        ), mock.patch.object(
+            align,
+            "_run_accelerated_pipeline",
+            side_effect=[baseline, nonfinite, baseline, baseline],
+        ), mock.patch.object(
+            align, "_release_alignment_device_cache"
+        ), redirect_stdout(output):
+            precision = align._resolve_active_matmul_precision(
+                "bf16",
+                None,
+                [(0, 1, "a", "b")],
+                1,
+                mock.Mock(path="unused.h5"),
+                [100, 100],
+            )
+
+        self.assertEqual(precision, "bf16")
+        self.assertIn(
+            "Excluding BF16 plan Bad GPU [cuda:0] scalar",
+            output.getvalue(),
+        )
+        self.assertIn("device=Good GPU [xpu:0]", output.getvalue())
+        self.assertEqual(output.getvalue().count("explicit low-precision BF16"), 1)
+
+    def test_align_manual_bf16_reports_integrity_failure(self):
+        device = align.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Test GPU", torch.device("cuda:0"), "cuda"
+        )
+        baseline = [(0, 1, 100.0, 100, 200.0, 100)]
+        nonfinite = [(0, 1, np.inf, 100, 200.0, 100)]
+        with mock.patch.object(
+            align.Hardware_Utils,
+            "get_available_devices",
+            return_value=[device],
+        ), mock.patch.object(
+            align.Hardware_Utils,
+            "resolve_device_selection",
+            return_value=device,
+        ), mock.patch.object(
+            align, "bf16_accelerator_support", return_value=(True, "supported")
+        ), mock.patch.object(
+            align, "_execution_variants", return_value=["scalar"]
+        ), mock.patch.object(
+            align,
+            "_run_accelerated_pipeline",
+            side_effect=[baseline, nonfinite],
+        ), mock.patch.object(
+            align, "_release_alignment_device_cache"
+        ), redirect_stdout(io.StringIO()), self.assertRaisesRegex(
+            ValueError, "non-finite BF16 global score"
+        ):
+            align._resolve_active_matmul_precision(
+                "bf16",
+                None,
+                [(0, 1, "a", "b")],
+                1,
+                mock.Mock(path="unused.h5"),
+                [100, 100],
             )
 
     def test_network_injection_bf16_warning_keeps_candidate_eligible(self):
@@ -500,7 +567,12 @@ class Bf16PrecisionTests(unittest.TestCase):
             )
 
         self.assertTrue(plans)
-        self.assertIn("WARNING: BF16 scalar on Test GPU", output.getvalue())
+        self.assertEqual(output.getvalue().count("explicit low-precision BF16"), 1)
+        self.assertIn("tool=Network Injection", output.getvalue())
+        self.assertIn(
+            "device=Test GPU [cuda:0]; backend=cuda; variant=scalar",
+            output.getvalue(),
+        )
 
     def test_hdf5_precision_normalization_recognizes_bf16(self):
         self.assertEqual(_normalized_precision("bf16"), "bf16")
