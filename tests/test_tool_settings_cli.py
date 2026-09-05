@@ -739,7 +739,7 @@ class ToolExportGuiTests(unittest.TestCase):
                 self.assertEqual(compact_row, host_row - 1)
                 form_parent.close()
 
-    def test_tab_pages_share_content_width_without_resizing_tab_labels(self):
+    def test_tab_pages_release_shared_content_width_without_resizing_tab_labels(self):
         from PySide6.QtWidgets import QScrollArea, QTabWidget, QWidget
 
         tabs = QTabWidget()
@@ -767,7 +767,7 @@ class ToolExportGuiTests(unittest.TestCase):
             fake_window
         )
 
-        self.assertEqual(common_width, max(original_content_widths))
+        self.assertIsNone(common_width)
         self.assertEqual(
             tabs.property("commonContentMinimumWidth"),
             common_width,
@@ -789,7 +789,7 @@ class ToolExportGuiTests(unittest.TestCase):
                 scroll_page.property("commonViewportMinimumWidth"),
                 600,
             )
-            self.assertEqual(content_page.minimumWidth(), common_width)
+            self.assertEqual(content_page.minimumWidth(), 0)
             self.assertEqual(
                 content_page.property("commonContentMinimumWidth"),
                 common_width,
