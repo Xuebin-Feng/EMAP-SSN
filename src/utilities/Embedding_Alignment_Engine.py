@@ -7,11 +7,11 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""Memory-bounded CUDA execution for residue-embedding alignments.
+"""Memory-bounded accelerator execution for residue-embedding alignments.
 
 The engine is intentionally independent from a particular tool's cache and
 output schema.  Callers supply the pair tasks and the CPU alignment callback;
-the engine owns only embedding caching, CUDA batching, and pipeline overlap.
+the engine owns only embedding caching, accelerator batching, and overlap.
 """
 
 from __future__ import annotations
@@ -46,6 +46,9 @@ TILE_MEMORY_PROFILES = (
     ("tile-heavy", 0.40, 0.40),
 )
 SUPPORTED_TILED_BACKENDS = frozenset({"cuda", "xpu", "mps"})
+BF16_ACCELERATOR_BACKENDS = frozenset({"cuda", "xpu", "mps"})
+BF16_PER_RESIDUE_TOLERANCE = 1e-2
+bf16_support_cache = {}
 
 
 class BenchmarkPhaseTimer:
@@ -276,12 +279,37 @@ def resolve_host_cache_bytes(setting):
 
 
 def normalize_precision_setting(value):
-    normalized = "auto" if value is None else str(value).strip().lower()
-    aliases = {"ieee": "float32", "fp32": "float32", "ieee_fp32": "float32"}
+    normalized = (
+        "automatic_32bit" if value is None else str(value).strip().lower()
+    )
+    aliases = {
+        "auto": "automatic_32bit",
+        "ieee": "float32",
+        "fp32": "float32",
+        "ieee_fp32": "float32",
+        "tfloat32": "tf32",
+        "bfloat16": "bf16",
+    }
     normalized = aliases.get(normalized, normalized)
-    if normalized not in {"auto", "float32", "tf32"}:
-        raise ValueError("ACCELERATOR_PRECISION must be auto, float32, or tf32.")
+    if normalized not in {"automatic_32bit", "float32", "tf32", "bf16"}:
+        raise ValueError(
+            "ACCELERATOR_PRECISION must be automatic_32bit, float32, tf32, "
+            "or bf16."
+        )
     return normalized
+
+
+def precision_compute_dtype(precision):
+    """Return the operand dtype for a canonical configured/result precision."""
+    normalized = str(precision).strip().lower()
+    if normalized in {"bf16", "bfloat16"}:
+        return torch.bfloat16
+    return torch.float32
+
+
+def precision_element_bytes(precision):
+    """Return resident embedding bytes per element for ``precision``."""
+    return 2 if precision_compute_dtype(precision) == torch.bfloat16 else 4
 
 
 def normalize_execution_mode(value):
@@ -522,6 +550,45 @@ def tiled_accelerator_support(device, *, require_memory=True):
     return backend.supports_tiled(require_memory=require_memory)
 
 
+def bf16_accelerator_support(device, *, refresh=False):
+    """Probe and cache usable BF16 matmul support on one accelerator device."""
+    resolved = torch.device(device)
+    cache_key = (resolved.type, resolved.index)
+    if not refresh and cache_key in bf16_support_cache:
+        return bf16_support_cache[cache_key]
+    if resolved.type not in BF16_ACCELERATOR_BACKENDS:
+        result = (False, "BF16 execution requires CUDA/ROCm, XPU, or MPS")
+        bf16_support_cache[cache_key] = result
+        return result
+
+    backend = None
+    try:
+        backend = get_accelerator_backend(resolved)
+        with torch.inference_mode():
+            left = torch.arange(
+                32, device=resolved, dtype=torch.float32
+            ).reshape(4, 8).to(torch.bfloat16)
+            right = torch.arange(
+                24, device=resolved, dtype=torch.float32
+            ).reshape(3, 8).to(torch.bfloat16)
+            product = torch.mm(left, right.T).to(torch.float32)
+            backend.synchronize()
+            finite = bool(torch.isfinite(product).all().to("cpu").item())
+        if not finite:
+            raise FloatingPointError("the BF16 probe produced non-finite values")
+        result = (True, "BF16 matmul and FP32 conversion succeeded")
+    except Exception as error:
+        result = (False, f"BF16 runtime probe failed: {error}")
+    finally:
+        if backend is not None:
+            try:
+                backend.empty_cache()
+            except Exception:
+                pass
+    bf16_support_cache[cache_key] = result
+    return result
+
+
 @contextmanager
 def cuda_matmul_precision(mode):
     """Temporarily select IEEE FP32 or TF32 CUDA matmul semantics."""
@@ -563,7 +630,11 @@ def compute_score_matrix_torch(emb_i, emb_j, device, precision="float32"):
         t_j = torch.as_tensor(emb_j, device=device, dtype=torch.float32)
         t_i = torch.nn.functional.normalize(t_i, p=2, dim=-1)
         t_j = torch.nn.functional.normalize(t_j, p=2, dim=-1)
-        cosine = torch.mm(t_i, t_j.T).clamp(-1.0, 1.0)
+        compute_dtype = precision_compute_dtype(precision)
+        if compute_dtype != torch.float32:
+            t_i = t_i.to(compute_dtype)
+            t_j = t_j.to(compute_dtype)
+        cosine = torch.mm(t_i, t_j.T).to(torch.float32).clamp(-1.0, 1.0)
         similarity = torch.exp(-(1.0 - cosine))
         epsilon = 1e-8
         row_mean = similarity.mean(dim=1, keepdim=True)
@@ -892,7 +963,7 @@ def _store_block_ids(store, max_block_bytes, lengths, element_bytes):
     return block_ids
 
 
-def _to_normalized_cuda(array, device):
+def _to_normalized_cuda(array, device, precision="float32"):
     """Transfer and normalize one embedding using backend-safe copy semantics."""
     contiguous = np.ascontiguousarray(array)
     cpu_tensor = torch.from_numpy(contiguous)
@@ -910,7 +981,14 @@ def _to_normalized_cuda(array, device):
     )
     norms = torch.linalg.vector_norm(tensor, ord=2, dim=-1, keepdim=True)
     tensor.div_(norms.clamp_min_(torch.finfo(torch.float32).tiny))
-    return tensor
+    return tensor.to(precision_compute_dtype(precision))
+
+
+def _to_normalized_accelerator(array, device, precision):
+    """Preserve the legacy two-argument helper call for 32-bit execution."""
+    if precision_compute_dtype(precision) == torch.float32:
+        return _to_normalized_cuda(array, device)
+    return _to_normalized_cuda(array, device, precision)
 
 
 def _microbatch_workspace_bytes(
@@ -989,13 +1067,15 @@ def _batched_score_matrices(row_tensor, target_tensors, target_lengths):
     feature_dimension = int(row_tensor.shape[1])
     targets = torch.zeros(
         (batch_size, max_length, feature_dimension),
-        dtype=torch.float32,
+        dtype=row_tensor.dtype,
         device=row_tensor.device,
     )
     for index, (target, length) in enumerate(zip(target_tensors, target_lengths)):
         targets[index, :int(length)].copy_(target)
 
-    cosine = torch.matmul(row_tensor.unsqueeze(0), targets.transpose(1, 2))
+    cosine = torch.matmul(
+        row_tensor.unsqueeze(0), targets.transpose(1, 2)
+    ).to(torch.float32)
     similarity = torch.exp(-(1.0 - cosine.clamp_(-1.0, 1.0)))
     lengths_tensor = torch.as_tensor(
         target_lengths,
@@ -1118,6 +1198,7 @@ def estimate_cuda_working_set(
     padded_elements = 0
     real_elements = 0
     schedule_parts = []
+    normalization_transient_bytes = 0
     if variant == "tiled":
         per_block = max(1, plan.tile_cache_bytes // 2)
         block_ids = _store_block_ids(
@@ -1135,6 +1216,17 @@ def estimate_cuda_working_set(
                 tile_bytes,
                 resident,
             )
+            if compute_element_bytes < 4 and tile_indices:
+                # Each embedding is normalized in FP32 before its resident
+                # BF16 copy is retained. Loading is sequential, so only the
+                # largest such FP32 normalization source is concurrent.
+                normalization_transient_bytes = max(
+                    normalization_transient_bytes,
+                    max(
+                        int(lengths[index]) * feature_dimension * 4
+                        for index in tile_indices
+                    ),
+                )
             rows = OrderedDict()
             for task in tile_tasks:
                 rows.setdefault(int(task[0]), []).append(task)
@@ -1181,13 +1273,23 @@ def estimate_cuda_working_set(
             embedding_bytes = (
                 resident_bytes[left] + resident_bytes[right]
             )
-            workspaces.append(workspace + embedding_bytes)
+            normalization_transient = 0
+            if compute_element_bytes < 4:
+                normalization_transient = max(
+                    int(lengths[left]) * feature_dimension * 4,
+                    int(lengths[right]) * feature_dimension * 4,
+                )
+            workspaces.append(
+                workspace + embedding_bytes + normalization_transient
+            )
         active_slots = max(1, int(lanes))
 
     largest = max(workspaces, default=0)
     transient_bytes = sum(
         sorted(workspaces, reverse=True)[:active_slots]
     )
+    if variant == "tiled":
+        transient_bytes += normalization_transient_bytes
     additional = tile_bytes + transient_bytes
     projected_peak = baseline_bytes + additional
     microbatch_fits = variant != "tiled" or largest <= plan.matrix_bytes
@@ -1357,7 +1459,7 @@ def _run_synchronous_tiled_pipeline(
                 tile_indices.update(int(task[1]) for task in tile_tasks)
                 host_embeddings = store.load_indices(tile_indices, group)
                 gpu_embeddings = {
-                    index: _to_normalized_cuda(array, device)
+                    index: _to_normalized_accelerator(array, device, precision)
                     for index, array in host_embeddings.items()
                 }
                 del host_embeddings
@@ -1463,7 +1565,11 @@ def run_tiled_accelerator_pipeline(
             )
         warmup_task_count = 0
 
-    plan = memory_plan_override or accelerator_memory_plan(device, lanes=lanes)
+    plan = memory_plan_override or accelerator_memory_plan(
+        device,
+        lanes=lanes,
+        compute_element_bytes=precision_element_bytes(precision),
+    )
     if int(plan.lanes) != max(1, int(lanes)):
         raise ValueError(
             "Accelerator memory plan lane count does not match execution lanes."
@@ -1549,7 +1655,9 @@ def run_tiled_accelerator_pipeline(
                 preload_stream = streams[stream_cursor % len(streams)]
                 with backend.stream_context(preload_stream):
                     gpu_embeddings = {
-                        index: _to_normalized_cuda(array, device)
+                        index: _to_normalized_accelerator(
+                            array, device, precision
+                        )
                         for index, array in host_embeddings.items()
                     }
                     preload_event = backend.create_event()
@@ -1642,46 +1750,63 @@ def estimate_fixed_query_cuda_working_set(
     lanes=1,
     memory_info=None,
     task_index: Callable = _fixed_query_task_index,
+    precision="float32",
 ):
     """Estimate a fixed-query tiled search without allocating CUDA tensors."""
-    plan = cuda_memory_plan(device, lanes=lanes, memory_info=memory_info)
+    element_bytes = precision_element_bytes(precision)
+    plan = cuda_memory_plan(
+        device,
+        lanes=lanes,
+        memory_info=memory_info,
+        compute_element_bytes=element_bytes,
+    )
     tasks = list(tasks)
     baseline = max(0, plan.total_bytes - plan.free_bytes)
     safe_peak = max(0, plan.total_bytes - plan.reserve_bytes)
     query = np.asarray(query_embedding)
     query_length = int(query.shape[0])
-    query_bytes = int(query.size) * 4
+    query_bytes = int(query.size) * element_bytes
+    normalization_transient = int(query.size) * 4 if element_bytes < 4 else 0
     if not tasks:
         return CudaWorkloadEstimate(
             variant="fixed_query_tiled",
             lanes=int(lanes),
             inflight_slots=plan.inflight_slots,
             tile_bytes=query_bytes,
-            transient_bytes=0,
-            additional_bytes=query_bytes,
-            projected_peak_bytes=baseline + query_bytes,
+            transient_bytes=normalization_transient,
+            additional_bytes=query_bytes + normalization_transient,
+            projected_peak_bytes=baseline + query_bytes + normalization_transient,
             safe_peak_bytes=safe_peak,
             per_microbatch_bytes=plan.matrix_bytes,
             largest_microbatch_bytes=0,
-            feasible=baseline + query_bytes <= safe_peak,
+            feasible=baseline + query_bytes + normalization_transient <= safe_peak,
             reason="empty workload",
         )
 
     indexed = [(task_index(task), task) for task in tasks]
     per_block = max(1, plan.tile_cache_bytes - query_bytes)
-    block_ids = store.block_ids(per_block)
+    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     grouped = OrderedDict()
     for index, task in indexed:
         grouped.setdefault(int(block_ids[index]), []).append(task)
 
     tile_bytes = query_bytes
     workspaces = []
+    target_normalization_transient = 0
+    resident_bytes = _store_resident_bytes(store, lengths, element_bytes)
+    float32_resident_bytes = _store_resident_bytes(store, lengths, 4)
     for block_tasks in grouped.values():
         indices = {task_index(task) for task in block_tasks}
         tile_bytes = max(
             tile_bytes,
-            query_bytes + sum(store.float32_bytes[index] for index in indices),
+            query_bytes
+            + sum(resident_bytes[index] for index in indices),
         )
+        if element_bytes < 4 and indices:
+            target_normalization_transient = max(
+                target_normalization_transient,
+                max(float32_resident_bytes[index] for index in indices),
+            )
         pseudo_tasks = [(0, task_index(task), task) for task in block_tasks]
         for microbatch in _length_microbatches(
             pseudo_tasks,
@@ -1689,6 +1814,7 @@ def estimate_fixed_query_cuda_working_set(
             query_length,
             plan.matrix_bytes,
             store.feature_dimension,
+            element_bytes,
         ):
             target_lengths = [int(lengths[int(item[1])]) for item in microbatch]
             workspaces.append(
@@ -1696,11 +1822,14 @@ def estimate_fixed_query_cuda_working_set(
                     query_length,
                     target_lengths,
                     store.feature_dimension,
+                    element_bytes,
                 )
             )
 
     largest = max(workspaces, default=0)
-    transient = sum(sorted(workspaces, reverse=True)[:plan.inflight_slots])
+    transient = normalization_transient + target_normalization_transient + sum(
+        sorted(workspaces, reverse=True)[:plan.inflight_slots]
+    )
     additional = tile_bytes + transient
     projected = baseline + additional
     feasible = largest <= plan.matrix_bytes and projected <= safe_peak
@@ -1748,13 +1877,16 @@ def run_fixed_query_cuda_pipeline(
     if not tasks:
         return []
 
-    plan = cuda_memory_plan(device, lanes=lanes)
+    element_bytes = precision_element_bytes(precision)
+    plan = cuda_memory_plan(
+        device, lanes=lanes, compute_element_bytes=element_bytes
+    )
     matrix_budget = int(matrix_budget_override or plan.matrix_bytes)
     query_array = np.asarray(query_embedding)
     query_length = int(query_array.shape[0])
-    query_bytes = int(query_array.size) * 4
+    query_bytes = int(query_array.size) * element_bytes
     per_block = max(1, plan.tile_cache_bytes - query_bytes)
-    block_ids = store.block_ids(per_block)
+    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     grouped = OrderedDict()
     for task in tasks:
         index = task_index(task)
@@ -1815,7 +1947,9 @@ def run_fixed_query_cuda_pipeline(
             ) as cpu_executor:
         preload_stream = streams[0]
         with torch.cuda.stream(preload_stream):
-            query_tensor = _to_normalized_cuda(query_array, device)
+            query_tensor = _to_normalized_accelerator(
+                query_array, device, precision
+            )
             query_event = torch.cuda.Event()
             query_event.record(preload_stream)
         query_event.synchronize()
@@ -1827,7 +1961,7 @@ def run_fixed_query_cuda_pipeline(
             preload_stream = streams[stream_cursor % len(streams)]
             with torch.cuda.stream(preload_stream):
                 gpu_embeddings = {
-                    index: _to_normalized_cuda(array, device)
+                    index: _to_normalized_accelerator(array, device, precision)
                     for index, array in host_embeddings.items()
                 }
                 preload_event = torch.cuda.Event()
@@ -1842,6 +1976,7 @@ def run_fixed_query_cuda_pipeline(
                 query_length,
                 matrix_budget,
                 store.feature_dimension,
+                element_bytes,
             ):
                 stream = streams[stream_cursor % len(streams)]
                 stream_cursor += 1
@@ -1877,22 +2012,27 @@ def run_fixed_query_cuda_pipeline(
     return results
 
 
-def compare_precision_results(fp32_results, tf32_results, per_residue_tolerance=1e-3):
-    """Validate TF32 alignment decisions and length-normalized score drift."""
+def compare_precision_results(
+    fp32_results,
+    candidate_results,
+    per_residue_tolerance=1e-3,
+    candidate_label="candidate",
+):
+    """Validate alignment decisions and length-normalized precision drift."""
     fp32 = {tuple(result[:2]): result for result in fp32_results}
-    tf32 = {tuple(result[:2]): result for result in tf32_results}
-    if fp32.keys() != tf32.keys():
+    candidate_map = {tuple(result[:2]): result for result in candidate_results}
+    if fp32.keys() != candidate_map.keys():
         return False, "pair identities differ"
     for pair in fp32:
         baseline = fp32[pair]
-        candidate = tf32[pair]
+        candidate = candidate_map[pair]
         if int(baseline[3]) != int(candidate[3]) or int(baseline[5]) != int(candidate[5]):
             return False, f"alignment length changed for pair {pair}"
         for score_index, length_index in ((2, 3), (4, 5)):
             baseline_score = float(baseline[score_index])
             candidate_score = float(candidate[score_index])
-            if not np.isfinite(candidate_score):
-                return False, f"non-finite TF32 score for pair {pair}"
+            if not np.isfinite(baseline_score) or not np.isfinite(candidate_score):
+                return False, f"non-finite {candidate_label} score for pair {pair}"
             scale = max(1, int(baseline[length_index]))
             if abs(candidate_score - baseline_score) / scale > per_residue_tolerance:
                 return False, f"score tolerance exceeded for pair {pair}"

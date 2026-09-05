@@ -299,6 +299,7 @@ class ToolExportGuiTests(unittest.TestCase):
         from EMAPSSN_Tools import (
             HostCacheControl,
             ToolsGUI,
+            _selection_supports_bf16,
             _selection_supports_tf32,
             _sync_alignment_tiled_option,
             _sync_tf32_precision_option,
@@ -308,6 +309,7 @@ class ToolExportGuiTests(unittest.TestCase):
         cls.host_cache_control_class = HostCacheControl
         cls.tools_gui_class = ToolsGUI
         cls.selection_supports_tf32 = staticmethod(_selection_supports_tf32)
+        cls.selection_supports_bf16 = staticmethod(_selection_supports_bf16)
         cls.sync_alignment_tiled_option = staticmethod(
             _sync_alignment_tiled_option
         )
@@ -471,6 +473,49 @@ class ToolExportGuiTests(unittest.TestCase):
                 )
             )
             self.assertGreaterEqual(precision.findData("tf32"), 0)
+
+    def test_bf16_precision_option_tracks_runtime_capability(self):
+        from PySide6.QtWidgets import QComboBox
+        from utilities import Hardware_Utils
+        import torch
+
+        cpu = Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        cuda = Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        device = QComboBox()
+        device.addItem("Auto", "auto")
+        device.addItem("CPU", "cpu")
+        device.addItem("CUDA", "cuda:0")
+        precision = QComboBox()
+        precision.addItem("Automatic 32-bit", "automatic_32bit")
+        precision.addItem("float32", "float32")
+        precision.addItem("BF16 (Low Precision)", "bf16")
+
+        with mock.patch(
+            "EMAPSSN_Tools.bf16_accelerator_support",
+            side_effect=lambda selected: (
+                selected.type == "cuda",
+                "mock capability",
+            ),
+        ), mock.patch(
+            "EMAPSSN_Tools.is_nvidia_cuda",
+            side_effect=lambda selected: selected.type == "cuda",
+        ):
+            self.sync_tf32_precision_option(device, precision, [cpu])
+            self.assertEqual(precision.findData("bf16"), -1)
+            self.assertFalse(precision.property("bf16Available"))
+
+            self.sync_tf32_precision_option(device, precision, [cpu, cuda])
+            self.assertGreaterEqual(precision.findData("bf16"), 0)
+            self.assertTrue(precision.property("bf16Available"))
+
+            device.setCurrentIndex(device.findData("cpu"))
+            self.sync_tf32_precision_option(device, precision, [cpu, cuda])
+            self.assertEqual(precision.findData("bf16"), -1)
+            self.assertFalse(precision.property("bf16Available"))
 
     def test_alignment_tiled_option_hides_for_mps_and_restores_for_xpu(self):
         from PySide6.QtWidgets import QComboBox

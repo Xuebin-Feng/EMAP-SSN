@@ -60,8 +60,10 @@ from utilities import Hardware_Utils
 from utilities.Embedding_Alignment_Engine import (
     DEFAULT_HOST_CACHE_CAP,
     GIB,
+    bf16_accelerator_support,
     is_nvidia_cuda,
     normalize_execution_mode,
+    normalize_precision_setting,
     tiled_accelerator_support,
 )
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
@@ -105,6 +107,8 @@ from Cache_Manifest import (
 MAX_CORES = os.cpu_count() or 16
 HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
 TF32_PRECISION_LABEL = "TF32 (Nvidia GPU Only)"
+BF16_PRECISION_LABEL = "BF16 (Low Precision)"
+AUTOMATIC_32BIT_PRECISION_LABEL = "Automatic 32-bit"
 HOST_CACHE_SLIDER_SCALE = 10
 HOST_CACHE_SLIDER_STEPS = round(HOST_CACHE_MAX_GB * HOST_CACHE_SLIDER_SCALE)
 
@@ -449,8 +453,28 @@ def _selection_supports_tf32(device_selection, candidates=None):
     )
 
 
+def _selection_supports_bf16(device_selection, candidates=None):
+    """Return whether any effective accelerator passes the BF16 probe."""
+    candidates = (
+        Hardware_Utils.get_available_devices()
+        if candidates is None
+        else list(candidates)
+    )
+    normalized = Hardware_Utils.normalize_device_selection(device_selection)
+    eligible = (
+        candidates
+        if normalized == "auto"
+        else [candidate for candidate in candidates if candidate.spec == normalized]
+    )
+    return any(
+        not candidate.is_cpu
+        and bf16_accelerator_support(candidate.device)[0]
+        for candidate in eligible
+    )
+
+
 def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
-    """Show TF32 only when the current hardware selection supports it."""
+    """Synchronize device-dependent TF32 and BF16 precision choices."""
     selection = device_combo.currentData()
     if selection is None:
         selection = device_combo.currentText()
@@ -465,15 +489,29 @@ def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
         current_value = precision_combo.currentText()
     if not available:
         if current_value in {"tf32", TF32_PRECISION_LABEL}:
-            auto_index = precision_combo.findData("auto")
+            auto_index = precision_combo.findData("automatic_32bit")
             if auto_index < 0:
-                auto_index = precision_combo.findText("auto")
+                auto_index = precision_combo.findText(
+                    AUTOMATIC_32BIT_PRECISION_LABEL
+                )
             precision_combo.setCurrentIndex(max(0, auto_index))
         if tf32_index >= 0:
             precision_combo.removeItem(tf32_index)
     elif tf32_index < 0:
         precision_combo.addItem(TF32_PRECISION_LABEL, "tf32")
     precision_combo.setProperty("tf32Available", available)
+    bf16_available = _selection_supports_bf16(selection, candidates)
+    bf16_index = precision_combo.findData("bf16")
+    if bf16_index < 0:
+        bf16_index = precision_combo.findText(BF16_PRECISION_LABEL)
+    current_value = precision_combo.currentData()
+    if current_value is None:
+        current_value = precision_combo.currentText()
+    if not bf16_available and bf16_index >= 0 and current_value != "bf16":
+        precision_combo.removeItem(bf16_index)
+    elif bf16_available and bf16_index < 0:
+        precision_combo.addItem(BF16_PRECISION_LABEL, "bf16")
+    precision_combo.setProperty("bf16Available", bf16_available)
     return available
 
 
@@ -1035,7 +1073,7 @@ class ToolsGUI(QMainWindow):
                 "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
                 "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.",
                 "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: 'auto' tests FP32 and TF32 with every CUDA plan allowed by Execution Mode, validates alignment lengths and scores, and requires at least a 10% best-plan speedup before enabling TF32.\n'float32' preserves IEEE FP32 matmul. 'tf32' is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
+                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit, never selected automatically, and must pass a blocking device and numerical validation."
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.",
@@ -1126,7 +1164,7 @@ class ToolsGUI(QMainWindow):
                 "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems.",
                 "GENERATE_FASTA": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences.",
                 "DEVICE_SELECTION": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: auto considers validated TF32 only for at least 4,096 targets. The tf32 option is shown only when Auto can use NVIDIA CUDA or an NVIDIA CUDA device is selected explicitly."
+                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit, never automatic, and must pass device and numerical validation."
             }
         }
         
@@ -1309,8 +1347,15 @@ class ToolsGUI(QMainWindow):
                 {
                     "var_name": "ACCELERATOR_PRECISION",
                     "type": "dropdown",
-                    "options": ["auto", "float32", TF32_PRECISION_LABEL],
-                    "option_values": ["auto", "float32", "tf32"],
+                    "options": [
+                        AUTOMATIC_32BIT_PRECISION_LABEL,
+                        "float32",
+                        TF32_PRECISION_LABEL,
+                        BF16_PRECISION_LABEL,
+                    ],
+                    "option_values": [
+                        "automatic_32bit", "float32", "tf32", "bf16"
+                    ],
                     "display": "Precision:"
                 },
                 {
@@ -1886,8 +1931,15 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "ACCELERATOR_PRECISION",
                             "type": "dropdown",
-                            "options": ["auto", "float32", TF32_PRECISION_LABEL],
-                            "option_values": ["auto", "float32", "tf32"],
+                            "options": [
+                                AUTOMATIC_32BIT_PRECISION_LABEL,
+                                "float32",
+                                TF32_PRECISION_LABEL,
+                                BF16_PRECISION_LABEL,
+                            ],
+                            "option_values": [
+                                "automatic_32bit", "float32", "tf32", "bf16"
+                            ],
                             "display": "Precision:"
                         },
                         {
@@ -4175,20 +4227,37 @@ class ToolsGUI(QMainWindow):
             if script_name in {
                 "Align_Similarity_Matrix.py", "Embedding_SSEARCH.py"
             }:
-                precision = str(
-                    new_settings.get("ACCELERATOR_PRECISION", "auto")
-                ).strip().lower()
+                try:
+                    precision = normalize_precision_setting(
+                        new_settings.get(
+                            "ACCELERATOR_PRECISION", "automatic_32bit"
+                        )
+                    )
+                except ValueError as error:
+                    QMessageBox.critical(
+                        self, "Invalid Accelerator Precision", str(error)
+                    )
+                    return
+                new_settings["ACCELERATOR_PRECISION"] = precision
                 if precision == "tf32" and not _selection_supports_tf32(
                     new_settings.get("DEVICE_SELECTION", "auto"),
                     available_devices,
                 ):
-                    precision = "auto"
-                    new_settings["ACCELERATOR_PRECISION"] = "auto"
-                if precision not in {"auto", "float32", "tf32"}:
                     QMessageBox.critical(
                         self,
                         "Invalid Accelerator Precision",
-                        "Precision must be auto, float32, or tf32.",
+                        "TF32 requires an available NVIDIA CUDA device.",
+                    )
+                    return
+                if precision == "bf16" and not _selection_supports_bf16(
+                    new_settings.get("DEVICE_SELECTION", "auto"),
+                    available_devices,
+                ):
+                    QMessageBox.critical(
+                        self,
+                        "Invalid Accelerator Precision",
+                        "BF16 requires a CUDA/ROCm, XPU, or MPS accelerator "
+                        "that passes the runtime BF16 capability probe.",
                     )
                     return
             if script_name in {

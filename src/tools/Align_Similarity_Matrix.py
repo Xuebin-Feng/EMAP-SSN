@@ -33,7 +33,7 @@ Settings:
 - WORKERS: Number of multiprocessing workers to use.
 - HOST_CACHE_GB: Automatic or explicit host-RAM cap for packed embeddings.
 - EXECUTION_MODE: Automatic, scalar, or tiled pairwise score execution.
-- ACCELERATOR_PRECISION: Validated automatic, IEEE FP32, or TF32 CUDA matmul.
+- ACCELERATOR_PRECISION: Automatic 32-bit, IEEE FP32, TF32, or explicit BF16.
 - LOCAL_GAP_P: The gap penalty for local alignment (e.g. Smith-Waterman style).
 - GLOBAL_GAP_P: The gap penalty for global alignment (e.g. Needleman-Wunsch style).
 
@@ -83,7 +83,9 @@ from utilities.Embedding_Alignment_Engine import (
     AcceleratorMemorySnapshot,
     AdaptiveTilePlan,
     BenchmarkPhaseTimer,
+    BF16_PER_RESIDUE_TOLERANCE,
     EmbeddingTileStore,
+    bf16_accelerator_support,
     build_adaptive_tile_plans,
     compare_precision_results,
     cuda_matmul_precision,
@@ -91,9 +93,12 @@ from utilities.Embedding_Alignment_Engine import (
     evenly_spaced_task_subset,
     estimate_cuda_working_set,
     get_accelerator_backend,
+    is_nvidia_cuda,
     matched_benchmark_task_halves,
     normalize_execution_mode,
     normalize_precision_setting,
+    precision_compute_dtype,
+    precision_element_bytes,
     run_tiled_accelerator_pipeline,
     run_tiled_cuda_pipeline,
     tiled_accelerator_support,
@@ -120,7 +125,7 @@ PRECISION_VALIDATION_PAIRS = 2048
 ACCELERATOR_TUNE_PAIRS = None
 ACCELERATOR_CONFIRM_PAIRS = None
 HOST_CACHE_GB = "auto"
-ACCELERATOR_PRECISION = "auto"
+ACCELERATOR_PRECISION = "automatic_32bit"
 # Compatibility for callers that use _accelerator_worker_count directly.
 # Production scheduling always uses the automatic lane tuner.
 GPU_STREAMS = 4
@@ -199,6 +204,7 @@ FINAL_OUTPUT_NET = None
 active_matmul_precision = "ieee_fp32"
 active_embedding_store = None
 active_sequence_lengths = None
+bf16_validated_device_keys = set()
 
 
 def _benchmark_half_sizes():
@@ -299,13 +305,14 @@ def _device_cache_key(device):
     return (_device_type(device), getattr(device, "index", None))
 
 
-def _normalize_embedding_torch(embedding, device):
+def _normalize_embedding_torch(embedding, device, precision="float32"):
     """Transfer one embedding to ``device`` and L2-normalize its residues."""
     tensor = torch.as_tensor(embedding, device=device, dtype=torch.float32)
-    return torch.nn.functional.normalize(tensor, p=2, dim=-1)
+    tensor = torch.nn.functional.normalize(tensor, p=2, dim=-1)
+    return tensor.to(precision_compute_dtype(precision))
 
 
-def _normalized_row_for_active_lane(emb_i, device):
+def _normalized_row_for_active_lane(emb_i, device, precision="float32"):
     """
     Return the normalized left embedding for the active accelerator lane.
 
@@ -316,13 +323,14 @@ def _normalized_row_for_active_lane(emb_i, device):
     """
     active_row_key = getattr(accelerator_thread_state, "active_row_key", None)
     if active_row_key is None:
-        return _normalize_embedding_torch(emb_i, device)
+        return _normalize_embedding_torch(emb_i, device, precision)
 
     cached_row_key = getattr(accelerator_thread_state, "normalized_row_key", None)
     if cached_row_key != active_row_key:
         accelerator_thread_state.normalized_row = _normalize_embedding_torch(
             emb_i,
             device,
+            precision,
         )
         accelerator_thread_state.normalized_row_key = active_row_key
     return accelerator_thread_state.normalized_row
@@ -371,10 +379,13 @@ def _score_matrix_statistics(sim_mat, device):
     return row_mean, row_std, col_mean, col_std
 
 
-def _score_matrix_from_normalized_row(t_i_norm, emb_j, device):
+def _score_matrix_from_normalized_row(
+    t_i_norm, emb_j, device, precision="float32"
+):
     """Calculate a score matrix when the left embedding is pre-normalized."""
-    t_j_norm = _normalize_embedding_torch(emb_j, device)
-    cos_sim = torch.mm(t_i_norm, t_j_norm.T).clamp(-1.0, 1.0)
+    t_j_norm = _normalize_embedding_torch(emb_j, device, precision)
+    cos_sim = torch.mm(t_i_norm, t_j_norm.T).to(torch.float32)
+    cos_sim.clamp_(-1.0, 1.0)
     dist_mat = 1.0 - cos_sim
     sim_mat = torch.exp(-dist_mat)
 
@@ -391,9 +402,11 @@ def _score_matrix_from_normalized_row(t_i_norm, emb_j, device):
     return final_score.to(dtype=torch.float32, device="cpu").numpy()
 
 
-def compute_score_matrix_torch(emb_i, emb_j, device):
-    t_i_norm = _normalized_row_for_active_lane(emb_i, device)
-    return _score_matrix_from_normalized_row(t_i_norm, emb_j, device)
+def compute_score_matrix_torch(emb_i, emb_j, device, precision="float32"):
+    t_i_norm = _normalized_row_for_active_lane(emb_i, device, precision)
+    return _score_matrix_from_normalized_row(
+        t_i_norm, emb_j, device, precision
+    )
 
 # %% =======================================
 # HDF5 WORKER INITIALIZATION
@@ -574,7 +587,11 @@ def _compute_accelerated_matrix(args):
     All threads share one accelerator process. CUDA and XPU threads own
     separate streams; backends without public stream controls use one lane.
     """
-    idx_i, idx_j, emb_i, emb_j, device = args
+    if len(args) == 5:
+        idx_i, idx_j, emb_i, emb_j, device = args
+        precision = active_matmul_precision
+    else:
+        idx_i, idx_j, emb_i, emb_j, device, precision = args
     with torch.inference_mode():
         with _stream_context(device):
             previous_row_key = getattr(
@@ -585,9 +602,15 @@ def _compute_accelerated_matrix(args):
             accelerator_thread_state.active_row_key = (
                 _device_cache_key(device),
                 idx_i,
+                str(precision_compute_dtype(precision)),
             )
             try:
-                matrix = compute_score_matrix_torch(emb_i, emb_j, device)
+                if precision_compute_dtype(precision) == torch.float32:
+                    matrix = compute_score_matrix_torch(emb_i, emb_j, device)
+                else:
+                    matrix = compute_score_matrix_torch(
+                        emb_i, emb_j, device, precision
+                    )
             finally:
                 if previous_row_key is None:
                     try:
@@ -608,6 +631,7 @@ def _run_scalar_accelerated_pipeline(
     batch_id,
     accelerator_workers,
     show_progress,
+    matmul_precision="ieee_fp32",
     result_callback=None,
     result_chunk_size=65536,
     warmup_task_count=0,
@@ -690,16 +714,19 @@ def _run_scalar_accelerated_pipeline(
                         cached_row_embedding = hf["embeddings"][header_i][:]
                         cached_row_header = header_i
                     emb_j = hf["embeddings"][header_j][:]
+                    matrix_args = (
+                        idx_i,
+                        idx_j,
+                        cached_row_embedding,
+                        emb_j,
+                        device,
+                    )
+                    if precision_compute_dtype(matmul_precision) != torch.float32:
+                        matrix_args += (matmul_precision,)
                     gpu_pending.add(
                         gpu_executor.submit(
                             _compute_accelerated_matrix,
-                            (
-                                idx_i,
-                                idx_j,
-                                cached_row_embedding,
-                                emb_j,
-                                device,
-                            ),
+                            matrix_args,
                         )
                     )
 
@@ -773,6 +800,7 @@ def _run_accelerated_pipeline(
             batch_id,
             accelerator_workers,
             show_progress,
+            matmul_precision=matmul_precision,
             result_callback=result_callback,
             warmup_task_count=warmup_task_count,
             benchmark_timer=benchmark_timer,
@@ -1187,8 +1215,18 @@ def _representative_row_local_pending_pairs(
 def _precision_device(candidates):
     manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
     if manual is not None:
-        return manual if manual.backend == "cuda" else None
-    return next((candidate for candidate in candidates if candidate.backend == "cuda"), None)
+        return (
+            manual
+            if manual.backend == "cuda" and is_nvidia_cuda(manual.device)
+            else None
+        )
+    return next(
+        (
+            candidate for candidate in candidates
+            if candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
+        ),
+        None,
+    )
 
 
 def _execution_variants(candidate):
@@ -1269,7 +1307,8 @@ def _resolve_active_matmul_precision(
     store,
     sequence_lengths,
 ):
-    """Resolve auto precision across the permitted CUDA execution variants."""
+    """Resolve Automatic 32-bit or validate explicit BF16 execution."""
+    global bf16_validated_device_keys
     normalized = normalize_precision_setting(setting)
     execution_mode = normalize_execution_mode(EXECUTION_MODE)
     variants = (
@@ -1277,11 +1316,108 @@ def _resolve_active_matmul_precision(
         if execution_mode == "auto"
         else (execution_mode,)
     )
-    if cached_precision is not None:
+    if cached_precision is not None and cached_precision != "bf16":
         print(f"[Precision] Resuming established {cached_precision} batches.")
         return cached_precision
     if normalized == "float32":
         return "ieee_fp32"
+
+    if normalized == "bf16" or cached_precision == "bf16":
+        candidates = Hardware_Utils.get_available_devices()
+        manual = Hardware_Utils.resolve_device_selection(
+            DEVICE_SELECTION, candidates
+        )
+        eligible = [manual] if manual is not None else [
+            candidate for candidate in candidates if not candidate.is_cpu
+        ]
+        validation_tasks = list(
+            sample[: min(int(PRECISION_VALIDATION_PAIRS), len(sample))]
+        )
+        if not validation_tasks:
+            raise ValueError("BF16 validation requires at least one pending pair.")
+        bf16_validated_device_keys = set()
+        failures = []
+        for candidate in eligible:
+            if candidate is None or candidate.is_cpu:
+                failures.append("CPU: BF16 accelerator execution is unavailable")
+                continue
+            supported, reason = bf16_accelerator_support(candidate.device)
+            if not supported:
+                failures.append(f"{candidate.display_name}: {reason}")
+                continue
+            variants_for_candidate = _execution_variants(candidate)
+            if not variants_for_candidate:
+                failures.append(
+                    f"{candidate.display_name}: selected execution mode is unavailable"
+                )
+                continue
+            print(
+                f"[Precision] Validating BF16 on {candidate.display_name} "
+                f"with {len(validation_tasks)} representative pairs."
+            )
+            try:
+                baseline = _run_accelerated_pipeline(
+                    validation_tasks,
+                    workers,
+                    store.path,
+                    candidate.device,
+                    0,
+                    accelerator_workers=1,
+                    show_progress=False,
+                    matmul_precision="float32",
+                )
+                for variant in variants_for_candidate:
+                    if variant == "scalar":
+                        candidate_results = _run_accelerated_pipeline(
+                            validation_tasks,
+                            workers,
+                            store.path,
+                            candidate.device,
+                            0,
+                            accelerator_workers=1,
+                            show_progress=False,
+                            matmul_precision="bf16",
+                        )
+                    else:
+                        candidate_results = run_tiled_accelerator_pipeline(
+                            validation_tasks,
+                            store=store,
+                            lengths=sequence_lengths,
+                            device=candidate.device,
+                            workers=workers,
+                            lanes=1,
+                            alignment_callback=calculate_alignment_data,
+                            precision="bf16",
+                        )
+                    equivalent, validation_reason = compare_precision_results(
+                        baseline,
+                        candidate_results,
+                        per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
+                        candidate_label="BF16",
+                    )
+                    if not equivalent:
+                        raise ValueError(
+                            f"{variant} validation failed: {validation_reason}"
+                        )
+            except Exception as error:
+                failures.append(
+                    f"{candidate.display_name}: {type(error).__name__}: {error}"
+                )
+                _release_alignment_device_cache(candidate)
+                continue
+            bf16_validated_device_keys.add(_device_cache_key(candidate.device))
+            print(
+                f"[Precision] BF16 passed scalar FP32 comparison for "
+                f"{', '.join(variants_for_candidate)} on {candidate.display_name}."
+            )
+            _release_alignment_device_cache(candidate)
+
+        if not bf16_validated_device_keys:
+            detail = "; ".join(failures) or "no accelerator candidates"
+            raise ValueError(f"No accelerator passed BF16 validation ({detail}).")
+        if cached_precision == "bf16":
+            print("[Precision] Resuming established BF16 batches.")
+        return "bf16"
 
     candidates = Hardware_Utils.get_available_devices()
     cuda_candidate = _precision_device(candidates)
@@ -1433,9 +1569,19 @@ def _benchmark_processing_plans(
     if matmul_precision is None:
         matmul_precision = active_matmul_precision
     if matmul_precision == "tf32":
-        candidates = [candidate for candidate in candidates if candidate.backend == "cuda"]
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
+        ]
         if not candidates:
-            raise RuntimeError("TF32 execution requires an available CUDA device.")
+            raise RuntimeError("TF32 execution requires an available NVIDIA CUDA device.")
+    elif matmul_precision == "bf16":
+        candidates = [
+            candidate for candidate in candidates
+            if _device_cache_key(candidate.device) in bf16_validated_device_keys
+        ]
+        if not candidates:
+            raise RuntimeError("No accelerator remains validated for BF16 execution.")
     manual = Hardware_Utils.resolve_device_selection(
         DEVICE_SELECTION, candidates
     )
@@ -1549,7 +1695,11 @@ def _benchmark_processing_plans(
             and sequence_lengths is not None
         ):
             _release_alignment_device_cache(candidate)
-            base_memory_plan = cuda_memory_plan(candidate.device, lanes=1)
+            base_memory_plan = cuda_memory_plan(
+                candidate.device,
+                lanes=1,
+                compute_element_bytes=precision_element_bytes(matmul_precision),
+            )
             candidate_memory_info = (
                 base_memory_plan.free_bytes,
                 base_memory_plan.total_bytes,
@@ -1594,6 +1744,9 @@ def _benchmark_processing_plans(
                     device=candidate.device,
                     lane_candidates=lane_candidates,
                     memory_snapshot=candidate_memory_snapshot,
+                    compute_element_bytes=precision_element_bytes(
+                        matmul_precision
+                    ),
                 )
                 if not adaptive_plans:
                     result = Hardware_Utils.BenchmarkResult(
@@ -2038,6 +2191,24 @@ def _decode_attr(val):
         return val.decode("utf-8")
     return str(val)
 
+
+def _canonical_result_precision(value):
+    normalized = _decode_attr(value).strip().lower()
+    return {
+        "float32": "ieee_fp32",
+        "fp32": "ieee_fp32",
+        "ieee": "ieee_fp32",
+    }.get(normalized, normalized)
+
+
+def _allowed_result_precisions(setting):
+    configured = normalize_precision_setting(setting)
+    if configured == "automatic_32bit":
+        return frozenset({"ieee_fp32", "tf32"})
+    return frozenset(
+        {"ieee_fp32" if configured == "float32" else configured}
+    )
+
 def _compare_gap_penalties(cached_gap, current_gap):
     if cached_gap is None:
         return False
@@ -2080,7 +2251,7 @@ def scan_existing_batches(
                 cached_checksum = _decode_attr(hf.attrs.get("embedding_checksum"))
                 cached_model = _decode_attr(hf.attrs.get("model_name"))
                 cached_gaps = hf.attrs.get("gap_penalties")
-                cached_precision = _decode_attr(
+                cached_precision = _canonical_result_precision(
                     hf.attrs.get("matmul_precision", "ieee_fp32")
                 )
 
@@ -2118,14 +2289,19 @@ def scan_existing_batches(
                         f"('{cached_precision}' vs '{established_precision}')"
                     )
                     break
+                allowed_precisions = (
+                    {requested_matmul_precision}
+                    if isinstance(requested_matmul_precision, str)
+                    else requested_matmul_precision
+                )
                 if (
-                    requested_matmul_precision is not None
-                    and cached_precision != requested_matmul_precision
+                    allowed_precisions is not None
+                    and cached_precision not in allowed_precisions
                 ):
                     mismatches.append(
                         f"Matmul precision mismatch in '{os.path.basename(bf)}' "
                         f"('{cached_precision}' vs current "
-                        f"'{requested_matmul_precision}')"
+                        f"'{sorted(allowed_precisions)}')"
                     )
                     break
         except Exception as e:
@@ -2326,13 +2502,29 @@ def run_job_distributor():
     global active_sequence_lengths
     try:
         _validate_execution_mode_hardware()
-        normalize_precision_setting(ACCELERATOR_PRECISION)
+        precision_setting = normalize_precision_setting(ACCELERATOR_PRECISION)
         configure_runtime_paths()
     except ValueError as error:
         print(f"\n❌ Cannot start alignment:\n{error}")
         return
 
     if os.path.exists(FINAL_OUTPUT_NET):
+        try:
+            with h5py.File(FINAL_OUTPUT_NET, "r") as hf:
+                completed_precision = _canonical_result_precision(
+                    hf.attrs.get("matmul_precision", "ieee_fp32")
+                )
+        except Exception as error:
+            print(f"❌ Cannot inspect completed output precision: {error}")
+            return
+        allowed = _allowed_result_precisions(precision_setting)
+        if completed_precision not in allowed:
+            print(
+                "❌ Completed output precision conflict: "
+                f"found '{completed_precision}', but '{precision_setting}' "
+                f"accepts only {sorted(allowed)}. The output was not changed."
+            )
+            return
         print("✅ Job already done."); return
 
     try: set_start_method('spawn')
@@ -2354,10 +2546,7 @@ def run_job_distributor():
     current_saving_mode = manifest.saving_mode
     current_gap_penalties = [LOCAL_GAP_P, GLOBAL_GAP_P]
     precision_setting = normalize_precision_setting(ACCELERATOR_PRECISION)
-    requested_cache_precision = {
-        "float32": "ieee_fp32",
-        "tf32": "tf32",
-    }.get(precision_setting)
+    requested_cache_precision = _allowed_result_precisions(precision_setting)
 
     n = len(headers)
     total_pairs = (n * (n - 1)) // 2
@@ -2597,8 +2786,8 @@ def run_job_distributor():
         pbar.close()
     elif cached_precision is not None:
         active_matmul_precision = cached_precision
-    elif precision_setting == "tf32":
-        active_matmul_precision = "tf32"
+    elif precision_setting in {"tf32", "bf16"}:
+        active_matmul_precision = precision_setting
     else:
         active_matmul_precision = "ieee_fp32"
 

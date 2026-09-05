@@ -250,7 +250,7 @@ def _candidate_reason(
     ):
         return None, "gap penalties differ"
     precision = _normalized_precision(hf.attrs.get("matmul_precision", "ieee_fp32"))
-    if precision not in {"ieee_fp32", "tf32"}:
+    if precision not in {"ieee_fp32", "tf32", "bf16"}:
         return None, f"unsupported matmul precision '{precision}'"
     if required_precision is not None and precision != required_precision:
         return None, "matmul precision differs"

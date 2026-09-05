@@ -57,13 +57,16 @@ import time
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
 from utilities.Embedding_Alignment_Engine import (
+    BF16_PER_RESIDUE_TOLERANCE,
     EmbeddingTileStore,
+    bf16_accelerator_support,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
     estimate_fixed_query_cuda_working_set,
     is_nvidia_cuda,
     normalize_precision_setting,
+    precision_element_bytes,
     run_fixed_query_cuda_pipeline,
 )
 from collections import deque
@@ -102,7 +105,7 @@ NORM_MODE = "longer_sequence"
 # HARDWARE & CACHE
 WORKERS = 8                  
 DEVICE_SELECTION = "auto"
-ACCELERATOR_PRECISION = "auto"
+ACCELERATOR_PRECISION = "automatic_32bit"
 ACCELERATOR_LANES = "auto"
 ACCELERATOR_TUNE_PAIRS = 256
 TILED_SEARCH_MIN_TARGETS = 512
@@ -420,7 +423,9 @@ def _compute_accelerated_search(args):
     idx, header, q_emb, t_emb, mode, gap, norm_mode, device, precision = args
     with torch.inference_mode():
         with _stream_context(device):
-            mat = _shared_score_matrix(q_emb, t_emb, device, precision=None)
+            mat = _shared_score_matrix(
+                q_emb, t_emb, device, precision=precision
+            )
     return (
         idx,
         header,
@@ -649,21 +654,32 @@ def _cost_stratified_search_sample(tasks, lengths):
     return [ordered[int(position)] for position in positions]
 
 
-def _search_results_equivalent(fp32_results, tf32_results, tolerance=1e-3):
+def _search_results_equivalent(
+    fp32_results,
+    candidate_results,
+    tolerance=1e-3,
+    candidate_label="candidate",
+):
     fp32 = {int(result["index"]): result for result in fp32_results}
-    tf32 = {int(result["index"]): result for result in tf32_results}
-    if fp32.keys() != tf32.keys():
+    candidate_map = {
+        int(result["index"]): result for result in candidate_results
+    }
+    if fp32.keys() != candidate_map.keys():
         return False, "target identities differ"
     for index, baseline in fp32.items():
-        candidate = tf32[index]
+        candidate = candidate_map[index]
         if int(baseline["aln_len"]) != int(candidate["aln_len"]):
             return False, f"alignment length changed for target {index}"
         values = (
             float(candidate["raw_score"]),
             float(candidate["norm_score"]),
         )
-        if not all(np.isfinite(value) for value in values):
-            return False, f"non-finite TF32 result for target {index}"
+        baseline_values = (
+            float(baseline["raw_score"]),
+            float(baseline["norm_score"]),
+        )
+        if not all(np.isfinite(value) for value in baseline_values + values):
+            return False, f"non-finite {candidate_label} result for target {index}"
         denominator = max(1, int(baseline["aln_len"]))
         drift = abs(
             float(baseline["raw_score"]) - float(candidate["raw_score"])
@@ -737,6 +753,17 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
         ]
         if not candidates:
             raise RuntimeError("Forced TF32 SSEARCH requires an NVIDIA CUDA device.")
+    elif precision_setting == "bf16":
+        candidates = [
+            candidate for candidate in candidates
+            if not candidate.is_cpu
+            and bf16_accelerator_support(candidate.device)[0]
+        ]
+        if not candidates:
+            raise RuntimeError(
+                "Forced BF16 SSEARCH requires a CUDA/ROCm, XPU, or MPS "
+                "accelerator that passes the BF16 runtime probe."
+            )
 
     sample = _cost_stratified_search_sample(tasks, lengths)
     print(
@@ -746,21 +773,43 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
     print("Device/backend                 Plan      Prec.    Lanes   Targets/s   Status")
     benchmark_rows = []
     result_payloads = {}
+    bf16_baselines = {}
     for candidate in candidates:
         variants = ["scalar"]
-        if candidate.backend == "cuda":
+        if candidate.backend == "cuda" and len(tasks) >= TILED_SEARCH_MIN_TARGETS:
             variants.append("tiled")
         precisions = ["float32"]
         if precision_setting == "tf32":
             precisions = ["tf32"]
+        elif precision_setting == "bf16":
+            precisions = ["bf16"]
         elif (
-            precision_setting == "auto"
+            precision_setting == "automatic_32bit"
             and len(tasks) >= TF32_SEARCH_MIN_TARGETS
             and candidate.backend == "cuda"
             and is_nvidia_cuda(candidate.device)
         ):
             precisions.append("tf32")
         lane_candidates = [1] if candidate.is_cpu else _lane_candidates(candidate.device, workers)
+        if precision_setting == "bf16":
+            try:
+                bf16_baselines[candidate.spec] = _execute_search_plan(
+                    (candidate, "scalar", "float32", 1),
+                    sample,
+                    workers,
+                    input_h5,
+                    store,
+                    lengths,
+                    query_embedding,
+                    False,
+                )
+            except Exception as error:
+                print(
+                    f"[Precision] Cannot build FP32 baseline on "
+                    f"{candidate.display_name}: {error}."
+                )
+                Hardware_Utils.release_device_cache(candidate)
+                continue
         for variant in variants:
             for precision in precisions:
                 if precision == "tf32" and not is_nvidia_cuda(candidate.device):
@@ -774,6 +823,7 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
                             lengths=lengths,
                             device=candidate.device,
                             lanes=lanes,
+                            precision=precision,
                         )
                         if not estimate.feasible:
                             print(
@@ -813,7 +863,7 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
                         )
         Hardware_Utils.release_device_cache(candidate)
 
-    if precision_setting == "auto":
+    if precision_setting == "automatic_32bit":
         fp32_rates = [
             float(row.value) for row in benchmark_rows
             if row.variant.endswith(":float32")
@@ -852,6 +902,32 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             row for row in benchmark_rows
             if not row.variant.endswith(":tf32") or id(row) in allowed_tf32
         ]
+    elif precision_setting == "bf16":
+        validated_bf16 = []
+        for row in benchmark_rows:
+            variant, precision = row.variant.split(":", 1)
+            if precision != "bf16":
+                continue
+            baseline = bf16_baselines.get(row.candidate.spec)
+            payload = result_payloads.get(
+                (row.candidate.spec, variant, precision, row.lanes)
+            )
+            if baseline is None or payload is None:
+                continue
+            equivalent, reason = _search_results_equivalent(
+                baseline,
+                payload,
+                tolerance=BF16_PER_RESIDUE_TOLERANCE,
+                candidate_label="BF16",
+            )
+            if equivalent:
+                validated_bf16.append(row)
+            else:
+                print(
+                    f"[Precision] Rejected {variant} BF16 on "
+                    f"{row.candidate.display_name}: {reason}."
+                )
+        benchmark_rows = validated_bf16
 
     ranked_rows = Hardware_Utils.rank_benchmark_results(
         benchmark_rows, higher_is_better=True
@@ -871,7 +947,11 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
 
 
 def process_search_tasks(tasks, workers, input_h5):
-    if len(tasks) < TILED_SEARCH_MIN_TARGETS:
+    configured_precision = normalize_precision_setting(ACCELERATOR_PRECISION)
+    if (
+        len(tasks) < TILED_SEARCH_MIN_TARGETS
+        and configured_precision != "bf16"
+    ):
         device = Hardware_Utils.resolve_device_selection(
             DEVICE_SELECTION, Hardware_Utils.get_available_devices()
         )
@@ -879,7 +959,7 @@ def process_search_tasks(tasks, workers, input_h5):
             selected_device = Hardware_Utils.get_optimal_device()
         else:
             selected_device = device.device
-        precision = normalize_precision_setting(ACCELERATOR_PRECISION)
+        precision = configured_precision
         if precision == "tf32" and not is_nvidia_cuda(selected_device):
             raise RuntimeError("Forced TF32 SSEARCH requires an NVIDIA CUDA device.")
         if _uses_accelerator(selected_device):
@@ -926,10 +1006,18 @@ def process_search_tasks(tasks, workers, input_h5):
             active_search_hardware.update(
                 device=candidate.display_name,
                 plan=variant,
-                precision="tf32" if precision == "tf32" else "ieee_fp32",
+                precision=(
+                    "bf16" if precision == "bf16"
+                    else "tf32" if precision == "tf32"
+                    else "ieee_fp32"
+                ),
                 lanes=lanes,
                 microbatch_mib=(
-                    cuda_memory_plan(candidate.device, lanes=lanes).matrix_bytes
+                    cuda_memory_plan(
+                        candidate.device,
+                        lanes=lanes,
+                        compute_element_bytes=precision_element_bytes(precision),
+                    ).matrix_bytes
                     / (1024 ** 2)
                     if variant == "tiled" else None
                 ),

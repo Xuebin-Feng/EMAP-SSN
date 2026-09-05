@@ -82,8 +82,11 @@ from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_Alignment_Engine import (
+    BF16_PER_RESIDUE_TOLERANCE,
     BenchmarkPhaseTimer,
     EmbeddingTileStore,
+    bf16_accelerator_support,
+    compare_precision_results,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
@@ -93,6 +96,7 @@ from utilities.Embedding_Alignment_Engine import (
     is_nvidia_cuda,
     matched_benchmark_task_halves,
     normalize_execution_mode,
+    precision_element_bytes,
     run_tiled_accelerator_pipeline,
     tiled_accelerator_support,
 )
@@ -459,7 +463,9 @@ def _compute_accelerated_matrix(args):
     idx_i, idx_j, emb_i, emb_j, device, precision = args
     with torch.inference_mode():
         with _stream_context(device):
-            matrix = _shared_score_matrix(emb_i, emb_j, device, precision=None)
+            matrix = _shared_score_matrix(
+                emb_i, emb_j, device, precision=precision
+            )
     return idx_i, idx_j, matrix
 
 
@@ -848,6 +854,17 @@ def _benchmark_injection_plans(
                 "The input network was calculated with TF32 and can only be "
                 "extended on an NVIDIA CUDA device."
             )
+    elif matmul_precision == "bf16":
+        candidates = [
+            candidate for candidate in candidates
+            if not candidate.is_cpu
+            and bf16_accelerator_support(candidate.device)[0]
+        ]
+        if not candidates:
+            raise RuntimeError(
+                "The input network uses BF16, but no accelerator passed the "
+                "BF16 runtime capability probe."
+            )
     manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
     if execution_mode == "tiled":
         if manual is not None and not _execution_variants(manual):
@@ -881,6 +898,64 @@ def _benchmark_injection_plans(
             "an NVIDIA CUDA device."
         )
 
+    if matmul_precision == "bf16":
+        validation_tasks = evenly_spaced_task_subset(tasks, min(2048, len(tasks)))
+        validated = []
+        failures = []
+        for candidate in candidates:
+            if candidate.is_cpu:
+                failures.append(f"{candidate.display_name}: CPU BF16 is unsupported")
+                continue
+            try:
+                baseline = _run_accelerated_pipeline(
+                    validation_tasks,
+                    workers,
+                    input_h5,
+                    candidate.device,
+                    -1,
+                    1,
+                    False,
+                    matmul_precision="float32",
+                )
+                for variant in _execution_variants(candidate):
+                    candidate_results = _execute_injection_plan(
+                        (candidate, variant, 1),
+                        validation_tasks,
+                        workers,
+                        input_h5,
+                        -1,
+                        store,
+                        lengths,
+                        "bf16",
+                    )
+                    equivalent, reason = compare_precision_results(
+                        baseline,
+                        candidate_results,
+                        per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
+                        candidate_label="BF16",
+                    )
+                    if not equivalent:
+                        raise ValueError(f"{variant}: {reason}")
+            except Exception as error:
+                failures.append(
+                    f"{candidate.display_name}: {type(error).__name__}: {error}"
+                )
+                Hardware_Utils.release_device_cache(candidate)
+                continue
+            validated.append(candidate)
+            print(
+                f"[Precision] BF16 passed blocking validation on "
+                f"{candidate.display_name}."
+            )
+            Hardware_Utils.release_device_cache(candidate)
+        candidates = validated
+        if not candidates:
+            raise RuntimeError(
+                "No selected accelerator passed BF16 numerical validation ("
+                + "; ".join(failures)
+                + ")."
+            )
+
     accelerator_tasks = list(tasks)
     warmup_task_count = int(warmup_task_count)
     accelerator_warmup = accelerator_tasks[:warmup_task_count]
@@ -902,7 +977,7 @@ def _benchmark_injection_plans(
     )
     results = []
     for candidate in candidates:
-        if candidate.backend in {"cuda", "xpu"}:
+        if candidate.backend in {"cuda", "xpu", "mps"}:
             sample = accelerator_tasks
             phase_count = len(accelerator_warmup)
             timed_count = len(accelerator_timed)
@@ -917,7 +992,11 @@ def _benchmark_injection_plans(
         memory_info = None
         if candidate.backend in {"cuda", "xpu"}:
             Hardware_Utils.release_device_cache(candidate)
-            memory = cuda_memory_plan(candidate.device, lanes=1)
+            memory = cuda_memory_plan(
+                candidate.device,
+                lanes=1,
+                compute_element_bytes=precision_element_bytes(matmul_precision),
+            )
             memory_info = (memory.free_bytes, memory.total_bytes)
         for variant in variants:
             for lanes in lane_candidates:
@@ -931,6 +1010,9 @@ def _benchmark_injection_plans(
                         lanes=lanes,
                         variant=variant,
                         memory_info=memory_info,
+                        compute_element_bytes=precision_element_bytes(
+                            matmul_precision
+                        ),
                     )
                     vram = (
                         f"{estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
@@ -1199,7 +1281,12 @@ def scan_existing_batches(
                 cached_gaps = hf.attrs.get("gap_penalties")
                 cached_precision = _decode_attr(
                     hf.attrs.get("matmul_precision", "ieee_fp32")
-                )
+                ).strip().lower()
+                cached_precision = {
+                    "float32": "ieee_fp32",
+                    "fp32": "ieee_fp32",
+                    "ieee": "ieee_fp32",
+                }.get(cached_precision, cached_precision)
 
                 if cached_checksum: found_attrs["embedding_checksum"] = cached_checksum
                 if cached_model: found_attrs["model_name"] = cached_model
@@ -1468,9 +1555,11 @@ def run_injection():
             hf_old_net.attrs.get("matmul_precision", "ieee_fp32")
         ).strip().lower()
         inherited_precision = {
-            "float32": "ieee_fp32", "fp32": "ieee_fp32", "ieee": "ieee_fp32"
+            "float32": "ieee_fp32",
+            "fp32": "ieee_fp32",
+            "ieee": "ieee_fp32",
         }.get(inherited_precision, inherited_precision)
-        if inherited_precision not in {"ieee_fp32", "tf32"}:
+        if inherited_precision not in {"ieee_fp32", "tf32", "bf16"}:
             raise EmbeddingFileError(
                 f"Input network has unsupported matmul_precision="
                 f"'{inherited_precision}'."
@@ -1510,6 +1599,28 @@ def run_injection():
                 "NVIDIA CUDA device to calculate numerically compatible new edges."
             )
     print(f"  > Inherited matmul precision: {inherited_precision}")
+
+    if os.path.exists(FINAL_OUTPUT_NET):
+        try:
+            with h5py.File(FINAL_OUTPUT_NET, "r") as hf_existing:
+                completed_precision = _decode_attr(
+                    hf_existing.attrs.get("matmul_precision", "ieee_fp32")
+                ).strip().lower()
+                completed_precision = {
+                    "float32": "ieee_fp32",
+                    "fp32": "ieee_fp32",
+                    "ieee": "ieee_fp32",
+                }.get(completed_precision, completed_precision)
+        except Exception as error:
+            raise EmbeddingFileError(
+                f"Cannot inspect existing output precision: {error}"
+            ) from error
+        if completed_precision != inherited_precision:
+            raise EmbeddingFileError(
+                "Completed output precision conflict: input network uses "
+                f"'{inherited_precision}', but the existing output uses "
+                f"'{completed_precision}'. The output was not changed."
+            )
 
     print("Calculating checksum of input embedding file...")
     current_checksum = calculate_file_hash(NEW_EMBEDDINGS)
