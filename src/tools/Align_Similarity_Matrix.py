@@ -80,8 +80,11 @@ from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Utils
 from utilities.Embedding_Alignment_Engine import (
+    AcceleratorMemorySnapshot,
+    AdaptiveTilePlan,
     BenchmarkPhaseTimer,
     EmbeddingTileStore,
+    build_adaptive_tile_plans,
     compare_precision_results,
     cuda_matmul_precision,
     cuda_memory_plan,
@@ -876,6 +879,7 @@ def process_accelerated_tasks(
     matmul_precision="ieee_fp32",
     execution_variant="scalar",
     result_callback=None,
+    memory_plan_override=None,
 ):
     """
     Auto-select accelerator concurrency, then run the complete task batch.
@@ -913,7 +917,12 @@ def process_accelerated_tasks(
             ),
             leave=False,
         )
-        matrix_budget = None
+        matrix_budget = (
+            int(memory_plan_override.matrix_bytes)
+            if memory_plan_override is not None
+            else None
+        )
+        last_oom = None
         try:
             for attempt in range(4):
                 checkpoint = (
@@ -935,17 +944,23 @@ def process_accelerated_tasks(
                         progress=progress,
                         matrix_budget_override=matrix_budget,
                         result_callback=result_callback,
+                        memory_plan_override=memory_plan_override,
                     )
                 except Exception as error:
                     if not backend.is_out_of_memory(error):
                         raise
+                    last_oom = error
                     if checkpoint is not None:
                         result_callback.rollback(checkpoint)
                     backend.empty_cache()
-                    default_budget = cuda_memory_plan(
-                        device,
-                        lanes=accelerator_workers,
-                    ).matrix_bytes
+                    default_budget = (
+                        memory_plan_override.matrix_bytes
+                        if memory_plan_override is not None
+                        else cuda_memory_plan(
+                            device,
+                            lanes=accelerator_workers,
+                        ).matrix_bytes
+                    )
                     matrix_budget = max(
                         16 * 1024 * 1024,
                         int(matrix_budget or default_budget) // 2,
@@ -954,6 +969,13 @@ def process_accelerated_tasks(
                         f"  > {backend_label} memory pressure; retrying batch with "
                         f"{matrix_budget / (1024 ** 2):.0f} MiB matrix budget."
                     )
+            if (
+                memory_plan_override is not None
+                or normalize_execution_mode(EXECUTION_MODE) == "tiled"
+            ):
+                raise RuntimeError(
+                    f"Tiled execution plan remained out of memory on {device}."
+                ) from last_oom
             print(
                 f"  > Tiled {backend_label} remained out of memory; "
                 f"using scalar {backend_label}."
@@ -1172,20 +1194,28 @@ def _precision_device(candidates):
 def _execution_variants(candidate):
     """Return execution variants allowed for one hardware candidate."""
     mode = normalize_execution_mode(EXECUTION_MODE)
-    tiled_supported = (
-        candidate.backend in {"cuda", "xpu"}
-        and tiled_accelerator_support(
-            candidate.device, require_memory=False
-        )[0]
-    )
     if mode == "scalar":
         return ["scalar"]
+    tiled_supported = (
+        candidate.backend in {"cuda", "xpu", "mps"}
+        and tiled_accelerator_support(
+            candidate.device, require_memory=True
+        )[0]
+    )
     if mode == "tiled":
         return ["tiled"] if tiled_supported else []
     variants = ["scalar"]
     if tiled_supported:
         variants.append("tiled")
     return variants
+
+
+def _release_alignment_device_cache(candidate):
+    """Release MPS memory through the alignment backend abstraction."""
+    if candidate.backend == "mps":
+        get_accelerator_backend(candidate.device).empty_cache()
+        return
+    Hardware_Utils.release_device_cache(candidate)
 
 
 def _validate_execution_mode_hardware():
@@ -1199,7 +1229,8 @@ def _validate_execution_mode_hardware():
     )
     if manual is not None and not _execution_variants(manual):
         raise ValueError(
-            "Tiled execution requires a CUDA/ROCm or XPU accelerator; "
+            "Tiled execution requires a CUDA/ROCm or XPU accelerator, or "
+            "supported MPS; "
             "the selected device "
             f"is '{manual.spec}'."
         )
@@ -1210,8 +1241,8 @@ def _validate_execution_mode_hardware():
         eligible = [manual]
     if not eligible:
         raise ValueError(
-            "Tiled execution was requested, but no compatible CUDA/ROCm or "
-            "XPU accelerator is available."
+            "Tiled execution was requested, but no compatible CUDA/ROCm or XPU "
+            "accelerator, or supported MPS, is available."
         )
     return mode
 
@@ -1267,7 +1298,7 @@ def _resolve_active_matmul_precision(
     )
     if len(validation_tasks) < 2:
         return "ieee_fp32"
-    Hardware_Utils.release_device_cache(cuda_candidate)
+    _release_alignment_device_cache(cuda_candidate)
     memory_plan = cuda_memory_plan(cuda_candidate.device, lanes=1)
     memory_info = (memory_plan.free_bytes, memory_plan.total_bytes)
     preflight = {
@@ -1411,7 +1442,8 @@ def _benchmark_processing_plans(
     if execution_mode == "tiled":
         if manual is not None and not _execution_variants(manual):
             raise ValueError(
-                "Tiled execution requires a CUDA/ROCm or XPU accelerator; "
+                "Tiled execution requires a CUDA/ROCm or XPU accelerator, or "
+                "supported MPS; "
                 "the selected device "
                 f"is '{manual.spec}'."
             )
@@ -1421,8 +1453,8 @@ def _benchmark_processing_plans(
         ]
         if not candidates:
             raise ValueError(
-                "Tiled execution was requested, but no compatible CUDA/ROCm "
-                "or XPU accelerator is available."
+                "Tiled execution was requested, but no compatible CUDA/ROCm or "
+                "XPU accelerator, or supported MPS, is available."
             )
     if manual is not None and manual.is_cpu:
         print(f"[Hardware] Using manually selected {manual.display_name}.")
@@ -1439,7 +1471,9 @@ def _benchmark_processing_plans(
     cpu_timed = evenly_spaced_task_subset(accelerator_timed, cpu_half)
     cpu_tasks = cpu_warmup + cpu_timed
 
-    def execute_plan(candidate, variant, lanes, tasks, phase_count, timer):
+    def execute_plan(
+        candidate, variant, lanes, tasks, phase_count, timer, memory_plan=None
+    ):
         if candidate.is_cpu:
             return process_cpu_tasks(
                 tasks,
@@ -1462,6 +1496,7 @@ def _benchmark_processing_plans(
                 precision=matmul_precision,
                 warmup_task_count=phase_count,
                 benchmark_timer=timer,
+                memory_plan_override=memory_plan,
             )
         return _run_accelerated_pipeline(
             tasks,
@@ -1484,7 +1519,7 @@ def _benchmark_processing_plans(
         )
 
     print(
-        f"[Hardware] Benchmarking {len(candidates)} device(s): CUDA/XPU "
+        f"[Hardware] Benchmarking {len(candidates)} device(s): accelerators "
         f"{len(accelerator_warmup)} warm + {len(accelerator_timed)} timed; "
         f"CPU/other {len(cpu_warmup)} warm + {len(cpu_timed)} timed."
     )
@@ -1495,7 +1530,7 @@ def _benchmark_processing_plans(
     results = []
     for candidate in candidates:
         candidate_results = []
-        if candidate.backend in {"cuda", "xpu"}:
+        if candidate.backend in {"cuda", "xpu", "mps"}:
             sample = accelerator_tasks
             phase_count = len(accelerator_warmup)
             timed_count = len(accelerator_timed)
@@ -1504,19 +1539,40 @@ def _benchmark_processing_plans(
             phase_count = len(cpu_warmup)
             timed_count = len(cpu_timed)
         candidate_memory_info = None
+        candidate_memory_snapshot = None
         if (
-            candidate.backend in {"cuda", "xpu"}
+            candidate.backend in {"cuda", "xpu", "mps"}
             and tiled_accelerator_support(
                 candidate.device, require_memory=True
             )[0]
             and embedding_store is not None
             and sequence_lengths is not None
         ):
-            Hardware_Utils.release_device_cache(candidate)
+            _release_alignment_device_cache(candidate)
             base_memory_plan = cuda_memory_plan(candidate.device, lanes=1)
             candidate_memory_info = (
                 base_memory_plan.free_bytes,
                 base_memory_plan.total_bytes,
+            )
+            reserve_bytes = getattr(base_memory_plan, "reserve_bytes", None)
+            if not isinstance(reserve_bytes, (int, np.integer)):
+                reserve_bytes = max(
+                    2 * 1024 ** 3,
+                    int(
+                        base_memory_plan.total_bytes
+                        * (0.20 if candidate.backend == "mps" else 0.15)
+                    ),
+                )
+            memory_source = getattr(base_memory_plan, "memory_source", None)
+            if not isinstance(memory_source, str):
+                memory_source = "benchmark memory snapshot"
+            candidate_memory_snapshot = AcceleratorMemorySnapshot(
+                backend=candidate.backend,
+                free_bytes=int(base_memory_plan.free_bytes),
+                total_bytes=int(base_memory_plan.total_bytes),
+                reserve_bytes=int(reserve_bytes),
+                source=memory_source,
+                unified_memory=candidate.backend == "mps",
             )
         lane_candidates = (
             [1]
@@ -1530,6 +1586,161 @@ def _benchmark_processing_plans(
             variants.remove("tiled")
 
         for variant in variants:
+            if variant == "tiled":
+                adaptive_plans = build_adaptive_tile_plans(
+                    sample,
+                    store=embedding_store,
+                    lengths=sequence_lengths,
+                    device=candidate.device,
+                    lane_candidates=lane_candidates,
+                    memory_snapshot=candidate_memory_snapshot,
+                )
+                if not adaptive_plans:
+                    result = Hardware_Utils.BenchmarkResult(
+                        candidate,
+                        None,
+                        error="No memory-safe adaptive tile plan.",
+                        variant="tiled",
+                    )
+                    candidate_results.append(result)
+                    print(
+                        f"{candidate.display_name[:30]:30}  {'tiled':8}  "
+                        f"{'--':>5}   {'--':>14}   {'--':>20}   "
+                        "skipped: no memory-safe tile plan"
+                    )
+                    continue
+
+                finalists = adaptive_plans
+                if len(adaptive_plans) > 1:
+                    screen_half = min(
+                        512, len(accelerator_warmup), len(accelerator_timed)
+                    )
+                    if screen_half:
+                        screen_tasks = (
+                            evenly_spaced_task_subset(
+                                accelerator_warmup, screen_half
+                            )
+                            + evenly_spaced_task_subset(
+                                accelerator_timed, screen_half
+                            )
+                        )
+                        screened = []
+                        print(
+                            f"[Tiles] Screening {len(adaptive_plans)} "
+                            f"{candidate.display_name} candidates with "
+                            f"{screen_half} warm + {screen_half} timed pairs."
+                        )
+                        for adaptive in adaptive_plans:
+                            timer = BenchmarkPhaseTimer()
+                            try:
+                                execute_plan(
+                                    candidate,
+                                    "tiled",
+                                    adaptive.lanes,
+                                    screen_tasks,
+                                    screen_half,
+                                    timer,
+                                    adaptive.memory_plan,
+                                )
+                                rate = screen_half / timer.elapsed
+                            except Exception as error:
+                                print(
+                                    f"  {adaptive.profile_name}, "
+                                    f"lanes={adaptive.lanes}: unavailable "
+                                    f"({type(error).__name__}: {error})"
+                                )
+                            else:
+                                screened.append((rate, adaptive))
+                                print(
+                                    f"  {adaptive.profile_name}, "
+                                    f"lanes={adaptive.lanes}, "
+                                    f"tile={adaptive.memory_plan.tile_cache_bytes / (1024 ** 2):.0f} MiB, "
+                                    f"matrix={adaptive.memory_plan.matrix_pool_bytes / (1024 ** 2):.0f} MiB: "
+                                    f"{rate:.2f} pairs/s"
+                                )
+                            _release_alignment_device_cache(candidate)
+                        finalists = [
+                            adaptive
+                            for _rate, adaptive in sorted(
+                                screened,
+                                key=lambda item: (
+                                    -item[0],
+                                    item[1].estimate.projected_peak_bytes,
+                                    item[1].lanes,
+                                ),
+                            )[:2]
+                        ]
+                    else:
+                        finalists = adaptive_plans[:2]
+
+                if not finalists:
+                    candidate_results.append(
+                        Hardware_Utils.BenchmarkResult(
+                            candidate,
+                            None,
+                            error="Every adaptive tile screening run failed.",
+                            variant="tiled",
+                        )
+                    )
+                    continue
+
+                for adaptive in finalists:
+                    memory_estimate = adaptive.estimate
+                    vram_label = (
+                        f"{memory_estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
+                        f"{memory_estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
+                    )
+                    timer = BenchmarkPhaseTimer()
+                    try:
+                        execute_plan(
+                            candidate,
+                            "tiled",
+                            adaptive.lanes,
+                            sample,
+                            phase_count,
+                            timer,
+                            adaptive.memory_plan,
+                        )
+                        elapsed = timer.elapsed
+                        rate = timed_count / elapsed
+                        result = Hardware_Utils.BenchmarkResult(
+                            candidate,
+                            rate,
+                            lanes=adaptive.lanes,
+                            variant="tiled",
+                            execution_plan=adaptive,
+                            peak_memory_bytes=memory_estimate.projected_peak_bytes,
+                        )
+                        print(
+                            f"{candidate.display_name[:30]:30}  "
+                            f"{'tiled':8}  {adaptive.lanes:>5}   "
+                            f"{vram_label:>14}   {rate:>20.2f}   "
+                            f"{adaptive.profile_name}; "
+                            f"source={adaptive.memory_plan.memory_source}, "
+                            f"tile={adaptive.memory_plan.tile_cache_bytes / (1024 ** 2):.0f} MiB, "
+                            f"matrix={adaptive.memory_plan.matrix_pool_bytes / (1024 ** 2):.0f} MiB, "
+                            f"slot={adaptive.memory_plan.matrix_bytes / (1024 ** 2):.0f} MiB, "
+                            f"reload={memory_estimate.embedding_reload_bytes / (1024 ** 2):.0f} MiB"
+                        )
+                    except Exception as error:
+                        result = Hardware_Utils.BenchmarkResult(
+                            candidate,
+                            None,
+                            lanes=adaptive.lanes,
+                            error=f"{type(error).__name__}: {error}",
+                            variant="tiled",
+                            execution_plan=adaptive,
+                            peak_memory_bytes=memory_estimate.projected_peak_bytes,
+                        )
+                        print(
+                            f"{candidate.display_name[:30]:30}  "
+                            f"{'tiled':8}  {adaptive.lanes:>5}   "
+                            f"{vram_label:>14}   {'--':>20}   {result.error}"
+                        )
+                    candidate_results.append(result)
+                    _release_alignment_device_cache(candidate)
+                continue
+
             for lanes in lane_candidates:
                 memory_estimate = None
                 vram_label = "--"
@@ -1601,7 +1812,7 @@ def _benchmark_processing_plans(
                     )
                 candidate_results.append(result)
         results.extend(candidate_results)
-        Hardware_Utils.release_device_cache(candidate)
+        _release_alignment_device_cache(candidate)
 
     ranked = Hardware_Utils.rank_benchmark_results(
         results, higher_is_better=True
@@ -1613,11 +1824,7 @@ def _benchmark_processing_plans(
         (result for result in results if result.succeeded),
         key=lambda result: float(result.value),
     )
-    tie_applied = (
-        winner.candidate.spec != fastest.candidate.spec
-        or winner.lanes != fastest.lanes
-        or winner.variant != fastest.variant
-    )
+    tie_applied = winner is not fastest
     print(
         f"[Hardware] Selected {winner.candidate.display_name} with "
         f"{winner.variant} plan and {winner.lanes} lane(s); 3% tie preference "
@@ -1644,6 +1851,11 @@ def _run_batch_with_ranked_plans(
                     None if plan.candidate.is_cpu else plan.lanes
                 ),
                 execution_variant=plan.variant,
+                memory_plan_override=(
+                    plan.execution_plan.memory_plan
+                    if isinstance(plan.execution_plan, AdaptiveTilePlan)
+                    else None
+                ),
             )
             return active_plan_index
         except (RuntimeError, NotImplementedError, MemoryError) as error:
@@ -1766,6 +1978,7 @@ def process_batch(
     matmul_precision=None,
     embedding_store=None,
     sequence_lengths=None,
+    memory_plan_override=None,
 ):
     output_filename = os.path.join(RESULTS_DIR, f"batch_{batch_id:05d}.h5")
     if device is None:
@@ -1798,6 +2011,7 @@ def process_batch(
                 matmul_precision=matmul_precision,
                 execution_variant=execution_variant,
                 result_callback=writer,
+                memory_plan_override=memory_plan_override,
             )
         else:
             results = process_cpu_tasks(

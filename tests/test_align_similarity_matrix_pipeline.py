@@ -346,6 +346,79 @@ class AlignmentPipelineTests(unittest.TestCase):
             )
         )
 
+    def test_mps_tiled_pipeline_uses_default_queue_without_streams(self):
+        class FakeMpsBackend:
+            device_type = "mps"
+            supports_async_streams = False
+
+            def __init__(self):
+                self.synchronize_calls = 0
+                self.empty_cache_calls = 0
+
+            def supports_tiled(self, require_memory=True):
+                return True, "mock MPS support"
+
+            def synchronize(self):
+                self.synchronize_calls += 1
+
+            def empty_cache(self):
+                self.empty_cache_calls += 1
+
+        headers = ["a", "b", "c"]
+        tasks = [(0, 1, "a", "b"), (0, 2, "a", "c")]
+        backend = FakeMpsBackend()
+        plan = alignment_engine.AcceleratorMemoryPlan(
+            free_bytes=1 << 30,
+            total_bytes=1 << 30,
+            usable_bytes=1 << 30,
+            tile_cache_bytes=1 << 20,
+            matrix_pool_bytes=1 << 20,
+            matrix_bytes=1 << 20,
+            reserve_bytes=0,
+            lanes=1,
+            inflight_slots=1,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_h5 = os.path.join(temp_dir, "mps_embeddings.h5")
+            with h5py.File(input_h5, "w") as hf:
+                group = hf.create_group("embeddings")
+                for header in headers:
+                    group.create_dataset(
+                        header, data=np.ones((2, 3), dtype=np.float32)
+                    )
+            store = alignment_engine.EmbeddingTileStore(input_h5, headers, 0)
+            with mock.patch.object(
+                alignment_engine, "get_accelerator_backend", return_value=backend
+            ), mock.patch.object(
+                alignment_engine,
+                "_to_normalized_cuda",
+                side_effect=lambda array, device: torch.as_tensor(array),
+            ), mock.patch.object(
+                alignment_engine,
+                "_batched_score_matrices",
+                side_effect=lambda row, targets, target_lengths: torch.zeros(
+                    (len(targets), len(row), max(target_lengths)),
+                    dtype=torch.float32,
+                ),
+            ):
+                results = alignment_engine.run_tiled_accelerator_pipeline(
+                    tasks,
+                    store=store,
+                    lengths=[2, 2, 2],
+                    device=torch.device("mps"),
+                    workers=2,
+                    lanes=1,
+                    alignment_callback=lambda args: (
+                        args[0], args[1], 1.0, 1, 2.0, 1
+                    ),
+                    memory_plan_override=plan,
+                )
+
+        self.assertEqual(len(results), 2)
+        self.assertGreater(backend.synchronize_calls, 0)
+        self.assertGreater(backend.empty_cache_calls, 0)
+
     def test_restored_engine_routes_memory_planning_to_xpu_runtime(self):
         fake_xpu = mock.MagicMock()
         fake_xpu.mem_get_info.return_value = (12 << 30, 16 << 30)
@@ -362,7 +435,7 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(plan.free_bytes, 12 << 30)
         self.assertEqual(plan.total_bytes, 16 << 30)
         self.assertEqual(plan.lanes, 2)
-        fake_xpu.mem_get_info.assert_called_once()
+        self.assertEqual(fake_xpu.mem_get_info.call_count, 2)
 
     def test_execution_mode_filters_candidate_variants(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
@@ -939,6 +1012,151 @@ class AlignmentPipelineTests(unittest.TestCase):
                 matrix_fraction=0.40,
             )
 
+    def test_mps_memory_snapshot_caps_working_set_by_available_system_ram(self):
+        backend = alignment_engine.AcceleratorBackend(torch.device("mps"))
+        with mock.patch.object(
+            alignment_engine.torch.mps,
+            "recommended_max_memory",
+            return_value=12 * alignment_engine.GIB,
+            create=True,
+        ), mock.patch.object(
+            alignment_engine.torch.mps,
+            "driver_allocated_memory",
+            return_value=2 * alignment_engine.GIB,
+            create=True,
+        ), mock.patch.object(
+            alignment_engine,
+            "system_memory_bytes",
+            return_value=(16 * alignment_engine.GIB, 8 * alignment_engine.GIB),
+        ):
+            snapshot = backend.memory_snapshot()
+
+        self.assertEqual(snapshot.backend, "mps")
+        self.assertTrue(snapshot.unified_memory)
+        self.assertEqual(snapshot.free_bytes, 8 * alignment_engine.GIB)
+        self.assertEqual(snapshot.reserve_bytes, int(12 * alignment_engine.GIB * 0.20))
+
+    def test_mps_tiling_is_disabled_for_missing_or_invalid_memory_apis(self):
+        backend = alignment_engine.AcceleratorBackend(torch.device("mps"))
+        with mock.patch.object(
+            alignment_engine.torch.mps,
+            "recommended_max_memory",
+            None,
+            create=True,
+        ):
+            supported, reason = backend.supports_tiled(require_memory=True)
+        self.assertFalse(supported)
+        self.assertIn("recommended_max_memory", reason)
+
+        with mock.patch.object(
+            alignment_engine.torch.mps,
+            "recommended_max_memory",
+            return_value=0,
+            create=True,
+        ), mock.patch.object(
+            alignment_engine.torch.mps,
+            "driver_allocated_memory",
+            return_value=0,
+            create=True,
+        ):
+            supported, reason = backend.supports_tiled(require_memory=True)
+        self.assertFalse(supported)
+        self.assertIn("invalid memory", reason)
+
+        with mock.patch.object(
+            alignment_engine.torch.mps,
+            "recommended_max_memory",
+            return_value=4 * alignment_engine.GIB,
+            create=True,
+        ), mock.patch.object(
+            alignment_engine.torch.mps,
+            "driver_allocated_memory",
+            return_value=3 * alignment_engine.GIB,
+            create=True,
+        ), mock.patch.object(
+            alignment_engine,
+            "system_memory_bytes",
+            return_value=(8 * alignment_engine.GIB, alignment_engine.GIB),
+        ):
+            supported, reason = backend.supports_tiled(require_memory=True)
+        self.assertFalse(supported)
+        self.assertIn("no safely usable", reason)
+
+    def test_mps_memory_plan_uses_one_device_resident_matrix_slot(self):
+        plan = alignment_engine.accelerator_memory_plan(
+            torch.device("mps"),
+            lanes=1,
+            memory_info=(8 * alignment_engine.GIB, 12 * alignment_engine.GIB),
+        )
+        self.assertEqual(plan.inflight_slots, 1)
+        self.assertEqual(plan.matrix_bytes, plan.matrix_pool_bytes)
+
+    def test_adaptive_tile_candidates_are_dtype_aware_and_deduplicated(self):
+        store = mock.Mock(
+            feature_dimension=2,
+            float32_bytes=[900, 900, 900, 900],
+        )
+        store.block_ids = None
+        tasks = [(0, 2, "a", "c"), (1, 3, "b", "d")]
+        snapshot = alignment_engine.AcceleratorMemorySnapshot(
+            backend="cuda",
+            free_bytes=10000,
+            total_bytes=10000,
+            reserve_bytes=0,
+            source="test",
+        )
+
+        fp32 = alignment_engine.build_adaptive_tile_plans(
+            tasks,
+            store=store,
+            lengths=[2, 2, 2, 2],
+            device=torch.device("cuda:0"),
+            lane_candidates=[1],
+            memory_snapshot=snapshot,
+            compute_element_bytes=4,
+        )
+        bf16_ready = alignment_engine.build_adaptive_tile_plans(
+            tasks,
+            store=store,
+            lengths=[2, 2, 2, 2],
+            device=torch.device("cuda:0"),
+            lane_candidates=[1],
+            memory_snapshot=snapshot,
+            compute_element_bytes=2,
+        )
+
+        self.assertTrue(fp32)
+        self.assertTrue(bf16_ready)
+        self.assertTrue(all(plan.memory_plan.compute_element_bytes == 2 for plan in bf16_ready))
+        self.assertLessEqual(
+            min(plan.estimate.embedding_reload_bytes for plan in bf16_ready),
+            min(plan.estimate.embedding_reload_bytes for plan in fp32),
+        )
+        self.assertEqual(
+            len({(plan.lanes, plan.estimate.schedule_signature) for plan in fp32}),
+            len(fp32),
+        )
+
+    def test_adaptive_tile_candidates_reject_an_oversized_embedding(self):
+        store = mock.Mock(feature_dimension=2, float32_bytes=[9000, 100])
+        store.block_ids = None
+        snapshot = alignment_engine.AcceleratorMemorySnapshot(
+            backend="cuda",
+            free_bytes=10000,
+            total_bytes=10000,
+            reserve_bytes=0,
+            source="test",
+        )
+        plans = alignment_engine.build_adaptive_tile_plans(
+            [(0, 1, "a", "b")],
+            store=store,
+            lengths=[2, 2],
+            device=torch.device("cuda:0"),
+            lane_candidates=[1, 2],
+            memory_snapshot=snapshot,
+        )
+        self.assertEqual(plans, [])
+
     def test_vram_estimator_uses_explicit_benchmark_plan(self):
         store = mock.Mock(
             feature_dimension=8,
@@ -1065,6 +1283,15 @@ class AlignmentPipelineTests(unittest.TestCase):
                 show_progress=False,
                 matmul_precision="tf32",
             )
+            adaptive_plans = alignment_engine.build_adaptive_tile_plans(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=torch.device("cuda:0"),
+                lane_candidates=[2],
+            )
+            self.assertTrue(adaptive_plans)
+            selected_memory_plan = adaptive_plans[0].memory_plan
             tiled = alignment_engine.run_tiled_cuda_pipeline(
                 tasks,
                 store=store,
@@ -1074,6 +1301,7 @@ class AlignmentPipelineTests(unittest.TestCase):
                 lanes=2,
                 alignment_callback=similarity_matrix.calculate_alignment_data,
                 precision="float32",
+                memory_plan_override=selected_memory_plan,
             )
             tf32 = alignment_engine.run_tiled_cuda_pipeline(
                 tasks,
@@ -1084,6 +1312,7 @@ class AlignmentPipelineTests(unittest.TestCase):
                 lanes=2,
                 alignment_callback=similarity_matrix.calculate_alignment_data,
                 precision="tf32",
+                memory_plan_override=selected_memory_plan,
             )
 
         scalar = []
@@ -1571,6 +1800,10 @@ class AlignmentPipelineTests(unittest.TestCase):
             "release_device_cache",
         ), mock.patch.object(
             similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock tiled support"),
+        ), mock.patch.object(
+            similarity_matrix,
             "cuda_memory_plan",
             return_value=memory_plan,
         ), mock.patch.object(
@@ -1679,7 +1912,7 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(scalar.call_count, 3)
         tiled.assert_not_called()
 
-    def test_plan_tuner_runs_each_setup_once_with_internal_warmup(self):
+    def test_plan_tuner_screens_then_confirms_tiled_finalists(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
@@ -1722,6 +1955,10 @@ class AlignmentPipelineTests(unittest.TestCase):
         ), mock.patch.object(
             similarity_matrix.Hardware_Utils,
             "release_device_cache",
+        ), mock.patch.object(
+            similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock tiled support"),
         ), mock.patch.object(
             similarity_matrix,
             "cuda_memory_plan",
@@ -1769,8 +2006,9 @@ class AlignmentPipelineTests(unittest.TestCase):
         )
         self.assertEqual(
             [len(call.args[0]) for call in tiled_pipeline.call_args_list],
-            [6, 6],
+            [6, 6, 6, 6],
         )
+        self.assertIn("[Tiles] Screening", output.getvalue())
         self.assertNotIn("Confirming Test CUDA", output.getvalue())
         for call in scalar_pipeline.call_args_list + tiled_pipeline.call_args_list:
             self.assertEqual(call.kwargs["warmup_task_count"], 3)
@@ -1897,6 +2135,77 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(sink.rollback.call_count, 4)
         scalar.assert_called_once()
         self.assertIs(scalar.call_args.kwargs["result_callback"], sink)
+
+    def test_selected_adaptive_plan_oom_is_returned_to_ranked_fallback(self):
+        tasks = [(0, 1, "a", "b")]
+        sink = mock.Mock()
+        sink.checkpoint.return_value = 0
+        memory_plan = mock.Mock(matrix_bytes=256 * 1024 * 1024)
+
+        with mock.patch.object(
+            similarity_matrix,
+            "run_tiled_accelerator_pipeline",
+            side_effect=torch.cuda.OutOfMemoryError("simulated"),
+        ) as tiled, mock.patch.object(
+            similarity_matrix,
+            "_run_accelerated_pipeline",
+        ) as scalar, mock.patch.object(
+            similarity_matrix,
+            "tqdm",
+            return_value=mock.Mock(),
+        ), self.assertRaisesRegex(RuntimeError, "plan remained out of memory"):
+            similarity_matrix.process_accelerated_tasks(
+                tasks,
+                workers=2,
+                input_h5="unused.h5",
+                device=torch.device("cuda:0"),
+                batch_id=1,
+                accelerator_workers=1,
+                embedding_store=mock.Mock(),
+                sequence_lengths=[2, 2],
+                execution_variant="tiled",
+                result_callback=sink,
+                memory_plan_override=memory_plan,
+            )
+
+        self.assertEqual(tiled.call_count, 4)
+        self.assertEqual(sink.rollback.call_count, 4)
+        scalar.assert_not_called()
+
+    def test_ranked_batch_runner_tries_the_next_confirmed_plan(self):
+        cuda = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
+        )
+        cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
+            "cpu", "CPU", torch.device("cpu"), "cpu"
+        )
+        ranked = [
+            similarity_matrix.Hardware_Utils.BenchmarkResult(
+                cuda, 100.0, lanes=2, variant="tiled"
+            ),
+            similarity_matrix.Hardware_Utils.BenchmarkResult(
+                cpu, 10.0, lanes=1, variant="scalar"
+            ),
+        ]
+        with mock.patch.object(
+            similarity_matrix, "DEVICE_SELECTION", "auto"
+        ), mock.patch.object(
+            similarity_matrix,
+            "process_batch",
+            side_effect=[RuntimeError("simulated OOM"), None],
+        ) as process, redirect_stdout(io.StringIO()):
+            active = similarity_matrix._run_batch_with_ranked_plans(
+                ranked, 0, [(0, 1, "a", "b")], 0, 1, "unused.h5", "checksum"
+            )
+
+        self.assertEqual(active, 1)
+        self.assertEqual(process.call_count, 2)
+        self.assertEqual(
+            process.call_args_list[0].kwargs["device"], torch.device("cuda:0")
+        )
+        self.assertEqual(
+            process.call_args_list[1].kwargs["device"], torch.device("cpu")
+        )
 
     def test_tiled_xpu_uses_backend_neutral_runner_and_batch_callback(self):
         tasks = [(0, 1, "a", "b")]

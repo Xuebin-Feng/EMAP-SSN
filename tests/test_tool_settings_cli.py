@@ -493,38 +493,56 @@ class ToolExportGuiTests(unittest.TestCase):
         execution = QComboBox()
         execution.addItems(["auto", "scalar", "tiled"])
 
-        execution.setCurrentText("tiled")
-        self.assertFalse(
-            self.sync_alignment_tiled_option(
-                device, execution, [cpu, mps]
+        with mock.patch(
+            "EMAPSSN_Tools.tiled_accelerator_support",
+            return_value=(True, "mock support"),
+        ):
+            execution.setCurrentText("tiled")
+            self.assertFalse(
+                self.sync_alignment_tiled_option(
+                    device, execution, [cpu, mps]
+                )
             )
-        )
-        self.assertEqual(execution.currentText(), "auto")
-        self.assertEqual(execution.findText("tiled"), -1)
-        self.assertFalse(execution.property("tiledAvailable"))
+            self.assertEqual(execution.currentText(), "auto")
+            self.assertEqual(execution.findText("tiled"), -1)
+            self.assertFalse(execution.property("tiledAvailable"))
 
-        self.assertTrue(
-            self.sync_alignment_tiled_option(
-                device, execution, [cpu, mps, xpu]
+            self.assertTrue(
+                self.sync_alignment_tiled_option(
+                    device, execution, [cpu, mps, xpu]
+                )
             )
-        )
-        self.assertGreaterEqual(execution.findText("tiled"), 0)
+            self.assertGreaterEqual(execution.findText("tiled"), 0)
 
-        device.setCurrentIndex(device.findData("mps"))
-        self.assertFalse(
-            self.sync_alignment_tiled_option(
-                device, execution, [cpu, mps, xpu]
+            device.setCurrentIndex(device.findData("mps"))
+            self.assertFalse(
+                self.sync_alignment_tiled_option(
+                    device, execution, [cpu, mps, xpu]
+                )
             )
-        )
-        self.assertEqual(execution.findText("tiled"), -1)
+            self.assertEqual(execution.findText("tiled"), -1)
 
-        device.setCurrentIndex(device.findData("xpu:0"))
-        self.assertTrue(
-            self.sync_alignment_tiled_option(
-                device, execution, [cpu, mps, xpu]
+            device.setCurrentIndex(device.findData("xpu:0"))
+            self.assertTrue(
+                self.sync_alignment_tiled_option(
+                    device,
+                    execution,
+                    [cpu, mps, xpu],
+                    allow_mps=True,
+                )
             )
-        )
-        self.assertGreaterEqual(execution.findText("tiled"), 0)
+            self.assertGreaterEqual(execution.findText("tiled"), 0)
+
+            device.setCurrentIndex(device.findData("mps"))
+            self.assertTrue(
+                self.sync_alignment_tiled_option(
+                    device,
+                    execution,
+                    [cpu, mps, xpu],
+                    allow_mps=True,
+                )
+            )
+            self.assertGreaterEqual(execution.findText("tiled"), 0)
 
     def test_host_cache_control_uses_auto_or_linear_manual_gib(self):
         source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")

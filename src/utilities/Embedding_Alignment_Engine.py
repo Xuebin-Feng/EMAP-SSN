@@ -35,11 +35,17 @@ GIB = 1024 ** 3
 DEFAULT_HOST_CACHE_CAP = 128 * GIB
 MIN_HOST_RESERVE = 8 * GIB
 MIN_CUDA_RESERVE = 2 * GIB
+MIN_MPS_RESERVE = 2 * GIB
 PADDING_OVERHEAD_LIMIT = 0.15
 MATRIX_WORKSPACE_MULTIPLIER = 8
 CUDA_TILE_FRACTION = 0.30
 CUDA_MATRIX_FRACTION = 0.50
-SUPPORTED_TILED_BACKENDS = frozenset({"cuda", "xpu"})
+TILE_MEMORY_PROFILES = (
+    ("matrix-heavy", 0.20, 0.60),
+    ("balanced", 0.30, 0.50),
+    ("tile-heavy", 0.40, 0.40),
+)
+SUPPORTED_TILED_BACKENDS = frozenset({"cuda", "xpu", "mps"})
 
 
 class BenchmarkPhaseTimer:
@@ -300,14 +306,14 @@ def is_nvidia_cuda(device=None):
 
 
 class AcceleratorBackend:
-    """Minimal CUDA/XPU runtime adapter for the Aug 22 tiled pipeline."""
+    """Portable CUDA/ROCm, XPU, and MPS tiled-runtime adapter."""
 
     def __init__(self, device):
         self.device = torch.device(device)
         self.device_type = self.device.type
         if self.device_type not in SUPPORTED_TILED_BACKENDS:
             raise ValueError(
-                "Tiled execution requires a CUDA/ROCm or XPU accelerator; "
+                "Tiled execution requires a CUDA/ROCm, XPU, or MPS accelerator; "
                 f"received '{self.device}'."
             )
         self.module = getattr(torch, self.device_type, None)
@@ -328,6 +334,10 @@ class AcceleratorBackend:
         return context(self.device) if context is not None else nullcontext()
 
     def create_stream(self):
+        if not self.supports_async_streams:
+            raise RuntimeError(
+                f"torch.{self.device_type} uses the default synchronous queue."
+            )
         stream_type = getattr(self.module, "Stream", None)
         if stream_type is None:
             raise RuntimeError(
@@ -348,6 +358,10 @@ class AcceleratorBackend:
         return context(stream)
 
     def create_event(self):
+        if not self.supports_async_streams:
+            raise RuntimeError(
+                f"torch.{self.device_type} does not use tiled pipeline events."
+            )
         event_type = getattr(self.module, "Event", None)
         if event_type is None:
             raise RuntimeError(
@@ -356,6 +370,9 @@ class AcceleratorBackend:
         return event_type()
 
     def memory_info(self):
+        if self.device_type == "mps":
+            snapshot = self.memory_snapshot()
+            return snapshot.free_bytes, snapshot.total_bytes
         function = self._runtime_function("mem_get_info")
         if function is None:
             raise RuntimeError(
@@ -372,6 +389,73 @@ class AcceleratorBackend:
         function = self._runtime_function("empty_cache")
         if function is not None:
             function()
+
+    def synchronize(self):
+        function = self._runtime_function("synchronize")
+        if function is None:
+            return
+        try:
+            function(self.device)
+        except TypeError:
+            function()
+
+    @property
+    def supports_async_streams(self):
+        return self.device_type in {"cuda", "xpu"}
+
+    def memory_snapshot(self):
+        """Return a conservative backend-neutral accelerator memory view."""
+        if self.device_type != "mps":
+            function = self._runtime_function("mem_get_info")
+            if function is None:
+                raise RuntimeError(
+                    f"torch.{self.device_type} does not expose allocator memory info."
+                )
+            with self.device_context():
+                try:
+                    free_bytes, total_bytes = function(self.device)
+                except TypeError:
+                    free_bytes, total_bytes = function()
+            total_bytes = int(total_bytes)
+            free_bytes = int(free_bytes)
+            reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
+            return AcceleratorMemorySnapshot(
+                backend=self.device_type,
+                free_bytes=free_bytes,
+                total_bytes=total_bytes,
+                reserve_bytes=reserve,
+                source="mem_get_info",
+                unified_memory=False,
+            )
+
+        recommended = self._runtime_function("recommended_max_memory")
+        driver_allocated = self._runtime_function("driver_allocated_memory")
+        if recommended is None or driver_allocated is None:
+            raise RuntimeError(
+                "torch.mps must expose recommended_max_memory and "
+                "driver_allocated_memory for safe tiled execution."
+            )
+        total_bytes = int(recommended())
+        allocated_bytes = int(driver_allocated())
+        if (
+            total_bytes <= 0
+            or allocated_bytes < 0
+            or allocated_bytes > total_bytes
+        ):
+            raise RuntimeError("torch.mps returned invalid memory information.")
+        _system_total, system_available = system_memory_bytes()
+        free_bytes = max(0, total_bytes - allocated_bytes)
+        if system_available > 0:
+            free_bytes = min(free_bytes, int(system_available))
+        reserve = max(MIN_MPS_RESERVE, int(total_bytes * 0.20))
+        return AcceleratorMemorySnapshot(
+            backend="mps",
+            free_bytes=free_bytes,
+            total_bytes=total_bytes,
+            reserve_bytes=reserve,
+            source="recommended_max_memory/driver_allocated_memory/system_ram",
+            unified_memory=True,
+        )
 
     def is_out_of_memory(self, error):
         exception_types = []
@@ -391,17 +475,39 @@ class AcceleratorBackend:
         )
 
     def supports_tiled(self, *, require_memory=True):
-        missing = [
-            name for name in ("Stream", "Event", "stream")
-            if getattr(self.module, name, None) is None
-        ]
-        if require_memory and self._runtime_function("mem_get_info") is None:
-            missing.append("mem_get_info")
+        missing = []
+        if self.supports_async_streams:
+            missing.extend(
+                name for name in ("Stream", "Event", "stream")
+                if getattr(self.module, name, None) is None
+            )
+        if require_memory:
+            if self.device_type == "mps":
+                missing.extend(
+                    name for name in (
+                        "recommended_max_memory", "driver_allocated_memory"
+                    )
+                    if self._runtime_function(name) is None
+                )
+            elif self._runtime_function("mem_get_info") is None:
+                missing.append("mem_get_info")
         if missing:
             return False, (
                 f"torch.{self.device_type} is missing " + ", ".join(missing)
             )
-        return True, "stream, event, and allocator APIs are available"
+        if require_memory:
+            try:
+                snapshot = self.memory_snapshot()
+            except Exception as error:
+                return False, str(error)
+            if snapshot.total_bytes <= 0 or snapshot.usable_bytes <= 0:
+                return False, (
+                    f"torch.{self.device_type} reported no safely usable "
+                    "accelerator memory"
+                )
+        if self.supports_async_streams:
+            return True, "stream, event, and allocator APIs are available"
+        return True, "default queue and working-set memory APIs are available"
 
 
 def get_accelerator_backend(device):
@@ -475,7 +581,21 @@ def compute_score_matrix_torch(emb_i, emb_j, device, precision="float32"):
 
 
 @dataclass(frozen=True)
-class CudaMemoryPlan:
+class AcceleratorMemorySnapshot:
+    backend: str
+    free_bytes: int
+    total_bytes: int
+    reserve_bytes: int
+    source: str
+    unified_memory: bool = False
+
+    @property
+    def usable_bytes(self):
+        return max(0, int(self.free_bytes) - int(self.reserve_bytes))
+
+
+@dataclass(frozen=True)
+class AcceleratorMemoryPlan:
     free_bytes: int
     total_bytes: int
     usable_bytes: int
@@ -485,6 +605,13 @@ class CudaMemoryPlan:
     reserve_bytes: int
     lanes: int
     inflight_slots: int
+    profile_name: str = "balanced"
+    memory_source: str = "mem_get_info"
+    compute_element_bytes: int = 4
+
+
+# Compatibility for existing Network Injection, SSEARCH, and tests.
+CudaMemoryPlan = AcceleratorMemoryPlan
 
 
 @dataclass(frozen=True)
@@ -501,17 +628,52 @@ class CudaWorkloadEstimate:
     largest_microbatch_bytes: int
     feasible: bool
     reason: str
+    embedding_reload_bytes: int = 0
+    microbatch_count: int = 0
+    padded_elements: int = 0
+    real_elements: int = 0
+    schedule_signature: tuple = ()
+
+    @property
+    def padding_ratio(self):
+        if self.real_elements <= 0:
+            return 0.0
+        return max(0.0, self.padded_elements / self.real_elements - 1.0)
 
 
-def cuda_memory_plan(
+@dataclass(frozen=True)
+class AdaptiveTilePlan:
+    """One memory-safe tiled execution candidate."""
+
+    memory_plan: AcceleratorMemoryPlan
+    estimate: CudaWorkloadEstimate
+
+    @property
+    def profile_name(self):
+        return self.memory_plan.profile_name
+
+    @property
+    def lanes(self):
+        return self.memory_plan.lanes
+
+    @property
+    def microbatch_workspace_bytes(self):
+        """Expose tile memory as the final benchmark tie-break quantity."""
+        return self.memory_plan.tile_cache_bytes
+
+
+def accelerator_memory_plan(
     device,
     lanes=1,
     memory_info=None,
     *,
+    memory_snapshot=None,
     tile_fraction=None,
     matrix_fraction=None,
+    profile_name="balanced",
+    compute_element_bytes=4,
 ):
-    """Divide free accelerator memory across tiles and microbatches."""
+    """Divide safe accelerator memory across tiles and microbatches."""
     lanes = max(1, int(lanes))
     tile_fraction = (
         CUDA_TILE_FRACTION if tile_fraction is None else float(tile_fraction)
@@ -522,22 +684,50 @@ def cuda_memory_plan(
         else float(matrix_fraction)
     )
     if tile_fraction <= 0 or matrix_fraction <= 0:
-        raise ValueError("CUDA tile and matrix fractions must be positive.")
+        raise ValueError("Accelerator tile and matrix fractions must be positive.")
     if tile_fraction + matrix_fraction > 0.80 + 1e-12:
         raise ValueError(
-            "CUDA tile and matrix fractions may use at most 80% of usable VRAM."
+            "Accelerator tile and matrix fractions may use at most 80% of "
+            "usable device memory."
         )
-    if memory_info is None:
-        free_bytes, total_bytes = get_accelerator_backend(device).memory_info()
+    if memory_info is not None and memory_snapshot is not None:
+        raise ValueError("Provide memory_info or memory_snapshot, not both.")
+    backend = get_accelerator_backend(device)
+    if memory_snapshot is not None:
+        snapshot = memory_snapshot
+    elif memory_info is None:
+        snapshot = backend.memory_snapshot()
     else:
         free_bytes, total_bytes = memory_info
-    free_bytes = int(free_bytes)
-    total_bytes = int(total_bytes)
-    reserve = max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
-    usable = max(0, free_bytes - reserve)
-    inflight_slots = max(2, lanes * 2)
+        free_bytes = int(free_bytes)
+        total_bytes = int(total_bytes)
+        reserve = (
+            max(MIN_MPS_RESERVE, int(total_bytes * 0.20))
+            if backend.device_type == "mps"
+            else max(MIN_CUDA_RESERVE, int(total_bytes * 0.15))
+        )
+        snapshot = AcceleratorMemorySnapshot(
+            backend=backend.device_type,
+            free_bytes=free_bytes,
+            total_bytes=total_bytes,
+            reserve_bytes=reserve,
+            source="provided",
+            unified_memory=backend.device_type == "mps",
+        )
+    free_bytes = int(snapshot.free_bytes)
+    total_bytes = int(snapshot.total_bytes)
+    reserve = int(snapshot.reserve_bytes)
+    if (
+        total_bytes <= 0
+        or free_bytes < 0
+        or free_bytes > total_bytes
+        or reserve < 0
+    ):
+        raise ValueError("Accelerator memory snapshot contains invalid values.")
+    usable = snapshot.usable_bytes
+    inflight_slots = 1 if backend.device_type == "mps" else max(2, lanes * 2)
     matrix_pool = max(1, int(usable * matrix_fraction))
-    return CudaMemoryPlan(
+    return AcceleratorMemoryPlan(
         free_bytes=free_bytes,
         total_bytes=total_bytes,
         usable_bytes=usable,
@@ -547,7 +737,15 @@ def cuda_memory_plan(
         reserve_bytes=reserve,
         lanes=lanes,
         inflight_slots=inflight_slots,
+        profile_name=str(profile_name),
+        memory_source=snapshot.source,
+        compute_element_bytes=max(1, int(compute_element_bytes)),
     )
+
+
+def cuda_memory_plan(*args, **kwargs):
+    """Compatibility wrapper for the backend-neutral memory planner."""
+    return accelerator_memory_plan(*args, **kwargs)
 
 
 class EmbeddingTileStore:
@@ -627,13 +825,22 @@ class EmbeddingTileStore:
     def load_indices(self, indices, h5_group=None):
         return {int(index): self.get(index, h5_group) for index in sorted(set(indices))}
 
-    def block_ids(self, max_block_bytes):
-        """Greedily assign sequences to contiguous float32-byte blocks."""
+    def compute_bytes(self, element_bytes=4):
+        """Return per-sequence resident bytes for the selected compute dtype."""
+        element_bytes = max(1, int(element_bytes))
+        return [
+            int(np.prod(shape, dtype=np.int64)) * element_bytes
+            for shape in self.shapes
+        ]
+
+    def block_ids(self, max_block_bytes, *, element_bytes=4):
+        """Greedily assign sequences to contiguous compute-byte blocks."""
         max_block_bytes = max(1, int(max_block_bytes))
+        compute_bytes = self.compute_bytes(element_bytes)
         block_ids = np.zeros(len(self.headers), dtype=np.int32)
         block = 0
         used = 0
-        for index, size in enumerate(self.float32_bytes):
+        for index, size in enumerate(compute_bytes):
             if used and used + size > max_block_bytes:
                 block += 1
                 used = 0
@@ -642,14 +849,65 @@ class EmbeddingTileStore:
         return block_ids
 
 
+def _store_resident_bytes(store, lengths, element_bytes):
+    """Return resident sizes while preserving compatibility with test stores."""
+    if isinstance(store, EmbeddingTileStore):
+        return store.compute_bytes(element_bytes)
+    float32_bytes = getattr(store, "float32_bytes", None)
+    if isinstance(float32_bytes, (list, tuple, np.ndarray)):
+        scale = max(1, int(element_bytes)) / 4.0
+        return [int(value * scale) for value in float32_bytes]
+    feature_dimension = getattr(store, "feature_dimension", 1)
+    if not isinstance(feature_dimension, (int, np.integer)):
+        feature_dimension = 1
+    return [
+        int(length) * max(1, int(feature_dimension)) * max(1, int(element_bytes))
+        for length in lengths
+    ]
+
+
+def _store_block_ids(store, max_block_bytes, lengths, element_bytes):
+    if isinstance(store, EmbeddingTileStore):
+        return store.block_ids(
+            max_block_bytes, element_bytes=element_bytes
+        )
+    candidate = getattr(store, "block_ids", None)
+    if callable(candidate):
+        try:
+            block_ids = np.asarray(candidate(max_block_bytes), dtype=np.int32)
+            if block_ids.shape == (len(lengths),):
+                return block_ids
+        except (TypeError, ValueError):
+            pass
+    resident_bytes = _store_resident_bytes(store, lengths, element_bytes)
+    block_ids = np.zeros(len(resident_bytes), dtype=np.int32)
+    block = 0
+    used = 0
+    for index, size in enumerate(resident_bytes):
+        if used and used + size > max(1, int(max_block_bytes)):
+            block += 1
+            used = 0
+        block_ids[index] = block
+        used += size
+    return block_ids
+
+
 def _to_normalized_cuda(array, device):
+    """Transfer and normalize one embedding using backend-safe copy semantics."""
     contiguous = np.ascontiguousarray(array)
     cpu_tensor = torch.from_numpy(contiguous)
-    try:
-        cpu_tensor = cpu_tensor.pin_memory()
-    except RuntimeError:
-        pass
-    tensor = cpu_tensor.to(device=device, dtype=torch.float32, non_blocking=True)
+    device_type = getattr(device, "type", str(device).split(":", 1)[0])
+    use_pinned_copy = device_type in {"cuda", "xpu"}
+    if use_pinned_copy:
+        try:
+            cpu_tensor = cpu_tensor.pin_memory()
+        except RuntimeError:
+            use_pinned_copy = False
+    tensor = cpu_tensor.to(
+        device=device,
+        dtype=torch.float32,
+        non_blocking=use_pinned_copy,
+    )
     norms = torch.linalg.vector_norm(tensor, ord=2, dim=-1, keepdim=True)
     tensor.div_(norms.clamp_min_(torch.finfo(torch.float32).tiny))
     return tensor
@@ -659,6 +917,7 @@ def _microbatch_workspace_bytes(
     row_length,
     target_lengths,
     feature_dimension=0,
+    compute_element_bytes=4,
 ):
     """Conservatively estimate padded targets plus score/statistic tensors."""
     if not target_lengths:
@@ -673,7 +932,10 @@ def _microbatch_workspace_bytes(
         * MATRIX_WORKSPACE_MULTIPLIER
     )
     padded_target_bytes = (
-        count * max_columns * max(0, int(feature_dimension)) * 4
+        count
+        * max_columns
+        * max(0, int(feature_dimension))
+        * max(1, int(compute_element_bytes))
     )
     return int(matrix_bytes + padded_target_bytes)
 
@@ -684,6 +946,7 @@ def _length_microbatches(
     row_length,
     matrix_budget,
     feature_dimension=0,
+    compute_element_bytes=4,
 ):
     """Bucket one row by target length, padding by at most 15 percent."""
     ordered = sorted(tasks, key=lambda task: (lengths[int(task[1])], int(task[1])))
@@ -700,10 +963,10 @@ def _length_microbatches(
         workspace = int(
             next_count
             * next_max
-            * 4
             * (
-                int(row_length) * MATRIX_WORKSPACE_MULTIPLIER
+                4 * int(row_length) * MATRIX_WORKSPACE_MULTIPLIER
                 + max(0, int(feature_dimension))
+                * max(1, int(compute_element_bytes))
             )
         )
         memory_ok = workspace <= max(1, int(matrix_budget))
@@ -801,17 +1064,23 @@ def estimate_cuda_working_set(
     variant="tiled",
     memory_info=None,
     memory_plan_override=None,
+    compute_element_bytes=4,
 ):
-    """Estimate peak CUDA use for one workload/variant without allocating."""
+    """Estimate accelerator use and tiled schedule shape without allocating."""
     if memory_plan_override is not None and memory_info is not None:
         raise ValueError(
             "memory_info and memory_plan_override cannot be supplied together."
         )
-    plan = memory_plan_override or cuda_memory_plan(
-        device, lanes=lanes, memory_info=memory_info
+    plan = memory_plan_override or accelerator_memory_plan(
+        device,
+        lanes=lanes,
+        memory_info=memory_info,
+        compute_element_bytes=compute_element_bytes,
     )
     if int(plan.lanes) != max(1, int(lanes)):
-        raise ValueError("CUDA memory plan lane count does not match execution lanes.")
+        raise ValueError(
+            "Accelerator memory plan lane count does not match execution lanes."
+        )
     tasks = list(tasks)
     baseline_bytes = max(0, plan.total_bytes - plan.free_bytes)
     safe_peak = max(0, plan.total_bytes - plan.reserve_bytes)
@@ -831,19 +1100,40 @@ def estimate_cuda_working_set(
             reason="empty workload",
         )
 
-    feature_dimension = int(store.feature_dimension or 0)
+    feature_dimension = getattr(store, "feature_dimension", 0)
+    if not isinstance(feature_dimension, (int, np.integer)):
+        feature_dimension = 0
+    feature_dimension = int(feature_dimension or 0)
+    compute_element_bytes = int(
+        getattr(plan, "compute_element_bytes", compute_element_bytes)
+    )
+    resident_bytes = _store_resident_bytes(
+        store, lengths, compute_element_bytes
+    )
     variant = str(variant).strip().lower()
     tile_bytes = 0
     workspaces = []
+    embedding_reload_bytes = 0
+    microbatch_count = 0
+    padded_elements = 0
+    real_elements = 0
+    schedule_parts = []
     if variant == "tiled":
         per_block = max(1, plan.tile_cache_bytes // 2)
-        block_ids = store.block_ids(per_block)
+        block_ids = _store_block_ids(
+            store,
+            per_block,
+            lengths,
+            compute_element_bytes,
+        )
         for tile_tasks in _partition_tiles(tasks, block_ids):
             tile_indices = {int(task[0]) for task in tile_tasks}
             tile_indices.update(int(task[1]) for task in tile_tasks)
+            resident = sum(resident_bytes[index] for index in tile_indices)
+            embedding_reload_bytes += resident
             tile_bytes = max(
                 tile_bytes,
-                sum(store.float32_bytes[index] for index in tile_indices),
+                resident,
             )
             rows = OrderedDict()
             for task in tile_tasks:
@@ -855,15 +1145,27 @@ def estimate_cuda_working_set(
                     lengths[row],
                     plan.matrix_bytes,
                     feature_dimension,
+                    compute_element_bytes,
                 ):
                     target_lengths = [
                         int(lengths[int(task[1])]) for task in microbatch
                     ]
+                    microbatch_count += 1
+                    max_columns = max(target_lengths)
+                    real_elements += sum(target_lengths)
+                    padded_elements += len(target_lengths) * max_columns
+                    schedule_parts.append(
+                        (
+                            int(row),
+                            tuple(int(task[1]) for task in microbatch),
+                        )
+                    )
                     workspaces.append(
                         _microbatch_workspace_bytes(
                             lengths[row],
                             target_lengths,
                             feature_dimension,
+                            compute_element_bytes,
                         )
                     )
         active_slots = plan.inflight_slots
@@ -877,7 +1179,7 @@ def estimate_cuda_working_set(
                 0,
             )
             embedding_bytes = (
-                store.float32_bytes[left] + store.float32_bytes[right]
+                resident_bytes[left] + resident_bytes[right]
             )
             workspaces.append(workspace + embedding_bytes)
         active_slots = max(1, int(lanes))
@@ -889,8 +1191,11 @@ def estimate_cuda_working_set(
     additional = tile_bytes + transient_bytes
     projected_peak = baseline_bytes + additional
     microbatch_fits = variant != "tiled" or largest <= plan.matrix_bytes
-    feasible = microbatch_fits and projected_peak <= safe_peak
-    if not microbatch_fits:
+    tile_fits = variant != "tiled" or tile_bytes <= plan.tile_cache_bytes
+    feasible = tile_fits and microbatch_fits and projected_peak <= safe_peak
+    if not tile_fits:
+        reason = "one embedding block pair exceeds its tile-cache budget"
+    elif not microbatch_fits:
         reason = "one minimum-size microbatch exceeds its per-slot budget"
     elif projected_peak > safe_peak:
         reason = "projected peak exceeds the reserved-VRAM boundary"
@@ -909,7 +1214,217 @@ def estimate_cuda_working_set(
         largest_microbatch_bytes=int(largest),
         feasible=bool(feasible),
         reason=reason,
+        embedding_reload_bytes=int(embedding_reload_bytes),
+        microbatch_count=int(microbatch_count),
+        padded_elements=int(padded_elements),
+        real_elements=int(real_elements),
+        schedule_signature=(
+            tuple(block_ids.tolist()) if variant == "tiled" else (),
+            tuple(schedule_parts),
+        ),
     )
+
+
+def _tile_plan_dominates(left, right):
+    """Return whether ``left`` is no worse than ``right`` on dry-run costs."""
+    if left.lanes != right.lanes:
+        return False
+    left_values = (
+        left.estimate.embedding_reload_bytes,
+        left.estimate.microbatch_count,
+        left.estimate.padded_elements,
+        left.estimate.projected_peak_bytes,
+    )
+    right_values = (
+        right.estimate.embedding_reload_bytes,
+        right.estimate.microbatch_count,
+        right.estimate.padded_elements,
+        right.estimate.projected_peak_bytes,
+    )
+    return all(a <= b for a, b in zip(left_values, right_values)) and any(
+        a < b for a, b in zip(left_values, right_values)
+    )
+
+
+def build_adaptive_tile_plans(
+    tasks,
+    *,
+    store,
+    lengths,
+    device,
+    lane_candidates,
+    memory_info=None,
+    memory_snapshot=None,
+    compute_element_bytes=4,
+):
+    """Build, deduplicate, and Pareto-prune safe tile-plan candidates."""
+    tasks = list(tasks)
+    candidates = []
+    seen = set()
+    for lanes in sorted(set(max(1, int(value)) for value in lane_candidates)):
+        for profile_name, tile_fraction, matrix_fraction in TILE_MEMORY_PROFILES:
+            plan = accelerator_memory_plan(
+                device,
+                lanes=lanes,
+                memory_info=memory_info,
+                memory_snapshot=memory_snapshot,
+                tile_fraction=tile_fraction,
+                matrix_fraction=matrix_fraction,
+                profile_name=profile_name,
+                compute_element_bytes=compute_element_bytes,
+            )
+            estimate = estimate_cuda_working_set(
+                tasks,
+                store=store,
+                lengths=lengths,
+                device=device,
+                lanes=lanes,
+                variant="tiled",
+                memory_plan_override=plan,
+                compute_element_bytes=compute_element_bytes,
+            )
+            if not estimate.feasible:
+                continue
+            signature = (lanes, estimate.schedule_signature)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            candidates.append(AdaptiveTilePlan(plan, estimate))
+
+    frontier = []
+    for candidate in candidates:
+        if any(_tile_plan_dominates(other, candidate) for other in candidates):
+            continue
+        frontier.append(candidate)
+    return sorted(
+        frontier,
+        key=lambda candidate: (
+            candidate.lanes,
+            candidate.estimate.projected_peak_bytes,
+            candidate.memory_plan.tile_cache_bytes,
+            candidate.profile_name,
+        ),
+    )
+
+
+def _run_synchronous_tiled_pipeline(
+    tasks,
+    *,
+    store,
+    lengths,
+    device,
+    workers,
+    alignment_callback,
+    precision,
+    progress,
+    result_callback,
+    result_chunk_size,
+    plan,
+    matrix_budget,
+    warmup_task_count,
+    benchmark_timer,
+):
+    """Run tiled work on a default-queue backend such as Apple MPS."""
+    backend = get_accelerator_backend(device)
+    element_bytes = int(plan.compute_element_bytes)
+    per_block = max(1, plan.tile_cache_bytes // 2)
+    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
+    results = []
+    cpu_pending = set()
+
+    def collect_cpu(block=False):
+        _drain_completed_alignment_futures(
+            cpu_pending,
+            results,
+            progress=progress,
+            block=block,
+        )
+        if result_callback is not None and len(results) >= int(result_chunk_size):
+            result_callback(results)
+            results.clear()
+
+    with cuda_matmul_precision(precision), torch.inference_mode(), \
+            h5py.File(store.path, "r", libver="latest", swmr=True) as hf, \
+            ThreadPoolExecutor(
+                max_workers=max(1, int(workers)),
+                thread_name_prefix="alignment-cpu",
+            ) as cpu_executor:
+        group = hf["embeddings"]
+
+        def run_phase(phase_tasks):
+            for tile_tasks in _partition_tiles(phase_tasks, block_ids):
+                tile_indices = {int(task[0]) for task in tile_tasks}
+                tile_indices.update(int(task[1]) for task in tile_tasks)
+                host_embeddings = store.load_indices(tile_indices, group)
+                gpu_embeddings = {
+                    index: _to_normalized_cuda(array, device)
+                    for index, array in host_embeddings.items()
+                }
+                del host_embeddings
+
+                rows = OrderedDict()
+                for task in tile_tasks:
+                    rows.setdefault(int(task[0]), []).append(task)
+                for idx_i, row_tasks in rows.items():
+                    for microbatch in _length_microbatches(
+                        row_tasks,
+                        lengths,
+                        lengths[idx_i],
+                        matrix_budget,
+                        store.feature_dimension,
+                        element_bytes,
+                    ):
+                        target_lengths = [
+                            int(lengths[int(task[1])]) for task in microbatch
+                        ]
+                        targets = [
+                            gpu_embeddings[int(task[1])] for task in microbatch
+                        ]
+                        matrices = _batched_score_matrices(
+                            gpu_embeddings[idx_i], targets, target_lengths
+                        )
+                        backend.synchronize()
+                        matrix_array = matrices.to(
+                            dtype=torch.float32, device="cpu"
+                        ).numpy()
+                        for offset, (task, length) in enumerate(
+                            zip(microbatch, target_lengths)
+                        ):
+                            matrix = matrix_array[offset, :, :int(length)]
+                            if not np.isfinite(matrix).all():
+                                raise FloatingPointError(
+                                    "Batched accelerator scoring produced "
+                                    "non-finite values."
+                                )
+                            cpu_pending.add(
+                                cpu_executor.submit(
+                                    alignment_callback,
+                                    (int(task[0]), int(task[1]), matrix),
+                                )
+                            )
+                        while len(cpu_pending) >= max(1, int(workers)) * 2:
+                            collect_cpu(block=True)
+                        collect_cpu(block=False)
+
+                del gpu_embeddings
+                backend.empty_cache()
+
+            while cpu_pending:
+                collect_cpu(block=True)
+
+        if benchmark_timer is None:
+            run_phase(tasks)
+        else:
+            if warmup_task_count:
+                run_phase(tasks[:warmup_task_count])
+            benchmark_timer.start()
+            run_phase(tasks[warmup_task_count:])
+            benchmark_timer.stop()
+
+    if result_callback is not None and results:
+        result_callback(results)
+        results.clear()
+    return results
 
 
 def run_tiled_accelerator_pipeline(
@@ -948,12 +1463,32 @@ def run_tiled_accelerator_pipeline(
             )
         warmup_task_count = 0
 
-    plan = memory_plan_override or cuda_memory_plan(device, lanes=lanes)
+    plan = memory_plan_override or accelerator_memory_plan(device, lanes=lanes)
     if int(plan.lanes) != max(1, int(lanes)):
-        raise ValueError("CUDA memory plan lane count does not match execution lanes.")
+        raise ValueError(
+            "Accelerator memory plan lane count does not match execution lanes."
+        )
     matrix_budget = int(matrix_budget_override or plan.matrix_bytes)
     per_block = max(1, plan.tile_cache_bytes // 2)
-    block_ids = store.block_ids(per_block)
+    element_bytes = int(getattr(plan, "compute_element_bytes", 4))
+    if getattr(backend, "supports_async_streams", True) is False:
+        return _run_synchronous_tiled_pipeline(
+            tasks,
+            store=store,
+            lengths=lengths,
+            device=device,
+            workers=workers,
+            alignment_callback=alignment_callback,
+            precision=precision,
+            progress=progress,
+            result_callback=result_callback,
+            result_chunk_size=result_chunk_size,
+            plan=plan,
+            matrix_budget=matrix_budget,
+            warmup_task_count=warmup_task_count,
+            benchmark_timer=benchmark_timer,
+        )
+    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     results = []
     cpu_pending = set()
     inflight = deque()
@@ -1032,6 +1567,7 @@ def run_tiled_accelerator_pipeline(
                         lengths[idx_i],
                         matrix_budget,
                         store.feature_dimension,
+                        element_bytes,
                     ):
                         stream = streams[stream_cursor % len(streams)]
                         stream_cursor += 1
