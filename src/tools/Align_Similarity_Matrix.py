@@ -40,8 +40,8 @@ Settings:
 Algorithm:
 1. Packs the embedding database in bounded host RAM when possible; otherwise
    loads byte-bounded sequence tiles from HDF5.
-2. Benchmarks each eligible device, execution variant, and lane setup once on
-   globally representative, cost-matched warm-up and timed pair halves.
+2. Benchmarks each eligible device, execution variant, and lane setup on the
+   first pending production batch with a five-second soft submission deadline.
 3. Passes those matrices by reference through a bounded queue to parallel CPU
    threads, which evaluate Global and Local Alignments using Numba functions
    compiled to release the Python GIL.
@@ -74,6 +74,7 @@ import hashlib
 import threading
 import time
 from collections import deque
+from itertools import islice, chain
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
@@ -83,6 +84,9 @@ from utilities.Embedding_Alignment_Engine import (
     AcceleratorMemorySnapshot,
     AdaptiveTilePlan,
     BenchmarkPhaseTimer,
+    BenchmarkTrial,
+    BENCHMARK_TRIAL_SECONDS,
+    run_bounded_cpu_trial,
     EmbeddingTileStore,
     bf16_accelerator_support,
     bf16_validation_notice,
@@ -638,6 +642,7 @@ def _run_scalar_accelerated_pipeline(
     result_chunk_size=65536,
     warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     """
     Run one complete accelerator/CPU pipeline with a fixed lane count.
@@ -680,7 +685,7 @@ def _run_scalar_accelerated_pipeline(
                 thread_name_prefix="alignment-cpu",
             ) as cpu_executor, \
             progress_context as progress:
-        def run_phase(phase_tasks):
+        def run_phase(phase_tasks, trial=None):
             nonlocal cached_row_header, cached_row_embedding
             gpu_pending = set()
             cpu_pending = set()
@@ -706,6 +711,9 @@ def _run_scalar_accelerated_pipeline(
                     and len(gpu_pending) < accelerator_workers
                     and len(ready_for_cpu) + len(gpu_pending) < ready_limit
                 ):
+                    if trial is not None and not trial.can_submit():
+                        tasks_exhausted = True
+                        break
                     try:
                         idx_i, idx_j, header_i, header_j = next(task_iterator)
                     except StopIteration:
@@ -731,6 +739,8 @@ def _run_scalar_accelerated_pipeline(
                             matrix_args,
                         )
                     )
+                    if trial is not None:
+                        trial.submitted += 1
 
                 completed_gpu = {
                     future for future in gpu_pending if future.done()
@@ -755,6 +765,8 @@ def _run_scalar_accelerated_pipeline(
                 for future in completed_cpu:
                     cpu_pending.remove(future)
                     results.append(future.result())
+                    if trial is not None:
+                        trial.completed += 1
                     if progress is not None:
                         progress.update(1)
                     if (
@@ -764,7 +776,23 @@ def _run_scalar_accelerated_pipeline(
                         result_callback(results)
                         results.clear()
 
-        if benchmark_timer is None:
+        if benchmark_trial is not None:
+            run_phase(batch_tasks[:benchmark_trial.warmup_count(batch_tasks, workers, accelerator_workers)])
+            results.clear()
+            cached_row_header = None
+            cached_row_embedding = None
+            barrier = threading.Barrier(accelerator_workers)
+            def clear_lane_cache():
+                for attribute in ("normalized_row", "normalized_row_key"):
+                    if hasattr(accelerator_thread_state, attribute):
+                        delattr(accelerator_thread_state, attribute)
+                barrier.wait()
+            for future in [gpu_executor.submit(clear_lane_cache) for _ in range(accelerator_workers)]:
+                future.result()
+            benchmark_trial.start()
+            run_phase(batch_tasks, benchmark_trial)
+            benchmark_trial.stop(len(batch_tasks))
+        elif benchmark_timer is None:
             run_phase(batch_tasks)
         else:
             if warmup_task_count:
@@ -791,6 +819,7 @@ def _run_accelerated_pipeline(
     result_callback=None,
     warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     """Compatibility wrapper for the original per-pair accelerator path."""
     with cuda_matmul_precision(matmul_precision):
@@ -806,6 +835,7 @@ def _run_accelerated_pipeline(
             result_callback=result_callback,
             warmup_task_count=warmup_task_count,
             benchmark_timer=benchmark_timer,
+            benchmark_trial=benchmark_trial,
         )
 
 
@@ -818,7 +848,7 @@ def _select_accelerator_lanes(
     matmul_precision=None,
 ):
     """
-    Select accelerator concurrency using a representative benchmark.
+    Select accelerator concurrency using the supplied production batch.
 
     The benchmark includes HDF5 input, accelerator work, the device-to-host
     transfer, and CPU alignment. This optimizes completed-pair throughput
@@ -838,22 +868,17 @@ def _select_accelerator_lanes(
     if cache_key in accelerator_lane_cache:
         return accelerator_lane_cache[cache_key]
 
-    half_count = min(_benchmark_half_sizes()[0], len(batch_tasks) // 2)
-    if half_count < 1:
-        return 1
-    tuning_tasks = evenly_spaced_task_subset(batch_tasks, half_count * 2)
-    device_name = cache_key[1]
     print(
-        f"  > Auto-tuning accelerator lanes on {device_name} "
-        f"using {half_count} warm-up + {half_count} timed pairs..."
+        f"  > Auto-tuning accelerator lanes on {cache_key[1]} "
+        f"using the first batch ({len(batch_tasks)} pairs), {BENCHMARK_TRIAL_SECONDS:g} seconds per configuration..."
     )
 
     measured_rates = {}
     for lanes in candidates:
-        timer = BenchmarkPhaseTimer()
+        trial = BenchmarkTrial()
         try:
             _run_accelerated_pipeline(
-                tuning_tasks,
+                batch_tasks,
                 workers,
                 input_h5,
                 device,
@@ -861,8 +886,7 @@ def _select_accelerator_lanes(
                 accelerator_workers=lanes,
                 show_progress=False,
                 matmul_precision=matmul_precision,
-                warmup_task_count=half_count,
-                benchmark_timer=timer,
+                benchmark_trial=trial,
             )
         except (RuntimeError, NotImplementedError) as error:
             if lanes == 1:
@@ -873,7 +897,7 @@ def _select_accelerator_lanes(
             )
             continue
 
-        measured_rates[lanes] = half_count / timer.elapsed
+        measured_rates[lanes] = trial.rate
 
     if not measured_rates:
         selected = 1
@@ -1034,6 +1058,7 @@ def process_cpu_tasks(
     result_callback=None,
     warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     """Process complete pairs in parallel when no accelerator is available."""
     batch_tasks = list(batch_tasks)
@@ -1069,7 +1094,11 @@ def process_cpu_tasks(
                     results.clear()
 
         try:
-            if benchmark_timer is None:
+            if benchmark_trial is not None:
+                results = run_bounded_cpu_trial(
+                    pool, calculate_cpu_pair, batch_tasks, workers, benchmark_trial
+                )
+            elif benchmark_timer is None:
                 run_phase(batch_tasks)
             else:
                 if warmup_task_count:
@@ -1131,30 +1160,22 @@ def _representative_pending_pairs(
     return [probes[int(index)][1] for index in selected_indices]
 
 
-def _first_pending_pairs(
-    safe_headers,
-    computed_mask,
-    required_mask,
-    num_tasks,
-    limit,
-):
-    """Return the first production-ordered pending pairs."""
-    limit = max(1, min(int(limit), int(num_tasks)))
-    sample = []
-    n_sequences = len(safe_headers)
-    for row in range(n_sequences - 1):
+def _iter_pending_pairs(safe_headers, computed_mask, required_mask):
+    """Yield exactly the production pair order without modifying either mask."""
+    for row in range(len(safe_headers) - 1):
         pending = ~computed_mask[row, row + 1:]
         if required_mask is not None:
             pending &= required_mask[row, row + 1:]
-        columns = np.flatnonzero(pending) + row + 1
-        for column in columns:
+        for column in np.flatnonzero(pending) + row + 1:
             column = int(column)
-            sample.append(
-                (row, column, safe_headers[row], safe_headers[column])
-            )
-            if len(sample) >= limit:
-                return sample
-    return sample
+            yield row, column, safe_headers[row], safe_headers[column]
+
+
+def _first_pending_pairs(safe_headers, computed_mask, required_mask, num_tasks, limit):
+    return list(islice(
+        _iter_pending_pairs(safe_headers, computed_mask, required_mask),
+        max(0, min(int(limit), int(num_tasks))),
+    ))
 
 
 def _representative_row_local_pending_pairs(
@@ -1595,7 +1616,6 @@ def _benchmark_processing_plans(
     embedding_store=None,
     sequence_lengths=None,
     matmul_precision=None,
-    warmup_task_count=0,
 ):
     """Compare the complete CPU path with every accelerator/lane plan."""
     execution_mode = normalize_execution_mode(EXECUTION_MODE)
@@ -1643,19 +1663,12 @@ def _benchmark_processing_plans(
         print(f"[Hardware] Using manually selected {manual.display_name}.")
         return [Hardware_Utils.BenchmarkResult(manual, 0.0, variant="scalar")]
 
-    accelerator_tasks = list(batch_tasks)
-    warmup_task_count = int(warmup_task_count)
-    accelerator_warmup = accelerator_tasks[:warmup_task_count]
-    accelerator_timed = accelerator_tasks[warmup_task_count:]
-    if not accelerator_timed:
-        raise ValueError("The hardware benchmark requires at least one timed pair.")
-    _accelerator_half, cpu_half = _benchmark_half_sizes()
-    cpu_warmup = evenly_spaced_task_subset(accelerator_warmup, cpu_half)
-    cpu_timed = evenly_spaced_task_subset(accelerator_timed, cpu_half)
-    cpu_tasks = cpu_warmup + cpu_timed
+    sample = list(batch_tasks)
+    if not sample:
+        raise ValueError("The hardware benchmark requires at least one pending pair.")
 
     def execute_plan(
-        candidate, variant, lanes, tasks, phase_count, timer, memory_plan=None
+        candidate, variant, lanes, tasks, trial, memory_plan=None
     ):
         if candidate.is_cpu:
             return process_cpu_tasks(
@@ -1664,8 +1677,7 @@ def _benchmark_processing_plans(
                 input_h5,
                 batch_id,
                 show_progress=False,
-                warmup_task_count=phase_count,
-                benchmark_timer=timer,
+                benchmark_trial=trial,
             )
         if variant == "tiled":
             return run_tiled_accelerator_pipeline(
@@ -1677,8 +1689,7 @@ def _benchmark_processing_plans(
                 lanes=lanes,
                 alignment_callback=calculate_alignment_data,
                 precision=matmul_precision,
-                warmup_task_count=phase_count,
-                benchmark_timer=timer,
+                benchmark_trial=trial,
                 memory_plan_override=memory_plan,
             )
         return _run_accelerated_pipeline(
@@ -1690,8 +1701,7 @@ def _benchmark_processing_plans(
             accelerator_workers=lanes,
             show_progress=False,
             matmul_precision=matmul_precision,
-            warmup_task_count=phase_count,
-            benchmark_timer=timer,
+            benchmark_trial=trial,
         )
 
     if manual is not None:
@@ -1702,25 +1712,14 @@ def _benchmark_processing_plans(
         )
 
     print(
-        f"[Hardware] Benchmarking {len(candidates)} device(s): accelerators "
-        f"{len(accelerator_warmup)} warm + {len(accelerator_timed)} timed; "
-        f"CPU/other {len(cpu_warmup)} warm + {len(cpu_timed)} timed."
+        f"[Hardware] First pending batch: {len(sample)} pairs; "
+        f"{BENCHMARK_TRIAL_SECONDS:g}-second soft submission limit per configuration; "
+        "reported time includes draining."
     )
-    print(
-        "Device/backend                 Plan      Lanes   VRAM peak/safe   "
-        "Throughput (pairs/s)   Status"
-    )
+    print("Device/backend                 Plan      Lanes   Est. VRAM peak/safe   Throughput (pairs/s)   Status")
     results = []
     for candidate in candidates:
         candidate_results = []
-        if candidate.backend in {"cuda", "xpu", "mps"}:
-            sample = accelerator_tasks
-            phase_count = len(accelerator_warmup)
-            timed_count = len(accelerator_timed)
-        else:
-            sample = cpu_tasks
-            phase_count = len(cpu_warmup)
-            timed_count = len(cpu_timed)
         candidate_memory_info = None
         candidate_memory_snapshot = None
         if (
@@ -1779,19 +1778,36 @@ def _benchmark_processing_plans(
         ):
             variants.remove("tiled")
 
+        adaptive_plans = []
+        if "tiled" in variants:
+            adaptive_plans = build_adaptive_tile_plans(
+                sample,
+                store=embedding_store,
+                lengths=sequence_lengths,
+                device=candidate.device,
+                lane_candidates=lane_candidates,
+                memory_snapshot=candidate_memory_snapshot,
+                compute_element_bytes=precision_element_bytes(
+                    matmul_precision
+                ),
+            )
+        scalar_estimates = {}
+        if "scalar" in variants:
+            for lanes in lane_candidates:
+                scalar_estimates[lanes] = (
+                    estimate_cuda_working_set(
+                        sample, store=embedding_store, lengths=sequence_lengths,
+                        device=candidate.device, lanes=lanes, variant="scalar",
+                        memory_info=candidate_memory_info,
+                    ) if candidate_memory_info is not None else None
+                )
+        feasible_count = len(adaptive_plans) + sum(
+            estimate is None or estimate.feasible for estimate in scalar_estimates.values()
+        )
+        print(f"[Hardware] {candidate.display_name}: {feasible_count} feasible configurations.")
+
         for variant in variants:
             if variant == "tiled":
-                adaptive_plans = build_adaptive_tile_plans(
-                    sample,
-                    store=embedding_store,
-                    lengths=sequence_lengths,
-                    device=candidate.device,
-                    lane_candidates=lane_candidates,
-                    memory_snapshot=candidate_memory_snapshot,
-                    compute_element_bytes=precision_element_bytes(
-                        matmul_precision
-                    ),
-                )
                 if not adaptive_plans:
                     result = Hardware_Utils.BenchmarkResult(
                         candidate,
@@ -1807,99 +1823,24 @@ def _benchmark_processing_plans(
                     )
                     continue
 
-                finalists = adaptive_plans
-                if len(adaptive_plans) > 1:
-                    screen_half = min(
-                        512, len(accelerator_warmup), len(accelerator_timed)
-                    )
-                    if screen_half:
-                        screen_tasks = (
-                            evenly_spaced_task_subset(
-                                accelerator_warmup, screen_half
-                            )
-                            + evenly_spaced_task_subset(
-                                accelerator_timed, screen_half
-                            )
-                        )
-                        screened = []
-                        print(
-                            f"[Tiles] Screening {len(adaptive_plans)} "
-                            f"{candidate.display_name} candidates with "
-                            f"{screen_half} warm + {screen_half} timed pairs."
-                        )
-                        for adaptive in adaptive_plans:
-                            timer = BenchmarkPhaseTimer()
-                            try:
-                                execute_plan(
-                                    candidate,
-                                    "tiled",
-                                    adaptive.lanes,
-                                    screen_tasks,
-                                    screen_half,
-                                    timer,
-                                    adaptive.memory_plan,
-                                )
-                                rate = screen_half / timer.elapsed
-                            except Exception as error:
-                                print(
-                                    f"  {adaptive.profile_name}, "
-                                    f"lanes={adaptive.lanes}: unavailable "
-                                    f"({type(error).__name__}: {error})"
-                                )
-                            else:
-                                screened.append((rate, adaptive))
-                                print(
-                                    f"  {adaptive.profile_name}, "
-                                    f"lanes={adaptive.lanes}, "
-                                    f"tile={adaptive.memory_plan.tile_cache_bytes / (1024 ** 2):.0f} MiB, "
-                                    f"matrix={adaptive.memory_plan.matrix_pool_bytes / (1024 ** 2):.0f} MiB: "
-                                    f"{rate:.2f} pairs/s"
-                                )
-                            _release_alignment_device_cache(candidate)
-                        finalists = [
-                            adaptive
-                            for _rate, adaptive in sorted(
-                                screened,
-                                key=lambda item: (
-                                    -item[0],
-                                    item[1].estimate.projected_peak_bytes,
-                                    item[1].lanes,
-                                ),
-                            )[:2]
-                        ]
-                    else:
-                        finalists = adaptive_plans[:2]
-
-                if not finalists:
-                    candidate_results.append(
-                        Hardware_Utils.BenchmarkResult(
-                            candidate,
-                            None,
-                            error="Every adaptive tile screening run failed.",
-                            variant="tiled",
-                        )
-                    )
-                    continue
-
-                for adaptive in finalists:
+                print(f"[Tiles] Testing all {len(adaptive_plans)} feasible configurations for {candidate.display_name}.")
+                for adaptive in adaptive_plans:
                     memory_estimate = adaptive.estimate
                     vram_label = (
                         f"{memory_estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
                         f"{memory_estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
                     )
-                    timer = BenchmarkPhaseTimer()
+                    trial = BenchmarkTrial()
                     try:
                         execute_plan(
                             candidate,
                             "tiled",
                             adaptive.lanes,
                             sample,
-                            phase_count,
-                            timer,
+                            trial,
                             adaptive.memory_plan,
                         )
-                        elapsed = timer.elapsed
-                        rate = timed_count / elapsed
+                        rate = trial.rate
                         result = Hardware_Utils.BenchmarkResult(
                             candidate,
                             rate,
@@ -1912,12 +1853,12 @@ def _benchmark_processing_plans(
                             f"{candidate.display_name[:30]:30}  "
                             f"{'tiled':8}  {adaptive.lanes:>5}   "
                             f"{vram_label:>14}   {rate:>20.2f}   "
-                            f"{adaptive.profile_name}; "
+                            f"{trial.status(tiled=True)}; {adaptive.profile_name}; "
                             f"source={adaptive.memory_plan.memory_source}, "
                             f"tile={adaptive.memory_plan.tile_cache_bytes / (1024 ** 2):.0f} MiB, "
                             f"matrix={adaptive.memory_plan.matrix_pool_bytes / (1024 ** 2):.0f} MiB, "
                             f"slot={adaptive.memory_plan.matrix_bytes / (1024 ** 2):.0f} MiB, "
-                            f"reload={memory_estimate.embedding_reload_bytes / (1024 ** 2):.0f} MiB"
+                            f"est. batch reload={memory_estimate.embedding_reload_bytes / (1024 ** 2):.0f} MiB"
                         )
                     except Exception as error:
                         result = Hardware_Utils.BenchmarkResult(
@@ -1942,15 +1883,7 @@ def _benchmark_processing_plans(
                 memory_estimate = None
                 vram_label = "--"
                 if candidate_memory_info is not None:
-                    memory_estimate = estimate_cuda_working_set(
-                        sample,
-                        store=embedding_store,
-                        lengths=sequence_lengths,
-                        device=candidate.device,
-                        lanes=lanes,
-                        variant=variant,
-                        memory_info=candidate_memory_info,
-                    )
+                    memory_estimate = scalar_estimates[lanes]
                     vram_label = (
                         f"{memory_estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
                         f"{memory_estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
@@ -1970,18 +1903,16 @@ def _benchmark_processing_plans(
                         )
                         candidate_results.append(result)
                         continue
-                timer = BenchmarkPhaseTimer()
+                trial = BenchmarkTrial()
                 try:
                     execute_plan(
                         candidate,
                         variant,
                         lanes,
                         sample,
-                        phase_count,
-                        timer,
+                        trial,
                     )
-                    elapsed = timer.elapsed
-                    rate = timed_count / elapsed
+                    rate = trial.rate
                     result = Hardware_Utils.BenchmarkResult(
                         candidate,
                         rate,
@@ -1991,8 +1922,7 @@ def _benchmark_processing_plans(
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
                         f"{lanes:>5}   {vram_label:>14}   "
-                        f"{rate:>20.2f}   ok ({timed_count} pairs, "
-                        f"{elapsed:.3f}s)"
+                        f"{rate:>20.2f}   ok ({trial.status()})"
                     )
                 except Exception as error:
                     result = Hardware_Utils.BenchmarkResult(
@@ -2703,13 +2633,14 @@ def run_job_distributor():
                 pending &= required_mask[row, row + 1:]
             return np.flatnonzero(pending) + row + 1
 
+        # Preserve the independent precision comparison workload.
         manual_candidate = Hardware_Utils.resolve_device_selection(
             DEVICE_SELECTION,
             Hardware_Utils.get_available_devices(),
         )
         if manual_candidate is not None and manual_candidate.is_cpu:
-            benchmark_warmup = []
-            benchmark_timed = _first_pending_pairs(
+            precision_warmup = []
+            precision_timed = _first_pending_pairs(
                 safe_headers, computed_mask, required_mask, num_tasks, 1
             )
         else:
@@ -2717,22 +2648,21 @@ def run_job_distributor():
             for row in range(n - 1):
                 pending_counts[row] = len(pending_columns_for_row(row))
             accelerator_half, _cpu_half = _benchmark_half_sizes()
-            benchmark_warmup, benchmark_timed = matched_benchmark_task_halves(
+            precision_warmup, precision_timed = matched_benchmark_task_halves(
                 safe_headers,
                 seq_lens,
                 pending_counts,
                 pending_columns_for_row,
                 accelerator_half,
             )
-        benchmark_tasks = benchmark_warmup + benchmark_timed
         precision_half = min(
             int(PRECISION_VALIDATION_PAIRS) // 2,
-            len(benchmark_warmup),
-            len(benchmark_timed),
+            len(precision_warmup),
+            len(precision_timed),
         )
         precision_tasks = (
-            evenly_spaced_task_subset(benchmark_warmup, precision_half)
-            + evenly_spaced_task_subset(benchmark_timed, precision_half)
+            evenly_spaced_task_subset(precision_warmup, precision_half)
+            + evenly_spaced_task_subset(precision_timed, precision_half)
         )
         try:
             active_embedding_store = EmbeddingTileStore(
@@ -2762,15 +2692,16 @@ def run_job_distributor():
         except ValueError as error:
             print(f"\n❌ Invalid precision configuration:\n{error}")
             return
+        pending_iterator = _iter_pending_pairs(safe_headers, computed_mask, required_mask)
+        first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
         ranked_plans = _benchmark_processing_plans(
-            benchmark_tasks,
+            first_batch,
             WORKERS,
             FULL_INPUT_HDF5,
             batch_id,
             embedding_store=active_embedding_store,
             sequence_lengths=active_sequence_lengths,
             matmul_precision=active_matmul_precision,
-            warmup_task_count=len(benchmark_warmup),
         )
         batches_to_run = math.ceil(num_tasks / BATCH_SIZE)
         pbar = tqdm(
@@ -2779,38 +2710,24 @@ def run_job_distributor():
             unit="batch",
         )
         
-        for i in range(n):
-            cols = np.arange(i + 1, n)
-            
-            row_computed = computed_mask[i, i+1:]
-            if required_mask is not None:
-                row_required = required_mask[i, i+1:]
-                pending_mask = row_required & (~row_computed)
-            else:
-                pending_mask = ~row_computed
-                
-            if not np.any(pending_mask):
-                continue
-                
-            pending_cols = cols[pending_mask]
-            for j_val in pending_cols:
-                current_batch.append((i, int(j_val), safe_headers[i], safe_headers[j_val]))
-                if len(current_batch) >= BATCH_SIZE:
-                    active_plan_index = _run_batch_with_ranked_plans(
-                        ranked_plans,
-                        active_plan_index,
-                        current_batch,
-                        batch_id,
-                        WORKERS,
-                        FULL_INPUT_HDF5,
-                        current_checksum,
-                        current_model_name,
-                        current_saving_mode,
-                        current_gap_penalties,
-                    )
-                    batch_id += 1
-                    current_batch = []
-                    pbar.update(1)
+        for task in chain(first_batch, pending_iterator):
+            current_batch.append(task)
+            if len(current_batch) >= BATCH_SIZE:
+                active_plan_index = _run_batch_with_ranked_plans(
+                    ranked_plans,
+                    active_plan_index,
+                    current_batch,
+                    batch_id,
+                    WORKERS,
+                    FULL_INPUT_HDF5,
+                    current_checksum,
+                    current_model_name,
+                    current_saving_mode,
+                    current_gap_penalties,
+                )
+                batch_id += 1
+                current_batch = []
+                pbar.update(1)
 
         if len(current_batch) > 0:
             active_plan_index = _run_batch_with_ranked_plans(

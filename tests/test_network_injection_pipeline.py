@@ -19,7 +19,10 @@ for path in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+with mock.patch.dict(os.environ, {
+    "SSN_TOOL_SETTINGS_SCRIPT": "Network_Injection.py",
+    "SSN_TOOL_SETTINGS_FILE": os.path.join(PROJECT_ROOT, "tests", "nonexistent-settings.json"),
+}), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Embedding_Injection as embedding_injection
     import Embedding_HDF5
     import Network_Injection as network_injection
@@ -172,7 +175,7 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 matmul_precision="ieee_fp32",
             )
 
-    def test_injection_benchmark_runs_each_setup_once_with_internal_warmup(self):
+    def test_first_batch_trials_run_each_feasible_configuration_once(self):
         cpu = network_injection.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
@@ -193,9 +196,10 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
         )
 
         def complete_benchmark(*_args, **kwargs):
-            timer = kwargs["benchmark_timer"]
-            timer.start()
-            timer.stop()
+            trial = kwargs["benchmark_trial"]
+            trial.start()
+            trial.submitted = trial.completed = 6
+            trial.stop(6)
             return []
 
         with mock.patch.object(
@@ -231,15 +235,14 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 store=mock.Mock(),
                 lengths=[2] * 7,
                 matmul_precision="ieee_fp32",
-                warmup_task_count=3,
             )
 
         self.assertTrue(plans)
         self.assertEqual(execute.call_count, 5)
-        self.assertEqual([len(call.args[1]) for call in execute.call_args_list], [4, 6, 6, 6, 6])
+        self.assertEqual([len(call.args[1]) for call in execute.call_args_list], [6, 6, 6, 6, 6])
         self.assertEqual(
-            [call.kwargs["warmup_task_count"] for call in execute.call_args_list],
-            [2, 3, 3, 3, 3],
+            [call.args[1] for call in execute.call_args_list],
+            [tasks] * 5,
         )
 
     def test_input_path_configuration_preserves_none_as_unselected(self):
@@ -351,7 +354,7 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 network_injection,
                 "NEW_EMBEDDINGS",
                 h5_path,
-            ), mock.patch.object(
+            ), mock.patch.object(network_injection, "OLD_NETWORK", "unused.h5"), mock.patch.object(
                 network_injection,
                 "calculate_file_hash",
             ) as calculate_hash, redirect_stdout(output):
@@ -370,7 +373,8 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             dtype=np.float32,
         )
 
-        result = network_injection.calculate_alignment_data((4, 7, matrix))
+        with mock.patch.object(network_injection, "LOCAL_GAP_P", -2.0), mock.patch.object(network_injection, "GLOBAL_GAP_P", 0.0):
+            result = network_injection.calculate_alignment_data((4, 7, matrix))
 
         self.assertEqual(len(result), 6)
         self.assertEqual(result[:2], (4, 7))

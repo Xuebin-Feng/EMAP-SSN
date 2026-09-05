@@ -154,7 +154,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(self.window.inputs[key].minimumHeight(), 28)
 
-    def test_physics_tab_exposes_only_molecular_dynamics_controls(self):
+    def test_physics_tab_exposes_only_ssn_physics_controls(self):
         self.window.profile_selectors["simulation_physics"].setCurrentText("(new)")
         device = self.window.inputs["LAYOUT_DEVICE_SELECTION"]
         progressive = self.window.inputs["ENABLE_PROGRESSIVE_SIMULATION"]
@@ -743,7 +743,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         try:
             self.window.tabs.setCurrentIndex(directory_index)
             self.app.processEvents()
-            tab = self.window.tabs.widget(directory_index)
+            tab = self.window.tabs.widget(directory_index).widget()
             separator = self.window.directory_base_separator
             base_field = self.window.inputs["ANALYSIS_RESULT_DIR"].parentWidget()
             first_child = self.window.labels["FASTA_DIR"]
@@ -866,7 +866,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             for index, (tab_id, preceding_key, first_key) in enumerate(checks):
                 self.window.tabs.setCurrentIndex(index)
                 self.app.processEvents()
-                tab = self.window.tabs.widget(index)
+                tab = self.window.tabs.widget(index).widget()
                 profile_label = self.window.profile_labels[tab_id]
                 preceding_widget = (
                     self.window.labels[preceding_key]
@@ -941,7 +941,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.window._toggle_new_cache_input(combo.currentText())
             self.app.processEvents()
 
-            tab = self.window.tabs.widget(0)
+            tab = self.window.tabs.widget(0).widget()
             button_container = self.window.btn_stats.parentWidget()
             tracker_container = self.window.lbl_cache_tracker.parentWidget()
             separator = self.window.cache_file_separator

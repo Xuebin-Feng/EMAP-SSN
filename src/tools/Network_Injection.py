@@ -75,6 +75,7 @@ import hashlib
 import threading
 import time
 from collections import deque
+from itertools import islice, chain
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
@@ -83,6 +84,9 @@ from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_local_scores
 from utilities.Embedding_Alignment_Engine import (
     BenchmarkPhaseTimer,
+    BenchmarkTrial,
+    BENCHMARK_TRIAL_SECONDS,
+    run_bounded_cpu_trial,
     EmbeddingTileStore,
     bf16_accelerator_support,
     bf16_validation_notice,
@@ -482,6 +486,7 @@ def _run_accelerated_pipeline(
     result_callback=None,
     warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     tasks = list(tasks)
     warmup_task_count = int(warmup_task_count)
@@ -515,7 +520,7 @@ def _run_accelerated_pipeline(
                 thread_name_prefix="injection-cpu",
             ) as cpu_executor, \
             progress_context as progress:
-        def run_phase(phase_tasks):
+        def run_phase(phase_tasks, trial=None):
             nonlocal cached_row_header, cached_row_embedding
             gpu_pending = set()
             cpu_pending = set()
@@ -540,6 +545,9 @@ def _run_accelerated_pipeline(
                     and len(gpu_pending) < lanes
                     and len(ready_for_cpu) + len(gpu_pending) < ready_limit
                 ):
+                    if trial is not None and not trial.can_submit():
+                        tasks_exhausted = True
+                        break
                     try:
                         idx_i, idx_j, safe_h_i, safe_h_j = next(task_iterator)
                     except StopIteration:
@@ -562,6 +570,8 @@ def _run_accelerated_pipeline(
                             ),
                         )
                     )
+                    if trial is not None:
+                        trial.submitted += 1
 
                 completed_gpu = {
                     future for future in gpu_pending if future.done()
@@ -586,13 +596,23 @@ def _run_accelerated_pipeline(
                 for future in completed_cpu:
                     cpu_pending.remove(future)
                     results.append(future.result())
+                    if trial is not None:
+                        trial.completed += 1
                     if progress is not None:
                         progress.update(1)
                 if result_callback is not None and len(results) >= 65536:
                     result_callback(results)
                     results.clear()
 
-        if benchmark_timer is None:
+        if benchmark_trial is not None:
+            run_phase(tasks[:benchmark_trial.warmup_count(tasks, workers, lanes)])
+            results.clear()
+            cached_row_header = None
+            cached_row_embedding = None
+            benchmark_trial.start()
+            run_phase(tasks, benchmark_trial)
+            benchmark_trial.stop(len(tasks))
+        elif benchmark_timer is None:
             run_phase(tasks)
         else:
             if warmup_task_count:
@@ -625,36 +645,31 @@ def _select_lanes(
     if cache_key in accelerator_lane_cache:
         return accelerator_lane_cache[cache_key]
 
-    half_count = min(_benchmark_half_sizes()[0], len(tasks) // 2)
-    if half_count < 1:
-        return 1
-    sample = evenly_spaced_task_subset(tasks, half_count * 2)
     print(
         f"  > Auto-tuning accelerator lanes on {cache_key[1]} "
-        f"using {half_count} warm-up + {half_count} timed pairs..."
+        f"using the first batch ({len(tasks)} pairs), {BENCHMARK_TRIAL_SECONDS:g} seconds per configuration..."
     )
 
     rates = {}
     for lanes in candidates:
-        timer = BenchmarkPhaseTimer()
+        trial = BenchmarkTrial()
         try:
             _run_accelerated_pipeline(
-                sample,
+                tasks,
                 workers,
                 input_h5,
                 device,
                 batch_id,
                 lanes,
                 False,
-                warmup_task_count=half_count,
-                benchmark_timer=timer,
+                benchmark_trial=trial,
             )
         except (RuntimeError, NotImplementedError) as error:
             if lanes == 1:
                 raise
             print(f"    {lanes} lanes unavailable: {error}")
             continue
-        rates[lanes] = half_count / timer.elapsed
+        rates[lanes] = trial.rate
 
     fastest = max(rates.values())
     selected = min(
@@ -708,6 +723,7 @@ def process_cpu_tasks(
     result_callback=None,
     warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     tasks = list(tasks)
     warmup_task_count = int(warmup_task_count)
@@ -742,7 +758,11 @@ def process_cpu_tasks(
                     results.clear()
 
         try:
-            if benchmark_timer is None:
+            if benchmark_trial is not None:
+                results = run_bounded_cpu_trial(
+                    pool, calculate_cpu_pair, tasks, workers, benchmark_trial
+                )
+            elif benchmark_timer is None:
                 run_phase(tasks)
             else:
                 if warmup_task_count:
@@ -809,6 +829,7 @@ def _execute_injection_plan(
     plan, tasks, workers, input_h5, batch_id, store, lengths,
     matmul_precision, show_progress=False, warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     candidate, variant, lanes = plan
     if candidate.is_cpu:
@@ -817,6 +838,7 @@ def _execute_injection_plan(
             show_progress=show_progress,
             warmup_task_count=warmup_task_count,
             benchmark_timer=benchmark_timer,
+            benchmark_trial=benchmark_trial,
         )
     if variant == "tiled":
         return run_tiled_accelerator_pipeline(
@@ -830,18 +852,31 @@ def _execute_injection_plan(
             precision=matmul_precision,
             warmup_task_count=warmup_task_count,
             benchmark_timer=benchmark_timer,
+            benchmark_trial=benchmark_trial,
         )
     return _run_accelerated_pipeline(
         tasks, workers, input_h5, candidate.device, batch_id, lanes,
         show_progress, matmul_precision=matmul_precision,
         warmup_task_count=warmup_task_count,
         benchmark_timer=benchmark_timer,
+        benchmark_trial=benchmark_trial,
     )
+
+
+def _iter_pending_pairs(headers, required_pairs, cached_old_pairs, computed_pairs):
+    """Yield injection pairs in production order, excluding cached work."""
+    count = len(headers)
+    for row in range(count):
+        for column in range(row + 1, count):
+            pair_id = row * count + column
+            if (pair_id in required_pairs and pair_id not in cached_old_pairs
+                    and pair_id not in computed_pairs):
+                yield row, column, headers[row], headers[column]
 
 
 def _benchmark_injection_plans(
     tasks, workers, input_h5, store, lengths, matmul_precision,
-    warmup_task_count=0,
+    precision_tasks=None,
 ):
     execution_mode = normalize_execution_mode(EXECUTION_MODE)
     candidates = Hardware_Utils.get_available_devices()
@@ -900,7 +935,8 @@ def _benchmark_injection_plans(
         )
 
     if matmul_precision == "bf16":
-        validation_tasks = evenly_spaced_task_subset(tasks, min(2048, len(tasks)))
+        validation_source = tasks if precision_tasks is None else precision_tasks
+        validation_tasks = evenly_spaced_task_subset(validation_source, min(2048, len(validation_source)))
         print(
             bf16_validation_notice(
                 tool_name="Network Injection",
@@ -991,35 +1027,17 @@ def _benchmark_injection_plans(
                 + ")."
             )
 
-    accelerator_tasks = list(tasks)
-    warmup_task_count = int(warmup_task_count)
-    accelerator_warmup = accelerator_tasks[:warmup_task_count]
-    accelerator_timed = accelerator_tasks[warmup_task_count:]
-    if not accelerator_timed:
-        raise ValueError("The hardware benchmark requires at least one timed pair.")
-    _accelerator_half, cpu_half = _benchmark_half_sizes()
-    cpu_warmup = evenly_spaced_task_subset(accelerator_warmup, cpu_half)
-    cpu_timed = evenly_spaced_task_subset(accelerator_timed, cpu_half)
-    cpu_tasks = cpu_warmup + cpu_timed
+    sample = list(tasks)
+    if not sample:
+        raise ValueError("The hardware benchmark requires at least one pending pair.")
     print(
-        f"[Hardware] Benchmarking {len(candidates)} device(s): CUDA/XPU "
-        f"{len(accelerator_warmup)} warm + {len(accelerator_timed)} timed; "
-        f"CPU/other {len(cpu_warmup)} warm + {len(cpu_timed)} timed."
+        f"[Hardware] First pending batch: {len(sample)} pairs; "
+        f"{BENCHMARK_TRIAL_SECONDS:g}-second soft submission limit per configuration; "
+        "reported time includes draining."
     )
-    print(
-        "Device/backend                 Plan      Lanes   VRAM peak/safe   "
-        "Pairs/s      Status"
-    )
+    print("Device/backend                 Plan      Lanes   Est. VRAM peak/safe   Pairs/s   Status")
     results = []
     for candidate in candidates:
-        if candidate.backend in {"cuda", "xpu", "mps"}:
-            sample = accelerator_tasks
-            phase_count = len(accelerator_warmup)
-            timed_count = len(accelerator_timed)
-        else:
-            sample = cpu_tasks
-            phase_count = len(cpu_warmup)
-            timed_count = len(cpu_timed)
         variants = _execution_variants(candidate)
         if matmul_precision == "bf16":
             variants = [
@@ -1039,22 +1057,24 @@ def _benchmark_injection_plans(
                 compute_element_bytes=precision_element_bytes(matmul_precision),
             )
             memory_info = (memory.free_bytes, memory.total_bytes)
+        estimates = {}
+        for variant in variants:
+            for lanes in lane_candidates:
+                estimates[variant, lanes] = (
+                    estimate_cuda_working_set(
+                        sample, store=store, lengths=lengths,
+                        device=candidate.device, lanes=lanes, variant=variant,
+                        memory_info=memory_info,
+                        compute_element_bytes=precision_element_bytes(matmul_precision),
+                    ) if memory_info is not None else None
+                )
+        feasible_count = sum(e is None or e.feasible for e in estimates.values())
+        print(f"[Hardware] {candidate.display_name}: {feasible_count} feasible configurations.")
         for variant in variants:
             for lanes in lane_candidates:
                 vram = "--"
                 if memory_info is not None:
-                    estimate = estimate_cuda_working_set(
-                        sample,
-                        store=store,
-                        lengths=lengths,
-                        device=candidate.device,
-                        lanes=lanes,
-                        variant=variant,
-                        memory_info=memory_info,
-                        compute_element_bytes=precision_element_bytes(
-                            matmul_precision
-                        ),
-                    )
+                    estimate = estimates[variant, lanes]
                     vram = (
                         f"{estimate.projected_peak_bytes / (1024 ** 3):.1f}/"
                         f"{estimate.safe_peak_bytes / (1024 ** 3):.1f}G"
@@ -1066,16 +1086,14 @@ def _benchmark_injection_plans(
                             f"skipped: {estimate.reason}"
                         )
                         continue
-                timer = BenchmarkPhaseTimer()
+                trial = BenchmarkTrial()
                 try:
                     _execute_injection_plan(
                         (candidate, variant, lanes), sample, workers, input_h5,
                         -1, store, lengths, matmul_precision,
-                        warmup_task_count=phase_count,
-                        benchmark_timer=timer,
+                        benchmark_trial=trial,
                     )
-                    elapsed = timer.elapsed
-                    rate = timed_count / elapsed
+                    rate = trial.rate
                     results.append(
                         Hardware_Utils.BenchmarkResult(
                             candidate, rate, lanes=lanes, variant=variant
@@ -1084,7 +1102,7 @@ def _benchmark_injection_plans(
                     print(
                         f"{candidate.display_name[:30]:30}  {variant:8}  "
                         f"{lanes:>5}   {vram:>14}   {rate:>9.2f}   "
-                        f"ok ({timed_count} pairs, {elapsed:.3f}s)"
+                        f"ok ({trial.status(tiled=variant == 'tiled')})"
                     )
                 except Exception as error:
                     print(
@@ -1100,9 +1118,11 @@ def _benchmark_injection_plans(
     if not ranked:
         raise RuntimeError("No injection processing plan completed successfully.")
     winner = ranked[0]
+    fastest = max(results, key=lambda result: float(result.value))
     print(
         f"[Hardware] Selected {winner.candidate.display_name}, "
-        f"{winner.variant} plan, {winner.lanes} lane(s); 3% tie preference applied."
+        f"{winner.variant} plan, {winner.lanes} lane(s); 3% tie preference "
+        f"{'applied' if winner is not fastest else 'not applied'}."
     )
     if winner.variant == "tiled":
         budget = cuda_memory_plan(
@@ -1811,15 +1831,9 @@ def run_injection():
     next_batch_id = max(batch_ids) + 1 if batch_ids else 0
 
     def iter_pending_tasks():
-        for i in range(new_N):
-            for j in range(i + 1, new_N):
-                pair_id = i * new_N + j
-                if (
-                    pair_id in required_pairs
-                    and pair_id not in cached_old_pairs
-                    and pair_id not in computed_pairs
-                ):
-                    yield (i, j, safe_new_headers[i], safe_new_headers[j])
+        return _iter_pending_pairs(
+            safe_new_headers, required_pairs, cached_old_pairs, computed_pairs
+        )
 
     pending_counts = np.zeros(new_N, dtype=np.int64)
     for pair_id in required_pairs:
@@ -1859,31 +1873,35 @@ def run_injection():
                 dtype=np.int64,
             )
 
-        manual_candidate = Hardware_Utils.resolve_device_selection(
-            DEVICE_SELECTION,
-            Hardware_Utils.get_available_devices(),
-        )
-        if manual_candidate is not None and manual_candidate.is_cpu:
-            benchmark_warmup = []
-            benchmark_timed = [next(iter_pending_tasks())]
-        else:
-            accelerator_half, _cpu_half = _benchmark_half_sizes()
-            benchmark_warmup, benchmark_timed = matched_benchmark_task_halves(
-                safe_new_headers,
-                sequence_lengths,
-                pending_counts,
-                pending_columns_for_row,
-                accelerator_half,
+        precision_tasks = None
+        if inherited_precision == "bf16":
+            manual_candidate = Hardware_Utils.resolve_device_selection(
+                DEVICE_SELECTION,
+                Hardware_Utils.get_available_devices(),
             )
-        benchmark_tasks = benchmark_warmup + benchmark_timed
+            if manual_candidate is not None and manual_candidate.is_cpu:
+                precision_warmup = []
+                precision_timed = [next(iter_pending_tasks())]
+            else:
+                accelerator_half, _cpu_half = _benchmark_half_sizes()
+                precision_warmup, precision_timed = matched_benchmark_task_halves(
+                    safe_new_headers,
+                    sequence_lengths,
+                    pending_counts,
+                    pending_columns_for_row,
+                    accelerator_half,
+                )
+            precision_tasks = precision_warmup + precision_timed
+        pending_iterator = iter_pending_tasks()
+        first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
         ranked_plans = _benchmark_injection_plans(
-            benchmark_tasks,
+            first_batch,
             WORKERS,
             NEW_EMBEDDINGS,
             embedding_store,
             sequence_lengths,
             inherited_precision,
-            warmup_task_count=len(benchmark_warmup),
+            precision_tasks=precision_tasks,
         )
         active_plan_index = 0
 
@@ -1931,7 +1949,7 @@ def run_injection():
         batch_id = next_batch_id
         
         pbar = tqdm(total=math.ceil(num_tasks / BATCH_SIZE), desc="Progress", unit="batch")
-        for t in iter_pending_tasks():
+        for t in chain(first_batch, pending_iterator):
             current_batch.append(t)
             if len(current_batch) >= BATCH_SIZE:
                 publish_batch(current_batch, batch_id)

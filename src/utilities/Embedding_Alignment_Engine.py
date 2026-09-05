@@ -130,6 +130,91 @@ class BenchmarkPhaseTimer:
         return max(float(self.stopped_at - self.started_at), 1e-9)
 
 
+BENCHMARK_TRIAL_SECONDS = 5.0
+
+
+class BenchmarkTrial(BenchmarkPhaseTimer):
+    """Soft submission deadline; elapsed time includes draining accepted work."""
+
+    def __init__(self, seconds=BENCHMARK_TRIAL_SECONDS, clock=None):
+        super().__init__()
+        self.seconds = float(seconds)
+        if not self.seconds > 0:
+            raise ValueError("Benchmark duration must be positive.")
+        self.clock = clock or time.perf_counter
+        self.submitted = 0
+        self.completed = 0
+        self.tiles = 0
+        self.microbatches = 0
+        self.deadline = None
+        self.stop_reason = None
+
+    @staticmethod
+    def warmup_count(tasks, workers, lanes=1):
+        return min(len(tasks), max(32, 2 * int(workers), 2 * int(lanes)))
+
+    def start(self):
+        if self.started_at is not None:
+            raise RuntimeError("Benchmark trial has already started.")
+        self.started_at = self.clock()
+        self.deadline = self.started_at + self.seconds
+
+    def can_submit(self):
+        if self.started_at is None:
+            raise RuntimeError("Benchmark trial has not started.")
+        return self.submitted == 0 or self.clock() < self.deadline
+
+    def stop(self, total_pairs):
+        if self.started_at is None or self.stopped_at is not None:
+            raise RuntimeError("Benchmark trial is not running.")
+        if not self.completed or self.completed != self.submitted:
+            raise RuntimeError("Benchmark trial did not drain all submitted pairs.")
+        self.stopped_at = self.clock()
+        self.stop_reason = (
+            "batch finished" if self.completed == total_pairs else "deadline"
+        )
+
+    @property
+    def rate(self):
+        return self.completed / self.elapsed
+
+    def status(self, tiled=False):
+        detail = f"{self.completed} pairs, {self.elapsed:.3f}s, {self.stop_reason}"
+        if tiled:
+            detail += f", {self.tiles} tiles, {self.microbatches} microbatches"
+        return detail
+
+
+def run_bounded_cpu_trial(pool, callback, tasks, workers, trial):
+    """Warm and time one existing process pool with bounded ten-pair chunks."""
+    def run_phase(phase_tasks, active=None):
+        pending = deque()
+        offset = 0
+        results = []
+        while offset < len(phase_tasks) or pending:
+            while offset < len(phase_tasks) and len(pending) < max(1, workers):
+                if active is not None and not active.can_submit():
+                    offset = len(phase_tasks)
+                    break
+                chunk = phase_tasks[offset:offset + 10]
+                pending.append(pool.map_async(callback, chunk, chunksize=10))
+                offset += len(chunk)
+                if active is not None:
+                    active.submitted += len(chunk)
+            if pending:
+                completed = pending.popleft().get()
+                results.extend(completed)
+                if active is not None:
+                    active.completed += len(completed)
+        return results
+
+    run_phase(tasks[:trial.warmup_count(tasks, workers)])
+    trial.start()
+    results = run_phase(tasks, trial)
+    trial.stop(len(tasks))
+    return results
+
+
 def evenly_spaced_task_subset(tasks, count):
     """Return a deterministic evenly spaced subset without reordering it."""
     tasks = list(tasks)
@@ -1478,6 +1563,7 @@ def _run_synchronous_tiled_pipeline(
     matrix_budget,
     warmup_task_count,
     benchmark_timer,
+    benchmark_trial=None,
 ):
     """Run tiled work on a default-queue backend such as Apple MPS."""
     backend = get_accelerator_backend(device)
@@ -1485,15 +1571,18 @@ def _run_synchronous_tiled_pipeline(
     per_block = max(1, plan.tile_cache_bytes // 2)
     block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     results = []
+    active_trial = None
     cpu_pending = set()
 
     def collect_cpu(block=False):
-        _drain_completed_alignment_futures(
+        completed_count = _drain_completed_alignment_futures(
             cpu_pending,
             results,
             progress=progress,
             block=block,
         )
+        if active_trial is not None:
+            active_trial.completed += completed_count
         if result_callback is not None and len(results) >= int(result_chunk_size):
             result_callback(results)
             results.clear()
@@ -1508,6 +1597,10 @@ def _run_synchronous_tiled_pipeline(
 
         def run_phase(phase_tasks):
             for tile_tasks in _partition_tiles(phase_tasks, block_ids):
+                if active_trial is not None:
+                    if not active_trial.can_submit():
+                        break
+                    active_trial.tiles += 1
                 tile_indices = {int(task[0]) for task in tile_tasks}
                 tile_indices.update(int(task[1]) for task in tile_tasks)
                 host_embeddings = store.load_indices(tile_indices, group)
@@ -1521,6 +1614,8 @@ def _run_synchronous_tiled_pipeline(
                 for task in tile_tasks:
                     rows.setdefault(int(task[0]), []).append(task)
                 for idx_i, row_tasks in rows.items():
+                    if active_trial is not None and not active_trial.can_submit():
+                        break
                     for microbatch in _length_microbatches(
                         row_tasks,
                         lengths,
@@ -1529,6 +1624,11 @@ def _run_synchronous_tiled_pipeline(
                         store.feature_dimension,
                         element_bytes,
                     ):
+                        if active_trial is not None:
+                            if not active_trial.can_submit():
+                                break
+                            active_trial.submitted += len(microbatch)
+                            active_trial.microbatches += 1
                         target_lengths = [
                             int(lengths[int(task[1])]) for task in microbatch
                         ]
@@ -1567,7 +1667,14 @@ def _run_synchronous_tiled_pipeline(
             while cpu_pending:
                 collect_cpu(block=True)
 
-        if benchmark_timer is None:
+        if benchmark_trial is not None:
+            run_phase(tasks[:benchmark_trial.warmup_count(tasks, workers, plan.lanes)])
+            results.clear()
+            active_trial = benchmark_trial
+            benchmark_trial.start()
+            run_phase(tasks)
+            benchmark_trial.stop(len(tasks))
+        elif benchmark_timer is None:
             run_phase(tasks)
         else:
             if warmup_task_count:
@@ -1599,6 +1706,7 @@ def run_tiled_accelerator_pipeline(
     memory_plan_override=None,
     warmup_task_count=0,
     benchmark_timer=None,
+    benchmark_trial=None,
 ):
     """Run the Aug 22 tiled producer and completion-driven CPU consumers."""
     backend = get_accelerator_backend(device)
@@ -1646,9 +1754,11 @@ def run_tiled_accelerator_pipeline(
             matrix_budget=matrix_budget,
             warmup_task_count=warmup_task_count,
             benchmark_timer=benchmark_timer,
+            benchmark_trial=benchmark_trial,
         )
     block_ids = store.block_ids(per_block, element_bytes=element_bytes)
     results = []
+    active_trial = None
     cpu_pending = set()
     inflight = deque()
     max_inflight = max(2, int(lanes) * 2)
@@ -1656,12 +1766,14 @@ def run_tiled_accelerator_pipeline(
     stream_cursor = 0
 
     def collect_cpu(block=False):
-        _drain_completed_alignment_futures(
+        completed_count = _drain_completed_alignment_futures(
             cpu_pending,
             results,
             progress=progress,
             block=block,
         )
+        if active_trial is not None:
+            active_trial.completed += completed_count
         if result_callback is not None and len(results) >= int(result_chunk_size):
             result_callback(results)
             results.clear()
@@ -1702,6 +1814,10 @@ def run_tiled_accelerator_pipeline(
         def run_phase(phase_tasks):
             nonlocal stream_cursor
             for tile_tasks in _partition_tiles(phase_tasks, block_ids):
+                if active_trial is not None:
+                    if not active_trial.can_submit():
+                        break
+                    active_trial.tiles += 1
                 tile_indices = {int(task[0]) for task in tile_tasks}
                 tile_indices.update(int(task[1]) for task in tile_tasks)
                 host_embeddings = store.load_indices(tile_indices, group)
@@ -1722,6 +1838,8 @@ def run_tiled_accelerator_pipeline(
                 for task in tile_tasks:
                     rows.setdefault(int(task[0]), []).append(task)
                 for idx_i, row_tasks in rows.items():
+                    if active_trial is not None and not active_trial.can_submit():
+                        break
                     for microbatch in _length_microbatches(
                         row_tasks,
                         lengths,
@@ -1730,6 +1848,11 @@ def run_tiled_accelerator_pipeline(
                         store.feature_dimension,
                         element_bytes,
                     ):
+                        if active_trial is not None:
+                            if not active_trial.can_submit():
+                                break
+                            active_trial.submitted += len(microbatch)
+                            active_trial.microbatches += 1
                         stream = streams[stream_cursor % len(streams)]
                         stream_cursor += 1
                         target_lengths = [
@@ -1768,7 +1891,14 @@ def run_tiled_accelerator_pipeline(
             while cpu_pending:
                 collect_cpu(block=True)
 
-        if benchmark_timer is None:
+        if benchmark_trial is not None:
+            run_phase(tasks[:benchmark_trial.warmup_count(tasks, workers, plan.lanes)])
+            results.clear()
+            active_trial = benchmark_trial
+            benchmark_trial.start()
+            run_phase(tasks)
+            benchmark_trial.stop(len(tasks))
+        elif benchmark_timer is None:
             run_phase(tasks)
         else:
             if warmup_task_count:

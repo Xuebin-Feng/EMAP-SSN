@@ -13,7 +13,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-    import Layout_Engine_SSN_MolecularDynamics as molecular_dynamics
+    import Layout_Engine_SSN as ssn_engine
 
 
 BASE_LAYOUT_PARAMS = {
@@ -32,7 +32,7 @@ class SegmentedBatchTests(unittest.TestCase):
         coulomb_k,
         total_cap=0.0,
         pair_cap=1000.0,
-        simulation_class=molecular_dynamics.SSNSimulationCPU,
+        simulation_class=ssn_engine.SSNSimulationCPU,
     ):
         positions = np.array(
             [[-distance / 2.0, 0.0], [distance / 2.0, 0.0]],
@@ -56,7 +56,7 @@ class SegmentedBatchTests(unittest.TestCase):
         simulation.step(0)
         return np.abs(simulation.get_pos()[:, 0] - before[:, 0])
 
-    def test_molecular_dynamics_batch_matches_individual_components(self):
+    def test_ssn_engine_batch_matches_individual_components(self):
         pair = np.array([[-1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
         batch = np.vstack((pair, pair))
         no_springs = np.zeros((0, 2), dtype=np.int32)
@@ -67,14 +67,14 @@ class SegmentedBatchTests(unittest.TestCase):
             "COULOMB_CUTOFF": 15.0,
         }
 
-        individual = molecular_dynamics.SSNSimulationCPU(
+        individual = ssn_engine.SSNSimulationCPU(
             pair.copy(),
             no_springs,
             np.array([0, 0], dtype=np.int32),
             100.0,
             params,
         )
-        batched = molecular_dynamics.SSNSimulationCPU(
+        batched = ssn_engine.SSNSimulationCPU(
             batch,
             no_springs,
             np.array([0, 0, 1, 1], dtype=np.int32),
@@ -88,8 +88,8 @@ class SegmentedBatchTests(unittest.TestCase):
         expected = np.vstack((individual.get_pos(), individual.get_pos()))
         np.testing.assert_allclose(batched.get_pos(), expected, rtol=0.0, atol=1e-6)
 
-    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
-    def test_molecular_dynamics_torch_batch_matches_individual_components(self):
+    @unittest.skipUnless(ssn_engine.HAS_TORCH, "PyTorch is unavailable")
+    def test_ssn_engine_torch_batch_matches_individual_components(self):
         pair = np.array([[-1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
         batch = np.vstack((pair, pair))
         no_springs = np.zeros((0, 2), dtype=np.int32)
@@ -100,14 +100,14 @@ class SegmentedBatchTests(unittest.TestCase):
             "COULOMB_CUTOFF": 15.0,
         }
 
-        individual = molecular_dynamics.SSNSimulationGPU(
+        individual = ssn_engine.SSNSimulationGPU(
             pair.copy(),
             no_springs,
             np.array([0, 0], dtype=np.int32),
             100.0,
             params,
         )
-        batched = molecular_dynamics.SSNSimulationGPU(
+        batched = ssn_engine.SSNSimulationGPU(
             batch,
             no_springs,
             np.array([0, 0, 1, 1], dtype=np.int32),
@@ -121,11 +121,11 @@ class SegmentedBatchTests(unittest.TestCase):
         expected = np.vstack((individual.get_pos(), individual.get_pos()))
         np.testing.assert_allclose(batched.get_pos(), expected, rtol=0.0, atol=1e-6)
 
-    def test_molecular_dynamics_two_node_layout_does_not_collapse(self):
+    def test_ssn_engine_two_node_layout_does_not_collapse(self):
         connectivity = np.array([[0, 1, 1.0]], dtype=np.float64)
 
         with redirect_stdout(io.StringIO()):
-            positions, box_limit = molecular_dynamics.calculate_layout(
+            positions, box_limit = ssn_engine.calculate_layout(
                 connectivity,
                 2,
                 dict(BASE_LAYOUT_PARAMS),
@@ -142,7 +142,7 @@ class SegmentedBatchTests(unittest.TestCase):
             ],
             dtype=np.float32,
         )
-        simulation = molecular_dynamics.SSNSimulationCPU(
+        simulation = ssn_engine.SSNSimulationCPU(
             positions,
             np.zeros((0, 2), dtype=np.int32),
             np.array([0, 1], dtype=np.int32),
@@ -166,7 +166,7 @@ class SegmentedBatchTests(unittest.TestCase):
             "MAX_FORCE_LIMIT": 1000.0,
             "MAX_TOTAL_REPULSION_FORCE": 0.0,
         }
-        simulation = molecular_dynamics.SSNSimulationCPU(
+        simulation = ssn_engine.SSNSimulationCPU(
             positions.copy(), no_springs, np.array([0, 0]), 100.0, params
         )
         simulation.step(0)
@@ -201,24 +201,24 @@ class SegmentedBatchTests(unittest.TestCase):
         )
         np.testing.assert_allclose(displacement, [25.0, 25.0], atol=1e-5)
 
-    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
+    @unittest.skipUnless(ssn_engine.HAS_TORCH, "PyTorch is unavailable")
     def test_torch_force_taper_and_caps_match_cpu(self):
         md_tapered = self._run_md_repulsive_pair(
             13.5,
             13.5**2,
-            simulation_class=molecular_dynamics.SSNSimulationGPU,
+            simulation_class=ssn_engine.SSNSimulationGPU,
         )
         md_capped = self._run_md_repulsive_pair(
             1.0,
             100.0,
             total_cap=3.0,
-            simulation_class=molecular_dynamics.SSNSimulationGPU,
+            simulation_class=ssn_engine.SSNSimulationGPU,
         )
         md_pair_uncapped = self._run_md_repulsive_pair(
             1.0,
             25.0,
             pair_cap=0.0,
-            simulation_class=molecular_dynamics.SSNSimulationGPU,
+            simulation_class=ssn_engine.SSNSimulationGPU,
         )
         np.testing.assert_allclose(md_tapered, [0.5, 0.5], atol=1e-5)
         np.testing.assert_allclose(md_capped, [3.0, 3.0], atol=1e-5)
@@ -235,10 +235,10 @@ class SegmentedBatchTests(unittest.TestCase):
             "MAX_TOTAL_REPULSION_FORCE": 0.0,
         }
         no_springs = np.zeros((0, 2), dtype=np.int32)
-        individual = molecular_dynamics.SSNSimulationCPU(
+        individual = ssn_engine.SSNSimulationCPU(
             pair.copy(), no_springs, np.array([0, 0]), 100.0, params
         )
-        staged = molecular_dynamics.SSNSimulationCPU(
+        staged = ssn_engine.SSNSimulationCPU(
             with_inactive,
             no_springs,
             np.array([0, 0, 0]),
@@ -264,7 +264,7 @@ class SegmentedBatchTests(unittest.TestCase):
         stage_edges = [(0, 1), (1, 2)]
         stage_scores = [1.0, 0.8]
 
-        active = molecular_dynamics._prepare_progressive_stage(
+        active = ssn_engine._prepare_progressive_stage(
             positions,
             stage_edges,
             stage_scores,

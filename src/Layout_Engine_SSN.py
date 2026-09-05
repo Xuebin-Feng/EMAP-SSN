@@ -762,7 +762,7 @@ def calculate_layout(connectivity, n_nodes, params):
                 params,
                 selection=device_selection,
                 size_class=size_class,
-                engine_label="Molecular Dynamics",
+                engine_label="SSN",
                 cpu_simulation_class=SSNSimulationCPU,
                 gpu_simulation_class=gpu_simulation_class,
             )

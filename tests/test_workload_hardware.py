@@ -372,7 +372,8 @@ class AlignmentHardwareTests(unittest.TestCase):
         tasks = [(0, 1), (0, 2), (1, 2), (0, 3)]
 
         def complete_benchmark(*_args, **kwargs):
-            timer = kwargs["benchmark_timer"]
+            timer = kwargs["benchmark_trial"]
+            timer.completed = len(_args[0])
             timer.started_at = 0.0
             timer.stopped_at = 1.0
 
@@ -399,8 +400,8 @@ class AlignmentHardwareTests(unittest.TestCase):
             [1, 2],
         )
         self.assertEqual(
-            [call.kwargs["warmup_task_count"] for call in run_pipeline.call_args_list],
-            [2, 2],
+            [call.args[0] for call in run_pipeline.call_args_list],
+            [tasks, tasks],
         )
         self.assertFalse(hasattr(Alignment, "ACCELERATOR_LANES"))
 
@@ -455,15 +456,15 @@ class LayoutHardwareTests(unittest.TestCase):
 
     def test_gpu_constructors_accept_an_explicit_device(self):
         import inspect
-        import Layout_Engine_SSN_MolecularDynamics as molecular
+        import Layout_Engine_SSN as ssn_layout
 
-        if molecular.HAS_TORCH:
+        if ssn_layout.HAS_TORCH:
             self.assertIn(
-                "device", inspect.signature(molecular.SSNSimulationGPU).parameters
+                "device", inspect.signature(ssn_layout.SSNSimulationGPU).parameters
             )
 
-    def test_molecular_dynamics_runs_manual_cpu_without_benchmarking(self):
-        import Layout_Engine_SSN_MolecularDynamics as molecular
+    def test_ssn_layout_runs_manual_cpu_without_benchmarking(self):
+        import Layout_Engine_SSN as ssn_layout
 
         connectivity = np.array(
             [[0, 1, 1.0], [1, 2, 1.0]], dtype=np.float32
@@ -479,17 +480,17 @@ class LayoutHardwareTests(unittest.TestCase):
             "PACKING_GEOMETRY": "Square",
         }
         with mock.patch.object(
-            molecular.Layout_Hardware,
+            ssn_layout.Layout_Hardware,
             "benchmark_layout_devices",
             side_effect=AssertionError("manual layout benchmark ran"),
         ):
-            molecular_positions, _ = molecular.calculate_layout(
+            layout_positions, _ = ssn_layout.calculate_layout(
                 connectivity, 3, common.copy()
             )
-        self.assertEqual(molecular_positions.shape, (3, 2))
+        self.assertEqual(layout_positions.shape, (3, 2))
 
     def test_auto_layout_stage_restarts_on_next_ranked_plan(self):
-        import Layout_Engine_SSN_MolecularDynamics as molecular
+        import Layout_Engine_SSN as ssn_layout
 
         cpu = Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
@@ -513,13 +514,13 @@ class LayoutHardwareTests(unittest.TestCase):
             return positions.copy()
 
         with mock.patch.object(
-            molecular.Layout_Hardware,
+            ssn_layout.Layout_Hardware,
             "manual_layout_rankings",
             return_value=rankings,
         ), mock.patch.object(
-            molecular, "_run_layout_stage", side_effect=simulated_stage
+            ssn_layout, "_run_layout_stage", side_effect=simulated_stage
         ) as run_stage:
-            positions, _ = molecular.calculate_layout(
+            positions, _ = ssn_layout.calculate_layout(
                 connectivity,
                 3,
                 {

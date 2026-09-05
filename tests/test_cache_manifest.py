@@ -516,7 +516,7 @@ class InteractiveSaveTests(unittest.TestCase):
 class ViewerCacheIntegrationTests(unittest.TestCase):
     def test_new_cache_and_manifest_are_reloaded_only_when_bound(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        import Layout_Engine_SSN_MolecularDynamics as layout_engine
+        import Layout_Engine_SSN as layout_engine
         import EMAPSSN_Viewer
 
         with tempfile.TemporaryDirectory() as temp_dir:

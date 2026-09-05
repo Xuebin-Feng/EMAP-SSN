@@ -22,7 +22,10 @@ if UTILITIES_DIR not in sys.path:
 if TOOLS_DIR not in sys.path:
     sys.path.insert(0, TOOLS_DIR)
 
-with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+with mock.patch.dict(os.environ, {
+    "SSN_TOOL_SETTINGS_SCRIPT": "Align_Similarity_Matrix.py",
+    "SSN_TOOL_SETTINGS_FILE": os.path.join(PROJECT_ROOT, "tests", "nonexistent-settings.json"),
+}), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as similarity_matrix
     import Embedding_HDF5
     from utilities import Embedding_Alignment_Engine as alignment_engine
@@ -1912,7 +1915,7 @@ class AlignmentPipelineTests(unittest.TestCase):
         self.assertEqual(scalar.call_count, 3)
         tiled.assert_not_called()
 
-    def test_plan_tuner_screens_then_confirms_tiled_finalists(self):
+    def test_first_batch_trials_run_each_feasible_configuration_once(self):
         cpu = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "cpu", "CPU", torch.device("cpu"), "cpu"
         )
@@ -1937,9 +1940,10 @@ class AlignmentPipelineTests(unittest.TestCase):
             reason="within reserved-VRAM boundary",
         )
         def complete_benchmark(*_args, **kwargs):
-            timer = kwargs["benchmark_timer"]
-            timer.start()
-            timer.stop()
+            trial = kwargs["benchmark_trial"]
+            trial.start()
+            trial.submitted = trial.completed = 6
+            trial.stop(6)
             return []
 
         with mock.patch.object(
@@ -1992,13 +1996,12 @@ class AlignmentPipelineTests(unittest.TestCase):
                 embedding_store=mock.Mock(),
                 sequence_lengths=[2] * 7,
                 matmul_precision="ieee_fp32",
-                warmup_task_count=3,
             )
 
         self.assertTrue(plans)
         self.assertEqual(
             [len(call.args[0]) for call in cpu_pipeline.call_args_list],
-            [4],
+            [6],
         )
         self.assertEqual(
             [len(call.args[0]) for call in scalar_pipeline.call_args_list],
@@ -2006,12 +2009,13 @@ class AlignmentPipelineTests(unittest.TestCase):
         )
         self.assertEqual(
             [len(call.args[0]) for call in tiled_pipeline.call_args_list],
-            [6, 6, 6, 6],
+            [6, 6],
         )
-        self.assertIn("[Tiles] Screening", output.getvalue())
+        self.assertNotIn("[Tiles] Screening", output.getvalue())
         self.assertNotIn("Confirming Test CUDA", output.getvalue())
         for call in scalar_pipeline.call_args_list + tiled_pipeline.call_args_list:
-            self.assertEqual(call.kwargs["warmup_task_count"], 3)
+            self.assertEqual(call.args[0], tasks)
+            self.assertIn("benchmark_trial", call.kwargs)
 
     def test_legacy_precision_cache_resumes_as_fp32_and_tf32_mismatch_backs_up(self):
         def write_batch(folder):

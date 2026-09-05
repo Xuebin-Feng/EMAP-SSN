@@ -346,7 +346,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 )
             )
             with mock.patch.dict(
-                sys.modules, {"Layout_Engine_SSN_MolecularDynamics": fake_engine}
+                sys.modules, {"Layout_Engine_SSN": fake_engine}
             ):
                 result = generate_layout_cache(settings)
 
@@ -382,7 +382,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
 
             fake_engine = SimpleNamespace(calculate_layout=calculate)
             with mock.patch.dict(
-                sys.modules, {"Layout_Engine_SSN_MolecularDynamics": fake_engine}
+                sys.modules, {"Layout_Engine_SSN": fake_engine}
             ):
                 result = generate_layout_cache(settings)
 
@@ -427,9 +427,35 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             self.assertEqual(list(cache_path.parent.glob("*.partial")), [])
 
             with mock.patch.dict(
-                sys.modules, {"Layout_Engine_SSN_MolecularDynamics": fake_engine}
+                sys.modules, {"Layout_Engine_SSN": fake_engine}
             ), self.assertRaises(FileExistsError):
                 generate_layout_cache(settings)
+
+    def test_top_edge_percent_generates_cache_without_float32_error(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            _write_inputs(temp_path)
+            doc = _settings_document(temp_path, cache_filename="top_edge.h5")
+            doc["Layout_Cache_Generator.py"]["TOP_EDGE_PERCENT"] = 50.0
+            doc["Layout_Cache_Generator.py"]["SIMILARITY_THRESHOLD"] = None
+            settings = LayoutGenerationSettings.from_document(doc)
+
+            fake_engine = SimpleNamespace(
+                calculate_layout=lambda _connectivity, node_count, _params: (
+                    np.zeros((node_count, 2), dtype=np.float32),
+                    10.0,
+                )
+            )
+            with mock.patch.dict(
+                sys.modules, {"Layout_Engine_SSN": fake_engine}
+            ), redirect_stdout(io.StringIO()):
+                result = generate_layout_cache(settings)
+
+            self.assertTrue(pathlib.Path(result.cache_path).exists())
+            self.assertIsInstance(result.effective_similarity_threshold, float)
+            with h5py.File(result.cache_path, "r") as cache:
+                self.assertIn("layout_compatibility_json", cache.attrs)
+                self.assertIn("layout_compatibility_id", cache.attrs)
 
     def test_engine_dispatch_and_failure_cleanup(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -437,11 +463,11 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             _write_inputs(temp_path)
 
             cases = (
-                (False, "md.h5", "Layout_Engine_SSN_MolecularDynamics", {}),
+                (False, "md.h5", "Layout_Engine_SSN", {}),
                 (
                     False,
                     "legacy_mc.h5",
-                    "Layout_Engine_SSN_MolecularDynamics",
+                    "Layout_Engine_SSN",
                     {
                         "PHYSICS_ENGINE": "Monte Carlo (Style)",
                         "MC_RANDOM_SEED": None,
@@ -477,7 +503,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             )
             with mock.patch.dict(
                 sys.modules,
-                {"Layout_Engine_SSN_MolecularDynamics": failed_engine},
+                {"Layout_Engine_SSN": failed_engine},
             ), self.assertRaisesRegex(RuntimeError, "engine failed"):
                 generate_layout_cache(failed_settings)
             layout_root = temp_path / "layouts"

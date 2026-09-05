@@ -13,12 +13,12 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-    import Layout_Engine_SSN_MolecularDynamics as molecular_dynamics
+    import Layout_Engine_SSN as ssn_engine
 
 
 CUDA_AVAILABLE = (
-    molecular_dynamics.HAS_TORCH
-    and molecular_dynamics.torch.cuda.is_available()
+    ssn_engine.HAS_TORCH
+    and ssn_engine.torch.cuda.is_available()
 )
 
 
@@ -78,7 +78,7 @@ def brute_force_repulsion_step(
     return positions
 
 
-class MolecularDynamicsPairwiseTests(unittest.TestCase):
+class SSNLayoutPairwiseTests(unittest.TestCase):
     def _assert_torch_matches_cpu(
         self,
         positions,
@@ -91,7 +91,7 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
         atol=1e-5,
     ):
         no_springs = np.zeros((0, 2), dtype=np.int32)
-        cpu_simulation = molecular_dynamics.SSNSimulationCPU(
+        cpu_simulation = ssn_engine.SSNSimulationCPU(
             positions.copy(),
             no_springs,
             component_labels,
@@ -99,7 +99,7 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
             params,
             active_mask=active_mask,
         )
-        torch_simulation = molecular_dynamics.SSNSimulationGPU(
+        torch_simulation = ssn_engine.SSNSimulationGPU(
             positions.copy(),
             no_springs,
             component_labels,
@@ -193,7 +193,7 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
 
     def test_pair_moved_inside_cutoff_is_used_on_next_step(self):
         positions = np.array([[-6.1, 0.0], [6.1, 0.0]], dtype=np.float32)
-        simulation = molecular_dynamics.SSNSimulationCPU(
+        simulation = ssn_engine.SSNSimulationCPU(
             positions,
             np.zeros((0, 2), dtype=np.int32),
             np.array([0, 0], dtype=np.int32),
@@ -247,7 +247,7 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
             box_limits,
             params,
         )
-        simulation = molecular_dynamics.SSNSimulationCPU(
+        simulation = ssn_engine.SSNSimulationCPU(
             positions.copy(),
             np.zeros((0, 2), dtype=np.int32),
             component_labels,
@@ -262,34 +262,34 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
             simulation.get_pos(), expected, rtol=0.0, atol=1e-6
         )
 
-    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
+    @unittest.skipUnless(ssn_engine.HAS_TORCH, "PyTorch is unavailable")
     def test_torch_all_pairs_forces_match_cpu(self):
         self._assert_all_pairs_forces_match_cpu()
 
-    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
+    @unittest.skipUnless(ssn_engine.HAS_TORCH, "PyTorch is unavailable")
     def test_torch_near_coincident_pair_matches_cpu(self):
         self._assert_near_coincident_pair_matches_cpu()
 
-    @unittest.skipUnless(molecular_dynamics.HAS_TORCH, "PyTorch is unavailable")
+    @unittest.skipUnless(ssn_engine.HAS_TORCH, "PyTorch is unavailable")
     def test_torch_coincident_pair_matches_cpu(self):
         self._assert_coincident_pair_matches_cpu()
 
     @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
     def test_cuda_all_pairs_forces_match_cpu(self):
         self._assert_all_pairs_forces_match_cpu(
-            device=molecular_dynamics.torch.device("cuda")
+            device=ssn_engine.torch.device("cuda")
         )
 
     @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
     def test_cuda_near_coincident_pair_matches_cpu(self):
         self._assert_near_coincident_pair_matches_cpu(
-            device=molecular_dynamics.torch.device("cuda")
+            device=ssn_engine.torch.device("cuda")
         )
 
     @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
     def test_cuda_coincident_pair_matches_cpu(self):
         self._assert_coincident_pair_matches_cpu(
-            device=molecular_dynamics.torch.device("cuda")
+            device=ssn_engine.torch.device("cuda")
         )
 
     @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is unavailable")
@@ -306,22 +306,22 @@ class MolecularDynamicsPairwiseTests(unittest.TestCase):
             "MAX_TOTAL_REPULSION_FORCE": 0.0,
         }
         no_springs = np.zeros((0, 2), dtype=np.int32)
-        cpu_simulation = molecular_dynamics.SSNSimulationCPU(
+        cpu_simulation = ssn_engine.SSNSimulationCPU(
             positions.copy(), no_springs, labels, 1.0, params
         )
-        cuda_simulation = molecular_dynamics.SSNSimulationGPU(
+        cuda_simulation = ssn_engine.SSNSimulationGPU(
             positions.copy(),
             no_springs,
             labels,
             1.0,
             params,
-            device=molecular_dynamics.torch.device("cuda"),
+            device=ssn_engine.torch.device("cuda"),
         )
         cpu_simulation.vel[:] = velocities
         cuda_simulation.vel.copy_(
-            molecular_dynamics.torch.tensor(
+            ssn_engine.torch.tensor(
                 velocities,
-                dtype=molecular_dynamics.torch.float32,
+                dtype=ssn_engine.torch.float32,
                 device=cuda_simulation.device,
             )
         )

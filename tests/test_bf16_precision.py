@@ -522,10 +522,11 @@ class Bf16PrecisionTests(unittest.TestCase):
         )
 
         def execute(*_args, **kwargs):
-            timer = kwargs.get("benchmark_timer")
+            timer = kwargs.get("benchmark_trial")
             if timer is not None:
                 timer.start()
-                timer.stop()
+                timer.submitted = timer.completed = len(_args[1])
+                timer.stop(len(_args[1]))
                 return []
             return candidate
 

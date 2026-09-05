@@ -159,7 +159,7 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
             calculated_cutoff = 0.0
         else:
             edge_count = max(1, min(edge_count, len(valid_scores)))
-            calculated_cutoff = np.sort(valid_scores)[::-1][edge_count - 1]
+            calculated_cutoff = float(np.sort(valid_scores)[::-1][edge_count - 1])
 
         mode_label = "E-Value" if settings.INPUT_IS_EVALUE else "Similarity"
         print(

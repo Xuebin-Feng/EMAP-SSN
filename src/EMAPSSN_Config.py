@@ -600,7 +600,10 @@ if __name__ == "__main__":
         QComboBox, QPushButton, QMessageBox, QTextEdit,
         QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
         QStyle, QStyleOptionSlider, QFileDialog, QColorDialog, QSizePolicy,
-        QFrame,
+        QFrame, QScrollArea,
+    )
+    from utilities.Responsive_Layouts import (
+        ResponsiveFieldLayout, ResponsiveFlowLayout, ResponsiveSelectorLayout,
     )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import (
@@ -851,14 +854,18 @@ if __name__ == "__main__":
             # Left Bottom: Tool Tip Box + Action Buttons
             self.left_bottom_widget = QWidget()
             self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
-            self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
+            self.left_bottom_layout.setContentsMargins(0, 0, 0, 6)
+            self.left_bottom_layout.setSpacing(6)
             
             self.tip_panel = SpacedTipLabel("Click or tab to an input or its label to see helpful tips here.")
             self.tip_panel.setWordWrap(True)
             self.tip_panel.setStyleSheet("color: #444; font-style: normal; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
-            self.left_bottom_layout.addWidget(self.tip_panel)
+            self.left_bottom_layout.addWidget(self.tip_panel, 1)
             
-            btn_layout = QHBoxLayout()
+            action_row = QWidget()
+            action_row.setObjectName("configActionButtons")
+            action_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            btn_layout = ResponsiveFlowLayout(action_row)
             self.btn_check = QPushButton("Consistency Check")
             self.btn_check.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 5px;")
             self.btn_check.clicked.connect(self.run_consistency_check)
@@ -884,12 +891,12 @@ if __name__ == "__main__":
             btn_exit = QPushButton("Exit")
             btn_exit.clicked.connect(self.close)
             
-            btn_layout.addWidget(self.btn_save_run)
-            btn_layout.addWidget(self.btn_export_layout)
-            btn_layout.addWidget(self.btn_check)
-            btn_layout.addWidget(btn_save)
-            btn_layout.addWidget(btn_exit)
-            self.left_bottom_layout.addLayout(btn_layout)
+            btn_layout.addWidget(self.btn_save_run, 1)
+            btn_layout.addWidget(self.btn_export_layout, 1)
+            btn_layout.addWidget(self.btn_check, 1)
+            btn_layout.addWidget(btn_save, 1)
+            btn_layout.addWidget(btn_exit, 1)
+            self.left_bottom_layout.addWidget(action_row)
             
             self.left_split.addWidget(self.left_top_widget)
             self.left_split.addWidget(self.left_bottom_widget)
@@ -946,6 +953,7 @@ if __name__ == "__main__":
             self.create_physics_tab()
             self.create_directories_tab()
 
+            self._prepare_responsive_layouts()
             self._initializing_profiles = False
             self._load_all_custom_profiles()
             
@@ -960,6 +968,73 @@ if __name__ == "__main__":
             
             self.update_live_validators()
             self.setup_tips()
+
+        @staticmethod
+        def _make_field_group(pairs, *, parent=None, name="", **options):
+            group = parent if parent is not None else QWidget()
+            group.setObjectName(name)
+            pairs[0][0].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+            ResponsiveFieldLayout(
+                group, pairs, tuple(1 for _ in pairs),
+                spacing=CONFIG_FIELD_HORIZONTAL_SPACING, wrap_labels=False, **options,
+            )
+            return group
+
+        def _responsive_grid_rows(self, grid, name, *, trailing=False):
+            rows = {}
+            for index in range(grid.count()):
+                row, column, _, _ = grid.getItemPosition(index)
+                rows.setdefault(row, []).append((column, grid.itemAt(index).widget()))
+            while grid.count():
+                grid.takeAt(0)
+            result = QVBoxLayout()
+            result.setContentsMargins(0, 0, 0, 0)
+            result.setSpacing(12)
+            right_labels = [sorted(cells)[2][1] for cells in rows.values()
+                            if len(cells) == 4]
+            if right_labels:
+                shared_width = max(label.sizeHint().width() for label in right_labels)
+                for label in right_labels:
+                    label.setFixedWidth(max(label.minimumWidth(), shared_width))
+            for row, cells in sorted(rows.items()):
+                widgets = [widget for _, widget in sorted(cells)]
+                if len(widgets) == 1:
+                    result.addWidget(widgets[0])
+                    continue
+                pairs = list(zip(widgets[::2], widgets[1::2]))
+                options = {"equal_fields": not trailing, "column_spacing": 24}
+                if trailing:
+                    options.update(trailing=True,
+                                   control_stretches=(0,) * (len(pairs) - 1) + (1,))
+                result.addWidget(self._make_field_group(
+                    pairs, name=f"{name}Row{row}", **options,
+                ))
+            return result
+
+        def _add_scroll_tab(self, content, title):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setMinimumWidth(600)
+            scroll.setWidget(content)
+            self.tabs.addTab(scroll, title)
+
+        def _prepare_responsive_layouts(self):
+            for combo in self.findChildren(QComboBox):
+                combo.setMinimumContentsLength(12)
+                combo.setSizeAdjustPolicy(
+                    QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                )
+                combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            for editor in self.findChildren(QLineEdit):
+                if isinstance(editor.parentWidget(), (QSpinBox, QDoubleSpinBox, QComboBox)):
+                    continue
+                editor.setMinimumWidth(editor.fontMetrics().horizontalAdvance("M" * 12))
+            for slider in self.findChildren(QSlider):
+                slider.setMinimumWidth(slider.fontMetrics().horizontalAdvance("M" * 8))
+            for form in self.findChildren(QFormLayout):
+                form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+                form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         def _read_custom_settings(self):
             try:
@@ -1001,7 +1076,7 @@ if __name__ == "__main__":
             label_width=CONFIG_FIELD_LABEL_WIDTH,
         ):
             container = QWidget()
-            row_layout = QHBoxLayout(container)
+            row_layout = ResponsiveSelectorLayout(container)
             row_layout.setContentsMargins(0, 0, 0, 0)
 
             selector = DynamicComboBox(
@@ -1527,11 +1602,11 @@ if __name__ == "__main__":
                 "NODE_BOUNDARY_COLOR": "Color of the outer border ring outline drawn around each sequence node.\nProvides visual contrast to cleanly separate adjacent and overlapping nodes.",
                 "NODE_BOUNDARY_WIDTH": "Stroke width (in pixels) of the outer border ring outline drawn around each node.\nSetting a non-zero width helps distinguish overlapping nodes in dense clusters.",
                 "LOW_RESOURCE_MODE": "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.\nSignificantly improves responsiveness and reduces rendering latency for large networks.",
-                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for Molecular Dynamics layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark measures representative workloads and may choose a different backend for each component-size class.",
+                "LAYOUT_DEVICE_SELECTION": "Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark measures representative workloads and may choose a different backend for each component-size class.",
                 "SPRING_K": "Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.\nEvery retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.",
                 "COULOMB_K": "Repulsive constant controlling the electrostatic-like force between nodes in the same connected component.\nLarger values spread nearby nodes apart; disconnected components are positioned later by component packing.",
                 "COULOMB_CUTOFF": "Maximum spatial distance threshold beyond which node repulsive forces drop to zero.\nLower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.",
-                "DAMPING": "Frictional resistance coefficient applied to Molecular Dynamics node velocities.\nHigher values dissipate kinetic energy and suppress oscillatory motion more quickly.",
+                "DAMPING": "Frictional resistance coefficient applied to node velocities during layout simulation.\nHigher values dissipate kinetic energy and suppress oscillatory motion more quickly.",
                 "DT": "Timestep size for each numerical integration step of the physics simulation.\nSmaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter.",
                 "MAX_STEPS": "Maximum number of physics iterations the simulation engine will run before terminating.\nEnsure this is large enough to allow node positions to settle into a stable configuration.",
                 "RMSD_THRESHOLD": "Root-Mean-Square Deviation convergence threshold for early simulation termination.\nIf average node displacement between consecutive steps falls below this value, layout halts as converged.",
@@ -2073,12 +2148,9 @@ if __name__ == "__main__":
 
             ref_container = QWidget()
             ref_container.setObjectName("alignment_reference_wrapper")
-            ref_layout = QHBoxLayout(ref_container)
-            ref_layout.setContentsMargins(0, 0, 0, 0)
-            ref_layout.addWidget(self.line_ref, 1)
 
             self.lbl_alignment_offset = QLabel("Alignment Offset:")
-            self.spin_alignment_offset = QSpinBox()
+            self.spin_alignment_offset = NoScrollSpinBox()
             self.spin_alignment_offset.setRange(-1000000, 1000000)
             try:
                 offset_value = int(globals().get("ALIGNMENT_OFFSET", 0) or 0)
@@ -2090,13 +2162,16 @@ if __name__ == "__main__":
             self.spin_alignment_offset.setStyleSheet(
                 "QSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
             )
-            ref_layout.addSpacing(12)
-            ref_layout.addWidget(self.lbl_alignment_offset)
-            ref_layout.addWidget(self.spin_alignment_offset)
 
             ref_label = QLabel("Alignment Reference ID:")
             ref_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
-            layout.addRow(ref_label, ref_container)
+            self._make_field_group(
+                [(ref_label, self.line_ref),
+                 (self.lbl_alignment_offset, self.spin_alignment_offset)],
+                parent=ref_container, name="alignmentReferenceRow",
+                trailing=True, control_stretches=(1, 0),
+            )
+            layout.addRow(ref_container)
             self.labels["ALIGNMENT_REFERENCE"] = ref_label
             self.inputs["ALIGNMENT_REFERENCE"] = self.line_ref
             self.labels["ALIGNMENT_OFFSET"] = self.lbl_alignment_offset
@@ -2105,8 +2180,6 @@ if __name__ == "__main__":
             # --- UMAP Controls ---
             umap_container = QWidget()
             umap_container.setObjectName("wrapper")
-            umap_layout = QHBoxLayout(umap_container)
-            umap_layout.setContentsMargins(0, 0, 0, 0)
             
             self.check_umap = QPushButton()
             self.check_umap.setCheckable(True)
@@ -2178,15 +2251,15 @@ if __name__ == "__main__":
             self.check_umap.toggled.connect(toggle_umap)
             self.spin_umap_k.valueChanged.connect(self.update_live_validators)
             
-            umap_layout.addWidget(self.check_umap)
-            umap_layout.addWidget(lbl_k)
-            umap_layout.addWidget(self.spin_umap_k)
-            umap_layout.addWidget(lbl_md)
-            umap_layout.addWidget(self.spin_umap_md)
-            
-            layout.addRow("Enable UMAP Layout:", umap_container)
-            self.labels["UMAP_MODE"] = layout.labelForField(umap_container)
+            self.labels["UMAP_MODE"] = QLabel("Enable UMAP Layout:")
             self.labels["UMAP_MODE"].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+            self._make_field_group(
+                [(self.labels["UMAP_MODE"], self.check_umap),
+                 (lbl_k, self.spin_umap_k), (lbl_md, self.spin_umap_md)],
+                parent=umap_container, name="umapRow",
+                trailing=True, control_stretches=(0, 1, 1),
+            )
+            layout.addRow(umap_container)
             self.inputs["UMAP_MODE"] = self.check_umap
             self.inputs["UMAP_NEIGHBORS"] = self.spin_umap_k
             self.inputs["UMAP_MIN_DIST"] = self.spin_umap_md
@@ -2223,23 +2296,36 @@ if __name__ == "__main__":
                 )
                 spinbox.setFixedHeight(input_spinbox_height)
 
+            top_edge_control = QWidget()
+            top_edge_control.setObjectName("topEdgeControl")
+            top_edge_layout = QHBoxLayout(top_edge_control)
+            top_edge_layout.setContentsMargins(0, 0, 0, 0)
+            top_edge_layout.setSpacing(6)
+            self.btn_clear_top_edge = QPushButton("Clear")
+            self.btn_clear_top_edge.setObjectName("clearTopEdgeButton")
+            self.btn_clear_top_edge.setToolTip(
+                "Unset Top Edge % to use Similarity Threshold when UMAP is off."
+            )
+            self.btn_clear_top_edge.clicked.connect(
+                lambda: self.spin_top.setOptionalValue(None)
+            )
+            top_edge_layout.addWidget(self.spin_top, 1)
+            top_edge_layout.addWidget(self.btn_clear_top_edge)
+
             filter_container = QWidget()
             filter_container.setObjectName("wrapper")
-            filter_layout = QHBoxLayout(filter_container)
-            filter_layout.setContentsMargins(0, 0, 0, 0)
 
             lbl_thresh = QLabel("Similarity Threshold:")
             lbl_thresh.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             lbl_top = QLabel("   Top Edge %:")
             lbl_min_occ = QLabel("   Min Occupancy %:")
 
-            filter_layout.addWidget(self.spin_thresh, 1)
-            filter_layout.addWidget(lbl_top)
-            filter_layout.addWidget(self.spin_top, 1)
-            filter_layout.addWidget(lbl_min_occ)
-            filter_layout.addWidget(self.spin_min_occ, 1)
-
-            layout.addRow(lbl_thresh, filter_container)
+            self._make_field_group(
+                [(lbl_thresh, self.spin_thresh), (lbl_top, top_edge_control),
+                 (lbl_min_occ, self.spin_min_occ)],
+                parent=filter_container, name="filterRow", equal_fields=True,
+            )
+            layout.addRow(filter_container)
 
             self.labels["SIMILARITY_THRESHOLD"] = lbl_thresh
             self.inputs["SIMILARITY_THRESHOLD"] = self.spin_thresh
@@ -2255,7 +2341,7 @@ if __name__ == "__main__":
             
             # Horizontal layout for both statistics and histogram buttons
             btn_container = QWidget()
-            btn_lay = QHBoxLayout(btn_container)
+            btn_lay = ResponsiveFlowLayout(btn_container)
             btn_lay.setContentsMargins(0, 0, 0, 0)
             
             self.btn_stats = QPushButton("Compute Network Statistics")
@@ -2316,7 +2402,7 @@ if __name__ == "__main__":
             # Cache dropdown, conditional new-cache name, and folder button.
             target_container = QWidget()
             target_container.setObjectName("wrapper")
-            target_lay = QHBoxLayout(target_container)
+            target_lay = ResponsiveSelectorLayout(target_container)
             target_lay.setContentsMargins(0, 0, 0, 0)
 
             self.cb_cache_file = DynamicComboBox(self._refresh_cache_file_combo)
@@ -2357,7 +2443,7 @@ if __name__ == "__main__":
             self.cb_cache_file.currentTextChanged.connect(self._toggle_new_cache_input)
             self.cb_cache_file.textActivated.connect(self._cache_file_activated)
 
-            self.tabs.addTab(tab, "Inputs && Outputs")
+            self._add_scroll_tab(tab, "Inputs && Outputs")
             
         def update_norm_mode_options(self):
             if not hasattr(self, 'cb_score_mode') or not hasattr(self, 'cb_norm_mode'):
@@ -2420,6 +2506,9 @@ if __name__ == "__main__":
                     self.spin_thresh.setStyleSheet("")
                     
                 self.spin_top.setEnabled(not is_umap)
+                self.btn_clear_top_edge.setEnabled(
+                    self.spin_top.isEnabled() and has_top_edge
+                )
                 
             if hasattr(self, 'tabs') and self.tabs.count() > 2:
                 self.tabs.setTabEnabled(2, not is_umap)
@@ -2928,14 +3017,14 @@ if __name__ == "__main__":
             self.labels["LOW_RESOURCE_MODE"] = lbl_low_res
             self.inputs["LOW_RESOURCE_MODE"] = cb_low_res
             
-            main_layout.addLayout(visual_grid)
+            main_layout.addLayout(self._responsive_grid_rows(visual_grid, "visual"))
             main_layout.addStretch()
 
             self.profile_labels["visual_effects"].setFixedWidth(
                 CONFIG_FIELD_LABEL_WIDTH
             )
             
-            self.tabs.addTab(tab, "Visual Effects")
+            self._add_scroll_tab(tab, "Visual Effects")
             
         def create_physics_tab(self):
             tab = QWidget()
@@ -3071,7 +3160,7 @@ if __name__ == "__main__":
 
             add_paired_slider_row("SPRING_K", "COULOMB_K")
             add_paired_slider_row("COULOMB_CUTOFF", "DAMPING")
-            form_layout.addRow(slider_pair_grid)
+            form_layout.addRow(self._responsive_grid_rows(slider_pair_grid, "physicsSliders"))
 
             # --- 3. Integration and convergence settings (two columns) ---
             convergence_grid = QGridLayout()
@@ -3113,7 +3202,7 @@ if __name__ == "__main__":
             convergence_grid.addWidget(le_rmsd, 1, 2)
             convergence_grid.addWidget(lbl_drop, 1, 4)
             convergence_grid.addWidget(le_drop, 1, 6)
-            form_layout.addRow(convergence_grid)
+            form_layout.addRow(self._responsive_grid_rows(convergence_grid, "convergence"))
 
             # --- 4. RMSD Window logscale slider + spinbox (10 to 1000) ---
             import math
@@ -3280,7 +3369,9 @@ if __name__ == "__main__":
             packing_controls_grid.addWidget(lbl_pgs, 0, 8)
             packing_controls_grid.addWidget(pgs_widget, 0, 10)
             packing_controls_grid.setRowMinimumHeight(0, cb_prog.height())
-            form_layout.addRow(packing_controls_grid)
+            form_layout.addRow(self._responsive_grid_rows(
+                packing_controls_grid, "packing", trailing=True
+            ))
 
             paired_left_labels = (lbl_dt, lbl_rmsd)
             paired_right_labels = (
@@ -3301,7 +3392,7 @@ if __name__ == "__main__":
             main_layout.addLayout(form_layout)
             main_layout.addStretch()
  
-            self.tabs.addTab(tab, "Simulation && Physics")
+            self._add_scroll_tab(tab, "Simulation && Physics")
             
         def create_directories_tab(self):
             tab = QWidget()
@@ -3444,7 +3535,7 @@ if __name__ == "__main__":
                     lambda _text, key=base_key: self._base_directory_changed(key)
                 )
                 
-            self.tabs.addTab(tab, "Directories")
+            self._add_scroll_tab(tab, "Directories")
 
         def collect_data(self):
             data = {}

@@ -424,11 +424,23 @@ def _manifest_settings(settings: LayoutGenerationSettings) -> dict[str, Any]:
 
 def _layout_compatibility_metadata(
     settings: LayoutGenerationSettings,
-    engine_params: Mapping[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Return canonical, per-cache coordinate settings and their digest."""
+    raw_params = settings.engine_params()
+    cleaned_params = {
+        key: (
+            float(val)
+            if isinstance(val, (np.floating, float)) and not isinstance(val, bool)
+            else int(val)
+            if isinstance(val, (np.integer, int)) and not isinstance(val, bool)
+            else bool(val)
+            if isinstance(val, (np.bool_, bool))
+            else val
+        )
+        for key, val in raw_params.items()
+    }
     canonical = json.dumps(
-        settings.engine_params() if engine_params is None else dict(engine_params),
+        cleaned_params,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -630,10 +642,13 @@ def generate_layout_cache(
     if settings.UMAP_MODE:
         import Layout_Engine_UMAP as layout_engine
     else:
-        import Layout_Engine_SSN_MolecularDynamics as layout_engine
+        import Layout_Engine_SSN as layout_engine
 
     params = settings.engine_params()
-    params["SIMILARITY_THRESHOLD"] = preparation_settings.SIMILARITY_THRESHOLD
+    effective_threshold = preparation_settings.SIMILARITY_THRESHOLD
+    if effective_threshold is not None:
+        effective_threshold = float(effective_threshold)
+    params["SIMILARITY_THRESHOLD"] = effective_threshold
     positions, box_limit = layout_engine.calculate_layout(
         connectivity, n_nodes, params
     )
@@ -671,7 +686,7 @@ def generate_layout_cache(
         with h5py.File(staged_cache, "w") as output:
             string_dtype = h5py.string_dtype(encoding="utf-8")
             layout_compatibility, layout_compatibility_id = (
-                _layout_compatibility_metadata(settings, params)
+                _layout_compatibility_metadata(settings)
             )
             output.attrs["cache_manifest_id"] = manifest["manifest_id"]
             output.attrs["layout_compatibility_json"] = layout_compatibility
@@ -711,7 +726,7 @@ def generate_layout_cache(
         edge_scores=np.asarray(edge_scores, dtype=np.float32),
         box_limit=float(box_limit),
         fasta_records=records,
-        effective_similarity_threshold=preparation_settings.SIMILARITY_THRESHOLD,
+        effective_similarity_threshold=effective_threshold,
     )
 
 
