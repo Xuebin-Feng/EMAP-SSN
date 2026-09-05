@@ -83,7 +83,7 @@ separate command, for example
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
-The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
+The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the Molecular Dynamics layout solver; UMAP remains available as an optional non-physics layout mode on the Inputs & Outputs tab. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
@@ -331,7 +331,7 @@ python -u src/Layout_Cache_Generator.py Cache_Files/Layout_Settings/example.json
 ```
 
 The JSON contains the selected FASTA/network inputs, exact cache filename, edge
-filter, UMAP settings, and all physics-layout settings. It intentionally omits
+filter, optional UMAP settings, and Molecular Dynamics layout settings. It intentionally omits
 visual, metadata, command, and analysis settings. Relative paths are resolved
 from the project root. The command exits with an error rather than replacing an
 existing cache file.

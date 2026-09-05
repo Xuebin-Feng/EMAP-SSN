@@ -105,6 +105,55 @@ class HardwareUtilityTests(unittest.TestCase):
         self.assertEqual(ranked[0].variant, "scalar")
         self.assertEqual(ranked[1].lanes, 2)
 
+    def test_tiled_tie_prefers_peak_memory_then_lanes_then_tile_memory(self):
+        gpu = Hardware_Utils.DeviceCandidate(
+            "cuda:0", "GPU", torch.device("cuda:0"), "cuda", 0, True
+        )
+        plans = [
+            types.SimpleNamespace(microbatch_workspace_bytes=900),
+            types.SimpleNamespace(microbatch_workspace_bytes=800),
+            types.SimpleNamespace(microbatch_workspace_bytes=700),
+            types.SimpleNamespace(microbatch_workspace_bytes=600),
+        ]
+        ranked = Hardware_Utils.rank_benchmark_results(
+            [
+                Hardware_Utils.BenchmarkResult(
+                    gpu,
+                    100.0,
+                    lanes=4,
+                    variant="tiled",
+                    execution_plan=plans[0],
+                    peak_memory_bytes=1000,
+                ),
+                Hardware_Utils.BenchmarkResult(
+                    gpu,
+                    98.0,
+                    lanes=2,
+                    variant="tiled",
+                    execution_plan=plans[1],
+                    peak_memory_bytes=900,
+                ),
+                Hardware_Utils.BenchmarkResult(
+                    gpu,
+                    97.5,
+                    lanes=1,
+                    variant="tiled",
+                    execution_plan=plans[2],
+                    peak_memory_bytes=900,
+                ),
+                Hardware_Utils.BenchmarkResult(
+                    gpu,
+                    97.3,
+                    lanes=1,
+                    variant="tiled",
+                    execution_plan=plans[3],
+                    peak_memory_bytes=900,
+                ),
+            ],
+            higher_is_better=True,
+        )
+        self.assertEqual(ranked[0].value, 97.3)
+
     def test_manual_unavailable_device_is_not_silently_replaced(self):
         with self.assertRaisesRegex(ValueError, "not available"):
             Hardware_Utils.resolve_device_selection(
@@ -383,8 +432,6 @@ class LayoutHardwareTests(unittest.TestCase):
             jobs,
             node_to_component,
             component_edges,
-            {},
-            engine="molecular_dynamics",
         )
         self.assertEqual(selected, {"small": 1, "medium": 3, "massive": 6})
 
@@ -409,21 +456,14 @@ class LayoutHardwareTests(unittest.TestCase):
     def test_gpu_constructors_accept_an_explicit_device(self):
         import inspect
         import Layout_Engine_SSN_MolecularDynamics as molecular
-        import Layout_Engine_SSN_MonteCarlo as monte_carlo
 
         if molecular.HAS_TORCH:
             self.assertIn(
                 "device", inspect.signature(molecular.SSNSimulationGPU).parameters
             )
-        if monte_carlo.HAS_TORCH:
-            self.assertIn(
-                "device",
-                inspect.signature(monte_carlo.SSNSimulationGPU).parameters,
-            )
 
-    def test_both_physics_engines_run_manual_cpu_without_benchmarking(self):
+    def test_molecular_dynamics_runs_manual_cpu_without_benchmarking(self):
         import Layout_Engine_SSN_MolecularDynamics as molecular
-        import Layout_Engine_SSN_MonteCarlo as monte_carlo
 
         connectivity = np.array(
             [[0, 1, 1.0], [1, 2, 1.0]], dtype=np.float32
@@ -437,27 +477,16 @@ class LayoutHardwareTests(unittest.TestCase):
             "PACKING_GRID_SIZE": 20.0,
             "PACKING_PADDING": 5.0,
             "PACKING_GEOMETRY": "Square",
-            "MC_SWEEPS": 1,
-            "MC_QUENCH_SWEEPS": 0,
-            "MC_RANDOM_SEED": 42,
         }
         with mock.patch.object(
             molecular.Layout_Hardware,
-            "benchmark_layout_devices",
-            side_effect=AssertionError("manual layout benchmark ran"),
-        ), mock.patch.object(
-            monte_carlo.Layout_Hardware,
             "benchmark_layout_devices",
             side_effect=AssertionError("manual layout benchmark ran"),
         ):
             molecular_positions, _ = molecular.calculate_layout(
                 connectivity, 3, common.copy()
             )
-            monte_positions, _ = monte_carlo.calculate_layout(
-                connectivity, 3, common.copy()
-            )
         self.assertEqual(molecular_positions.shape, (3, 2))
-        self.assertEqual(monte_positions.shape, (3, 2))
 
     def test_auto_layout_stage_restarts_on_next_ranked_plan(self):
         import Layout_Engine_SSN_MolecularDynamics as molecular

@@ -13,7 +13,6 @@ import json
 import math
 import os
 from pathlib import Path
-import secrets
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -46,7 +45,6 @@ _REQUIRED_JSON_KEYS = {
     "UMAP_MODE",
     "UMAP_NEIGHBORS",
     "UMAP_MIN_DIST",
-    "PHYSICS_ENGINE",
     "LAYOUT_DEVICE_SELECTION",
     "SPRING_K",
     "COULOMB_K",
@@ -62,7 +60,12 @@ _REQUIRED_JSON_KEYS = {
     "PACKING_GRID_SIZE",
 }
 
-_LEGACY_MONTE_CARLO_KEYS = {
+_OBSOLETE_LAYOUT_ENGINE_KEYS = {
+    "PHYSICS_ENGINE",
+    "MC_SWEEPS",
+    "MC_QUENCH_SWEEPS",
+    "MC_TELEPORT_PROBABILITY",
+    "MC_RANDOM_SEED",
     "SGLD_MIN_K",
     "SGLD_K_PERCENT",
     "SGLD_START_TEMP",
@@ -118,7 +121,6 @@ class LayoutGenerationSettings:
     UMAP_NEIGHBORS: int
     UMAP_MIN_DIST: float
 
-    PHYSICS_ENGINE: str
     LAYOUT_DEVICE_SELECTION: str
     SPRING_K: float
     COULOMB_K: float
@@ -132,10 +134,6 @@ class LayoutGenerationSettings:
     ENABLE_PROGRESSIVE_SIMULATION: bool
     PACKING_GEOMETRY: str
     PACKING_GRID_SIZE: float
-    MC_SWEEPS: int = 250
-    MC_QUENCH_SWEEPS: int = 25
-    MC_TELEPORT_PROBABILITY: float = 0.10
-    MC_RANDOM_SEED: int | None = 42
 
     # Coordinate-affecting values which are currently hidden in EMAP-SSN Configuration.
     BOX_SCALE: float = 2.0
@@ -170,7 +168,7 @@ class LayoutGenerationSettings:
 
         allowed = {
             item.name for item in fields(cls) if not item.name.startswith("_")
-        } | _LEGACY_MONTE_CARLO_KEYS
+        } | _OBSOLETE_LAYOUT_ENGINE_KEYS
         unknown = sorted(set(values) - allowed)
         missing = sorted(_REQUIRED_JSON_KEYS - set(values))
         if unknown:
@@ -184,8 +182,8 @@ class LayoutGenerationSettings:
 
         root = Path(project_root).resolve()
         payload = dict(values)
-        for legacy_key in _LEGACY_MONTE_CARLO_KEYS:
-            payload.pop(legacy_key, None)
+        for obsolete_key in _OBSOLETE_LAYOUT_ENGINE_KEYS:
+            payload.pop(obsolete_key, None)
         payload["SAVED_LAYOUT_DIR"] = _resolve_project_path(
             directories["SAVED_LAYOUT_DIR"], root
         )
@@ -232,7 +230,6 @@ class LayoutGenerationSettings:
             "UMAP_MODE": False,
             "UMAP_NEIGHBORS": 15,
             "UMAP_MIN_DIST": 0.1,
-            "PHYSICS_ENGINE": "Molecular Dynamics (Style)",
             "LAYOUT_DEVICE_SELECTION": "auto",
             "SPRING_K": 5.0,
             "COULOMB_K": 10.0,
@@ -246,10 +243,6 @@ class LayoutGenerationSettings:
             "ENABLE_PROGRESSIVE_SIMULATION": False,
             "PACKING_GEOMETRY": "Square",
             "PACKING_GRID_SIZE": 20.0,
-            "MC_SWEEPS": 250,
-            "MC_QUENCH_SWEEPS": 25,
-            "MC_TELEPORT_PROBABILITY": 0.10,
-            "MC_RANDOM_SEED": 42,
             "BOX_SCALE": 2.0,
             "PACKING_PADDING": 10.0,
             "MAX_FORCE_LIMIT": 20.0,
@@ -274,12 +267,7 @@ class LayoutGenerationSettings:
                 if isinstance(value, str):
                     values[key] = value.strip().lower() in {"true", "1", "yes", "on"}
             elif isinstance(default, int) and isinstance(value, str):
-                if key == "MC_RANDOM_SEED" and value.strip().lower() in {
-                    "", "none", "null"
-                }:
-                    values[key] = None
-                else:
-                    values[key] = int(value)
+                values[key] = int(value)
             elif isinstance(default, float) and isinstance(value, str):
                 values[key] = float(value)
         for key in ("SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"):
@@ -317,11 +305,6 @@ class LayoutGenerationSettings:
             raise LayoutGenerationError(
                 "NORM_MODE alignment_length is unavailable for local alignment scores."
             )
-        if self.PHYSICS_ENGINE not in {
-            "Molecular Dynamics (Style)",
-            "Monte Carlo (Style)",
-        }:
-            raise LayoutGenerationError("PHYSICS_ENGINE is not supported.")
         if self.PACKING_GEOMETRY not in {"Square", "Circle"}:
             raise LayoutGenerationError("PACKING_GEOMETRY must be Square or Circle.")
         if not isinstance(self.LAYOUT_DEVICE_SELECTION, str) or not self.LAYOUT_DEVICE_SELECTION:
@@ -343,23 +326,12 @@ class LayoutGenerationSettings:
             "UMAP_NEIGHBORS": (self.UMAP_NEIGHBORS, 2),
             "MAX_STEPS": (self.MAX_STEPS, 1),
             "RMSD_WINDOW": (self.RMSD_WINDOW, 1),
-            "MC_SWEEPS": (self.MC_SWEEPS, 1),
-            "MC_QUENCH_SWEEPS": (self.MC_QUENCH_SWEEPS, 0),
         }
         for name, (value, minimum) in integer_ranges.items():
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
                 raise LayoutGenerationError(
                     f"{name} must be an integer of at least {minimum}."
                 )
-        for name, value in {
-            "MC_SWEEPS": self.MC_SWEEPS,
-            "MC_QUENCH_SWEEPS": self.MC_QUENCH_SWEEPS,
-        }.items():
-            if value > 1_000_000:
-                raise LayoutGenerationError(
-                    f"{name} must be an integer no greater than 1000000."
-                )
-
         numeric_ranges = {
             "UMAP_MIN_DIST": (self.UMAP_MIN_DIST, 0.0, 1.0),
             "SPRING_K": (self.SPRING_K, 0.0, None),
@@ -374,11 +346,6 @@ class LayoutGenerationSettings:
                 None,
             ),
             "PACKING_GRID_SIZE": (self.PACKING_GRID_SIZE, 0.0, None),
-            "MC_TELEPORT_PROBABILITY": (
-                self.MC_TELEPORT_PROBABILITY,
-                0.0,
-                1.0,
-            ),
             "BOX_SCALE": (self.BOX_SCALE, 0.0, None),
             "PACKING_PADDING": (self.PACKING_PADDING, 0.0, None),
             "MAX_FORCE_LIMIT": (self.MAX_FORCE_LIMIT, 0.0, None),
@@ -396,39 +363,6 @@ class LayoutGenerationSettings:
             raise LayoutGenerationError(
                 "PACKING_GRID_SIZE must be greater than 0."
             )
-        if self.MC_RANDOM_SEED is not None and (
-            isinstance(self.MC_RANDOM_SEED, bool)
-            or not isinstance(self.MC_RANDOM_SEED, int)
-            or self.MC_RANDOM_SEED < 0
-        ):
-            raise LayoutGenerationError(
-                "MC_RANDOM_SEED must be a non-negative integer or null."
-            )
-        if (
-            self.PHYSICS_ENGINE == "Monte Carlo (Style)"
-            and self.MAX_TOTAL_REPULSION_FORCE != 0.0
-        ):
-            raise LayoutGenerationError(
-                "MAX_TOTAL_REPULSION_FORCE must be 0 for Monte Carlo (Style)."
-            )
-        if (
-            self.PHYSICS_ENGINE == "Monte Carlo (Style)"
-            and self.ENABLE_PROGRESSIVE_SIMULATION
-        ):
-            raise LayoutGenerationError(
-                "ENABLE_PROGRESSIVE_SIMULATION is unavailable for Monte Carlo (Style)."
-            )
-        if self.PHYSICS_ENGINE == "Monte Carlo (Style)":
-            from utilities import Hardware_Utils
-
-            selection = Hardware_Utils.normalize_device_selection(
-                self.LAYOUT_DEVICE_SELECTION
-            )
-            if selection not in {"auto", "cpu"}:
-                raise LayoutGenerationError(
-                    "Monte Carlo (Style) currently requires Auto Benchmark or CPU."
-                )
-
     def to_document(
         self, *, project_root: str | os.PathLike[str] = PROJECT_ROOT
     ) -> dict[str, Any]:
@@ -695,19 +629,10 @@ def generate_layout_cache(
     )
     if settings.UMAP_MODE:
         import Layout_Engine_UMAP as layout_engine
-    elif settings.PHYSICS_ENGINE == "Monte Carlo (Style)":
-        import Layout_Engine_SSN_MonteCarlo as layout_engine
     else:
         import Layout_Engine_SSN_MolecularDynamics as layout_engine
 
     params = settings.engine_params()
-    effective_monte_carlo_seed = None
-    if settings.PHYSICS_ENGINE == "Monte Carlo (Style)":
-        requested_seed = params.get("MC_RANDOM_SEED")
-        effective_monte_carlo_seed = (
-            secrets.randbits(128) if requested_seed is None else int(requested_seed)
-        )
-        params["MC_RANDOM_SEED"] = effective_monte_carlo_seed
     params["SIMILARITY_THRESHOLD"] = preparation_settings.SIMILARITY_THRESHOLD
     positions, box_limit = layout_engine.calculate_layout(
         connectivity, n_nodes, params
@@ -751,10 +676,6 @@ def generate_layout_cache(
             output.attrs["cache_manifest_id"] = manifest["manifest_id"]
             output.attrs["layout_compatibility_json"] = layout_compatibility
             output.attrs["layout_compatibility_id"] = layout_compatibility_id
-            if effective_monte_carlo_seed is not None:
-                output.attrs["mc_effective_random_seed"] = str(
-                    effective_monte_carlo_seed
-                )
             output.create_dataset(
                 "headers",
                 data=np.asarray(full_headers, dtype=object),

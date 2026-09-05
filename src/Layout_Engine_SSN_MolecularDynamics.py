@@ -746,8 +746,6 @@ def calculate_layout(connectivity, n_nodes, params):
             jobs,
             node_to_comp_idx,
             comp_edges,
-            params,
-            engine="molecular_dynamics",
         )
         representative_batches = Layout_Hardware.prepare_representative_batches(
             jobs,
