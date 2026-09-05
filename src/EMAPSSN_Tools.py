@@ -207,11 +207,6 @@ INLINE_TRAILING_CONTROL_GROUPS = {
     ("ALIGNMENT_MODE", "GENERATE_REPORT"),
     ("QUERY_HEADER", "MANUAL_QUERY_SEQ"),
 }
-SPANNING_TRAILING_CONTROL_GROUPS = {
-    ("TREE_METHOD", "NUM_TREES", "BOOTSTRAP_TREE"),
-    ("ALIGNMENT_SCORE", "SHOW_REGRESSION_PLOT"),
-    ("NORMALIZATION_MODE", "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"),
-}
 MATCHED_TRAILING_LABEL_VARS = {
     "SHOW_REGRESSION_PLOT",
     "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
@@ -347,8 +342,8 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QMessageBox, QLabel, QScrollArea, QTextEdit,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
-                             QSizePolicy, QFrame, QInputDialog)
-from PySide6.QtCore import QEvent, Qt
+                             QSizePolicy, QFrame, QInputDialog, QLayout)
+from PySide6.QtCore import QEvent, Qt, QRect, QSize
 
 # QtWebEngine ships inside the PySide6-Addons wheel, but its bundled Chromium
 # links against system libraries that pip cannot install. On a stock Linux
@@ -1024,6 +1019,159 @@ def render_markdown_with_math(text):
         html = html.replace(f"<!--BLOCK_MATH_{i}-->", math_str)
         
     return html
+
+class ResponsiveFieldLayout(QLayout):
+    """Lay out existing label/control pairs horizontally, or as readable rows.
+
+    Height-for-width lets the scroll area negotiate vertical space before painting.
+    Only geometry changes on resize: widgets, focus and signal connections stay put.
+    """
+
+    def __init__(self, parent, pairs, ratios, *, field_ratios=False,
+                 trailing=False, spacing=30):
+        super().__init__(parent)
+        self.pairs = pairs
+        self.ratios = ratios
+        self.field_ratios = field_ratios
+        self.trailing = trailing
+        self._items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(spacing)
+        for label, control in pairs:
+            self.addWidget(label)
+            self.addWidget(control)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < self.count() else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < self.count() else None
+
+    def expandingDirections(self):
+        return Qt.Orientation.Horizontal
+
+    def hasHeightForWidth(self):
+        return True
+
+    @staticmethod
+    def _minimum(widget):
+        # Explicit minima and compound-control layouts remain authoritative,
+        # including controls which used Ignored in the old fixed-width rows.
+        return widget.minimumSizeHint().expandedTo(widget.minimumSize())
+
+    def minimumSize(self):
+        width = max(self._minimum(w).width() for pair in self.pairs for w in pair)
+        return QSize(width, max(self._minimum(w).height()
+                               for pair in self.pairs for w in pair))
+
+    def sizeHint(self):
+        width = self._wide_width()
+        return QSize(width, self.heightForWidth(width))
+
+    def _label_width(self, label):
+        return max(label.minimumWidth(), label.sizeHint().width())
+
+    def _column_minima(self):
+        gap = self.spacing()
+        return [self._label_width(label) + gap + self._minimum(control).width()
+                for label, control in self.pairs]
+
+    def _wide_width(self):
+        minima = self._column_minima()
+        gap = self.spacing()
+        if self.trailing:
+            return sum(minima) + gap * (len(minima) - 1)
+        prefix = 0
+        if self.field_ratios:
+            prefix = self._label_width(self.pairs[0][0]) + gap
+            minima[0] -= prefix
+        unit = max(math.ceil(width / ratio)
+                   for width, ratio in zip(minima, self.ratios))
+        return prefix + unit * sum(self.ratios) + gap * (len(minima) - 1)
+
+    def heightForWidth(self, width):
+        return self._arrange(QRect(0, 0, max(1, width), 0), apply=False)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._arrange(rect, apply=True)
+
+    def _arrange(self, rect, *, apply):
+        gap = self.spacing()
+        row_gap = 12
+        wide = rect.width() >= self._wide_width()
+        if apply:
+            self.parentWidget().setProperty("stacked", not wide)
+        shared_label = max(self._label_width(label) for label, _ in self.pairs)
+
+        def place_pair(index, x, y, width, label_width):
+            label_item, control_item = self._items[2 * index:2 * index + 2]
+            control_min = self._minimum(self.pairs[index][1]).width()
+            stacked_label = label_width + gap + control_min > width
+            input_width = width if stacked_label else width - label_width - gap
+            label_height = label_item.sizeHint().height()
+            control_height = (control_item.heightForWidth(input_width)
+                              if control_item.hasHeightForWidth()
+                              else control_item.sizeHint().height())
+            height = (label_height + row_gap + control_height if stacked_label
+                      else max(label_height, control_height))
+            if apply:
+                label_item.setGeometry(QRect(
+                    x, y if stacked_label else y + (height - label_height) // 2,
+                    label_width, label_height,
+                ))
+                control_item.setGeometry(QRect(
+                    x if stacked_label else x + label_width + gap,
+                    y + label_height + row_gap if stacked_label
+                    else y + (height - control_height) // 2,
+                    input_width, control_height,
+                ))
+            return height
+
+        if not wide:
+            y = rect.y()
+            for index in range(len(self.pairs)):
+                y += place_pair(index, rect.x(), y, rect.width(), shared_label)
+                y += row_gap
+            return y - rect.y() - row_gap
+
+        widths = self._column_minima()
+        available = rect.width() - gap * (len(widths) - 1)
+        if self.trailing:
+            flexible = [i for i, (_, control) in enumerate(self.pairs)
+                        if not isinstance(control, QPushButton)]
+            extra = available - sum(widths)
+            for offset, index in enumerate(flexible):
+                share = extra // (len(flexible) - offset)
+                widths[index] += share
+                extra -= share
+        else:
+            prefix = (self._label_width(self.pairs[0][0]) + gap
+                      if self.field_ratios else 0)
+            remaining = available - prefix
+            ratio_sum = sum(self.ratios)
+            widths = []
+            for ratio in self.ratios:
+                width = remaining * ratio // ratio_sum
+                widths.append(width)
+                remaining -= width
+                ratio_sum -= ratio
+            widths[0] += prefix
+        x = rect.x()
+        height = 0
+        for index, ((label, _), width) in enumerate(zip(self.pairs, widths)):
+            height = max(height, place_pair(
+                index, x, rect.y(), width, self._label_width(label)
+            ))
+            x += width + gap
+        return height
+
 
 class ToolsGUI(QMainWindow):
     COMMON_TAB_VIEWPORT_MINIMUM_WIDTH = 600
@@ -2039,6 +2187,7 @@ class ToolsGUI(QMainWindow):
         
         self.load_tools()
         self.create_directories_tab()
+        self._prepare_responsive_controls()
         self._align_all_tool_cards()
         self._harmonize_tab_page_widths()
         self._route_native_tooltips_to_tip_panel()
@@ -3340,263 +3489,55 @@ class ToolsGUI(QMainWindow):
                 sync_local_norm_mode_ssearch() # Trigger once on load
 
     @staticmethod
-    def _merge_compact_rows(layout, script_name, row_widgets):
-        for variable_group in COMPACT_ROW_GROUPS.get(script_name, []):
-            if any(var_name not in row_widgets for var_name in variable_group):
+    def _merge_responsive_rows(layout, script_name, row_widgets, groups, inline=False):
+        for variable_group in groups.get(script_name, []):
+            if any(name not in row_widgets for name in variable_group):
                 continue
-
-            group_widgets = [
-                (var_name, *row_widgets[var_name])
-                for var_name in variable_group
-            ]
-            row_positions = [
-                layout.getWidgetPosition(label_widget)[0]
-                for _, label_widget, _ in group_widgets
-            ]
-            if any(row < 0 for row in row_positions):
+            pairs = [row_widgets[name] for name in variable_group]
+            positions = [layout.getWidgetPosition(label)[0] for label, _ in pairs]
+            if any(row < 0 for row in positions):
                 continue
-
-            insertion_row = min(row_positions)
-            for row in sorted(row_positions, reverse=True):
+            for row in sorted(positions, reverse=True):
                 layout.takeRow(row)
 
-            is_batch_worker_pair = (
-                len(variable_group) == 2
-                and variable_group[0] == "BATCH_SIZE"
+            batch_pair = (
+                variable_group[0] == "BATCH_SIZE"
                 and variable_group[1] in {"WORKERS", "NUM_THREADS"}
             )
-            if is_batch_worker_pair:
-                first_var, first_label, first_input = group_widgets[0]
-                second_var, second_label, second_input = group_widgets[1]
-                field_row = QWidget()
-                field_row.setObjectName(
-                    f"compactRow_{first_var}_{second_var}"
-                )
-                field_row.setProperty("compactColumnRatio", "1:3")
-                field_layout = QHBoxLayout(field_row)
-                field_layout.setContentsMargins(0, 0, 0, 0)
-                field_layout.setSpacing(layout.horizontalSpacing())
-
-                first_column = QWidget()
-                first_column.setObjectName(
-                    f"compactColumn_left_{first_var}_{second_var}"
-                )
-                first_column_layout = QHBoxLayout(first_column)
-                first_column_layout.setContentsMargins(0, 0, 0, 0)
-                first_column_layout.addWidget(first_input)
-                first_input.setMinimumWidth(110)
-
-                second_column = QWidget()
-                second_column.setObjectName(
-                    f"compactColumn_right_{first_var}_{second_var}"
-                )
-                second_column_layout = QHBoxLayout(second_column)
-                second_column_layout.setContentsMargins(0, 0, 0, 0)
-                second_column_layout.setSpacing(layout.horizontalSpacing())
-                second_column_layout.addWidget(second_label)
-                second_column_layout.addWidget(second_input, 1)
-
-                for column in (first_column, second_column):
-                    column.setSizePolicy(
-                        QSizePolicy.Policy.Ignored,
-                        QSizePolicy.Policy.Preferred,
-                    )
-
-                field_layout.addWidget(first_column, 1)
-                field_layout.addWidget(second_column, 3)
-                layout.insertRow(insertion_row, first_label, field_row)
-                continue
-
-            compact_row = QWidget()
-            group_name = "_".join(variable_group)
-            compact_row.setObjectName(
-                f"compactRow_{group_name}"
+            ratios = ((1, 3) if batch_pair else INLINE_FIELD_RATIOS.get(
+                variable_group, tuple(1 for _ in pairs)
+            ))
+            trailing = inline and (
+                variable_group in INLINE_TRAILING_CONTROL_GROUPS
+                or isinstance(pairs[0][1], QPushButton)
             )
-            compact_layout = QHBoxLayout(compact_row)
-            compact_layout.setContentsMargins(0, 0, 0, 0)
-            compact_layout.setSpacing(30)
-
-            columns = []
-            column_names = (
-                ("left", "right")
-                if len(group_widgets) == 2
-                else tuple(str(index) for index in range(len(group_widgets)))
-            )
-            for column_name, (_, label_widget, input_widget) in zip(
-                column_names,
-                group_widgets,
-            ):
-                if label_widget is group_widgets[0][1]:
-                    label_widget.setProperty("compactColumnLabel", True)
-                column = QWidget()
-                column.setObjectName(
-                    f"compactColumn_{column_name}_{group_name}"
-                )
-                column_layout = QHBoxLayout(column)
-                column_layout.setContentsMargins(0, 0, 0, 0)
-                column_layout.setSpacing(layout.horizontalSpacing())
-                column_layout.addWidget(label_widget)
-                column_layout.addWidget(input_widget, 1)
-                columns.append(column)
-
-            shared_column_width = max(
-                column.sizeHint().width() for column in columns
-            )
-            compact_row.setProperty(
+            group = QWidget()
+            group.setObjectName("compactRow_" + "_".join(variable_group))
+            group.setProperty(
                 "compactColumnRatio",
-                ":".join("1" for _ in group_widgets),
+                "inline" if trailing else ":".join(map(str, ratios)),
             )
-            for column in columns:
-                column.setMinimumWidth(shared_column_width)
+            pairs[0][0].setProperty("compactColumnLabel", True)
+            for name, (label, _) in zip(variable_group, pairs):
+                if name in MATCHED_TRAILING_LABEL_VARS:
+                    label.setProperty("matchedTrailingLabel", True)
+            ResponsiveFieldLayout(
+                group, pairs, ratios, field_ratios=inline or batch_pair,
+                trailing=trailing, spacing=max(0, layout.horizontalSpacing()),
+            )
+            layout.insertRow(min(positions), group)
 
-            for column in columns:
-                compact_layout.addWidget(column, 1)
-
-            layout.insertRow(insertion_row, compact_row)
+    @staticmethod
+    def _merge_compact_rows(layout, script_name, row_widgets):
+        ToolsGUI._merge_responsive_rows(
+            layout, script_name, row_widgets, COMPACT_ROW_GROUPS
+        )
 
     @staticmethod
     def _merge_inline_field_rows(layout, script_name, row_widgets):
-        for variable_group in INLINE_FIELD_GROUPS.get(script_name, []):
-            if any(var_name not in row_widgets for var_name in variable_group):
-                continue
-
-            group_widgets = [
-                (var_name, *row_widgets[var_name])
-                for var_name in variable_group
-            ]
-            row_positions = [
-                layout.getWidgetPosition(label_widget)[0]
-                for _, label_widget, _ in group_widgets
-            ]
-            if any(row < 0 for row in row_positions):
-                continue
-
-            insertion_row = min(row_positions)
-            for row in sorted(row_positions, reverse=True):
-                layout.takeRow(row)
-
-            group_name = "_".join(variable_group)
-            field_row = QWidget()
-            field_row.setObjectName(f"compactRow_{group_name}")
-            column_ratios = INLINE_FIELD_RATIOS.get(
-                variable_group,
-                tuple(1 for _ in variable_group),
-            )
-            field_row.setProperty(
-                "compactColumnRatio",
-                ":".join(str(ratio) for ratio in column_ratios),
-            )
-            field_layout = QHBoxLayout(field_row)
-            field_layout.setContentsMargins(0, 0, 0, 0)
-
-            first_label = group_widgets[0][1]
-            first_input = group_widgets[0][2]
-            if variable_group in INLINE_TRAILING_CONTROL_GROUPS:
-                field_row.setProperty("compactColumnRatio", "inline")
-                field_row.setSizePolicy(
-                    QSizePolicy.Policy.Ignored,
-                    QSizePolicy.Policy.Preferred,
-                )
-                field_layout.setSpacing(layout.horizontalSpacing())
-                is_spanning = (
-                    variable_group in SPANNING_TRAILING_CONTROL_GROUPS
-                )
-                if is_spanning:
-                    form_spacing = max(0, layout.horizontalSpacing())
-                    field_layout.setSpacing(0)
-                    first_input_policy = first_input.sizePolicy()
-                    first_input_policy.setHorizontalPolicy(
-                        QSizePolicy.Policy.Ignored
-                    )
-                    first_input.setSizePolicy(first_input_policy)
-                    first_input.setMinimumWidth(0)
-                    field_layout.addWidget(first_input, 1)
-                else:
-                    first_input_policy = first_input.sizePolicy()
-                    first_input_policy.setHorizontalPolicy(
-                        QSizePolicy.Policy.Ignored
-                    )
-                    first_input.setSizePolicy(first_input_policy)
-                    first_input.setMinimumWidth(0)
-                    field_layout.addWidget(first_input, 1)
-                for var_name, label_widget, input_widget in group_widgets[1:]:
-                    if is_spanning:
-                        field_layout.addSpacing(
-                            30 if variable_group == (
-                                "TREE_METHOD",
-                                "NUM_TREES",
-                                "BOOTSTRAP_TREE",
-                            ) else 12
-                        )
-                    else:
-                        label_widget.setText(
-                            f"   {label_widget.text().lstrip()}"
-                        )
-                    if var_name in MATCHED_TRAILING_LABEL_VARS:
-                        label_widget.setProperty("matchedTrailingLabel", True)
-                    field_layout.addWidget(label_widget)
-                    if isinstance(input_widget, QPushButton):
-                        field_layout.addSpacing(
-                            10 + (2 * form_spacing if is_spanning else 0)
-                        )
-                    elif is_spanning:
-                        field_layout.addSpacing(6)
-                    if var_name == "NUM_TREES":
-                        input_policy = input_widget.sizePolicy()
-                        input_policy.setHorizontalPolicy(
-                            QSizePolicy.Policy.Ignored
-                        )
-                        input_widget.setSizePolicy(input_policy)
-                        input_widget.setMinimumWidth(0)
-                        field_layout.addWidget(input_widget, 1)
-                    else:
-                        field_layout.addWidget(input_widget)
-                layout.insertRow(insertion_row, first_label, field_row)
-                continue
-
-            if isinstance(first_input, QPushButton):
-                field_row.setProperty("compactColumnRatio", "inline")
-                field_row.setSizePolicy(
-                    QSizePolicy.Policy.Ignored,
-                    QSizePolicy.Policy.Preferred,
-                )
-                field_layout.addWidget(first_input)
-                for _, label_widget, input_widget in group_widgets[1:]:
-                    label_widget.setText(
-                        f"   {label_widget.text().lstrip()}"
-                    )
-                    field_layout.addWidget(label_widget)
-                    input_policy = input_widget.sizePolicy()
-                    input_policy.setHorizontalPolicy(
-                        QSizePolicy.Policy.Ignored
-                    )
-                    input_widget.setSizePolicy(input_policy)
-                    input_widget.setMinimumWidth(0)
-                    field_layout.addWidget(input_widget, 1)
-                layout.insertRow(insertion_row, first_label, field_row)
-                continue
-
-            field_layout.setSpacing(layout.horizontalSpacing())
-            for column_index, (_, label_widget, input_widget) in enumerate(
-                group_widgets
-            ):
-                column = QWidget()
-                column.setObjectName(
-                    f"compactColumn_{column_index}_{group_name}"
-                )
-                column_layout = QHBoxLayout(column)
-                column_layout.setContentsMargins(0, 0, 0, 0)
-                column_layout.setSpacing(layout.horizontalSpacing())
-                if column_index > 0:
-                    column_layout.addWidget(label_widget)
-                column_layout.addWidget(input_widget, 1)
-                column.setSizePolicy(
-                    QSizePolicy.Policy.Ignored,
-                    QSizePolicy.Policy.Preferred,
-                )
-                field_layout.addWidget(column, column_ratios[column_index])
-
-            layout.insertRow(insertion_row, first_label, field_row)
+        ToolsGUI._merge_responsive_rows(
+            layout, script_name, row_widgets, INLINE_FIELD_GROUPS, inline=True
+        )
 
     def _create_tool_header(self, script_name, script_path):
         header = QWidget()
@@ -3668,7 +3609,6 @@ class ToolsGUI(QMainWindow):
     def _align_form_label_columns(form_layouts):
         label_widgets = []
         matched_trailing_labels = []
-        compact_rows = []
         shared_width = 0
 
         for form_layout in form_layouts:
@@ -3695,11 +3635,6 @@ class ToolsGUI(QMainWindow):
                     shared_width,
                     label_widget.sizeHint().width(),
                 )
-            compact_rows.extend(
-                row
-                for row in form_widget.findChildren(QWidget)
-                if row.objectName().startswith("compactRow_")
-            )
             matched_trailing_labels.extend(
                 label
                 for label in form_widget.findChildren(QLabel)
@@ -3714,22 +3649,6 @@ class ToolsGUI(QMainWindow):
             )
             for label_widget in matched_trailing_labels:
                 label_widget.setFixedWidth(matched_width)
-
-        for compact_row in compact_rows:
-            column_ratio = str(compact_row.property("compactColumnRatio"))
-            if not column_ratio or any(
-                ratio != "1" for ratio in column_ratio.split(":")
-            ):
-                continue
-            columns = [
-                compact_row.layout().itemAt(index).widget()
-                for index in range(compact_row.layout().count())
-            ]
-            shared_column_width = max(
-                column.sizeHint().width() for column in columns
-            )
-            for column in columns:
-                column.setMinimumWidth(shared_column_width)
 
         return shared_width
 
@@ -3835,35 +3754,38 @@ class ToolsGUI(QMainWindow):
         if not content_pages:
             return 0
 
-        common_content_width = max(
-            max(page.minimumWidth(), page.minimumSizeHint().width())
-            for page in content_pages
-        )
-        viewport_minimum_width = self.COMMON_TAB_VIEWPORT_MINIMUM_WIDTH
-
+        # A wide card must not impose its preferred width on other tabs.
         for scroll_page in scroll_pages:
-            scroll_page.setMinimumWidth(viewport_minimum_width)
+            scroll_page.setMinimumWidth(self.COMMON_TAB_VIEWPORT_MINIMUM_WIDTH)
             scroll_page.setProperty(
-                "commonViewportMinimumWidth",
-                viewport_minimum_width,
+                "commonViewportMinimumWidth", self.COMMON_TAB_VIEWPORT_MINIMUM_WIDTH
             )
         for content_page in content_pages:
-            content_page.setMinimumWidth(common_content_width)
-            content_page.setProperty(
-                "commonContentMinimumWidth",
-                common_content_width,
-            )
+            content_page.setMinimumWidth(0)
+        self.tabs.setProperty(
+            "commonViewportMinimumWidth", self.COMMON_TAB_VIEWPORT_MINIMUM_WIDTH
+        )
 
-        self.tabs.setProperty(
-            "commonContentMinimumWidth",
-            common_content_width,
-        )
-        self.tabs.setProperty(
-            "commonViewportMinimumWidth",
-            viewport_minimum_width,
-        )
-        return common_content_width
-            
+    def _prepare_responsive_controls(self):
+        for combo in self.findChildren(QComboBox):
+            combo.setMinimumContentsLength(12)
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for editor in self.findChildren(QLineEdit):
+            if isinstance(editor.parentWidget(), (QSpinBox, QDoubleSpinBox, QComboBox)):
+                continue
+            editor.setMinimumWidth(editor.fontMetrics().horizontalAdvance("M" * 12))
+            editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for slider in self.findChildren(QSlider):
+            slider.setMinimumWidth(slider.fontMetrics().horizontalAdvance("M" * 8))
+        for form in self._tool_form_layouts:
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        for title in self.findChildren(QLabel, "toolTitle"):
+            title.setWordWrap(True)
+
     def create_combined_tab(
         self,
         tools_dir,

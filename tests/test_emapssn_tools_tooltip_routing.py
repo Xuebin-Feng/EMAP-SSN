@@ -187,7 +187,7 @@ class TooltipRoutingTests(unittest.TestCase):
         )
 
         self.assertEqual(form.rowCount(), 1)
-        field = form.itemAt(0, QFormLayout.ItemRole.FieldRole).widget()
+        field = form.itemAt(0, QFormLayout.ItemRole.SpanningRole).widget()
         self.assertEqual(field.property("compactColumnRatio"), "1:1:1")
 
 
