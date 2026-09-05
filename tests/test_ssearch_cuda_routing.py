@@ -130,6 +130,50 @@ class SsearchCudaRoutingTests(unittest.TestCase):
         self.assertTrue(ssearch._search_results_equivalent(baseline, close)[0])
         self.assertFalse(ssearch._search_results_equivalent(baseline, changed)[0])
 
+    @staticmethod
+    def _search_validation_rows(count, changed_count):
+        baseline = [
+            {
+                "index": index,
+                "raw_score": 100.0,
+                "norm_score": 1.0,
+                "aln_len": 100,
+            }
+            for index in range(count)
+        ]
+        candidate = [dict(result) for result in baseline]
+        for index in range(changed_count):
+            candidate[index].update(
+                raw_score=104.0,
+                norm_score=1.0,
+                aln_len=104,
+            )
+        return baseline, candidate
+
+    def test_bf16_ssearch_uses_proportional_changed_target_ceiling(self):
+        baseline, candidate = self._search_validation_rows(256, 7)
+        warning = ssearch._search_bf16_validation(baseline, candidate)
+        self.assertTrue(warning.accepted)
+        self.assertTrue(warning.warning)
+        self.assertEqual(warning.changed_count, 7)
+
+        baseline, candidate = self._search_validation_rows(256, 8)
+        rejected = ssearch._search_bf16_validation(baseline, candidate)
+        self.assertFalse(rejected.accepted)
+        self.assertIn("8/256", rejected.reason)
+
+        baseline, candidate = self._search_validation_rows(16, 1)
+        self.assertFalse(
+            ssearch._search_bf16_validation(baseline, candidate).accepted
+        )
+
+    def test_bf16_ssearch_preserves_normalized_score_finiteness_check(self):
+        baseline, candidate = self._search_validation_rows(33, 1)
+        candidate[0]["norm_score"] = np.inf
+        rejected = ssearch._search_bf16_validation(baseline, candidate)
+        self.assertFalse(rejected.accepted)
+        self.assertIn("non-finite BF16 result", rejected.reason)
+
 
 if __name__ == "__main__":
     unittest.main()

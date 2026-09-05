@@ -48,7 +48,34 @@ TILE_MEMORY_PROFILES = (
 SUPPORTED_TILED_BACKENDS = frozenset({"cuda", "xpu", "mps"})
 BF16_ACCELERATOR_BACKENDS = frozenset({"cuda", "xpu", "mps"})
 BF16_PER_RESIDUE_TOLERANCE = 1e-2
+BF16_CHANGED_CASE_NUMERATOR = 64
+BF16_CHANGED_CASE_DENOMINATOR = 2048
+BF16_RELATIVE_LENGTH_LIMIT = 0.05
+BF16_RELATIVE_SCORE_LIMIT = 0.05
 bf16_support_cache = {}
+
+
+@dataclass(frozen=True)
+class BF16ValidationExtreme:
+    """Worst observed change for one metric in a BF16 validation sample."""
+
+    metric: str
+    identity: object
+    baseline_value: object
+    candidate_value: object
+    relative_change: float
+
+
+@dataclass(frozen=True)
+class BF16ValidationResult:
+    """Structured outcome of the two-stage BF16 numerical validation."""
+
+    accepted: bool
+    warning: bool
+    sample_count: int
+    changed_count: int
+    reason: str
+    extremes: tuple[BF16ValidationExtreme, ...] = ()
 
 
 class BenchmarkPhaseTimer:
@@ -2037,3 +2064,293 @@ def compare_precision_results(
             if abs(candidate_score - baseline_score) / scale > per_residue_tolerance:
                 return False, f"score tolerance exceeded for pair {pair}"
     return True, "alignment lengths and per-residue scores passed"
+
+
+def _bf16_relative_change(baseline, candidate):
+    """Return candidate drift relative to the FP32 baseline."""
+    baseline = float(baseline)
+    candidate = float(candidate)
+    if baseline == 0.0:
+        return 0.0 if candidate == 0.0 else float("inf")
+    return abs(candidate - baseline) / abs(baseline)
+
+
+def _bf16_failure(sample_count, changed_count, reason):
+    return BF16ValidationResult(
+        accepted=False,
+        warning=False,
+        sample_count=int(sample_count),
+        changed_count=int(changed_count),
+        reason=str(reason),
+    )
+
+
+def compare_bf16_metric_results(
+    fp32_results,
+    candidate_results,
+    *,
+    identity_label="pair",
+    per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
+    candidate_label="BF16",
+):
+    """Apply the shared clean-pass/warning/fail policy to normalized metrics.
+
+    Each input maps an identity to an ordered mapping whose values are
+    ``(raw_score, alignment_length)`` tuples. A case is length-changing when
+    any supplied alignment mode differs from its FP32 baseline.
+    """
+    sample_count = len(fp32_results)
+    if sample_count == 0:
+        return _bf16_failure(0, 0, "BF16 validation sample is empty")
+    if fp32_results.keys() != candidate_results.keys():
+        return _bf16_failure(
+            sample_count, 0, f"{identity_label} identities differ"
+        )
+
+    changed_count = 0
+    extremes = {}
+    for identity, baseline_metrics in fp32_results.items():
+        candidate_metrics = candidate_results[identity]
+        if baseline_metrics.keys() != candidate_metrics.keys():
+            return _bf16_failure(
+                sample_count,
+                changed_count,
+                f"alignment modes differ for {identity_label} {identity}",
+            )
+
+        parsed = []
+        for mode, baseline_values in baseline_metrics.items():
+            candidate_values = candidate_metrics[mode]
+            try:
+                baseline_score = float(baseline_values[0])
+                baseline_length = int(baseline_values[1])
+                candidate_score = float(candidate_values[0])
+                candidate_length = int(candidate_values[1])
+            except (IndexError, OverflowError, TypeError, ValueError) as error:
+                return _bf16_failure(
+                    sample_count,
+                    changed_count,
+                    f"invalid {mode} result for {identity_label} {identity}: {error}",
+                )
+            if baseline_length < 0 or candidate_length < 0:
+                return _bf16_failure(
+                    sample_count,
+                    changed_count,
+                    f"negative {mode} alignment length for {identity_label} {identity}",
+                )
+            if not np.isfinite(baseline_score) or not np.isfinite(candidate_score):
+                return _bf16_failure(
+                    sample_count,
+                    changed_count,
+                    f"non-finite {candidate_label} {mode} score for "
+                    f"{identity_label} {identity}",
+                )
+            parsed.append(
+                (
+                    str(mode),
+                    baseline_score,
+                    baseline_length,
+                    candidate_score,
+                    candidate_length,
+                )
+            )
+
+        length_changed = any(
+            baseline_length != candidate_length
+            for (
+                _mode,
+                _baseline_score,
+                baseline_length,
+                _candidate_score,
+                candidate_length,
+            ) in parsed
+        )
+        for mode, baseline_score, _baseline_length, candidate_score, _length in parsed:
+            if baseline_score == 0.0 and candidate_score != 0.0:
+                return _bf16_failure(
+                    sample_count,
+                    changed_count,
+                    f"{mode} FP32 score is zero but {candidate_label} score is "
+                    f"{candidate_score} for {identity_label} {identity}",
+                )
+        if not length_changed:
+            for (
+                mode,
+                baseline_score,
+                baseline_length,
+                candidate_score,
+                _length,
+            ) in parsed:
+                scale = max(1, baseline_length)
+                if (
+                    abs(candidate_score - baseline_score) / scale
+                    > per_residue_tolerance
+                ):
+                    return _bf16_failure(
+                        sample_count,
+                        changed_count,
+                        f"{mode} score tolerance exceeded for "
+                        f"{identity_label} {identity}",
+                    )
+            continue
+
+        changed_count += 1
+        for (
+            mode,
+            baseline_score,
+            baseline_length,
+            candidate_score,
+            candidate_length,
+        ) in parsed:
+            length_change = _bf16_relative_change(
+                baseline_length, candidate_length
+            )
+            score_change = _bf16_relative_change(baseline_score, candidate_score)
+            for metric, baseline_value, candidate_value, relative_change in (
+                (
+                    f"{mode} length",
+                    baseline_length,
+                    candidate_length,
+                    length_change,
+                ),
+                (
+                    f"{mode} score",
+                    baseline_score,
+                    candidate_score,
+                    score_change,
+                ),
+            ):
+                previous = extremes.get(metric)
+                if previous is None or relative_change > previous.relative_change:
+                    extremes[metric] = BF16ValidationExtreme(
+                        metric=metric,
+                        identity=identity,
+                        baseline_value=baseline_value,
+                        candidate_value=candidate_value,
+                        relative_change=relative_change,
+                    )
+            if length_change >= BF16_RELATIVE_LENGTH_LIMIT:
+                return _bf16_failure(
+                    sample_count,
+                    changed_count,
+                    f"{mode} alignment length changed by "
+                    f"{length_change * 100.0:.3f}% for "
+                    f"{identity_label} {identity}; the BF16 limit is <5%",
+                )
+            if score_change >= BF16_RELATIVE_SCORE_LIMIT:
+                return _bf16_failure(
+                    sample_count,
+                    changed_count,
+                    f"{mode} score changed by {score_change * 100.0:.3f}% for "
+                    f"{identity_label} {identity}; the BF16 limit is <5%",
+                )
+
+    if (
+        changed_count * BF16_CHANGED_CASE_DENOMINATOR
+        >= sample_count * BF16_CHANGED_CASE_NUMERATOR
+    ):
+        return _bf16_failure(
+            sample_count,
+            changed_count,
+            f"alignment lengths changed for {changed_count}/{sample_count} "
+            f"{identity_label}s ({changed_count / sample_count * 100.0:.3f}%); "
+            "the BF16 limit is <3.125%",
+        )
+    if changed_count:
+        return BF16ValidationResult(
+            accepted=True,
+            warning=True,
+            sample_count=sample_count,
+            changed_count=changed_count,
+            reason="bounded BF16 alignment-length changes accepted with warning",
+            extremes=tuple(extremes.values()),
+        )
+    return BF16ValidationResult(
+        accepted=True,
+        warning=False,
+        sample_count=sample_count,
+        changed_count=0,
+        reason="alignment lengths and per-residue scores passed",
+    )
+
+
+def compare_bf16_precision_results(
+    fp32_results,
+    candidate_results,
+    *,
+    per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
+    candidate_label="BF16",
+):
+    """Compare Align/Network Injection global and local BF16 results."""
+    fp32_results = list(fp32_results)
+    candidate_results = list(candidate_results)
+    try:
+        fp32 = {tuple(result[:2]): result for result in fp32_results}
+        candidate_map = {
+            tuple(result[:2]): result for result in candidate_results
+        }
+    except TypeError as error:
+        return _bf16_failure(
+            len(fp32_results), 0, f"invalid alignment identity: {error}"
+        )
+    if len(fp32) != len(fp32_results) or len(candidate_map) != len(candidate_results):
+        return _bf16_failure(
+            len(fp32_results), 0, "duplicate pair identities in validation results"
+        )
+    try:
+        fp32_metrics = {
+            pair: {
+                "global": (result[2], result[3]),
+                "local": (result[4], result[5]),
+            }
+            for pair, result in fp32.items()
+        }
+        candidate_metrics = {
+            pair: {
+                "global": (result[2], result[3]),
+                "local": (result[4], result[5]),
+            }
+            for pair, result in candidate_map.items()
+        }
+    except (IndexError, TypeError) as error:
+        return _bf16_failure(
+            len(fp32_results), 0, f"invalid alignment result: {error}"
+        )
+    return compare_bf16_metric_results(
+        fp32_metrics,
+        candidate_metrics,
+        identity_label="pair",
+        per_residue_tolerance=per_residue_tolerance,
+        candidate_label=candidate_label,
+    )
+
+
+def format_bf16_validation_warning(
+    result,
+    *,
+    context,
+    identity_label="pair",
+):
+    """Format one consolidated warning for a conditionally accepted result."""
+    if not result.accepted or not result.warning:
+        raise ValueError("A BF16 warning can only format a warning-pass result.")
+    first_failing_count = (
+        result.sample_count * BF16_CHANGED_CASE_NUMERATOR
+        + BF16_CHANGED_CASE_DENOMINATOR
+        - 1
+    ) // BF16_CHANGED_CASE_DENOMINATOR
+    lines = [
+        f"[Precision] WARNING: {context} changed alignment lengths for "
+        f"{result.changed_count}/{result.sample_count} {identity_label}s "
+        f"({result.changed_count / result.sample_count * 100.0:.3f}%). "
+        f"BF16 validation accepted this because the rate is <3.125% "
+        f"(failure begins at {first_failing_count}/{result.sample_count})."
+    ]
+    for extreme in result.extremes:
+        lines.append(
+            f"[Precision] WARNING: worst {extreme.metric}: "
+            f"{identity_label} {extreme.identity}, FP32={extreme.baseline_value}, "
+            f"BF16={extreme.candidate_value}, "
+            f"change={extreme.relative_change * 100.0:.3f}%."
+        )
+    return "\n".join(lines)

@@ -123,7 +123,7 @@ This script performs incremental similarity network calculations. When new seque
 | Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or one concrete device for calculating new residue score matrices. |
 | Execution Mode **`EXECUTION_MODE`** | `auto` compares scalar and tiled plans where supported. `scalar` restricts tuning and production to one-matrix-at-a-time plans. `tiled` forces memory-bounded embedding tiles and padded microbatches on CUDA/ROCm or XPU and fails early if no compatible accelerator is available. |
 | Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget capped at 128 GiB and `0` disables it. |
-| Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. |
+| Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. BF16 networks require a capable accelerator and blocking validation before new edges are calculated. Validation may proceed with a detailed warning only when fewer than 3.125% of tested pairs change alignment length and every affected global/local length and raw score changes by less than 5%. |
 
 ### 📤 Output
 

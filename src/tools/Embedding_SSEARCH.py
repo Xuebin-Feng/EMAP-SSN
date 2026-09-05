@@ -58,12 +58,15 @@ from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
 from utilities.Embedding_Alignment_Engine import (
     BF16_PER_RESIDUE_TOLERANCE,
+    BF16ValidationResult,
     EmbeddingTileStore,
     bf16_accelerator_support,
+    compare_bf16_metric_results,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
     estimate_fixed_query_cuda_working_set,
+    format_bf16_validation_warning,
     is_nvidia_cuda,
     normalize_precision_setting,
     precision_element_bytes,
@@ -689,6 +692,99 @@ def _search_results_equivalent(
     return True, "alignment lengths and per-residue scores passed"
 
 
+def _search_bf16_validation(
+    fp32_results,
+    candidate_results,
+    tolerance=BF16_PER_RESIDUE_TOLERANCE,
+):
+    """Apply two-stage BF16 validation to SSEARCH's selected alignment mode."""
+    fp32_results = list(fp32_results)
+    candidate_results = list(candidate_results)
+    try:
+        fp32 = {int(result["index"]): result for result in fp32_results}
+        candidate_map = {
+            int(result["index"]): result for result in candidate_results
+        }
+    except (KeyError, OverflowError, TypeError, ValueError) as error:
+        return BF16ValidationResult(
+            accepted=False,
+            warning=False,
+            sample_count=len(fp32_results),
+            changed_count=0,
+            reason=f"invalid SSEARCH identity: {error}",
+        )
+    if (
+        len(fp32) != len(fp32_results)
+        or len(candidate_map) != len(candidate_results)
+    ):
+        return BF16ValidationResult(
+            accepted=False,
+            warning=False,
+            sample_count=len(fp32_results),
+            changed_count=0,
+            reason="duplicate target identities in validation results",
+        )
+    if fp32.keys() != candidate_map.keys():
+        return BF16ValidationResult(
+            accepted=False,
+            warning=False,
+            sample_count=len(fp32_results),
+            changed_count=0,
+            reason="target identities differ",
+        )
+
+    for index, baseline in fp32.items():
+        candidate = candidate_map[index]
+        try:
+            values = (
+                float(baseline["raw_score"]),
+                float(baseline["norm_score"]),
+                float(candidate["raw_score"]),
+                float(candidate["norm_score"]),
+            )
+        except (KeyError, OverflowError, TypeError, ValueError) as error:
+            return BF16ValidationResult(
+                accepted=False,
+                warning=False,
+                sample_count=len(fp32_results),
+                changed_count=0,
+                reason=f"invalid SSEARCH result for target {index}: {error}",
+            )
+        if not all(np.isfinite(value) for value in values):
+            return BF16ValidationResult(
+                accepted=False,
+                warning=False,
+                sample_count=len(fp32_results),
+                changed_count=0,
+                reason=f"non-finite BF16 result for target {index}",
+            )
+
+    try:
+        baseline_metrics = {
+            index: {"selected": (result["raw_score"], result["aln_len"])}
+            for index, result in fp32.items()
+        }
+        candidate_metrics = {
+            index: {"selected": (result["raw_score"], result["aln_len"])}
+            for index, result in candidate_map.items()
+        }
+    except (KeyError, TypeError) as error:
+        return BF16ValidationResult(
+            accepted=False,
+            warning=False,
+            sample_count=len(fp32_results),
+            changed_count=0,
+            reason=f"invalid SSEARCH result: {error}",
+        )
+    return compare_bf16_metric_results(
+        baseline_metrics,
+        candidate_metrics,
+        identity_label="target",
+        per_residue_tolerance=tolerance,
+        candidate_label="BF16",
+    )
+
+
 active_search_hardware = {
     "device": "cpu",
     "plan": "scalar",
@@ -914,18 +1010,29 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             )
             if baseline is None or payload is None:
                 continue
-            equivalent, reason = _search_results_equivalent(
+            validation = _search_bf16_validation(
                 baseline,
                 payload,
                 tolerance=BF16_PER_RESIDUE_TOLERANCE,
-                candidate_label="BF16",
             )
-            if equivalent:
+            if validation.accepted:
                 validated_bf16.append(row)
+                if validation.warning:
+                    print(
+                        format_bf16_validation_warning(
+                            validation,
+                            context=(
+                                f"BF16 {variant} on "
+                                f"{row.candidate.display_name} "
+                                f"(lanes={row.lanes})"
+                            ),
+                            identity_label="target",
+                        )
+                    )
             else:
                 print(
                     f"[Precision] Rejected {variant} BF16 on "
-                    f"{row.candidate.display_name}: {reason}."
+                    f"{row.candidate.display_name}: {validation.reason}."
                 )
         benchmark_rows = validated_bf16
 

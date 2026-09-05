@@ -86,12 +86,13 @@ from utilities.Embedding_Alignment_Engine import (
     BenchmarkPhaseTimer,
     EmbeddingTileStore,
     bf16_accelerator_support,
-    compare_precision_results,
+    compare_bf16_precision_results,
     compute_score_matrix_torch as _shared_score_matrix,
     cuda_matmul_precision,
     cuda_memory_plan,
     evenly_spaced_task_subset,
     estimate_cuda_working_set,
+    format_bf16_validation_warning,
     get_accelerator_backend,
     is_nvidia_cuda,
     matched_benchmark_task_halves,
@@ -928,14 +929,25 @@ def _benchmark_injection_plans(
                         lengths,
                         "bf16",
                     )
-                    equivalent, reason = compare_precision_results(
+                    validation = compare_bf16_precision_results(
                         baseline,
                         candidate_results,
                         per_residue_tolerance=BF16_PER_RESIDUE_TOLERANCE,
                         candidate_label="BF16",
                     )
-                    if not equivalent:
-                        raise ValueError(f"{variant}: {reason}")
+                    if not validation.accepted:
+                        raise ValueError(f"{variant}: {validation.reason}")
+                    if validation.warning:
+                        print(
+                            format_bf16_validation_warning(
+                                validation,
+                                context=(
+                                    f"BF16 {variant} on "
+                                    f"{candidate.display_name}"
+                                ),
+                                identity_label="pair",
+                            )
+                        )
             except Exception as error:
                 failures.append(
                     f"{candidate.display_name}: {type(error).__name__}: {error}"

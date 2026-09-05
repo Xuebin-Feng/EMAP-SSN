@@ -230,6 +230,278 @@ class Bf16PrecisionTests(unittest.TestCase):
             )[0]
         )
 
+    @staticmethod
+    def _alignment_validation_rows(count, changed_count=0):
+        baseline = [
+            (index, index + 1, 100.0, 100, 200.0, 100)
+            for index in range(count)
+        ]
+        candidate = list(baseline)
+        for index in range(changed_count):
+            candidate[index] = (
+                index,
+                index + 1,
+                104.0,
+                104,
+                192.0,
+                96,
+            )
+        return baseline, candidate
+
+    def test_bf16_clean_pass_keeps_per_residue_score_tolerance(self):
+        baseline = [(0, 1, 100.0, 100, 200.0, 100)]
+        at_limit = [(0, 1, 101.0, 100, 199.0, 100)]
+        over_limit = [(0, 1, 101.001, 100, 200.0, 100)]
+
+        accepted = engine.compare_bf16_precision_results(baseline, at_limit)
+        rejected = engine.compare_bf16_precision_results(baseline, over_limit)
+
+        self.assertTrue(accepted.accepted)
+        self.assertFalse(accepted.warning)
+        self.assertFalse(rejected.accepted)
+        self.assertIn("global score tolerance", rejected.reason)
+
+    def test_bf16_changed_pair_ceiling_is_strict(self):
+        baseline, candidate = self._alignment_validation_rows(2048, 63)
+        warning = engine.compare_bf16_precision_results(baseline, candidate)
+        self.assertTrue(warning.accepted)
+        self.assertTrue(warning.warning)
+        self.assertEqual(warning.changed_count, 63)
+
+        baseline, candidate = self._alignment_validation_rows(2048, 64)
+        rejected = engine.compare_bf16_precision_results(baseline, candidate)
+        self.assertFalse(rejected.accepted)
+        self.assertIn("64/2048", rejected.reason)
+
+    def test_bf16_changed_pair_limits_are_strict_and_check_both_modes(self):
+        baseline = [(0, 1, 100.0, 100, 200.0, 100)] * 33
+        baseline = [
+            (index, index + 1, *row[2:]) for index, row in enumerate(baseline)
+        ]
+        below = list(baseline)
+        below[0] = (0, 1, 104.999, 104, 190.002, 100)
+        warning = engine.compare_bf16_precision_results(baseline, below)
+        self.assertTrue(warning.accepted)
+        self.assertTrue(warning.warning)
+
+        length_at_limit = list(baseline)
+        length_at_limit[0] = (0, 1, 100.0, 105, 200.0, 100)
+        self.assertFalse(
+            engine.compare_bf16_precision_results(
+                baseline, length_at_limit
+            ).accepted
+        )
+
+        local_score_at_limit = list(baseline)
+        local_score_at_limit[0] = (0, 1, 100.0, 101, 190.0, 100)
+        rejected = engine.compare_bf16_precision_results(
+            baseline, local_score_at_limit
+        )
+        self.assertFalse(rejected.accepted)
+        self.assertIn("local score changed", rejected.reason)
+
+    def test_bf16_zero_baselines_require_exact_zero(self):
+        baseline = [(index, index + 1, 0.0, 0, 0.0, 100) for index in range(33)]
+        unchanged_nonzero_score = list(baseline)
+        unchanged_nonzero_score[0] = (0, 1, 0.001, 0, 0.0, 100)
+        self.assertFalse(
+            engine.compare_bf16_precision_results(
+                baseline, unchanged_nonzero_score
+            ).accepted
+        )
+
+        candidate = list(baseline)
+        candidate[0] = (0, 1, 0.0, 0, 0.0, 101)
+        accepted = engine.compare_bf16_precision_results(baseline, candidate)
+        self.assertTrue(accepted.accepted)
+        self.assertTrue(accepted.warning)
+
+        nonzero_score = list(candidate)
+        nonzero_score[0] = (0, 1, 0.001, 0, 0.0, 101)
+        self.assertFalse(
+            engine.compare_bf16_precision_results(
+                baseline, nonzero_score
+            ).accepted
+        )
+
+        changed_zero_length = list(baseline)
+        changed_zero_length[0] = (0, 1, 0.0, 1, 0.0, 100)
+        self.assertFalse(
+            engine.compare_bf16_precision_results(
+                baseline, changed_zero_length
+            ).accepted
+        )
+
+    def test_bf16_warning_reports_each_extreme_metric(self):
+        baseline, candidate = self._alignment_validation_rows(33, 1)
+        result = engine.compare_bf16_precision_results(baseline, candidate)
+        warning = engine.format_bf16_validation_warning(
+            result,
+            context="BF16 tiled on Test GPU",
+            identity_label="pair",
+        )
+
+        self.assertIn("1/33 pairs", warning)
+        self.assertIn("failure begins at 2/33", warning)
+        for metric in (
+            "global length",
+            "local length",
+            "global score",
+            "local score",
+        ):
+            self.assertIn(f"worst {metric}", warning)
+        self.assertEqual(warning.count("pair (0, 1)"), 4)
+
+    def test_bf16_validation_rejects_invalid_result_sets(self):
+        baseline = [(0, 1, 100.0, 100, 200.0, 100)]
+        missing = []
+        nonfinite = [(0, 1, np.nan, 100, 200.0, 100)]
+        duplicate = baseline + baseline
+
+        self.assertFalse(
+            engine.compare_bf16_precision_results(baseline, missing).accepted
+        )
+        self.assertFalse(
+            engine.compare_bf16_precision_results(baseline, nonfinite).accepted
+        )
+        self.assertFalse(
+            engine.compare_bf16_precision_results(duplicate, duplicate).accepted
+        )
+
+    def test_align_bf16_warning_identifies_device_and_variant(self):
+        device = align.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Test GPU", torch.device("cuda:0"), "cuda"
+        )
+        baseline, candidate = self._alignment_validation_rows(33, 1)
+        output = io.StringIO()
+        with mock.patch.object(
+            align.Hardware_Utils,
+            "get_available_devices",
+            return_value=[device],
+        ), mock.patch.object(
+            align.Hardware_Utils,
+            "resolve_device_selection",
+            return_value=device,
+        ), mock.patch.object(
+            align, "bf16_accelerator_support", return_value=(True, "supported")
+        ), mock.patch.object(
+            align, "_execution_variants", return_value=["scalar"]
+        ), mock.patch.object(
+            align,
+            "_run_accelerated_pipeline",
+            side_effect=[baseline, candidate],
+        ), mock.patch.object(
+            align, "_release_alignment_device_cache"
+        ), redirect_stdout(output):
+            precision = align._resolve_active_matmul_precision(
+                "bf16",
+                None,
+                [(index, index + 1, "a", "b") for index in range(33)],
+                1,
+                mock.Mock(path="unused.h5"),
+                [100] * 34,
+            )
+
+        self.assertEqual(precision, "bf16")
+        self.assertIn("WARNING: BF16 scalar on Test GPU", output.getvalue())
+        self.assertIn("worst global length", output.getvalue())
+
+    def test_align_manual_bf16_fails_at_proportional_ceiling(self):
+        device = align.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Test GPU", torch.device("cuda:0"), "cuda"
+        )
+        baseline, candidate = self._alignment_validation_rows(32, 1)
+        with mock.patch.object(
+            align.Hardware_Utils,
+            "get_available_devices",
+            return_value=[device],
+        ), mock.patch.object(
+            align.Hardware_Utils,
+            "resolve_device_selection",
+            return_value=device,
+        ), mock.patch.object(
+            align, "bf16_accelerator_support", return_value=(True, "supported")
+        ), mock.patch.object(
+            align, "_execution_variants", return_value=["scalar"]
+        ), mock.patch.object(
+            align,
+            "_run_accelerated_pipeline",
+            side_effect=[baseline, candidate],
+        ), mock.patch.object(
+            align, "_release_alignment_device_cache"
+        ), redirect_stdout(io.StringIO()), self.assertRaisesRegex(
+            ValueError, "1/32"
+        ):
+            align._resolve_active_matmul_precision(
+                "bf16",
+                None,
+                [(index, index + 1, "a", "b") for index in range(32)],
+                1,
+                mock.Mock(path="unused.h5"),
+                [100] * 33,
+            )
+
+    def test_network_injection_bf16_warning_keeps_candidate_eligible(self):
+        device = injection.Hardware_Utils.DeviceCandidate(
+            "cuda:0", "Test GPU", torch.device("cuda:0"), "cuda"
+        )
+        baseline, candidate = self._alignment_validation_rows(33, 1)
+        memory = mock.Mock(free_bytes=8 << 30, total_bytes=10 << 30)
+        estimate = mock.Mock(
+            feasible=True,
+            projected_peak_bytes=4 << 30,
+            safe_peak_bytes=6 << 30,
+            reason="safe",
+        )
+
+        def execute(*_args, **kwargs):
+            timer = kwargs.get("benchmark_timer")
+            if timer is not None:
+                timer.start()
+                timer.stop()
+                return []
+            return candidate
+
+        output = io.StringIO()
+        with mock.patch.object(
+            injection.Hardware_Utils,
+            "get_available_devices",
+            return_value=[device],
+        ), mock.patch.object(
+            injection.Hardware_Utils,
+            "resolve_device_selection",
+            return_value=device,
+        ), mock.patch.object(
+            injection.Hardware_Utils, "release_device_cache"
+        ), mock.patch.object(
+            injection, "bf16_accelerator_support", return_value=(True, "supported")
+        ), mock.patch.object(
+            injection, "_execution_variants", return_value=["scalar"]
+        ), mock.patch.object(
+            injection, "_lane_candidates", return_value=[1]
+        ), mock.patch.object(
+            injection, "_benchmark_half_sizes", return_value=(4096, 256)
+        ), mock.patch.object(
+            injection, "cuda_memory_plan", return_value=memory
+        ), mock.patch.object(
+            injection, "estimate_cuda_working_set", return_value=estimate
+        ), mock.patch.object(
+            injection, "_run_accelerated_pipeline", return_value=baseline
+        ), mock.patch.object(
+            injection, "_execute_injection_plan", side_effect=execute
+        ), redirect_stdout(output):
+            plans = injection._benchmark_injection_plans(
+                [(index, index + 1, "a", "b") for index in range(33)],
+                workers=1,
+                input_h5="unused.h5",
+                store=mock.Mock(),
+                lengths=[100] * 34,
+                matmul_precision="bf16",
+            )
+
+        self.assertTrue(plans)
+        self.assertIn("WARNING: BF16 scalar on Test GPU", output.getvalue())
+
     def test_hdf5_precision_normalization_recognizes_bf16(self):
         self.assertEqual(_normalized_precision("bf16"), "bf16")
         self.assertEqual(_normalized_precision("bfloat16"), "bfloat16")
