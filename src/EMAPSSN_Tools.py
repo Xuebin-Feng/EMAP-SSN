@@ -78,7 +78,7 @@ from utilities.Model_License_Utils import (
     record_model_license_acceptance,
 )
 from utilities.Tool_Directories import DEFAULT_DIRECTORY_PATHS
-from utilities.Pipeline_Settings import serialize_export_settings
+from mcp_server.Pipeline_Settings import serialize_export_settings
 from utilities.Tool_Execution import (
     build_settings_document,
     format_invocation_command,

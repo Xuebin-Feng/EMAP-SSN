@@ -277,3 +277,19 @@ def serialize_export_settings(tool_id, values, project_root):
     if errors:
         raise PipelineSettingsError(errors)
     return output
+
+
+def inspection_parameters(tool_id, values, project_root):
+    """Validate inspection context without requiring unrelated job inputs."""
+    schema = _parameter_schema(tool_id, project_root)
+    schema.pop("allOf", None)
+    errors = _errors(schema, values, "parameters")
+    if errors:
+        raise PipelineSettingsError(errors)
+    effective = {key: deepcopy(prop["default"]) for key, prop in schema["properties"].items()}
+    effective.update(values)
+    if tool_id == "parse_blast_output" and effective["BLAST_LAYOUT"] == "custom_columns":
+        columns = [effective[key] for key in ("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")]
+        if len(set(columns)) != 3:
+            raise PipelineSettingsError([{"field": "parameters", "message": "Custom BLAST columns must be distinct."}])
+    return effective

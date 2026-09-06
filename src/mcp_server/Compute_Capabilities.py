@@ -111,7 +111,7 @@ def collect_metadata(torch, hardware, psutil=None):
 
 def discover_compute_capabilities(project_root, tool_id=None):
     # Validate identifiers before spawning; settings discovery does not import torch.
-    from utilities.Pipeline_Settings import get_pipeline_schema
+    from mcp_server.Pipeline_Settings import get_pipeline_schema
     schema = get_pipeline_schema(tool_id, project_root) if tool_id is not None else None
     try:
         completed = subprocess.run(

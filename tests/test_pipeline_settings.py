@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from jsonschema import Draft202012Validator
-from utilities.Pipeline_Settings import (
+from mcp_server.Pipeline_Settings import (
     PipelineSettingsError, get_pipeline_schema, normalize_pipeline_settings,
     serialize_export_settings,
 )
@@ -179,7 +179,7 @@ import sys
 sys.path.insert(0, {str(ROOT / 'src')!r})
 for name in ('torch', 'numpy', 'matplotlib', 'PySide6'):
     sys.modules[name] = None
-from utilities.Pipeline_Settings import get_pipeline_schema
+from mcp_server.Pipeline_Settings import get_pipeline_schema
 from utilities.Tool_Execution import list_tool_specs
 for spec in list_tool_specs():
     get_pipeline_schema(spec.tool_id, {str(ROOT)!r})

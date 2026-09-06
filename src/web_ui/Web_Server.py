@@ -28,11 +28,11 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore
 
-from utilities.Viewer_Inspection import (
+from mcp_server.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
 )
-from utilities.Viewer_Sessions import (
+from mcp_server.Viewer_Sessions import (
     SESSION_PROTOCOL_VERSION,
     publish_viewer_session,
     remove_viewer_session,

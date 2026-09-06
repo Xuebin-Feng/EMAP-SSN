@@ -295,7 +295,7 @@ class ToolEntryPointTests(unittest.TestCase):
 class ToolExportGuiTests(unittest.TestCase):
     def test_numeric_text_export_is_typed_without_changing_execution_collection(self):
         from PySide6.QtWidgets import QLineEdit, QMessageBox, QInputDialog
-        from utilities.Pipeline_Settings import normalize_pipeline_settings
+        from mcp_server.Pipeline_Settings import normalize_pipeline_settings
 
         script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
         with tempfile.TemporaryDirectory() as temp_dir:

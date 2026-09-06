@@ -29,11 +29,11 @@ from utilities.Tool_Execution import (  # noqa: E402
     prepare_gui_invocation,
     prepare_headless_invocation,
 )
-from utilities.Viewer_Inspection import (  # noqa: E402
+from mcp_server.Viewer_Inspection import (  # noqa: E402
     ViewerInspectionError,
     ViewerInspectionService,
 )
-from utilities.Viewer_Sessions import (  # noqa: E402
+from mcp_server.Viewer_Sessions import (  # noqa: E402
     SESSION_DIRECTORY_ENV,
     discover_viewer_sessions,
     publish_viewer_session,
@@ -47,8 +47,8 @@ class ToolExecutionTests(unittest.TestCase):
             "import sys; "
             f"sys.path.insert(0, {str(SRC_DIR)!r}); "
             "import utilities.Tool_Execution; "
-            "import utilities.Viewer_Inspection; "
-            "import utilities.Viewer_Sessions"
+            "import mcp_server.Viewer_Inspection; "
+            "import mcp_server.Viewer_Sessions"
         )
         result = subprocess.run(
             [sys.executable, "-c", code],
@@ -340,10 +340,10 @@ class ViewerDiscoveryTests(unittest.TestCase):
                 token="unused",
             )
             with mock.patch(
-                "utilities.Viewer_Sessions._validate_live_session",
+                "mcp_server.Viewer_Sessions._validate_live_session",
                 return_value=False,
             ), mock.patch(
-                "utilities.Viewer_Sessions._process_is_running",
+                "mcp_server.Viewer_Sessions._process_is_running",
                 return_value=False,
             ):
                 self.assertEqual(discover_viewer_sessions(), [])

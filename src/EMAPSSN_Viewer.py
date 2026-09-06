@@ -89,7 +89,7 @@ from utilities.Application_Fonts import (
 from utilities.Application_Windows import show_window_in_front
 from utilities.Cache_Selection import resolve_selected_cache
 from utilities.Network_Preparation import prepare_network
-from utilities.Viewer_Inspection import ViewerInspectionService
+from mcp_server.Viewer_Inspection import ViewerInspectionService
 from utilities.Application_Identity import (
     APPLICATION_VERSION,
     VIEWER_DISPLAY_NAME,

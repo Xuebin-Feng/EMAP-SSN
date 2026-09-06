@@ -17,17 +17,17 @@ if str(SRC_DIR) not in sys.path:
 from mcp import Client, StdioServerParameters  # noqa: E402
 
 from EMAPSSN_MCP_Server import mcp  # noqa: E402
-from utilities.MCP_Pipeline_Jobs import (  # noqa: E402
+from mcp_server.MCP_Pipeline_Jobs import (  # noqa: E402
     PipelineJobManager,
     PipelineQueueFullError,
 )
-from utilities.MCP_Viewer_Client import MCPViewerClient  # noqa: E402
+from mcp_server.MCP_Viewer_Client import MCPViewerClient  # noqa: E402
 from utilities.Tool_Execution import (  # noqa: E402
     ToolInvocation,
     create_settings_snapshot,
     get_tool_spec,
 )
-from utilities.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
+from mcp_server.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
 
 
 class PipelineJobManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -58,7 +58,7 @@ raise SystemExit(int(settings.get("EXIT_CODE", 0)))
             temporary_parent=self.temporary_path,
         )
         self.prepare_patch = mock.patch(
-            "utilities.MCP_Pipeline_Jobs.prepare_headless_invocation",
+            "mcp_server.MCP_Pipeline_Jobs.prepare_headless_invocation",
             side_effect=self._prepare_fake_invocation,
         )
         self.prepare_patch.start()
@@ -219,6 +219,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     [
                         "list_pipeline_tools",
                         "get_compute_capabilities",
+                        "inspect_pipeline_file",
                         "get_pipeline_tool_schema",
                         "validate_pipeline_settings",
                         "start_pipeline_job",
@@ -234,6 +235,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 annotations = {tool.name: tool.annotations for tool in listed.tools}
                 self.assertTrue(annotations["list_pipeline_tools"].read_only_hint)
                 self.assertTrue(annotations["get_compute_capabilities"].read_only_hint)
+                self.assertTrue(annotations["inspect_pipeline_file"].read_only_hint)
                 self.assertTrue(annotations["start_pipeline_job"].destructive_hint)
                 self.assertTrue(annotations["cancel_pipeline_job"].idempotent_hint)
 
@@ -247,8 +249,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     {"tool_id": "sanitize_sequences"},
                 )
                 self.assertTrue(invalid.is_error)
-                from utilities.Compute_Capabilities import empty_report
-                with mock.patch("utilities.Compute_Capabilities.discover_compute_capabilities", return_value=empty_report()):
+                from mcp_server.Compute_Capabilities import empty_report
+                with mock.patch("mcp_server.Compute_Capabilities.discover_compute_capabilities", return_value=empty_report()):
                     hardware = await client.call_tool("get_compute_capabilities", {})
                     self.assertFalse(hardware.is_error)
                     self.assertTrue(hardware.structured_content["metadata_only"])
@@ -281,7 +283,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 12)
+                self.assertEqual(len(listed.tools), 13)
                 hardware = await client.call_tool("get_compute_capabilities", {})
                 self.assertFalse(hardware.is_error)
                 self.assertTrue(hardware.structured_content["metadata_only"])
@@ -295,6 +297,13 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     "tool_id": "sanitize_sequences", "parameters": {"INPUT_FASTA": "future.fasta"}})
                 self.assertTrue(preview.structured_content["valid"])
 
+                fasta = pathlib.Path(session_directory) / "inspection.fasta"
+                fasta.write_text(">a\nAC\n", encoding="utf-8")
+                inspected = await client.call_tool("inspect_pipeline_file", {"path": str(fasta)})
+                self.assertFalse(inspected.is_error)
+                self.assertEqual(inspected.structured_content["structural_validity"], "valid")
+                self.assertEqual(inspected.structured_content["generation_completion"]["status"], "unknown")
+
     async def test_simplified_sanitizer_and_preview_match_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             fasta = pathlib.Path(temp) / "input.fasta"
@@ -306,6 +315,11 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("OVER_WRITE", schema.structured_content["parameters_schema"]["properties"])
                 preview = await client.call_tool("validate_pipeline_settings", request)
                 self.assertTrue(preview.structured_content["valid"])
+                listed = await client.call_tool("list_pipeline_jobs")
+                self.assertEqual(listed.structured_content["jobs"], [])
+                inspected = await client.call_tool("inspect_pipeline_file", {"path": str(fasta)})
+                self.assertFalse(inspected.is_error)
+                self.assertEqual(inspected.structured_content["metadata"]["sequence_count"], 2)
                 listed = await client.call_tool("list_pipeline_jobs")
                 self.assertEqual(listed.structured_content["jobs"], [])
                 files_before = set(pathlib.Path(self.protocol_temp.name).rglob("*"))
@@ -342,7 +356,7 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
             descriptor_path="secret-path",
         )
         with mock.patch(
-            "utilities.MCP_Viewer_Client.discover_viewer_sessions",
+            "mcp_server.MCP_Viewer_Client.discover_viewer_sessions",
             return_value=[descriptor],
         ):
             payload = await MCPViewerClient().list_sessions()

@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from utilities.Viewer_Sessions import (
+from mcp_server.Viewer_Sessions import (
     discover_viewer_sessions,
     select_viewer_session,
 )

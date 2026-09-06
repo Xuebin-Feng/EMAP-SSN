@@ -1,4 +1,4 @@
-# MCP pipeline settings (server 0.3.0, settings schema 1)
+# MCP pipeline settings (server 0.4.0, settings schema 1)
 
 Use `list_pipeline_tools` to choose one of the 14 pipeline IDs, then
 `get_pipeline_tool_schema` with `{"tool_id": "sanitize_sequences"}` to discover
@@ -35,6 +35,86 @@ not allocate tensors, benchmark, synchronize, or clear accelerator caches. Timeo
 terminates only this helper, leaving pipeline jobs untouched. No fastest-device
 recommendation is made: `auto` still selects at execution time. Model and source-file
 constraints remain runtime checks. Settings validation is unchanged.
+
+## Inspect an explicitly selected file
+
+Use `inspect_pipeline_file` before submission when file-level evidence is useful:
+
+```json
+{"path": "Embeddings/proteins_embeddings.h5", "tool_id": "embedding_msa"}
+```
+
+Paths may be absolute (including outside the project), or relative to the project
+root. No directory inventory is performed. The helper opens files read-only and
+does not create jobs, fix files, or change submission requirements.
+
+`file_type` defaults to `auto`. Supported explicit types are `fasta`,
+`alignment_fasta`, `embedding`, `network`, `sparse_msa`, `blast_tabular`, and
+`settings`. Detection uses contents and HDF5 structure, not the extension. Aligned
+FASTA should be specified explicitly; `tool_id: "sparse_msa_converter"` also
+selects aligned-FASTA checks for auto-detected FASTA. Layout caches are excluded.
+Ambiguous plain tabular files require an explicit format:
+
+```json
+{
+  "path": "external/results.tsv",
+  "file_type": "blast_tabular",
+  "tool_id": "parse_blast_output",
+  "parameters": {
+    "BLAST_LAYOUT": "custom_columns",
+    "QUERY_COLUMN": 1,
+    "SUBJECT_COLUMN": 2,
+    "EVALUE_COLUMN": 3
+  }
+}
+```
+
+`parameters` requires a `tool_id`, uses that tool's strict keys/types, and does not
+require unrelated job inputs. BLAST defaults to `standard_outfmt6`; specify
+`outfmt7_fields` to validate Query/Fields comment context. Supplying a tool ID
+does not establish cross-file compatibility or guarantee that all job inputs exist.
+
+The report separates:
+
+- `structural_validity`: `valid`, `invalid`, or `unknown`, limited to performed checks.
+- `generation_completion`: `complete`, `incomplete`, or `unknown`, with evidence.
+- `network_pair_coverage`: `all-pairs count reached`, `sparse`, or `unknown`, with
+  observed/expected counts. Unique pairs are never claimed verified from counts.
+
+Embedding inspection checks completion flags, required metadata, sanitized
+header/sequence manifests, and each embedding's presence, shape, and dtype. It
+does not read embedding arrays. Network inspection checks type-specific datasets,
+ranks, dtypes, and counts without reading edges or scores. Sparse MSA inspection
+checks CSR dimensions and mapping metadata without scanning CSR arrays or
+reconstructing the alignment.
+
+A valid sparse network is not automatically unfinished. Selected-edge counts can
+be inherited by network extraction, so count differences are reported as warnings,
+not standalone proof of interrupted generation. Retained alignment `_resume`
+state indicates unfinished publication. Explicit completion flags are reported as
+evidence, but malformed structures prevent confirmation of a complete result.
+Without a trustworthy completion marker, generation status stays unknown—even
+for a final-looking filename or a structurally valid file.
+
+FASTA/BLAST inspection streams text and checks record/row structure. Aligned FASTA
+also checks equal lengths. Lowercase or unusual FASTA characters are reported as
+sanitization warnings, not silently changed. BLAST numeric values and cross-file
+header matching are not checked. Settings JSON uses strict MCP validation when a
+tool is supplied; otherwise only recognized sections and outer structure are
+checked. Reports do not contain full sequences, arrays, or header lists.
+
+Inspection is bounded by a 20-second helper timeout, an internal 18-second scan
+budget, 100,000 enumerated metadata records per checked collection, 8 MiB JSON
+metadata, and 1 MiB text lines. At most 50 findings are returned; omitted findings
+are counted. Reaching a limit or a read failure leaves inspection unfinished and
+cannot confirm completion. Reports list performed and omitted checks plus examined
+record/line counts. File size, modification time, and identity are compared before
+and after; detected changes make the result unstable and inconclusive. These
+checks cannot detect every possible concurrent write, so inspect quiescent files.
+
+Structural inspection does not validate numerical values, edge ordering or
+uniqueness, CSR pointer values, or future runtime success. It remains optional:
+queued jobs may depend on files that preceding jobs have not yet produced.
 
 ## Preview and submit
 

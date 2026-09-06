@@ -27,14 +27,14 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from utilities.MCP_Pipeline_Jobs import (
+from mcp_server.MCP_Pipeline_Jobs import (
     PipelineJobError,
     PipelineJobManager,
 )
-from utilities.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
+from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
 from utilities.Application_Identity import PRODUCT_NAME
 from utilities.Tool_Execution import list_tool_specs
-from utilities.Pipeline_Settings import (
+from mcp_server.Pipeline_Settings import (
     DESCRIPTIONS,
     PipelineSettingsError,
     get_pipeline_schema,
@@ -42,7 +42,7 @@ from utilities.Pipeline_Settings import (
 )
 
 
-MCP_SERVER_VERSION = "0.3.0"
+MCP_SERVER_VERSION = "0.4.0"
 
 
 class PipelineToolInfo(BaseModel):
@@ -201,10 +201,30 @@ async def get_compute_capabilities(tool_id: str | None = None) -> dict[str, Any]
     Optionally describe a pipeline's applicable settings. Metadata support is
     unverified by computation; physical devices unavailable to this runtime are omitted.
     """
-    from utilities.Compute_Capabilities import discover_compute_capabilities
+    from mcp_server.Compute_Capabilities import discover_compute_capabilities
     try:
         return await asyncio.to_thread(discover_compute_capabilities, _PROJECT_ROOT, tool_id)
     except KeyError as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(title="Inspect a pipeline file", annotations=_READ_ONLY, structured_output=True)
+async def inspect_pipeline_file(
+    path: str,
+    file_type: Literal["auto", "fasta", "alignment_fasta", "embedding", "network", "sparse_msa", "blast_tabular", "settings"] = "auto",
+    tool_id: str | None = None,
+    parameters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Inspect a selected file read-only without scanning numerical HDF5 payloads.
+    Relative paths use the project root. Plain BLAST text may require file_type.
+    Optional tool_id/parameters supplies inspection context (e.g. BLAST columns).
+    Structure, generation completion, and pair coverage are separate conclusions;
+    valid structure is not proof of numerical correctness or job readiness.
+    """
+    from mcp_server.Pipeline_File_Inspection import inspect_pipeline_file as inspect_file
+    try:
+        return await asyncio.to_thread(inspect_file, path, _PROJECT_ROOT, file_type, tool_id, parameters)
+    except (KeyError, TypeError, ValueError) as error:
         raise ToolError(str(error)) from error
 
 

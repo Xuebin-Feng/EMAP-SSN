@@ -8,7 +8,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from utilities import Compute_Capabilities as compute
+from mcp_server import Compute_Capabilities as compute
 from utilities import Hardware_Utils as hardware
 
 
