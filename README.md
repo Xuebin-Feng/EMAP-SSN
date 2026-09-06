@@ -175,7 +175,7 @@ The main visualization window, `EMAPSSN_Viewer.py`, serves as the interactive co
 ---
 ## 🧬 System Workflow
 
-The pipeline supports two primary pathways for Sequence Similarity Network (SSN) generation: a **traditional pathway** utilizing sequence alignment algorithms (like BLAST) and an **embedding-based pathway** driven by protein language models. Additionally, users can project sequences into 2D/3D space using UMAP based on pre-calculated embedding representations.
+The pipeline supports two primary pathways for Sequence Similarity Network (SSN) generation: a **traditional pathway** utilizing sequence alignment algorithms (like BLAST) and an **embedding-based pathway** driven by protein language models. Additionally, users can generate alternative 2D manifold layouts using UMAP based on pairwise sequence similarity distances (derived from either traditional alignment or pLM embedding score matrices). *Note: UMAP layout requires the `umap-learn` package (`pip install umap-learn`) and constructs a $k$-nearest-neighbor topology where each sequence requires at least $k$ pairwise connections.*
 
 ![System Workflow](docs/assets/work_flow.png)
 

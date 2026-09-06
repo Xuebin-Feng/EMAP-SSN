@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import numpy as np
-import scipy.sparse as sp
+import pandas as pd
+import warnings
 
 try:
     import umap
@@ -25,7 +26,7 @@ except ImportError:
 
 def calculate_layout(connectivity, n_nodes, params):
     """
-    Alternative layout generation pipeline using UMAP.
+    Alternative layout generation pipeline using UMAP with native k-NN precomputed tuples.
     
     connectivity: N x 3 NumPy array representing [Source_Index, Target_Index, Score]
     n_nodes: Total number of nodes in the network
@@ -40,82 +41,87 @@ def calculate_layout(connectivity, n_nodes, params):
         
     print(f"Running UMAP global layout on {n_nodes} nodes...")
     
+    target_box = (np.sqrt(n_nodes) * 2.5 + 5.0)
+    final_box_limit = target_box * params.get('BOX_SCALE', 1.0)
+
     if connectivity.shape[0] == 0:
         # Edge case: No edges at all
         print("Warning: Network has no edges. Generating random layout.")
-        box_limit = (np.sqrt(n_nodes) * 2.5 + 5.0) * params.get('BOX_SCALE', 1.0)
-        pos = np.random.uniform(-box_limit/2, box_limit/2, (n_nodes, 2)).astype(np.float32)
-        return pos, box_limit
+        pos = np.random.uniform(-final_box_limit / 2.0, final_box_limit / 2.0, (n_nodes, 2)).astype(np.float32)
+        return pos, final_box_limit
 
     # Extract connectivity data
     sources = connectivity[:, 0].astype(np.int32)
     targets = connectivity[:, 1].astype(np.int32)
-    scores = connectivity[:, 2]
+    scores = connectivity[:, 2].astype(np.float32)
 
     # --- 1. Score-to-Distance Conversion ---
-    # UMAP expects distances >= 0. We convert similarities to distances.
-    # By subtracting from the max score, high similarities become distances near 0.
+    # UMAP expects distances >= 0. High similarities become distances near 0.
+    # Maximum similarity (identical sequences) has exact distance 0.0 ("no difference").
     max_score = np.max(scores)
     distances = max_score - scores
 
-    # --- 2. Build Symmetric Sparse Matrix ---
-    # UMAP's 'precomputed' metric requires a symmetric distance matrix.
-    # We include both (source -> target) and (target -> source).
-    row = np.concatenate([sources, targets])
-    col = np.concatenate([targets, sources])
-    data = np.concatenate([distances, distances])
-    
-    # We use COO matrix which is efficient for construction.
-    # UMAP handles sparse matrices natively.
-    sparse_dist = sp.coo_matrix((data, (row, col)), shape=(n_nodes, n_nodes))
-    sparse_dist.eliminate_zeros()
-
-    # --- 3. Run UMAP ---
+    # --- 2. Build Explicit k-NN Tuples (Method 2) ---
+    # Decouples "no difference" (distance 0.0) from "no edge" (index -1, distance inf).
     n_neighbors = params.get('UMAP_NEIGHBORS', 15)
-    # Ensure n_neighbors isn't larger than the dataset minus 1
     n_neighbors = min(n_neighbors, n_nodes - 1)
     if n_neighbors < 2:
         n_neighbors = 2
         
     min_dist = params.get('UMAP_MIN_DIST', 0.1)
 
+    all_u = np.concatenate([sources, targets])
+    all_v = np.concatenate([targets, sources])
+    all_d = np.concatenate([distances, distances])
+
+    df = pd.DataFrame({'u': all_u, 'v': all_v, 'd': all_d})
+    # Exclude self-loops and duplicate edges
+    df = df[df['u'] != df['v']]
+    df = df.sort_values(['u', 'd'], ascending=[True, True])
+    df = df.drop_duplicates(subset=['u', 'v'])
+    top = df.groupby('u').head(n_neighbors)
+
+    knn_indices = np.full((n_nodes, n_neighbors), -1, dtype=np.int32)
+    knn_dists = np.full((n_nodes, n_neighbors), np.inf, dtype=np.float32)
+
+    top = top.assign(rank=top.groupby('u').cumcount())
+    knn_indices[top['u'].values, top['rank'].values] = top['v'].values
+    knn_dists[top['u'].values, top['rank'].values] = top['d'].values
+
+    # --- 3. Run UMAP with Native precomputed_knn ---
     print(f"  > Initializing UMAP (neighbors={n_neighbors}, min_dist={min_dist})")
-    import warnings
     warnings.filterwarnings('ignore', category=UserWarning, module='umap')
+    X_dummy = np.zeros((n_nodes, 1), dtype=np.float32)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         reducer = umap.UMAP(
-            metric='precomputed',
             n_components=2,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
+            precomputed_knn=(knn_indices, knn_dists, None),
             init='spectral',
             random_state=42 # fixed seed for reproducible deterministic layouts
         )
-        
-        final_pos = reducer.fit_transform(sparse_dist).astype(np.float32)
+        final_pos = reducer.fit_transform(X_dummy).astype(np.float32)
 
-    # --- 4. Scale and Center Output ---
-    # UMAP coordinates are often on a relatively small arbitrary scale.
-    # We calculate the standard SSN box limit based on node count and scale the result.
-    
-    # First, center the layout around (0, 0)
-    global_min = np.min(final_pos, axis=0)
-    global_max = np.max(final_pos, axis=0)
-    center = (global_max + global_min) / 2.0
-    final_pos -= center
+    # --- 4. Handle Disconnected Vertices (NaN coordinates) ---
+    nan_mask = ~np.isfinite(final_pos).all(axis=1)
+    if np.any(nan_mask):
+        rng = np.random.RandomState(42)
+        final_pos[nan_mask] = rng.uniform(-0.5, 0.5, (np.sum(nan_mask), 2)).astype(np.float32)
 
-    # Determine the bounding box size generated by UMAP
-    ptp = np.ptp(final_pos, axis=0)
-    umap_max_spread = max(ptp[0], ptp[1]) + 1e-9  # avoid division by zero
+    # --- 5. Scale and Center Output ---
+    connected_mask = ~nan_mask
+    if np.any(connected_mask):
+        global_min = np.min(final_pos[connected_mask], axis=0)
+        global_max = np.max(final_pos[connected_mask], axis=0)
+        center = (global_max + global_min) / 2.0
+        final_pos -= center
+        ptp = np.ptp(final_pos[connected_mask], axis=0)
+        umap_max_spread = max(ptp[0], ptp[1]) + 1e-9  # avoid division by zero
+    else:
+        umap_max_spread = 1.0
 
-    # Calculate the desired SSN box limit
-    # This matches the calculation from the force-directed layout engine
-    target_box = (np.sqrt(n_nodes) * 2.5 + 5.0)
-    final_box_limit = target_box * params.get('BOX_SCALE', 1.0)
-    
-    # Scale UMAP coordinates to span roughly 80% of the target box limit
-    # This prevents nodes from sitting exactly on the boundary walls
     scale_factor = (final_box_limit * 1.6) / umap_max_spread 
     final_pos *= scale_factor
 
