@@ -2487,15 +2487,9 @@ class ToolsGUI(QMainWindow):
                 
                 # Assemble in compound widget
                 compound_widget = QWidget()
-                compound_lay = QHBoxLayout(compound_widget)
-                compound_lay.setContentsMargins(0, 0, 0, 0)
-                compound_lay.setSpacing(12)
-                compound_lay.addWidget(switch_btn)
                 
                 if strength_widget:
-                    strength_lbl = QLabel("  Strength (%):")
-                    compound_lay.addWidget(strength_lbl)
-                    compound_lay.addWidget(strength_widget)
+                    strength_lbl = QLabel("Strength (%):")
                     
                     # Tooltip for the label
                     strength_lbl.setToolTip(strength_tip)
@@ -2531,7 +2525,17 @@ class ToolsGUI(QMainWindow):
                 self.tip_db[label] = prefilter_tip
                 label.installEventFilter(self)
                 
-                layout.addRow(label, compound_widget)
+                label.setProperty("compactColumnLabel", True)
+                compound_widget.setObjectName("edgePrefilteringRow")
+                pairs = [(label, switch_btn)]
+                if strength_widget is not None:
+                    pairs.append((strength_lbl, strength_widget))
+                ResponsiveFieldLayout(
+                    compound_widget, pairs, (1,) * len(pairs),
+                    spacing=max(0, layout.horizontalSpacing()),
+                    trailing=True, wrap_labels=False,
+                )
+                layout.addRow(compound_widget)
                 inputs["EDGE_PREFILTERING"] = {'widget': switch_btn, 'type': 'switch'}
                 continue
 
