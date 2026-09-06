@@ -1,0 +1,759 @@
+{
+  "Sanitize_Sequences.py": {
+    "properties": {
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Sequence Set (.fasta): The raw FASTA sequence database to clean.\nUppercases residues, trims terminal non-residues, masks invalid characters with 'X', and deduplicates headers."
+      },
+      "ENABLE_LENGTH_FILTER": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable Length Filter: Toggle to filter sequences by amino acid length.\nWhen enabled, only sequences within the minimum and maximum length bounds will be retained."
+      },
+      "OVER_WRITE": {
+        "type": "boolean",
+        "default": false,
+        "description": "Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.\nIf OFF, creates a new file named <input_name>_sanitized.fasta to preserve the original file."
+      },
+      "REMOVE_BY_HEADER_STRING": {
+        "type": "string",
+        "default": "",
+        "description": "Remove Header Substring: Case-sensitive substring filter on raw headers.\nSequences containing this exact text (e.g. 'fragment', 'partial') are discarded. Leave blank to disable."
+      },
+      "MIN_SEQ_LENGTH": {
+        "type": "integer",
+        "default": 0,
+        "description": "Minimum Sequence Length: Lower length bound (inclusive) in amino acids.\nSequences shorter than this threshold will be discarded during sanitization. Zero disables this bound.",
+        "minimum": 0
+      },
+      "MAX_SEQ_LENGTH": {
+        "type": "integer",
+        "default": 0,
+        "description": "Maximum Sequence Length: Upper length bound (inclusive) in amino acids.\nSequences longer than this threshold will be discarded during sanitization. Zero disables this bound.",
+        "minimum": 0
+      }
+    },
+    "required": [
+      "INPUT_FASTA"
+    ]
+  },
+  "Generate_Embeddings.py": {
+    "properties": {
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Sequence Set (.fasta): FASTA sequence database to embed.\nRecords are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference."
+      },
+      "MODEL_NAME": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).",
+        "x-choice-provider": "plm_models"
+      },
+      "SAVING_MODE": {
+        "type": "string",
+        "default": "float16",
+        "description": "Saving Mode: Floating-point precision for storing embedding tensors in HDF5.\nFloat16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.",
+        "enum": [
+          "float16",
+          "float32"
+        ]
+      },
+      "DEVICE_SELECTION": {
+        "type": "string",
+        "default": "auto",
+        "description": "Device: Hardware compute device used for neural network inference.\nAuto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.",
+        "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
+      }
+    },
+    "required": [
+      "INPUT_FASTA",
+      "MODEL_NAME"
+    ]
+  },
+  "Embedding_Cropping.py": {
+    "properties": {
+      "INPUT_EMBED": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.\nContextual residue embeddings for cropped segments are sliced directly from these full-context tensors."
+      },
+      "CROPPED_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.\nHeaders and sequences must match exact contiguous substrings within the full embedding database."
+      }
+    },
+    "required": [
+      "INPUT_EMBED",
+      "CROPPED_FASTA"
+    ]
+  },
+  "Align_Similarity_Matrix.py": {
+    "properties": {
+      "INPUT_HDF5": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Embedding Set (.h5): HDF5 database containing dense residue embeddings.\nVectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores."
+      },
+      "EDGE_PREFILTERING": {
+        "type": "boolean",
+        "default": false,
+        "description": "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."
+      },
+      "PREFILTER_STRENGTH": {
+        "type": "integer",
+        "default": 20,
+        "description": "Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.\nHigher percentages speed up calculations by performing residue alignments on only the most promising pairs.",
+        "minimum": 0,
+        "maximum": 100
+      },
+      "LOCAL_GAP_P": {
+        "type": "number",
+        "default": -2.0,
+        "description": "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps.",
+        "maximum": 0
+      },
+      "GLOBAL_GAP_P": {
+        "type": "number",
+        "default": 0.0,
+        "description": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
+        "maximum": 0
+      },
+      "WORKERS": {
+        "type": "integer",
+        "default": 12,
+        "description": "CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.\nIncreasing workers speeds up alignment of large datasets across multiple CPU cores.",
+        "minimum": 1
+      },
+      "BATCH_SIZE": {
+        "type": "integer",
+        "default": 500000,
+        "description": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter a positive integer.",
+        "minimum": 1
+      },
+      "DEVICE_SELECTION": {
+        "type": "string",
+        "default": "auto",
+        "description": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
+        "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
+      },
+      "ACCELERATOR_PRECISION": {
+        "type": "string",
+        "default": "automatic_32bit",
+        "description": "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.",
+        "enum": [
+          "automatic_32bit",
+          "float32",
+          "tf32",
+          "bf16"
+        ]
+      },
+      "EXECUTION_MODE": {
+        "type": "string",
+        "default": "auto",
+        "description": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.",
+        "enum": [
+          "auto",
+          "scalar",
+          "tiled"
+        ]
+      },
+      "HOST_CACHE_GB": {
+        "default": "auto",
+        "description": "Host cache in GiB, or auto for runtime sizing.",
+        "anyOf": [
+          {
+            "const": "auto"
+          },
+          {
+            "type": "number",
+            "minimum": 0
+          }
+        ]
+      }
+    },
+    "required": [
+      "INPUT_HDF5"
+    ]
+  },
+  "Align_Substitution_Matrix.py": {
+    "properties": {
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment."
+      },
+      "MATRIX": {
+        "type": "string",
+        "default": "BLOSUM62",
+        "description": "Substitution Matrix: Amino acid substitution matrix (e.g. BLOSUM62, PAM250) used for scoring.\nSelect based on the expected evolutionary distance of the sequence set.",
+        "enum": [
+          "BLOSUM45",
+          "BLOSUM50",
+          "BLOSUM62",
+          "BLOSUM80",
+          "BLOSUM90",
+          "PAM30",
+          "PAM70",
+          "PAM250"
+        ]
+      },
+      "NUM_THREADS": {
+        "type": "integer",
+        "default": 12,
+        "description": "CPU Workers: Number of parallel CPU threads allocated for BLASTP execution and parsing.\nIncreasing threads accelerates all-vs-all search across multi-core systems.",
+        "minimum": 1
+      },
+      "BATCH_SIZE": {
+        "type": "integer",
+        "default": 500000,
+        "description": "Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.\nTuning this parameter controls RAM usage and optimizes disk write performance.",
+        "minimum": 1
+      },
+      "BLASTP_DIR": {
+        "type": "string",
+        "default": "",
+        "description": "BLASTP Directory: Directory containing local blastp and makeblastdb executable binaries.\nIf left blank, standard system PATH and default platform installation locations are searched."
+      }
+    },
+    "required": [
+      "INPUT_FASTA"
+    ]
+  },
+  "Parse_BLAST_Output.py": {
+    "properties": {
+      "INPUT_BLAST_TABULAR": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "BLAST Results: Tab-delimited BLASTP output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout."
+      },
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers."
+      },
+      "BLAST_LAYOUT": {
+        "type": "string",
+        "default": "standard_outfmt6",
+        "description": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.",
+        "enum": [
+          "standard_outfmt6",
+          "outfmt7_fields",
+          "custom_columns"
+        ]
+      },
+      "QUERY_COLUMN": {
+        "type": "integer",
+        "default": 1,
+        "description": "Query Column: One-based full query-header column used only for Custom Columns.",
+        "minimum": 1
+      },
+      "SUBJECT_COLUMN": {
+        "type": "integer",
+        "default": 2,
+        "description": "Subject Column: One-based full subject-header column used only for Custom Columns.",
+        "minimum": 1
+      },
+      "EVALUE_COLUMN": {
+        "type": "integer",
+        "default": 11,
+        "description": "E-Value Column: One-based E-value column used only for Custom Columns.",
+        "minimum": 1
+      }
+    },
+    "required": [
+      "INPUT_BLAST_TABULAR",
+      "INPUT_FASTA"
+    ]
+  },
+  "Embedding_MSA.py": {
+    "properties": {
+      "USE_SEQUENCE_FILTER": {
+        "type": "boolean",
+        "default": false,
+        "description": "Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.\nWhen OFF, aligns all sequences present in the intersection of the embedding and network databases."
+      },
+      "INPUT_FASTA": {
+        "type": "string",
+        "default": "",
+        "description": "Sequence Set (.fasta): FASTA file used to filter sequences when Sequence Filter is ON.\nIgnored and blanked out when Use Sequence Filter is disabled."
+      },
+      "INPUT_EMBED": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.\nUsed to weight progressive profile-profile alignments along evolutionary guide tree nodes."
+      },
+      "INPUT_NETWORK": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression."
+      },
+      "TREE_METHOD": {
+        "type": "string",
+        "default": "UPGMA (Fast)",
+        "description": "Tree Building Method: Algorithm used to construct the evolutionary guide tree.\nUPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal evolutionary rates.",
+        "enum": [
+          "UPGMA (Fast)",
+          "Neighbor-joining (Slow)"
+        ]
+      },
+      "BOOTSTRAP_TREE": {
+        "type": "boolean",
+        "default": true,
+        "description": "Noise-Perturbed Trees: Toggle to average guide trees across randomly perturbed distance replicates.\nAssesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree."
+      },
+      "NUM_TREES": {
+        "type": "integer",
+        "default": 100,
+        "description": "Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.\nHigher values yield a more stable consensus guide tree but increase computation time.",
+        "minimum": 1
+      },
+      "NOISE_SCALE": {
+        "type": "number",
+        "default": 0.02,
+        "description": "Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).\nApplies additive noise across all observed and regression-imputed distances, clamped to valid bounds.",
+        "minimum": 0
+      },
+      "ALIGNMENT_SCORE": {
+        "type": "string",
+        "default": "global",
+        "description": "Score Mode: Selects whether to weight guide tree branches using 'global' or 'local' network scores.\nDetermines the hierarchical branching and progressive alignment order.",
+        "enum": [
+          "global",
+          "local"
+        ]
+      },
+      "SHOW_REGRESSION_PLOT": {
+        "type": "boolean",
+        "default": false,
+        "description": "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\nVisualizes the isotonic regression fit between mean embedding cosine distances and network scores."
+      },
+      "NORMALIZATION_MODE": {
+        "type": "string",
+        "default": "alignment_length",
+        "description": "Normalization Mode: Formula used to normalize network scores by sequence or alignment length.\nCorrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).",
+        "enum": [
+          "alignment_length",
+          "shorter_sequence",
+          "longer_sequence",
+          "average_sequence"
+        ]
+      },
+      "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees."
+      },
+      "GAP_OPEN": {
+        "type": "number",
+        "default": -0.5,
+        "description": "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions.",
+        "maximum": 0
+      },
+      "GAP_EXTEND": {
+        "type": "number",
+        "default": 0.0,
+        "description": "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths.",
+        "maximum": 0
+      },
+      "WORKERS": {
+        "type": "integer",
+        "default": 1,
+        "description": "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems.",
+        "minimum": 1
+      },
+      "DEVICE_SELECTION": {
+        "type": "string",
+        "default": "auto",
+        "description": "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.",
+        "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
+      }
+    },
+    "required": [
+      "INPUT_EMBED",
+      "INPUT_NETWORK"
+    ]
+  },
+  "Sparse_MSA_Converter.py": {
+    "properties": {
+      "CONVERT_ALL": {
+        "type": "boolean",
+        "default": false,
+        "description": "Convert All Alignments: If ON, converts all FASTA MSA files in the alignment directory to sparse HDF5 format.\nIf OFF, converts only the selected FASTA alignment file."
+      },
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.\nCompresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%."
+      }
+    },
+    "required": []
+  },
+  "Embedding_Injection.py": {
+    "properties": {
+      "INPUT_EMBED": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.\nExisting sequence embeddings are preserved and reused without recalculation."
+      },
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.\nEmbeddings are computed only for the newly introduced sequences to optimize compute time."
+      }
+    },
+    "required": [
+      "INPUT_EMBED",
+      "INPUT_FASTA"
+    ]
+  },
+  "Embedding_Extraction.py": {
+    "properties": {
+      "INPUT_EMBED": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.\nExtracts matching residue embedding datasets without re-running language model inference."
+      },
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.\nOnly embeddings matching these headers are saved to the new HDF5 database."
+      }
+    },
+    "required": [
+      "INPUT_EMBED",
+      "INPUT_FASTA"
+    ]
+  },
+  "Network_Injection.py": {
+    "properties": {
+      "OLD_NETWORK": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Network Edges (.h5): Pre-existing HDF5 similarity network file.\nPre-computed alignment scores between existing sequence pairs are reused directly."
+      },
+      "NEW_EMBEDDINGS": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.\nNewly introduced sequence pairs are aligned and injected into the updated network file."
+      },
+      "WORKERS": {
+        "type": "integer",
+        "default": 12,
+        "description": "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores.",
+        "minimum": 1
+      },
+      "BATCH_SIZE": {
+        "type": "integer",
+        "default": 500000,
+        "description": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance.",
+        "minimum": 1
+      },
+      "DEVICE_SELECTION": {
+        "type": "string",
+        "default": "auto",
+        "description": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
+        "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
+      },
+      "EXECUTION_MODE": {
+        "type": "string",
+        "default": "auto",
+        "description": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.",
+        "enum": [
+          "auto",
+          "scalar",
+          "tiled"
+        ]
+      },
+      "HOST_CACHE_GB": {
+        "default": "auto",
+        "description": "Host cache in GiB, or auto for runtime sizing.",
+        "anyOf": [
+          {
+            "const": "auto"
+          },
+          {
+            "type": "number",
+            "minimum": 0
+          }
+        ]
+      }
+    },
+    "required": [
+      "OLD_NETWORK",
+      "NEW_EMBEDDINGS"
+    ]
+  },
+  "Network_Extraction.py": {
+    "properties": {
+      "INPUT_NET": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.\nEdges connecting sequences outside the whitelist are filtered out."
+      },
+      "INPUT_FASTA": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Input Sequence Set (.fasta): Whitelist FASTA file defining the subset of sequence nodes to retain.\nOnly edges connecting two whitelist sequences are extracted and re-indexed into the sub-network."
+      }
+    },
+    "required": [
+      "INPUT_NET",
+      "INPUT_FASTA"
+    ]
+  },
+  "Embedding_PWA.py": {
+    "properties": {
+      "INPUT_EMBED": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.\nSupplies stored sequences and models whenever a manual sequence switch is OFF."
+      },
+      "REF_HEADER": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Reference Header: Header of the reference sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the first database sequence is used."
+      },
+      "MANUAL_REF_SEQ": {
+        "type": "boolean",
+        "default": false,
+        "description": "Manual Ref Seq: Toggle to enter a raw reference sequence manually.\nWhen OFF, the reference sequence and embedding are loaded from the database by header."
+      },
+      "REF_SEQUENCE": {
+        "type": "string",
+        "default": "",
+        "description": "Ref Sequence (Optional): Raw amino acid sequence for the reference protein.\nUsed only when Manual Ref Seq is ON; sanitized and embedded on the fly."
+      },
+      "TAR_HEADER": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "default": null,
+        "description": "Target Header: Header of the target sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the second database sequence is used."
+      },
+      "MANUAL_TAR_SEQ": {
+        "type": "boolean",
+        "default": false,
+        "description": "Manual Tar Seq: Toggle to enter a raw target sequence manually.\nWhen OFF, the target sequence and embedding are loaded from the database by header."
+      },
+      "TAR_SEQUENCE": {
+        "type": "string",
+        "default": "",
+        "description": "Tar Sequence (Optional): Raw amino acid sequence for the target protein.\nUsed only when Manual Tar Seq is ON; sanitized and embedded on the fly."
+      },
+      "HIGHLIGHT_POSITIONS": {
+        "type": "string",
+        "default": "",
+        "description": "Highlight Pos (e.g. 1, 4-6): Comma-separated 1-indexed residue positions or ranges in the reference.\nTracked through the alignment and highlighted directly on target sequence positions."
+      },
+      "EMBEDDING_MODEL": {
+        "type": "string",
+        "default": "esmc_300m",
+        "description": "Embedding Model: Protein language model used when both sequences are entered manually.\nWhen either sequence is selected from an embedding database, that database's model is used instead.",
+        "x-choice-provider": "plm_models"
+      },
+      "ALIGNMENT_MODE": {
+        "type": "string",
+        "default": "global",
+        "description": "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCalculates dynamic programming alignment based on residue embedding cosine similarities.",
+        "enum": [
+          "global",
+          "local"
+        ]
+      },
+      "LOCAL_GAP_P": {
+        "type": "number",
+        "default": -2.0,
+        "description": "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions within local alignments.",
+        "maximum": 0
+      },
+      "GLOBAL_GAP_P": {
+        "type": "number",
+        "default": 0.0,
+        "description": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nMore negative values penalize gap insertions across full-length alignments.",
+        "maximum": 0
+      },
+      "GENERATE_REPORT": {
+        "type": "boolean",
+        "default": false,
+        "description": "Generate Report: Toggle to save an interactive, color-coded HTML alignment report.\nOutputs a formatted report with highlighted residue mappings to the report directory."
+      }
+    },
+    "required": []
+  },
+  "Embedding_SSEARCH.py": {
+    "properties": {
+      "INPUT_EMBED": {
+        "type": "string",
+        "default": "Sample_[E1_RA]_embeddings.h5",
+        "description": "Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.\nDatabase sequences are scanned against the query sequence using parallelized dynamic programming."
+      },
+      "QUERY_HEADER": {
+        "type": "string",
+        "default": "Query_Header",
+        "description": "Query Header: Header of a sequence in the embedding database used as the search query.\nSanitized before lookup when Manual Query Seq is OFF."
+      },
+      "MANUAL_QUERY_SEQ": {
+        "type": "boolean",
+        "default": false,
+        "description": "Manual Query Seq: Toggle to provide a custom query sequence manually.\nWhen OFF, the query sequence and embedding are loaded from the database by header."
+      },
+      "QUERY_SEQUENCE": {
+        "type": "string",
+        "default": "",
+        "description": "Query Sequence (Optional): Raw amino acid sequence for the query protein.\nUsed only when Manual Query Seq is ON; embedded on the fly using the database model."
+      },
+      "OUTPUT_NAME": {
+        "type": "string",
+        "default": "",
+        "description": "Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).\nIf left blank, defaults to the sanitized query header."
+      },
+      "TOP_K": {
+        "type": "integer",
+        "default": 2500,
+        "description": "Top K Hits: Maximum number of highest-scoring database matches to export in results.\nControls the output hit list size in summary tables and reports.",
+        "minimum": 0
+      },
+      "NORM_THRESHOLD": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "default": null,
+        "description": "Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.\nHits scoring below this cutoff are excluded from results. Use JSON null to disable."
+      },
+      "ALIGNMENT_MODE": {
+        "type": "string",
+        "default": "local",
+        "description": "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCompares database sequence embeddings against the query using dynamic programming.",
+        "enum": [
+          "global",
+          "local"
+        ]
+      },
+      "NORM_MODE": {
+        "type": "string",
+        "default": "longer_sequence",
+        "description": "Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.\nPrevents score bias toward longer or shorter sequences.",
+        "enum": [
+          "alignment_length",
+          "shorter_sequence",
+          "longer_sequence",
+          "average_sequence"
+        ]
+      },
+      "LOCAL_GAP_P": {
+        "type": "number",
+        "default": -2.0,
+        "description": "Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.\nMore negative values penalize gap insertions.",
+        "maximum": 0
+      },
+      "GLOBAL_GAP_P": {
+        "type": "number",
+        "default": 0.0,
+        "description": "Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.\nMore negative values penalize gap insertions across full sequences.",
+        "maximum": 0
+      },
+      "WORKERS": {
+        "type": "integer",
+        "default": 8,
+        "description": "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems.",
+        "minimum": 1
+      },
+      "DEVICE_SELECTION": {
+        "type": "string",
+        "default": "auto",
+        "description": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
+        "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
+      },
+      "ACCELERATOR_PRECISION": {
+        "type": "string",
+        "default": "automatic_32bit",
+        "description": "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.",
+        "enum": [
+          "automatic_32bit",
+          "float32",
+          "tf32",
+          "bf16"
+        ]
+      },
+      "GENERATE_FASTA": {
+        "type": "boolean",
+        "default": false,
+        "description": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences."
+      }
+    },
+    "required": [
+      "INPUT_EMBED"
+    ]
+  }
+}

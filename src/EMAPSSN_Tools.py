@@ -78,6 +78,7 @@ from utilities.Model_License_Utils import (
     record_model_license_acceptance,
 )
 from utilities.Tool_Directories import DEFAULT_DIRECTORY_PATHS
+from utilities.Pipeline_Settings import serialize_export_settings
 from utilities.Tool_Execution import (
     build_settings_document,
     format_invocation_command,
@@ -3890,6 +3891,9 @@ class ToolsGUI(QMainWindow):
 
             tool_spec = get_tool_spec_for_script(script_path)
             tool_settings = self._collect_tool_settings(script_path)
+            tool_settings = serialize_export_settings(
+                tool_spec.tool_id, tool_settings, _PROJECT_ROOT
+            )
             tool_settings = {
                 key: (
                     self._portable_export_directory_path(value)

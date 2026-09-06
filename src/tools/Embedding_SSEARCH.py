@@ -54,6 +54,8 @@ import sys
 import gc
 import threading
 import time
+import math
+from utilities.Ssearch_Benchmark import SearchPlan, SearchSelector, SearchTiming, stratified
 from utilities import Hardware_Utils
 from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
 from utilities.Embedding_Alignment_Engine import (
@@ -75,7 +77,7 @@ from utilities.Embedding_Alignment_Engine import (
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
-from multiprocessing import Pool, set_start_method
+from multiprocessing import Pool, set_start_method, get_context
 from tqdm import tqdm
 
 from utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
@@ -110,8 +112,6 @@ WORKERS = 8
 DEVICE_SELECTION = "auto"
 ACCELERATOR_PRECISION = "automatic_32bit"
 ACCELERATOR_LANES = "auto"
-ACCELERATOR_TUNE_PAIRS = 256
-TILED_SEARCH_MIN_TARGETS = 512
 TF32_SEARCH_MIN_TARGETS = 4096
 from utilities.Tool_Directories import project_directory_defaults
 from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
@@ -307,15 +307,10 @@ def search_cpu_worker(args):
 
 
 accelerator_thread_state = threading.local()
-accelerator_lane_cache = {}
 
 
 def _device_type(device):
     return getattr(device, "type", str(device).split(":", 1)[0])
-
-
-def _uses_accelerator(device):
-    return _device_type(device) != "cpu"
 
 
 def _supports_explicit_streams(device):
@@ -361,20 +356,6 @@ def _configured_lanes(device, cpu_workers):
     if not _supports_explicit_streams(device):
         return 1
     return min(configured, max(1, int(cpu_workers)))
-
-
-def _accelerator_name(device):
-    device_type = _device_type(device)
-    try:
-        if device_type == "cuda":
-            return torch.cuda.get_device_name(device)
-        if device_type == "xpu":
-            return torch.xpu.get_device_name(device)
-        if device_type == "mps" and hasattr(torch.backends.mps, "get_name"):
-            return torch.backends.mps.get_name()
-    except (AttributeError, RuntimeError):
-        pass
-    return str(device)
 
 
 class _DeviceStreamContext:
@@ -449,6 +430,7 @@ def _run_accelerated_search(
     lanes,
     show_progress,
     precision="float32",
+    timing=None,
 ):
     results = []
     accelerator_pending = set()
@@ -478,6 +460,15 @@ def _run_accelerated_search(
                 thread_name_prefix="search-cpu",
             ) as cpu_executor, \
             progress_context as progress:
+        if timing is not None:
+            task = tasks[0]
+            def warm_lane():
+                with _stream_context(device):
+                    _warm_search_kernel(task[3], *task[4:], device, precision)
+            timing.warm_executor(accelerator_executor, lanes, warm_lane)
+            timing.warm_executor(cpu_executor, workers)
+            Hardware_Utils.synchronize_device(device)
+            timing.start()
         while (
             not tasks_exhausted
             or accelerator_pending
@@ -557,77 +548,81 @@ def _run_accelerated_search(
                 if progress is not None:
                     progress.update(1)
 
+        if timing is not None:
+            Hardware_Utils.synchronize_device(device)
+            timing.stop()
+    if timing is not None:
+        timing.finish()
     return results
 
 
-def _select_lanes(tasks, workers, input_h5, device):
-    manual = _configured_lanes(device, workers)
-    if manual is not None:
-        return manual
-    candidates = _lane_candidates(device, workers)
-    if len(candidates) == 1 or len(tasks) < 2:
-        return 1
-
-    cache_key = (_device_type(device), _accelerator_name(device), int(workers))
-    if cache_key in accelerator_lane_cache:
-        return accelerator_lane_cache[cache_key]
-
-    count = max(2, min(int(ACCELERATOR_TUNE_PAIRS), len(tasks)))
-    sample = list(tasks[:count])
-    print(
-        f"[Search] Auto-tuning accelerator lanes on {cache_key[1]} "
-        f"using {count} representative targets..."
-    )
-    _run_accelerated_search(
-        sample, workers, input_h5, device, 1, False
-    )
-
-    rates = {}
-    for lanes in candidates:
-        started = time.perf_counter()
-        try:
-            _run_accelerated_search(
-                sample, workers, input_h5, device, lanes, False
-            )
-        except (RuntimeError, NotImplementedError) as error:
-            if lanes == 1:
-                raise
-            print(f"    {lanes} lanes unavailable: {error}")
-            continue
-        rates[lanes] = count / max(time.perf_counter() - started, 1e-9)
-
-    fastest = max(rates.values())
-    selected = min(
-        lanes
-        for lanes, rate in rates.items()
-        if rate >= fastest * 0.97
-    )
-    accelerator_lane_cache[cache_key] = selected
-    print(
-        "    "
-        + ", ".join(
-            f"{lanes}: {rate:.1f} targets/s"
-            for lanes, rate in sorted(rates.items())
-        )
-    )
-    print(f"[Search] Selected {selected} accelerator lane(s).")
-    return selected
+def _cpu_search_with_handle(task, hf):
+    idx, header, safe_h, query, mode, gap, norm_mode = task
+    target = hf["embeddings"][safe_h][:]
+    matrix = compute_score_matrix_torch(query, target, torch.device("cpu"))
+    return finish_search((idx, header, query.shape[0], target.shape[0],
+                          mode, gap, norm_mode, matrix))
 
 
-def _run_cpu_search(tasks, workers, input_h5, show_progress=True):
+def _warm_search_kernel(query, mode, gap, norm_mode, device, precision="float32"):
+    small = np.asarray(query[:64])
+    matrix = _shared_score_matrix(small, small, device, precision=precision)
+    finish_search((0, "warmup", len(small), len(small), mode, gap, norm_mode, matrix))
+
+
+def _init_search_pool(input_h5, warm_task, ready):
+    try:
+        init_worker(input_h5)
+        _warm_search_kernel(warm_task[3], *warm_task[4:], torch.device("cpu"))
+        ready.put(None)
+    except Exception as error:
+        ready.put(f"{type(error).__name__}: {error}")
+
+
+def _run_serial_search(tasks, input_h5, show_progress=False, timing=None):
     results = []
-    with Pool(
-        processes=workers,
-        initializer=init_worker,
-        initargs=(input_h5,),
-    ) as pool:
-        iterator = pool.imap_unordered(
-            search_cpu_worker,
-            tasks,
-            chunksize=50,
-        )
-        for result in tqdm(iterator, total=len(tasks), disable=not show_progress):
-            results.append(result)
+    with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf:
+        if timing is not None:
+            task = tasks[0]
+            _warm_search_kernel(task[3], *task[4:], torch.device("cpu"))
+            timing.start()
+        for task in tqdm(tasks, desc="Search (serial CPU)", disable=not show_progress):
+            results.append(_cpu_search_with_handle(task, hf))
+        if timing is not None:
+            timing.stop()
+    if timing is not None:
+        timing.finish()
+    return results
+
+
+def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
+    results = []
+    workers = max(1, int(workers))
+    ready = get_context().Queue() if timing is not None else None
+    try:
+        with Pool(
+            processes=workers,
+            initializer=_init_search_pool if timing is not None else init_worker,
+            initargs=(input_h5, tasks[0], ready) if timing is not None else (input_h5,),
+        ) as pool:
+            if timing is not None:
+                for _ in range(workers):
+                    error = ready.get(timeout=120)
+                    if error is not None:
+                        raise RuntimeError(error)
+                timing.start()
+            chunksize = max(1, min(50, math.ceil(len(tasks) / (4 * workers))))
+            iterator = pool.imap_unordered(search_cpu_worker, tasks, chunksize=chunksize)
+            for result in tqdm(iterator, total=len(tasks), disable=not show_progress):
+                results.append(result)
+            if timing is not None:
+                timing.stop()
+        if timing is not None:
+            timing.finish()
+    finally:
+        if ready is not None:
+            ready.close()
+            ready.join_thread()
     return results
 
 
@@ -647,24 +642,8 @@ def _finish_fixed_query(task, query_length, target_length, matrix):
     )
 
 
-def _cost_stratified_search_sample(tasks, lengths):
-    count = min(256, max(16, int(len(tasks) * 0.01)))
-    return _length_stratified_search_sample(tasks, lengths, count)
-
-
-def _length_stratified_search_sample(tasks, lengths, count):
-    count = min(max(0, int(count)), len(tasks))
-    ordered = sorted(tasks, key=lambda task: (int(lengths[int(task[0])]), int(task[0])))
-    if count >= len(ordered):
-        return ordered
-    if count == 0:
-        return []
-    positions = np.linspace(0, len(ordered) - 1, num=count, dtype=np.int64)
-    return [ordered[int(position)] for position in positions]
-
-
 def _bf16_search_validation_sample(tasks, lengths):
-    return _length_stratified_search_sample(tasks, lengths, 2048)
+    return stratified(tasks, lengths, 2048)
 
 
 def _search_results_equivalent(
@@ -773,6 +752,9 @@ active_search_hardware = {
     "precision": "ieee_fp32",
     "lanes": 1,
     "microbatch_mib": None,
+    "tuning_seconds": 0.0, "validation_seconds": 0.0,
+    "sampled_targets": 0, "reused_targets": 0,
+    "estimated_remaining": 0.0, "benchmark_notes": "",
 }
 
 
@@ -785,10 +767,19 @@ def _execute_search_plan(
     lengths,
     query_embedding,
     show_progress,
+    timing=None,
 ):
     candidate, variant, precision, lanes = plan
+    if not tasks:
+        return []
     if candidate.is_cpu:
-        return _run_cpu_search(tasks, workers, input_h5, show_progress)
+        if variant == "serial":
+            return _run_serial_search(tasks, input_h5, show_progress, timing)
+        return _run_cpu_search(tasks, workers, input_h5, show_progress, timing)
+    if timing is not None and variant == "tiled":
+        task = tasks[0]
+        _warm_search_kernel(task[3], *task[4:], candidate.device, precision)
+        Hardware_Utils.synchronize_device(candidate)
     if variant == "tiled":
         progress = tqdm(total=len(tasks), desc="Search (tiled CUDA)") if show_progress else None
         try:
@@ -803,6 +794,7 @@ def _execute_search_plan(
                 alignment_callback=_finish_fixed_query,
                 precision=precision,
                 progress=progress,
+                timing=timing,
             )
         finally:
             if progress is not None:
@@ -815,339 +807,223 @@ def _execute_search_plan(
         lanes,
         show_progress,
         precision=precision,
+        timing=timing,
     )
 
 
-def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embedding):
+def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embedding, selection_started=None):
+    selection_started = time.perf_counter() if selection_started is None else selection_started
     precision_setting = normalize_precision_setting(ACCELERATOR_PRECISION)
     candidates = Hardware_Utils.get_available_devices()
     manual = Hardware_Utils.resolve_device_selection(DEVICE_SELECTION, candidates)
     if manual is not None:
         candidates = [manual]
     if precision_setting == "tf32":
-        candidates = [
-            candidate for candidate in candidates
-            if candidate.backend == "cuda" and is_nvidia_cuda(candidate.device)
-        ]
-        if not candidates:
-            raise RuntimeError("Forced TF32 SSEARCH requires an NVIDIA CUDA device.")
+        candidates = [c for c in candidates if c.backend == "cuda" and is_nvidia_cuda(c.device)]
     elif precision_setting == "bf16":
-        candidates = [
-            candidate for candidate in candidates
-            if not candidate.is_cpu
-            and bf16_accelerator_support(candidate.device)[0]
-        ]
-        if not candidates:
-            raise RuntimeError(
-                "Forced BF16 SSEARCH requires a CUDA/ROCm, XPU, or MPS "
-                "accelerator that passes the BF16 runtime probe."
-            )
+        candidates = [c for c in candidates if not c.is_cpu and bf16_accelerator_support(c.device)[0]]
+    if not candidates:
+        raise RuntimeError(f"No selected device supports SSEARCH {precision_setting}.")
 
-    sample = _cost_stratified_search_sample(tasks, lengths)
-    bf16_validation_sample = None
-    if precision_setting == "bf16":
-        bf16_validation_sample = _bf16_search_validation_sample(tasks, lengths)
-        print(
-            bf16_validation_notice(
-                tool_name="Embedding SSEARCH",
-                sample_count=len(bf16_validation_sample),
-            )
+    def execute(plan, sample, timing=None):
+        return _execute_search_plan(plan.execution, sample, workers, input_h5,
+                                    store, lengths, query_embedding, False, timing=timing)
+
+    selector = SearchSelector(tasks, lengths, len(query_embedding), execute)
+    selector.started = selection_started
+    precision = precision_setting if precision_setting in {"tf32", "bf16"} else "float32"
+    cpu = next((c for c in candidates if c.is_cpu), None)
+    serial = SearchPlan(cpu, "serial", "float32") if cpu is not None else None
+    tiny = False
+    if serial is not None:
+        tiny = selector.baseline(serial)
+    if serial is not None and not tiny and serial.observations:
+        selector.trial(serial)
+    print(f"[Hardware] Storage dtypes: {', '.join(sorted({str(dtype) for dtype in store.dtypes}))}")
+    print(f"[Hardware] SSEARCH: {len(tasks)} targets; query={len(query_embedding)}; "
+          f"features={store.feature_dimension}; sample={len(selector.sample)}; "
+          f"soft tuning budget={selector.budget:.2f}s (initialization may exceed it).")
+
+    validated = set()
+    bf16_baselines = {}
+    validation_sample = _bf16_search_validation_sample(tasks, lengths) if precision == "bf16" else []
+
+    def feasible(plan):
+        if plan.variant != "tiled":
+            return True
+        estimate = estimate_fixed_query_cuda_working_set(
+            tasks, query_embedding=query_embedding, store=store, lengths=lengths,
+            device=plan.candidate.device, lanes=plan.lanes, precision=plan.precision,
         )
-    print(
-        f"[Hardware] Testing SSEARCH plans on {len(sample)} length-stratified "
-        f"targets ({len(tasks)} total)."
-    )
-    print("Device/backend                 Plan      Prec.    Lanes   Targets/s   Status")
-    benchmark_rows = []
-    result_payloads = {}
-    for candidate in candidates:
-        variants = ["scalar"]
-        if candidate.backend == "cuda" and len(tasks) >= TILED_SEARCH_MIN_TARGETS:
-            variants.append("tiled")
-        precisions = ["float32"]
-        if precision_setting == "tf32":
-            precisions = ["tf32"]
-        elif precision_setting == "bf16":
-            precisions = ["bf16"]
-        elif (
-            precision_setting == "automatic_32bit"
-            and len(tasks) >= TF32_SEARCH_MIN_TARGETS
-            and candidate.backend == "cuda"
-            and is_nvidia_cuda(candidate.device)
-        ):
-            precisions.append("tf32")
-        if precision_setting == "bf16":
-            try:
-                bf16_baseline = _execute_search_plan(
-                    (candidate, "scalar", "float32", 1),
-                    bf16_validation_sample,
-                    workers,
-                    input_h5,
-                    store,
-                    lengths,
-                    query_embedding,
-                    False,
-                )
-            except Exception as error:
-                print(
-                    f"[Precision] Cannot build FP32 baseline on "
-                    f"{candidate.display_name}: {error}."
-                )
-                Hardware_Utils.release_device_cache(candidate)
+        if not estimate.feasible:
+            selector.skip(plan, f"unmeasured: {estimate.reason}")
+        return estimate.feasible
+
+    def validate_bf16(plan):
+        key = (plan.candidate.spec, plan.variant)
+        if precision != "bf16" or key in validated:
+            return True
+        started = time.perf_counter()
+        try:
+            candidate = plan.candidate
+            if candidate.spec not in bf16_baselines:
+                print(bf16_validation_notice(tool_name="Embedding SSEARCH",
+                                             sample_count=len(validation_sample)))
+                baseline = SearchPlan(candidate, "scalar", "float32", 1)
+                bf16_baselines[candidate.spec] = execute(baseline, validation_sample)
+            validation_plan = SearchPlan(candidate, plan.variant, "bf16", plan.lanes)
+            payload = execute(validation_plan, validation_sample)
+            report = _search_bf16_validation(bf16_baselines[candidate.spec], payload)
+            print(format_bf16_validation_report(
+                report, context=f"tool=Embedding SSEARCH; device={candidate.display_name}; "
+                f"backend={candidate.backend}; variant={plan.variant}", identity_label="target"))
+            validated.add(key)
+            # Validation results belong to this exact plan and can also be reused.
+            plan.results.update({int(row["index"]): row for row in payload})
+            return True
+        except Exception as error:
+            selector.skip(plan, f"BF16 validation failed: {type(error).__name__}: {error}")
+            return False
+        finally:
+            selector.excluded += time.perf_counter() - started
+
+    def trial(plan, required=False):
+        if not required and not selector.allowed(plan):
+            return False
+        try:
+            if not feasible(plan) or not validate_bf16(plan):
+                return False
+            return selector.trial(plan, required=True)
+        except Exception as error:
+            selector.skip(plan, f"failed: {type(error).__name__}: {error}")
+            return False
+        finally:
+            Hardware_Utils.release_device_cache(plan.candidate)
+
+    if not tiny:
+        for candidate in candidates:
+            if candidate.is_cpu:
                 continue
-            validated_variants = []
-            for variant in variants:
-                try:
-                    if variant == "tiled":
-                        validation_estimate = (
-                            estimate_fixed_query_cuda_working_set(
-                                bf16_validation_sample,
-                                query_embedding=query_embedding,
-                                store=store,
-                                lengths=lengths,
-                                device=candidate.device,
-                                lanes=1,
-                                precision="bf16",
-                            )
-                        )
-                        if not validation_estimate.feasible:
-                            raise RuntimeError(validation_estimate.reason)
-                    bf16_results = _execute_search_plan(
-                        (candidate, variant, "bf16", 1),
-                        bf16_validation_sample,
-                        workers,
-                        input_h5,
-                        store,
-                        lengths,
-                        query_embedding,
-                        False,
-                    )
-                    report = _search_bf16_validation(
-                        bf16_baseline,
-                        bf16_results,
-                    )
-                    print(
-                        format_bf16_validation_report(
-                            report,
-                            context=(
-                                f"tool=Embedding SSEARCH; "
-                                f"device={candidate.display_name}; "
-                                f"backend={candidate.backend}; variant={variant}"
-                            ),
-                            identity_label="target",
-                        )
-                    )
-                    validated_variants.append(variant)
-                except Exception as error:
-                    print(
-                        f"[Precision] Cannot report {variant} BF16 on "
-                        f"{candidate.display_name}: "
-                        f"{type(error).__name__}: {error}."
-                    )
-            variants = validated_variants
-            if not variants:
-                Hardware_Utils.release_device_cache(candidate)
+            lanes = _configured_lanes(candidate.device, workers) or 1
+            trial(SearchPlan(candidate, "scalar", precision, lanes), required=not selector.ranked())
+        if cpu is not None and workers > 1:
+            trial(SearchPlan(cpu, "pool", "float32"), required=not selector.ranked())
+
+        for candidate in candidates:
+            if candidate.is_cpu:
                 continue
-        lane_candidates = (
-            [1]
-            if candidate.is_cpu
-            else _lane_candidates(candidate.device, workers)
-        )
-        for variant in variants:
-            for precision in precisions:
-                if precision == "tf32" and not is_nvidia_cuda(candidate.device):
+            device_plans = [p for p in selector.plans if p.candidate.spec == candidate.spec]
+            best = selector.ranked()
+            if not device_plans or not best:
+                continue
+            if min(p.predicted(selector.costs) for p in device_plans) > best[0].predicted(selector.costs) * 1.20:
+                selector.skip(device_plans[0], "refinement skipped: more than 20% behind")
+                continue
+            manual_lanes = _configured_lanes(candidate.device, workers)
+            lanes_to_try = [manual_lanes] if manual_lanes else _lane_candidates(candidate.device, workers)
+            for variant in (["scalar", "tiled"] if candidate.backend == "cuda" else ["scalar"]):
+                previous = next((p for p in device_plans if p.variant == variant), None)
+                for lanes in lanes_to_try:
+                    if previous is not None and lanes <= previous.lanes:
+                        continue
+                    plan = SearchPlan(candidate, variant, precision, lanes)
+                    if not trial(plan):
+                        break
+                    if previous is not None and plan.predicted(selector.costs) > previous.predicted(selector.costs) * 0.90:
+                        break
+                    previous = plan
+
+        # Automatic reduced precision is considered only after FP32 screening.
+        if precision_setting == "automatic_32bit" and len(tasks) >= TF32_SEARCH_MIN_TARGETS:
+            for baseline in list(selector.ranked()):
+                if not is_nvidia_cuda(baseline.candidate.device):
                     continue
-                for lanes in lane_candidates:
-                    if variant == "tiled":
-                        estimate = estimate_fixed_query_cuda_working_set(
-                            sample,
-                            query_embedding=query_embedding,
-                            store=store,
-                            lengths=lengths,
-                            device=candidate.device,
-                            lanes=lanes,
-                            precision=precision,
-                        )
-                        if not estimate.feasible:
-                            print(
-                                f"{candidate.display_name[:30]:30}  {variant:8}  "
-                                f"{precision:7}  {lanes:>5}   {'--':>9}   "
-                                f"skipped: {estimate.reason}"
-                            )
-                            continue
-                    started = time.perf_counter()
-                    try:
-                        payload = _execute_search_plan(
-                            (candidate, variant, precision, lanes),
-                            sample,
-                            workers,
-                            input_h5,
-                            store,
-                            lengths,
-                            query_embedding,
-                            False,
-                        )
-                        rate = len(sample) / max(time.perf_counter() - started, 1e-9)
-                        row = Hardware_Utils.BenchmarkResult(
-                            candidate, rate, lanes=lanes,
-                            variant=f"{variant}:{precision}",
-                        )
-                        benchmark_rows.append(row)
-                        result_payloads[(candidate.spec, variant, precision, lanes)] = payload
-                        print(
-                            f"{candidate.display_name[:30]:30}  {variant:8}  "
-                            f"{precision:7}  {lanes:>5}   {rate:>9.2f}   ok"
-                        )
-                    except Exception as error:
-                        print(
-                            f"{candidate.display_name[:30]:30}  {variant:8}  "
-                            f"{precision:7}  {lanes:>5}   {'--':>9}   "
-                            f"{type(error).__name__}: {error}"
-                        )
-        Hardware_Utils.release_device_cache(candidate)
+                plan = SearchPlan(baseline.candidate, baseline.variant, "tf32", baseline.lanes)
+                if not trial(plan):
+                    continue
+                ids = {int(task[0]) for task in selector.sample}
+                reference = [row for index, row in baseline.results.items() if index in ids]
+                equivalent, reason = _search_results_equivalent(reference, list(plan.results.values()))
+                fp32_best = min(p.predicted(selector.costs) for p in selector.plans if p.precision == "float32")
+                if not equivalent or plan.predicted(selector.costs) * 1.10 > fp32_best:
+                    selector.plans.remove(plan)
+                    selector.skip(plan, f"TF32 rejected: {reason}; requires 10% advantage")
 
-    if precision_setting == "automatic_32bit":
-        fp32_rates = [
-            float(row.value) for row in benchmark_rows
-            if row.variant.endswith(":float32")
-        ]
-        tf32_rows = [row for row in benchmark_rows if row.variant.endswith(":tf32")]
-        validated_tf32 = []
-        for row in tf32_rows:
-            variant = row.variant.split(":", 1)[0]
-            baseline_rows = [
-                baseline for baseline in benchmark_rows
-                if baseline.candidate.spec == row.candidate.spec
-                and baseline.variant == f"{variant}:float32"
-            ]
-            if not baseline_rows:
-                continue
-            baseline = max(baseline_rows, key=lambda item: float(item.value))
-            equivalent, reason = _search_results_equivalent(
-                result_payloads[(baseline.candidate.spec, variant, "float32", baseline.lanes)],
-                result_payloads[(row.candidate.spec, variant, "tf32", row.lanes)],
-            )
-            if equivalent:
-                validated_tf32.append(row)
-            else:
-                print(f"[Precision] Rejected {variant} TF32: {reason}.")
-        fp32_best = max(fp32_rates, default=0.0)
-        tf32_best = max((float(row.value) for row in validated_tf32), default=0.0)
-        if tf32_best < fp32_best * 1.10:
-            if tf32_rows:
-                print(
-                    f"[Precision] Using IEEE FP32: best validated TF32 speedup "
-                    f"was {tf32_best / max(fp32_best, 1e-9):.2f}x."
-                )
-            validated_tf32 = []
-        allowed_tf32 = set(id(row) for row in validated_tf32)
-        benchmark_rows = [
-            row for row in benchmark_rows
-            if not row.variant.endswith(":tf32") or id(row) in allowed_tf32
-        ]
-    ranked_rows = Hardware_Utils.rank_benchmark_results(
-        benchmark_rows, higher_is_better=True
-    )
-    if not ranked_rows:
+        finalists = selector.ranked()[:2]
+        for _ in range(2):
+            for plan in finalists:
+                if len(plan.observations) < 3:
+                    trial(plan)
+
+    ranked = selector.ranked()
+    if not ranked:
         raise RuntimeError("No SSEARCH hardware plan completed successfully.")
-    plans = []
-    for row in ranked_rows:
-        variant, precision = row.variant.split(":", 1)
-        plans.append((row.candidate, variant, precision, row.lanes))
-    winner = plans[0]
-    print(
-        f"[Hardware] Selected {winner[0].display_name}, {winner[1]} plan, "
-        f"{winner[3]} lane(s), {winner[2]}."
+    # An automatic IEEE search always has an explicitly labelled last-resort CPU plan.
+    if manual is None and precision == "float32" and serial is not None and serial not in ranked:
+        ranked.append(serial)
+    active_search_hardware.update(
+        tuning_seconds=selector.elapsed, validation_seconds=selector.excluded,
+        sampled_targets=len(selector.sampled_ids),
+        total_targets=len(tasks), benchmark_notes="; ".join(selector.messages),
+        benchmark_timings="; ".join(
+            f"{p.label}: " + ", ".join(
+                f"setup={t.setup:.4f}s processing={t.processing:.4f}s shutdown={t.shutdown:.4f}s"
+                for t, _rate in p.observations) for p in selector.plans),
+        estimated_remaining=ranked[0].predicted(selector.costs),
     )
-    return plans
+    print(f"[Hardware] Selected {ranked[0].label}; tuning={selector.elapsed:.3f}s; "
+          f"required precision checks={selector.excluded:.3f}s; "
+          f"reusing {len(ranked[0].results)} targets.")
+    return ranked
 
 
 def process_search_tasks(tasks, workers, input_h5):
-    configured_precision = normalize_precision_setting(ACCELERATOR_PRECISION)
-    if (
-        len(tasks) < TILED_SEARCH_MIN_TARGETS
-        and configured_precision != "bf16"
-    ):
-        device = Hardware_Utils.resolve_device_selection(
-            DEVICE_SELECTION, Hardware_Utils.get_available_devices()
-        )
-        if device is None:
-            selected_device = Hardware_Utils.get_optimal_device()
-        else:
-            selected_device = device.device
-        precision = configured_precision
-        if precision == "tf32" and not is_nvidia_cuda(selected_device):
-            raise RuntimeError("Forced TF32 SSEARCH requires an NVIDIA CUDA device.")
-        if _uses_accelerator(selected_device):
-            lanes = _select_lanes(tasks, workers, input_h5, selected_device)
-            active_search_hardware.update(
-                device=str(selected_device), plan="scalar",
-                precision="tf32" if precision == "tf32" else "ieee_fp32",
-                lanes=lanes, microbatch_mib=None,
-            )
-            return _run_accelerated_search(
-                tasks, workers, input_h5, selected_device, lanes, True,
-                precision="tf32" if precision == "tf32" else "float32",
-            )
-        active_search_hardware.update(
-            device="cpu", plan="scalar", precision="ieee_fp32", lanes=1,
-            microbatch_mib=None,
-        )
-        return _run_cpu_search(tasks, workers, input_h5, True)
-
-    store = EmbeddingTileStore(
-        input_h5,
-        [task[2] for task in tasks],
-        host_cache_setting=0,
-    )
+    tasks = list(tasks)
+    if not tasks:
+        return []
+    workers = max(1, int(workers))
+    selection_started = time.perf_counter()
+    store = EmbeddingTileStore(input_h5, [task[2] for task in tasks], host_cache_setting=0)
     lengths = [shape[0] for shape in store.shapes]
     query_embedding = tasks[0][3]
-    plans = _select_search_plans(
-        tasks, workers, input_h5, store, lengths, query_embedding
-    )
-    last_error = None
+    plans = _select_search_plans(tasks, workers, input_h5, store, lengths, query_embedding,
+                                 selection_started=selection_started)
     manual = Hardware_Utils.normalize_device_selection(DEVICE_SELECTION) != "auto"
-    for candidate, variant, precision, lanes in plans:
+    last_error = None
+    expected = {int(task[0]) for task in tasks}
+    for plan in plans:
+        candidate, variant, precision, lanes = plan.execution
         try:
-            results = _execute_search_plan(
-                (candidate, variant, precision, lanes),
-                tasks,
-                workers,
-                input_h5,
-                store,
-                lengths,
-                query_embedding,
-                True,
-            )
+            retained = dict(plan.results)
+            pending = [task for task in tasks if int(task[0]) not in retained]
+            payload = _execute_search_plan(plan.execution, pending, workers, input_h5,
+                                           store, lengths, query_embedding, True)
+            if len(payload) != len({int(row["index"]) for row in payload}):
+                raise RuntimeError("Duplicate SSEARCH result identities")
+            if {int(row["index"]) for row in payload} != {int(task[0]) for task in pending}:
+                raise RuntimeError("Missing or unexpected SSEARCH result identities")
+            retained.update({int(row["index"]): row for row in payload})
+            if retained.keys() != expected:
+                raise RuntimeError("Incomplete SSEARCH results")
             active_search_hardware.update(
-                device=candidate.display_name,
-                plan=variant,
-                precision=(
-                    "bf16" if precision == "bf16"
-                    else "tf32" if precision == "tf32"
-                    else "ieee_fp32"
-                ),
-                lanes=lanes,
-                microbatch_mib=(
-                    cuda_memory_plan(
-                        candidate.device,
-                        lanes=lanes,
-                        compute_element_bytes=precision_element_bytes(precision),
-                    ).matrix_bytes
-                    / (1024 ** 2)
-                    if variant == "tiled" else None
-                ),
+                device=candidate.display_name, plan=variant,
+                precision=precision if precision in {"tf32", "bf16"} else "ieee_fp32",
+                lanes=lanes, reused_targets=len(plan.results),
+                estimated_remaining=plan.predicted({int(t[0]): max(1, len(query_embedding) * lengths[int(t[0])]) for t in tasks}),
+                microbatch_mib=(cuda_memory_plan(candidate.device, lanes=lanes,
+                    compute_element_bytes=precision_element_bytes(precision)).matrix_bytes / (1024 ** 2)
+                    if variant == "tiled" else None),
             )
-            return results
+            return [retained[int(task[0])] for task in tasks]
         except (RuntimeError, NotImplementedError, MemoryError) as error:
             last_error = error
             if manual:
                 raise
-            print(
-                f"[Hardware] {variant} failed on {candidate.display_name}: "
-                f"{error}; trying the next benchmarked plan."
-            )
+            print(f"[Hardware] {plan.label} failed: {error}; trying next plan.")
+        finally:
+            Hardware_Utils.release_device_cache(candidate)
     raise RuntimeError("Every benchmarked SSEARCH plan failed.") from last_error
+
 
 # --- 5. REPORTING -------------------------------------------------------------
 METADATA_REPORT_COLUMNS = [
@@ -1432,6 +1308,16 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         {"Parameter": "Accelerator Lanes", "Value": active_search_hardware["lanes"]},
         {"Parameter": "Microbatch Budget (MiB)", "Value": active_search_hardware["microbatch_mib"] if active_search_hardware["microbatch_mib"] is not None else "N/A"},
     ]
+    for label, key in (
+        ("Tuning Time (s)", "tuning_seconds"),
+        ("Precision Validation Time (s)", "validation_seconds"),
+        ("Benchmark Sample Targets", "sampled_targets"),
+        ("Reused Targets", "reused_targets"),
+        ("Estimated Remaining Search Time (s)", "estimated_remaining"),
+        ("Benchmark Timings", "benchmark_timings"),
+        ("Benchmark Notes", "benchmark_notes"),
+    ):
+        meta_data.append({"Parameter": label, "Value": active_search_hardware.get(key, "N/A")})
     meta_df = pd.DataFrame(meta_data)
     
     try:

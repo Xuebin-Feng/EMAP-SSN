@@ -293,6 +293,46 @@ class ToolEntryPointTests(unittest.TestCase):
 
 
 class ToolExportGuiTests(unittest.TestCase):
+    def test_numeric_text_export_is_typed_without_changing_execution_collection(self):
+        from PySide6.QtWidgets import QLineEdit, QMessageBox, QInputDialog
+        from utilities.Pipeline_Settings import normalize_pipeline_settings
+
+        script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fields = {"INPUT_HDF5": QLineEdit("example.h5"), "BATCH_SIZE": QLineEdit("12345")}
+            window = SimpleNamespace(
+                dir_inputs={"SETTING_EXPORT_DIR": QLineEdit(temp_dir)},
+                script_data={script_path: {
+                    "inputs": {key: {"widget": widget, "type": "text"} for key, widget in fields.items()},
+                    "settings": [{"name": key} for key in fields],
+                }},
+            )
+            window._normalized_export_filename = self.tools_gui_class._normalized_export_filename
+            window._portable_export_directory_path = self.tools_gui_class._portable_export_directory_path
+            window._current_directory_settings = lambda: self.tools_gui_class._current_directory_settings(window)
+            window._collect_tool_settings = lambda path: self.tools_gui_class._collect_tool_settings(window, path)
+            before = window._collect_tool_settings(script_path)
+            with mock.patch.object(QInputDialog, "getText", return_value=("typed", True)), \
+                    mock.patch.object(QMessageBox, "information"), \
+                    mock.patch.object(QMessageBox, "critical") as critical:
+                self.tools_gui_class.export_settings(window, script_path)
+                critical.assert_not_called()
+            exported_path = pathlib.Path(temp_dir) / "typed.json"
+            document = json.loads(exported_path.read_text())
+            self.assertEqual(document["Align_Similarity_Matrix.py"]["BATCH_SIZE"], 12345)
+            self.assertTrue(normalize_pipeline_settings(
+                "align_similarity_matrix", PROJECT_ROOT, settings_document=document
+            )["valid"])
+            self.assertEqual(window._collect_tool_settings(script_path), before)
+            self.assertEqual(before["BATCH_SIZE"], "12345")
+            fields["BATCH_SIZE"].setText("not a number")
+            with mock.patch.object(QInputDialog, "getText", return_value=("invalid", True)), \
+                    mock.patch.object(QMessageBox, "critical") as critical:
+                self.tools_gui_class.export_settings(window, script_path)
+                critical.assert_called_once()
+                self.assertIn("BATCH_SIZE", critical.call_args.args[-1])
+            self.assertFalse((pathlib.Path(temp_dir) / "invalid.json").exists())
+
     @classmethod
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication

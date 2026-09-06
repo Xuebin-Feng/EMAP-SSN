@@ -1,8 +1,11 @@
 import ast
+import contextlib
 import importlib.util
+import io
 import os
 import pathlib
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -44,6 +47,62 @@ EXPECTED_TOOL_DIRECTORIES = {
 
 
 class SanitizeSequencesTests(unittest.TestCase):
+    def test_length_table_matches_histogram_counts(self):
+        for lengths in ([1, 2, 2, 26, 51], [10, 10], [7]):
+            with self.subTest(lengths=lengths):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    sanitize_sequences.print_length_distribution(lengths)
+                rows = [line for line in output.getvalue().splitlines() if line.startswith("[")]
+                counts, edges = sanitize_sequences.np.histogram(lengths, bins=50)
+                self.assertEqual(len(rows), 50)
+                self.assertEqual(
+                    [int(row.split("|")[1]) for row in rows], counts.tolist()
+                )
+                self.assertTrue(rows[0].startswith(f"[{edges[0]:.12g}, "))
+                self.assertIn(f", {edges[-1]:.12g}]", rows[-1])
+
+    def test_mcp_headless_invocation_never_imports_matplotlib(self):
+        from utilities.Tool_Execution import prepare_headless_invocation
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = pathlib.Path(temp_dir) / "input.fasta"
+            input_path.write_text(">short\nAC\n>long\nACDEF\n", encoding="utf-8")
+            invocation = prepare_headless_invocation(
+                "sanitize_sequences",
+                {
+                    "DIRECTORIES": {"FASTA_DIR": temp_dir},
+                    "Sanitize_Sequences.py": {
+                        "INPUT_FASTA": str(input_path),
+                        "OVER_WRITE": False,
+                        "ENABLE_LENGTH_FILTER": False,
+                        "REMOVE_BY_HEADER_STRING": "",
+                    },
+                },
+                PROJECT_ROOT,
+                snapshot_directory=temp_dir,
+            )
+            # Block even importing the plotting package in a fresh interpreter.
+            code = (
+                "import runpy, sys; "
+                "sys.modules['matplotlib'] = None; "
+                f"sys.path.insert(0, {str(MODULE_PATH.parent)!r}); "
+                f"sys.argv = {list(invocation.argv[2:])!r}; "
+                f"runpy.run_path({str(MODULE_PATH)!r}, run_name='__main__')"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", code], cwd=invocation.cwd,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                capture_output=True, text=True, encoding="utf-8", timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Frequency (sequences)", result.stdout)
+            self.assertNotIn("Opening length distribution histogram", result.stdout)
+            self.assertEqual(
+                (pathlib.Path(temp_dir) / "input_sanitized.fasta").read_text(),
+                ">short\nAC\n>long\nACDEF\n",
+            )
+
     def test_lossy_sequence_sanitization_remains_intentional(self):
         gap_sequence, _, _ = sanitize_sequences.sanitize_sequence("AC-D")
         punctuation_sequence, _, _ = sanitize_sequences.sanitize_sequence("AC?D")

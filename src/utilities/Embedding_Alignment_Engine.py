@@ -2052,6 +2052,7 @@ def run_fixed_query_cuda_pipeline(
     progress=None,
     matrix_budget_override=None,
     task_index: Callable = _fixed_query_task_index,
+    timing=None,
 ):
     """Batch a fixed query against target embeddings and overlap CPU scoring."""
     if getattr(device, "type", None) != "cuda":
@@ -2137,6 +2138,9 @@ def run_fixed_query_cuda_pipeline(
             query_event.record(preload_stream)
         query_event.synchronize()
         group = hf["embeddings"]
+        if timing is not None:
+            timing.warm_executor(cpu_executor, max(1, int(workers)))
+            timing.start()
 
         for block_tasks in grouped.values():
             indices = {task_index(task) for task in block_tasks}
@@ -2192,6 +2196,10 @@ def run_fixed_query_cuda_pipeline(
 
         while cpu_pending:
             collect_cpu(block=True)
+        if timing is not None:
+            timing.stop()
+    if timing is not None:
+        timing.finish()
     return results
 
 

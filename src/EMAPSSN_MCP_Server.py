@@ -33,13 +33,20 @@ from utilities.MCP_Pipeline_Jobs import (
 from utilities.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
 from utilities.Application_Identity import PRODUCT_NAME
 from utilities.Tool_Execution import list_tool_specs
+from utilities.Pipeline_Settings import (
+    DESCRIPTIONS,
+    PipelineSettingsError,
+    get_pipeline_schema,
+    normalize_pipeline_settings,
+)
 
 
-MCP_SERVER_VERSION = "0.1.0"
+MCP_SERVER_VERSION = "0.2.0"
 
 
 class PipelineToolInfo(BaseModel):
     tool_id: str
+    description: str
     script_name: str
     settings_section: str
     required_directories: list[str]
@@ -122,6 +129,9 @@ mcp = MCPServer(
     title=PRODUCT_NAME,
     description="Run allowlisted SSN pipelines and inspect local Viewers read-only.",
     instructions=(
+        "Discover pipeline parameters with get_pipeline_tool_schema and preview "
+        "requests with validate_pipeline_settings. Supply native JSON numbers "
+        "and booleans; unknown setting keys are rejected. "
         "Pipeline jobs may create or overwrite files according to the supplied "
         "settings. Jobs and their FIFO queue belong to this STDIO server and are "
         "cancelled when it exits. Viewer tools are read-only."
@@ -171,6 +181,7 @@ def list_pipeline_tools() -> PipelineCatalog:
         tools=[
             PipelineToolInfo(
                 tool_id=spec.tool_id,
+                description=DESCRIPTIONS[spec.tool_id],
                 script_name=spec.script_name,
                 settings_section=spec.settings_section,
                 required_directories=list(spec.required_directories),
@@ -180,6 +191,34 @@ def list_pipeline_tools() -> PipelineCatalog:
         ],
         max_running=1,
         max_pending=16,
+    )
+
+
+@mcp.tool(title="Get pipeline settings schema", annotations=_READ_ONLY, structured_output=True)
+def get_pipeline_tool_schema(tool_id: str) -> dict[str, Any]:
+    """Discover accepted parameters, defaults, choices, conditions, and an example."""
+    try:
+        return get_pipeline_schema(tool_id, _PROJECT_ROOT)
+    except (KeyError, OSError, ValueError) as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(title="Validate pipeline settings", annotations=_READ_ONLY, structured_output=True)
+def validate_pipeline_settings(
+    tool_id: str,
+    parameters: dict[str, Any] | None = None,
+    directories: dict[str, Any] | None = None,
+    settings_document: dict[str, Any] | None = None,
+    settings_path: str | None = None,
+) -> dict[str, Any]:
+    """Preview effective settings without creating files or jobs. Supply exactly one
+    of parameters, settings_document, or settings_path; directories accompanies
+    parameters only. Numbers and booleans require native JSON types. This checks
+    configuration, not file existence, model credentials, or hardware readiness.
+    """
+    return normalize_pipeline_settings(
+        tool_id, _PROJECT_ROOT, parameters=parameters, directories=directories,
+        settings_document=settings_document, settings_path=settings_path,
     )
 
 
@@ -199,22 +238,27 @@ async def start_pipeline_job(
         str | None,
         Field(description="Path to an existing exported SSN settings document"),
     ] = None,
+    parameters: Annotated[
+        dict[str, Any] | None,
+        Field(description="Tool parameters from get_pipeline_tool_schema, using native JSON types"),
+    ] = None,
+    directories: Annotated[
+        dict[str, Any] | None,
+        Field(description="Optional directory overrides, only with parameters"),
+    ] = None,
 ) -> PipelineJobInfo:
-    """Validate settings and enqueue one allowlisted pipeline process."""
-    if (settings_document is None) == (settings_path is None):
-        raise ToolError(
-            "Provide exactly one of settings_document or settings_path."
-        )
-    settings_source: dict[str, Any] | str
-    if settings_path is not None:
-        settings_source = os.fspath(settings_path)
-        if not os.path.isabs(settings_source):
-            settings_source = os.path.join(_PROJECT_ROOT, settings_source)
-        settings_source = os.path.abspath(settings_source)
-    else:
-        settings_source = settings_document or {}
+    """Validate and enqueue a pipeline. Supply exactly one of parameters,
+    settings_document, or settings_path. Optional directories goes with parameters.
+    Use validate_pipeline_settings for a preview; invalid requests never queue.
+    """
+    preview = normalize_pipeline_settings(
+        tool_id, _PROJECT_ROOT, parameters=parameters, directories=directories,
+        settings_document=settings_document, settings_path=settings_path,
+    )
+    if not preview["valid"]:
+        raise ToolError(str(PipelineSettingsError(preview["errors"])))
     try:
-        payload = await _context(ctx).jobs.submit(tool_id, settings_source)
+        payload = await _context(ctx).jobs.submit(tool_id, preview["settings_document"])
     except (KeyError, OSError, TypeError, ValueError, PipelineJobError) as error:
         raise ToolError(str(error)) from error
     return _job_info(payload)

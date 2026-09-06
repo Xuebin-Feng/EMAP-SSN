@@ -1,7 +1,9 @@
 import io
+import json
 import os
 import pathlib
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -23,6 +25,38 @@ import Embedding_MSA
 
 
 class EmbeddingMsaConfigurationTests(unittest.TestCase):
+    def test_headless_overrides_plot_setting_before_running_builder(self):
+        from utilities.Tool_Execution import prepare_headless_invocation
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invocation = prepare_headless_invocation(
+                "embedding_msa",
+                {"DIRECTORIES": {}, "Embedding_MSA.py": {"SHOW_REGRESSION_PLOT": True}},
+                PROJECT_ROOT,
+                snapshot_directory=temp_dir,
+            )
+            with mock.patch.dict(os.environ), mock.patch.object(
+                Embedding_MSA, "SHOW_REGRESSION_PLOT", True
+            ), mock.patch.object(Embedding_MSA, "run_msa_builder") as builder:
+                builder.side_effect = lambda: self.assertFalse(Embedding_MSA.SHOW_REGRESSION_PLOT)
+                self.assertEqual(Embedding_MSA.main([invocation.settings_path]), 0)
+                builder.assert_called_once_with()
+
+    def test_gui_preserves_plot_setting(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = pathlib.Path(temp_dir) / "tools_settings.json"
+            settings.write_text(json.dumps({
+                "DIRECTORIES": {}, "Embedding_MSA.py": {"SHOW_REGRESSION_PLOT": True}
+            }), encoding="utf-8")
+            with mock.patch.dict(os.environ), mock.patch.object(
+                Embedding_MSA, "PROJECT_ROOT", temp_dir
+            ), mock.patch.object(
+                Embedding_MSA, "SHOW_REGRESSION_PLOT", False
+            ), mock.patch.object(Embedding_MSA, "run_msa_builder") as builder:
+                builder.side_effect = lambda: self.assertTrue(Embedding_MSA.SHOW_REGRESSION_PLOT)
+                self.assertEqual(Embedding_MSA.main([]), 0)
+                builder.assert_called_once_with()
+
     def setUp(self):
         self.fasta_dir = os.path.join("project", "Input_Files", "Sequence_Sets")
         self.embed_dir = os.path.join("project", "Embeddings")

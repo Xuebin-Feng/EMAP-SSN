@@ -132,9 +132,11 @@ No environment activation or wrapper script is required. A harness with a
 different configuration schema needs only the same executable and server-file
 arguments over its local STDIO transport.
 
-The MCP server provides a generic pipeline catalog plus start, status, log,
-and cancellation tools. A start request accepts either the exported JSON
-document itself or a path to that document. Each client connection owns one
+The MCP server provides pipeline discovery, settings validation, start, status,
+log, and cancellation tools. A start request accepts parameters with optional
+directory overrides, an exported JSON document, or a path to that document.
+See [MCP settings and examples](docs/mcp_settings.md) for the version 0.2 strict
+settings contract and GUI export compatibility. Each client connection owns one
 FIFO with one running and at most 16 pending jobs. Closing or restarting that
 client terminates its running job and cancels its queued jobs; different MCP
 clients do not share a queue and can start conflicting calculations. Pipeline

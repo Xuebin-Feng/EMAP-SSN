@@ -53,7 +53,8 @@ What this script does step-by-step:
    - Saves a new, clean `.fasta` file.
    - Prints a highly detailed diagnostic report to your console showing exactly what 
      was changed, removed, or merged.
-   - Displays a pop-up histogram visualizing the final sequence length distribution.
+   - Displays a pop-up length histogram, or prints the same bins and counts as a
+     table when invoked with a JSON settings file (including MCP runs).
 
 Input:
 - A raw text-based FASTA file (`INPUT_FASTA`).
@@ -70,7 +71,7 @@ except ModuleNotFoundError:
 import tempfile
 from tqdm import tqdm
 from collections import Counter
-import matplotlib.pyplot as plt
+import numpy as np
 
 from utilities.FASTA_Sanitization import (
     allocate_unique_headers,
@@ -79,7 +80,11 @@ from utilities.FASTA_Sanitization import (
     select_preferred_header,
 )
 from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from utilities.Tool_Settings import (
+    inherited_settings_path,
+    load_tool_settings,
+    select_settings_path,
+)
 
 # ==========================================
 # CONFIGURATION
@@ -267,6 +272,8 @@ def write_fasta_atomic(file_path, headers, sequences, refuse_empty=False):
             os.unlink(temporary_path)
 
 def plot_length_distribution(lengths):
+    import matplotlib.pyplot as plt
+
     plt.figure(figsize=(10, 6))
     plt.hist(lengths, bins=50, color='royalblue', edgecolor='black', alpha=0.8)
     plt.title('Sequence Length Distribution (Post-Sanitization & Filtering)')
@@ -278,10 +285,27 @@ def plot_length_distribution(lengths):
     plt.show()  # Display as a pop-up window
     plt.close()
 
+
+def print_length_distribution(lengths):
+    """Print the same 50 bins used by the interactive histogram, without plotting."""
+    counts, edges = np.histogram(lengths, bins=50)
+    print("\nSequence Length Distribution (Post-Sanitization & Filtering)")
+    print("Sequence length in amino acids; bins include the lower bound and")
+    print("exclude the upper bound, except the final bin includes both bounds.")
+    print(f"{'Length bin (aa)':<32} | {'Frequency (sequences)':>21}")
+    print("-" * 57)
+    for index, count in enumerate(counts):
+        closing = "]" if index == len(counts) - 1 else ")"
+        interval = f"[{edges[index]:.12g}, {edges[index + 1]:.12g}{closing}"
+        print(f"{interval:<32} | {int(count):>21}")
+    print(f"{'Total':<32} | {int(counts.sum()):>21}")
+
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
 def main(argv=None):
+    # Explicit JSON settings are the shared CLI/MCP headless invocation contract.
+    _, headless = select_settings_path(os.path.basename(__file__), PROJECT_ROOT, argv)
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
     print(f"--- 🧬 Sequence Sanitization ---")
     print(f"Reading from: {INPUT_FASTA}")
@@ -487,8 +511,11 @@ def main(argv=None):
 
     # Plot Histogram
     if clean_lengths:
-        print(f"Opening length distribution histogram...")
-        plot_length_distribution(clean_lengths)
+        if headless:
+            print_length_distribution(clean_lengths)
+        else:
+            print(f"Opening length distribution histogram...")
+            plot_length_distribution(clean_lengths)
     else:
         print(f"⚠️ No sequences passed the length filters. Histogram skipped.")
     return 0

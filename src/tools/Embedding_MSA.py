@@ -112,7 +112,11 @@ INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS = False
 
 # --- DIRECTORY DEFAULTS ---
 from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from utilities.Tool_Settings import (
+    inherited_settings_path,
+    load_tool_settings,
+    select_settings_path,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -1680,7 +1684,12 @@ def run_msa_builder():
     )
 
 def main(argv=None):
+    global SHOW_REGRESSION_PLOT
+    _, headless = select_settings_path(os.path.basename(__file__), PROJECT_ROOT, argv)
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
+    # JSON/MCP invocations must never wait for an interactive plot window.
+    if headless:
+        SHOW_REGRESSION_PLOT = False
     run_msa_builder()
     return 0
 
