@@ -271,22 +271,23 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 window.line_new_cache.setText("launch-test")
 
                 method_globals = window.save_and_run.__globals__
-                handoff = mock.Mock(return_value=object())
+                generator_handoff = mock.Mock(return_value=object())
                 with mock.patch.object(window, "save_settings", return_value=True), mock.patch.dict(
-                    method_globals, {{"_handoff_to_viewer": handoff}}
+                    method_globals, {{"_handoff_to_layout_generator": generator_handoff}}
                 ), mock.patch.object(window, "close") as close:
                     window.save_and_run()
                     close.assert_not_called()
-                    launch_env = handoff.call_args.args[1]
+                    generator_handoff.assert_called_once()
+                    launch_env = generator_handoff.call_args.args[2]
                     assert launch_env["SSN_TARGET_CACHE_MODE"] == "new"
                     assert launch_env["SSN_TARGET_CACHE_PATH"] == "compatible-layout/launch-test.h5"
                     snapshot = pathlib.Path(launch_env["SSN_VIEWER_SETTINGS_PATH"])
                     assert snapshot.is_file()
                     snapshot.unlink()
 
-                failed_handoff = mock.Mock(side_effect=OSError("exec failed"))
+                failed_generator_handoff = mock.Mock(side_effect=OSError("exec failed"))
                 with mock.patch.object(window, "save_settings", return_value=True), mock.patch.dict(
-                    method_globals, {{"_handoff_to_viewer": failed_handoff}}
+                    method_globals, {{"_handoff_to_layout_generator": failed_generator_handoff}}
                 ), mock.patch.object(window, "close") as close, mock.patch.object(
                     QMessageBox, "critical"
                 ) as critical:

@@ -577,11 +577,22 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
             (preexisting_cache_folder / fasta_path.name).write_bytes(
                 fasta_path.read_bytes()
             )
-            with mock.patch.multiple(EMAPSSN_Viewer.cfg, **settings), mock.patch.object(
+            from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
+            from types import SimpleNamespace
+            gen_settings = LayoutGenerationSettings.from_namespace(
+                SimpleNamespace(**settings),
+                cache_filename="layout.h5",
+                target_cache_path=str(layout_root / "target" / "layout.h5"),
+            )
+            with mock.patch.object(
                 layout_engine,
                 "calculate_layout",
                 return_value=(expected_positions, 10.0),
             ):
+                generate_layout_cache(gen_settings)
+
+            settings["TARGET_CACHE_MODE"] = "existing"
+            with mock.patch.multiple(EMAPSSN_Viewer.cfg, **settings):
                 created = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
                 created.load_and_simulate()
 

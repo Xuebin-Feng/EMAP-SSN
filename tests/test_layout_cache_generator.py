@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import Cache_Manifest
+import Layout_Cache_Generator
 from Layout_Cache_Generator import (
     LayoutGenerationError,
     LayoutGenerationSettings,
@@ -552,6 +553,42 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             )
         self.assertEqual(process.returncode, 1)
         self.assertIn("Could not read layout settings", process.stderr)
+
+    def test_cli_launch_viewer_and_delete_settings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            _write_inputs(temp_path)
+            doc = _settings_document(temp_path, cache_filename="cli_test.h5")
+            settings_file = temp_path / "settings.json"
+            settings_file.write_text(json.dumps(doc), encoding="utf-8")
+
+            fake_result = SimpleNamespace(
+                cache_path=str(temp_path / "layouts" / "folder" / "cli_test.h5"),
+            )
+            with mock.patch(
+                "Layout_Cache_Generator.generate_layout_cache",
+                return_value=fake_result,
+            ) as mock_gen, mock.patch(
+                "subprocess.call",
+                return_value=42,
+            ) as mock_call:
+                code = Layout_Cache_Generator.main(
+                    [str(settings_file), "--launch-viewer", "--delete-settings"]
+                )
+                self.assertEqual(code, 42)
+                mock_gen.assert_called_once()
+                mock_call.assert_called_once()
+                called_cmd, called_kwargs = mock_call.call_args
+                self.assertIn("EMAPSSN_Viewer.py", called_cmd[0][2])
+                self.assertEqual(
+                    called_kwargs["env"]["SSN_TARGET_CACHE_PATH"],
+                    "folder/cli_test.h5",
+                )
+                self.assertEqual(
+                    called_kwargs["env"]["SSN_TARGET_CACHE_MODE"],
+                    "existing",
+                )
+                self.assertFalse(settings_file.exists())
 
 
 if __name__ == "__main__":

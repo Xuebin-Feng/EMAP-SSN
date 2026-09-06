@@ -504,6 +504,49 @@ def _handoff_to_viewer(
     )
 
 
+def _handoff_to_layout_generator(
+    project_root,
+    layout_settings_path,
+    env,
+    *,
+    launch_viewer=True,
+    platform_name=None,
+    executable=None,
+):
+    """Launch the layout generator in a terminal, optionally handing off to viewer."""
+    executable = executable or sys.executable
+    project_root = os.path.abspath(project_root)
+    generator_script = os.path.join(project_root, "src", "Layout_Cache_Generator.py")
+    argv = [executable, "-u", generator_script, layout_settings_path]
+    if launch_viewer:
+        argv.append("--launch-viewer")
+    argv.append("--delete-settings")
+    return launch_in_terminal(
+        argv,
+        cwd=project_root,
+        env=env,
+        hold=HoldMode.ON_ERROR,
+        title="EMAP-SSN Layout Generator",
+        platform_name=platform_name,
+    )
+
+
+def _create_layout_settings_snapshot(settings_doc):
+    """Write one private layout settings file for a single Layout Generator process."""
+    descriptor, path = tempfile.mkstemp(prefix="ssn_layout_", suffix=".json")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(settings_doc, handle, indent=4)
+            handle.write("\n")
+    except Exception:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    return path
+
+
 def _create_viewer_settings_snapshot(settings):
     """Write one private settings file for a single Viewer process."""
     descriptor, path = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
@@ -3865,7 +3908,6 @@ if __name__ == "__main__":
                 )
                 return
 
-            print("Launching EMAPSSN_Viewer.py...")
             env = os.environ.copy()
             env.pop("SSN_TARGET_CACHE", None)
             env["SSN_TARGET_CACHE_PATH"] = relative_path.replace("\\", "/")
@@ -3875,19 +3917,58 @@ if __name__ == "__main__":
             # Use the project root (parent of src/) as cwd so all relative data paths resolve correctly
             script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-            try:
-                _handoff_to_viewer(script_dir, env)
-            except (OSError, RuntimeError) as error:
+            if cache_mode == "new":
                 try:
-                    os.unlink(settings_snapshot)
-                except OSError:
-                    pass
-                QMessageBox.critical(
-                    self,
-                    "Viewer Launch Error",
-                    f"Failed to launch EMAPSSN_Viewer.py:\n{error}",
-                )
-                return
+                    layout_settings = self._collect_layout_generation_settings()
+                    layout_doc = layout_settings.to_document(project_root=PROJECT_ROOT)
+                    layout_snapshot = _create_layout_settings_snapshot(layout_doc)
+                except Exception as error:
+                    try:
+                        os.unlink(settings_snapshot)
+                    except OSError:
+                        pass
+                    QMessageBox.critical(
+                        self,
+                        "Layout Settings Error",
+                        f"Failed to prepare layout generation settings:\n{error}",
+                    )
+                    return
+
+                print("Launching Layout_Cache_Generator.py...")
+                try:
+                    _handoff_to_layout_generator(
+                        script_dir, layout_snapshot, env, launch_viewer=True
+                    )
+                except (OSError, RuntimeError) as error:
+                    try:
+                        os.unlink(settings_snapshot)
+                    except OSError:
+                        pass
+                    try:
+                        os.unlink(layout_snapshot)
+                    except OSError:
+                        pass
+                    QMessageBox.critical(
+                        self,
+                        "Layout Generator Launch Error",
+                        f"Failed to launch Layout_Cache_Generator.py:\n{error}",
+                    )
+                    return
+            else:
+                print("Launching EMAPSSN_Viewer.py...")
+                try:
+                    _handoff_to_viewer(script_dir, env)
+                except (OSError, RuntimeError) as error:
+                    try:
+                        os.unlink(settings_snapshot)
+                    except OSError:
+                        pass
+                    QMessageBox.critical(
+                        self,
+                        "Viewer Launch Error",
+                        f"Failed to launch EMAPSSN_Viewer.py:\n{error}",
+                    )
+                    return
 
         def save_only(self):
             self.save_settings()

@@ -69,10 +69,6 @@ from PySide6 import QtWidgets, QtCore, QtGui
 import EMAPSSN_Config as cfg
 import Command_Engine
 import Cache_Manifest as cache_manifest
-from Layout_Cache_Generator import (
-    LayoutGenerationSettings,
-    generate_layout_cache,
-)
 from Background_Job_Scheduler import BackgroundJobScheduler
 from utilities.FASTA_Sanitization import (
     load_sanitized_fasta,
@@ -1037,9 +1033,12 @@ class MainViewer:
             # --- Resolve Path and Header ---
             cache_path, self.resolved_ref_full = resolve_selected_cache(cfg)
             print(f"Target Cache File: {cache_path}")
-            cache_mode = getattr(cfg, 'TARGET_CACHE_MODE', None)
-            if cache_mode not in {'existing', 'new'}:
-                cache_mode = 'existing' if os.path.exists(cache_path) else 'new'
+            if not os.path.exists(cache_path):
+                raise RuntimeError(
+                    f"Selected cache file does not exist: {cache_path}. "
+                    "Please generate the layout cache first using EMAPSSN_Config or Layout_Cache_Generator.py."
+                )
+            cache_mode = getattr(cfg, 'TARGET_CACHE_MODE', 'existing')
 
             selected_fasta_path = (
                 getattr(cfg, 'NODE_FASTA_FILE', None)
@@ -1221,39 +1220,10 @@ class MainViewer:
                         "Choose '(New Layout Cache)' in EMAP-SSN Configuration."
                     ) from e
 
-            # --- Calculate from Scratch (if cache failed or missing) ---
             if not raw_loaded:
-                if cache_mode != 'new':
-                    raise RuntimeError("Existing cache validation did not complete.")
-                clean_hdf5_path = os.path.normpath(cfg.INPUT_HDF5)
-                print(f"--- Calculating New Layout (Raw: {clean_hdf5_path}) ---")
-                try:
-                    generation_settings = LayoutGenerationSettings.from_namespace(
-                        cfg,
-                        cache_filename=os.path.basename(cache_path),
-                        project_root=os.path.dirname(_SRC_DIR),
-                        target_cache_path=cache_path,
-                    )
-                    result = generate_layout_cache(generation_settings)
-                except Exception as error:
-                    raise RuntimeError(
-                        f"Could not generate layout cache: {error}"
-                    ) from error
-
-                self.cache_manifest = result.manifest
-                self.cache_manifest_id = result.manifest["manifest_id"]
-                cfg.CACHE_MANIFEST_ID = self.cache_manifest_id
-                cfg.SIMILARITY_THRESHOLD = result.effective_similarity_threshold
-                self._selected_fasta_records = result.fasta_records
-                self.sequences_map = _build_sequence_lookup(result.fasta_records)
-                self.full_headers = result.full_headers
-                self.edges = result.edges
-                self.edge_scores = result.edge_scores
-                self.pos = result.positions
-                self.box_limit = result.box_limit
-                self.n_nodes = len(self.full_headers)
-                print(
-                    f"Network Built: {self.n_nodes} Nodes, {len(self.edges)} Edges."
+                raise RuntimeError(
+                    f"Selected cache could not be loaded: {cache_path}. "
+                    "Please regenerate the layout cache using EMAPSSN_Config or Layout_Cache_Generator.py."
                 )
 
             self._init_colors()

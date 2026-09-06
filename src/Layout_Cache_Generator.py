@@ -13,6 +13,7 @@ import json
 import math
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -767,19 +768,58 @@ def _argument_parser() -> argparse.ArgumentParser:
         "settings_json",
         help="Layout settings JSON exported by EMAPSSN_Config.py",
     )
+    parser.add_argument(
+        "--launch-viewer",
+        action="store_true",
+        help="Launch EMAP-SSN Viewer in the current terminal once layout generation succeeds.",
+    )
+    parser.add_argument(
+        "--delete-settings",
+        action="store_true",
+        help="Delete the input settings JSON file after reading.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _argument_parser()
     args = parser.parse_args(argv)
+    settings_path = Path(args.settings_json)
     try:
-        settings = LayoutGenerationSettings.from_json_file(args.settings_json)
+        settings = LayoutGenerationSettings.from_json_file(settings_path)
+        if args.delete_settings:
+            try:
+                settings_path.unlink()
+            except OSError:
+                pass
         result = generate_layout_cache(settings)
     except Exception as error:
+        if args.delete_settings:
+            try:
+                settings_path.unlink()
+            except OSError:
+                pass
         print(f"Error: {error}", file=sys.stderr)
         return 1
+
     print(result.cache_path)
+    if args.launch_viewer:
+        viewer_script = os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py")
+        env = os.environ.copy()
+        rel_cache_path = os.path.relpath(
+            result.cache_path, settings.SAVED_LAYOUT_DIR
+        ).replace("\\", "/")
+        env["SSN_TARGET_CACHE_PATH"] = rel_cache_path
+        env["SSN_TARGET_CACHE_MODE"] = "existing"
+        print(
+            f"Layout cache generated successfully at {result.cache_path}. "
+            "Launching EMAP-SSN Viewer..."
+        )
+        return subprocess.call(
+            [sys.executable, "-u", viewer_script],
+            cwd=str(PROJECT_ROOT),
+            env=env,
+        )
     return 0
 
 
