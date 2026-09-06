@@ -49,10 +49,11 @@ root. No directory inventory is performed. The helper opens files read-only and
 does not create jobs, fix files, or change submission requirements.
 
 `file_type` defaults to `auto`. Supported explicit types are `fasta`,
-`alignment_fasta`, `embedding`, `network`, `sparse_msa`, `blast_tabular`, and
-`settings`. Detection uses contents and HDF5 structure, not the extension. Aligned
-FASTA should be specified explicitly; `tool_id: "sparse_msa_converter"` also
-selects aligned-FASTA checks for auto-detected FASTA. Layout caches are excluded.
+`alignment_fasta`, `embedding`, `network`, `sparse_msa`, `blast_tabular`,
+`layout_cache`, and `settings`. Detection uses contents and HDF5 structure, not the
+extension. Aligned FASTA should be specified explicitly; `tool_id: "sparse_msa_converter"`
+also selects aligned-FASTA checks for auto-detected FASTA. Layout caches can be detected
+automatically or inspected with `file_type: "layout_cache"`.
 Ambiguous plain tabular files require an explicit format:
 
 ```json
@@ -213,3 +214,28 @@ type and report any override. GUI exports preserve the user's plotting preferenc
 Headless sanitization prints the same 50-bin length distribution as a text table
 without creating a figure. Queue ownership, cancellation, subprocess logging, and
 output-directory reporting are unchanged.
+
+## Layout cache generation
+
+Use `start_layout_job` to generate precomputed 2D node coordinates (`.h5`) and
+manifests (`.json`) using `Layout_Cache_Generator.py`:
+
+```json
+{
+  "fasta_path": "nodes.fasta",
+  "network_path": "network.h5",
+  "layout_id": "network_tsne",
+  "layout_method": "t-SNE",
+  "random_seed": 42
+}
+```
+
+Layout jobs are enqueued into the same unified FIFO queue managed by `PipelineJobManager`
+and share job tracking, status monitoring, log streaming (`read_pipeline_log`), and
+cancellation (`cancel_pipeline_job`).
+
+Layout settings default to project-level constants defined in `EMAPSSN_Config.py`
+(`FASTA_DIR`, `HDF5_DIR`, `SAVED_LAYOUT_DIR`). Relative input and output paths
+automatically resolve against these directories if not provided as absolute paths.
+The resulting cache files (`<layout_id>.h5` and `<layout_id>_manifest.json`) are stored
+in `SAVED_LAYOUT_DIR` (`Cache_Files/Saved_Layouts`).

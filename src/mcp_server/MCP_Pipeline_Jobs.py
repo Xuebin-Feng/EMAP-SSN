@@ -10,6 +10,9 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from collections.abc import Mapping
+import json
+from types import SimpleNamespace
 import os
 import shutil
 import signal
@@ -22,6 +25,7 @@ from utilities.Tool_Execution import (
     ToolInvocation,
     prepare_headless_invocation,
     resolve_tool_directories,
+    write_json_document,
 )
 
 
@@ -181,6 +185,116 @@ class PipelineJobManager:
             job = PipelineJob(
                 job_id=job_id,
                 tool_id=invocation.tool.tool_id,
+                invocation=invocation,
+                created_at=_utc_now(),
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                output_locations=output_locations,
+            )
+        except Exception:
+            self._remove_job_directory(job_directory)
+            raise
+
+        async with self._lock:
+            if self._closed:
+                self._remove_job_directory(job_directory)
+                raise PipelineJobError("The pipeline job manager is closed.")
+            if len(self._pending) >= self.max_pending:
+                self._remove_job_directory(job_directory)
+                raise PipelineQueueFullError(
+                    f"The pipeline queue already has {self.max_pending} pending jobs."
+                )
+            self._jobs[job_id] = job
+            self._pending.append(job_id)
+            payload = self._job_payload_locked(job)
+            self._wake.set()
+            return payload
+
+    async def submit_layout_job(self, settings_source):
+        await self.start()
+        async with self._lock:
+            if self._closed:
+                raise PipelineJobError("The pipeline job manager is closed.")
+            if len(self._pending) >= self.max_pending:
+                raise PipelineQueueFullError(
+                    f"The pipeline queue already has {self.max_pending} pending jobs."
+                )
+
+        from Layout_Cache_Generator import LayoutGenerationSettings
+
+        job_id = str(uuid.uuid4())
+        job_directory = os.path.join(self.temporary_root, job_id)
+        os.makedirs(job_directory, mode=0o700)
+        try:
+            if isinstance(settings_source, LayoutGenerationSettings):
+                layout_settings = settings_source
+                normalized_doc = layout_settings.to_document(
+                    project_root=self.project_root
+                )
+            elif isinstance(settings_source, Mapping):
+                layout_settings = LayoutGenerationSettings.from_document(
+                    settings_source, project_root=self.project_root
+                )
+                normalized_doc = dict(settings_source)
+            elif isinstance(settings_source, (str, os.PathLike)):
+                layout_settings = LayoutGenerationSettings.from_json_file(
+                    settings_source, project_root=self.project_root
+                )
+                with open(settings_source, "r", encoding="utf-8") as handle:
+                    normalized_doc = json.load(handle)
+            else:
+                raise TypeError(
+                    "settings_source must be a LayoutGenerationSettings, mapping, or file path."
+                )
+
+            snapshot_path = os.path.join(job_directory, f"layout-{job_id}.json")
+            write_json_document(
+                snapshot_path,
+                normalized_doc,
+                atomic=True,
+                trailing_newline=True,
+            )
+            if sys.platform != "win32":
+                try:
+                    os.chmod(snapshot_path, 0o600)
+                except OSError:
+                    pass
+
+            script_path = os.path.join(
+                self.project_root, "src", "Layout_Cache_Generator.py"
+            )
+            tool_spec = SimpleNamespace(
+                tool_id="generate_layout_cache",
+                script_name="Layout_Cache_Generator.py",
+            )
+            invocation = ToolInvocation(
+                tool=tool_spec,
+                argv=(
+                    self.python_executable,
+                    "-u",
+                    script_path,
+                    snapshot_path,
+                ),
+                cwd=self.project_root,
+                settings_path=snapshot_path,
+                owns_settings_snapshot=True,
+            )
+            output_locations = {
+                "SAVED_LAYOUT_DIR": layout_settings.SAVED_LAYOUT_DIR
+            }
+            stdout_path = os.path.join(job_directory, "stdout.log")
+            stderr_path = os.path.join(job_directory, "stderr.log")
+            for path in (stdout_path, stderr_path):
+                with open(path, "wb"):
+                    pass
+                if sys.platform != "win32":
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:
+                        pass
+            job = PipelineJob(
+                job_id=job_id,
+                tool_id="generate_layout_cache",
                 invocation=invocation,
                 created_at=_utc_now(),
                 stdout_path=stdout_path,

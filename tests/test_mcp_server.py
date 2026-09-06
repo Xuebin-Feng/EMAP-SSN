@@ -223,6 +223,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                         "get_pipeline_tool_schema",
                         "validate_pipeline_settings",
                         "start_pipeline_job",
+                        "start_layout_job",
                         "list_pipeline_jobs",
                         "get_pipeline_job",
                         "read_pipeline_log",
@@ -237,6 +238,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(annotations["get_compute_capabilities"].read_only_hint)
                 self.assertTrue(annotations["inspect_pipeline_file"].read_only_hint)
                 self.assertTrue(annotations["start_pipeline_job"].destructive_hint)
+                self.assertTrue(annotations["start_layout_job"].destructive_hint)
                 self.assertTrue(annotations["cancel_pipeline_job"].idempotent_hint)
 
                 catalog = await client.call_tool("list_pipeline_tools")
@@ -283,7 +285,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 13)
+                self.assertEqual(len(listed.tools), 14)
                 hardware = await client.call_tool("get_compute_capabilities", {})
                 self.assertFalse(hardware.is_error)
                 self.assertTrue(hardware.structured_content["metadata_only"])
@@ -344,6 +346,82 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("Frequency (sequences)", log.structured_content["text"])
                 self.assertEqual((pathlib.Path(temp) / "input_sanitized.fasta").read_text(),
                                  ">a\nAC\n>b\nACDEF\n")
+
+    async def test_start_layout_job_and_inspection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = pathlib.Path(temp)
+            fasta = temp_path / "nodes.fasta"
+            fasta.write_text(">Alpha\nAA\n>Beta\nCC\n", encoding="utf-8")
+            network_path = temp_path / "network.h5"
+            layouts_dir = temp_path / "layouts"
+            layouts_dir.mkdir(parents=True, exist_ok=True)
+
+            import h5py
+            import numpy as np
+            with h5py.File(network_path, "w") as hf:
+                string_dtype = h5py.string_dtype("utf-8")
+                hf.attrs["model_name"] = "test_model"
+                hf.create_dataset("headers", data=np.asarray(["Alpha", "Beta"], dtype=object), dtype=string_dtype)
+                hf.create_dataset("i", data=np.asarray([0], dtype=np.uint16))
+                hf.create_dataset("j", data=np.asarray([1], dtype=np.uint16))
+                hf.create_dataset("seq_lens", data=np.asarray([2, 2], dtype=np.uint16))
+                hf.create_dataset("g_score", data=np.asarray([10.0], dtype=np.float32))
+                hf.create_dataset("l_score", data=np.asarray([10.0], dtype=np.float32))
+                hf.create_dataset("g_len", data=np.asarray([2], dtype=np.uint16))
+                hf.create_dataset("l_len", data=np.asarray([2], dtype=np.uint16))
+
+            async with Client(mcp, read_timeout_seconds=20) as client:
+                # 1. Invalid request (physics without threshold/top_edge_percent)
+                bad_job = await client.call_tool("start_layout_job", {
+                    "node_fasta_file": str(fasta),
+                    "input_hdf5": str(network_path),
+                })
+                self.assertTrue(bad_job.is_error)
+
+                # 2. Valid request
+                valid_request = {
+                    "node_fasta_file": str(fasta),
+                    "input_hdf5": str(network_path),
+                    "cache_filename": "version_00.h5",
+                    "similarity_threshold": 0.1,
+                    "directories": {"SAVED_LAYOUT_DIR": str(layouts_dir)},
+                }
+                started = await client.call_tool("start_layout_job", valid_request)
+                self.assertFalse(started.is_error)
+                job = started.structured_content
+                self.assertEqual(job["tool_id"], "generate_layout_cache")
+
+                deadline = asyncio.get_running_loop().time() + 20
+                while job["status"] in {"queued", "running"} and asyncio.get_running_loop().time() < deadline:
+                    await asyncio.sleep(0.1)
+                    status = await client.call_tool("get_pipeline_job", {"job_id": job["job_id"]})
+                    job = status.structured_content
+
+                self.assertEqual(job["status"], "succeeded", job)
+
+                # Locate generated cache file in layouts_dir
+                cache_files = list(layouts_dir.rglob("version_00.h5"))
+                self.assertEqual(len(cache_files), 1)
+                cache_file = cache_files[0]
+
+                # 3. Inspect layout cache explicitly
+                inspected = await client.call_tool("inspect_pipeline_file", {
+                    "path": str(cache_file),
+                    "file_type": "layout_cache",
+                })
+                self.assertFalse(inspected.is_error)
+                report = inspected.structured_content
+                self.assertEqual(report["detected_format"], "layout_cache")
+                self.assertEqual(report["structural_validity"], "valid")
+                self.assertEqual(report["generation_completion"]["status"], "complete")
+                self.assertEqual(report["metadata"]["node_count"], 2)
+
+                # 4. Inspect layout cache with auto-detection
+                auto_inspected = await client.call_tool("inspect_pipeline_file", {
+                    "path": str(cache_file),
+                })
+                self.assertFalse(auto_inspected.is_error)
+                self.assertEqual(auto_inspected.structured_content["detected_format"], "layout_cache")
 
 
 class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):

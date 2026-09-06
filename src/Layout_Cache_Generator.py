@@ -73,13 +73,30 @@ _OBSOLETE_LAYOUT_ENGINE_KEYS = {
 }
 
 
-def _resolve_project_path(value: Any, project_root: Path) -> str:
+def _resolve_project_path(
+    value: Any,
+    project_root: Path,
+    *,
+    default_dir: str | Path | None = None,
+) -> str:
     raw_path = os.fspath(value).strip()
     if not raw_path:
         raise LayoutGenerationError("Layout generation paths cannot be empty.")
     path = Path(raw_path).expanduser()
     if not path.is_absolute():
-        path = project_root / path
+        if default_dir is not None:
+            subpath = Path(default_dir).expanduser()
+            candidate = (
+                project_root / subpath / path
+                if not subpath.is_absolute()
+                else subpath / path
+            )
+            if candidate.exists() or not (project_root / path).exists():
+                path = candidate
+            else:
+                path = project_root / path
+        else:
+            path = project_root / path
     return os.path.abspath(os.path.normpath(path))
 
 
@@ -153,16 +170,14 @@ class LayoutGenerationSettings:
     ) -> "LayoutGenerationSettings":
         if not isinstance(document, Mapping):
             raise LayoutGenerationError("The settings document must be a JSON object.")
-        if set(document) != {"DIRECTORIES", SCRIPT_NAME}:
+        if SCRIPT_NAME not in document:
             raise LayoutGenerationError(
-                f"The settings document must contain only DIRECTORIES and {SCRIPT_NAME}."
+                f"The settings document must contain {SCRIPT_NAME}."
             )
-        directories = document["DIRECTORIES"]
+        directories = document.get("DIRECTORIES", {})
+        if not isinstance(directories, Mapping):
+            raise LayoutGenerationError("DIRECTORIES must be a JSON object.")
         values = document[SCRIPT_NAME]
-        if not isinstance(directories, Mapping) or set(directories) != {"SAVED_LAYOUT_DIR"}:
-            raise LayoutGenerationError(
-                "DIRECTORIES must contain only SAVED_LAYOUT_DIR."
-            )
         if not isinstance(values, Mapping):
             raise LayoutGenerationError(f"{SCRIPT_NAME} must be a JSON object.")
 
@@ -184,13 +199,27 @@ class LayoutGenerationSettings:
         payload = dict(values)
         for obsolete_key in _OBSOLETE_LAYOUT_ENGINE_KEYS:
             payload.pop(obsolete_key, None)
+
+        saved_layout_dir = directories.get("SAVED_LAYOUT_DIR")
+        if saved_layout_dir is None or not str(saved_layout_dir).strip():
+            saved_layout_dir = os.path.join("Cache_Files", "Saved_Layouts")
+        fasta_dir = directories.get(
+            "FASTA_DIR", os.path.join("Input_Files", "Sequence_Sets")
+        )
+        hdf5_dir = directories.get(
+            "HDF5_DIR",
+            directories.get("NETWORK_DIR", os.path.join("Input_Files", "Networks_EValues")),
+        )
+
         payload["SAVED_LAYOUT_DIR"] = _resolve_project_path(
-            directories["SAVED_LAYOUT_DIR"], root
+            saved_layout_dir, root
         )
         payload["NODE_FASTA_FILE"] = _resolve_project_path(
-            payload["NODE_FASTA_FILE"], root
+            payload["NODE_FASTA_FILE"], root, default_dir=fasta_dir
         )
-        payload["INPUT_HDF5"] = _resolve_project_path(payload["INPUT_HDF5"], root)
+        payload["INPUT_HDF5"] = _resolve_project_path(
+            payload["INPUT_HDF5"], root, default_dir=hdf5_dir
+        )
         settings = cls(**payload)
         settings.validate()
         return settings

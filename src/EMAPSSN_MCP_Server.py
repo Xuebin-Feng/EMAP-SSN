@@ -211,7 +211,7 @@ async def get_compute_capabilities(tool_id: str | None = None) -> dict[str, Any]
 @mcp.tool(title="Inspect a pipeline file", annotations=_READ_ONLY, structured_output=True)
 async def inspect_pipeline_file(
     path: str,
-    file_type: Literal["auto", "fasta", "alignment_fasta", "embedding", "network", "sparse_msa", "blast_tabular", "settings"] = "auto",
+    file_type: Literal["auto", "fasta", "alignment_fasta", "embedding", "network", "sparse_msa", "blast_tabular", "settings", "layout_cache"] = "auto",
     tool_id: str | None = None,
     parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -295,6 +295,149 @@ async def start_pipeline_job(
         payload = await _context(ctx).jobs.submit(tool_id, preview["settings_document"])
     except (KeyError, OSError, TypeError, ValueError, PipelineJobError) as error:
         raise ToolError(str(error)) from error
+    return _job_info(payload)
+
+
+@mcp.tool(
+    title="Start an SSN layout cache calculation job",
+    annotations=_START_JOB,
+    structured_output=True,
+)
+async def start_layout_job(
+    ctx: Context[AppContext],
+    node_fasta_file: Annotated[
+        str | None,
+        Field(description="Node FASTA sequence file name or project-relative/absolute path"),
+    ] = None,
+    input_hdf5: Annotated[
+        str | None,
+        Field(description="Network similarity/distance HDF5 file name or project-relative/absolute path"),
+    ] = None,
+    cache_filename: Annotated[
+        str,
+        Field(description="Target cache filename to save (e.g. 'version_00.h5')"),
+    ] = "version_00.h5",
+    similarity_threshold: Annotated[
+        float | None,
+        Field(description="Cutoff similarity threshold (either threshold or top_edge_percent required for physics)"),
+    ] = None,
+    top_edge_percent: Annotated[
+        float | None,
+        Field(description="Top edge percentage cutoff between 0.0 and 100.0"),
+    ] = None,
+    umap_mode: Annotated[
+        bool,
+        Field(description="Whether to use UMAP dimension reduction instead of physics simulation"),
+    ] = False,
+    layout_device_selection: Annotated[
+        str,
+        Field(description="Target compute device: 'auto', 'cpu', 'cuda:N', or 'mps'"),
+    ] = "auto",
+    alignment_score: Annotated[
+        Literal["global", "local"] | None,
+        Field(description="Alignment score mode: 'global' or 'local' (for alignment networks)"),
+    ] = "global",
+    norm_mode: Annotated[
+        Literal["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"] | None,
+        Field(description="Score normalization mode (for alignment networks)"),
+    ] = "alignment_length",
+    parameters: Annotated[
+        dict[str, Any] | None,
+        Field(description="Optional advanced physics/force overrides (e.g. SPRING_K, COULOMB_K, MAX_STEPS)"),
+    ] = None,
+    directories: Annotated[
+        dict[str, Any] | None,
+        Field(description="Optional directory overrides, e.g. {'SAVED_LAYOUT_DIR': '...'}"),
+    ] = None,
+    settings_document: Annotated[
+        dict[str, Any] | None,
+        Field(description="Pre-configured layout generation settings JSON document"),
+    ] = None,
+    settings_path: Annotated[
+        str | None,
+        Field(description="Path to an existing exported layout settings JSON file"),
+    ] = None,
+) -> PipelineJobInfo:
+    """Validate and enqueue an SSN 2D layout calculation job into the unified FIFO queue.
+    Calculates 2D node coordinates via iterative force-directed physics or UMAP dimension
+    reduction and publishes an HDF5 layout cache file along with a canonical FASTA backup and
+    manifest. Supply either individual parameters, settings_document, or settings_path.
+    Missing defaults and directory paths inherit from EMAP-SSN configuration.
+    """
+    from Layout_Cache_Generator import LayoutGenerationSettings, LayoutGenerationError
+    import EMAPSSN_Config as cfg
+
+    target_doc = None
+    if settings_path is not None:
+        if settings_document is not None or node_fasta_file is not None or input_hdf5 is not None:
+            raise ToolError("Provide exactly one of individual parameters, settings_document, or settings_path.")
+        path = os.fspath(settings_path)
+        if not os.path.isabs(path):
+            path = os.path.join(_PROJECT_ROOT, path)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                target_doc = json.load(handle)
+        except Exception as error:
+            raise ToolError(f"Could not read settings_path '{settings_path}': {error}") from error
+    elif settings_document is not None:
+        if node_fasta_file is not None or input_hdf5 is not None:
+            raise ToolError("Provide exactly one of individual parameters, settings_document, or settings_path.")
+        target_doc = dict(settings_document)
+    else:
+        if not node_fasta_file or not str(node_fasta_file).strip():
+            raise ToolError("node_fasta_file is required when settings_document or settings_path is not supplied.")
+        if not input_hdf5 or not str(input_hdf5).strip():
+            raise ToolError("input_hdf5 is required when settings_document or settings_path is not supplied.")
+
+        dirs = dict(directories) if isinstance(directories, dict) else {}
+        saved_layout_dir = dirs.get("SAVED_LAYOUT_DIR") or getattr(cfg, "SAVED_LAYOUT_DIR", "Cache_Files/Saved_Layouts")
+        if isinstance(saved_layout_dir, str) and not os.path.isabs(saved_layout_dir):
+            saved_layout_dir = os.path.join(_PROJECT_ROOT, saved_layout_dir)
+
+        payload: dict[str, Any] = {
+            "NODE_FASTA_FILE": str(node_fasta_file).strip(),
+            "INPUT_HDF5": str(input_hdf5).strip(),
+            "CACHE_FILENAME": str(cache_filename).strip(),
+            "ALIGNMENT_SCORE": alignment_score,
+            "NORM_MODE": norm_mode,
+            "SIMILARITY_THRESHOLD": similarity_threshold,
+            "TOP_EDGE_PERCENT": top_edge_percent,
+            "UMAP_MODE": bool(umap_mode),
+            "UMAP_NEIGHBORS": 15,
+            "UMAP_MIN_DIST": 0.1,
+            "LAYOUT_DEVICE_SELECTION": layout_device_selection or "auto",
+            "SPRING_K": 5.0,
+            "COULOMB_K": 10.0,
+            "COULOMB_CUTOFF": 30.0,
+            "DAMPING": 0.9,
+            "DT": 0.005,
+            "MAX_STEPS": 10000,
+            "RMSD_THRESHOLD": 0.005,
+            "PERCENTAGE_DROP_THRESHOLD": 0.1,
+            "RMSD_WINDOW": 50,
+            "ENABLE_PROGRESSIVE_SIMULATION": False,
+            "PACKING_GEOMETRY": "Square",
+            "PACKING_GRID_SIZE": 20.0,
+            "BOX_SCALE": 2.0,
+            "PACKING_PADDING": 10.0,
+            "MAX_FORCE_LIMIT": 20.0,
+            "MAX_TOTAL_REPULSION_FORCE": 0.0,
+        }
+        if parameters and isinstance(parameters, dict):
+            for k, v in parameters.items():
+                payload[k.upper()] = v
+
+        target_doc = {
+            "DIRECTORIES": {"SAVED_LAYOUT_DIR": saved_layout_dir},
+            "Layout_Cache_Generator.py": payload,
+        }
+
+    try:
+        settings = LayoutGenerationSettings.from_document(target_doc, project_root=_PROJECT_ROOT)
+        payload = await _context(ctx).jobs.submit_layout_job(settings)
+    except (LayoutGenerationError, ValueError, TypeError, KeyError, OSError, PipelineJobError) as error:
+        raise ToolError(str(error)) from error
+
     return _job_info(payload)
 
 

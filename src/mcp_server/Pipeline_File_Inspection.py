@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 
-FILE_TYPES = ("auto", "fasta", "alignment_fasta", "embedding", "network", "sparse_msa", "blast_tabular", "settings")
+FILE_TYPES = ("auto", "fasta", "alignment_fasta", "embedding", "network", "sparse_msa", "blast_tabular", "settings", "layout_cache")
 MAX_FINDINGS = 50
 MAX_TEXT_LINE = 1024 * 1024
 MAX_METADATA_RECORDS = 100000
@@ -216,6 +216,56 @@ class Inspector:
         self.report["checks_performed"].append("Sparse MSA object types, CSR dimensions/dtypes, headers shape, and mapping metadata")
         self.report["checks_omitted"].append("CSR pointers, indices, values, and reconstructed alignment were not scanned.")
 
+    def layout_cache(self, hf):
+        import h5py
+
+        for key in ("cache_manifest_id", "layout_compatibility_id", "layout_compatibility_json"):
+            self.require(key in hf.attrs, f"Missing layout cache attribute: {key}.")
+        headers = self.dataset(hf, "headers")
+        positions = hf.get("positions")
+        self.require(positions is not None and isinstance(positions, h5py.Dataset), "Missing positions dataset.")
+        self.require(positions.ndim == 2 and positions.shape[1] == 2, "positions must be a two-dimensional Nx2 dataset.")
+        self.require(positions.dtype.kind in "f", "positions must have float dtype.")
+        count = len(headers)
+        self.require(count == positions.shape[0], "Headers count and positions row count disagree.")
+        self.require(count > 0, "Layout cache contains 0 nodes.")
+
+        manifest_id = hf.attrs["cache_manifest_id"]
+        if isinstance(manifest_id, bytes):
+            manifest_id = manifest_id.decode("utf-8")
+        compat_id = hf.attrs["layout_compatibility_id"]
+        if isinstance(compat_id, bytes):
+            compat_id = compat_id.decode("utf-8")
+
+        self.report["metadata"].update(
+            node_count=count,
+            cache_manifest_id=str(manifest_id),
+            layout_compatibility_id=str(compat_id),
+        )
+        self.report["checks_performed"].append("Layout cache datasets (headers, positions) and compatibility attributes")
+
+        manifest_file = self.path.parent / "cache_manifest.json"
+        if manifest_file.is_file():
+            try:
+                with open(manifest_file, "r", encoding="utf-8") as handle:
+                    manifest_data = json.load(handle)
+                if manifest_data.get("manifest_id") == manifest_id:
+                    self.report["checks_performed"].append("Companion cache_manifest.json ID verified")
+                    self.report["generation_completion"] = dict(
+                        status="complete",
+                        evidence=f"Layout cache contains {count} nodes with valid manifest_id {manifest_id[:16]}."
+                    )
+                else:
+                    self.finding("warning", "Companion cache_manifest.json manifest_id does not match layout cache.")
+            except Exception as error:
+                self.finding("warning", f"Could not read companion cache_manifest.json: {error}")
+        else:
+            self.report["generation_completion"] = dict(
+                status="complete",
+                evidence=f"Layout cache contains {count} nodes and valid compatibility metadata."
+            )
+        self.report["checks_omitted"].append("Positions coordinates were not checked for node overlap or canvas bounds.")
+
     def lines(self):
         with open(self.path, "rb") as handle:
             number = 0
@@ -334,16 +384,19 @@ def inspect_local(path, file_type="auto", tool_id=None, parameters=None, project
         with open(path, "rb") as handle: prefix = handle.read(65536)
         kind = file_type
         is_hdf = h5py.is_hdf5(path)
-        if is_hdf or prefix.startswith(b"\x89HDF") or kind in ("embedding", "network", "sparse_msa"):
+        if is_hdf or prefix.startswith(b"\x89HDF") or kind in ("embedding", "network", "sparse_msa", "layout_cache"):
             with h5py.File(path, "r") as hf:
-                if "positions" in hf:
-                    raise InspectionLimit("Layout cache inspection is not supported.")
                 if kind == "auto":
-                    markers = [name for name, present in (("embedding", "embeddings" in hf or "generation_complete" in hf.attrs),
-                        ("sparse_msa", "matrix" in hf), ("network", "i" in hf or "j" in hf)) if present]
-                    if len(markers) != 1: raise InspectionLimit("HDF5 format is unsupported or ambiguous; specify file_type.")
-                    kind = markers[0]
-                inspector.require(kind in ("embedding", "network", "sparse_msa"), "Requested text format does not match HDF5 contents.")
+                    if "positions" in hf and "cache_manifest_id" in hf.attrs:
+                        kind = "layout_cache"
+                    else:
+                        markers = [name for name, present in (("embedding", "embeddings" in hf or "generation_complete" in hf.attrs),
+                            ("sparse_msa", "matrix" in hf), ("network", "i" in hf or "j" in hf)) if present]
+                        if len(markers) != 1: raise InspectionLimit("HDF5 format is unsupported or ambiguous; specify file_type.")
+                        kind = markers[0]
+                elif kind != "layout_cache" and "positions" in hf:
+                    raise InspectionLimit("File appears to be a layout cache, but requested format is different.")
+                inspector.require(kind in ("embedding", "network", "sparse_msa", "layout_cache"), "Requested text format does not match HDF5 contents.")
                 report["detected_format"] = kind
                 getattr(inspector, kind)(hf)
         else:
