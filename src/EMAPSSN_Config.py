@@ -2251,7 +2251,7 @@ if __name__ == "__main__":
             self.check_umap.toggled.connect(toggle_umap)
             self.spin_umap_k.valueChanged.connect(self.update_live_validators)
             
-            self.labels["UMAP_MODE"] = QLabel("Enable UMAP Layout:")
+            self.labels["UMAP_MODE"] = QLabel("Plot UMAP Instead:")
             self.labels["UMAP_MODE"].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             self._make_field_group(
                 [(self.labels["UMAP_MODE"], self.check_umap),
@@ -2317,7 +2317,9 @@ if __name__ == "__main__":
 
             lbl_thresh = QLabel("Similarity Threshold:")
             lbl_thresh.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+            lbl_thresh.setStyleSheet("QLabel:disabled { color: #888; }")
             lbl_top = QLabel("   Top Edge %:")
+            lbl_top.setStyleSheet("QLabel:disabled { color: #888; }")
             lbl_min_occ = QLabel("   Min Occupancy %:")
 
             self._make_field_group(
@@ -2498,20 +2500,35 @@ if __name__ == "__main__":
             
             if hasattr(self, 'spin_thresh') and hasattr(self, 'spin_top'):
                 has_top_edge = self.spin_top.optionalValue() is not None
-                self.spin_thresh.setEnabled(not is_umap and not has_top_edge)
-                
-                if not self.spin_thresh.isEnabled():
-                    self.spin_thresh.setStyleSheet("QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }")
-                else:
-                    self.spin_thresh.setStyleSheet("")
-                    
-                self.spin_top.setEnabled(not is_umap)
-                self.btn_clear_top_edge.setEnabled(
-                    self.spin_top.isEnabled() and has_top_edge
+                top_edge_enabled = not is_umap
+                thresh_enabled = not is_umap and not has_top_edge
+
+                self.spin_top.setEnabled(top_edge_enabled)
+                self.spin_thresh.setEnabled(thresh_enabled)
+
+                if hasattr(self, 'btn_clear_top_edge'):
+                    self.btn_clear_top_edge.setEnabled(
+                        top_edge_enabled and has_top_edge
+                    )
+
+                if "SIMILARITY_THRESHOLD" in self.labels:
+                    self.labels["SIMILARITY_THRESHOLD"].setEnabled(thresh_enabled)
+                if "TOP_EDGE_PERCENT" in self.labels:
+                    self.labels["TOP_EDGE_PERCENT"].setEnabled(top_edge_enabled)
+
+                disabled_spinbox_style = "QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
+                self.spin_thresh.setStyleSheet(
+                    disabled_spinbox_style if not thresh_enabled else ""
                 )
-                
+                self.spin_top.setStyleSheet(
+                    disabled_spinbox_style if not top_edge_enabled else ""
+                )
+
             if hasattr(self, 'tabs') and self.tabs.count() > 2:
-                self.tabs.setTabEnabled(2, not is_umap)
+                if is_umap and self.tabs.currentIndex() == 2:
+                    self.tabs.setCurrentIndex(0)
+                self.tabs.setTabVisible(2, not is_umap)
+                self.tabs.setTabEnabled(2, True)
             
             if hasattr(self, 'btn_check'):
                 self.btn_check.setEnabled(has_fasta and has_hdf5)
