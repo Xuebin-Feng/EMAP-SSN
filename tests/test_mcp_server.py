@@ -218,6 +218,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     names,
                     [
                         "list_pipeline_tools",
+                        "get_compute_capabilities",
                         "get_pipeline_tool_schema",
                         "validate_pipeline_settings",
                         "start_pipeline_job",
@@ -232,6 +233,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 )
                 annotations = {tool.name: tool.annotations for tool in listed.tools}
                 self.assertTrue(annotations["list_pipeline_tools"].read_only_hint)
+                self.assertTrue(annotations["get_compute_capabilities"].read_only_hint)
                 self.assertTrue(annotations["start_pipeline_job"].destructive_hint)
                 self.assertTrue(annotations["cancel_pipeline_job"].idempotent_hint)
 
@@ -245,6 +247,13 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     {"tool_id": "sanitize_sequences"},
                 )
                 self.assertTrue(invalid.is_error)
+                from utilities.Compute_Capabilities import empty_report
+                with mock.patch("utilities.Compute_Capabilities.discover_compute_capabilities", return_value=empty_report()):
+                    hardware = await client.call_tool("get_compute_capabilities", {})
+                    self.assertFalse(hardware.is_error)
+                    self.assertTrue(hardware.structured_content["metadata_only"])
+                invalid_hardware = await client.call_tool("get_compute_capabilities", {"tool_id": "unknown"})
+                self.assertTrue(invalid_hardware.is_error)
                 for tool_id in ("generate_embeddings", "embedding_msa"):
                     schema = await client.call_tool("get_pipeline_tool_schema", {"tool_id": tool_id})
                     self.assertFalse(schema.is_error)
@@ -270,9 +279,13 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 cwd=PROJECT_ROOT,
                 env=environment,
             )
-            async with Client(parameters, read_timeout_seconds=10) as client:
+            async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 11)
+                self.assertEqual(len(listed.tools), 12)
+                hardware = await client.call_tool("get_compute_capabilities", {})
+                self.assertFalse(hardware.is_error)
+                self.assertTrue(hardware.structured_content["metadata_only"])
+                self.assertIn(hardware.structured_content["status"], ("ok", "partial", "unavailable"))
                 catalog = await client.call_tool("list_pipeline_tools")
                 self.assertFalse(catalog.is_error)
                 self.assertEqual(len(catalog.structured_content["tools"]), 14)

@@ -97,7 +97,7 @@ def _validated_device_specs() -> Optional[set[str]]:
     }
 
 
-def get_available_devices() -> list[DeviceCandidate]:
+def get_available_devices(*, diagnostics=None) -> list[DeviceCandidate]:
     """Return CPU and every accelerator/backend visible in this process."""
     approved = _validated_device_specs()
     candidates = [
@@ -125,8 +125,9 @@ def get_available_devices() -> list[DeviceCandidate]:
                         True,
                     )
                 )
-    except Exception:
-        pass
+    except Exception as error:
+        if diagnostics is not None:
+            diagnostics.append({"field": "cuda", "reason": str(error)})
 
     try:
         if hasattr(torch, "xpu") and torch.xpu.is_available():
@@ -148,8 +149,9 @@ def get_available_devices() -> list[DeviceCandidate]:
                         True,
                     )
                 )
-    except Exception:
-        pass
+    except Exception as error:
+        if diagnostics is not None:
+            diagnostics.append({"field": "xpu", "reason": str(error)})
 
     try:
         if (
@@ -164,8 +166,9 @@ def get_available_devices() -> list[DeviceCandidate]:
             candidates.append(
                 DeviceCandidate("mps", f"{name} (MPS)", torch.device("mps"), "mps")
             )
-    except Exception:
-        pass
+    except Exception as error:
+        if diagnostics is not None:
+            diagnostics.append({"field": "mps", "reason": str(error)})
 
     return candidates
 

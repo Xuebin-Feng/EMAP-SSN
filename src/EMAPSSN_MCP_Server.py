@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import os
+import asyncio
 import sys
 from typing import Annotated, Any, Literal
 
@@ -41,7 +42,7 @@ from utilities.Pipeline_Settings import (
 )
 
 
-MCP_SERVER_VERSION = "0.2.0"
+MCP_SERVER_VERSION = "0.3.0"
 
 
 class PipelineToolInfo(BaseModel):
@@ -192,6 +193,19 @@ def list_pipeline_tools() -> PipelineCatalog:
         max_running=1,
         max_pending=16,
     )
+
+
+@mcp.tool(title="Get usable compute capabilities", annotations=_READ_ONLY, structured_output=True)
+async def get_compute_capabilities(tool_id: str | None = None) -> dict[str, Any]:
+    """Discover runtime devices and memory without benchmarks or tensor operations.
+    Optionally describe a pipeline's applicable settings. Metadata support is
+    unverified by computation; physical devices unavailable to this runtime are omitted.
+    """
+    from utilities.Compute_Capabilities import discover_compute_capabilities
+    try:
+        return await asyncio.to_thread(discover_compute_capabilities, _PROJECT_ROOT, tool_id)
+    except KeyError as error:
+        raise ToolError(str(error)) from error
 
 
 @mcp.tool(title="Get pipeline settings schema", annotations=_READ_ONLY, structured_output=True)

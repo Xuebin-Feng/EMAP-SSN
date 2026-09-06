@@ -1,10 +1,40 @@
-# MCP pipeline settings (server 0.2.0, schema 1)
+# MCP pipeline settings (server 0.3.0, settings schema 1)
 
 Use `list_pipeline_tools` to choose one of the 14 pipeline IDs, then
 `get_pipeline_tool_schema` with `{"tool_id": "sanitize_sequences"}` to discover
 accepted parameters, descriptions, native JSON types, defaults, allowed choices,
 conditional inputs, directory semantics, and an example. Discovery reads static
 metadata without importing models or initializing a GUI or accelerator.
+
+## Hardware discovery
+
+Call `get_compute_capabilities` with `{}` for runtime devices and system resources,
+or `{"tool_id": "align_similarity_matrix"}` to include applicable pipeline settings.
+This read-only endpoint enumerates devices usable by the server's Python environment,
+preserving installer-approved filtering. It does not scan installed hardware that
+the runtime cannot use. ROCm is identified separately from CUDA, while both retain
+the PyTorch `cuda:N` device identifier.
+
+The result includes a timestamp, Python/PyTorch/runtime versions, CPU counts,
+system memory, device memory, and capability evidence. Status is `ok`, `partial`,
+or `unavailable`; failed collection must not be interpreted as CPU-only success.
+Unavailable measurements are null and explained by the associated `errors` or
+memory reason. Apple unified working-set values are not dedicated VRAM/free memory.
+Memory values are observations in bytes, not reservations for future jobs.
+
+Capabilities are `supported`, `unsupported`, or `unknown`, with their source and
+reason. Every capability is explicitly unverified by computation. NVIDIA compute
+capability supplies TF32/BF16 hardware eligibility; backends without a suitable
+metadata check report BF16 as unknown. Tiled support checks API presence, not
+successful execution or sufficient memory. Tool-specific restrictions are reported
+separately (for example, network injection cannot use MPS tiled execution).
+
+Collection uses a short-lived helper with the server's interpreter and a 20-second
+timeout. It may initialize the helper's runtime through metadata queries, but does
+not allocate tensors, benchmark, synchronize, or clear accelerator caches. Timeout
+terminates only this helper, leaving pipeline jobs untouched. No fastest-device
+recommendation is made: `auto` still selects at execution time. Model and source-file
+constraints remain runtime checks. Settings validation is unchanged.
 
 ## Preview and submit
 

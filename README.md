@@ -135,7 +135,8 @@ arguments over its local STDIO transport.
 The MCP server provides pipeline discovery, settings validation, start, status,
 log, and cancellation tools. A start request accepts parameters with optional
 directory overrides, an exported JSON document, or a path to that document.
-See [MCP settings and examples](docs/mcp_settings.md) for the version 0.2 strict
+Use `get_compute_capabilities` for metadata-only discovery of usable runtime
+devices and memory. See [MCP settings and examples](docs/mcp_settings.md) for the version 0.3 strict
 settings contract and GUI export compatibility. Each client connection owns one
 FIFO with one running and at most 16 pending jobs. Closing or restarting that
 client terminates its running job and cancels its queued jobs; different MCP
