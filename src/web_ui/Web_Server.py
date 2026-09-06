@@ -26,7 +26,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
-from PySide6 import QtCore
+from PySide6 import QtCore, QtWidgets
 
 from mcp_server.Viewer_Inspection import (
     ViewerInspectionError,
@@ -296,6 +296,10 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+        try:
+            self.wfile.flush()
+        except Exception:
+            pass
 
     def _inspection_authorized(self):
         supplied = self.headers.get("Authorization", "")
@@ -317,6 +321,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                     "session_id": self.server.inspection_session_id,
                     "pid": os.getpid(),
                     "started_at": self.server.inspection_started_at,
+                    "launch_id": os.environ.get("SSN_VIEWER_LAUNCH_ID"),
                 }
             elif clean_path == "/api/mcp/v1/summary":
                 payload = self.server.inspection_bridge.request("get_summary")
@@ -395,6 +400,27 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.server.unregister_event_queue(q, client_id)
 
     def do_POST(self):
+        if self.path == "/api/mcp/v1/shutdown":
+            if not self._inspection_authorized():
+                self._send_json(
+                    401,
+                    {"error": "Missing or invalid Viewer inspection token."},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                return
+            qapp = QtWidgets.QApplication.instance()
+            if qapp is None:
+                self._send_json(503, {"error": "Viewer application is unavailable."})
+                return
+            queued = QtCore.QMetaObject.invokeMethod(
+                qapp, "quit", QtCore.Qt.ConnectionType.QueuedConnection
+            )
+            if not queued:
+                self._send_json(503, {"error": "Could not queue Viewer shutdown."})
+                return
+            self._send_json(202, {"status": "accepted", "message": "Viewer shutdown queued."})
+            return
+
         if self.path == "/api/action":
             content_length = int(self.headers['Content-Length'])
             body = self.rfile.read(content_length)

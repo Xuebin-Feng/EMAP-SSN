@@ -299,12 +299,13 @@ def print_sanitization_result(stats):
     return True
 
 
-def load_sanitized_fasta(file_path):
+def load_sanitized_fasta(file_path, *, report=True):
     """Read, sanitize, optionally report, and return one FASTA record set."""
     headers, sequences = read_fasta(file_path)
     clean_headers, clean_sequences, stats = sanitize_fasta_records(
         headers,
         sequences,
     )
-    print_sanitization_result(stats)
+    if report:
+        print_sanitization_result(stats)
     return clean_headers, clean_sequences, stats

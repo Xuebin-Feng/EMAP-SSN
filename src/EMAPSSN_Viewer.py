@@ -18,6 +18,65 @@ import sys
 import json
 
 
+def _configure_headless_platform(argv=None, environment=None):
+    """Route VisPy to Qt's offscreen platform before Qt/OpenGL is imported."""
+    argv = sys.argv if argv is None else argv
+    environment = os.environ if environment is None else environment
+    if "--headless" in argv or environment.get("SSN_VIEWER_HEADLESS", "").lower() in {"1", "true", "yes"}:
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        return True
+    return False
+
+
+_configure_headless_platform()
+
+
+def _parse_viewer_arguments(argv=None):
+    """Parse command-line arguments for EMAPSSN_Viewer.py."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="EMAPSSN_Viewer.py",
+        description="Interactive and headless 2D sequence similarity network viewer.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run viewer in headless mode without a visible desktop window.",
+    )
+    parser.add_argument(
+        "--settings",
+        dest="settings_file",
+        help="Path to a JSON file containing viewer settings.",
+    )
+    parser.add_argument(
+        "--settings-json",
+        dest="settings_json",
+        help="Direct JSON string containing viewer settings.",
+    )
+    parser.add_argument("--delete-settings", action="store_true", help="Consume an internally generated settings snapshot.")
+    return parser.parse_args(argv)
+
+
+# Resolve explicit launch settings before importing Qt or configuration consumers.
+_startup_settings = None
+_startup_args = None
+if __name__ == "__main__":
+    from utilities.Viewer_Settings import read_viewer_settings, validate_viewer_document
+    _startup_args = _parse_viewer_arguments()
+    _settings_path = _startup_args.settings_file or os.environ.get("SSN_VIEWER_SETTINGS_PATH")
+    _document = json.loads(_startup_args.settings_json) if _startup_args.settings_json else None
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _startup_settings = validate_viewer_document(
+        read_viewer_settings(settings_document=_document, settings_path=_settings_path,
+                             project_root=_project_root), _project_root
+    )
+    os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
+    if _startup_args.delete_settings and _settings_path:
+        os.unlink(_settings_path)
+    os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
+
+
 def _configure_linux_vispy_platform(
     environment=None,
     platform_name=sys.platform,
@@ -67,6 +126,8 @@ from vispy import scene, app
 from PySide6 import QtWidgets, QtCore, QtGui
 
 import EMAPSSN_Config as cfg
+if _startup_settings is not None:
+    cfg.__dict__.update(_startup_settings)
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Background_Job_Scheduler import BackgroundJobScheduler
@@ -93,22 +154,6 @@ from utilities.Application_Identity import (
     configure_linux_qt_desktop_identity,
 )
 from web_ui.Browser_Page import open_browser_page
-
-
-def _remove_consumed_settings_snapshot():
-    """Remove a per-launch settings snapshot after EMAPSSN_Config imported it."""
-    snapshot_path = os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
-    if not snapshot_path:
-        return
-    try:
-        os.unlink(snapshot_path)
-    except FileNotFoundError:
-        pass
-    except OSError as error:
-        print(f"Warning: Could not remove settings snapshot {snapshot_path}: {error}")
-
-
-_remove_consumed_settings_snapshot()
 
 
 def _load_selected_fasta_records(fasta_path):
@@ -328,7 +373,16 @@ class HUDDisplay:
 
 
 class MainViewer:
-    def __init__(self):
+    def __init__(self, *, headless=None, settings=None):
+        if settings is not None:
+            from utilities.Viewer_Settings import validate_viewer_document
+            cfg.__dict__.update(validate_viewer_document(settings, cfg.PROJECT_ROOT))
+        self.headless = bool(
+            headless or (_startup_args and _startup_args.headless)
+            or os.environ.get("QT_QPA_PLATFORM") == "offscreen"
+            or os.environ.get("SSN_VIEWER_HEADLESS", "").lower() in {"1", "true", "yes"}
+        )
+
         # --- 1. Viewer State ---
         self.console_mode = False
         from web_ui.Plugin_Manager import WebPluginRegistry
@@ -765,8 +819,9 @@ class MainViewer:
         # Ensure the side panel is hidden at startup
         self.set_sidebar_visible(False)
         
-        show_window_in_front(self.main_window)
-        QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
+        if not self.headless:
+            show_window_in_front(self.main_window)
+            QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
         
         self._hud_timer.start()
         print("\nViewer Ready. Press [ENTER] to type commands.")
@@ -1040,39 +1095,27 @@ class MainViewer:
                 )
             cache_mode = getattr(cfg, 'TARGET_CACHE_MODE', 'existing')
 
-            selected_fasta_path = (
-                getattr(cfg, 'NODE_FASTA_FILE', None)
-                or getattr(cfg, 'SEQUENCES_FILE', '')
+            selected_fasta_path = cfg.NODE_FASTA_FILE
+            self._selected_fasta_records = _load_selected_fasta_records(selected_fasta_path)
+            self.sequences_map = _build_sequence_lookup(self._selected_fasta_records)
+            selected_fasta_headers = [header for header, _ in self._selected_fasta_records]
+            current_manifest = cache_manifest.build_manifest_for_files(
+                selected_fasta_path, cfg.INPUT_HDF5,
+                alignment_score=cfg.ALIGNMENT_SCORE, normalization=cfg.NORM_MODE,
+                umap_mode=cfg.UMAP_MODE, umap_neighbors=cfg.UMAP_NEIGHBORS,
+                top_edge_percent=cfg.TOP_EDGE_PERCENT,
+                similarity_threshold=cfg.SIMILARITY_THRESHOLD,
             )
-            self._selected_fasta_records = _load_selected_fasta_records(
-                selected_fasta_path
+            stored_manifest = cache_manifest.read_manifest(
+                os.path.dirname(cache_path), current_manifest["compatibility"]
             )
-            self.sequences_map = _build_sequence_lookup(
-                self._selected_fasta_records
-            )
-            selected_fasta_headers = [
-                header for header, _ in self._selected_fasta_records
-            ]
-
-            manifest_settings = {
-                'alignment_score': getattr(cfg, 'ALIGNMENT_SCORE', None),
-                'normalization': getattr(cfg, 'NORM_MODE', None),
-                'umap_mode': getattr(cfg, 'UMAP_MODE', False),
-                'umap_neighbors': getattr(cfg, 'UMAP_NEIGHBORS', 15),
-                'top_edge_percent': getattr(cfg, 'TOP_EDGE_PERCENT', None),
-                'similarity_threshold': getattr(cfg, 'SIMILARITY_THRESHOLD', None),
-            }
-            try:
-                current_manifest = cache_manifest.build_manifest_for_files(
-                    selected_fasta_path,
-                    cfg.INPUT_HDF5,
-                    **manifest_settings,
-                )
-            except Exception as error:
-                raise RuntimeError(f"Unable to fingerprint cache inputs: {error}") from error
-            self.cache_manifest = current_manifest
-            self.cache_manifest_id = current_manifest['manifest_id']
+            self.cache_manifest = stored_manifest
+            self.cache_manifest_id = stored_manifest["manifest_id"]
             cfg.CACHE_MANIFEST_ID = self.cache_manifest_id
+            with h5py.File(cfg.INPUT_HDF5, "r") as raw_data:
+                expected_headers, expected_edges, expected_edge_scores = prepare_network(
+                    raw_data, settings=cfg, selected_fasta_headers=selected_fasta_headers,
+                )
 
             raw_loaded = False
             self._metadata_loaded_from_cache = False
@@ -1084,31 +1127,17 @@ class MainViewer:
                 print(f"--- Found Cached Layout! ---")
                 try:
                     import json
-                    stored_manifest = cache_manifest.read_manifest(
-                        os.path.dirname(cache_path),
-                        current_manifest['compatibility'],
-                    )
-                    if stored_manifest['manifest_id'] != self.cache_manifest_id:
-                        raise cache_manifest.CacheManifestError(
-                            "Selected cache folder manifest does not match current inputs."
-                        )
-
-                    with h5py.File(cfg.INPUT_HDF5, "r") as raw_data:
-                        expected_headers, expected_edges, expected_edge_scores = prepare_network(
-                            raw_data,
-                            settings=cfg,
-                            selected_fasta_headers=selected_fasta_headers,
-                        )
                     with h5py.File(cache_path, "r") as hf:
-                        cache_manifest.validate_cache_hdf5(
-                            hf, expected_headers, self.cache_manifest_id
-                        )
                         raw_headers = hf["headers"][:]
                         self.full_headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
                         self.pos = hf["positions"][:].astype(np.float32)
-                        
+
+                        cache_manifest.validate_cache_hdf5(
+                            hf, expected_headers, self.cache_manifest_id
+                        )
+
                         self.n_nodes = len(self.full_headers)
-                        
+
                         if "colors" in hf: self.current_colors = hf["colors"][:]
                         if "sizes" in hf:
                             self.current_sizes = hf["sizes"][:].astype(np.float32)
@@ -1141,7 +1170,7 @@ class MainViewer:
                                 hf["node_render_order"][:], self.n_nodes
                             ).copy()
                         if "cluster_labels" in hf: self.cluster_labels = hf["cluster_labels"][:]
-                        
+
                         # --- Load Metadata from Cache ---
                         self.metadata = {}
                         if "metadata" in hf:
@@ -1161,18 +1190,18 @@ class MainViewer:
                                     "type": prop_type,
                                     "values": values
                                 }
-                                
+
                         # --- Load Custom Dynamic Attributes from Cache (Root Level) ---
                         if not hasattr(self, '_cacheable_attrs'):
                             self._cacheable_attrs = set()
-                        
+
                         # Register manually configured attributes
                         for attr_name in CUSTOM_ATTRIBUTES_INIT.keys():
                             self._cacheable_attrs.add(attr_name)
-                            
+
                         # Scan root-level keys for any non-core custom datasets
                         CORE_DATASETS = {
-                            "headers", "positions", "colors", "sizes", "shapes", 
+                            "headers", "positions", "colors", "sizes", "shapes",
                             "visible_mask", "cluster_labels", "group_labels", "metadata",
                             "connectivity", "edge_scores", "node_render_order"
                         }
@@ -1188,30 +1217,28 @@ class MainViewer:
                                 else:
                                     setattr(self, key, ds[:])
                                 self._cacheable_attrs.add(key)
-                        
+
                         # --- Safely decode strings/bytes ---
                         if "group_labels" in hf:
                             gl_data = hf["group_labels"][()]
                             if isinstance(gl_data, bytes):
                                 gl_data = gl_data.decode('utf-8')
                             self.group_labels = [set(g) for g in json.loads(gl_data)]
-                            
-                        if "last_cluster_params" in hf.attrs: 
+
+                        if "last_cluster_params" in hf.attrs:
                             val = hf.attrs["last_cluster_params"]
                             if isinstance(val, bytes): val = val.decode('utf-8')
                             if isinstance(val, str) and val.startswith('['):
                                 self.last_cluster_params = tuple(json.loads(val))
                             else:
                                 self.last_cluster_params = tuple(val)
-                                
-                    # Headers were validated in exact order, so fresh edges can be used directly.
-                    print("Using fresh connectivity and edge scores from raw network file...")
+
                     self.edges = expected_edges.astype(np.int32, copy=False)
                     self.edge_scores = expected_edge_scores.astype(np.float32, copy=False)
-                    
+
                     base_box = np.sqrt(self.n_nodes) * 2.5 + 5.0
                     self.box_limit = base_box * cfg.BOX_SCALE
-                    
+
                     raw_loaded = True
 
                 except Exception as e:

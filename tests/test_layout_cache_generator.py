@@ -562,15 +562,19 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             settings_file = temp_path / "settings.json"
             settings_file.write_text(json.dumps(doc), encoding="utf-8")
 
+            captured = {}
+            def capture_launch(command, **kwargs):
+                captured.update(json.loads(pathlib.Path(command[4]).read_text()))
+                return 42
             fake_result = SimpleNamespace(
                 cache_path=str(temp_path / "layouts" / "folder" / "cli_test.h5"),
             )
             with mock.patch(
                 "Layout_Cache_Generator.generate_layout_cache",
                 return_value=fake_result,
-            ) as mock_gen, mock.patch(
+            ) as mock_gen, mock.patch("utilities.Viewer_Settings.validate_viewer_document", side_effect=lambda doc, root: doc), mock.patch(
                 "subprocess.call",
-                return_value=42,
+                side_effect=capture_launch,
             ) as mock_call:
                 code = Layout_Cache_Generator.main(
                     [str(settings_file), "--launch-viewer", "--delete-settings"]
@@ -580,14 +584,13 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 mock_call.assert_called_once()
                 called_cmd, called_kwargs = mock_call.call_args
                 self.assertIn("EMAPSSN_Viewer.py", called_cmd[0][2])
-                self.assertEqual(
-                    called_kwargs["env"]["SSN_TARGET_CACHE_PATH"],
-                    "folder/cli_test.h5",
-                )
-                self.assertEqual(
-                    called_kwargs["env"]["SSN_TARGET_CACHE_MODE"],
-                    "existing",
-                )
+                self.assertNotIn("SSN_TARGET_CACHE_PATH", called_kwargs["env"])
+                snapshot = pathlib.Path(called_cmd[0][4])
+                snapshot_document = captured
+                self.assertEqual(snapshot_document["TARGET_CACHE_PATH"], fake_result.cache_path)
+                self.assertEqual(snapshot_document["MSA_FILE"], "")
+                self.assertIn("--delete-settings", called_cmd[0])
+                self.assertFalse(snapshot.exists())
                 self.assertFalse(settings_file.exists())
 
 

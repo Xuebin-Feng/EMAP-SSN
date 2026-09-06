@@ -69,11 +69,13 @@ def resolve_selected_cache(settings):
         os.path.join("Cache_Files", "Saved_Layouts"),
     )
 
-    explicit_relative_path = getattr(settings, "TARGET_CACHE_PATH", None)
-    if explicit_relative_path:
+    explicit_path = getattr(settings, "TARGET_CACHE_PATH", None)
+    if explicit_path:
+        if os.path.isabs(explicit_path):
+            return os.path.abspath(explicit_path), resolved_reference
         return (
             cache_manifest.resolve_relative_cache_path(
-                saved_layout_dir, explicit_relative_path
+                saved_layout_dir, explicit_path
             ),
             resolved_reference,
         )

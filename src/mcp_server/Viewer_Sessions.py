@@ -15,11 +15,13 @@ import tempfile
 import urllib.error
 import urllib.request
 import uuid
+import psutil
 
 
 SESSION_PROTOCOL_VERSION = 1
 LOOPBACK_HOST = "127.0.0.1"
 SESSION_DIRECTORY_ENV = "SSN_VIEWER_SESSION_DIR"
+LAUNCH_ID_ENV = "SSN_VIEWER_LAUNCH_ID"
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,8 @@ class ViewerSessionDescriptor:
     token: str
     started_at: str
     descriptor_path: str = ""
+    launch_id: str | None = None
+    process_created_at: float | None = None
 
     @property
     def base_url(self):
@@ -95,6 +99,8 @@ def publish_viewer_session(
             or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         ),
         descriptor_path=descriptor_path,
+        launch_id=os.environ.get(LAUNCH_ID_ENV),
+        process_created_at=psutil.Process(pid).create_time(),
     )
     payload = asdict(descriptor)
     payload.pop("descriptor_path", None)
@@ -144,6 +150,9 @@ def _load_descriptor(path):
             token=str(payload["token"]),
             started_at=str(payload["started_at"]),
             descriptor_path=os.path.abspath(path),
+            launch_id=payload.get("launch_id"),
+            process_created_at=(float(payload["process_created_at"])
+                                if payload.get("process_created_at") is not None else None),
         )
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return None
@@ -160,19 +169,13 @@ def _load_descriptor(path):
 
 
 def _process_is_running(pid):
-    if pid == os.getpid():
-        return True
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        process = psutil.Process(pid)
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
         return False
-    except PermissionError:
-        return True
-    except OSError as error:
-        if getattr(error, "winerror", None) == 87:
-            return False
+    except (psutil.AccessDenied, OSError):
         return None
-    return True
 
 
 def _validate_live_session(descriptor, timeout):
@@ -198,6 +201,7 @@ def _validate_live_session(descriptor, timeout):
         payload.get("protocol_version") == descriptor.protocol_version
         and payload.get("session_id") == descriptor.session_id
         and response_pid == descriptor.pid
+        and (descriptor.launch_id is None or payload.get("launch_id") == descriptor.launch_id)
     )
 
 

@@ -231,6 +231,12 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                         "list_viewer_sessions",
                         "get_viewer_summary",
                         "query_viewer_nodes",
+                        "start_viewer_session",
+                        "close_viewer_session",
+                        "get_viewer_settings_schema",
+                        "validate_viewer_settings",
+                        "connect_viewer_session",
+                        "disconnect_viewer_session",
                     ],
                 )
                 annotations = {tool.name: tool.annotations for tool in listed.tools}
@@ -270,7 +276,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 viewers = await client.call_tool("list_viewer_sessions")
                 self.assertEqual(
                     viewers.structured_content,
-                    {"sessions": [], "automatic_selection": False},
+                    {"sessions": [], "automatic_selection": False, "connected_session_id": None},
                 )
 
     async def test_real_stdio_subprocess_has_a_clean_protocol_channel(self):
@@ -285,7 +291,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 14)
+                self.assertEqual(len(listed.tools), 20)
                 hardware = await client.call_tool("get_compute_capabilities", {})
                 self.assertFalse(hardware.is_error)
                 self.assertTrue(hardware.structured_content["metadata_only"])
@@ -423,6 +429,102 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(auto_inspected.is_error)
                 self.assertEqual(auto_inspected.structured_content["detected_format"], "layout_cache")
 
+    async def test_viewer_session_lifecycle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = pathlib.Path(temp)
+            fasta = temp_path / "nodes.fasta"
+            fasta.write_text(">Alpha\nAA\n>Beta\nCC\n", encoding="utf-8")
+            network_path = temp_path / "network.h5"
+            layouts_dir = temp_path / "layouts"
+            layouts_dir.mkdir(parents=True, exist_ok=True)
+
+            import h5py
+            import numpy as np
+            with h5py.File(network_path, "w") as hf:
+                string_dtype = h5py.string_dtype("utf-8")
+                hf.attrs["model_name"] = "test_model"
+                hf.create_dataset("headers", data=np.asarray(["Alpha", "Beta"], dtype=object), dtype=string_dtype)
+                hf.create_dataset("i", data=np.asarray([0], dtype=np.uint16))
+                hf.create_dataset("j", data=np.asarray([1], dtype=np.uint16))
+                hf.create_dataset("seq_lens", data=np.asarray([2, 2], dtype=np.uint16))
+                hf.create_dataset("g_score", data=np.asarray([10.0], dtype=np.float32))
+                hf.create_dataset("l_score", data=np.asarray([10.0], dtype=np.float32))
+                hf.create_dataset("g_len", data=np.asarray([2], dtype=np.uint16))
+                hf.create_dataset("l_len", data=np.asarray([2], dtype=np.uint16))
+            async with Client(mcp, read_timeout_seconds=60) as client:
+                # 0. Generate layout cache using start_layout_job
+                started_layout = await client.call_tool("start_layout_job", {
+                    "node_fasta_file": str(fasta),
+                    "input_hdf5": str(network_path),
+                    "cache_filename": "version_00.h5",
+                    "similarity_threshold": 0.1,
+                    "directories": {"SAVED_LAYOUT_DIR": str(layouts_dir)},
+                })
+                self.assertFalse(started_layout.is_error)
+                job = started_layout.structured_content
+                deadline = asyncio.get_running_loop().time() + 20
+                while job["status"] in {"queued", "running"} and asyncio.get_running_loop().time() < deadline:
+                    await asyncio.sleep(0.1)
+                    status = await client.call_tool("get_pipeline_job", {"job_id": job["job_id"]})
+                    job = status.structured_content
+                self.assertEqual(job["status"], "succeeded")
+                cache_file = list(layouts_dir.rglob("version_00.h5"))[0]
+
+                # 1. Invalid cache path
+                bad_start = await client.call_tool("start_viewer_session", {
+                    "cache_path": str(temp_path / "nonexistent.h5"),
+                })
+                self.assertTrue(bad_start.is_error)
+
+                # 2. Valid start in headless mode with settings_document
+                started = await client.call_tool("start_viewer_session", {
+                    "mode": "headless",
+                    "settings_document": {
+                        "TARGET_CACHE_PATH": str(cache_file), "NODE_FASTA_FILE": str(fasta),
+                        "INPUT_HDF5": str(network_path), "MSA_FILE": "", "ALIGNMENT_REFERENCE": "",
+                        "ALIGNMENT_SCORE": "global", "NORM_MODE": "alignment_length",
+                        "UMAP_MODE": False, "SIMILARITY_THRESHOLD": 0.1, "TOP_EDGE_PERCENT": None,
+                        "NODE_SIZE": 15,
+                    },
+                })
+                self.assertFalse(started.is_error, str(started))
+                session_info = started.structured_content
+                self.assertEqual(session_info["status"], "ready")
+                self.assertEqual(session_info["mode"], "headless")
+                session_id = session_info["session_id"]
+                self.assertTrue(session_id)
+
+                try:
+                    # 3. List sessions
+                    sessions = await client.call_tool("list_viewer_sessions")
+                    self.assertFalse(sessions.is_error)
+                    listed_ids = [s["session_id"] for s in sessions.structured_content["sessions"]]
+                    self.assertIn(session_id, listed_ids)
+
+                    disconnected = await client.call_tool("disconnect_viewer_session")
+                    self.assertFalse(disconnected.is_error)
+                    unbound = await client.call_tool("get_viewer_summary")
+                    self.assertTrue(unbound.is_error)
+                    connected = await client.call_tool("connect_viewer_session", {"session_id": session_id})
+                    self.assertFalse(connected.is_error, str(connected))
+                    # 4. Query summary
+                    summary = await client.call_tool("get_viewer_summary", {"session_id": session_id})
+                    self.assertFalse(summary.is_error)
+                    self.assertEqual(summary.structured_content["node_count"], 2)
+
+                    # 5. Query nodes
+                    nodes = await client.call_tool("query_viewer_nodes", {
+                        "session_id": session_id,
+                        "limit": 10,
+                    })
+                    self.assertFalse(nodes.is_error)
+                    self.assertEqual(len(nodes.structured_content["nodes"]), 2)
+                finally:
+                    # 6. Close session
+                    closed = await client.call_tool("close_viewer_session", {"session_id": session_id})
+                    self.assertFalse(closed.is_error)
+                    self.assertTrue(closed.structured_content["closed"])
+
 
 class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_session_listing_does_not_disclose_secrets(self):
@@ -449,6 +551,7 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
                     }
                 ],
                 "automatic_selection": True,
+                "connected_session_id": None,
             },
         )
         self.assertNotIn("secret-token", json.dumps(payload))

@@ -35,6 +35,9 @@ from utilities.Application_Identity import (
     configure_linux_qt_desktop_identity,
 )
 from Layout_Cache_Generator import LayoutGenerationSettings
+from utilities.Viewer_Defaults import (
+    INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES
+)
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
 # --- Placeholder Parameters ---
@@ -148,75 +151,10 @@ RMSD_WINDOW = 50
 ENABLE_PROGRESSIVE_SIMULATION = False
 PACKING_GEOMETRY = "Square"
 
-INPUT_PROFILE_DEFAULTS = {
-    "NODE_FASTA_FILE": "",
-    "MSA_FILE": "",
-    "INPUT_HDF5": "",
-    "ALIGNMENT_SCORE": "global",
-    "NORM_MODE": "alignment_length",
-    "ALIGNMENT_REFERENCE": "",
-    "ALIGNMENT_OFFSET": 0,
-    "UMAP_MODE": False,
-    "UMAP_NEIGHBORS": 15,
-    "UMAP_MIN_DIST": 0.1,
-    "SIMILARITY_THRESHOLD": None,
-    "TOP_EDGE_PERCENT": None,
-    "FILTER_MIN_OCCUPANCY": 10.0,
-}
 
-VISUAL_PROFILE_DEFAULTS = {
-    "NODE_SIZE": 10,
-    "EDGE_WIDTH": 1.0,
-    "NODE_BOUNDARY_WIDTH": 0.5,
-    "EDGE_ALPHA": 0.1,
-    "TEXT_SIZE": 8,
-    "TEXT_COLOR": "grey",
-    "INITIAL_NODE_COLOR": "#4488ff",
-    "HOVER_COLOR": "#ffaa00",
-    "CONNECTED_NODE_COLOR": "#ff0000",
-    "EDGE_COLOR": "#000000",
-    "NODE_BOUNDARY_COLOR": "#000000",
-    "LOW_RESOURCE_MODE": False,
-}
 
-PHYSICS_PROFILE_DEFAULTS = {
-    "LAYOUT_DEVICE_SELECTION": "auto",
-    "SPRING_K": 5.0,
-    "COULOMB_K": 10.0,
-    "COULOMB_CUTOFF": 30.0,
-    "DAMPING": 0.9,
-    "DT": 0.005,
-    "MAX_STEPS": 10000,
-    "RMSD_THRESHOLD": 0.005,
-    "PERCENTAGE_DROP_THRESHOLD": 0.1,
-    "RMSD_WINDOW": 50,
-    "ENABLE_PROGRESSIVE_SIMULATION": False,
-    "PACKING_GEOMETRY": "Square",
-    "PACKING_GRID_SIZE": 20.0,
-}
 
-DIRECTORY_PROFILE_DEFAULTS = {
-    "INPUT_FILE_DIR": "Input_Files",
-    "CACHE_FILE_DIR": "Cache_Files",
-    "ANALYSIS_RESULT_DIR": "Analysis_Results",
-    "FASTA_DIR": os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets"),
-    "MSA_DIR": os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments"),
-    "HDF5_DIR": os.path.join(INPUT_FILE_ALIAS, "Networks_EValues"),
-    "METADATA_DIR": os.path.join(INPUT_FILE_ALIAS, "Meta_Data"),
-    "HEADER_LIST_DIR": os.path.join(INPUT_FILE_ALIAS, "Header_Lists"),
-    "SAVED_LAYOUT_DIR": os.path.join(CACHE_FILE_ALIAS, "Saved_Layouts"),
-    "SETTING_EXPORT_DIR": os.path.join(CACHE_FILE_ALIAS, "Exported_Settings"),
-}
 
-LEGACY_DEFAULT_DIRECTORY_PATHS = {
-    "FASTA_DIR": os.path.join("Input_Files", "Sequence_Sets"),
-    "MSA_DIR": os.path.join("Input_Files", "Multiple_Alignments"),
-    "HDF5_DIR": os.path.join("Input_Files", "Networks_EValues"),
-    "METADATA_DIR": os.path.join("Input_Files", "Meta_Data"),
-    "HEADER_LIST_DIR": os.path.join("Input_Files", "Header_Lists"),
-    "SAVED_LAYOUT_DIR": os.path.join("Cache_Files", "Saved_Layouts"),
-    "SETTING_EXPORT_DIR": os.path.join("Cache_Files", "Exported_Settings"),
-}
 
 DIRECTORY_DISPLAY_NAMES = {
     "INPUT_FILE_DIR": "Input File Directory",
@@ -270,32 +208,7 @@ PROFILE_DISABLED_TOGGLE_STYLESHEET = (
     "border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }"
 )
 
-PROFILE_ENUM_VALUES = {
-    "ALIGNMENT_SCORE": {"global", "local"},
-    "NORM_MODE": {
-        "alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"
-    },
-    "PACKING_GEOMETRY": {"Square", "Circle"},
-}
 
-PROFILE_RANGES = {
-    "ALIGNMENT_OFFSET": (-1000000, 1000000),
-    "UMAP_NEIGHBORS": (2, 500),
-    "UMAP_MIN_DIST": (0.0, 1.0),
-    "TOP_EDGE_PERCENT": (0.0, 100.0),
-    "FILTER_MIN_OCCUPANCY": (0.0, 100.0),
-    "NODE_SIZE": (1, 20),
-    "EDGE_WIDTH": (0.1, 3.0),
-    "NODE_BOUNDARY_WIDTH": (0.0, 2.0),
-    "EDGE_ALPHA": (0.0, 1.0),
-    "TEXT_SIZE": (1, 24),
-    "SPRING_K": (1.0, 20.0),
-    "COULOMB_K": (1.0, 30.0),
-    "COULOMB_CUTOFF": (1.0, 100.0),
-    "DAMPING": (0.1, 2.0),
-    "RMSD_WINDOW": (10, 1000),
-    "PACKING_GRID_SIZE": (1.0, 200.0),
-}
 
 
 def resolve_directory_path(value, base_directories=None):
@@ -433,43 +346,49 @@ def _atomic_write_json(path, data):
 # --- JSON Settings Override ---
 import Cache_Manifest as cache_manifest
 
+def apply_viewer_settings(settings_dict):
+    """Apply a dictionary of viewer settings to EMAPSSN_Config globals."""
+    if not isinstance(settings_dict, dict):
+        return
+    LEGACY_KEYS_MAPPING = {
+        "NEIGHBOR_COLOR": "INITIAL_NODE_COLOR"
+    }
+    for k, v in settings_dict.items():
+        if k in LEGACY_KEYS_MAPPING:
+            k = LEGACY_KEYS_MAPPING[k]
+        if k == "SAVED_CONFIG_DIR":
+            v = _migrate_saved_config_dir(v)
+        if k in DIRECTORY_PROFILE_DEFAULTS:
+            v = _migrate_default_directory_path(k, v)
+        if k in globals() and v is not None and (str(v).strip() != "" or k in ["MSA_FILE", "ALIGNMENT_REFERENCE"]):
+            orig = globals()[k]
+            if isinstance(orig, int) and not isinstance(orig, bool):
+                try: v = int(v)
+                except: pass
+            elif isinstance(orig, float):
+                try: v = float(v)
+                except: pass
+            elif isinstance(orig, bool):
+                v = str(v).lower() in ['true', '1', 't', 'y', 'yes']
+            elif isinstance(orig, list):
+                try: v = ast.literal_eval(v) if isinstance(v, str) else v
+                except: pass
+            elif orig is None:
+                if v == "None": v = None
+                elif str(v).replace('.', '', 1).isdigit():
+                    v = float(v) if '.' in str(v) else int(v)
+            globals()[k] = v
+    _resolve_runtime_path_settings()
+
+
 DEFAULT_SETTINGS_FILE = str(PROJECT_ROOT / "viewer_settings.json")
 SETTINGS_FILE = os.environ.get("SSN_VIEWER_SETTINGS_PATH") or DEFAULT_SETTINGS_FILE
 viewer_settings = {}
-if os.path.exists(SETTINGS_FILE):
+if not os.environ.get("SSN_VIEWER_EXPLICIT_SETTINGS") and os.path.exists(SETTINGS_FILE):
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             viewer_settings = json.load(f)
-            # Map legacy settings keys to new keys
-            LEGACY_KEYS_MAPPING = {
-                "NEIGHBOR_COLOR": "INITIAL_NODE_COLOR"
-            }
-            for k, v in viewer_settings.items():
-                if k in LEGACY_KEYS_MAPPING:
-                    k = LEGACY_KEYS_MAPPING[k]
-                if k == "SAVED_CONFIG_DIR":
-                    v = _migrate_saved_config_dir(v)
-                if k in DIRECTORY_PROFILE_DEFAULTS:
-                    v = _migrate_default_directory_path(k, v)
-                if k in globals() and v is not None and (str(v).strip() != "" or k in ["MSA_FILE", "ALIGNMENT_REFERENCE"]):
-                    orig = globals()[k]
-                    if isinstance(orig, int) and not isinstance(orig, bool):
-                        try: v = int(v)
-                        except: pass
-                    elif isinstance(orig, float):
-                        try: v = float(v)
-                        except: pass
-                    elif isinstance(orig, bool):                                  # <--- ADD THIS
-                        v = str(v).lower() in ['true', '1', 't', 'y', 'yes']      # <--- ADD THIS
-                    elif isinstance(orig, list):
-                        try: v = ast.literal_eval(v) if isinstance(v, str) else v
-                        except: pass
-                    elif orig is None:
-                        if v == "None": v = None
-                        elif str(v).replace('.', '', 1).isdigit():
-                            v = float(v) if '.' in str(v) else int(v)
-                    globals()[k] = v
-                        
+            apply_viewer_settings(viewer_settings)
     except Exception as e:
         print(f"Failed to load viewer settings: {e}")
 
@@ -487,6 +406,7 @@ def _handoff_to_viewer(
     project_root,
     env,
     *,
+    settings_path=None,
     platform_name=None,
     executable=None,
 ):
@@ -494,8 +414,11 @@ def _handoff_to_viewer(
     executable = executable or sys.executable
     project_root = os.path.abspath(project_root)
     viewer_script = os.path.join(project_root, "src", "EMAPSSN_Viewer.py")
+    argv = [executable, "-u", viewer_script]
+    if settings_path:
+        argv.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
     return launch_in_terminal(
-        [executable, "-u", viewer_script],
+        argv,
         cwd=project_root,
         env=env,
         hold=HoldMode.ON_ERROR,
@@ -3895,6 +3818,15 @@ if __name__ == "__main__":
                 return
 
             settings_data = self.collect_data()
+            settings_data["TARGET_CACHE_PATH"] = cache_manifest.resolve_relative_cache_path(saved_layout_dir, relative_path)
+            settings_data["TARGET_CACHE_MODE"] = "existing"
+            settings_data["SIMILARITY_THRESHOLD"] = self.spin_thresh.optionalValue()
+            settings_data["TOP_EDGE_PERCENT"] = self.spin_top.optionalValue()
+            if self.check_umap.isChecked():
+                settings_data["SIMILARITY_THRESHOLD"] = None
+                settings_data["TOP_EDGE_PERCENT"] = None
+            elif settings_data["TOP_EDGE_PERCENT"] is not None:
+                settings_data["SIMILARITY_THRESHOLD"] = None
             if not self.save_settings():
                 return
 
@@ -3957,7 +3889,11 @@ if __name__ == "__main__":
             else:
                 print("Launching EMAPSSN_Viewer.py...")
                 try:
-                    _handoff_to_viewer(script_dir, env)
+                    _handoff_to_viewer(
+                        script_dir,
+                        env,
+                        settings_path=settings_snapshot,
+                    )
                 except (OSError, RuntimeError) as error:
                     try:
                         os.unlink(settings_snapshot)

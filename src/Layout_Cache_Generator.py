@@ -806,20 +806,48 @@ def main(argv: list[str] | None = None) -> int:
     if args.launch_viewer:
         viewer_script = os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py")
         env = os.environ.copy()
-        rel_cache_path = os.path.relpath(
-            result.cache_path, settings.SAVED_LAYOUT_DIR
-        ).replace("\\", "/")
-        env["SSN_TARGET_CACHE_PATH"] = rel_cache_path
-        env["SSN_TARGET_CACHE_MODE"] = "existing"
+        from utilities.Viewer_Settings import DEFAULTS, read_viewer_settings, validate_viewer_document
+        snapshot_source = env.pop("SSN_VIEWER_SETTINGS_PATH", None)
+        if snapshot_source:
+            document = read_viewer_settings(settings_path=snapshot_source, project_root=PROJECT_ROOT)
+        else:
+            document = {key: getattr(settings, key) for key in DEFAULTS if hasattr(settings, key)}
+            document.update(MSA_FILE="", ALIGNMENT_REFERENCE="")
+        document["TARGET_CACHE_PATH"] = str(result.cache_path)
+        document["TARGET_CACHE_MODE"] = "existing"
+        if settings.UMAP_MODE:
+            document["SIMILARITY_THRESHOLD"] = None
+            document["TOP_EDGE_PERCENT"] = None
+        elif settings.TOP_EDGE_PERCENT is not None:
+            document["SIMILARITY_THRESHOLD"] = None
+        document = validate_viewer_document(document, PROJECT_ROOT)
+        descriptor, viewer_snapshot = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(document, handle)
+        if snapshot_source:
+            os.unlink(snapshot_source)
+        for key in ("SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE"):
+            env.pop(key, None)
         print(
             f"Layout cache generated successfully at {result.cache_path}. "
             "Launching EMAP-SSN Viewer..."
         )
-        return subprocess.call(
-            [sys.executable, "-u", viewer_script],
-            cwd=str(PROJECT_ROOT),
-            env=env,
-        )
+        try:
+            return subprocess.call(
+                [
+                    sys.executable,
+                    "-u",
+                    viewer_script,
+                    "--settings",
+                    viewer_snapshot,
+                    "--delete-settings",
+                ],
+                cwd=str(PROJECT_ROOT),
+                env=env,
+            )
+        finally:
+            Path(viewer_snapshot).unlink(missing_ok=True)
+
     return 0
 
 

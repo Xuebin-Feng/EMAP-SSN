@@ -30,6 +30,8 @@ markov-clustering==0.0.6.dev0
 matplotlib==3.11.1
 # Official Model Context Protocol SDK used only by EMAPSSN_MCP_Server.py.
 mcp==2.1.1
+# Viewer session process identity and verified termination.
+psutil==7.2.2
 # Shared pipeline JSON Schemas and GUI export validation.
 jsonschema==4.26.0
 networkx==3.6.1

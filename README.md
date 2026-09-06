@@ -83,7 +83,7 @@ separate command, for example
 ### 🔌 Local STDIO MCP server
 
 `src/EMAPSSN_MCP_Server.py` exposes the 14 pipeline programs and bounded,
-read-only Viewer inspection to local MCP clients. It uses STDIO only: the
+Viewer launch, connection, inspection, and explicit shutdown to local MCP clients. It uses STDIO only: the
 client starts one server process and communicates through its standard input
 and output. Run the normal project installer after updating this branch so the
 managed environment includes the pinned MCP SDK.
@@ -153,10 +153,13 @@ are removed on normal server shutdown; an abrupt crash can leave a private
 operating system's temporary directory, which is safe to remove when no MCP
 server is running.
 
-Viewer tools discover normally running Viewer processes and reuse their
-authenticated, loopback-only inspection endpoints. They cannot modify the
-Viewer. When multiple Viewers are open, callers must provide a session ID.
-Discovery tokens and descriptor paths are never returned by MCP tools.
+Viewer tools discover running Viewer processes through authenticated local endpoints.
+Use `connect_viewer_session` to select one, `disconnect_viewer_session` to leave it
+running, and `close_viewer_session` to explicitly stop it. New sessions require a
+complete JSON document through `start_viewer_session`; use
+`get_viewer_settings_schema` and `validate_viewer_settings` to prepare it.
+See [Viewer session settings](docs/mcp_settings.md#viewer-sessions), including the
+Windows host restriction on independent subprocesses.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 

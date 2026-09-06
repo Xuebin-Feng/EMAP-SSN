@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from weakref import WeakKeyDictionary
 import os
 import asyncio
 import sys
@@ -32,6 +33,10 @@ from mcp_server.MCP_Pipeline_Jobs import (
     PipelineJobManager,
 )
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
+from utilities.Viewer_Settings import (
+    get_viewer_settings_schema as viewer_settings_schema,
+    read_viewer_settings, validate_viewer_document, ViewerSettingsError,
+)
 from utilities.Application_Identity import PRODUCT_NAME
 from utilities.Tool_Execution import list_tool_specs
 from mcp_server.Pipeline_Settings import (
@@ -42,7 +47,7 @@ from mcp_server.Pipeline_Settings import (
 )
 
 
-MCP_SERVER_VERSION = "0.4.0"
+MCP_SERVER_VERSION = "0.5.0"
 
 
 class PipelineToolInfo(BaseModel):
@@ -107,12 +112,13 @@ class ViewerSessionInfo(BaseModel):
 class ViewerSessionList(BaseModel):
     sessions: list[ViewerSessionInfo]
     automatic_selection: bool
+    connected_session_id: str | None = None
 
 
 @dataclass
 class AppContext:
     jobs: PipelineJobManager
-    viewer: MCPViewerClient
+    viewer_connections: WeakKeyDictionary = field(default_factory=WeakKeyDictionary)
 
 
 @asynccontextmanager
@@ -120,7 +126,7 @@ async def app_lifespan(_server: MCPServer) -> AsyncIterator[AppContext]:
     jobs = PipelineJobManager(_PROJECT_ROOT, max_pending=16, history_limit=100)
     await jobs.start()
     try:
-        yield AppContext(jobs=jobs, viewer=MCPViewerClient())
+        yield AppContext(jobs=jobs)
     finally:
         await jobs.close()
 
@@ -128,14 +134,16 @@ async def app_lifespan(_server: MCPServer) -> AsyncIterator[AppContext]:
 mcp = MCPServer(
     "emap-ssn",
     title=PRODUCT_NAME,
-    description="Run allowlisted SSN pipelines and inspect local Viewers read-only.",
+    description="Run allowlisted SSN pipelines and connect to, launch, inspect or close local Viewers.",
     instructions=(
         "Discover pipeline parameters with get_pipeline_tool_schema and preview "
         "requests with validate_pipeline_settings. Supply native JSON numbers "
         "and booleans; unknown setting keys are rejected. "
         "Pipeline jobs may create or overwrite files according to the supplied "
         "settings. Jobs and their FIFO queue belong to this STDIO server and are "
-        "cancelled when it exits. Viewer tools are read-only."
+        "cancelled when it exits. Viewer sessions survive disconnection. Use complete JSON "
+        "with start_viewer_session, connect_viewer_session for existing Viewers, and "
+        "disconnect_viewer_session to leave a Viewer running. Only close_viewer_session stops it."
     ),
     version=MCP_SERVER_VERSION,
     lifespan=app_lifespan,
@@ -165,6 +173,16 @@ _CANCEL_JOB = ToolAnnotations(
 
 def _context(ctx: Context[AppContext]):
     return ctx.request_context.lifespan_context
+
+
+def _viewer(ctx: Context[AppContext]):
+    # MCP 2.1.1 modern STDIO builds per-request Session AND Connection proxies.
+    # The standalone outbound channel is shared by requests on one transport.
+    app = _context(ctx)
+    transport = ctx.session._connection.outbound
+    if transport not in app.viewer_connections:
+        app.viewer_connections[transport] = MCPViewerClient(project_root=_PROJECT_ROOT)
+    return app.viewer_connections[transport]
 
 
 def _job_info(payload):
@@ -524,7 +542,7 @@ async def list_viewer_sessions(
     ctx: Context[AppContext],
 ) -> ViewerSessionList:
     """List authenticated live Viewers without exposing discovery secrets."""
-    payload = await _context(ctx).viewer.list_sessions()
+    payload = await _viewer(ctx).list_sessions()
     return ViewerSessionList.model_validate(payload)
 
 
@@ -539,7 +557,7 @@ async def get_viewer_summary(
 ) -> dict[str, Any]:
     """Read a bounded summary from one live Viewer."""
     try:
-        return await _context(ctx).viewer.get_summary(session_id)
+        return await _viewer(ctx).get_summary(session_id)
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 
@@ -559,7 +577,7 @@ async def query_viewer_nodes(
 ) -> dict[str, Any]:
     """Read an index-ordered page of all, visible, or selected Viewer nodes."""
     try:
-        return await _context(ctx).viewer.query_nodes(
+        return await _viewer(ctx).query_nodes(
             session_id,
             scope=scope,
             offset=offset,
@@ -568,6 +586,80 @@ async def query_viewer_nodes(
         )
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
+
+
+@mcp.tool(
+    title="Start an EMAP-SSN Viewer session",
+    annotations=_START_JOB,
+    structured_output=True,
+)
+async def start_viewer_session(
+    ctx: Context[AppContext],
+    mode: Literal["normal", "headless"] = "normal",
+    settings_path: str | None = None,
+    settings_document: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate complete Viewer JSON, launch independently, and connect to the ready session."""
+    try:
+        return await _viewer(ctx).launch_session(
+            mode=mode,
+            settings_path=settings_path,
+            settings_document=settings_document,
+        )
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(
+    title="Close an EMAP-SSN Viewer session",
+    annotations=_CANCEL_JOB,
+    structured_output=True,
+)
+async def close_viewer_session(
+    ctx: Context[AppContext],
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Close and terminate a running Viewer session and release its resources."""
+    try:
+        return await _viewer(ctx).close_session(session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(title="Get Viewer settings schema", annotations=_READ_ONLY, structured_output=True)
+def get_viewer_settings_schema() -> dict[str, Any]:
+    """Discover the complete JSON contract for Viewer startup."""
+    return viewer_settings_schema()
+
+
+@mcp.tool(title="Validate Viewer settings", annotations=_READ_ONLY, structured_output=True)
+async def validate_viewer_settings(
+    settings_document: dict[str, Any] | None = None,
+    settings_path: str | None = None,
+) -> dict[str, Any]:
+    """Validate source files and cache identity, returning the normalized launch document."""
+    try:
+        document = read_viewer_settings(settings_document=settings_document, settings_path=settings_path,
+                                        project_root=_PROJECT_ROOT)
+        normalized = await asyncio.to_thread(validate_viewer_document, document, _PROJECT_ROOT)
+        return {"valid": True, "settings_document": normalized}
+    except ViewerSettingsError as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(title="Connect to a Viewer session", annotations=_READ_ONLY, structured_output=True)
+async def connect_viewer_session(ctx: Context[AppContext], session_id: str | None = None) -> dict[str, Any]:
+    """Select an existing authenticated Viewer for this MCP connection without reloading it."""
+    try:
+        return await _viewer(ctx).connect_session(session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(title="Disconnect from a Viewer session", annotations=_READ_ONLY, structured_output=True)
+async def disconnect_viewer_session(ctx: Context[AppContext]) -> dict[str, Any]:
+    """Clear this connection's selection, leaving the Viewer and its artifacts running."""
+    return await _viewer(ctx).disconnect_session()
 
 
 def main():

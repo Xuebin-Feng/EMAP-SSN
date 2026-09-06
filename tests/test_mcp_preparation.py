@@ -335,7 +335,7 @@ class ViewerDiscoveryTests(unittest.TestCase):
         ):
             descriptor = publish_viewer_session(
                 session_id="stale",
-                pid=999999,
+                pid=os.getpid(),
                 port=9,
                 token="unused",
             )

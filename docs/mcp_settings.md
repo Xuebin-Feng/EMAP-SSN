@@ -239,3 +239,87 @@ Layout settings default to project-level constants defined in `EMAPSSN_Config.py
 automatically resolve against these directories if not provided as absolute paths.
 The resulting cache files (`<layout_id>.h5` and `<layout_id>_manifest.json`) are stored
 in `SAVED_LAYOUT_DIR` (`Cache_Files/Saved_Layouts`).
+
+## Viewer sessions
+
+Viewer sessions are independent of MCP connections. Use `list_viewer_sessions`
+to discover authenticated Viewers started through the GUI, CLI, or MCP.
+`connect_viewer_session` selects an existing session without changing its settings.
+Supply `session_id`, or omit it only when exactly one Viewer is running.
+
+`get_viewer_summary`, `query_viewer_nodes`, and `close_viewer_session` use the
+connected session when `session_id` is omitted. An explicit ID affects only that
+operation. Without a connection or explicit ID, they return a selection error.
+Each MCP connection has its own selection; switching sessions leaves the previous
+Viewer running.
+
+`disconnect_viewer_session` clears the selection and leaves the Viewer running.
+It is safe to repeat. Closing the MCP connection or server also leaves ready
+Viewers running. Use `close_viewer_session` explicitly to terminate a Viewer;
+success is returned only after process exit is verified. Failed closure retains
+session information. A disconnected client never automatically reconnects.
+
+### Launch with complete JSON
+
+`start_viewer_session` accepts exactly one of `settings_document` or
+`settings_path`, plus `mode` (`normal` or `headless`). The old standalone
+`cache_path` argument is no longer accepted. A successful launch also connects
+the caller to the new session. Logs are written to the returned `stdout_log` and
+`stderr_log` paths, separately from MCP protocol output.
+
+```json
+{
+  "mode": "headless",
+  "settings_document": {
+    "TARGET_CACHE_PATH": "my_layout/version_00.h5",
+    "NODE_FASTA_FILE": "$input_file$/Sequence_Sets/proteins.fasta",
+    "INPUT_HDF5": "$input_file$/Networks_EValues/proteins_network.h5",
+    "MSA_FILE": "",
+    "ALIGNMENT_REFERENCE": "",
+    "ALIGNMENT_SCORE": "global",
+    "NORM_MODE": "alignment_length",
+    "UMAP_MODE": false,
+    "SIMILARITY_THRESHOLD": 0.1,
+    "TOP_EDGE_PERCENT": null,
+    "NODE_SIZE": 10
+  }
+}
+```
+
+Use `get_viewer_settings_schema` to discover fields and defaults, and
+`validate_viewer_settings` with the same settings source to validate files and
+return the normalized document before launching. Required scientific settings
+must match the cache manifest. Alignment networks require score and normalization
+settings. Physics layouts require explicit threshold and top-percent fields;
+set the inactive filter to null. UMAP requires `UMAP_NEIGHBORS` and null edge
+filters. `MSA_FILE` must be explicit; an empty string disables alignment loading.
+A supplied alignment reference must exist in the selected MSA.
+
+Documents use the existing flat Viewer settings format. Directory aliases
+`$input_file$`, `$cache_file$`, and `$analysis_result$` resolve from the supplied
+base directories or documented project-relative defaults. Bare input filenames
+resolve under their configured input directory; input paths containing directories
+resolve against the project root. Relative `TARGET_CACHE_PATH` values resolve
+under `SAVED_LAYOUT_DIR`. Absolute paths are accepted. A settings file's location
+does not change these rules.
+
+Explicit documents never inherit personal `viewer_settings.json` values. Missing
+files, mismatching fingerprints, incompatible scientific parameters, and cache
+header-order mismatches are errors. The Viewer never searches for substitute
+files or silently drops connectivity. Presentation defaults are included in the
+normalized snapshot. The minimal cache format is unchanged.
+
+For direct CLI use:
+
+```text
+python src/EMAPSSN_Viewer.py --settings viewer_launch.json --headless
+```
+
+Caller-owned JSON files are preserved. GUI and MCP launchers consume their own
+private snapshots after successful validation. Failed/cancelled starts clean up
+only their own process trees and retain diagnostic logs.
+
+On Windows, independent launch requires the host to permit Job Object breakaway.
+A host that forbids it receives a startup error rather than a session that dies on
+MCP disconnect. In that host, open the Viewer through the GUI or CLI and use
+`connect_viewer_session`; connect/disconnect does not require launching a process.
