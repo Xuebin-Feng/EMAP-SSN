@@ -1,4 +1,32 @@
-# MCP settings (server 0.6.0, pipeline settings schema 1)
+# MCP settings (server 0.7.0, pipeline settings schema 1)
+
+## Viewer aliases and cache provenance
+
+Viewer titles include an eight-character UUID alias, such as
+`EMAP-SSN Viewer [A7C92F10]`. Identity belongs to the Viewer instance and survives
+internal web-server restarts. A newly opened Viewer gets a new UUID even when it
+loads the same cache. Qt sets the native window title on Windows, Linux and macOS;
+whether native decorations are visible is controlled by the desktop/window manager.
+
+MCP session arguments accept either a full UUID or the exact eight-character alias
+(case-insensitive). Ambiguous aliases fail with the matching full UUIDs. Connections
+continue to store full UUIDs internally. Listings, launch results and connect results
+expose `session_alias` alongside the existing `session_id`.
+
+`list_viewer_sessions` and `get_viewer_summary` expose `cache_metadata`, containing
+the absolute `cache_path`, `cache_filename`, the three provenance `attributes`,
+parsed `generation_parameters`, and the parent `folder_manifest`. The reader checks
+the manifest's own identity, its match to `cache_manifest_id`, and the SHA-256
+`layout_compatibility_id` against the canonical parameter JSON. It reads no datasets
+and runs outside the Qt UI thread. Results are refreshed when file identity, size
+or timestamps change and do not rewrite caches.
+
+Metadata `status` is `complete`, `partial`, `invalid`, or `unavailable`, with
+`diagnostics`. Older caches missing provenance remain discoverable. If a Viewer
+stops responding during listing, its entry retains identity and reports
+`metadata_error`. Generation parameters describe the saved cache, while fields such
+as `active_threshold` describe current interactive state. A valid provenance hash
+does not establish that coordinates have never been manually edited.
 
 ## Export, edit, validate, execute
 

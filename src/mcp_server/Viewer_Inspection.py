@@ -138,6 +138,9 @@ class ViewerInspectionService:
 
         return {
             "inputs": self._input_paths(),
+            "session_id": getattr(viewer, "inspection_session_id", None),
+            "session_alias": getattr(viewer, "inspection_session_alias", None),
+            "window_title": viewer.main_window.windowTitle() if getattr(viewer, "main_window", None) is not None else None,
             "node_count": node_count,
             "edge_count": edge_count,
             "visible_node_count": sum(visible),

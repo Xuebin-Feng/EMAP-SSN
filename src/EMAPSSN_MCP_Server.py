@@ -47,7 +47,7 @@ from mcp_server.Pipeline_Settings import (
 )
 
 
-MCP_SERVER_VERSION = "0.6.0"
+MCP_SERVER_VERSION = "0.7.0"
 
 
 class PipelineToolInfo(BaseModel):
@@ -105,6 +105,9 @@ class PipelineLogPage(BaseModel):
 
 class ViewerSessionInfo(BaseModel):
     session_id: str
+    session_alias: str | None = None
+    cache_metadata: dict[str, Any] | None = None
+    metadata_error: str | None = None
     pid: int
     started_at: str
 
@@ -682,7 +685,9 @@ async def validate_viewer_settings(
 
 @mcp.tool(title="Connect to a Viewer session", annotations=_READ_ONLY, structured_output=True)
 async def connect_viewer_session(ctx: Context[AppContext], session_id: str | None = None) -> dict[str, Any]:
-    """Select an existing authenticated Viewer for this MCP connection without reloading it."""
+    """Connect using a full UUID or exact eight-character title alias (case-insensitive).
+    Ambiguous aliases fail; omit only when exactly one Viewer is running.
+    """
     try:
         return await _viewer(ctx).connect_session(session_id)
     except MCPViewerError as error:

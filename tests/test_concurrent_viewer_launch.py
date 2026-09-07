@@ -96,7 +96,7 @@ class ConcurrentWebServerTests(unittest.TestCase):
         Web_Server.stop_server(server)
 
     def test_server_uses_requested_available_port(self):
-        server = Web_Server.start_server(object(), preferred_port=0)
+        server = Web_Server.start_server(SimpleNamespace(), preferred_port=0)
         self.addCleanup(self._close_server, server)
         self.assertGreater(server.server_address[1], 0)
 
@@ -107,17 +107,17 @@ class ConcurrentWebServerTests(unittest.TestCase):
         self.addCleanup(occupied.close)
         occupied_port = occupied.getsockname()[1]
 
-        server = Web_Server.start_server(object(), preferred_port=occupied_port)
+        server = Web_Server.start_server(SimpleNamespace(), preferred_port=occupied_port)
         self.addCleanup(self._close_server, server)
         self.assertNotEqual(server.server_address[1], occupied_port)
         self.assertGreater(server.server_address[1], 0)
 
     def test_two_viewer_servers_never_share_the_preferred_port(self):
-        first = Web_Server.start_server(object(), preferred_port=0)
+        first = Web_Server.start_server(SimpleNamespace(), preferred_port=0)
         self.addCleanup(self._close_server, first)
         preferred_port = first.server_address[1]
 
-        second = Web_Server.start_server(object(), preferred_port=preferred_port)
+        second = Web_Server.start_server(SimpleNamespace(), preferred_port=preferred_port)
         self.addCleanup(self._close_server, second)
 
         self.assertEqual(first.server_address[1], preferred_port)
@@ -130,7 +130,8 @@ class ConcurrentWebServerTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
 
     def test_stop_is_idempotent_and_ensure_replaces_stopped_server(self):
-        first = Web_Server.start_server(object(), preferred_port=0)
+        viewer = SimpleNamespace()
+        first = Web_Server.start_server(viewer, preferred_port=0)
         first_port = first.server_address[1]
         self.assertTrue(Web_Server.is_running(first))
 
@@ -141,10 +142,11 @@ class ConcurrentWebServerTests(unittest.TestCase):
             socket.create_connection((Web_Server.LOOPBACK_HOST, first_port), timeout=0.2)
 
         replacement = Web_Server.ensure_server(
-            object(), first, preferred_port=first_port
+            viewer, first, preferred_port=first_port
         )
         self.addCleanup(self._close_server, replacement)
         self.assertIsNot(replacement, first)
+        self.assertEqual(replacement.inspection_session_id, first.inspection_session_id)
         self.assertTrue(Web_Server.is_running(replacement))
 
     def test_platform_address_reuse_policy(self):

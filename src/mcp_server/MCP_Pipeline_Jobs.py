@@ -110,6 +110,9 @@ class PipelineJobManager:
         )
         try:
             os.makedirs(parent, mode=0o700, exist_ok=True)
+            probe = os.path.join(parent, f".probe-{os.getpid()}")
+            os.mkdir(probe)
+            os.rmdir(probe)
             self.temporary_root = tempfile.mkdtemp(prefix="server-", dir=parent)
         except (OSError, PermissionError):
             parent = os.path.join(

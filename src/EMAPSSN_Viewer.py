@@ -713,7 +713,9 @@ class MainViewer:
         # --- 6. Set up MainWindow & WebServer ---
         self._panel_w = 180
         self.main_window = QtWidgets.QMainWindow()
-        self.main_window.setWindowTitle(VIEWER_DISPLAY_NAME)
+        from mcp_server.Viewer_Sessions import ensure_viewer_identity
+        ensure_viewer_identity(self)
+        self.main_window.setWindowTitle(f"{VIEWER_DISPLAY_NAME} [{self.inspection_session_alias}]")
         
         # Set Window Icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.ico")

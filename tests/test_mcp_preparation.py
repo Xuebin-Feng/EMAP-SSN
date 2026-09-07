@@ -313,7 +313,9 @@ class ViewerDiscoveryTests(unittest.TestCase):
             {SESSION_DIRECTORY_ENV: temp_dir},
         ):
             first = Web_Server.start_server(viewer, preferred_port=0)
-            second = Web_Server.start_server(viewer, preferred_port=0)
+            other_viewer = SimpleNamespace(**{k: v for k, v in vars(viewer).items() if not k.startswith("inspection_session")})
+            other_viewer.viewer_inspection = ViewerInspectionService(other_viewer)
+            second = Web_Server.start_server(other_viewer, preferred_port=0)
             try:
                 sessions = discover_viewer_sessions(timeout=1)
                 self.assertEqual(len(sessions), 2)

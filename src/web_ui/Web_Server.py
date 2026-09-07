@@ -23,7 +23,6 @@ import json
 import os
 import re
 import secrets
-import uuid
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
@@ -129,7 +128,8 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         self.viewer = viewer
         self.inspection_bridge = QtInspectionBridge(viewer)
         self.inspection_token = secrets.token_urlsafe(32)
-        self.inspection_session_id = str(uuid.uuid4())
+        from mcp_server.Viewer_Sessions import ensure_viewer_identity
+        self.inspection_session_id = ensure_viewer_identity(viewer)
         self.inspection_started_at = (
             datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         )
@@ -319,6 +319,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
                     "session_id": self.server.inspection_session_id,
+                    "session_alias": self.server.viewer.inspection_session_alias,
                     "pid": os.getpid(),
                     "started_at": self.server.inspection_started_at,
                     "launch_id": os.environ.get("SSN_VIEWER_LAUNCH_ID"),

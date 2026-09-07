@@ -21,6 +21,7 @@ import psutil
 from mcp_server.Viewer_Sessions import (
     SESSION_DIRECTORY_ENV, LAUNCH_ID_ENV, session_directory,
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
+    session_alias,
 )
 from utilities.Viewer_Settings import read_viewer_settings, validate_viewer_document, ViewerSettingsError
 
@@ -86,7 +87,7 @@ class MCPViewerClient:
             raise MCPViewerError(str(error)) from error
         async with self._selection_lock:
             self.connected_session_id = session.session_id
-        return {"connected": True, "session_id": session.session_id, "pid": session.pid}
+        return {"connected": True, "session_id": session.session_id, "session_alias": session_alias(session.session_id), "pid": session.pid}
 
     async def disconnect_session(self):
         async with self._selection_lock:
@@ -166,6 +167,7 @@ class MCPViewerClient:
                     # A daemon reaps the launcher without owning the independent Viewer lifetime.
                     threading.Thread(target=proc.wait, daemon=True, name="viewer-launcher-reaper").start()
                     return {"status": "ready", "session_id": session.session_id, "pid": session.pid,
+                            "session_alias": session_alias(session.session_id),
                             "base_url": session.base_url, "started_at": session.started_at, "mode": mode,
                             "cache_path": settings["TARGET_CACHE_PATH"],
                             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)}
@@ -248,12 +250,25 @@ class MCPViewerClient:
 
     async def list_sessions(self):
         sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
-        return {"sessions": [{"session_id": s.session_id, "pid": s.pid, "started_at": s.started_at} for s in sessions],
+        async def describe(session):
+            item = {"session_id": session.session_id, "session_alias": session_alias(session.session_id),
+                    "pid": session.pid, "started_at": session.started_at}
+            try:
+                summary = await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
+                from mcp_server.Cache_Metadata import read_cache_metadata
+                item["cache_metadata"] = await asyncio.to_thread(read_cache_metadata, summary.get("inputs", {}).get("layout_cache"))
+            except (MCPViewerError, OSError, ValueError, TypeError) as error:
+                item["metadata_error"] = str(error)
+            return item
+        return {"sessions": await asyncio.gather(*(describe(s) for s in sessions)),
                 "connected_session_id": self.connected_session_id,
                 "automatic_selection": len(sessions) == 1}
 
     async def get_summary(self, session_id=None):
-        return await self._get(session_id, "/api/mcp/v1/summary")
+        summary = await self._get(session_id, "/api/mcp/v1/summary")
+        from mcp_server.Cache_Metadata import read_cache_metadata
+        summary["cache_metadata"] = await asyncio.to_thread(read_cache_metadata, summary.get("inputs", {}).get("layout_cache"))
+        return summary
 
     async def query_nodes(
         self,

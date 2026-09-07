@@ -73,6 +73,14 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(info["mode"], "normal")
                 summary = await client.get_summary(info["session_id"])
                 self.assertEqual(summary["node_count"], 2)
+                self.assertIn(f'[{info["session_alias"]}]', summary["window_title"])
+                self.assertEqual(summary["cache_metadata"]["status"], "complete")
+                connected = await client.connect_session(info["session_alias"].lower())
+                self.assertEqual(connected["session_id"], info["session_id"])
+                listed = await client.list_sessions()
+                item = next(s for s in listed["sessions"] if s["session_id"] == info["session_id"])
+                self.assertEqual(item["cache_metadata"]["cache_path"], fixture.cache)
+                self.assertEqual(item["session_alias"], info["session_alias"])
             finally:
                 if info:
                     await client.close_session(info["session_id"])
@@ -92,7 +100,11 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(MCPViewerError, "Timed out"):
                     await client.launch_session(settings_document={}, mode="headless", timeout=0.3)
                 task = asyncio.create_task(client.launch_session(settings_document={}, mode="headless"))
-                await asyncio.sleep(1)
+                deadline = asyncio.get_running_loop().time() + 10
+                while not any(p.stat().st_size >= 1000000 for p in (root / "sessions").rglob("stdout.log")):
+                    if task.done() or asyncio.get_running_loop().time() >= deadline:
+                        break
+                    await asyncio.sleep(0.1)
                 task.cancel()
                 with self.assertRaises(asyncio.CancelledError):
                     await task

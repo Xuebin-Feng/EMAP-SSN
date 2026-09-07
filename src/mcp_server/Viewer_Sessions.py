@@ -24,6 +24,22 @@ SESSION_DIRECTORY_ENV = "SSN_VIEWER_SESSION_DIR"
 LAUNCH_ID_ENV = "SSN_VIEWER_LAUNCH_ID"
 
 
+def session_alias(session_id):
+    """A human-readable UUID prefix; ambiguous prefixes are never auto-selected."""
+    try:
+        return uuid.UUID(str(session_id)).hex[:8].upper()
+    except ValueError:
+        return None  # Older/test descriptors may use non-UUID identifiers.
+
+
+def ensure_viewer_identity(viewer):
+    """Own identity on the Viewer so server restarts preserve it."""
+    if not getattr(viewer, "inspection_session_id", None):
+        viewer.inspection_session_id = str(uuid.uuid4())
+    viewer.inspection_session_alias = session_alias(viewer.inspection_session_id)
+    return viewer.inspection_session_id
+
+
 @dataclass(frozen=True)
 class ViewerSessionDescriptor:
     protocol_version: int
@@ -236,8 +252,13 @@ def select_viewer_session(session_id=None, *, timeout=0.5):
     sessions = discover_viewer_sessions(timeout=timeout)
     if session_id is not None:
         for session in sessions:
-            if session.session_id == session_id:
+            if session.session_id.lower() == session_id.lower():
                 return session
+        matches = [s for s in sessions if session_alias(s.session_id) == session_id.upper()]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise LookupError("Ambiguous Viewer alias; use a full session ID: " + ", ".join(s.session_id for s in matches))
         raise LookupError(f"No live Viewer session has ID '{session_id}'.")
     if len(sessions) == 1:
         return sessions[0]

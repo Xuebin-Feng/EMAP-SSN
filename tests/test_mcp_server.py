@@ -21,7 +21,7 @@ from mcp_server.MCP_Pipeline_Jobs import (  # noqa: E402
     PipelineJobManager,
     PipelineQueueFullError,
 )
-from mcp_server.MCP_Viewer_Client import MCPViewerClient  # noqa: E402
+from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError  # noqa: E402
 from utilities.Tool_Execution import (  # noqa: E402
     ToolInvocation,
     create_settings_snapshot,
@@ -567,7 +567,7 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch(
             "mcp_server.MCP_Viewer_Client.discover_viewer_sessions",
             return_value=[descriptor],
-        ):
+        ), mock.patch.object(MCPViewerClient, "_request", side_effect=MCPViewerError("Viewer unavailable")):
             payload = await MCPViewerClient().list_sessions()
         self.assertEqual(
             payload,
@@ -575,6 +575,8 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
                 "sessions": [
                     {
                         "session_id": "viewer-one",
+                        "session_alias": None,
+                        "metadata_error": "Viewer unavailable",
                         "pid": 123,
                         "started_at": "2026-08-28T00:00:00Z",
                     }
