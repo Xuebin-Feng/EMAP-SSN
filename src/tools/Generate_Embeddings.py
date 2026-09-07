@@ -36,7 +36,7 @@ Settings:
   ESMC 6B model (`esmc_6b`), the ESM-2 family (`esm2_t6_8m` ... `esm2_t48_15b`), the Ankh family
   (`ankh_base`, `ankh_large`), and the Rostlab families (`prot_bert`, `prost_t5`). Model identifiers
   are always lower case.
-- SAVING_MODE: Determines data precision. `float16` halves HDF5 file size and RAM requirements by slightly reducing gradient precision, 
+- SAVING_MODE: Determines data precision (`float32` by default). `float16` halves HDF5 file size and RAM requirements by slightly reducing gradient precision, 
   which is recommended for massive datasets. `float32` uses standard uncompressed precision.
 
 Algorithm:
@@ -84,7 +84,7 @@ from utilities.Model_License_Utils import (
 # Script configuration
 INPUT_FASTA = None
 MODEL_NAME = None
-SAVING_MODE = "float16" 
+SAVING_MODE = "float32" 
 DEVICE_SELECTION = "auto"
                   
 from utilities.Tool_Directories import project_directory_defaults

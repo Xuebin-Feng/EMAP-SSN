@@ -1241,7 +1241,7 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "SAVING_MODE",
                             "type": "dropdown",
-                            "options": ["float16", "float32"],
+                            "options": ["float32", "float16"],
                             "display": "Saving Mode:"
                         },
                         {
