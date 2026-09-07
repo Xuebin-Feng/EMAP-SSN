@@ -2151,9 +2151,18 @@ if __name__ == "__main__":
 
             ref_label = QLabel("Alignment Reference ID:")
             ref_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+            offset_control = QWidget()
+            offset_layout = QHBoxLayout(offset_control)
+            offset_layout.setContentsMargins(0, 0, 0, 0)
+            offset_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            offset_layout.addStretch(1)
+            offset_layout.addWidget(self.lbl_alignment_offset)
+            offset_layout.addWidget(self.spin_alignment_offset)
+            offset_spacer = QLabel()
+            offset_spacer.setFixedWidth(0)
             self._make_field_group(
                 [(ref_label, self.line_ref), (lbl_min_occ, self.spin_min_occ),
-                 (self.lbl_alignment_offset, self.spin_alignment_offset)],
+                 (offset_spacer, offset_control)],
                 parent=ref_container, name="alignmentReferenceRow",
                 ratios=(2, 1, 1),
             )

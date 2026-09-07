@@ -218,6 +218,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         row = self.window.line_ref.parentWidget()
         reference_width = self.window.line_ref.geometry().right() + 1
         self.assertAlmostEqual(reference_width / row.width(), 0.5, delta=0.04)
+        offset = self.window.spin_alignment_offset
+        self.assertEqual(offset.mapTo(row, QPoint(offset.width(), 0)).x(), row.width())
         switch = self.window.check_umap
         self.assertEqual(switch.geometry().right(), switch.parentWidget().width() - 1)
 
