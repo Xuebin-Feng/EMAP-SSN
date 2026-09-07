@@ -564,6 +564,7 @@ if __name__ == "__main__":
     os.environ["QT_API"] = "pyside6"
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
     from PySide6.QtWidgets import (
+        QStackedWidget,
         QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
         QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
         QComboBox, QPushButton, QMessageBox, QTextEdit,
@@ -939,12 +940,12 @@ if __name__ == "__main__":
             self.setup_tips()
 
         @staticmethod
-        def _make_field_group(pairs, *, parent=None, name="", **options):
+        def _make_field_group(pairs, *, parent=None, name="", ratios=None, **options):
             group = parent if parent is not None else QWidget()
             group.setObjectName(name)
-            pairs[0][0].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
+            pairs[0][0].setFixedWidth(max(CONFIG_FIELD_LABEL_WIDTH, pairs[0][0].minimumWidth()))
             ResponsiveFieldLayout(
-                group, pairs, tuple(1 for _ in pairs),
+                group, pairs, ratios or tuple(1 for _ in pairs),
                 spacing=CONFIG_FIELD_HORIZONTAL_SPACING, wrap_labels=False, **options,
             )
             return group
@@ -2074,16 +2075,6 @@ if __name__ == "__main__":
                 self.cb_fasta.setCurrentText(os.path.basename(fasta_val))
             add_row_with_dynamic_btn("NODE_FASTA_FILE", "Sequence Set / Subset (.fasta):", self.cb_fasta, "FASTA_DIR", seq_dir)
             
-            # --- MSA Input ---
-            self.cb_msa = DynamicComboBox(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
-            msa_dir_path = globals().get("MSA_DIR", os.path.join("Input_Files", "Multiple_Alignments"))
-            msa_files = [f for f in os.listdir(msa_dir_path) if f.endswith('.fasta') or f.endswith('.h5')] if os.path.exists(msa_dir_path) else []
-            self.cb_msa.addItems([""] + msa_files)
-            msa_val = globals().get("MSA_FILE") or ""
-            if os.path.basename(msa_val) in msa_files:
-                self.cb_msa.setCurrentText(os.path.basename(msa_val))
-            add_row_with_dynamic_btn("MSA_FILE", "MSA Input (.fasta / _sparse.h5):", self.cb_msa, "MSA_DIR", msa_dir_path)
-
             # --- HDF5 Input ---
             self.cb_hdf5 = DynamicComboBox(lambda: self.refresh_combo(self.cb_hdf5, "HDF5_DIR", ['.h5']))
             hdf5_dir = globals().get("HDF5_DIR", os.path.join("Input_Files", "Networks_EValues"))
@@ -2094,15 +2085,33 @@ if __name__ == "__main__":
                 self.cb_hdf5.setCurrentText(os.path.basename(hdf5_val))
             add_row_with_dynamic_btn("INPUT_HDF5", "Network Edges Input (.h5):", self.cb_hdf5, "HDF5_DIR", hdf5_dir)
             
+            # --- MSA Input ---
+            self.cb_msa = DynamicComboBox(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
+            msa_dir_path = globals().get("MSA_DIR", os.path.join("Input_Files", "Multiple_Alignments"))
+            msa_files = [f for f in os.listdir(msa_dir_path) if f.endswith('.fasta') or f.endswith('.h5')] if os.path.exists(msa_dir_path) else []
+            self.cb_msa.addItems([""] + msa_files)
+            msa_val = globals().get("MSA_FILE") or ""
+            if os.path.basename(msa_val) in msa_files:
+                self.cb_msa.setCurrentText(os.path.basename(msa_val))
+            add_row_with_dynamic_btn("MSA_FILE", "MSA Input (.fasta / _sparse.h5):", self.cb_msa, "MSA_DIR", msa_dir_path)
+
             # --- Rest of Inputs ---
             # Use NoScrollComboBox here to prevent accidental scroll wheel changes
             self.cb_score_mode = NoScrollComboBox()
             self.cb_score_mode.addItems(["global", "local"])
             self.cb_score_mode.setCurrentText(str(globals().get("ALIGNMENT_SCORE", "global")))
-            add_row("ALIGNMENT_SCORE", "Alignment Score Mode:", self.cb_score_mode)
             
             self.cb_norm_mode = NoScrollComboBox()
-            add_row("NORM_MODE", "Normalization Mode:", self.cb_norm_mode)
+            score_label = QLabel("Alignment Score Mode:")
+            norm_label = QLabel("Normalization Mode:")
+            layout.addRow(self._make_field_group(
+                [(score_label, self.cb_score_mode), (norm_label, self.cb_norm_mode)],
+                name="alignmentModeRow", equal_fields=True,
+            ))
+            self.labels["ALIGNMENT_SCORE"] = score_label
+            self.inputs["ALIGNMENT_SCORE"] = self.cb_score_mode
+            self.labels["NORM_MODE"] = norm_label
+            self.inputs["NORM_MODE"] = self.cb_norm_mode
             
             self.cb_score_mode.currentTextChanged.connect(self.update_norm_mode_options)
             self.update_norm_mode_options()
@@ -2132,13 +2141,21 @@ if __name__ == "__main__":
                 "QSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
             )
 
+            self.spin_min_occ = NoScrollDoubleSpinBox()
+            self.spin_min_occ.setDecimals(2)
+            self.spin_min_occ.setRange(0.0, 100.0)
+            self.spin_min_occ.setSingleStep(1.0)
+            self.spin_min_occ.setValue(float(globals().get("FILTER_MIN_OCCUPANCY") or 10.0))
+
+            lbl_min_occ = QLabel("Min Occupancy %:")
+
             ref_label = QLabel("Alignment Reference ID:")
             ref_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             self._make_field_group(
-                [(ref_label, self.line_ref),
+                [(ref_label, self.line_ref), (lbl_min_occ, self.spin_min_occ),
                  (self.lbl_alignment_offset, self.spin_alignment_offset)],
                 parent=ref_container, name="alignmentReferenceRow",
-                trailing=True, control_stretches=(1, 0),
+                ratios=(2, 1, 1),
             )
             layout.addRow(ref_container)
             self.labels["ALIGNMENT_REFERENCE"] = ref_label
@@ -2147,8 +2164,6 @@ if __name__ == "__main__":
             self.inputs["ALIGNMENT_OFFSET"] = self.spin_alignment_offset
             
             # --- UMAP Controls ---
-            umap_container = QWidget()
-            umap_container.setObjectName("wrapper")
             
             self.check_umap = QPushButton()
             self.check_umap.setCheckable(True)
@@ -2168,8 +2183,8 @@ if __name__ == "__main__":
             self.check_umap.setChecked(bool(umap_mode_val))
             switch_umap_style(bool(umap_mode_val))
             
-            lbl_k = QLabel("   UMAP Nearest Neighbors (k):")
-            lbl_md = QLabel("   UMAP Min Distance:")
+            lbl_k = QLabel("UMAP Nearest Neighbors:")
+            lbl_md = QLabel("UMAP Min Distance:")
             
             self.spin_umap_k = NoScrollSpinBox()
             self.spin_umap_k.setRange(2, 500)
@@ -2203,32 +2218,10 @@ if __name__ == "__main__":
             lbl_k.setStyleSheet(disabled_label_style)
             lbl_md.setStyleSheet(disabled_label_style)
             
-            # Set initial enabled/disabled states based on current toggle value
-            umap_enabled = self.check_umap.isChecked()
-            self.spin_umap_k.setEnabled(umap_enabled)
-            self.spin_umap_md.setEnabled(umap_enabled)
-            lbl_k.setEnabled(umap_enabled)
-            lbl_md.setEnabled(umap_enabled)
-            
-            def toggle_umap(state):
-                self.spin_umap_k.setEnabled(state)
-                self.spin_umap_md.setEnabled(state)
-                lbl_k.setEnabled(state)
-                lbl_md.setEnabled(state)
-                self.update_live_validators()
-                
-            self.check_umap.toggled.connect(toggle_umap)
+            self.check_umap.toggled.connect(self.update_live_validators)
             self.spin_umap_k.valueChanged.connect(self.update_live_validators)
-            
             self.labels["UMAP_MODE"] = QLabel("Plot UMAP Instead:")
-            self.labels["UMAP_MODE"].setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
-            self._make_field_group(
-                [(self.labels["UMAP_MODE"], self.check_umap),
-                 (lbl_k, self.spin_umap_k), (lbl_md, self.spin_umap_md)],
-                parent=umap_container, name="umapRow",
-                trailing=True, control_stretches=(0, 1, 1),
-            )
-            layout.addRow(umap_container)
+
             self.inputs["UMAP_MODE"] = self.check_umap
             self.inputs["UMAP_NEIGHBORS"] = self.spin_umap_k
             self.inputs["UMAP_MIN_DIST"] = self.spin_umap_md
@@ -2249,11 +2242,6 @@ if __name__ == "__main__":
             self.spin_top.setSpecialValueText(" ")
             self.spin_top.setOptionalValue(globals().get("TOP_EDGE_PERCENT"))
 
-            self.spin_min_occ = NoScrollDoubleSpinBox()
-            self.spin_min_occ.setDecimals(2)
-            self.spin_min_occ.setRange(0.0, 100.0)
-            self.spin_min_occ.setSingleStep(1.0)
-            self.spin_min_occ.setValue(float(globals().get("FILTER_MIN_OCCUPANCY") or 10.0))
 
             for spinbox in (
                 self.spin_thresh,
@@ -2285,16 +2273,29 @@ if __name__ == "__main__":
             filter_container.setObjectName("wrapper")
 
             lbl_thresh = QLabel("Similarity Threshold:")
-            lbl_thresh.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
             lbl_thresh.setStyleSheet("QLabel:disabled { color: #888; }")
             lbl_top = QLabel("   Top Edge %:")
             lbl_top.setStyleSheet("QLabel:disabled { color: #888; }")
-            lbl_min_occ = QLabel("   Min Occupancy %:")
 
+            # Keep separate widgets and settings for each mode while sharing two slots.
+            self._input_mode_stacks = []
+            def mode_stack(ssn_widget, umap_widget):
+                stack = QStackedWidget()
+                stack.addWidget(ssn_widget)
+                stack.addWidget(umap_widget)
+                self._input_mode_stacks.append(stack)
+                return stack
+
+            threshold_label = mode_stack(lbl_thresh, lbl_k)
+            threshold_label.setMinimumWidth(max(CONFIG_FIELD_LABEL_WIDTH, lbl_k.sizeHint().width()))
+            threshold_control = mode_stack(self.spin_thresh, self.spin_umap_k)
+            top_label = mode_stack(lbl_top, lbl_md)
+            top_control = mode_stack(top_edge_control, self.spin_umap_md)
             self._make_field_group(
-                [(lbl_thresh, self.spin_thresh), (lbl_top, top_edge_control),
-                 (lbl_min_occ, self.spin_min_occ)],
-                parent=filter_container, name="filterRow", equal_fields=True,
+                [(threshold_label, threshold_control), (top_label, top_control),
+                 (self.labels["UMAP_MODE"], self.check_umap)],
+                parent=filter_container, name="filterRow",
+                trailing=True, control_stretches=(1, 1, 0),
             )
             layout.addRow(filter_container)
 
@@ -2451,6 +2452,12 @@ if __name__ == "__main__":
                 self.btn_hist.setEnabled(has_fasta and has_hdf5)
             
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
+            for stack in getattr(self, "_input_mode_stacks", ()):
+                stack.setCurrentIndex(int(is_umap))
+            if hasattr(self, "spin_umap_k"):
+                for key in ("UMAP_NEIGHBORS", "UMAP_MIN_DIST"):
+                    self.inputs[key].setEnabled(is_umap)
+                    self.labels[key].setEnabled(is_umap)
             physics_selector = self.profile_selectors.get("simulation_physics")
             physics_profile_editable = (
                 physics_selector is None

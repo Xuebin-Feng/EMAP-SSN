@@ -9,10 +9,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, ref
 import os
 import asyncio
 import sys
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 _SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,6 +49,17 @@ from mcp_server.Pipeline_Settings import (
 
 
 MCP_SERVER_VERSION = "0.7.0"
+
+
+def _load_agent_instructions():
+    path = Path(__file__).resolve().parent / "mcp_server" / "Agent_Instructions.md"
+    try:
+        instructions = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise RuntimeError(f"Cannot load MCP agent guide at {path}. Restore a readable UTF-8 Agent_Instructions.md and restart the server.") from error
+    if not instructions.strip():
+        raise RuntimeError(f"MCP agent guide at {path} is empty. Restore Agent_Instructions.md and restart the server.")
+    return instructions
 
 
 class PipelineToolInfo(BaseModel):
@@ -128,9 +140,12 @@ class AppContext:
 async def app_lifespan(_server: MCPServer) -> AsyncIterator[AppContext]:
     jobs = PipelineJobManager(_PROJECT_ROOT, max_pending=16, history_limit=100)
     await jobs.start()
+    context = AppContext(jobs=jobs)
     try:
-        yield AppContext(jobs=jobs)
+        yield context
     finally:
+        await asyncio.gather(*(client.disconnect_session() for client in list(context.viewer_connections.values())))
+        context.viewer_connections.clear()
         await jobs.close()
 
 
@@ -138,16 +153,7 @@ mcp = MCPServer(
     "emap-ssn",
     title=PRODUCT_NAME,
     description="Run allowlisted SSN pipelines and connect to, launch, inspect or close local Viewers.",
-    instructions=(
-        "Discover pipeline parameters with get_pipeline_tool_schema and preview "
-        "requests with validate_pipeline_settings. Supply native JSON numbers "
-        "and booleans; unknown setting keys are rejected. "
-        "Pipeline jobs may create or overwrite files according to the supplied "
-        "settings. Jobs and their FIFO queue belong to this STDIO server and are "
-        "cancelled when it exits. Viewer sessions survive disconnection. Use complete JSON "
-        "with start_viewer_session, connect_viewer_session for existing Viewers, and "
-        "disconnect_viewer_session to leave a Viewer running. Only close_viewer_session stops it."
-    ),
+    instructions=_load_agent_instructions(),
     version=MCP_SERVER_VERSION,
     lifespan=app_lifespan,
     log_level="WARNING",
@@ -184,7 +190,12 @@ def _viewer(ctx: Context[AppContext]):
     app = _context(ctx)
     transport = ctx.session._connection.outbound
     if transport not in app.viewer_connections:
-        app.viewer_connections[transport] = MCPViewerClient(project_root=_PROJECT_ROOT)
+        transport_ref = ref(transport)
+        # Both installed MCP dispatchers mark _closed on transport teardown.
+        def transport_closed():
+            current = transport_ref()
+            return current is None or getattr(current, "_closed", False)
+        app.viewer_connections[transport] = MCPViewerClient(project_root=_PROJECT_ROOT, transport_closed=transport_closed)
     return app.viewer_connections[transport]
 
 
@@ -198,7 +209,11 @@ def _job_info(payload):
     structured_output=True,
 )
 def list_pipeline_tools() -> PipelineCatalog:
-    """List the fixed pipeline catalog and its directory contracts."""
+    """Choose a pipeline when its ID is unknown. Returns tool_id values,
+    descriptions, directory contracts, and queue capacity. These IDs are arguments,
+    not MCP tool names. Next call get_pipeline_tool_schema with the chosen tool_id.
+    Layout calculation uses start_layout_job separately.
+    """
     return PipelineCatalog(
         tools=[
             PipelineToolInfo(
@@ -218,8 +233,10 @@ def list_pipeline_tools() -> PipelineCatalog:
 
 @mcp.tool(title="Get usable compute capabilities", annotations=_READ_ONLY, structured_output=True)
 async def get_compute_capabilities(tool_id: str | None = None) -> dict[str, Any]:
-    """Discover runtime devices and memory without benchmarks or tensor operations.
-    Optionally describe a pipeline's applicable settings. Metadata support is
+    """Check available computation before choosing device settings for a job.
+    Optional tool_id is a pipeline ID from list_pipeline_tools and adds applicable
+    settings. Returns runtime devices and memory without benchmarks. Then prepare
+    settings using get_pipeline_tool_schema. Metadata support is
     unverified by computation; physical devices unavailable to this runtime are omitted.
     """
     from mcp_server.Compute_Capabilities import discover_compute_capabilities
@@ -236,11 +253,14 @@ async def inspect_pipeline_file(
     tool_id: str | None = None,
     parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Inspect a selected file read-only without scanning numerical HDF5 payloads.
+    """Check a known input before execution, or an output after job success.
+    Inspect a selected file read-only without scanning numerical HDF5 payloads.
     Relative paths use the project root. Plain BLAST text may require file_type.
     Optional tool_id/parameters supplies inspection context (e.g. BLAST columns).
     Structure, generation completion, and pair coverage are separate conclusions;
     valid structure is not proof of numerical correctness or job readiness.
+    Use the findings to prepare settings or qualify the reported result; this
+    tool does not search directories or repair files.
     """
     from mcp_server.Pipeline_File_Inspection import inspect_pipeline_file as inspect_file
     try:
@@ -251,7 +271,11 @@ async def inspect_pipeline_file(
 
 @mcp.tool(title="Get pipeline settings schema", annotations=_READ_ONLY, structured_output=True)
 def get_pipeline_tool_schema(tool_id: str) -> dict[str, Any]:
-    """Discover accepted parameters, defaults, choices, conditions, and an example."""
+    """Prepare a pipeline request after choosing tool_id from list_pipeline_tools.
+    Returns accepted parameters, defaults, choices, conditions, directory rules,
+    and an example. Next call validate_pipeline_settings with the intended values.
+    This schema is not the layout or Viewer settings contract.
+    """
     try:
         return get_pipeline_schema(tool_id, _PROJECT_ROOT)
     except (KeyError, OSError, ValueError) as error:
@@ -266,10 +290,13 @@ def validate_pipeline_settings(
     settings_document: dict[str, Any] | None = None,
     settings_path: str | None = None,
 ) -> dict[str, Any]:
-    """Preview effective settings without creating files or jobs. Supply exactly one
+    """Check pipeline settings before start_pipeline_job without creating files or jobs.
+    Use tool_id from list_pipeline_tools. Supply exactly one
     of parameters, settings_document, or settings_path; directories accompanies
     parameters only. Numbers and booleans require native JSON types. This checks
     configuration, not file existence, model credentials, or hardware readiness.
+    Inspect valid and field-specific errors; when valid, pass the returned
+    settings_document to start_pipeline_job with the same tool_id.
     """
     return normalize_pipeline_settings(
         tool_id, _PROJECT_ROOT, parameters=parameters, directories=directories,
@@ -287,11 +314,11 @@ async def start_pipeline_job(
     ctx: Context[AppContext],
     settings_document: Annotated[
         dict[str, Any] | None,
-        Field(description="Existing exported SSN settings document"),
+        Field(description="Complete exported or validated SSN settings document; use instead of parameters or settings_path"),
     ] = None,
     settings_path: Annotated[
         str | None,
-        Field(description="Path to an existing exported SSN settings document"),
+        Field(description="Path to existing SSN settings JSON; use instead of parameters or settings_document"),
     ] = None,
     parameters: Annotated[
         dict[str, Any] | None,
@@ -302,9 +329,13 @@ async def start_pipeline_job(
         Field(description="Optional directory overrides, only with parameters"),
     ] = None,
 ) -> PipelineJobInfo:
-    """Validate and enqueue a pipeline. Supply exactly one of parameters,
+    """Run a chosen pipeline after schema discovery and settings preview.
+    Validate and enqueue using exactly one of parameters,
     settings_document, or settings_path. Optional directories goes with parameters.
     Use validate_pipeline_settings for a preview; invalid requests never queue.
+    Returns job_id and current status, not completed outputs. Next use
+    get_pipeline_job and read_pipeline_log. Files may be created or overwritten
+    according to settings; backend exit cancels this server's jobs.
     """
     preview = normalize_pipeline_settings(
         tool_id, _PROJECT_ROOT, parameters=parameters, directories=directories,
@@ -364,7 +395,7 @@ async def start_layout_job(
     ] = "alignment_length",
     parameters: Annotated[
         dict[str, Any] | None,
-        Field(description="Optional advanced physics/force overrides (e.g. SPRING_K, COULOMB_K, MAX_STEPS)"),
+        Field(description="Advanced layout overrides with individual inputs (e.g. SPRING_K, COULOMB_K, MAX_STEPS); not a pipeline parameters document"),
     ] = None,
     directories: Annotated[
         dict[str, Any] | None,
@@ -372,18 +403,26 @@ async def start_layout_job(
     ] = None,
     settings_document: Annotated[
         dict[str, Any] | None,
-        Field(description="Pre-configured layout generation settings JSON document"),
+        Field(description="Layout generation document, for example from export_config_settings(kind='layout'); replaces individual inputs"),
     ] = None,
     settings_path: Annotated[
         str | None,
         Field(description="Path to an existing exported layout settings JSON file"),
     ] = None,
 ) -> PipelineJobInfo:
-    """Validate and enqueue an SSN 2D layout calculation job into the unified FIFO queue.
+    """Calculate a layout using full JSON from export_config_settings(kind='layout').
+    Export first to inherit saved simulation and physics settings, then change
+    only requested fields and required dependencies. Individual arguments can
+    replace omitted preferences with built-in defaults; use the exported document.
+    Validate and enqueue into the shared pipeline FIFO queue; this is separate
+    from the pipeline IDs in list_pipeline_tools and has no standalone validator.
     Calculates 2D node coordinates via iterative force-directed physics or UMAP dimension
     reduction and publishes an HDF5 layout cache file along with a canonical FASTA backup and
     manifest. Supply either individual parameters, settings_document, or settings_path.
     Missing defaults and directory paths inherit from EMAP-SSN configuration.
+    Follow the returned job_id with get_pipeline_job and read_pipeline_log;
+    after success inspect the cache before preparing complete Viewer settings.
+    This operation does not launch a Viewer.
     """
     from Layout_Cache_Generator import LayoutGenerationSettings, LayoutGenerationError
     import EMAPSSN_Config as cfg
@@ -470,9 +509,12 @@ async def start_layout_job(
 )
 async def list_pipeline_jobs(
     ctx: Context[AppContext],
-    limit: Annotated[int, Field(ge=1, le=100)] = 100,
+    limit: Annotated[int, Field(ge=1, le=100, description="Maximum number of newest server-owned jobs to return")] = 100,
 ) -> PipelineJobList:
-    """List the newest jobs owned by this STDIO server."""
+    """Find recent pipeline or layout job IDs owned by this STDIO server.
+    limit bounds the newest jobs returned. Next use get_pipeline_job for an ID
+    and read_pipeline_log for progress or failures. History is server-local.
+    """
     try:
         jobs = await _context(ctx).jobs.list_jobs(limit=limit)
     except PipelineJobError as error:
@@ -489,7 +531,11 @@ async def get_pipeline_job(
     job_id: str,
     ctx: Context[AppContext],
 ) -> PipelineJobInfo:
-    """Get current status and output locations for one job."""
+    """Follow a job_id returned by either start tool or list_pipeline_jobs.
+    Returns status, failure_message, and output locations. Queued/running is not
+    success; wait for a terminal status. On failure use read_pipeline_log for both
+    streams; after succeeded use inspect_pipeline_file on relevant output files.
+    """
     try:
         return _job_info(await _context(ctx).jobs.get_job(job_id))
     except PipelineJobError as error:
@@ -505,10 +551,14 @@ async def read_pipeline_log(
     job_id: str,
     stream: Literal["stdout", "stderr"],
     ctx: Context[AppContext],
-    offset: Annotated[int, Field(ge=0)] = 0,
-    limit: Annotated[int, Field(ge=1, le=262144)] = 65536,
+    offset: Annotated[int, Field(ge=0, description="Byte offset; use the previous page's next_offset to continue")] = 0,
+    limit: Annotated[int, Field(ge=1, le=262144, description="Maximum bytes to read from the selected stream")] = 65536,
 ) -> PipelineLogPage:
-    """Read a bounded byte page from a job's captured output stream."""
+    """Read progress or diagnose a pipeline/layout job using its job_id.
+    Choose stdout or stderr; offset and limit count bytes. Continue from
+    next_offset. eof means the current end of this stream, not job completion;
+    use get_pipeline_job for status. Logs belong to this server's retained jobs.
+    """
     try:
         payload = await _context(ctx).jobs.read_log(
             job_id,
@@ -530,7 +580,11 @@ async def cancel_pipeline_job(
     job_id: str,
     ctx: Context[AppContext],
 ) -> PipelineJobInfo:
-    """Cancel a queued job or terminate a running pipeline process tree."""
+    """Stop an unwanted pipeline or layout job using its job_id.
+    Cancels queued work or terminates a running process tree. Inspect the returned
+    status and use get_pipeline_job if still cancelling. Existing output artifacts
+    may remain; cancellation does not undo writes.
+    """
     try:
         return _job_info(await _context(ctx).jobs.cancel(job_id))
     except PipelineJobError as error:
@@ -545,7 +599,12 @@ async def cancel_pipeline_job(
 async def list_viewer_sessions(
     ctx: Context[AppContext],
 ) -> ViewerSessionList:
-    """List authenticated live Viewers without exposing discovery secrets."""
+    """Find an existing Viewer before connecting or inspecting it.
+    Returns session IDs, title aliases, cache metadata, and this transport's
+    connected_session_id without discovery secrets. Listing does not connect.
+    Next call connect_viewer_session with the intended ID; resolve multiple
+    candidates using identity and metadata instead of choosing arbitrarily.
+    """
     payload = await _viewer(ctx).list_sessions()
     return ViewerSessionList.model_validate(payload)
 
@@ -559,7 +618,11 @@ async def get_viewer_summary(
     ctx: Context[AppContext],
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Read a bounded summary from one live Viewer."""
+    """Inspect a connected Viewer before requesting node details.
+    Omit session_id to use this transport's selection, or target a live UUID/alias
+    for this call only. Returns counts, inputs, metadata_columns, and cache
+    metadata. Next use query_viewer_nodes with the desired scope and columns.
+    """
     try:
         return await _viewer(ctx).get_summary(session_id)
     except MCPViewerError as error:
@@ -575,11 +638,16 @@ async def query_viewer_nodes(
     ctx: Context[AppContext],
     session_id: str | None = None,
     scope: Literal["all", "visible", "selected"] = "all",
-    offset: Annotated[int, Field(ge=0)] = 0,
-    limit: Annotated[int, Field(ge=1, le=500)] = 100,
+    offset: Annotated[int, Field(ge=0, description="Number of rows to skip within the requested scope")] = 0,
+    limit: Annotated[int, Field(ge=1, le=500, description="Maximum node rows to return")] = 100,
     columns: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Read an index-ordered page of all, visible, or selected Viewer nodes."""
+    """Read node details after get_viewer_summary identifies available columns.
+    session_id uses the connected Viewer when omitted; explicit UUID/alias does
+    not change selection. scope chooses all, visible, or selected nodes. offset
+    and limit count rows in that scope, ordered by node index. columns names
+    metadata fields; omitted columns includes all available fields. This is read-only.
+    """
     try:
         return await _viewer(ctx).query_nodes(
             session_id,
@@ -603,7 +671,16 @@ async def start_viewer_session(
     settings_path: str | None = None,
     settings_document: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validate complete Viewer JSON, launch independently, and connect to the ready session."""
+    """Open a new Viewer after export_config_settings(kind='viewer') and validation.
+    Export first to preserve saved visual and other preferences. Consult
+    get_viewer_settings_schema, edit only necessary fields in the full export,
+    then call validate_viewer_settings. Do not build minimal JSON from defaults.
+    Supply exactly one complete settings_document or settings_path, not a cache
+    path alone. normal opens a Viewer and terminal; headless opens neither window.
+    Returns a ready session_id and log paths and connects this transport to it.
+    Next use get_viewer_summary or read_viewer_log. The Viewer runs independently
+    of backend lifetime; use disconnect_viewer_session to leave it running.
+    """
     try:
         return await _viewer(ctx).launch_session(
             mode=mode,
@@ -623,7 +700,11 @@ async def close_viewer_session(
     ctx: Context[AppContext],
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Close and terminate a running Viewer session and release its resources."""
+    """Terminate a Viewer when the user intends to close it.
+    Omit session_id for this transport's selection or supply a live UUID/alias.
+    Returns closed only after verified process exit and descriptor cleanup.
+    To leave the Viewer running, use disconnect_viewer_session instead.
+    """
     try:
         return await _viewer(ctx).close_session(session_id)
     except MCPViewerError as error:
@@ -632,13 +713,19 @@ async def close_viewer_session(
 
 @mcp.tool(title="Get Viewer settings schema", annotations=_READ_ONLY, structured_output=True)
 def get_viewer_settings_schema() -> dict[str, Any]:
-    """Discover the complete JSON contract for Viewer startup."""
+    """Understand fields when editing a full exported Viewer document.
+    First use export_config_settings(kind='viewer') to inherit saved preferences;
+    schema defaults are reference values, not replacements for user settings. Next call
+    validate_viewer_settings. This contract differs from pipeline/layout documents.
+    """
     return viewer_settings_schema()
 
 
 @mcp.tool(title="Export saved tool settings", annotations=_START_JOB, structured_output=True)
 async def export_pipeline_settings(tool_id: str, output_path: str | None = None) -> dict[str, Any]:
-    """Export one tool with inherited saved directories and defaults. Edit this JSON,
+    """Start from saved pipeline settings when direct parameters are not appropriate.
+    tool_id comes from list_pipeline_tools. Creates an editable JSON file with
+    inherited saved directories and defaults. Edit this JSON,
     validate it, then pass settings_path to start_pipeline_job. Empty inputs remain
     editable. Explicit output paths must not exist; omitted paths are unique.
     """
@@ -654,12 +741,20 @@ async def export_config_settings(
     kind: Literal["layout", "viewer"], output_path: str | None = None,
     settings_path: str | None = None,
 ) -> dict[str, Any]:
-    """Export inherited Config settings with cache filename and absolute path.
+    """Required first step for a new Viewer or layout: export inherited settings.
+    Reads viewer_settings.json and preserves saved visual, simulation, and physics
+    values in an editable JSON file. Change only requested fields and dependencies,
+    then execute the full export; do not rebuild minimal JSON from schema defaults.
+    kind selects the contract; settings_path optionally supplies an edited JSON
+    overlay, while output_path selects the new export destination.
+    Returns settings and cache paths with inherited Config settings.
     Layout exports select the next automatic version (a preview, not a reservation).
     Viewer exports include all four tabs and select the newest compatible cache
     unless an explicit path is supplied in the optional edited JSON overlay.
     Edit the exported file, then execute using settings_path; execution does not
     reload personal settings. Explicit output paths must not already exist.
+    Next use validate_viewer_settings then start_viewer_session for a Viewer,
+    or start_layout_job for a layout. Exporting does not execute either operation.
     """
     from utilities.Headless_Settings import export_config_settings as export
     try:
@@ -673,7 +768,15 @@ async def validate_viewer_settings(
     settings_document: dict[str, Any] | None = None,
     settings_path: str | None = None,
 ) -> dict[str, Any]:
-    """Validate source files and cache identity, returning the normalized launch document."""
+    """Check the full export from export_config_settings(kind='viewer') before launch.
+    Preserve inherited settings when editing it. This validator fills omitted
+    fields with built-in defaults, so do not replace the export with minimal JSON.
+    Supply exactly one settings_document or settings_path following
+    get_viewer_settings_schema. Checks source files and cache identity and returns
+    valid plus a normalized settings_document; invalid settings raise a tool error.
+    Next launch with that document. This does not create a Viewer or prove
+    numerical/scientific correctness of its inputs.
+    """
     try:
         document = read_viewer_settings(settings_document=settings_document, settings_path=settings_path,
                                         project_root=_PROJECT_ROOT)
@@ -685,8 +788,11 @@ async def validate_viewer_settings(
 
 @mcp.tool(title="Connect to a Viewer session", annotations=_READ_ONLY, structured_output=True)
 async def connect_viewer_session(ctx: Context[AppContext], session_id: str | None = None) -> dict[str, Any]:
-    """Connect using a full UUID or exact eight-character title alias (case-insensitive).
+    """Select an existing Viewer after list_viewer_sessions identifies the target.
+    Use a full UUID or exact eight-character title alias (case-insensitive).
     Ambiguous aliases fail; omit only when exactly one Viewer is running.
+    Returns the connected full session_id. Subsequent Viewer calls may omit it;
+    next use get_viewer_summary. This operation does not launch a new Viewer.
     """
     try:
         return await _viewer(ctx).connect_session(session_id)
@@ -696,8 +802,30 @@ async def connect_viewer_session(ctx: Context[AppContext], session_id: str | Non
 
 @mcp.tool(title="Disconnect from a Viewer session", annotations=_READ_ONLY, structured_output=True)
 async def disconnect_viewer_session(ctx: Context[AppContext]) -> dict[str, Any]:
-    """Clear this connection's selection, leaving the Viewer and its artifacts running."""
+    """Leave the connected Viewer running while ending this transport's selection.
+    Repeated calls are safe; returns the previous session_id or null. Reconnect
+    using connect_viewer_session when needed. To terminate the Viewer, use
+    close_viewer_session. Retain its full ID for captured log reads after disconnect.
+    """
     return await _viewer(ctx).disconnect_session()
+
+
+@mcp.tool(title="Read Viewer terminal output", annotations=_READ_ONLY, structured_output=True)
+async def read_viewer_log(ctx: Context[AppContext], session_id: str | None = None,
+                          stream: Literal["stdout", "stderr"] = "stdout",
+                          offset: int = 0, limit: int = 65536) -> dict[str, Any]:
+    """Read progress or diagnose an MCP-launched Viewer in normal or headless mode.
+    Omit session_id for the connected Viewer. stream selects stdout or stderr;
+    offset is a nonnegative byte position and limit is 1..1048576 bytes.
+    Continue from next_offset; eof is the current stream end, not process exit.
+    Supply the full session ID to read retained output after disconnect or close.
+    Logs remain on disk; retained IDs are available for this transport's lifetime.
+    Viewers launched without MCP output capture do not provide these logs.
+    """
+    try:
+        return await _viewer(ctx).read_log(session_id, stream=stream, offset=offset, limit=limit)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
 
 
 def main():

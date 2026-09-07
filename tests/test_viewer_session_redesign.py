@@ -73,6 +73,8 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(info["mode"], "normal")
                 summary = await client.get_summary(info["session_id"])
                 self.assertEqual(summary["node_count"], 2)
+                output = await client.read_log(info["session_id"])
+                self.assertTrue(output["text"], "Visible Viewer must retain startup terminal output")
                 self.assertIn(f'[{info["session_alias"]}]', summary["window_title"])
                 self.assertEqual(summary["cache_metadata"]["status"], "complete")
                 connected = await client.connect_session(info["session_alias"].lower())
@@ -81,6 +83,40 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 item = next(s for s in listed["sessions"] if s["session_id"] == info["session_id"])
                 self.assertEqual(item["cache_metadata"]["cache_path"], fixture.cache)
                 self.assertEqual(item["session_alias"], info["session_alias"])
+                if sys.platform == "win32":
+                    import ctypes
+                    import subprocess
+                    from ctypes import wintypes
+                    identity = json.loads((Path(info["stdout_log"]).parent / "terminal-process.json").read_text())
+                    console = subprocess.run([sys.executable, "-c",
+                        "import ctypes,sys; k=ctypes.windll.kernel32; k.FreeConsole(); "
+                        "attached=k.AttachConsole(int(sys.argv[1])); k.GetConsoleWindow.restype=ctypes.c_void_p; "
+                        "h=k.GetConsoleWindow(); print(bool(attached and h)); k.FreeConsole()",
+                        str(identity["pid"])], capture_output=True, text=True, timeout=5)
+                    self.assertEqual(console.stdout.strip(), "True", console.stderr)
+                    user32 = ctypes.windll.user32
+                    windows = []
+                    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+                    @callback_type
+                    def collect(hwnd, _):
+                        pid = wintypes.DWORD()
+                        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                        title = ctypes.create_unicode_buffer(512)
+                        user32.GetWindowTextW(hwnd, title, 512)
+                        if pid.value == info["pid"] and info["session_alias"] in title.value:
+                            windows.append(hwnd)
+                        return True
+                    user32.EnumWindows(collect, 0)
+                    self.assertTrue(windows, "Expected a native Viewer window")
+                    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+                    self.assertTrue(user32.PostMessageW(windows[0], 0x0010, 0, 0))  # WM_CLOSE, as with X
+                    deadline = asyncio.get_running_loop().time() + 10
+                    while client.connected_session_id and asyncio.get_running_loop().time() < deadline:
+                        await asyncio.sleep(0.1)
+                    self.assertIsNone(client.connected_session_id)
+                    self.assertTrue((await client.read_log(info["session_id"]))["text"])
+                    self.assertFalse(psutil.pid_exists(info["pid"]))
+                    info = None
             finally:
                 if info:
                     await client.close_session(info["session_id"])
@@ -128,6 +164,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     started = await first.call_tool("start_viewer_session", {"mode": "headless", "settings_document": fixture.document})
                     self.assertFalse(started.is_error, str(started))
                     info = started.structured_content
+                    output = await first.call_tool("read_viewer_log")
+                    self.assertFalse(output.is_error, str(output))
+                    self.assertTrue(output.structured_content["text"])
                     async with Client(mcp) as second:
                         self.assertTrue((await second.call_tool("get_viewer_summary")).is_error)
                         connected = await second.call_tool("connect_viewer_session", {"session_id": info["session_id"]})

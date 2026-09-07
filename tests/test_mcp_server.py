@@ -239,6 +239,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                         "validate_viewer_settings",
                         "connect_viewer_session",
                         "disconnect_viewer_session",
+                        "read_viewer_log",
                     ],
                 )
                 annotations = {tool.name: tool.annotations for tool in listed.tools}
@@ -293,7 +294,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 22)
+                self.assertEqual(len(listed.tools), 23)
                 hardware = await client.call_tool("get_compute_capabilities", {})
                 self.assertFalse(hardware.is_error)
                 self.assertTrue(hardware.structured_content["metadata_only"])

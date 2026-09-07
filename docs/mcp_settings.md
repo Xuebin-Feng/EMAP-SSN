@@ -1,5 +1,30 @@
 # MCP settings (server 0.7.0, pipeline settings schema 1)
 
+## Agent navigation instructions
+
+For a new Viewer or layout, agents must start with `export_config_settings`
+(`kind="viewer"` or `kind="layout"`). Export merges saved `viewer_settings.json`
+preferences into the output, including visual, simulation, and physics values.
+Edit only requested fields and necessary dependent inputs, then validate/execute
+the full exported JSON. A Viewer cache-selection overlay can be supplied through
+the export tool's `settings_path`. Building a minimal document from schema defaults
+bypasses saved preferences; validation and execution intentionally consume the
+explicit snapshot instead of rereading personal settings.
+
+The canonical workflow guide is
+[`Agent_Instructions.md`](../src/mcp_server/Agent_Instructions.md). The server
+loads this UTF-8 file relative to its own module and transmits its exact contents
+in the MCP initialization `instructions` field. Agents do not need repository
+access to receive it; whether instructions are surfaced to the model is controlled
+by the MCP host. Existing tool descriptions also explain prerequisites and next
+steps for clients navigating through tool discovery.
+
+Maintain workflow guidance in that file and parameter rules in tool schemas.
+Restart the MCP server after changing the guide or tool descriptions. A missing,
+unreadable, invalid UTF-8, or empty guide causes an actionable startup error;
+there is no embedded fallback. These documentation changes add no tools and do
+not change execution contracts.
+
 ## Viewer aliases and cache provenance
 
 Viewer titles include an eight-character UUID alias, such as
@@ -374,6 +399,19 @@ session information. A disconnected client never automatically reconnects.
 `cache_path` argument is no longer accepted. A successful launch also connects
 the caller to the new session. Logs are written to the returned `stdout_log` and
 `stderr_log` paths, separately from MCP protocol output.
+
+Normal MCP launches open a visible terminal alongside the Viewer. Both output
+streams are copied to that terminal and retained in the launch logs, including
+native-library output and partial progress lines. Headless launches retain the
+same logs without opening a terminal. `read_viewer_log` pages either stream using
+byte offsets (`stream`, `offset`, and `limit`); use the full session ID to read
+retained output after disconnecting or closing within the same MCP transport.
+
+Closing the Viewer window clears its selected connection automatically (after
+three failed discovery checks, about three seconds). Listing sessions or querying
+a missing selected session clears the selection immediately. Backend transport
+shutdown also clears the connection and stops its monitor; the independently
+running Viewer is left available for a later connection.
 
 ```json
 {

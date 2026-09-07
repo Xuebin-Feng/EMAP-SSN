@@ -66,12 +66,46 @@ def _terminate_tree(process, timeout=5.0):
 
 
 class MCPViewerClient:
-    def __init__(self, project_root=None, *, discovery_timeout=0.5, request_timeout=5.0):
+    def __init__(self, project_root=None, *, discovery_timeout=0.5, request_timeout=5.0, transport_closed=None):
         self.project_root = os.path.abspath(project_root or Path(__file__).resolve().parents[2])
         self.discovery_timeout = float(discovery_timeout)
         self.request_timeout = float(request_timeout)
         self.connected_session_id = None
         self._selection_lock = asyncio.Lock()
+        self._monitor_task = None
+        self._log_directories = {}
+        self._transport_closed = transport_closed
+
+    def _remember_session(self, session):
+        if session.launch_id:
+            try:
+                launch_id = uuid.UUID(session.launch_id).hex
+            except ValueError:
+                pass
+            else:
+                self._log_directories[session.session_id] = Path(session_directory()) / "launches" / launch_id
+        if self._monitor_task is None or self._monitor_task.done():
+            self._monitor_task = asyncio.create_task(self._monitor_connection())
+
+    async def _monitor_connection(self):
+        misses = 0
+        previous = None
+        while self.connected_session_id is not None:
+            if self._transport_closed is not None and self._transport_closed():
+                self.connected_session_id = None
+                return
+            target = self.connected_session_id
+            if target != previous:
+                misses = 0
+                previous = target
+            sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
+            misses = 0 if any(s.session_id == target for s in sessions) else misses + 1
+            if misses >= 3:
+                async with self._selection_lock:
+                    if self.connected_session_id == target:
+                        self.connected_session_id = None
+                        return
+            await asyncio.sleep(1)
 
     def _target(self, session_id):
         target = session_id if session_id is not None else self.connected_session_id
@@ -87,12 +121,17 @@ class MCPViewerClient:
             raise MCPViewerError(str(error)) from error
         async with self._selection_lock:
             self.connected_session_id = session.session_id
+        self._remember_session(session)
         return {"connected": True, "session_id": session.session_id, "session_alias": session_alias(session.session_id), "pid": session.pid}
 
     async def disconnect_session(self):
         async with self._selection_lock:
             previous = self.connected_session_id
             self.connected_session_id = None
+        task, self._monitor_task = self._monitor_task, None
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         return {"disconnected": True, "session_id": previous}
 
     async def launch_session(self, *, settings_document=None, settings_path=None, mode="normal", timeout=30.0):
@@ -113,6 +152,9 @@ class MCPViewerClient:
         script = Path(self.project_root) / "src" / "EMAPSSN_Config.py"
         command = [sys.executable, "-u", str(script), "--headless", "launch-viewer",
                    "--settings", str(snapshot), "--delete-settings", "--viewer-mode", mode]
+        if mode == "normal":
+            command = [sys.executable, "-u", str(Path(__file__).resolve().parents[1] / "utilities" / "Viewer_Terminal.py"),
+                       str(directory), *command]
         env = os.environ.copy()
         for key in ("SSN_VIEWER_SETTINGS_PATH", "SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE",
                     "SSN_VIEWER_HEADLESS", "SSN_VIEWER_EXPLICIT_SETTINGS"):
@@ -136,16 +178,22 @@ class MCPViewerClient:
             # chain while recording the independent launcher's exact identity.
             identity_path = directory / "process.json"
             if sys.platform == "win32":
+                child_options = ("stdin=None,stdout=None,stderr=None,creationflags=subprocess.CREATE_NEW_CONSOLE"
+                                 if mode == "normal" else
+                                 "stdin=subprocess.DEVNULL,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP")
                 broker = (
                     "import subprocess,sys,json,psutil; "
-                    "p=subprocess.Popen(json.loads(sys.argv[1]),stdin=subprocess.DEVNULL,"
-                    "creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP); "
+                    f"p=subprocess.Popen(json.loads(sys.argv[1]),{child_options}); "
                     "open(sys.argv[2],'w').write(json.dumps({'pid':p.pid,'created':psutil.Process(p.pid).create_time()}))"
                 )
                 command = [sys.executable, "-c", broker, json.dumps(command), str(identity_path)]
             with stdout_path.open("ab", buffering=0) as out, stderr_path.open("ab", buffering=0) as err:
-                proc = subprocess.Popen(command, cwd=self.project_root, env=env, stdin=subprocess.DEVNULL,
-                                        stdout=out, stderr=err, **options)
+                if mode == "normal" and sys.platform != "win32":
+                    from utilities.Terminal_Launcher import launch_in_terminal
+                    proc = launch_in_terminal(command, cwd=self.project_root, env=env)
+                else:
+                    proc = subprocess.Popen(command, cwd=self.project_root, env=env, stdin=subprocess.DEVNULL,
+                                            stdout=out, stderr=err, **options)
             root_process = _identity(proc.pid)
             if sys.platform == "win32":
                 code = await asyncio.to_thread(proc.wait, timeout=10)
@@ -163,6 +211,7 @@ class MCPViewerClient:
                     await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
                     async with self._selection_lock:
                         self.connected_session_id = session.session_id
+                    self._remember_session(session)
                     ready = True
                     # A daemon reaps the launcher without owning the independent Viewer lifetime.
                     threading.Thread(target=proc.wait, daemon=True, name="viewer-launcher-reaper").start()
@@ -171,7 +220,7 @@ class MCPViewerClient:
                             "base_url": session.base_url, "started_at": session.started_at, "mode": mode,
                             "cache_path": settings["TARGET_CACHE_PATH"],
                             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)}
-                if not await asyncio.to_thread(_alive, root_process):
+                if (sys.platform == "win32" or mode == "headless") and not await asyncio.to_thread(_alive, root_process):
                     raise MCPViewerError(f"Viewer exited before readiness (code {proc.returncode}).")
                 await asyncio.sleep(0.1)
             raise MCPViewerError(f"Timed out after {timeout} seconds waiting for Viewer readiness.")
@@ -193,6 +242,12 @@ class MCPViewerClient:
         finally:
             if not ready:
                 try:
+                    terminal_identity = directory / "terminal-process.json"
+                    if terminal_identity.exists():
+                        recorded = json.loads(terminal_identity.read_text())
+                        terminal = _identity(recorded["pid"])
+                        if terminal is not None and terminal.create_time() == recorded["created"]:
+                            await asyncio.shield(asyncio.to_thread(_terminate_tree, terminal))
                     if sys.platform == "win32" and identity_path.exists():
                         recorded = json.loads(identity_path.read_text())
                         independent = _identity(recorded["pid"])
@@ -249,7 +304,11 @@ class MCPViewerClient:
             raise MCPViewerError(f"Could not close Viewer {target}: {error}") from error
 
     async def list_sessions(self):
+        target = self.connected_session_id
         sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
+        async with self._selection_lock:
+            if target and self.connected_session_id == target and not any(s.session_id == target for s in sessions):
+                self.connected_session_id = None
         async def describe(session):
             item = {"session_id": session.session_id, "session_alias": session_alias(session.session_id),
                     "pid": session.pid, "started_at": session.started_at}
@@ -269,6 +328,36 @@ class MCPViewerClient:
         from mcp_server.Cache_Metadata import read_cache_metadata
         summary["cache_metadata"] = await asyncio.to_thread(read_cache_metadata, summary.get("inputs", {}).get("layout_cache"))
         return summary
+
+    async def read_log(self, session_id=None, *, stream="stdout", offset=0, limit=65536):
+        if stream not in {"stdout", "stderr"} or offset < 0 or not 1 <= limit <= 1048576:
+            raise MCPViewerError("Expected stdout/stderr, nonnegative byte offset, and limit 1..1048576.")
+        target = self._target(session_id)
+        directory = self._log_directories.get(target)
+        if directory is None:
+            try:
+                session = await asyncio.to_thread(select_viewer_session, target, timeout=self.discovery_timeout)
+                if not session.launch_id:
+                    raise MCPViewerError("This Viewer was not launched with MCP output capture.")
+                launch_id = uuid.UUID(session.launch_id).hex
+                directory = Path(session_directory()) / "launches" / launch_id
+                self._log_directories[session.session_id] = directory
+                target = session.session_id
+            except (LookupError, ValueError) as error:
+                raise MCPViewerError(str(error)) from error
+        def read():
+            try:
+                with (directory / f"{stream}.log").open("rb") as handle:
+                    size = os.fstat(handle.fileno()).st_size
+                    handle.seek(min(offset, size))
+                    data = handle.read(limit)
+                    next_offset = handle.tell()
+            except OSError as error:
+                raise MCPViewerError(f"Could not read Viewer output: {error}") from error
+            return {"session_id": target, "stream": stream, "offset": min(offset, size),
+                    "next_offset": next_offset, "size": size, "eof": next_offset >= size,
+                    "text": data.decode("utf-8", errors="replace")}
+        return await asyncio.to_thread(read)
 
     async def query_nodes(
         self,
@@ -293,13 +382,17 @@ class MCPViewerClient:
         )
 
     async def _get(self, session_id, endpoint):
+        target = self._target(session_id)
         try:
             session = await asyncio.to_thread(
                 select_viewer_session,
-                self._target(session_id),
+                target,
                 timeout=self.discovery_timeout,
             )
         except LookupError as error:
+            async with self._selection_lock:
+                if target == self.connected_session_id:
+                    self.connected_session_id = None
             raise MCPViewerError(str(error)) from error
         return await asyncio.to_thread(self._request, session, endpoint)
 

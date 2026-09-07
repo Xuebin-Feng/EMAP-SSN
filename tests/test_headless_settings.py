@@ -87,6 +87,34 @@ class HeadlessSettingsTests(unittest.TestCase):
         updated = export_config_settings("layout", self.root, settings_path=result["settings_path"])
         self.assertNotEqual(updated["cache_path"], before)
 
+    def test_config_exports_preserve_saved_preferences_and_explicit_overrides(self):
+        values = self.saved_config()
+        preferences = dict(NODE_SIZE=17, EDGE_ALPHA=0.35, TEXT_SIZE=14,
+                           SPRING_K=8.0, COULOMB_K=16.0, DAMPING=0.7,
+                           DT=0.003, MAX_STEPS=1234, RMSD_WINDOW=75,
+                           PACKING_GEOMETRY="Circle", PACKING_GRID_SIZE=35.0)
+        values.update(preferences)
+        saved = self.root / "viewer_settings.json"
+        saved.write_text(json.dumps(values))
+        original = saved.read_bytes()
+        layout = export_config_settings("layout", self.root)
+        section = layout["settings_document"]["Layout_Cache_Generator.py"]
+        for key in preferences.keys() - {"NODE_SIZE", "EDGE_ALPHA", "TEXT_SIZE"}:
+            self.assertEqual(section[key], preferences[key], key)
+        generated = self.generate(layout["settings_document"])
+        overlay = self.root / "viewer-overlay.json"
+        overlay.write_text(json.dumps({"TARGET_CACHE_PATH": generated.cache_path, "TEXT_SIZE": 15}))
+        viewer = export_config_settings("viewer", self.root, settings_path=overlay)
+        for key, value in preferences.items():
+            self.assertEqual(viewer["settings_document"][key], 15 if key == "TEXT_SIZE" else value, key)
+        self.assertEqual(viewer["cache_path"], generated.cache_path)
+        section["MAX_STEPS"] = 4321
+        Path(layout["settings_path"]).write_text(json.dumps(layout["settings_document"]))
+        edited = export_config_settings("layout", self.root, settings_path=layout["settings_path"])
+        self.assertEqual(edited["settings_document"]["Layout_Cache_Generator.py"]["MAX_STEPS"], 4321)
+        self.assertEqual(edited["settings_document"]["Layout_Cache_Generator.py"]["SPRING_K"], 8.0)
+        self.assertEqual(saved.read_bytes(), original)
+
     def test_viewer_full_snapshot_newest_and_explicit_selection(self):
         self.saved_config()
         with self.assertRaisesRegex(ValueError, "No compatible"):

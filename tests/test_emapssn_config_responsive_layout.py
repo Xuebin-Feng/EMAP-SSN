@@ -189,6 +189,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         page = self.window.tabs.currentWidget().widget()
         for key in ("NODE_FASTA_FILE", "MSA_FILE", "INPUT_HDF5", "UMAP_NEIGHBORS",
                     "UMAP_MIN_DIST", "TOP_EDGE_PERCENT"):
+            self.window.check_umap.setChecked(key.startswith("UMAP_"))
+            self.flush()
             label = self.window.labels[key]
             field = self.window.inputs[key]
             label_pos = label.mapTo(page, QPoint(0, 0))
@@ -197,6 +199,55 @@ class ResponsiveConfigTests(unittest.TestCase):
             self.assertLess(abs((label_pos.y() + label.height() / 2)
                                 - (field_pos.y() + field.height() / 2)), 3)
         self.assertEqual(self.window.tabs.currentWidget().horizontalScrollBar().maximum(), 0)
+
+    def test_input_order_and_shared_rows(self):
+        from PySide6.QtCore import QPoint
+        self.resize_panel(1400)
+        page = self.window.tabs.currentWidget().widget()
+        def pos(key):
+            return self.window.labels[key].mapTo(page, QPoint())
+        order = [pos(key).y() for key in (
+            "NODE_FASTA_FILE", "INPUT_HDF5", "MSA_FILE", "ALIGNMENT_SCORE",
+            "ALIGNMENT_REFERENCE", "SIMILARITY_THRESHOLD")]
+        self.assertEqual(order, sorted(set(order)))
+        self.assertEqual(pos("ALIGNMENT_SCORE").y(), pos("NORM_MODE").y())
+        keys = ("ALIGNMENT_REFERENCE", "FILTER_MIN_OCCUPANCY", "ALIGNMENT_OFFSET")
+        self.assertEqual(len({pos(key).y() for key in keys}), 1)
+        self.assertLess(pos(keys[0]).x(), pos(keys[1]).x())
+        self.assertLess(pos(keys[1]).x(), pos(keys[2]).x())
+        row = self.window.line_ref.parentWidget()
+        reference_width = self.window.line_ref.geometry().right() + 1
+        self.assertAlmostEqual(reference_width / row.width(), 0.5, delta=0.04)
+        switch = self.window.check_umap
+        self.assertEqual(switch.geometry().right(), switch.parentWidget().width() - 1)
+
+    def test_umap_swaps_fields_preserving_both_modes(self):
+        window = self.window
+        values = {"SIMILARITY_THRESHOLD": "0.75", "TOP_EDGE_PERCENT": "0.0",
+                  "UMAP_NEIGHBORS": "37", "UMAP_MIN_DIST": "0.42", "UMAP_MODE": True}
+        profile = window._normalize_profile_data("inputs_outputs", {
+            **window._collect_tab_profile_data("inputs_outputs"), **values})
+        window._apply_profile_data("inputs_outputs", profile)
+        self.flush()
+        self.assertTrue(window.spin_umap_k.isVisible())
+        for width in (1400, 600, 800, 1400):
+            self.resize_panel(width)
+            for umap in (True, False, True, False):
+                window.check_umap.setChecked(umap)
+                self.flush()
+                for key in ("UMAP_NEIGHBORS", "UMAP_MIN_DIST"):
+                    self.assertEqual(window.inputs[key].isVisible(), umap)
+                    self.assertEqual(window.labels[key].isVisible(), umap)
+                for key in ("SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"):
+                    self.assertEqual(window.inputs[key].isVisible(), not umap)
+                    self.assertEqual(window.labels[key].isVisible(), not umap)
+                self.assertEqual(window.btn_clear_top_edge.isVisible(), not umap)
+                data = window.collect_data()
+                self.assertEqual(data["UMAP_MODE"], umap)
+                for key, value in values.items():
+                    if key != "UMAP_MODE":
+                        self.assertEqual(float(data[key]), float(value))
+                self.assert_geometry(window.tabs.currentWidget().widget())
 
     def test_alignment_offset_ignores_hover_wheel_but_accepts_keyboard(self):
         from PySide6.QtCore import QPoint, QPointF, Qt
