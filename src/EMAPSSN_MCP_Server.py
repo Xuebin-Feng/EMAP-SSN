@@ -47,7 +47,7 @@ from mcp_server.Pipeline_Settings import (
 )
 
 
-MCP_SERVER_VERSION = "0.5.0"
+MCP_SERVER_VERSION = "0.6.0"
 
 
 class PipelineToolInfo(BaseModel):
@@ -332,9 +332,9 @@ async def start_layout_job(
         Field(description="Network similarity/distance HDF5 file name or project-relative/absolute path"),
     ] = None,
     cache_filename: Annotated[
-        str,
-        Field(description="Target cache filename to save (e.g. 'version_00.h5')"),
-    ] = "version_00.h5",
+        str | None,
+        Field(description="Explicit target filename; omit to allocate the next free version automatically"),
+    ] = None,
     similarity_threshold: Annotated[
         float | None,
         Field(description="Cutoff similarity threshold (either threshold or top_edge_percent required for physics)"),
@@ -415,7 +415,8 @@ async def start_layout_job(
         payload: dict[str, Any] = {
             "NODE_FASTA_FILE": str(node_fasta_file).strip(),
             "INPUT_HDF5": str(input_hdf5).strip(),
-            "CACHE_FILENAME": str(cache_filename).strip(),
+            "CACHE_FILENAME": str(cache_filename).strip() if cache_filename is not None else "version_00.h5",
+            "CACHE_NAME_MODE": "explicit" if cache_filename is not None else "auto",
             "ALIGNMENT_SCORE": alignment_score,
             "NORM_MODE": norm_mode,
             "SIMILARITY_THRESHOLD": similarity_threshold,
@@ -630,6 +631,38 @@ async def close_viewer_session(
 def get_viewer_settings_schema() -> dict[str, Any]:
     """Discover the complete JSON contract for Viewer startup."""
     return viewer_settings_schema()
+
+
+@mcp.tool(title="Export saved tool settings", annotations=_START_JOB, structured_output=True)
+async def export_pipeline_settings(tool_id: str, output_path: str | None = None) -> dict[str, Any]:
+    """Export one tool with inherited saved directories and defaults. Edit this JSON,
+    validate it, then pass settings_path to start_pipeline_job. Empty inputs remain
+    editable. Explicit output paths must not exist; omitted paths are unique.
+    """
+    from utilities.Headless_Settings import export_pipeline_settings as export
+    try:
+        return await asyncio.to_thread(export, tool_id, _PROJECT_ROOT, output_path)
+    except (ValueError, TypeError, KeyError, OSError) as error:
+        raise ToolError(str(error)) from error
+
+
+@mcp.tool(title="Export saved Config settings", annotations=_START_JOB, structured_output=True)
+async def export_config_settings(
+    kind: Literal["layout", "viewer"], output_path: str | None = None,
+    settings_path: str | None = None,
+) -> dict[str, Any]:
+    """Export inherited Config settings with cache filename and absolute path.
+    Layout exports select the next automatic version (a preview, not a reservation).
+    Viewer exports include all four tabs and select the newest compatible cache
+    unless an explicit path is supplied in the optional edited JSON overlay.
+    Edit the exported file, then execute using settings_path; execution does not
+    reload personal settings. Explicit output paths must not already exist.
+    """
+    from utilities.Headless_Settings import export_config_settings as export
+    try:
+        return await asyncio.to_thread(export, kind, _PROJECT_ROOT, output_path, settings_path)
+    except (ValueError, TypeError, KeyError, OSError) as error:
+        raise ToolError(str(error)) from error
 
 
 @mcp.tool(title="Validate Viewer settings", annotations=_READ_ONLY, structured_output=True)

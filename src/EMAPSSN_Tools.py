@@ -15,8 +15,11 @@
 # limitations under the License.
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
-import html
 import sys
+if __name__ == "__main__" and "--headless" in sys.argv:
+    from utilities.Headless_Settings import main as headless_main
+    raise SystemExit(headless_main("tools"))
+import html
 import os
 import ntpath
 import posixpath
@@ -3891,26 +3894,9 @@ class ToolsGUI(QMainWindow):
 
             tool_spec = get_tool_spec_for_script(script_path)
             tool_settings = self._collect_tool_settings(script_path)
-            tool_settings = serialize_export_settings(
-                tool_spec.tool_id, tool_settings, _PROJECT_ROOT
-            )
-            tool_settings = {
-                key: (
-                    self._portable_export_directory_path(value)
-                    if key.endswith("_DIR") and isinstance(value, (str, os.PathLike))
-                    else value
-                )
-                for key, value in tool_settings.items()
-            }
-            payload = build_settings_document(
-                tool_spec,
-                {
-                    key: self._portable_export_directory_path(
-                        current_directories.get(key, "")
-                    )
-                    for key in tool_spec.required_directories
-                },
-                tool_settings,
+            from utilities.Headless_Settings import build_pipeline_export
+            payload = build_pipeline_export(
+                tool_spec.tool_id, current_directories, tool_settings, _PROJECT_ROOT,
             )
 
             write_json_document(

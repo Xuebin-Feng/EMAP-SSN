@@ -1,4 +1,88 @@
-# MCP pipeline settings (server 0.4.0, settings schema 1)
+# MCP settings (server 0.6.0, pipeline settings schema 1)
+
+## Export, edit, validate, execute
+
+Agents can export saved application settings instead of constructing a complete
+JSON document. `export_pipeline_settings(tool_id, output_path=None)` exports only
+the selected tool and its required directories, inheriting `tools_settings.json`
+and filling missing values from the tool defaults. Empty selectors remain editable.
+
+`export_config_settings(kind, output_path=None, settings_path=None)` supports:
+
+- `kind="layout"`: generation inputs, filtering, physics/UMAP settings and output
+  destination. Visual settings and MSA display settings are excluded.
+- `kind="viewer"`: a full effective snapshot of Inputs, Visuals, Physics and
+  Directories, with the selected existing cache. This is configuration, not window state.
+
+Config inherits saved `viewer_settings.json`. An optional edited JSON file overlays
+these preferences; an existing layout document can also be re-exported as layout
+JSON to refresh its destination. Config export needs valid input files and enough
+settings to determine compatibility. It never invents missing scientific inputs.
+Unsaved GUI edits and named profiles are not read by headless export. GUI exports
+continue to use current controls and share the serialization helpers.
+
+Exports contain absolute directory paths, resolving project-relative paths and
+Config directory aliases. Omitted output paths create uniquely named JSON files
+in the saved `SETTING_EXPORT_DIR`; explicit output paths must not exist. Export
+does not update personal settings, compute a layout or reserve a cache filename.
+
+Each result contains `settings_path` and `settings_document`; Config results also
+contain `cache_path` and `cache_filename`. Edit the file, validate pipeline JSON
+with `validate_pipeline_settings` or Viewer JSON with `validate_viewer_settings`,
+and submit its path to `start_pipeline_job`, `start_layout_job` or
+`start_viewer_session`. Layout settings are validated on submission and cache/input
+compatibility is rechecked in the worker. Execution does not reapply saved preferences.
+
+### Cache naming and Viewer selection
+
+Layout JSON includes `CACHE_FILENAME`, `TARGET_CACHE_PATH` and `CACHE_NAME_MODE`:
+
+- `auto` exports the next `version_NN.h5` and its absolute path as a preview.
+  Execution resolves the destination again using the edited inputs. If occupied,
+  it advances to the next version and never overwrites a cache.
+- `explicit` honors the filename and optional path, rejecting mismatches,
+  incompatible folders and occupied files. To request a custom name, switch to
+  `explicit` and update both the filename and path. Older documents without
+  `CACHE_NAME_MODE` retain explicit-name behavior.
+
+MCP layout jobs execute `EMAPSSN_Config.py --headless generate-layout`, which calls
+the existing layout generator. Writers using the same layout root are serialized
+with an OS lock through generation/publication, including across MCP processes;
+different layout roots remain independent. Process termination releases the lock.
+Atomic no-overwrite publication also handles a competing external file writer.
+The completed job's `output_locations` includes `TARGET_CACHE_PATH`,
+`CACHE_FILENAME`, and `EXECUTED_SETTINGS` (a separate effective settings snapshot).
+The original submitted snapshot is retained unchanged. Generation alone opens no Viewer.
+
+Viewer export selects the most recently modified cache in the unique compatible
+folder; filename ascending breaks modification-time ties. No cache or multiple
+compatible folders is an error. A `TARGET_CACHE_PATH` in the overlay selects a
+specific cache. When opening a newly generated layout, supply the actual path
+returned by its job. Viewer JSON includes `CACHE_FILENAME`, which must match that
+path; older Viewer JSON may omit it. Launch validates and opens exactly that cache,
+without silently generating or selecting a different one.
+
+MCP Viewer launch runs detached headless Config, which dispatches into Viewer in
+the same process to preserve PID tracking on Windows and Unix. Existing readiness,
+private logs, connection and shutdown handling remain in MCP. `normal` opens a
+visible Viewer; `headless` uses offscreen Qt. Neither opens the Config window.
+
+### CLI equivalents
+
+From the project root, using the managed Python interpreter:
+
+```text
+python src/EMAPSSN_Tools.py --headless export --tool sanitize_sequences
+python src/EMAPSSN_Config.py --headless export --kind layout --output layout.json
+python src/EMAPSSN_Config.py --headless export --kind layout --settings layout.json
+python src/EMAPSSN_Config.py --headless generate-layout --settings layout.json
+python src/EMAPSSN_Config.py --headless export --kind viewer --output viewer.json
+python src/EMAPSSN_Config.py --headless launch-viewer --settings viewer.json --viewer-mode normal
+```
+
+The example filenames are chosen destinations, not pre-existing files. CLI export
+writes a JSON result to stdout; diagnostics go to stderr. Runtime calculation logs
+remain in the MCP job's private log files.
 
 Use `list_pipeline_tools` to choose one of the 14 pipeline IDs, then
 `get_pipeline_tool_schema` with `{"tool_id": "sanitize_sequences"}` to discover
@@ -217,16 +301,11 @@ output-directory reporting are unchanged.
 
 ## Layout cache generation
 
-Use `start_layout_job` to generate precomputed 2D node coordinates (`.h5`) and
-manifests (`.json`) using `Layout_Cache_Generator.py`:
+After exporting and editing layout JSON, call `start_layout_job` with its path:
 
 ```json
 {
-  "fasta_path": "nodes.fasta",
-  "network_path": "network.h5",
-  "layout_id": "network_tsne",
-  "layout_method": "t-SNE",
-  "random_seed": 42
+  "settings_path": "layout.json"
 }
 ```
 
@@ -234,11 +313,12 @@ Layout jobs are enqueued into the same unified FIFO queue managed by `PipelineJo
 and share job tracking, status monitoring, log streaming (`read_pipeline_log`), and
 cancellation (`cancel_pipeline_job`).
 
-Layout settings default to project-level constants defined in `EMAPSSN_Config.py`
-(`FASTA_DIR`, `HDF5_DIR`, `SAVED_LAYOUT_DIR`). Relative input and output paths
-automatically resolve against these directories if not provided as absolute paths.
-The resulting cache files (`<layout_id>.h5` and `<layout_id>_manifest.json`) are stored
-in `SAVED_LAYOUT_DIR` (`Cache_Files/Saved_Layouts`).
+The worker routes through headless Config to `Layout_Cache_Generator.py`. It
+publishes an HDF5 coordinate cache, a compatible-folder manifest and a canonical
+sanitized FASTA backup under `SAVED_LAYOUT_DIR`. Use the actual cache path in the
+completed job's `output_locations` rather than reconstructing it from the preview.
+The existing individual-parameter and `settings_document` forms remain supported;
+omitting `cache_filename` in the individual-parameter form now selects automatic naming.
 
 ## Viewer sessions
 

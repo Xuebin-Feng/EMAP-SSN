@@ -61,11 +61,28 @@ class SettingsTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_visible_viewer_launch_through_headless_config(self):
+        fixture = SettingsTests(); fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(fixture.root / "sessions"),
+                                         "PYTHONIOENCODING": "utf-8"}):
+            client = MCPViewerClient(fixtures.ROOT)
+            info = None
+            try:
+                info = await client.launch_session(settings_document=fixture.document, mode="normal", timeout=45)
+                self.assertEqual(info["mode"], "normal")
+                summary = await client.get_summary(info["session_id"])
+                self.assertEqual(summary["node_count"], 2)
+            finally:
+                if info:
+                    await client.close_session(info["session_id"])
+                    self.assertFalse(psutil.pid_exists(info["pid"]))
+
     async def test_timeout_and_cancellation_cleanup_verbose_child(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "src").mkdir()
-            (root / "src" / "EMAPSSN_Viewer.py").write_text(
+            (root / "src" / "EMAPSSN_Config.py").write_text(
                 "import time,sys\nprint('x'*1000000,flush=True)\ntime.sleep(60)\n"
             )
             with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}), mock.patch(

@@ -14,6 +14,10 @@
 # limitations under the License.
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
+import sys
+if __name__ == "__main__" and "--headless" in sys.argv:
+    from utilities.Headless_Settings import main as headless_main
+    raise SystemExit(headless_main("config"))
 # Import Libraries
 import ast
 import html
@@ -21,7 +25,6 @@ import json
 import math
 import os
 import re
-import sys
 import tempfile
 from types import SimpleNamespace
 import traceback
@@ -3723,11 +3726,14 @@ if __name__ == "__main__":
             ):
                 collected[hidden_key] = globals()[hidden_key]
 
-            return LayoutGenerationSettings.from_namespace(
-                SimpleNamespace(**collected),
+            from utilities.Headless_Settings import build_layout_export
+            document = build_layout_export(
+                collected, PROJECT_ROOT,
                 cache_filename=cache_name,
-                project_root=PROJECT_ROOT,
+                target_cache_path=os.path.join(self.current_cache_folder, cache_name),
+                automatic=not self.line_new_cache.text().strip(), selection_resolved=True,
             )
+            return LayoutGenerationSettings.from_document(document, project_root=PROJECT_ROOT)
 
         def export_layout_settings(self):
             try:

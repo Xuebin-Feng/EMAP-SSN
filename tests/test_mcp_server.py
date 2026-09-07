@@ -234,6 +234,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                         "start_viewer_session",
                         "close_viewer_session",
                         "get_viewer_settings_schema",
+                        "export_pipeline_settings",
+                        "export_config_settings",
                         "validate_viewer_settings",
                         "connect_viewer_session",
                         "disconnect_viewer_session",
@@ -291,7 +293,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 20)
+                self.assertEqual(len(listed.tools), 22)
                 hardware = await client.call_tool("get_compute_capabilities", {})
                 self.assertFalse(hardware.is_error)
                 self.assertTrue(hardware.structured_content["metadata_only"])
@@ -301,6 +303,33 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(catalog.structured_content["tools"]), 14)
                 schema = await client.call_tool("get_pipeline_tool_schema", {"tool_id": "sanitize_sequences"})
                 self.assertFalse(schema.is_error)
+                exported = await client.call_tool("export_pipeline_settings", {
+                    "tool_id": "sanitize_sequences",
+                    "output_path": str(pathlib.Path(session_directory) / "exported.json"),
+                })
+                self.assertFalse(exported.is_error)
+                exported_path = pathlib.Path(exported.structured_content["settings_path"])
+                exported_doc = json.loads(exported_path.read_text())
+                exported_doc["Sanitize_Sequences.py"]["INPUT_FASTA"] = "future.fasta"
+                exported_path.write_text(json.dumps(exported_doc))
+                validated_export = await client.call_tool("validate_pipeline_settings", {
+                    "tool_id": "sanitize_sequences", "settings_path": str(exported_path),
+                })
+                self.assertTrue(validated_export.structured_content["valid"])
+                from tests.test_layout_cache_generator import _write_inputs, _settings_document
+                layout_root = pathlib.Path(session_directory)
+                _write_inputs(layout_root)
+                layout_doc = _settings_document(layout_root)
+                layout_doc["Layout_Cache_Generator.py"]["CACHE_NAME_MODE"] = "auto"
+                layout_source = layout_root / "layout-source.json"
+                layout_source.write_text(json.dumps(layout_doc))
+                config_export = await client.call_tool("export_config_settings", {
+                    "kind": "layout", "settings_path": str(layout_source),
+                    "output_path": str(layout_root / "layout-export.json"),
+                })
+                self.assertFalse(config_export.is_error, str(config_export))
+                self.assertEqual(config_export.structured_content["cache_filename"], "version_00.h5")
+                self.assertFalse(pathlib.Path(config_export.structured_content["cache_path"]).exists())
                 preview = await client.call_tool("validate_pipeline_settings", {
                     "tool_id": "sanitize_sequences", "parameters": {"INPUT_FASTA": "future.fasta"}})
                 self.assertTrue(preview.structured_content["valid"])

@@ -578,7 +578,11 @@ def next_cache_version_filename(folder_path):
             match = pattern.fullmatch(entry.name)
             if match:
                 max_version = max(max_version, int(match.group(1)))
-    return f"version_{max_version + 1:02d}.h5"
+    candidate = max_version + 1
+    # Directories and dangling links also occupy a destination name.
+    while os.path.lexists(os.path.join(folder_path, f"version_{candidate:02d}.h5")):
+        candidate += 1
+    return f"version_{candidate:02d}.h5"
 
 
 def validate_cache_filename(filename):

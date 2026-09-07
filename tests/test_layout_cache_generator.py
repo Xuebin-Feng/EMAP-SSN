@@ -203,7 +203,10 @@ class LayoutSettingsTests(unittest.TestCase):
             self.assertFalse(any(key.startswith("SGLD_") for key in payload))
             self.assertNotIn("NODE_SIZE", payload)
             self.assertNotIn("MSA_FILE", payload)
-            self.assertNotIn("TARGET_CACHE_PATH", payload)
+            self.assertIsNone(payload["TARGET_CACHE_PATH"])
+            self.assertEqual(payload["CACHE_NAME_MODE"], "explicit")
+            self.assertNotIn("TARGET_CACHE_PATH", settings.engine_params())
+            self.assertNotIn("CACHE_NAME_MODE", settings.engine_params())
 
             document["Layout_Cache_Generator.py"]["NODE_SIZE"] = 10
             with self.assertRaisesRegex(

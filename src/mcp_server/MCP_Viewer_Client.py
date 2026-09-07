@@ -109,8 +109,9 @@ class MCPViewerClient:
         snapshot = directory / "settings.json"
         snapshot.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         stdout_path, stderr_path = directory / "stdout.log", directory / "stderr.log"
-        script = Path(self.project_root) / "src" / "EMAPSSN_Viewer.py"
-        command = [sys.executable, "-u", str(script), "--settings", str(snapshot), "--delete-settings"]
+        script = Path(self.project_root) / "src" / "EMAPSSN_Config.py"
+        command = [sys.executable, "-u", str(script), "--headless", "launch-viewer",
+                   "--settings", str(snapshot), "--delete-settings", "--viewer-mode", mode]
         env = os.environ.copy()
         for key in ("SSN_VIEWER_SETTINGS_PATH", "SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE",
                     "SSN_VIEWER_HEADLESS", "SSN_VIEWER_EXPLICIT_SETTINGS"):
@@ -118,7 +119,6 @@ class MCPViewerClient:
         env[SESSION_DIRECTORY_ENV] = session_directory()
         env[LAUNCH_ID_ENV] = launch_id
         if mode == "headless":
-            command.append("--headless")
             env["QT_QPA_PLATFORM"] = "offscreen"
             env["SSN_VIEWER_HEADLESS"] = "1"
         elif env.get("QT_QPA_PLATFORM") == "offscreen":

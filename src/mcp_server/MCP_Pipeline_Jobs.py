@@ -261,7 +261,7 @@ class PipelineJobManager:
                     pass
 
             script_path = os.path.join(
-                self.project_root, "src", "Layout_Cache_Generator.py"
+                self.project_root, "src", "EMAPSSN_Config.py"
             )
             tool_spec = SimpleNamespace(
                 tool_id="generate_layout_cache",
@@ -273,7 +273,12 @@ class PipelineJobManager:
                     self.python_executable,
                     "-u",
                     script_path,
+                    "--headless",
+                    "generate-layout",
+                    "--settings",
                     snapshot_path,
+                    "--result",
+                    os.path.join(job_directory, "layout-result.json"),
                 ),
                 cwd=self.project_root,
                 settings_path=snapshot_path,
@@ -485,6 +490,15 @@ class PipelineJobManager:
                     if cancel_now:
                         await self._terminate_process_tree(process)
                     return_code = await process.wait()
+                if return_code == 0 and job.tool_id == "generate_layout_cache":
+                    result_path = os.path.join(os.path.dirname(job.invocation.settings_path), "layout-result.json")
+                    with open(result_path, encoding="utf-8") as handle:
+                        layout_result = json.load(handle)
+                    for key in ("TARGET_CACHE_PATH", "CACHE_FILENAME", "SAVED_LAYOUT_DIR"):
+                        if not isinstance(layout_result.get(key), str) or not layout_result[key]:
+                            raise PipelineJobError(f"Layout result is missing {key}.")
+                    job.output_locations.update(layout_result)
+                    job.output_locations["EXECUTED_SETTINGS"] = result_path + ".settings.json"
                 async with self._lock:
                     job.exit_code = return_code
                     job.finished_at = _utc_now()

@@ -27,6 +27,7 @@ DEFAULTS = {
     **DIRECTORY_PROFILE_DEFAULTS, **INPUT_PROFILE_DEFAULTS,
     **VISUAL_PROFILE_DEFAULTS, **PHYSICS_PROFILE_DEFAULTS,
     "TARGET_CACHE_PATH": "", "TARGET_CACHE_MODE": "existing",
+    "CACHE_FILENAME": "",
     "SAVED_CONFIG_DIR": "$cache_file$/Saved_Config", "BOX_SCALE": 2.0,
     "PACKING_PADDING": 10.0, "MAX_FORCE_LIMIT": 20.0,
     "MAX_TOTAL_REPULSION_FORCE": 0.0,
@@ -74,7 +75,7 @@ def read_viewer_settings(*, settings_document=None, settings_path=None, project_
     return deepcopy(settings_document)
 
 
-def normalize_viewer_settings(document, project_root):
+def normalize_viewer_settings(document, project_root, *, require_cache=True):
     if not isinstance(document, dict):
         raise ViewerSettingsError("settings_document: expected a JSON object.")
     unknown = set(document) - set(DEFAULTS)
@@ -154,13 +155,17 @@ def normalize_viewer_settings(document, project_root):
     for key, directory in FILES.items():
         value = result[key].strip()
         if not value:
-            if key != "MSA_FILE":
+            if key != "MSA_FILE" and (key != "TARGET_CACHE_PATH" or require_cache):
                 raise ViewerSettingsError(f"{key}: required nonempty path.")
             result[key] = ""
             continue
         # A cache-relative folder/version path is relative to SAVED_LAYOUT_DIR.
         base = result[directory] if key == "TARGET_CACHE_PATH" or not os.path.dirname(value) else root
         result[key] = resolve(value, base)
+    filename = os.path.basename(result["TARGET_CACHE_PATH"])
+    if result["CACHE_FILENAME"] and result["CACHE_FILENAME"] != filename:
+        raise ViewerSettingsError("CACHE_FILENAME must match TARGET_CACHE_PATH.")
+    result["CACHE_FILENAME"] = filename
     return result
 
 

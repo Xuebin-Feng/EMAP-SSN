@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass, field, fields
 import hashlib
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 from typing import Any, Mapping
 
@@ -158,6 +160,8 @@ class LayoutGenerationSettings:
     PACKING_PADDING: float = 10.0
     MAX_FORCE_LIMIT: float = 20.0
     MAX_TOTAL_REPULSION_FORCE: float = 0.0
+    TARGET_CACHE_PATH: str | None = None
+    CACHE_NAME_MODE: str = "explicit"
 
     # Viewer launches may bind a GUI-resolved folder. This field is never JSON.
     _target_cache_path: str | None = field(default=None, repr=False, compare=False)
@@ -314,6 +318,10 @@ class LayoutGenerationSettings:
         return settings
 
     def validate(self) -> None:
+        if self.CACHE_NAME_MODE not in {"auto", "explicit"}:
+            raise LayoutGenerationError("CACHE_NAME_MODE must be auto or explicit.")
+        if self.TARGET_CACHE_PATH is not None and not isinstance(self.TARGET_CACHE_PATH, str):
+            raise LayoutGenerationError("TARGET_CACHE_PATH must be a string or null.")
         cache_manifest.validate_cache_filename(self.CACHE_FILENAME)
         if not isinstance(self.UMAP_MODE, bool):
             raise LayoutGenerationError("UMAP_MODE must be a JSON boolean.")
@@ -417,6 +425,8 @@ class LayoutGenerationSettings:
             "NODE_FASTA_FILE",
             "INPUT_HDF5",
             "CACHE_FILENAME",
+            "TARGET_CACHE_PATH",
+            "CACHE_NAME_MODE",
             "ALIGNMENT_SCORE",
             "NORM_MODE",
             "TOP_EDGE_PERCENT",
@@ -493,8 +503,9 @@ def _resolve_cache_target(
             f"Multiple compatible layout-cache folders were found: {folders}"
         )
 
-    if settings._target_cache_path:
-        requested = os.path.abspath(os.path.normpath(settings._target_cache_path))
+    requested_path = settings._target_cache_path or settings.TARGET_CACHE_PATH
+    if requested_path and settings.CACHE_NAME_MODE == "explicit":
+        requested = os.path.abspath(os.path.normpath(os.path.join(saved_root, requested_path)))
         relative = cache_manifest.relative_cache_path(
             saved_root, os.path.dirname(requested), os.path.basename(requested)
         )
@@ -547,12 +558,66 @@ def _resolve_cache_target(
                 "manifest: " + ", ".join(sorted(unexpected))
             )
 
+    if settings.CACHE_NAME_MODE == "auto":
+        settings.CACHE_FILENAME = cache_manifest.next_cache_version_filename(folder)
     cache_path = os.path.join(folder, settings.CACHE_FILENAME)
     if os.path.exists(cache_path):
         raise FileExistsError(
             f"Layout cache already exists and will not be overwritten: {cache_path}"
         )
+    settings.TARGET_CACHE_PATH = cache_path
     return folder, cache_path
+
+
+def resolve_layout_selection(settings):
+    """Resolve an export preview without creating a cache folder or reserving a name."""
+    settings.validate()
+    manifest = cache_manifest.build_manifest_for_files(
+        settings.NODE_FASTA_FILE, settings.INPUT_HDF5, **_manifest_settings(settings)
+    )
+    if manifest["compatibility"]["network_type"] == "alignment" and (
+        settings.ALIGNMENT_SCORE is None or settings.NORM_MODE is None
+    ):
+        raise LayoutGenerationError("Alignment networks require ALIGNMENT_SCORE and NORM_MODE.")
+    _resolve_cache_target(settings, manifest)
+    return manifest
+
+
+@contextmanager
+def _generation_lock(saved_root):
+    """Serialize writers in one root, including manifestless-folder discovery.
+
+    OS locks release on process termination; leave the lock inode in place so
+    waiters and subsequent processes always lock the same file.
+    """
+    os.makedirs(saved_root, exist_ok=True)
+    with open(os.path.join(saved_root, ".layout-generation.lock"), "a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            if os.fstat(handle.fileno()).st_size == 0:
+                handle.write(b"0")
+                handle.flush()
+            while True:
+                handle.seek(0)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as error:
+                    if error.errno not in {13, 11, 36}:
+                        raise
+                    time.sleep(0.1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _stage_json(folder: str, filename: str, payload: Mapping[str, Any]) -> str:
@@ -617,6 +682,12 @@ def _publish_cache_without_overwrite(staged: str, destination: str) -> None:
 def generate_layout_cache(
     settings: LayoutGenerationSettings,
 ) -> LayoutGenerationResult:
+    settings.validate()
+    with _generation_lock(settings.SAVED_LAYOUT_DIR):
+        return _generate_layout_cache_locked(settings)
+
+
+def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutGenerationResult:
     """Generate and atomically publish one minimal layout cache."""
     settings.validate()
     if not os.path.isfile(settings.NODE_FASTA_FILE):
@@ -737,7 +808,16 @@ def generate_layout_cache(
                 manifest_bytes = handle.read()
             _publish_auxiliary(staged_manifest, manifest_path, manifest_bytes)
             staged_paths.remove(staged_manifest)
-        _publish_cache_without_overwrite(staged_cache, cache_path)
+        while True:
+            try:
+                _publish_cache_without_overwrite(staged_cache, cache_path)
+                break
+            except FileExistsError:
+                if settings.CACHE_NAME_MODE != "auto":
+                    raise
+                settings.CACHE_FILENAME = cache_manifest.next_cache_version_filename(cache_folder)
+                cache_path = os.path.join(cache_folder, settings.CACHE_FILENAME)
+        settings.TARGET_CACHE_PATH = cache_path
         staged_paths.remove(staged_cache)
     finally:
         for staged in staged_paths:
