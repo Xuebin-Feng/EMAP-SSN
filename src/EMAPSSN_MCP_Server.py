@@ -14,13 +14,14 @@ if _SRC_DIR not in sys.path:
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
-from mcp.types import ToolAnnotations
+from mcp.types import ToolAnnotations, CallToolResult, ImageContent, TextContent
+import json
 from pydantic import Field
 from desktop.Desktop_App import PRODUCT_NAME
 from mcp_server.core.App_Context import AppContext, app_lifespan
 from mcp_server.core.Workflow_Dispatch import dispatch, PipelineAction, ViewerDataAction, ViewerControlAction
 
-MCP_SERVER_VERSION = "0.9.0"
+MCP_SERVER_VERSION = "0.10.0"
 
 def _load_agent_instructions():
     path = Path(__file__).resolve().parent / "mcp_server" / "Agent_Instructions.md"
@@ -61,7 +62,12 @@ async def emapssn_viewer_data(ctx: Context[AppContext], action: ViewerDataAction
     Use help or describe to discover action arguments. Reads share the connection
     established through emapssn_viewer_control; explicit session IDs do not change it.
     """
-    return await dispatch("emapssn_viewer_data", action, arguments, ctx)
+    result = await dispatch("emapssn_viewer_data", action, arguments, ctx)
+    if action == 'capture_view':
+        data = result.pop('image_base64')
+        return CallToolResult(content=[TextContent(type='text', text=json.dumps(result)),
+            ImageContent(type='image', data=data, mimeType='image/png')], structuredContent=result)
+    return result
 
 
 @mcp.tool(title="EMAP-SSN Viewer control", annotations=_MUTATING, structured_output=True)

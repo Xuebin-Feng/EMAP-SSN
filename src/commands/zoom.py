@@ -18,6 +18,7 @@ def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         msg = "Usage: zoom <width>\nDescription: Sets the camera view width to exactly <width> while keeping the current center point and canvas aspect ratio.\nExamples:\n  zoom 500  (Sets the view width to 500 units)"
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
     
     try:
@@ -45,4 +46,6 @@ def run(viewer, args):
         
     except ValueError:
         msg = "Error: Zoom width must be a valid number."
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+    Command_Engine.command_succeeded(viewer)

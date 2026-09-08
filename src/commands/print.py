@@ -325,6 +325,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 2. Parse arguments
@@ -347,16 +348,20 @@ def run(viewer, args):
     if is_svg:
         if is_transparent or is_full:
             msg = "Error: 'SVG' export is not compatible with 'transparent' or 'full'."
+            Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             viewer.console_text.text = msg
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
+            Command_Engine.command_succeeded(viewer)
             return
             
         if len(args) > 2:
             msg = "Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg')."
+            Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             viewer.console_text.text = msg
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
+            Command_Engine.command_succeeded(viewer)
             return
 
     args = final_args
@@ -435,9 +440,11 @@ def run(viewer, args):
             vis = viewer.visible_mask
             if not np.any(vis):
                 msg = "Error: No visible nodes to export."
+                Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
                 viewer.console_text.text = msg
                 if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
+                Command_Engine.command_succeeded(viewer)
                 return
                 
             visible_pos = viewer.pos[vis, :2]
@@ -532,6 +539,7 @@ def run(viewer, args):
         if is_full and not is_svg: msg_type = "full stitched " + msg_type
             
         msg = f"Successfully saved {msg_type}: {filepath}"
+        Command_Engine.command_artifact(viewer, filepath)
         print(f"\n{msg}")
         
         viewer.console_text.text = f"Saved {ext.upper()}: {filename}"
@@ -544,8 +552,10 @@ def run(viewer, args):
         import traceback
         traceback.print_exc()
         error_msg = f"Failed to save {ext.upper()}: {e}"
+        Command_Engine.command_failed(viewer, error_msg)
         print(f"\n{error_msg}")
         viewer.console_text.text = f"Error saving {ext.upper()}. Check console."
+        Command_Engine.command_failed(viewer, viewer.console_text.text)
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
              
     finally:
@@ -564,3 +574,4 @@ def run(viewer, args):
             
         viewer.canvas.update()
         app.process_events()
+    Command_Engine.command_succeeded(viewer)

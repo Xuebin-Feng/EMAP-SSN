@@ -19,6 +19,8 @@ commands/agent.py — CLI portal and registration stub for the EMAP-SSN Viewer L
 All backend logic lives in web_ui/agent_backend.py.
 """
 
+import Command_Engine
+
 from web_ui.agent_backend import (
     activate_agent_from_card,
     activate_agent,
@@ -65,6 +67,7 @@ def run(viewer, args):
     register(viewer)
 
     if args and args[0] == "--register-only":
+        Command_Engine.command_succeeded(viewer)
         return
 
     # Help check
@@ -72,19 +75,21 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 1. Calling 'agent' alone: Open browser UI (current behavior)
     if not args:
         viewer.open_agent_ui()
+        Command_Engine.command_succeeded(viewer, "Opened the Agent interface; no model request was started.")
         return
 
-    import Command_Engine
     full_arg = " ".join(args).strip()
 
     # 2. Deactivate check
     if full_arg.lower() in ["off", "deactivate"]:
         deactivate_agent(viewer)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # Helper to check if a string matches any loaded model card custom name
@@ -105,10 +110,12 @@ def run(viewer, args):
         model_custom_name = full_arg[1:-1].strip()
         card = find_matching_card(model_custom_name)
         if card:
-            activate_agent_from_card(viewer, card)
+            if not activate_agent_from_card(viewer, card):
+                Command_Engine.command_failed(viewer, "Agent backend activation failed")
         else:
             available_names = ", ".join([f"<{c.get('name')}>" for c in cards if c.get("name")])
             Command_Engine.print_help(viewer, f"Error: Model Custom Name '{model_custom_name}' not found in configured model cards.\nAvailable model names: {available_names}")
+            Command_Engine.command_failed(viewer, f"Error: Model Custom Name '{model_custom_name}' not found in configured model cards.\nAvailable model names: {available_names}")
         return
 
     # 4. Message forwarding: strip quotes if present
@@ -122,7 +129,9 @@ def run(viewer, args):
             activate_agent_from_card(viewer, cards[0], quiet=True)
         else:
             Command_Engine.print_help(viewer, "Error: LLM agent is not loaded. Please configure a model in the Agent UI first.")
+            Command_Engine.command_failed(viewer, 'Error: LLM agent is not loaded. Please configure a model in the Agent UI first.')
             return
 
     # Forward the message to the agent backend
     run_web_agent_query(viewer, message)
+    Command_Engine.command_succeeded(viewer)

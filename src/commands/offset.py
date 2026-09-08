@@ -82,6 +82,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     current_offset, is_active = _current_offset(viewer)
@@ -91,6 +92,7 @@ def run(viewer, args):
             viewer,
             f"Current Alignment Offset: {current_offset}{suffix}",
         )
+        Command_Engine.command_succeeded(viewer)
         return
 
     if len(args) != 1:
@@ -98,6 +100,7 @@ def run(viewer, args):
             viewer,
             "Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]",
         )
+        Command_Engine.command_failed(viewer, 'Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]')
         return
 
     try:
@@ -107,6 +110,7 @@ def run(viewer, args):
             viewer,
             f"Error: Alignment offset must be an integer, not '{args[0]}'.",
         )
+        Command_Engine.command_failed(viewer, f"Error: Alignment offset must be an integer, not '{args[0]}'.")
         return
 
     alignment = getattr(viewer, 'alignment', None)
@@ -116,6 +120,7 @@ def run(viewer, args):
             "Error: Alignment offset requires a correctly loaded reference. "
             "Use 'reference <ID>' first.",
         )
+        Command_Engine.command_failed(viewer, "Error: Alignment offset requires a correctly loaded reference. Use 'reference <ID>' first.")
         return
 
     if not alignment.set_offset(new_offset):
@@ -123,6 +128,7 @@ def run(viewer, args):
             viewer,
             "Error: Alignment offset could not be applied to the active reference.",
         )
+        Command_Engine.command_failed(viewer, 'Error: Alignment offset could not be applied to the active reference.')
         return
 
     viewer.alignment_offset = new_offset
@@ -131,3 +137,4 @@ def run(viewer, args):
         viewer,
         f"Alignment Offset set to {new_offset}. Position numbering updated.",
     )
+    Command_Engine.command_succeeded(viewer)

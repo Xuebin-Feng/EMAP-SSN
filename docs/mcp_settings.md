@@ -123,7 +123,7 @@ after upgrade; the client checks `snapshots_v1` capability before sending data r
 
 The Qt bridge copies only the required source data. Filtering, aggregation,
 provenance reads and formatting run in HTTP workers, outside the Qt event thread.
-Sequence/edge records, MSA matrices, coordinates and command-derived analysis are
+Sequence/edge records, MSA matrices and command-derived analysis are
 outside this stage. Numeric NaN/None/blank values count as missing; infinities and
 unparseable numeric values count as invalid. Non-finite record values are explicitly
 tagged as {"nonfinite":"NaN"}, {"nonfinite":"Infinity"}, or {"nonfinite":"-Infinity"}
@@ -560,3 +560,59 @@ On Windows, independent launch requires the host to permit Job Object breakaway.
 A host that forbids it receives a startup error rather than a session that dies on
 MCP disconnect. In that host, open the Viewer through the GUI or CLI and use
 `emapssn_viewer_control(action="connect_session")`; connect/disconnect does not require launching a process.
+
+
+## Shared Viewer command portal
+
+MCP and the browser Agent use one Viewer-owned portal and the existing user
+command handlers. The browser agent does not require an MCP server. Command
+syntax, file effects, history, and manual controls remain the user-command behavior.
+
+1. Connect to the intended Viewer and call `emapssn_viewer_data(action="get_command_catalog")`.
+   Supply `command` to read an individual command's source help and effects.
+2. Call `emapssn_viewer_control(action="execute_commands", arguments={"submission_id": "a-client-generated-unique-id", "commands": ["select \"example\"", "color \"example\" red"]})`.
+3. Poll `emapssn_viewer_data(action="get_command_request", arguments={"request_id": "returned-id"})`.
+   Submission is not completion. States distinguish queued, running,
+   awaiting_user_input, succeeded, failed, cancelled, and skipped.
+4. Read diagnostics using `read_command_output` with byte offsets. Inspect final
+   command statuses, messages, jobs, and artifact paths before claiming success.
+   Use `next_offset` for command pages. For a command with many artifacts, pass
+   its `command_id` and `next_artifact_offset` as `artifact_offset`.
+
+Retry an uncertain submission with the **same submission_id and identical payload**.
+A conflicting reuse fails. Evicted submissions are not reexecuted. The Viewer keeps
+100 completed requests, never evicts active requests, and caps retained diagnostic
+output at 16 MiB. Truncated output explicitly reports `available_from` and
+`truncated`. `list_command_requests` recovers IDs after MCP reconnection; Viewer
+exit loses this in-memory history. Disconnecting does not cancel work.
+
+Agent batches are sequential and stop after failure/cancellation; completed effects
+are not rolled back. Label/logo jobs and ESMFold workers are tracked to their final
+result. A worker terminal remaining open is not proof that computation is running.
+`run` retains file selection and Python-script support; generated commands are
+tracked children (maximum 1000 single-line commands). Manual interaction remains
+available while background work runs, so subsequent commands use current live state.
+Visible dialogs report awaiting_user_input; headless dialog requests fail clearly.
+Agent UI/configuration commands remain available, but model-generated nested model
+requests are rejected. General cancellation and rollback are not exposed.
+
+The web agent keeps translate → execute → explain, displays request status, and
+uses final portal outcomes for its explanation. Changing backend or clearing history
+invalidates old model replies without cancelling submitted commands. The Capture
+Viewer button requests an image on demand.
+
+### Visual readback
+
+`emapssn_viewer_data(action="capture_view")` returns native PNG image content and
+structured capture metadata. The current canvas includes visible HUD content and
+is resized to at most 1600 pixels per dimension. Optional `request_id` associates a
+completed request, but the image observes current state, not historical state.
+Camera, colors and visibility are not modified by capture.
+
+`get_summary` includes camera rectangle, canvas dimensions, and loaded,
+threshold-qualified, visible-endpoint (after threshold), and rendered edge counts.
+Rendering and inspection share filtering rules, including UMAP and dragging.
+Pass `include_visual=true` when capturing a snapshot, then request
+`visual_fields=["position", "color", "size"]` in `query_nodes` for bounded visual
+node records. These fields are opt-in; existing metadata and byte bounds remain.
+Older Viewers require restart after upgrade (`commands_v1` capability).

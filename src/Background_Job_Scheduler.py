@@ -41,6 +41,7 @@ class BackgroundJob:
     payload: Any
     worker: Worker
     output_path: str
+    command_context: Any = None
 
 
 class BackgroundJobScheduler(QtCore.QObject):
@@ -100,6 +101,8 @@ class BackgroundJobScheduler(QtCore.QObject):
         allow_overwrite=False,
     ):
         """Reserve an output and append one immutable job to the FIFO queue."""
+        from Viewer_Command_Portal import CURRENT
+        command_context = CURRENT.get()
         output_path = os.path.abspath(os.fspath(output_path))
         output_key = self._output_key(output_path)
         with self._lock:
@@ -122,9 +125,12 @@ class BackgroundJobScheduler(QtCore.QObject):
                 payload=payload,
                 worker=worker,
                 output_path=output_path,
+                command_context=command_context,
             )
             self._reserved_output_paths.add(output_key)
             self._outstanding_count += 1
+            if command_context is not None:
+                command_context.add_job(job_id, output_path=output_path)
             self._jobs.put(job)
 
         message = (
@@ -176,7 +182,9 @@ class BackgroundJobScheduler(QtCore.QObject):
             started_at = time.perf_counter()
             self.job_started.emit(job)
             try:
-                result = dict(job.worker(job.payload))
+                from Viewer_Command_Portal import bind
+                with bind(job.command_context):
+                    result = dict(job.worker(job.payload))
                 elapsed = time.perf_counter() - started_at
                 with self._lock:
                     accepting = self._accepting
@@ -206,6 +214,8 @@ class BackgroundJobScheduler(QtCore.QObject):
 
     @QtCore.Slot(object)
     def _report_started(self, job):
+        if job.command_context is not None:
+            job.command_context.job_event(job.job_id, "running")
         message = f"Running background job #{job.job_id}: {job.description}"
         print(message)
         self._set_viewer_status(message)
@@ -226,6 +236,9 @@ class BackgroundJobScheduler(QtCore.QObject):
             except Exception as error:
                 print(f"Could not reveal output directory: {error}")
 
+        if job.command_context is not None:
+            job.command_context.job_event(job.job_id, "succeeded", message, [job.output_path])
+
     @QtCore.Slot(object, str, str, float)
     def _report_failed(self, job, error, detail, elapsed):
         message = (
@@ -235,3 +248,6 @@ class BackgroundJobScheduler(QtCore.QObject):
         print(f"\n{message}")
         print(detail)
         self._set_viewer_status(message)
+        if job.command_context is not None:
+            job.command_context.portal.append_output(job.command_context.request_id, 'stderr', detail)
+            job.command_context.job_event(job.job_id, 'failed', error)

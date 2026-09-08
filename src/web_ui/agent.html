@@ -743,6 +743,7 @@
             <div id="chat-log"></div>
             <div class="chat-input-bar">
                 <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
+                <button class="btn" onclick="sendAction({action: 'capture_view'})">Capture Viewer</button>
                 <button class="btn btn-primary" id="chat-send-btn" disabled>Send</button>
             </div>
         </div>
@@ -1202,6 +1203,16 @@
             eventSource.onmessage = (event) => handleServerEvent(JSON.parse(event.data));
         }
 
+        let activeCommandRequest = null;
+        function showCommandStatus(status) {
+            let element = document.getElementById('command-request-status');
+            if (!element) {
+                element = document.createElement('div');
+                element.id = 'command-request-status';
+                document.getElementById('chat-log').appendChild(element);
+            }
+            element.textContent = `Viewer commands: ${status.replaceAll('_', ' ')}`;
+        }
         function handleServerEvent(event) {
             switch (event.type) {
                 case "init":
@@ -1209,6 +1220,7 @@
                     prevLlmModelName = event.data.llm_model_name;
                     prevLlmBackend = event.data.llm_backend;
                     updateLLMState(event.data, true);
+                    activeCommandRequest = event.data.agent_request_id || null;
                     if (event.data.llm_history && event.data.llm_history.length > 0) {
                         renderHistory(event.data.llm_history);
                     } else {
@@ -1217,7 +1229,23 @@
                             ? `Agent active: ${event.data.llm_model_name}`
                             : "Agent is inactive. Select a model and press the toggle button to activate.");
                     }
+                    if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status);
                     break;
+                case "agent_command_request":
+                    activeCommandRequest = event.request_id;
+                    showCommandStatus(event.status);
+                    break;
+                case "command_request_updated":
+                    if (event.request_id === activeCommandRequest) showCommandStatus(event.status);
+                    break;
+                case "agent_capture": {
+                    const img = document.createElement('img');
+                    img.src = 'data:image/png;base64,' + event.image_base64;
+                    img.alt = `Current Viewer canvas captured ${event.captured_at}`;
+                    img.style.maxWidth = '100%';
+                    document.getElementById('chat-log').appendChild(img);
+                    break;
+                }
                 case "backend_state":
                     updateLLMState(event, false);
                     break;

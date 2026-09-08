@@ -87,7 +87,7 @@ class SnapshotStore:
         self.items = OrderedDict()
         self.lock = threading.RLock()
 
-    def capture(self, service):
+    def capture(self, service, include_visual=False):
         # Called exclusively through the owning Qt thread.
         v = service._viewer
         n = service._node_count()
@@ -97,6 +97,8 @@ class SnapshotStore:
                   'selected': service._selected_indices(n),
                   'clusters': getattr(v, 'cluster_labels', None), 'groups': getattr(v, 'group_labels', None)}
         source['inputs'] = service._input_paths()
+        if include_visual:
+            source['visual'] = {k: getattr(v, a, None) for k, a in {'position': 'pos', 'color': 'current_colors', 'size': 'current_sizes'}.items()}
         estimate = size_of(source) + n * 64 + 16384
         with self.lock:
             self._expire()
@@ -128,6 +130,9 @@ class SnapshotStore:
                 'clustering_parameters': json_value(getattr(v, 'last_cluster_params', None)),
                 'network_settings': {k: json_value(getattr(service._configuration, k, None)) for k in ('ALIGNMENT_SCORE', 'NORM_MODE', 'INPUT_IS_EVALUE')},
                 'capabilities': ['describe_fields', 'create_subset', 'summarize_subset', 'query_nodes', 'read_value']}
+            from Viewer_Visual_State import visual_overview
+            data['overview'].update(visual_overview(v, service._configuration))
+            data['overview']['visual_fields_available'] = list(data.get('visual', {}))
             if alignment is not None:
                 data['overview']['inputs']['msa'] = json_value(getattr(alignment, 'msa_file', None))
             sid = uuid.uuid4().hex
@@ -234,6 +239,9 @@ class SnapshotStore:
         if action == 'describe_fields':
             rows = ({'name': name, 'type': entry['type'], **self._counts(entry, range(n)), 'provenance': 'unavailable'} for name, entry in d['metadata'].items())
         elif action == 'query_nodes':
+            visual_fields = args.get('visual_fields') or []
+            if any(f not in d.get('visual', {}) for f in visual_fields):
+                raise ViewerInspectionError('Refresh get_summary with include_visual=true before requesting visual fields')
             def records():
                 selected = set(d['selected'])
                 for i in indices:
@@ -241,7 +249,8 @@ class SnapshotStore:
                     yield {'index': i, 'node_id': json_value(d['headers'][i]), 'visible': bool(d['visible'][i]), 'selected': i in selected,
                            'cluster': json_value(d['clusters'][i]) if d['clusters'] is not None else None,
                            'groups': json_value(d['groups'][i]) if d['groups'] is not None else [],
-                           'metadata': {c: record_value(d['metadata'][c]['values'][i]) for c in columns}}
+                           'metadata': {c: record_value(d['metadata'][c]['values'][i]) for c in columns},
+                           **({'visual': {f: json_value(d['visual'][f][i]) if d['visual'][f] is not None else None for f in visual_fields}} if visual_fields else {})}
             rows = records()
         elif action == 'summarize_subset':
             rows = self._summary_rows(d, indices, columns)
@@ -356,8 +365,21 @@ class ViewerInspectionService:
         self._configuration = configuration
         self.snapshots = SnapshotStore()
 
-    def capture_snapshot(self):
-        return self.snapshots.capture(self)
+    def capture_snapshot(self, include_visual=False):
+        return self.snapshots.capture(self, include_visual)
+
+    def command_action(self, action, arguments):
+        from Viewer_Command_Portal import get_portal
+        from Viewer_Visual_State import capture_view
+        portal = get_portal(self._viewer)
+        handlers = {'execute_commands': portal.submit, 'get_command_request': portal.get,
+                    'list_command_requests': portal.list_requests,
+                    'read_command_output': portal.read_output,
+                    'capture_view': lambda request_id=None: capture_view(self._viewer, request_id),
+                    'get_command_catalog': command_catalog}
+        if action not in handlers:
+            raise ValueError('Unknown Viewer command portal action')
+        return handlers[action](**arguments)
 
     def _node_count(self):
         viewer = self._viewer
@@ -575,3 +597,31 @@ __all__ = [
     "record_value",
     "size_of",
 ]
+
+
+def command_catalog(command=None):
+    """Read help text from command source without executing handlers."""
+    import ast
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2] / 'commands'
+    entries = []
+    for path in sorted(root.glob('*.py')):
+        if path.stem.startswith('_') or (command is not None and path.stem != command):
+            continue
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        if not any(isinstance(n, ast.FunctionDef) and n.name == 'run' for n in tree.body):
+            continue
+        help_text = []
+        for fn in tree.body:
+            if isinstance(fn, ast.FunctionDef) and fn.name in {'print_help', 'run'}:
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Constant) and isinstance(node.value, str) and ('Usage:' in node.value or 'Usage\n' in node.value):
+                        help_text.append(node.value)
+        entries.append({'command': path.stem,
+            'writes_files': path.stem in {'export','save','print','select','meta','label','logo','run','esmfold'},
+            'opens_interface': path.stem in {'agent','alignment','run','meta','esmfold','export','print','label','logo'},
+            'background_work': path.stem in {'label','logo','esmfold','run'},
+            'help': '\n'.join(dict.fromkeys(help_text)) if command else None})
+    if command is not None and not entries:
+        raise ValueError('Unknown command')
+    return {'commands': entries, 'note': 'Only existing Viewer commands; effects depend on arguments. Model-generated agent calls are blocked.'}

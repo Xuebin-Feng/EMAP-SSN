@@ -90,11 +90,13 @@ def run(viewer, args):
         register(viewer)
 
     if args and args[0] == '--register-only':
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 2. No arguments: Open spreadsheet browser page
     if not args:
         viewer.open_metadata_ui()
+        Command_Engine.command_succeeded(viewer, "Opened the metadata interface.")
         return
 
     first_arg = args[0].lower()
@@ -104,15 +106,18 @@ def run(viewer, args):
         print_help(meta_dir)
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 4. Delete Metadata Columns
     if first_arg in ['delete', 'remove', 'clear']:
         if len(args) < 2:
+            Command_Engine.command_failed(viewer, "Missing metadata command arguments")
             Command_Engine.print_help(
                 viewer,
                 f"Usage: meta {first_arg} <property_name> [property_name ...]",
             )
+            Command_Engine.command_succeeded(viewer)
             return
         try:
             deleted = delete_metadata_columns(
@@ -120,16 +125,20 @@ def run(viewer, args):
             )
         except MetadataColumnDeleteError as error:
             Command_Engine.print_help(viewer, f"Error: {error}")
+            Command_Engine.command_failed(viewer, f'Error: {error}')
             return
         Command_Engine.print_help(
             viewer, "Deleted metadata columns: " + ", ".join(deleted) + "."
         )
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 5. Display/Show Property Check
     if first_arg in ['display', 'show']:
         if len(args) < 2:
+            Command_Engine.command_failed(viewer, "Missing metadata command arguments")
             Command_Engine.print_help(viewer, "Usage: meta show <property_name> OR meta show clear/off")
+            Command_Engine.command_succeeded(viewer)
             return
 
         prop_name = " ".join(args[1:]).strip()
@@ -138,10 +147,12 @@ def run(viewer, args):
                 viewer.hud_displays['meta_display'].hide()
             viewer.meta_display_prop = None
             Command_Engine.print_help(viewer, "Metadata display cleared.")
+            Command_Engine.command_succeeded(viewer)
             return
 
         if not prop_name:
             Command_Engine.print_help(viewer, "Error: Please specify a valid property name.")
+            Command_Engine.command_failed(viewer, 'Error: Please specify a valid property name.')
             return
 
         available_props = list(viewer.metadata.keys()) if getattr(viewer, 'metadata', None) else []
@@ -192,6 +203,7 @@ def run(viewer, args):
             display.show(f"{resolved_prop}: -")
 
         Command_Engine.print_help(viewer, f"Metadata display enabled for property: '{resolved_prop}'")
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 6. Download Check
@@ -218,6 +230,7 @@ def run(viewer, args):
             filepath = os.path.abspath(filepath)
 
         download_metadata(viewer, filepath)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 7. Upload Check (Treat first argument as filename to upload)
@@ -226,6 +239,7 @@ def run(viewer, args):
         upload_args = args[1:]
         if not upload_args:
             Command_Engine.print_help(viewer, "Error: Please specify a file path or filename to upload.")
+            Command_Engine.command_failed(viewer, 'Error: Please specify a file path or filename to upload.')
             return
 
     file_paths = []
@@ -250,6 +264,8 @@ def run(viewer, args):
                         break
                 if not found:
                     Command_Engine.print_help(viewer, f"Error: Metadata file '{path}' not found (checked absolute, relative, and {meta_dir}).")
+                    Command_Engine.command_failed(viewer, f"Error: Metadata file '{path}' not found (checked absolute, relative, and {meta_dir}).")
                     return
 
     upload_metadata(viewer, file_paths)
+    Command_Engine.command_succeeded(viewer)

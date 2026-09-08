@@ -663,7 +663,9 @@ def _run_label_artifact(viewer, args):
         alignment = getattr(viewer, 'alignment', None)
         if alignment is None or alignment.aln is None:
             viewer.console_text.text = "Error: Global Alignment not loaded."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: Global Alignment not loaded.")
+            Command_Engine.command_failed(viewer, 'Error: Global Alignment not loaded.')
             return
 
         if len(alignment.aln) == 0:
@@ -671,6 +673,7 @@ def _run_label_artifact(viewer, args):
                 "Error: The selected MSA contains no aligned rows for the current "
                 "network. Label analysis is unavailable."
             )
+            Command_Engine.command_failed(viewer, msg)
             viewer.console_text.text = msg
             print(msg)
             return
@@ -680,6 +683,7 @@ def _run_label_artifact(viewer, args):
                 "Error: No active alignment reference. Use 'reference <ID>' with "
                 "a node present in the current MSA."
             )
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             print(viewer.console_text.text)
             return
 
@@ -699,12 +703,16 @@ def _run_label_artifact(viewer, args):
         # --- Validations ---
         if forced_target == "clusters" and viewer.cluster_labels is None:
             viewer.console_text.text = "Error: Run 'cluster' first."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: Run 'cluster' first to use cluster mode.")
+            Command_Engine.command_failed(viewer, "Error: Run 'cluster' first to use cluster mode.")
             return
             
         if forced_target == "groups" and getattr(viewer, 'group_labels', None) is None:
             viewer.console_text.text = "Error: No groups defined."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: No groups defined. Use the 'group' command first.")
+            Command_Engine.command_failed(viewer, "Error: No groups defined. Use the 'group' command first.")
             return
 
         if (
@@ -713,7 +721,9 @@ def _run_label_artifact(viewer, args):
             and getattr(viewer, 'group_labels', None) is None
         ):
             viewer.console_text.text = "Error: No clusters or groups defined."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
+            Command_Engine.command_failed(viewer, "Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
             return
 
         # --- 1. Global Statistics ---
@@ -1060,7 +1070,9 @@ def _run_label_artifact(viewer, args):
             from openpyxl.styles import PatternFill, Font
         except ImportError:
             viewer.console_text.text = "Error: 'openpyxl' is required for XLSX export. Run: pip install openpyxl"
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: openpyxl not installed.")
+            Command_Engine.command_failed(viewer, 'Error: openpyxl not installed.')
             return
 
         try:
@@ -1466,6 +1478,7 @@ def _run_label_artifact(viewer, args):
 
     except Exception as e:
         viewer.console_text.text = f"Error: {e}"
+        Command_Engine.command_failed(viewer, viewer.console_text.text)
         raise
 
 
@@ -1493,7 +1506,9 @@ def _execute_label_envelope(envelope):
 
 
 def _report_label_error(viewer, error):
+    Command_Engine.command_failed(viewer, str(error))
     message = f"Error: {error}"
+    Command_Engine.command_failed(viewer, message)
     if hasattr(viewer, "console_text"):
         viewer.console_text.text = message
     if hasattr(viewer, "update_console_background"):
@@ -1505,11 +1520,13 @@ def run(viewer, args):
     """Validate and snapshot label inputs before enqueuing the heavy work."""
     if args and args[0].lower() == "reset":
         Command_Engine.execute_reset(viewer, ["clusters"])
+        Command_Engine.command_succeeded(viewer)
         return
 
     alignment = getattr(viewer, "alignment", None)
     if alignment is None or alignment.aln is None:
         _report_label_error(viewer, "Global Alignment not loaded.")
+        Command_Engine.command_succeeded(viewer)
         return
     if len(alignment.aln) == 0:
         _report_label_error(
@@ -1517,6 +1534,7 @@ def run(viewer, args):
             "The selected MSA contains no aligned rows for the current network. "
             "Label analysis is unavailable.",
         )
+        Command_Engine.command_succeeded(viewer)
         return
     if not getattr(alignment, "has_reference", False):
         _report_label_error(
@@ -1524,25 +1542,30 @@ def run(viewer, args):
             "No active alignment reference. Use 'reference <ID>' with a node "
             "present in the current MSA.",
         )
+        Command_Engine.command_succeeded(viewer)
         return
     if args and args[0].lower() in {"help", "-h", "-?"}:
         print_help()
         if hasattr(viewer, "console_text"):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     try:
         parameters = _parse_label_arguments(args)
     except ValueError as error:
         _report_label_error(viewer, error)
+        Command_Engine.command_succeeded(viewer)
         return
 
     forced_target = parameters["forced_target"]
     if forced_target == "clusters" and getattr(viewer, "cluster_labels", None) is None:
         _report_label_error(viewer, "Run 'cluster' first.")
+        Command_Engine.command_succeeded(viewer)
         return
     if forced_target == "groups" and getattr(viewer, "group_labels", None) is None:
         _report_label_error(viewer, "No groups defined.")
+        Command_Engine.command_succeeded(viewer)
         return
     if (
         forced_target == "all"
@@ -1550,11 +1573,13 @@ def run(viewer, args):
         and getattr(viewer, "group_labels", None) is None
     ):
         _report_label_error(viewer, "No clusters or groups defined.")
+        Command_Engine.command_succeeded(viewer)
         return
 
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
         _report_label_error(viewer, "The background job scheduler is unavailable.")
+        Command_Engine.command_succeeded(viewer)
         return
 
     output_directory = os.path.abspath(
@@ -1583,6 +1608,7 @@ def run(viewer, args):
                 viewer,
                 f"Output file is already reserved by a background job: {output_path}",
             )
+            Command_Engine.command_succeeded(viewer)
             return
 
     try:
@@ -1591,6 +1617,7 @@ def run(viewer, args):
         frozen_alignment = _FrozenAlignmentManager(alignment, viewer_to_aln)
     except Exception as error:
         _report_label_error(viewer, f"Could not snapshot label inputs: {error}")
+        Command_Engine.command_succeeded(viewer)
         return
 
     group_labels = getattr(viewer, "group_labels", None)
@@ -1656,3 +1683,4 @@ def run(viewer, args):
         )
     except (FileExistsError, RuntimeError) as error:
         _report_label_error(viewer, error)
+    Command_Engine.command_succeeded(viewer)

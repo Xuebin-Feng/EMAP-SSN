@@ -318,7 +318,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             if clean_path == "/api/mcp/v1/session":
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
-                    "inspection_capabilities": ["snapshots_v1"],
+                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1"],
                     "inputs": self.server.inspection_bridge.service._input_paths(),
                     "session_id": self.server.inspection_session_id,
                     "session_alias": self.server.viewer.inspection_session_alias,
@@ -403,6 +403,29 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.server.unregister_event_queue(q, client_id)
 
     def do_POST(self):
+        if self.path == "/api/mcp/v1/commands":
+            if not self._inspection_authorized():
+                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 65536:
+                    raise ValueError("Command request must be 1..65536 bytes")
+                request = json.loads(self.rfile.read(length).decode("utf-8"))
+                from mcp_server.core.Workflow_Dispatch import REGISTRY
+                action = request['action']
+                workflow = 'emapssn_viewer_control' if action == 'execute_commands' else 'emapssn_viewer_data'
+                if action not in {'execute_commands', 'get_command_request', 'list_command_requests', 'read_command_output', 'capture_view', 'get_command_catalog'}:
+                    raise ValueError('Unknown command portal action')
+                arguments = REGISTRY[workflow][action].model.model_validate(request.get('arguments', {})).model_dump()
+                arguments.pop('session_id', None)
+                result = self.server.inspection_bridge.request('command_action', action=action, arguments=arguments)
+                self._send_json(200, result)
+            except TimeoutError:
+                self._send_json(503, {'error': 'Viewer response timed out. Retry submission with the SAME submission_id; it may already be queued.'})
+            except (ValueError, TypeError, KeyError) as error:
+                self._send_json(400, {'error': str(error)[:1000]})
+            return
         if self.path == "/api/mcp/v1/data":
             if not self._inspection_authorized():
                 self._send_json(401, {"error": "Missing or invalid Viewer inspection token."})
@@ -419,7 +442,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 arguments = REGISTRY["emapssn_viewer_data"][action].model.model_validate(request.get("arguments", {})).model_dump()
                 arguments.pop("session_id", None)
                 service = self.server.inspection_bridge.service
-                sid = self.server.inspection_bridge.request("capture_snapshot") if action == "get_summary" else arguments.pop("snapshot_id")
+                sid = (self.server.inspection_bridge.request("capture_snapshot", **({"include_visual": True} if arguments.pop("include_visual", False) else {}))
+                       if action == "get_summary" else arguments.pop("snapshot_id"))
                 payload = service.snapshots.execute(action, sid, **arguments)
                 self._send_json(200, payload)
             except TimeoutError:

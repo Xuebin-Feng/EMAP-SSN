@@ -57,6 +57,7 @@ def _set_console_text(viewer, message):
 
 def _report_usage_error(viewer, message):
     print(f"Error: {message}")
+    Command_Engine.command_failed(viewer, f'Error: {message}')
     print("Usage: esmfold [large] [multi]")
     _set_console_text(viewer, f"Error: {message}")
 
@@ -86,19 +87,23 @@ def run(viewer, args):
     # 1. Registration callback support
     if args and args[0] == '--register-only':
         esmfold_backend.register(viewer)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 2. Help & Usage Check
     if args and args[0].lower() in ['help', '-h', '--help']:
         if len(args) != 1:
             _report_usage_error(viewer, "Help cannot be combined with other keywords.")
+            Command_Engine.command_succeeded(viewer)
             return
         print_help()
         _set_console_text(viewer, "Help information printed to the terminal")
+        Command_Engine.command_succeeded(viewer)
         return
 
     options = _parse_options(viewer, args)
     if options is None:
+        Command_Engine.command_succeeded(viewer)
         return
     is_large = options["large"]
     is_multi = options["multi"]
@@ -114,18 +119,23 @@ def run(viewer, args):
         if not args:
             esmfold_backend.register(viewer)
             esmfold_backend.open_esmfold_ui(viewer)
+            Command_Engine.command_succeeded(viewer, "Opened the structure viewer; no folding job was requested.")
             return
 
         print("Error: No nodes selected. Please select a node in the visualizer first.")
+        Command_Engine.command_failed(viewer, 'Error: No nodes selected. Please select a node in the visualizer first.')
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Error: No nodes selected."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
     # 4. Check for multiple selections vs "multi" command flag
     if len(selected_indices) > 1 and not is_multi:
         print("Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
+        Command_Engine.command_failed(viewer, "Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Error: Multiple nodes selected. Use 'esmfold multi'."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
     # 5. Select hardware only for local inference. Biohub runs remotely.
@@ -136,7 +146,9 @@ def run(viewer, args):
             import torch
         except ImportError:
             print("Error: PyTorch or Hardware_Utils could not be imported.")
+            Command_Engine.command_failed(viewer, 'Error: PyTorch or Hardware_Utils could not be imported.')
             _set_console_text(viewer, "Error: PyTorch/Hardware_Utils missing")
+            Command_Engine.command_succeeded(viewer)
             return
 
         device = Hardware_Utils.get_optimal_device()
@@ -177,8 +189,10 @@ def run(viewer, args):
 
     if not nodes_to_fold:
         print("Error: Could not retrieve sequences for selected nodes.")
+        Command_Engine.command_failed(viewer, 'Error: Could not retrieve sequences for selected nodes.')
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Error: Sequence retrieval failed."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
     # 8. Set up Directory & Web Registration
@@ -193,9 +207,13 @@ def run(viewer, args):
     except Exception as error:
         message = f"ESMFold cannot start because the Viewer web server is unavailable:\n{error}"
         print(f"Error: {message}")
+        Command_Engine.command_failed(viewer, f'Error: {message}')
         parent = getattr(viewer, 'main_window', None)
-        QMessageBox.critical(parent, "ESMFold Web Server Error", message)
+        from Viewer_Command_Portal import CURRENT
+        if CURRENT.get() is None:
+            QMessageBox.critical(parent, "ESMFold Web Server Error", message)
         _set_console_text(viewer, "Error: Viewer web server unavailable.")
+        Command_Engine.command_succeeded(viewer)
         return
 
     # 9. Save nodes to fold to a temporary JSON file and spawn background worker process
@@ -238,6 +256,15 @@ def run(viewer, args):
             action_url,
         ]
         terminal_title = "SSN ESMFold"
+    from Viewer_Command_Portal import CURRENT
+    context = CURRENT.get()
+    tracker = None
+    if context is not None:
+        from Viewer_Worker_Tracking import WorkerTracker
+        tracker = WorkerTracker(context)
+        cmd += ['--portal-status', str(tracker.path)]
+        if os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+            cmd += ['--noninteractive']
     try:
         launch_in_terminal(
             cmd,
@@ -246,16 +273,22 @@ def run(viewer, args):
             title=terminal_title,
         )
     except (OSError, TerminalUnavailableError) as error:
+        if tracker is not None:
+            tracker.fail(str(error))
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
         message = f"Could not launch the ESMFold worker in a terminal:\n{error}"
+        Command_Engine.command_failed(viewer, message)
         print(f"Error: {message}")
+        Command_Engine.command_failed(viewer, f'Error: {message}')
         parent = getattr(viewer, 'main_window', None)
-        QMessageBox.critical(parent, "ESMFold Launch Error", message)
+        if context is None:
+            QMessageBox.critical(parent, "ESMFold Launch Error", message)
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Error: Could not launch the ESMFold terminal."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
     # 10. Open Mol* web browser tab immediately
@@ -265,3 +298,4 @@ def run(viewer, args):
         viewer,
         f"Spawning separate console to fold {len(nodes_to_fold)} structure(s) with {mode_label}...",
     )
+    Command_Engine.command_succeeded(viewer)

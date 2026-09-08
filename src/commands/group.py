@@ -91,12 +91,14 @@ def print_help():
 def run(viewer, args):
     if args and args[0].lower() == 'reset':
         Command_Engine.execute_reset(viewer, ["groups"])
+        Command_Engine.command_succeeded(viewer)
         return
 
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- LIST COMMAND ---
@@ -104,6 +106,7 @@ def run(viewer, args):
         if getattr(viewer, 'group_labels', None) is None:
             msg = "No groups are currently defined."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         group_counts = {}
@@ -114,6 +117,7 @@ def run(viewer, args):
         if not group_counts:
             msg = "No groups are currently defined."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         n_nodes = viewer.n_nodes
@@ -136,18 +140,22 @@ def run(viewer, args):
         
         msg = f"Listed {len(sorted_groups)} groups in console."
         viewer.console_text.text = msg
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- REMOVE / DELETE COMMAND ---
     if args[0].lower() in ['remove', 'delete']:
         if len(args) < 2:
             msg = "Error: Please specify one or more groups to remove (e.g., 'group remove group1 group2')."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         if getattr(viewer, 'group_labels', None) is None:
             msg = "No groups are currently defined."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
 
         groups_to_remove = [g.lower() for g in args[1:]]
@@ -169,6 +177,7 @@ def run(viewer, args):
             msg = f"None of the specified groups were found."
             
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # Handle missing selection logic (Default to $sele$)
@@ -178,7 +187,9 @@ def run(viewer, args):
     # Handle other odd number of arguments
     elif len(args) % 2 != 0:
         msg = "Error: Arguments must be in pairs of [expression] [group_name]."
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # Prepare mapping for boolean logic evaluations
@@ -206,6 +217,7 @@ def run(viewer, args):
         # Validation checks
         name = raw_name.lower()
         if name in _RESERVED_GROUP_NAMES:
+            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
             msg = f"Group name '{raw_name}' is a reserved keyword. Skipping."
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
@@ -219,16 +231,19 @@ def run(viewer, args):
                 == int(cluster_name_match.group(1))
             )
         ):
+            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
             msg = f"Group name '{raw_name}' conflicts with an existing topology cluster. Skipping."
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
         if _GENERATED_SUBCLUSTER_NAME_RE.fullmatch(name):
+            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
             msg = f"Group name '{raw_name}' is reserved for subclusters. Skipping."
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
         if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
+            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
             msg = f"Group name '{raw_name}' contains invalid characters. Skipping."
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
@@ -255,6 +270,7 @@ def run(viewer, args):
             evaluated_pairs.append((name, mask, count))
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Group")
+            Command_Engine.command_succeeded(viewer)
             return
 
     if any(count > 0 for _, _, count in evaluated_pairs):
@@ -284,3 +300,4 @@ def run(viewer, args):
     else:
         viewer.console_text.text = "No nodes matched criteria for grouping."
         print("\nNo nodes matched your criteria.")
+    Command_Engine.command_succeeded(viewer)

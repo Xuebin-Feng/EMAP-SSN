@@ -71,19 +71,24 @@ def print_help():
 def run(viewer, args):
     if not args:
         msg = "Error: Select command requires an expression or invert/save action.\nUsage: select [MODE] <EXPRESSION>"
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() == "save":
         if len(args) < 2:
             msg = "Error: Please provide a filename to save (e.g., 'select save top_nodes.txt' or 'my_seqs.fasta')."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         filename = args[1]
@@ -106,6 +111,7 @@ def run(viewer, args):
         if not selected_indices:
             msg = "Warning: No nodes are currently selected."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         try:
@@ -148,10 +154,13 @@ def run(viewer, args):
                         f.write(f"{viewer.full_headers[idx]}\n")
                 msg = f"Saved {len(selected_indices)} headers to {save_path}"
                 
+            Command_Engine.command_artifact(viewer, save_path)
             Command_Engine.print_help(viewer, msg)
         except Exception as e:
             msg = f"Error saving file: {e}"
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     mode = "change"
@@ -179,6 +188,7 @@ def run(viewer, args):
             viewer,
             "Error: Select accepts exactly one whitespace-free Boolean expression.",
         )
+        Command_Engine.command_failed(viewer, 'Error: Select accepts exactly one whitespace-free Boolean expression.')
         return
     expr = expr_args[0] if expr_args else None
 
@@ -189,13 +199,16 @@ def run(viewer, args):
                 f"'{expr}' is not a Boolean selection expression."
             )
             Command_Engine.report_selection_error(viewer, expr, error, "Selection")
+            Command_Engine.command_succeeded(viewer)
             return
 
     # --- Strict Invert Mode ---
     if mode == "invert":
         if expr:
             msg = "Error: 'invert' does not take expressions. Use '!EXPR' instead."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         current_selection = set(getattr(viewer, 'selected_indices', []))
@@ -211,11 +224,14 @@ def run(viewer, args):
         msg = f"Inverted selection. Selected {new_selected} nodes, Un-selected {un_selected} nodes."
         
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     if not expr:
         viewer.console_text.text = "Error: No logic expression provided."
+        Command_Engine.command_failed(viewer, viewer.console_text.text)
         print("\nError: Please provide a valid boolean expression.")
+        Command_Engine.command_failed(viewer, '\nError: Please provide a valid boolean expression.')
         return
 
     viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
@@ -236,6 +252,7 @@ def run(viewer, args):
         new_indices = set(np.where(mask)[0].tolist()).intersection(visible_indices)
     except Exception as e:
         Command_Engine.report_selection_error(viewer, expr, e, "Selection")
+        Command_Engine.command_succeeded(viewer)
         return
 
     current_selection = set(getattr(viewer, 'selected_indices', []))
@@ -269,3 +286,4 @@ def run(viewer, args):
     viewer.update_selection_visual()
     
     Command_Engine.print_help(viewer, msg)
+    Command_Engine.command_succeeded(viewer)

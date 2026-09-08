@@ -64,6 +64,7 @@ async def list_viewer_sessions(
 async def get_viewer_summary(
     ctx: Context[AppContext],
     session_id: str | None = None,
+    include_visual: bool = False,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
 ) -> dict[str, Any]:
     """Capture a fresh immutable snapshot; reuse snapshot_id for subsequent reads."""
@@ -137,6 +138,7 @@ async def query_viewer_nodes(
     snapshot_id: str,
     subset_id: str | None = None,
     columns: list[str] | None = None,
+    visual_fields: list[Literal["position", "color", "size"]] | None = None,
     session_id: str | None = None,
     cursor: str | None = None,
     limit: Annotated[int, Field(ge=1, le=500)] = 25,
@@ -346,3 +348,44 @@ __all__ = [
     "summarize_viewer_subset",
     "validate_viewer_settings",
 ]
+
+
+async def _portal_call(ctx, action, arguments, session_id):
+    try:
+        return await _viewer(ctx).command_action(action, arguments, session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+async def execute_viewer_commands(ctx: Context[AppContext], submission_id: str,
+        commands: str | list[str], session_id: str | None = None) -> dict[str, Any]:
+    """Submit existing user commands, ordered and stopped on failure. Reuse submission_id on retries. Poll get_command_request; accepted is not completed. May write files, open dialogs, and start external work."""
+    return await _portal_call(ctx, 'execute_commands', dict(submission_id=submission_id, commands=commands), session_id)
+
+async def get_command_request(ctx: Context[AppContext], request_id: str,
+        session_id: str | None = None, offset: Annotated[int, Field(ge=0)] = 0,
+        limit: Annotated[int, Field(ge=1, le=100)] = 25, command_id: str | None = None,
+        artifact_offset: Annotated[int, Field(ge=0)] = 0, artifact_limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:
+    """Page per-command outcomes, jobs and artifacts. Awaiting input requires interaction in the visible Viewer."""
+    return await _portal_call(ctx, 'get_command_request', dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id, artifact_offset=artifact_offset, artifact_limit=artifact_limit), session_id)
+
+async def list_command_requests(ctx: Context[AppContext], session_id: str | None = None,
+        offset: Annotated[int, Field(ge=0)] = 0, limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:
+    """Recover Viewer-owned request IDs after reconnecting. Completed history is bounded."""
+    return await _portal_call(ctx, 'list_command_requests', dict(offset=offset, limit=limit), session_id)
+
+async def read_command_output(ctx: Context[AppContext], request_id: str,
+        session_id: str | None = None, stream: Literal['stdout', 'stderr'] = 'stdout',
+        offset: Annotated[int, Field(ge=0)] = 0,
+        limit: Annotated[int, Field(ge=4, le=32768)] = 8192) -> dict[str, Any]:
+    """Read attributed output by byte cursor; eof is not completion. Inspect truncation and available_from."""
+    return await _portal_call(ctx, 'read_command_output', dict(request_id=request_id, stream=stream, offset=offset, limit=limit), session_id)
+
+async def capture_view(ctx: Context[AppContext], session_id: str | None = None,
+        request_id: str | None = None) -> dict[str, Any]:
+    """Capture the current canvas with HUD as a PNG preview, at most 1600 pixels per dimension. Optional completed request association is not a historical-state guarantee."""
+    return await _portal_call(ctx, 'capture_view', dict(request_id=request_id), session_id)
+
+async def get_command_catalog(ctx: Context[AppContext], command: str | None = None,
+        session_id: str | None = None) -> dict[str, Any]:
+    """List existing commands and effects, or read one command's source help without executing it."""
+    return await _portal_call(ctx, 'get_command_catalog', dict(command=command), session_id)

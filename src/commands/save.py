@@ -26,6 +26,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, render order, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\nExamples:\n  save\n  save my_layout.h5"
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
         
     try:
@@ -119,6 +120,7 @@ def run(viewer, args):
             if getattr(viewer, 'last_cluster_params', None) is not None: hf.attrs["last_cluster_params"] = json.dumps(viewer.last_cluster_params)
 
         os.replace(partial_save_path, final_save_path)
+        Command_Engine.command_artifact(viewer, final_save_path)
         
         if hasattr(viewer, 'original_pos'):
             viewer.original_pos = viewer.pos.copy()
@@ -130,4 +132,6 @@ def run(viewer, args):
         if 'partial_save_path' in locals() and os.path.exists(partial_save_path):
             os.remove(partial_save_path)
         msg = f"Error saving layout state: {e}"
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+    Command_Engine.command_succeeded(viewer)

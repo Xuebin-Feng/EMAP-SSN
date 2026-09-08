@@ -18,6 +18,7 @@ import fnmatch
 import EMAPSSN_Config as cfg
 import Command_Engine
 from PySide6 import QtWidgets
+from Viewer_Command_Portal import user_interaction, CURRENT
 
 def print_help():
     print("""
@@ -44,6 +45,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     msa_dir = getattr(cfg, 'MSA_DIR', os.path.join("Input_Files", "Multiple_Alignments"))
@@ -51,25 +53,32 @@ def run(viewer, args):
     # 1. No arguments provided -> Open File Explorer for manual selection
     if not args:
         try:
-            file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
-                viewer.canvas.native,
-                "Select Alignment File",
-                msa_dir if os.path.exists(msa_dir) else "",
-                "Alignment Files (*.fasta *.h5);;FASTA Files (*.fasta);;HDF5 Files (*.h5);;All Files (*)"
-            )
+            with user_interaction(viewer, "Select alignment file in the Viewer dialog"):
+                file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                    viewer.canvas.native,
+                    "Select Alignment File",
+                    msa_dir if os.path.exists(msa_dir) else "",
+                    "Alignment Files (*.fasta *.h5);;FASTA Files (*.fasta);;HDF5 Files (*.h5);;All Files (*)"
+                )
         except Exception as e:
             msg = f"Error opening file dialog: {e}"
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
 
         if not file_path:
             msg = "Alignment selection cancelled."
+            Command_Engine.command_cancelled(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
 
         if not os.path.exists(file_path):
             msg = f"Error: File '{file_path}' does not exist."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
 
         selected_file = os.path.basename(file_path)
@@ -104,7 +113,9 @@ def run(viewer, args):
                         
         if not new_path:
             msg = f"Error: Alignment file '{identifier}' not found (checked absolute, relative, and {msa_dir})."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
 
     # Load the selected alignment file
@@ -149,6 +160,7 @@ def run(viewer, args):
 
     except Exception as e:
         print(f"\nFailed to load alignment '{selected_file}': {e}")
+        Command_Engine.command_failed(viewer, f"\nFailed to load alignment '{selected_file}': {e}")
         print("Reverting to previous alignment state...")
         
         # Rollback
@@ -158,3 +170,4 @@ def run(viewer, args):
         
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Load failed. Reverted to previous alignment."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)

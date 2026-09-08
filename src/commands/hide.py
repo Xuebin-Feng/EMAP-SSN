@@ -29,10 +29,12 @@ def run(viewer, args):
                "  An invalid reference aborts without hiding nodes; a valid expression may match zero nodes.\n\n"
                "To unhide nodes, use the `reset hide` command.")
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     if args and args[0].lower() == 'reset':
         Command_Engine.execute_reset(viewer, ["hidden"])
+        Command_Engine.command_succeeded(viewer)
         return
 
     if args and args[0].lower() in ['single', 'free']:
@@ -61,6 +63,7 @@ def run(viewer, args):
         if num_hidden == 0:
             msg = "No single/free nodes found to hide at the current edge threshold."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         viewer._save_state()
@@ -79,6 +82,7 @@ def run(viewer, args):
         
         msg = f"Hidden {num_hidden} single/free nodes."
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # If logic argument is given, parse it to find nodes to hide.
@@ -102,6 +106,7 @@ def run(viewer, args):
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Hide")
+            Command_Engine.command_succeeded(viewer)
             return
 
         previous_visible = viewer.visible_mask.copy()
@@ -112,6 +117,7 @@ def run(viewer, args):
         if num_hidden == 0:
             msg = f"No visible nodes matched '{expr}' to hide."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         # Clean up selection if any selected nodes were hidden
@@ -132,7 +138,9 @@ def run(viewer, args):
         # Default to hiding selected nodes
         if not getattr(viewer, 'selected_indices', []):
             msg = "Error: No nodes currently selected."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
         
         viewer._save_state()
@@ -149,3 +157,4 @@ def run(viewer, args):
         
         msg = f"Hidden {num_hidden} selected nodes."
         Command_Engine.print_help(viewer, msg)
+    Command_Engine.command_succeeded(viewer)

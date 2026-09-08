@@ -332,6 +332,7 @@ def _validate_metadata_target(metadata, target):
 
 def report_selection_error(viewer, expression, error, operation="Selection"):
     """Report a concise HUD error and detailed terminal diagnostics."""
+    command_failed(viewer, str(error))
     error_lines = str(error).splitlines() or [str(error)]
     message_lines = [f"{operation} error: {error_lines[0]}"]
     message_lines.extend(error_lines[1:])
@@ -1100,6 +1101,8 @@ def parse_advanced_expression(
 
 def print_help(viewer, msg, *, terminal_msg=None):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""
+    from Viewer_Command_Portal import report
+    report(message=msg if terminal_msg is None else terminal_msg, viewer=viewer)
     print(f"\n{msg if terminal_msg is None else terminal_msg}")
     
     if hasattr(viewer, 'console_text'):
@@ -1193,3 +1196,124 @@ def execute_reset(viewer, targets):
     print(f"{msg}")
     if hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
+
+
+# Shared command dispatch and explicit outcome reporting.
+def command_succeeded(viewer, message=None, artifact=None):
+    from Viewer_Command_Portal import report
+    report('succeeded', message, artifact, viewer)
+
+def command_failed(viewer, message):
+    from Viewer_Command_Portal import report
+    report('failed', str(message), viewer=viewer)
+
+def command_cancelled(viewer, message):
+    from Viewer_Command_Portal import report
+    report('cancelled', str(message), viewer=viewer)
+
+def command_artifact(viewer, path):
+    from Viewer_Command_Portal import report
+    report(artifact=path, viewer=viewer)
+
+def execute_command(viewer, cmd_str, record_history=True, silent=False):
+    from Viewer_Command_Portal import CURRENT, bind
+    from PySide6 import QtCore
+    if getattr(viewer, '_command_dispatch_active', False):
+        # Event processing may reenter manual command dispatch. Defer that input.
+        def deferred_manual():
+            with bind(None):
+                execute_command(viewer, cmd_str, record_history, silent)
+        QtCore.QTimer.singleShot(20, deferred_manual)
+        return
+    context = CURRENT.get()
+    if context is not None and str(cmd_str).split() and str(cmd_str).split()[0].lower() == 'agent':
+        argument = str(cmd_str).partition(' ')[2].strip()
+        configuration = (not argument or argument.lower() in {'help', '-h', '--help', 'off', 'deactivate', '--register-only'} or (argument.startswith('<') and argument.endswith('>')))
+        if not configuration:
+            command_failed(viewer, 'Model-generated agent commands cannot start another model request.')
+            return
+    viewer._command_dispatch_active = True
+    try:
+        _dispatch_user_command(viewer, cmd_str, record_history, silent)
+    finally:
+        viewer._command_dispatch_active = False
+
+def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
+    import os
+    import importlib
+    from vispy import app
+    cmd_str = cmd_str.strip()
+    if not cmd_str:
+        command_failed(viewer, "Empty command")
+        return
+
+    # Normalize reverse commands (e.g., 'color reset' -> 'reset color', 'help color' -> 'color help')
+
+
+    # --- 0. FILE-BACKED HISTORY ---
+    # Only record if it's different from the very last command typed
+    if record_history:
+        if not viewer.command_history or viewer.command_history[-1] != cmd_str:
+            viewer.command_history.append(cmd_str)
+            try:
+                os.makedirs(os.path.dirname(viewer.history_file), exist_ok=True)
+                with open(viewer.history_file, "a", encoding="utf-8") as f:
+                    f.write(cmd_str + "\n")
+
+                # Truncate if file exceeds 1 MB (1,048,576 bytes)
+                if os.path.getsize(viewer.history_file) > 1048576:
+                    # Keep latest ~2000 lines (safely under 1MB limit for string paths)
+                    viewer.command_history = viewer.command_history[-2000:]
+                    with open(viewer.history_file, "w", encoding="utf-8") as f:
+                        for line in viewer.command_history:
+                            f.write(line + "\n")
+            except Exception as e:
+                print(f"Warning: Failed to save history to {viewer.history_file} ({e})")
+
+    # --- 3. PARSE COMMAND ---
+    parts = cmd_str.split()
+    if not parts: return
+
+    command_name = parts[0].lower()
+    args = parts[1:]
+
+    # --- 6. DYNAMIC EXTERNAL COMMANDS ---
+    try:
+        module = importlib.import_module(f"commands.{command_name}")
+        if getattr(module, "__spec__", None) is not None:
+            importlib.reload(module)
+
+        if hasattr(module, 'run'):
+            if not silent and hasattr(viewer, 'console_text'):
+                viewer.console_text.text = f"Running {command_name}..."
+            if not silent and hasattr(viewer, 'update_console_background'):
+                viewer.update_console_background()
+            if hasattr(app, 'process_events'):
+                app.process_events()
+            module.run(viewer, args)
+            if not silent and hasattr(viewer, 'update_console_background'):
+                viewer.update_console_background()
+            # Broadcast a complete browser state, including metadata shape.
+            viewer.broadcast_metadata_state()
+        else:
+            command_failed(viewer, f"No run entry point in {command_name}")
+            if not silent and hasattr(viewer, 'console_text'):
+                viewer.console_text.text = f"Error: No 'run' in {command_name}"
+            if not silent and hasattr(viewer, 'update_console_background'):
+                viewer.update_console_background()
+
+    except ModuleNotFoundError as error:
+        command_failed(viewer, f"Unknown command: {command_name}" if error.name == f"commands.{command_name}" else f"Command dependency unavailable: {error.name}")
+        if not silent and hasattr(viewer, 'console_text'):
+            viewer.console_text.text = f"Unknown command: {command_name}"
+        if not silent and hasattr(viewer, 'update_console_background'):
+            viewer.update_console_background()
+    except Exception as e:
+        command_failed(viewer, str(e))
+        if not silent and hasattr(viewer, 'console_text'):
+            viewer.console_text.text = f"Error: {e}"
+        if not silent and hasattr(viewer, 'update_console_background'):
+            viewer.update_console_background()
+        print(f"Command Error: {e}")
+        import traceback
+        traceback.print_exc()

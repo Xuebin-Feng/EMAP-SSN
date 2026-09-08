@@ -458,6 +458,7 @@ def handle_delete_columns(viewer, data):
                 "message": message,
             })
         Command_Engine.print_help(viewer, f"Error: {message}")
+        Command_Engine.command_failed(viewer, f'Error: {message}')
         return False
 
     Command_Engine.print_help(
@@ -697,6 +698,7 @@ def handle_import_metadata(viewer, data):
                 upload_metadata(viewer, [filepath])
     except Exception as e:
         print(f"Error picking file for metadata import: {e}")
+        Command_Engine.command_failed(viewer, f'Error picking file for metadata import: {e}')
 
 def handle_export_metadata(viewer, data):
     try:
@@ -739,6 +741,7 @@ def handle_export_metadata(viewer, data):
                 download_metadata(viewer, filepath)
     except Exception as e:
         print(f"Error picking file for metadata export: {e}")
+        Command_Engine.command_failed(viewer, f'Error picking file for metadata export: {e}')
 
 def _extend_initial_web_state(viewer, state):
     state["columns"] = ["Node ID"] + list(viewer.metadata.keys())
@@ -985,6 +988,7 @@ def upload_metadata(viewer, file_paths):
         except Exception as e:
             failed_files.append((filename, str(e)))
             print(f"Error uploading metadata from {filename}: {e}")
+            Command_Engine.command_failed(viewer, f'Error uploading metadata from {filename}: {e}')
 
     msg_parts = []
     if successful_files:
@@ -1006,6 +1010,7 @@ def download_metadata(viewer, filepath, expr=None):
     """Downloads network metadata to a file, applying optional logic filters."""
     if not getattr(viewer, 'metadata', None):
         Command_Engine.print_help(viewer, "Error: No metadata available in the viewer to download.")
+        Command_Engine.command_failed(viewer, 'Error: No metadata available in the viewer to download.')
         return False
 
     try:
@@ -1036,6 +1041,7 @@ def download_metadata(viewer, filepath, expr=None):
             
             if np.sum(mask) == 0:
                 Command_Engine.print_help(viewer, f"Error: No nodes matched the expression '{expr}'.")
+                Command_Engine.command_failed(viewer, f"Error: No nodes matched the expression '{expr}'.")
                 return False
 
         prop_names = list(viewer.metadata.keys())
@@ -1079,7 +1085,9 @@ def download_metadata(viewer, filepath, expr=None):
         if expr:
             msg += f" (filtered by: {expr})"
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_artifact(viewer, filepath)
         return True
     except Exception as e:
         Command_Engine.print_help(viewer, f"Error downloading metadata: {e}")
+        Command_Engine.command_failed(viewer, f'Error downloading metadata: {e}')
         return False

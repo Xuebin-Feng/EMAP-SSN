@@ -124,7 +124,7 @@ immutable metadata/membership snapshot. Reuse its snapshot_id with describe_fiel
 create_subset, summarize_subset, query_nodes, and read_value. Use describe for each
 action's schema. create_subset requires all, visible, or selected scope; an optional
 header/metadata/label/selection expression intersects that scope. Empty selection
-stays empty. File/residue predicates and command execution are unavailable.
+stays empty. File/residue predicates are unavailable in read-only subsets. Execute user commands through the separate command portal when requested.
 Summarize the population before reading individual records; do not exhaustively
 page nodes when aggregates answer the question. query_nodes defaults to 25 rows
 and no metadata columns. Request only relevant columns. Node keys are snapshot ID
@@ -170,3 +170,11 @@ ID lookup does not survive a new transport. Viewers launched without MCP capture
 do not offer these logs. Valid file structure, completed generation, and numerical
 or scientific correctness are separate conclusions; state the evidence actually
 obtained.
+
+
+## Viewer command portal
+
+Discover get_command_catalog. Submit execute_commands with submission_id; reuse it on retries.
+Poll get_command_request; read_command_output pages diagnostics.
+Batches stop on failure. Awaiting_user_input requires interaction.
+Use capture_view for current PNG/HUD verification. For visual node fields, get_summary(include_visual=true), then query_nodes(visual_fields).

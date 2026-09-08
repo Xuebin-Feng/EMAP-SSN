@@ -21,11 +21,13 @@ def run(viewer, args):
         current_ref = getattr(viewer, 'resolved_ref_full', None) or getattr(viewer, 'active_reference', 'None')
         msg = f"Current Reference: {current_ref}"
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
         
     if args[0].lower() in ['help', '-h', '--help']:
         msg = "Usage: reference [TARGET]\nDescription: Changes the reference sequence for alignment mapping.\n  - Call without arguments to see the current active reference.\n  - Pass a partial sequence header name to set a new reference.\nExamples:\n  reference\n  reference SeqA"
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     target = args[0]
@@ -75,9 +77,12 @@ def run(viewer, args):
             print(f"\nWarning: {msg}")
         else:
             msg = f"Error: Could not reload the current MSA for reference '{target}'."
+            Command_Engine.command_failed(viewer, msg)
             viewer.console_text.text = msg
             print(f"\n{msg}")
     else:
         err = f"Error: Reference '{target}' not found."
+        Command_Engine.command_failed(viewer, err)
         viewer.console_text.text = err
         print(f"\n{err}")
+    Command_Engine.command_succeeded(viewer)

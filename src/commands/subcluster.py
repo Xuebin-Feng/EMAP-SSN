@@ -94,12 +94,14 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- CLEAR COMMAND ---
     if args[0].lower() == 'clear':
         if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
             Command_Engine.print_help(viewer, "No groups are currently defined.")
+            Command_Engine.command_succeeded(viewer)
             return
             
         viewer._save_state()
@@ -116,6 +118,7 @@ def run(viewer, args):
         
         msg = f"Cleared all subcluster groups (removed {total_removed} label instances)."
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- Parse Cluster Name ---
@@ -123,12 +126,14 @@ def run(viewer, args):
     if not match:
         print_help()
         Command_Engine.print_help(viewer, f"Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{args[0]}').")
+        Command_Engine.command_failed(viewer, f"Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{args[0]}').")
         return
         
     cluster_id = int(match.group(1))
 
     if getattr(viewer, 'cluster_labels', None) is None:
         Command_Engine.print_help(viewer, "Error: No clusters are currently defined. Run 'cluster' first.")
+        Command_Engine.command_failed(viewer, "Error: No clusters are currently defined. Run 'cluster' first.")
         return
 
     target_mask = (viewer.cluster_labels == cluster_id)
@@ -136,6 +141,7 @@ def run(viewer, args):
 
     if len(subgraph_nodes) == 0:
         Command_Engine.print_help(viewer, f"Error: Cluster {cluster_id} is empty or does not exist.")
+        Command_Engine.command_failed(viewer, f'Error: Cluster {cluster_id} is empty or does not exist.')
         return
 
     # --- 2. Parse Other Parameters ---
@@ -150,19 +156,29 @@ def run(viewer, args):
             mode = first_arg
             if len(sub_args) >= 2: 
                 try: param1 = float(sub_args[1])
-                except ValueError: print("Error: Parameter must be a number."); return
+                except ValueError:
+                    print("Error: Parameter must be a number.")
+                    Command_Engine.command_failed(viewer, "Error: Parameter must be a number.")
+                    return
             if len(sub_args) >= 3: 
                 try: min_sz = int(sub_args[2])
-                except ValueError: print("Error: Min Size must be an integer."); return
+                except ValueError:
+                    print("Error: Min Size must be an integer.")
+                    Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
+                    return
         else:
             # Fallback to default Jaccard logic if first argument is a number
             try: param1 = float(sub_args[0])
             except ValueError:
                 print(f"Error: Unknown mode or invalid number '{sub_args[0]}'")
+                Command_Engine.command_failed(viewer, f"Error: Unknown mode or invalid number '{sub_args[0]}'")
                 return
             if len(sub_args) >= 2: 
                 try: min_sz = int(sub_args[1])
-                except ValueError: print("Error: Min Size must be an integer."); return
+                except ValueError:
+                    print("Error: Min Size must be an integer.")
+                    Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
+                    return
 
     # Apply defaults if param1 wasn't provided
     if param1 is None:
@@ -190,6 +206,7 @@ def run(viewer, args):
 
     if len(subgraph_edges) == 0:
         Command_Engine.print_help(viewer, f"Error: No edges exist within cluster_{cluster_id} to perform subclustering.")
+        Command_Engine.command_failed(viewer, f'Error: No edges exist within cluster_{cluster_id} to perform subclustering.')
         return
 
     local_edges = np.array([[global_to_local[u], global_to_local[v]] for u, v in subgraph_edges], dtype=np.int32)
@@ -205,7 +222,9 @@ def run(viewer, args):
         thresh = param1
         if not network_clustering.NUMBA_AVAILABLE:
             print("Error: Numba required for topology clustering.")
+            Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
             viewer.console_text.text = "Error: Numba library missing."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             return
 
         # Prepare adjacency data for Numba
@@ -271,7 +290,9 @@ def run(viewer, args):
         except ImportError:
             msg = "Missing libraries! Run: pip install markov_clustering networkx scipy"
             print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
+            Command_Engine.command_succeeded(viewer)
             return
             
         print("Building Sparse Adjacency Matrix...")
@@ -310,7 +331,9 @@ def run(viewer, args):
         except ImportError:
             msg = "Missing library! Run: pip install graspologic-native"
             print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
+            Command_Engine.command_succeeded(viewer)
             return
 
         print("Building Edge List & Mapping Edge Weights...")
@@ -393,3 +416,4 @@ def run(viewer, args):
     if hasattr(viewer, 'console_text'):
         viewer.console_text.text = msg
     print(msg)
+    Command_Engine.command_succeeded(viewer)

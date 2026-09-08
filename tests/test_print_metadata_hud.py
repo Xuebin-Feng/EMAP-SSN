@@ -19,7 +19,12 @@ if SRC_DIR not in sys.path:
 
 
 def load_print_command():
+    # Preload Matplotlib before restoring sys.modules around the command stubs.
+    # Otherwise lazily imported classes survive while their modules are removed.
+    import matplotlib.pyplot
     command_engine = types.ModuleType("Command_Engine")
+    for name in ("command_artifact", "command_succeeded", "command_failed"):
+        setattr(command_engine, name, mock.Mock())
     config = types.ModuleType("EMAPSSN_Config")
     config.ANALYSIS_RESULT_DIR = "Analysis_Results"
     config.SEQUENCE_SET = "test_sequences"

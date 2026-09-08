@@ -351,20 +351,25 @@ def print_help():
 def run(viewer, args):
     if not args:
         msg = "Error: Query command requires a POSITIONS or LOGIC_ARGUMENT parameter.\nUsage: query [POSITIONS] or query [LOGIC_ARGUMENT]"
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     alignment = getattr(viewer, 'alignment', None)
     if alignment is None or alignment.aln is None:
         msg = "Error: No alignment loaded in the viewer."
+        Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
         print(msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     if len(alignment.aln) == 0:
@@ -372,8 +377,10 @@ def run(viewer, args):
             "Error: The selected MSA contains no aligned rows for the current network. "
             "Query analysis is unavailable."
         )
+        Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
         print(msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- Reconstruct bracketed arguments (in case of spaces within brackets) ---
@@ -408,7 +415,9 @@ def run(viewer, args):
     
     if not bracket_indices:
         msg = "Error: No bracketed argument provided. Use [...] syntax (e.g., [10-20] or [K>10%])."
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
         
     pos_idx = bracket_indices[0]
@@ -448,6 +457,7 @@ def run(viewer, args):
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Query")
+            Command_Engine.command_succeeded(viewer)
             return
             
         valid_nodes = np.where(mask)[0]
@@ -463,6 +473,7 @@ def run(viewer, args):
             print("-" * 50)
             print(msg)
             print("-" * 50)
+            Command_Engine.command_succeeded(viewer)
             return
 
     # --- 4. Detect Mode: Position Breakdown (Mode 1) vs Frequency Search (Mode 2) ---
@@ -521,6 +532,7 @@ def run(viewer, args):
             print("No valid alignment columns mapped.")
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = "No valid alignment columns mapped."
+            Command_Engine.command_succeeded(viewer)
             return
 
         # Precompute AA and Gap frequencies for all mapped columns
@@ -581,15 +593,19 @@ def run(viewer, args):
             msg = str(error)
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = "Error: Individual frequency arguments must be enclosed in ()"
+                Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("-" * 50)
             print(msg)
             print("-" * 50)
+            Command_Engine.command_succeeded(viewer)
             return
         except ValueError as error:
             msg = f"Error parsing position logic '[{inner}]': {error}"
+            Command_Engine.command_failed(viewer, msg)
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = msg
             print(msg)
+            Command_Engine.command_succeeded(viewer)
             return
 
         matching_indices = np.where(pos_mask)[0]
@@ -621,6 +637,7 @@ def run(viewer, args):
         print("-" * 50)
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = f"Found {len(matching_labels)} matching position(s). Check terminal."
+        Command_Engine.command_succeeded(viewer)
         return
 
 
@@ -643,6 +660,7 @@ def run(viewer, args):
         expanded_positions = parse_query_positions(inner, valid_labels)
     except ValueError as exc:
         Command_Engine.print_help(viewer, f"Error: {exc}")
+        Command_Engine.command_failed(viewer, f'Error: {exc}')
         return
 
     # Query the Matrix
@@ -709,3 +727,4 @@ def run(viewer, args):
         viewer.console_text.text = f"Queried {found_count} position(s). Check terminal."
     else:
         viewer.console_text.text = "No valid positions queried."
+    Command_Engine.command_succeeded(viewer)

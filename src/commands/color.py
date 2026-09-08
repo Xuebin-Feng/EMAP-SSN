@@ -68,17 +68,21 @@ def print_help():
 def run(viewer, args):
     if args and args[0].lower() == 'reset':
         Command_Engine.execute_reset(viewer, ["colors"])
+        Command_Engine.command_succeeded(viewer)
         return
 
     if not args:
         msg = "Error: Color command requires at least one property (color, scale, or shape) or expression.\nUsage: color [EXPR_1] [COLOR_1] [xSCALE_1] [SHAPE_1]"
+        Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     vispy_symbols = ['disc', 'arrow', 'ring', 'clobber', 'square', 'x', 'diamond', 'vbar', 'hbar', 
@@ -164,12 +168,14 @@ def run(viewer, args):
             Command_Engine.report_selection_error(
                 viewer, arg, classification.error, "Color"
             )
+            Command_Engine.command_succeeded(viewer)
             return
         Command_Engine.print_help(
             viewer,
             f"Error: Unrecognized color argument '{arg}'. Expected a Boolean "
             "expression, color, x-scale, or shape.",
         )
+        Command_Engine.command_failed(viewer, f"Error: Unrecognized color argument '{arg}'. Expected a Boolean expression, color, x-scale, or shape.")
         return
 
     if current_expr or current_color or current_scale is not None or current_shape:
@@ -177,6 +183,7 @@ def run(viewer, args):
         
     if not assignments:
         viewer.console_text.text = "Error: No valid assignments found."
+        Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
     viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
@@ -202,6 +209,7 @@ def run(viewer, args):
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Color")
+            Command_Engine.command_succeeded(viewer)
             return
 
         # Hidden nodes are outside the command's target domain, even when the
@@ -253,3 +261,4 @@ def run(viewer, args):
     else:
         viewer.console_text.text = "No nodes matched criteria."
         print("\nNo nodes matched your criteria.")
+    Command_Engine.command_succeeded(viewer)

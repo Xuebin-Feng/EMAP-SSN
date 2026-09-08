@@ -69,6 +69,8 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     Command_Engine.execute_reset(viewer, args)
+    Command_Engine.command_succeeded(viewer)

@@ -19,10 +19,10 @@ PipelineAction = Literal[
     "inspect_file", "export_tool_settings", "export_layout_settings", "validate_settings",
     "start_job", "start_layout_job", "list_jobs", "get_job", "read_log", "cancel_job",
 ]
-ViewerDataAction = Literal["help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value"]
+ViewerDataAction = Literal["help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
 ViewerControlAction = Literal[
     "help", "describe", "get_settings_schema", "export_settings", "validate_settings",
-    "start_session", "connect_session", "disconnect_session", "close_session",
+    "start_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
 ]
 
 
@@ -61,6 +61,11 @@ _SPECS = {
         "cancel_job": (pipeline_ops, "cancel_pipeline_job", "Cancel queued work or terminate a running job; does not undo artifact writes.", {"job_id": "job-id"}),
     },
     "emapssn_viewer_data": {
+        "get_command_request": (viewer_ops, "get_command_request", 'Read command outcomes.', {'request_id': 'request-id'}),
+        "list_command_requests": (viewer_ops, "list_command_requests", 'Recover Viewer command requests.', {}),
+        "read_command_output": (viewer_ops, "read_command_output", 'Read command-scoped diagnostics.', {'request_id': 'request-id'}),
+        "capture_view": (viewer_ops, "capture_view", 'Read current canvas as a PNG image.', {}),
+        "get_command_catalog": (viewer_ops, "get_command_catalog", 'Read command vocabulary and help.', {}),
         "list_sessions": (viewer_ops, "list_viewer_sessions", "Read available sessions without selecting one.", {}),
         "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
         "query_nodes": (viewer_ops, "query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),
@@ -71,6 +76,7 @@ _SPECS = {
         "read_log": (viewer_ops, "read_viewer_log", "Read a bounded byte page of captured Viewer output.", {}),
     },
     "emapssn_viewer_control": {
+        "execute_commands": (viewer_ops, "execute_viewer_commands", "Execute existing Viewer commands; can write files and open interactive interfaces.", {"submission_id": "client-generated-id", "commands": ["select help"]}),
         "get_settings_schema": (viewer_ops, "get_viewer_settings_schema", "Read the Viewer settings contract.", {}),
         "export_settings": (viewer_ops, "export_viewer_settings", "Create a full Viewer settings file inheriting saved Config preferences.", {}),
         "validate_settings": (viewer_ops, "validate_viewer_settings", "Read and validate Viewer inputs/cache identity without launching.", {"settings_path": "viewer.json"}),

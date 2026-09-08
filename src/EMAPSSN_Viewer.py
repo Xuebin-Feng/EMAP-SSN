@@ -1658,53 +1658,21 @@ class MainViewer:
         self.update_edges()
 
     def update_edges(self):
-        """Updates the line visuals to follow nodes dynamically using fast vectorization."""
-        if getattr(self, 'line_visual', None) is not None and len(self.edges) > 0:
-            # ---> NEW: Only draw edges where BOTH connected nodes are visible and above the active slider threshold <---
-            current_slider_val = getattr(self, 'current_slider_threshold', getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0))
-            current_vis_hash = (self.visible_mask.tobytes(), current_slider_val)
-            
-            if getattr(self, '_last_vis_mask_hash', None) != current_vis_hash:
-                self._last_vis_mask_hash = current_vis_hash
-                if hasattr(self, 'sync_metadata_table_visibility'):
-                    self.sync_metadata_table_visibility()
-                nodes_visible_mask = self.visible_mask[self.edges[:, 0]] & self.visible_mask[self.edges[:, 1]]
-                
-                if hasattr(self, 'edge_scores') and len(self.edge_scores) > 0:
-                    threshold_visible_mask = self.edge_scores >= current_slider_val
-                    valid_edges_mask = nodes_visible_mask & threshold_visible_mask
-                else:
-                    valid_edges_mask = nodes_visible_mask
-                    
-                self._cached_active_edges = self.edges[valid_edges_mask]
-                
-            active_edges = self._cached_active_edges
-            
-            # --- Low Resource Mode: Hide edges of dragged nodes ---
-            if getattr(cfg, 'LOW_RESOURCE_MODE', False) and getattr(self, 'is_multi_dragging', False):
-                if getattr(self, 'selected_indices', None) and len(self.selected_indices) > 0:
-                    selected_set_arr = np.array(self.selected_indices)
-                    mask_u_moved = np.isin(active_edges[:, 0], selected_set_arr)
-                    mask_v_moved = np.isin(active_edges[:, 1], selected_set_arr)
-                    active_edges = active_edges[~(mask_u_moved | mask_v_moved)]
-            
-            # ---> NEW: In UMAP mode, only show edges connected to selected nodes <---
-            if getattr(cfg, 'UMAP_MODE', False):
-                if getattr(self, 'selected_indices', None) and len(self.selected_indices) > 0:
-                    mask_u = np.isin(active_edges[:, 0], self.selected_indices)
-                    mask_v = np.isin(active_edges[:, 1], self.selected_indices)
-                    active_edges = active_edges[mask_u | mask_v]
-                else:
-                    active_edges = np.zeros((0, 2), dtype=np.int32)
-            
-            if len(active_edges) > 0:
-                self.line_visual.visible = True
-                edge_coords = _contiguous_line_positions(
-                    self.pos[active_edges].reshape(-1, 2)
-                )
-                self.line_visual.set_data(pos=edge_coords)
-            else:
-                self.line_visual.visible = False # Prevents Vispy crash on empty arrays
+        from Viewer_Visual_State import edge_stages
+        if getattr(self, 'line_visual', None) is None:
+            return
+        active_edges, _ = edge_stages(self, cfg, cache=True)
+        current_vis_hash = (self.visible_mask.tobytes(), self.current_slider_threshold)
+        if getattr(self, '_last_vis_mask_hash', None) != current_vis_hash:
+            self._last_vis_mask_hash = current_vis_hash
+            if hasattr(self, 'sync_metadata_table_visibility'):
+                self.sync_metadata_table_visibility()
+        self._cached_active_edges = active_edges
+        if len(active_edges):
+            self.line_visual.visible = True
+            self.line_visual.set_data(pos=_contiguous_line_positions(self.pos[active_edges].reshape(-1, 2)))
+        else:
+            self.line_visual.visible = False
 
     def promote_nodes(self, indices):
         """Move one node group to the top of the persistent render order."""
@@ -2036,75 +2004,9 @@ class MainViewer:
         )
 
     def process_command(self, cmd_str, record_history=True, silent=False):
-        cmd_str = cmd_str.strip()
-        if not cmd_str: return
-
-        # Normalize reverse commands (e.g., 'color reset' -> 'reset color', 'help color' -> 'color help')
-        
-
-        # --- 0. FILE-BACKED HISTORY ---
-        # Only record if it's different from the very last command typed
-        if record_history:
-            if not self.command_history or self.command_history[-1] != cmd_str:
-                self.command_history.append(cmd_str)
-                try:
-                    os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
-                    with open(self.history_file, "a", encoding="utf-8") as f:
-                        f.write(cmd_str + "\n")
-                    
-                    # Truncate if file exceeds 1 MB (1,048,576 bytes)
-                    if os.path.getsize(self.history_file) > 1048576:
-                        # Keep latest ~2000 lines (safely under 1MB limit for string paths)
-                        self.command_history = self.command_history[-2000:]
-                        with open(self.history_file, "w", encoding="utf-8") as f:
-                            for line in self.command_history:
-                                f.write(line + "\n")
-                except Exception as e:
-                    print(f"Warning: Failed to save history to {self.history_file} ({e})")
-
-        # --- 3. PARSE COMMAND ---
-        parts = cmd_str.split()
-        if not parts: return
-        
-        command_name = parts[0].lower()
-        args = parts[1:]
-
-        # --- 6. DYNAMIC EXTERNAL COMMANDS ---
-        try:
-            module = importlib.import_module(f"commands.{command_name}")
-            importlib.reload(module) 
-            
-            if hasattr(module, 'run'):
-                if not silent and hasattr(self, 'console_text'):
-                    self.console_text.text = f"Running {command_name}..."
-                if not silent and hasattr(self, 'update_console_background'):
-                    self.update_console_background()
-                if hasattr(app, 'process_events'):
-                    app.process_events() 
-                module.run(self, args)
-                if not silent and hasattr(self, 'update_console_background'):
-                    self.update_console_background()
-                # Broadcast a complete browser state, including metadata shape.
-                self.broadcast_metadata_state()
-            else:
-                if not silent and hasattr(self, 'console_text'):
-                    self.console_text.text = f"Error: No 'run' in {command_name}"
-                if not silent and hasattr(self, 'update_console_background'):
-                    self.update_console_background()
-                
-        except ModuleNotFoundError:
-            if not silent and hasattr(self, 'console_text'):
-                self.console_text.text = f"Unknown command: {command_name}"
-            if not silent and hasattr(self, 'update_console_background'):
-                self.update_console_background()
-        except Exception as e:
-            if not silent and hasattr(self, 'console_text'):
-                self.console_text.text = f"Error: {e}"
-            if not silent and hasattr(self, 'update_console_background'):
-                self.update_console_background()
-            print(f"Command Error: {e}")
-            import traceback
-            traceback.print_exc()
+        from Viewer_Command_Portal import bind
+        with bind(None):
+            return Command_Engine.execute_command(self, cmd_str, record_history, silent)
 
     def on_key_press(self, event):
         # --- SAFE KEY DETECTION ---

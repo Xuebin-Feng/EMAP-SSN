@@ -139,6 +139,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- LIST COMMAND ---
@@ -146,6 +147,7 @@ def run(viewer, args):
         if getattr(viewer, 'cluster_labels', None) is None:
             msg = "No clusters are currently defined."
             Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer)
             return
             
         labels = viewer.cluster_labels
@@ -181,6 +183,7 @@ def run(viewer, args):
         
         msg = f"Listed {len(sorted_clusters)} clusters in console."
         viewer.console_text.text = msg
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- 2. Parse Arguments ---
@@ -194,19 +197,29 @@ def run(viewer, args):
             mode = first_arg
             if len(args) >= 2: 
                 try: param1 = float(args[1])
-                except ValueError: print("Error: Parameter must be a number."); return
+                except ValueError:
+                    print("Error: Parameter must be a number.")
+                    Command_Engine.command_failed(viewer, "Error: Parameter must be a number.")
+                    return
             if len(args) >= 3: 
                 try: min_sz = int(args[2])
-                except ValueError: print("Error: Min Size must be an integer."); return
+                except ValueError:
+                    print("Error: Min Size must be an integer.")
+                    Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
+                    return
         else:
             # Fallback to default Jaccard logic if first argument is a number
             try: param1 = float(args[0])
             except ValueError:
                 print(f"Error: Unknown mode or invalid number '{args[0]}'")
+                Command_Engine.command_failed(viewer, f"Error: Unknown mode or invalid number '{args[0]}'")
                 return
             if len(args) >= 2: 
                 try: min_sz = int(args[1])
-                except ValueError: print("Error: Min Size must be an integer."); return
+                except ValueError:
+                    print("Error: Min Size must be an integer.")
+                    Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
+                    return
 
     # Apply defaults if param1 wasn't provided
     if param1 is None:
@@ -228,7 +241,9 @@ def run(viewer, args):
         thresh = param1
         if not network_clustering.NUMBA_AVAILABLE:
             print("Error: Numba required for topology clustering.")
+            Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
             viewer.console_text.text = "Error: Numba library missing."
+            Command_Engine.command_failed(viewer, viewer.console_text.text)
             return
 
         # Prepare adjacency data for Numba
@@ -295,7 +310,9 @@ def run(viewer, args):
         except ImportError:
             msg = "Missing libraries! Run: pip install markov_clustering networkx scipy"
             print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
+            Command_Engine.command_succeeded(viewer)
             return
             
         print("Building Sparse Adjacency Matrix...")
@@ -336,7 +353,9 @@ def run(viewer, args):
         except ImportError:
             msg = "Missing library! Run: pip install graspologic-native"
             print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
+            Command_Engine.command_succeeded(viewer)
             return
 
         print("Building Edge List & Mapping Edge Weights...")
@@ -409,3 +428,4 @@ def run(viewer, args):
     msg = f"Done! Found {n_clusters} clusters via {mode.upper()}."
     viewer.console_text.text = msg
     print(msg)
+    Command_Engine.command_succeeded(viewer)

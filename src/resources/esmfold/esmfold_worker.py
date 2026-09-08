@@ -59,6 +59,33 @@ def notify_server(node_id, pdb_filename, action_url=DEFAULT_ACTION_URL):
         print(f"Warning: Could not notify main visualizer server: {error}")
 
 
+_portal_path = None
+_portal_noninteractive = False
+_portal_state = {}
+
+
+def portal_event(status, message=None, **result):
+    if not _portal_path:
+        return
+    import psutil
+    if _portal_state.get('status') == 'cancelled':
+        return
+    _portal_state.update(pid=os.getpid(), created=psutil.Process().create_time(), status=status)
+    if message is not None:
+        _portal_state['message'] = message
+    if result:
+        _portal_state.setdefault('result', {}).update(result)
+    temporary = _portal_path + '.partial'
+    with open(temporary, 'w', encoding='utf-8') as handle:
+        json.dump(_portal_state, handle)
+    os.replace(temporary, _portal_path)
+
+
+def portal_pause(message):
+    if not _portal_noninteractive:
+        input(message)
+
+
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(
         description="Run local or Biohub-backed ESM3 structure prediction."
@@ -81,16 +108,26 @@ def parse_arguments(argv=None):
         default=DEFAULT_ACTION_URL,
         help="Viewer instance endpoint that receives structure-folded notifications",
     )
+    parser.add_argument("--portal-status", default=None)
+    parser.add_argument("--noninteractive", action="store_true")
     return parser.parse_args(argv)
 
 
 def _terminal_token_prompt(replacement=False):
+    if _portal_noninteractive:
+        raise RuntimeError("Biohub credentials require terminal input; configure credentials before headless execution.")
+    portal_event("awaiting_user_input", "Enter Biohub credentials in the worker terminal")
     action = "Replacement" if replacement else "Biohub"
     try:
-        return getpass.getpass(
+        token = getpass.getpass(
             f"{action} API token (input hidden; press Enter to cancel): "
         )
+        portal_event("running", "Credential prompt completed")
+        if not token:
+            portal_event("cancelled", "Credential entry cancelled")
+        return token
     except (EOFError, KeyboardInterrupt):
+        portal_event("cancelled", "Credential entry cancelled")
         return None
 
 
@@ -312,29 +349,49 @@ def run_predictions(
 
 
 def main(argv=None):
+    global _portal_path, _portal_noninteractive, _portal_state
     arguments = parse_arguments(argv)
+    _portal_path = arguments.portal_status
+    _portal_noninteractive = arguments.noninteractive
+    _portal_state = {"artifacts": []}
+    if _portal_path:
+        import sys
+        class WorkerOutput:
+            def __init__(self, stream, name):
+                self.stream = stream
+                self.path = _portal_path + '.' + name
+            def write(self, text):
+                with open(self.path, 'ab') as handle:
+                    handle.write(text.encode('utf-8', errors='replace'))
+                return self.stream.write(text)
+            def flush(self): return self.stream.flush()
+            def __getattr__(self, name): return getattr(self.stream, name)
+        sys.stdout = WorkerOutput(sys.stdout, 'stdout')
+        sys.stderr = WorkerOutput(sys.stderr, 'stderr')
+    portal_event("running", "Worker started")
     os.makedirs(arguments.structures_dir, exist_ok=True)
 
     try:
         nodes_to_fold = _load_nodes(arguments.input_json_path)
     except Exception as error:
         print(f"Error reading input JSON {arguments.input_json_path}: {error}")
-        input("\nError occurred. Press Enter to close this window...")
+        portal_event("failed", str(error))
+        portal_pause("\nError occurred. Press Enter to close this window...")
         return 1
 
     if not nodes_to_fold:
         print("No nodes to fold found in input JSON.")
+        portal_event("succeeded", "No nodes to fold", succeeded=0, total=0)
         return 0
 
     import warnings
 
     warnings.filterwarnings("ignore", category=UserWarning, module="esm")
     try:
-        notifier = lambda node_id, pdb_filename: notify_server(
-            node_id,
-            pdb_filename,
-            arguments.action_url,
-        )
+        def notifier(node_id, pdb_filename):
+            notify_server(node_id, pdb_filename, arguments.action_url)
+            _portal_state['artifacts'].append(os.path.abspath(os.path.join(arguments.structures_dir, pdb_filename)))
+            portal_event('running', f'Folded {node_id}', succeeded=len(_portal_state['artifacts']), total=len(nodes_to_fold))
         folded_count, errors_occurred = run_predictions(
             nodes_to_fold,
             arguments.structures_dir,
@@ -344,7 +401,8 @@ def main(argv=None):
         )
     except Exception as error:
         print(f"Error initializing ESM3 prediction: {error}")
-        input("\nError occurred. Press Enter to close this window...")
+        portal_event("failed", str(error))
+        portal_pause("\nError occurred. Press Enter to close this window...")
         return 1
 
     print(
@@ -352,8 +410,10 @@ def main(argv=None):
         "structure prediction(s)."
     )
     if errors_occurred or folded_count < len(nodes_to_fold):
-        input("\nErrors occurred. Press Enter to close this window...")
+        portal_event("failed", "One or more structures failed", succeeded=folded_count, total=len(nodes_to_fold))
+        portal_pause("\nErrors occurred. Press Enter to close this window...")
         return 1
+    portal_event("succeeded", "Structure prediction completed", succeeded=folded_count, total=len(nodes_to_fold))
     return 0
 
 

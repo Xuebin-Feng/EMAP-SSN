@@ -75,6 +75,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
+        Command_Engine.command_succeeded(viewer)
         return
 
     # --- 1. Parse Arguments ---
@@ -91,6 +92,7 @@ def run(viewer, args):
                 "Error: Legacy export group:NAME syntax is no longer supported. "
                 "Use export #NAME#.",
             )
+            Command_Engine.command_failed(viewer, 'Error: Legacy export group:NAME syntax is no longer supported. Use export #NAME#.')
             return
         if arg_lower == "clusters":
             mode_tokens.append("clusters")
@@ -106,6 +108,7 @@ def run(viewer, args):
             viewer,
             f"Error: Unrecognized export target '{arg}'. Use clusters, groups, or #LABEL#.",
         )
+        Command_Engine.command_failed(viewer, f"Error: Unrecognized export target '{arg}'. Use clusters, groups, or #LABEL#.")
         return
 
     if mode_tokens and label_tokens:
@@ -113,11 +116,13 @@ def run(viewer, args):
             viewer,
             "Error: Export all-target modes cannot be combined with specific #LABEL# targets.",
         )
+        Command_Engine.command_failed(viewer, 'Error: Export all-target modes cannot be combined with specific #LABEL# targets.')
         return
     if len(mode_tokens) > 1:
         Command_Engine.print_help(
             viewer, "Error: Export accepts only one all-target mode: clusters or groups."
         )
+        Command_Engine.command_failed(viewer, 'Error: Export accepts only one all-target mode: clusters or groups.')
         return
     if mode_tokens:
         target_mode = mode_tokens[0]
@@ -144,25 +149,32 @@ def run(viewer, args):
             Command_Engine.report_selection_error(
                 viewer, " ".join(f"#{label}#" for label in label_tokens), error, "Export"
             )
+            Command_Engine.command_succeeded(viewer)
             return
 
     # --- Validations ---
     if target_mode == "clusters" and getattr(viewer, 'cluster_labels', None) is None:
         viewer.console_text.text = "Error: Run 'cluster' first."
+        Command_Engine.command_failed(viewer, viewer.console_text.text)
         print("Error: Run 'cluster' first to export clusters.")
+        Command_Engine.command_failed(viewer, "Error: Run 'cluster' first to export clusters.")
         return
         
     if target_mode == "groups" and getattr(viewer, 'group_labels', None) is None:
         viewer.console_text.text = "Error: No groups defined."
+        Command_Engine.command_failed(viewer, viewer.console_text.text)
         print("Error: No groups defined. Use the 'group' command first.")
+        Command_Engine.command_failed(viewer, "Error: No groups defined. Use the 'group' command first.")
         return
 
     # --- 2. Load Canonical Records Already Held by the Viewer ---
     source_records = _get_in_memory_sequence_records(viewer)
     if not source_records:
         msg = "Error: No in-memory sequence set is available for export."
+        Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
         print(msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     fasta_path = (
@@ -289,6 +301,7 @@ def run(viewer, args):
         msg = "No valid subsets found to export."
         viewer.console_text.text = msg
         print(msg)
+        Command_Engine.command_succeeded(viewer)
         return
 
     os.makedirs(out_dir, exist_ok=True)
@@ -306,10 +319,12 @@ def run(viewer, args):
                 [header for header, _ in recs],
                 [sequence for _, sequence in recs],
             )
+            Command_Engine.command_artifact(viewer, out_path)
             files_written += 1
             seqs_written += len(recs)
         except Exception as e:
             print(f"Failed to write {filename}: {e}")
+            Command_Engine.command_failed(viewer, f'Failed to write {filename}: {e}')
 
     msg = f"Exported {files_written} files ({seqs_written} sequences)."
     viewer.console_text.text = msg
@@ -317,3 +332,4 @@ def run(viewer, args):
     
     # Auto-open the output folder in the system file manager
     open_in_file_manager(out_dir)
+    Command_Engine.command_succeeded(viewer)

@@ -335,6 +335,17 @@ class MCPViewerClient:
         result["returned_count"] = len(result["sessions"])
         return result
 
+    async def command_action(self, action, arguments, session_id=None):
+        target = self._target(session_id)
+        try:
+            session = await asyncio.to_thread(select_viewer_session, target, timeout=self.discovery_timeout)
+        except LookupError as error:
+            raise MCPViewerError(str(error)) from error
+        info = await asyncio.to_thread(self._request, session, '/api/mcp/v1/session')
+        if 'commands_v1' not in info.get('inspection_capabilities', []):
+            raise MCPViewerError('Viewer does not support the command portal; upgrade and restart the Viewer.')
+        return await asyncio.to_thread(self._request, session, '/api/mcp/v1/commands', {'action': action, 'arguments': arguments})
+
     async def inspect_data(self, action, arguments, session_id=None):
         target = self._target(session_id)
         try:

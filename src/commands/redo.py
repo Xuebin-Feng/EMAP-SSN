@@ -18,5 +18,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         msg = "Usage: redo\nDescription: Reapplies a state that was previously undone using the `undo` command."
         Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer)
         return
     viewer._do_redo()
+    Command_Engine.command_succeeded(viewer)
