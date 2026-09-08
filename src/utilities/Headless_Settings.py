@@ -5,6 +5,7 @@
 Personal settings are read only during export. Execution consumes explicit JSON.
 GUI imports must stay out of this module.
 """
+from utilities.Execution_Settings import encode_document, decode_document
 from copy import deepcopy
 import json
 import ntpath
@@ -109,8 +110,8 @@ def build_layout_export(values, project_root, *, cache_filename=None, target_cac
     if not selection_resolved:
         resolve_layout_selection(settings)
     document = settings.to_document(project_root=project_root)
-    document["DIRECTORIES"]["SAVED_LAYOUT_DIR"] = settings.SAVED_LAYOUT_DIR
-    section = document["Layout_Cache_Generator.py"]
+    document["output"]["SAVED_LAYOUT_DIR"] = settings.SAVED_LAYOUT_DIR
+    section = document["inputs"]
     section.update(NODE_FASTA_FILE=settings.NODE_FASTA_FILE, INPUT_HDF5=settings.INPUT_HDF5)
     return document
 
@@ -147,21 +148,13 @@ def config_export_document(kind, project_root, *, settings_path=None):
         if os.path.normpath(str(values[key])) == os.path.normpath(legacy):
             values[key] = DIRECTORY_PROFILE_DEFAULTS[key]
     overlay = read_object(absolute_path(settings_path, project_root)) if settings_path else {}
-    layout_overlay = overlay.get("Layout_Cache_Generator.py")
-    if layout_overlay is not None:
-        # Re-export an edited layout document using its explicit values, not GUI defaults.
-        settings = LayoutGenerationSettings.from_document(overlay, project_root=project_root)
-        resolve_layout_selection(settings)
-        if kind != "layout":
-            raise ValueError("Viewer export requires a Viewer settings overlay with the generated cache path.")
-        document = settings.to_document(project_root=project_root)
-        document["DIRECTORIES"]["SAVED_LAYOUT_DIR"] = settings.SAVED_LAYOUT_DIR
-        document["Layout_Cache_Generator.py"].update(NODE_FASTA_FILE=settings.NODE_FASTA_FILE, INPUT_HDF5=settings.INPUT_HDF5)
-        return document, _config_export_directory(values, project_root)
-    unknown = set(overlay) - set(DEFAULTS)
-    if unknown:
-        raise ValueError("Unknown Config settings: " + ", ".join(sorted(unknown)))
-    values.update(overlay)
+    edits = {}
+    if overlay:
+        edits = decode_document(overlay, kind, partial=True)
+        values.update(edits)
+    if kind == "viewer" and values.get("TARGET_CACHE_PATH"):
+        document = validate_viewer_document(encode_document("viewer", values), project_root)
+        return document, document["directories"]["SETTING_EXPORT_DIR"]
     # Match Config's export/launch handling of inactive filter controls.
     umap = str(values["UMAP_MODE"]).strip().lower() in {"true", "1"}
     top_active = values["TOP_EDGE_PERCENT"] is not None and str(values["TOP_EDGE_PERCENT"]).strip().lower() not in {"", "none"}
@@ -175,9 +168,11 @@ def config_export_document(kind, project_root, *, settings_path=None):
     values["TARGET_CACHE_PATH"] = selected or ""
     if not selected:
         values["CACHE_FILENAME"] = ""
-    values = normalize_viewer_settings(values, project_root, require_cache=False)
+    values = normalize_viewer_settings({key: value for key, value in values.items() if key in DEFAULTS}, project_root, require_cache=False)
     if kind == "layout":
-        document = build_layout_export(values, project_root)
+        document = build_layout_export(values, project_root,
+            cache_filename=edits.get("CACHE_FILENAME"), target_cache_path=edits.get("TARGET_CACHE_PATH"),
+            automatic=edits.get("CACHE_NAME_MODE", "auto") == "auto")
     else:
         if not selected:
             settings = LayoutGenerationSettings.from_namespace(SimpleNamespace(**values), cache_filename="version_00.h5", project_root=project_root)
@@ -192,15 +187,15 @@ def config_export_document(kind, project_root, *, settings_path=None):
             values["CACHE_FILENAME"] = chosen.name
         else:
             values["CACHE_FILENAME"] = selected_filename or Path(values["TARGET_CACHE_PATH"]).name
-        document = validate_viewer_document(values, project_root)
+        document = validate_viewer_document(encode_document("viewer", values), project_root)
     return document, values["SETTING_EXPORT_DIR"]
 
 
 def export_config_settings(kind, project_root, output_path=None, settings_path=None):
     document, directory = config_export_document(kind, project_root, settings_path=settings_path)
     result = write_export(document, project_root, directory, f"{kind}-settings", output_path)
-    section = document["Layout_Cache_Generator.py"] if kind == "layout" else document
-    result.update(cache_path=section["TARGET_CACHE_PATH"], cache_filename=section["CACHE_FILENAME"])
+    section = document["output"] if kind == "layout" else document["inputs"]
+    result.update(cache_path=section["TARGET_CACHE_PATH"], cache_filename=Path(section["TARGET_CACHE_PATH"]).name)
     return result
 
 

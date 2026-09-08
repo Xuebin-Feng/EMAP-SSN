@@ -32,7 +32,7 @@ from utilities.Network_Preparation import prepare_network
 
 
 def _settings_document(temp_path, *, cache_filename="version_00.h5"):
-    return {
+    legacy = {
         "DIRECTORIES": {"SAVED_LAYOUT_DIR": str(temp_path / "layouts")},
         "Layout_Cache_Generator.py": {
             "NODE_FASTA_FILE": str(temp_path / "set.fasta"),
@@ -60,6 +60,10 @@ def _settings_document(temp_path, *, cache_filename="version_00.h5"):
             "PACKING_GRID_SIZE": 20.0,
         },
     }
+    from utilities.Execution_Settings import encode_document
+    from utilities.Viewer_Settings import DEFAULTS
+    return encode_document("layout", {**DEFAULTS, **legacy["Layout_Cache_Generator.py"],
+        "SAVED_LAYOUT_DIR": str(temp_path / "layouts"), "TARGET_CACHE_PATH": None, "CACHE_NAME_MODE": "explicit"})
 
 
 def _write_inputs(temp_path):

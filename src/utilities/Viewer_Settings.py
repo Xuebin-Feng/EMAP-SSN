@@ -40,6 +40,85 @@ FILES = {"NODE_FASTA_FILE": "FASTA_DIR", "INPUT_HDF5": "HDF5_DIR",
 
 
 def get_viewer_settings_schema():
+    from utilities.Execution_Settings import VIEWER_SECTIONS
+    flat = _flat_viewer_settings_schema()["properties"]
+    return {"type": "object", "additionalProperties": False,
+            "required": ["schema_version", "kind", *VIEWER_SECTIONS],
+            "properties": {"schema_version": {"const": 2}, "kind": {"const": "viewer"},
+                **{section: {"type": "object", "additionalProperties": False,
+                    "required": list(keys), "properties": {key: flat[key] for key in keys}}
+                   for section, keys in VIEWER_SECTIONS.items()}},
+            "description": "Export first. Viewer preferences only; generation settings are resolved from verified cache provenance. Legacy JSON is rejected."}
+
+
+def resolve_cache_settings(path):
+    from mcp_server.Cache_Metadata import read_cache_metadata
+    metadata = read_cache_metadata(path)
+    if metadata["status"] != "complete":
+        raise ViewerSettingsError("Cache provenance: " + "; ".join(metadata["diagnostics"]))
+    try:
+        compatibility = metadata["folder_manifest"]["compatibility"]
+        parameters = metadata["generation_parameters"]
+        mode = compatibility["layout_mode"]
+        if mode not in {"physics", "umap"}:
+            raise ValueError("invalid layout_mode")
+        values = {key: parameters[key] for key in ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST", "BOX_SCALE")}
+        if type(values["UMAP_MODE"]) is not bool or values["UMAP_MODE"] != (mode == "umap"):
+            raise ValueError("conflicting UMAP_MODE")
+        if type(values["UMAP_NEIGHBORS"]) is not int or not 2 <= values["UMAP_NEIGHBORS"] <= 500:
+            raise ValueError("invalid UMAP_NEIGHBORS")
+        for key in ("UMAP_MIN_DIST", "BOX_SCALE"):
+            if isinstance(values[key], bool) or not isinstance(values[key], (int, float)) or not math.isfinite(values[key]):
+                raise ValueError(f"invalid {key}")
+        if not 0 <= values["UMAP_MIN_DIST"] <= 1 or values["BOX_SCALE"] <= 0:
+            raise ValueError("invalid UMAP_MIN_DIST or BOX_SCALE")
+        values.update(ALIGNMENT_SCORE=compatibility["alignment_score"], NORM_MODE=compatibility["normalization"],
+                      SIMILARITY_THRESHOLD=None, TOP_EDGE_PERCENT=None)
+        edge = compatibility["edge_filter"]
+        expected = "umap_neighbors" if mode == "umap" else edge["mode"]
+        if expected == "umap_neighbors" and mode == "umap":
+            if edge["mode"] != expected or edge["value"] != values["UMAP_NEIGHBORS"]:
+                raise ValueError("conflicting UMAP neighbor filter")
+        elif expected in {"similarity_threshold", "top_edge_percent"} and mode == "physics":
+            value = edge["value"]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError("invalid edge filter")
+            values[expected.upper()] = value
+        else:
+            raise ValueError("invalid edge filter mode")
+        if parameters["SIMILARITY_THRESHOLD"] != values["SIMILARITY_THRESHOLD"]:
+            raise ValueError("conflicting similarity threshold")
+        if compatibility["network_type"] == "blast":
+            if values["ALIGNMENT_SCORE"] is not None or values["NORM_MODE"] is not None:
+                raise ValueError("BLAST score settings must be null")
+            # Internal inert enum values; BLAST preparation ignores these fields.
+            values.update(ALIGNMENT_SCORE="global", NORM_MODE="alignment_length")
+        elif compatibility["network_type"] != "alignment":
+            raise ValueError("invalid network_type")
+        return values
+    except (KeyError, TypeError, ValueError) as error:
+        raise ViewerSettingsError(f"Cache provenance: {error}") from error
+
+
+def resolve_viewer_document(document, project_root):
+    from utilities.Execution_Settings import decode_document
+    try:
+        values = decode_document(document, "viewer")
+    except ValueError as error:
+        raise ViewerSettingsError(str(error)) from error
+    # Normalize paths/preferences first; these placeholders are replaced from cache.
+    values.update(UMAP_MODE=False, SIMILARITY_THRESHOLD=None, TOP_EDGE_PERCENT=None)
+    normalized = normalize_viewer_settings(values, project_root)
+    normalized.update(resolve_cache_settings(normalized["TARGET_CACHE_PATH"]))
+    return _validate_flat_viewer_document(normalized, project_root)
+
+
+def validate_viewer_document(document, project_root):
+    from utilities.Execution_Settings import encode_document
+    return encode_document("viewer", resolve_viewer_document(document, project_root))
+
+
+def _flat_viewer_settings_schema():
     properties = {}
     for key, default in DEFAULTS.items():
         kind = ("boolean" if isinstance(default, bool) else "integer" if isinstance(default, int)
@@ -169,7 +248,7 @@ def normalize_viewer_settings(document, project_root, *, require_cache=True):
     return result
 
 
-def validate_viewer_document(document, project_root):
+def _validate_flat_viewer_document(document, project_root):
     """Normalize and verify source/cache identity without changing configuration."""
     result = normalize_viewer_settings(document, project_root)
     for key in FILES:

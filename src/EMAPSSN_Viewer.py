@@ -62,12 +62,12 @@ def _parse_viewer_arguments(argv=None):
 _startup_settings = None
 _startup_args = None
 if __name__ == "__main__":
-    from utilities.Viewer_Settings import read_viewer_settings, validate_viewer_document
+    from utilities.Viewer_Settings import read_viewer_settings, resolve_viewer_document
     _startup_args = _parse_viewer_arguments()
     _settings_path = _startup_args.settings_file or os.environ.get("SSN_VIEWER_SETTINGS_PATH")
     _document = json.loads(_startup_args.settings_json) if _startup_args.settings_json else None
     _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _startup_settings = validate_viewer_document(
+    _startup_settings = resolve_viewer_document(
         read_viewer_settings(settings_document=_document, settings_path=_settings_path,
                              project_root=_project_root), _project_root
     )
@@ -375,8 +375,8 @@ class HUDDisplay:
 class MainViewer:
     def __init__(self, *, headless=None, settings=None):
         if settings is not None:
-            from utilities.Viewer_Settings import validate_viewer_document
-            cfg.__dict__.update(validate_viewer_document(settings, cfg.PROJECT_ROOT))
+            from utilities.Viewer_Settings import resolve_viewer_document
+            cfg.__dict__.update(resolve_viewer_document(settings, cfg.PROJECT_ROOT))
         self.headless = bool(
             headless or (_startup_args and _startup_args.headless)
             or os.environ.get("QT_QPA_PLATFORM") == "offscreen"

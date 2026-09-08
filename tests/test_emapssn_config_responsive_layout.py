@@ -251,6 +251,26 @@ class ResponsiveConfigTests(unittest.TestCase):
                         self.assertEqual(float(data[key]), float(value))
                 self.assert_geometry(window.tabs.currentWidget().widget())
 
+    def test_input_columns_align_across_rows_and_modes(self):
+        from PySide6.QtCore import QPoint
+        page = self.window.tabs.currentWidget().widget()
+        for width in (1400, 1000, 600, 1400):
+            self.resize_panel(width)
+            for umap in (False, True):
+                self.window.check_umap.setChecked(umap)
+                self.flush()
+                first = "UMAP_NEIGHBORS" if umap else "SIMILARITY_THRESHOLD"
+                second = "UMAP_MIN_DIST" if umap else "TOP_EDGE_PERCENT"
+                for keys in (("ALIGNMENT_SCORE", "ALIGNMENT_REFERENCE", first),
+                             ("NORM_MODE", "FILTER_MIN_OCCUPANCY", second)):
+                    for widgets in (self.window.labels, self.window.inputs):
+                        starts = [widgets[key].mapTo(page, QPoint()).x() for key in keys]
+                        self.assertEqual(len(set(starts)), 1, (width, umap, keys, starts))
+                starts = [self.window.labels[key].mapTo(page, QPoint()).x()
+                          for key in ("ALIGNMENT_OFFSET", "UMAP_MODE")]
+                self.assertEqual(starts[0], starts[1])
+                self.assert_geometry(page)
+
     def test_alignment_offset_ignores_hover_wheel_but_accepts_keyboard(self):
         from PySide6.QtCore import QPoint, QPointF, Qt
         from PySide6.QtGui import QWheelEvent

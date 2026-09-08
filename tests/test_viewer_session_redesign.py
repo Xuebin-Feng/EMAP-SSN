@@ -12,7 +12,8 @@ import psutil
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import test_layout_cache_generator as fixtures
-from utilities.Viewer_Settings import validate_viewer_document, ViewerSettingsError, normalize_viewer_settings
+from utilities.Viewer_Settings import validate_viewer_document, ViewerSettingsError, normalize_viewer_settings, DEFAULTS
+from utilities.Execution_Settings import encode_document
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
@@ -31,13 +32,14 @@ class SettingsTests(unittest.TestCase):
             INPUT_HDF5=str(self.root / "network.h5"), MSA_FILE="", UMAP_MODE=False,
             ALIGNMENT_SCORE="global", NORM_MODE="alignment_length", SIMILARITY_THRESHOLD=0.1,
             TOP_EDGE_PERCENT=None)
+        self.document = encode_document("viewer", {**DEFAULTS, **self.document})
 
     def test_complete_document_and_no_personal_settings(self):
         with mock.patch.dict(os.environ, {"SSN_VIEWER_SETTINGS_PATH": "unrelated.json"}):
             result = validate_viewer_document(self.document, fixtures.ROOT)
-        self.assertEqual(result["MSA_FILE"], "")
-        self.assertEqual(result["NODE_SIZE"], 10)
-        self.assertEqual(result["SIMILARITY_THRESHOLD"], 0.1)
+        self.assertEqual(result["alignment"]["MSA_FILE"], "")
+        self.assertEqual(result["visualization"]["NODE_SIZE"], 10)
+        self.assertNotIn("network", result)
 
     def test_missing_files_fields_and_manifest_conflicts(self):
         for key in ("NODE_FASTA_FILE", "INPUT_HDF5", "MSA_FILE", "UMAP_MODE", "ALIGNMENT_SCORE"):
@@ -130,7 +132,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "import time,sys\nprint('x'*1000000,flush=True)\ntime.sleep(60)\n"
             )
             with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}), mock.patch(
-                "mcp_server.MCP_Viewer_Client.validate_viewer_document", return_value={"TARGET_CACHE_PATH": "test"}
+                "mcp_server.MCP_Viewer_Client.validate_viewer_document", return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}
             ):
                 client = MCPViewerClient(root)
                 with self.assertRaisesRegex(MCPViewerError, "Timed out"):

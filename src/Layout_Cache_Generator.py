@@ -173,18 +173,12 @@ class LayoutGenerationSettings:
         *,
         project_root: str | os.PathLike[str] = PROJECT_ROOT,
     ) -> "LayoutGenerationSettings":
-        if not isinstance(document, Mapping):
-            raise LayoutGenerationError("The settings document must be a JSON object.")
-        if SCRIPT_NAME not in document:
-            raise LayoutGenerationError(
-                f"The settings document must contain {SCRIPT_NAME}."
-            )
-        directories = document.get("DIRECTORIES", {})
-        if not isinstance(directories, Mapping):
-            raise LayoutGenerationError("DIRECTORIES must be a JSON object.")
-        values = document[SCRIPT_NAME]
-        if not isinstance(values, Mapping):
-            raise LayoutGenerationError(f"{SCRIPT_NAME} must be a JSON object.")
+        from utilities.Execution_Settings import decode_document
+        try:
+            values = decode_document(dict(document), "layout")
+        except (ValueError, TypeError) as error:
+            raise LayoutGenerationError(str(error)) from error
+        directories = {"SAVED_LAYOUT_DIR": values["SAVED_LAYOUT_DIR"]}
 
         allowed = {
             item.name for item in fields(cls) if not item.name.startswith("_")
@@ -412,12 +406,10 @@ class LayoutGenerationSettings:
         }
         values["NODE_FASTA_FILE"] = _portable_path(self.NODE_FASTA_FILE, root)
         values["INPUT_HDF5"] = _portable_path(self.INPUT_HDF5, root)
-        return {
-            "DIRECTORIES": {
-                "SAVED_LAYOUT_DIR": _portable_path(self.SAVED_LAYOUT_DIR, root)
-            },
-            SCRIPT_NAME: values,
-        }
+        from utilities.Execution_Settings import encode_document
+        values["SAVED_LAYOUT_DIR"] = _portable_path(self.SAVED_LAYOUT_DIR, root)
+        return encode_document("layout", values)
+
 
     def engine_params(self) -> dict[str, Any]:
         excluded = {
@@ -887,19 +879,15 @@ def main(argv: list[str] | None = None) -> int:
         viewer_script = os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py")
         env = os.environ.copy()
         from utilities.Viewer_Settings import DEFAULTS, read_viewer_settings, validate_viewer_document
+        from utilities.Execution_Settings import encode_document
         snapshot_source = env.pop("SSN_VIEWER_SETTINGS_PATH", None)
         if snapshot_source:
             document = read_viewer_settings(settings_path=snapshot_source, project_root=PROJECT_ROOT)
         else:
-            document = {key: getattr(settings, key) for key in DEFAULTS if hasattr(settings, key)}
-            document.update(MSA_FILE="", ALIGNMENT_REFERENCE="")
-        document["TARGET_CACHE_PATH"] = str(result.cache_path)
-        document["TARGET_CACHE_MODE"] = "existing"
-        if settings.UMAP_MODE:
-            document["SIMILARITY_THRESHOLD"] = None
-            document["TOP_EDGE_PERCENT"] = None
-        elif settings.TOP_EDGE_PERCENT is not None:
-            document["SIMILARITY_THRESHOLD"] = None
+            document = encode_document("viewer", {**DEFAULTS,
+                "NODE_FASTA_FILE": settings.NODE_FASTA_FILE, "INPUT_HDF5": settings.INPUT_HDF5,
+                "MSA_FILE": "", "ALIGNMENT_REFERENCE": ""})
+        document["inputs"]["TARGET_CACHE_PATH"] = str(result.cache_path)
         document = validate_viewer_document(document, PROJECT_ROOT)
         descriptor, viewer_snapshot = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:

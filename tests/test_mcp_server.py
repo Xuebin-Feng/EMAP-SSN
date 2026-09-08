@@ -321,7 +321,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 layout_root = pathlib.Path(session_directory)
                 _write_inputs(layout_root)
                 layout_doc = _settings_document(layout_root)
-                layout_doc["Layout_Cache_Generator.py"]["CACHE_NAME_MODE"] = "auto"
+                layout_doc["output"]["CACHE_NAME_MODE"] = "auto"
                 layout_source = layout_root / "layout-source.json"
                 layout_source.write_text(json.dumps(layout_doc))
                 config_export = await client.call_tool("export_config_settings", {

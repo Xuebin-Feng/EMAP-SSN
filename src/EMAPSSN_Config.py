@@ -475,6 +475,9 @@ def _create_layout_settings_snapshot(settings_doc):
 
 def _create_viewer_settings_snapshot(settings):
     """Write one private settings file for a single Viewer process."""
+    from utilities.Execution_Settings import encode_document
+    from utilities.Viewer_Settings import DEFAULTS
+    settings = encode_document("viewer", {**DEFAULTS, **settings})
     descriptor, path = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
@@ -2104,10 +2107,11 @@ if __name__ == "__main__":
             self.cb_norm_mode = NoScrollComboBox()
             score_label = QLabel("Alignment Score Mode:")
             norm_label = QLabel("Normalization Mode:")
-            layout.addRow(self._make_field_group(
+            mode_container = self._make_field_group(
                 [(score_label, self.cb_score_mode), (norm_label, self.cb_norm_mode)],
                 name="alignmentModeRow", equal_fields=True,
-            ))
+            )
+            layout.addRow(mode_container)
             self.labels["ALIGNMENT_SCORE"] = score_label
             self.inputs["ALIGNMENT_SCORE"] = self.cb_score_mode
             self.labels["NORM_MODE"] = norm_label
@@ -2151,20 +2155,11 @@ if __name__ == "__main__":
 
             ref_label = QLabel("Alignment Reference ID:")
             ref_label.setFixedWidth(CONFIG_FIELD_LABEL_WIDTH)
-            offset_control = QWidget()
-            offset_layout = QHBoxLayout(offset_control)
-            offset_layout.setContentsMargins(0, 0, 0, 0)
-            offset_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
-            offset_layout.addStretch(1)
-            offset_layout.addWidget(self.lbl_alignment_offset)
-            offset_layout.addWidget(self.spin_alignment_offset)
-            offset_spacer = QLabel()
-            offset_spacer.setFixedWidth(0)
             self._make_field_group(
                 [(ref_label, self.line_ref), (lbl_min_occ, self.spin_min_occ),
-                 (offset_spacer, offset_control)],
+                 (self.lbl_alignment_offset, self.spin_alignment_offset)],
                 parent=ref_container, name="alignmentReferenceRow",
-                ratios=(2, 1, 1),
+                trailing=True, control_stretches=(3, 2, 0),
             )
             layout.addRow(ref_container)
             self.labels["ALIGNMENT_REFERENCE"] = ref_label
@@ -2283,7 +2278,7 @@ if __name__ == "__main__":
 
             lbl_thresh = QLabel("Similarity Threshold:")
             lbl_thresh.setStyleSheet("QLabel:disabled { color: #888; }")
-            lbl_top = QLabel("   Top Edge %:")
+            lbl_top = QLabel("Top Edge %:")
             lbl_top.setStyleSheet("QLabel:disabled { color: #888; }")
 
             # Keep separate widgets and settings for each mode while sharing two slots.
@@ -2307,6 +2302,43 @@ if __name__ == "__main__":
                 trailing=True, control_stretches=(1, 1, 0),
             )
             layout.addRow(filter_container)
+
+            # Coordinate all three rows. Normalization spans columns two and
+            # three; the two other rows retain a compact, right-aligned last field.
+            aligned_rows = [mode_container.layout(), ref_container.layout(),
+                            filter_container.layout()]
+            for column in (0, 1):
+                label_width = max(row._label_width(row.pairs[column][0])
+                                  for row in aligned_rows)
+                for row in aligned_rows:
+                    row.pairs[column][0].setFixedWidth(label_width)
+            last_width = max(row._column_minima()[2] for row in aligned_rows[1:])
+            for row in aligned_rows[1:]:
+                label, control = row.pairs[2]
+                label.setFixedWidth(last_width - row.spacing() - control.width())
+
+            def aligned_column_widths(width, *, spanning=False):
+                gap = CONFIG_FIELD_HORIZONTAL_SPACING
+                first_min = max(row._column_minima()[0] for row in aligned_rows)
+                middle_min = max(row._column_minima()[1] for row in aligned_rows[1:])
+                last = max(row._column_minima()[2] for row in aligned_rows[1:])
+                # Give the reference half the usable width, and the remaining
+                # space to occupancy after reserving the fixed final column.
+                half_min = max(first_min, middle_min + gap + last,
+                               aligned_rows[0]._column_minima()[1])
+                if width is None:
+                    return 2 * half_min + gap
+                first = (width - gap) // 2
+                remainder = width - gap - first
+                return ([first, remainder] if spanning else
+                        [first, remainder - gap - last, last])
+
+            for index, row in enumerate(aligned_rows):
+                row.column_width_provider = (
+                    lambda width, spanning=index == 0:
+                    aligned_column_widths(width, spanning=spanning)
+                )
+                row.invalidate()
 
             self.labels["SIMILARITY_THRESHOLD"] = lbl_thresh
             self.inputs["SIMILARITY_THRESHOLD"] = self.spin_thresh

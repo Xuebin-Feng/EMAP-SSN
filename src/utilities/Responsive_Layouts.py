@@ -17,7 +17,8 @@ class ResponsiveFieldLayout(QLayout):
 
     def __init__(self, parent, pairs, ratios, *, field_ratios=False,
                  trailing=False, spacing=30, column_spacing=None,
-                 equal_fields=False, control_stretches=None, wrap_labels=True):
+                 equal_fields=False, control_stretches=None, wrap_labels=True,
+                 column_width_provider=None):
         super().__init__(parent)
         self.wrap_labels = wrap_labels
         self.pairs = pairs
@@ -27,6 +28,9 @@ class ResponsiveFieldLayout(QLayout):
         self.column_spacing = spacing if column_spacing is None else column_spacing
         self.equal_fields = equal_fields
         self.control_stretches = control_stretches
+        # Optional coordinated row sizing: None requests the wide-layout minimum;
+        # an integer requests the field widths for that available row width.
+        self.column_width_provider = column_width_provider
         self._items = []
         self.setContentsMargins(0, 0, 0, 0)
         self.setSpacing(spacing)
@@ -91,6 +95,8 @@ class ResponsiveFieldLayout(QLayout):
                 for label, control in self.pairs]
 
     def _wide_width(self):
+        if self.column_width_provider is not None:
+            return self.column_width_provider(None)
         minima = self._column_minima()
         gap = self.spacing()
         if self.equal_fields:
@@ -160,7 +166,9 @@ class ResponsiveFieldLayout(QLayout):
 
         widths = self._column_minima()
         available = rect.width() - self.column_spacing * (len(widths) - 1)
-        if self.equal_fields:
+        if self.column_width_provider is not None:
+            widths = self.column_width_provider(rect.width())
+        elif self.equal_fields:
             input_space = available - sum(self._label_width(label) + gap
                                           for label, _ in self.pairs)
             widths = []

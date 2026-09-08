@@ -488,10 +488,8 @@ async def start_layout_job(
             for k, v in parameters.items():
                 payload[k.upper()] = v
 
-        target_doc = {
-            "DIRECTORIES": {"SAVED_LAYOUT_DIR": saved_layout_dir},
-            "Layout_Cache_Generator.py": payload,
-        }
+        from utilities.Execution_Settings import encode_document
+        target_doc = encode_document("layout", {**payload, "SAVED_LAYOUT_DIR": saved_layout_dir, "TARGET_CACHE_PATH": None})
 
     try:
         settings = LayoutGenerationSettings.from_document(target_doc, project_root=_PROJECT_ROOT)

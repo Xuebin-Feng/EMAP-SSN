@@ -17,6 +17,7 @@ from utilities.Headless_Settings import (
     export_pipeline_settings, export_config_settings, build_pipeline_export,
 )
 from utilities.Viewer_Settings import DEFAULTS, normalize_viewer_settings
+from utilities.Execution_Settings import decode_document
 from utilities.Tool_Execution import list_tool_specs
 from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
 from tests.test_layout_cache_generator import _write_inputs, _settings_document
@@ -74,7 +75,7 @@ class HeadlessSettingsTests(unittest.TestCase):
     def test_layout_preview_and_reexport_after_edits(self):
         self.saved_config()
         result = export_config_settings("layout", self.root)
-        section = result["settings_document"]["Layout_Cache_Generator.py"]
+        section = decode_document(result["settings_document"], "layout")
         self.assertEqual(section["CACHE_NAME_MODE"], "auto")
         self.assertEqual(section["CACHE_FILENAME"], "version_00.h5")
         self.assertFalse(Path(section["TARGET_CACHE_PATH"]).parent.exists())
@@ -82,7 +83,7 @@ class HeadlessSettingsTests(unittest.TestCase):
         self.assertNotIn("MSA_FILE", section)
         self.assertIn(str(self.root / "custom-cache"), section["TARGET_CACHE_PATH"])
         before = section["TARGET_CACHE_PATH"]
-        section["SIMILARITY_THRESHOLD"] = 0.2
+        result["settings_document"]["network"]["SIMILARITY_THRESHOLD"] = 0.2
         Path(result["settings_path"]).write_text(json.dumps(result["settings_document"]))
         updated = export_config_settings("layout", self.root, settings_path=result["settings_path"])
         self.assertNotEqual(updated["cache_path"], before)
@@ -98,21 +99,21 @@ class HeadlessSettingsTests(unittest.TestCase):
         saved.write_text(json.dumps(values))
         original = saved.read_bytes()
         layout = export_config_settings("layout", self.root)
-        section = layout["settings_document"]["Layout_Cache_Generator.py"]
+        section = decode_document(layout["settings_document"], "layout")
         for key in preferences.keys() - {"NODE_SIZE", "EDGE_ALPHA", "TEXT_SIZE"}:
             self.assertEqual(section[key], preferences[key], key)
         generated = self.generate(layout["settings_document"])
         overlay = self.root / "viewer-overlay.json"
-        overlay.write_text(json.dumps({"TARGET_CACHE_PATH": generated.cache_path, "TEXT_SIZE": 15}))
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer", "inputs": {"TARGET_CACHE_PATH": generated.cache_path}, "visualization": {"TEXT_SIZE": 15}}))
         viewer = export_config_settings("viewer", self.root, settings_path=overlay)
-        for key, value in preferences.items():
-            self.assertEqual(viewer["settings_document"][key], 15 if key == "TEXT_SIZE" else value, key)
+        for key in ("NODE_SIZE", "EDGE_ALPHA", "TEXT_SIZE"):
+            self.assertEqual(viewer["settings_document"]["visualization"][key], 15 if key == "TEXT_SIZE" else preferences[key], key)
         self.assertEqual(viewer["cache_path"], generated.cache_path)
-        section["MAX_STEPS"] = 4321
+        layout["settings_document"]["simulation"]["MAX_STEPS"] = 4321
         Path(layout["settings_path"]).write_text(json.dumps(layout["settings_document"]))
         edited = export_config_settings("layout", self.root, settings_path=layout["settings_path"])
-        self.assertEqual(edited["settings_document"]["Layout_Cache_Generator.py"]["MAX_STEPS"], 4321)
-        self.assertEqual(edited["settings_document"]["Layout_Cache_Generator.py"]["SPRING_K"], 8.0)
+        self.assertEqual(edited["settings_document"]["simulation"]["MAX_STEPS"], 4321)
+        self.assertEqual(edited["settings_document"]["physics"]["SPRING_K"], 8.0)
         self.assertEqual(saved.read_bytes(), original)
 
     def test_viewer_full_snapshot_newest_and_explicit_selection(self):
@@ -125,12 +126,12 @@ class HeadlessSettingsTests(unittest.TestCase):
         os.utime(first.cache_path, ns=(1_000_000_000, 1_000_000_000))
         exported = export_config_settings("viewer", self.root)
         document = exported["settings_document"]
-        self.assertEqual(set(document), set(DEFAULTS))
-        self.assertEqual(document["NODE_SIZE"], 13)
-        self.assertEqual(document["TARGET_CACHE_PATH"], second.cache_path)
-        self.assertEqual(document["CACHE_FILENAME"], "version_01.h5")
+        self.assertEqual(set(document), {"schema_version", "kind", "inputs", "alignment", "visualization", "directories"})
+        self.assertEqual(document["visualization"]["NODE_SIZE"], 13)
+        self.assertEqual(document["inputs"]["TARGET_CACHE_PATH"], second.cache_path)
+        self.assertEqual(Path(document["inputs"]["TARGET_CACHE_PATH"]).name, "version_01.h5")
         overlay = self.root / "selection.json"
-        overlay.write_text(json.dumps({"TARGET_CACHE_PATH": first.cache_path}))
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer", "inputs": {"TARGET_CACHE_PATH": first.cache_path}}))
         selected = export_config_settings("viewer", self.root, settings_path=overlay)
         self.assertEqual(selected["cache_path"], first.cache_path)
         stamp = 2_000_000_000
@@ -142,7 +143,7 @@ class HeadlessSettingsTests(unittest.TestCase):
         self.saved_config()
         document = export_config_settings("layout", self.root)["settings_document"]
         self.generate(document)
-        section = document["Layout_Cache_Generator.py"]
+        section = document["output"]
         section["CACHE_NAME_MODE"] = "explicit"
         with self.assertRaises(FileExistsError):
             self.generate(document)
@@ -175,7 +176,7 @@ class HeadlessSettingsTests(unittest.TestCase):
     def test_two_processes_share_folder_and_distinct_versions(self):
         _write_inputs(self.root)
         document = _settings_document(self.root)
-        document["Layout_Cache_Generator.py"]["CACHE_NAME_MODE"] = "auto"
+        document["output"]["CACHE_NAME_MODE"] = "auto"
         path = self.root / "layout.json"
         path.write_text(json.dumps(document))
         script = """import sys,time,json
@@ -224,7 +225,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
     def test_config_cli_export_does_not_import_qt_or_hardware(self):
         _write_inputs(self.root)
         document = _settings_document(self.root)
-        document["Layout_Cache_Generator.py"]["CACHE_NAME_MODE"] = "auto"
+        document["output"]["CACHE_NAME_MODE"] = "auto"
         source = self.root / "source.json"
         source.write_text(json.dumps(document))
         target = self.root / "config-export.json"
@@ -250,8 +251,9 @@ class HeadlessLayoutJobTests(unittest.IsolatedAsyncioTestCase):
             root = Path(temporary)
             _write_inputs(root)
             document = _settings_document(root)
-            section = document["Layout_Cache_Generator.py"]
-            section.update(CACHE_NAME_MODE="auto", MAX_STEPS=1, LAYOUT_DEVICE_SELECTION="cpu")
+            section = document["output"]
+            section["CACHE_NAME_MODE"] = "auto"
+            document["simulation"].update(MAX_STEPS=1, LAYOUT_DEVICE_SELECTION="cpu")
             manager = PipelineJobManager(ROOT, temporary_parent=root / "jobs")
             try:
                 jobs = [await manager.submit_layout_job(copy.deepcopy(document)) for _ in range(2)]
@@ -268,7 +270,7 @@ class HeadlessLayoutJobTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(Path(state["settings_snapshot"]).read_bytes(), snapshots[job["job_id"]])
                     actual = state["output_locations"]
                     self.assertTrue(Path(actual["TARGET_CACHE_PATH"]).is_file())
-                    executed = json.loads(Path(actual["EXECUTED_SETTINGS"]).read_text())["Layout_Cache_Generator.py"]
+                    executed = json.loads(Path(actual["EXECUTED_SETTINGS"]).read_text())["output"]
                     self.assertEqual(executed["TARGET_CACHE_PATH"], actual["TARGET_CACHE_PATH"])
                     self.assertEqual(executed["CACHE_FILENAME"], actual["CACHE_FILENAME"])
                 states = [await manager.get_job(j["job_id"]) for j in jobs]

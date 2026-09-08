@@ -218,7 +218,7 @@ class MCPViewerClient:
                     return {"status": "ready", "session_id": session.session_id, "pid": session.pid,
                             "session_alias": session_alias(session.session_id),
                             "base_url": session.base_url, "started_at": session.started_at, "mode": mode,
-                            "cache_path": settings["TARGET_CACHE_PATH"],
+                            "cache_path": settings["inputs"]["TARGET_CACHE_PATH"],
                             "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)}
                 if (sys.platform == "win32" or mode == "headless") and not await asyncio.to_thread(_alive, root_process):
                     raise MCPViewerError(f"Viewer exited before readiness (code {proc.returncode}).")
