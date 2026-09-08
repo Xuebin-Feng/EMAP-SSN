@@ -303,33 +303,48 @@ class MCPViewerClient:
         except (LookupError, psutil.Error, OSError) as error:
             raise MCPViewerError(f"Could not close Viewer {target}: {error}") from error
 
-    async def list_sessions(self):
-        target = self.connected_session_id
-        sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
-        async with self._selection_lock:
-            if target and self.connected_session_id == target and not any(s.session_id == target for s in sessions):
-                self.connected_session_id = None
-        async def describe(session):
+    async def list_sessions(self, offset=0, limit=25, max_bytes=16384):
+        from mcp_server.Viewer_Snapshots import encoded
+        if offset < 0 or not 1 <= limit <= 100 or not 1024 <= max_bytes <= 65536:
+            raise MCPViewerError("Invalid session page bounds")
+        sessions = sorted(await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout), key=lambda s: s.session_id)
+        result = {"sessions": [], "connected_session_id": self.connected_session_id,
+                  "automatic_selection": len(sessions) == 1, "total": len(sessions),
+                  "offset": offset, "next_offset": offset, "complete": False}
+        for session in sessions[offset:offset + limit]:
             item = {"session_id": session.session_id, "session_alias": session_alias(session.session_id),
                     "pid": session.pid, "started_at": session.started_at}
             try:
-                summary = await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
-                from mcp_server.Cache_Metadata import read_cache_metadata
-                item["cache_metadata"] = await asyncio.to_thread(read_cache_metadata, summary.get("inputs", {}).get("layout_cache"))
+                info = await asyncio.to_thread(self._request, session, "/api/mcp/v1/session")
+                item["inputs"] = info.get("inputs", {})
+                item["inspection_capabilities"] = info.get("inspection_capabilities", [])
             except (MCPViewerError, OSError, ValueError, TypeError) as error:
-                item["metadata_error"] = str(error)
-            return item
-        return {"sessions": await asyncio.gather(*(describe(s) for s in sessions)),
-                "connected_session_id": self.connected_session_id,
-                "automatic_selection": len(sessions) == 1}
+                item["metadata_error"] = str(error)[:256]
+            result["sessions"].append(item)
+            if len(encoded(result)) > max_bytes - 64:
+                result["sessions"].pop()
+                if not result["sessions"]:
+                    raise MCPViewerError("Session identity exceeds byte budget; increase max_bytes")
+                break
+            result["next_offset"] += 1
+        result["complete"] = result["next_offset"] >= len(sessions)
+        result["returned_count"] = len(result["sessions"])
+        return result
 
-    async def get_summary(self, session_id=None):
-        summary = await self._get(session_id, "/api/mcp/v1/summary")
-        from mcp_server.Cache_Metadata import read_cache_metadata
-        summary["cache_metadata"] = await asyncio.to_thread(read_cache_metadata, summary.get("inputs", {}).get("layout_cache"))
-        return summary
+    async def inspect_data(self, action, arguments, session_id=None):
+        try:
+            session = await asyncio.to_thread(select_viewer_session, self._target(session_id), timeout=self.discovery_timeout)
+        except LookupError as error:
+            raise MCPViewerError(str(error)) from error
+        capabilities = await asyncio.to_thread(self._request, session, "/api/mcp/v1/session")
+        if "snapshots_v1" not in capabilities.get("inspection_capabilities", []):
+            raise MCPViewerError("Viewer does not support snapshots; upgrade and restart the Viewer.")
+        return await asyncio.to_thread(self._request, session, "/api/mcp/v1/data", {"action": action, "arguments": arguments})
 
-    async def read_log(self, session_id=None, *, stream="stdout", offset=0, limit=65536):
+    async def get_summary(self, session_id=None, max_bytes=16384):
+        return await self.inspect_data("get_summary", {"max_bytes": max_bytes}, session_id)
+
+    async def read_log(self, session_id=None, *, stream="stdout", offset=0, limit=8192):
         if stream not in {"stdout", "stderr"} or offset < 0 or not 1 <= limit <= 1048576:
             raise MCPViewerError("Expected stdout/stderr, nonnegative byte offset, and limit 1..1048576.")
         target = self._target(session_id)
@@ -359,27 +374,8 @@ class MCPViewerClient:
                     "text": data.decode("utf-8", errors="replace")}
         return await asyncio.to_thread(read)
 
-    async def query_nodes(
-        self,
-        session_id=None,
-        *,
-        scope="all",
-        offset=0,
-        limit=100,
-        columns=None,
-    ):
-        parameters = {
-            "scope": scope,
-            "offset": offset,
-            "limit": limit,
-        }
-        if columns is not None:
-            parameters["columns"] = ",".join(columns)
-        query = urllib.parse.urlencode(parameters)
-        return await self._get(
-            session_id,
-            f"/api/mcp/v1/nodes?{query}",
-        )
+    async def query_nodes(self, snapshot_id, session_id=None, **arguments):
+        return await self.inspect_data("query_nodes", dict(snapshot_id=snapshot_id, **arguments), session_id)
 
     async def _get(self, session_id, endpoint):
         target = self._target(session_id)
@@ -396,10 +392,11 @@ class MCPViewerClient:
             raise MCPViewerError(str(error)) from error
         return await asyncio.to_thread(self._request, session, endpoint)
 
-    def _request(self, session, endpoint):
+    def _request(self, session, endpoint, data=None):
         request = urllib.request.Request(
             f"{session.base_url}{endpoint}",
-            headers={"Authorization": f"Bearer {session.token}"},
+            headers={"Authorization": f"Bearer {session.token}", "Content-Type": "application/json"},
+            data=json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None,
         )
         try:
             with urllib.request.urlopen(

@@ -268,6 +268,43 @@ def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
         + " Enable Noise-Perturbed Trees with UPGMA to change this setting."
     )
 
+
+def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
+    """Return the enabled state and explanatory tooltip for the isotonic regression plot switch."""
+    if is_blast:
+        return False, "Isotonic regression plots are unavailable for BLAST networks."
+
+    if network_info is None:
+        return False, (
+            "No network is selected. Select a valid network to determine whether "
+            "an isotonic regression plot can be displayed."
+        )
+
+    if network_info.status == "unknown":
+        reason = network_info.reason or "The network metadata could not be validated."
+        return False, f"Network completeness is unknown: {reason}"
+
+    observed = network_info.edge_count
+    expected = network_info.expected_edge_count
+    sequences = network_info.sequence_count
+    if network_info.status == "complete":
+        return False, (
+            f"Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+            "observed pairs. All pairs are already observed, so isotonic regression "
+            "and diagnostic plots are only available for sparse networks."
+        )
+
+    coverage = 100.0 if expected == 0 else 100.0 * observed / expected
+    prefix = (
+        f"Incomplete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+        f"observed pairs ({coverage:.2f}% coverage). "
+    )
+    fallback = (
+        "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\n"
+        "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores."
+    )
+    return True, prefix + (default_tip or fallback)
+
 def get_tool_titles():
     """Map tool script filenames to their display titles in the Markdown descriptions."""
     descriptions_dir = os.path.join(
@@ -2989,6 +3026,20 @@ class ToolsGUI(QMainWindow):
                     else:
                         network_dir = net_combo.folder
                     return os.path.abspath(os.path.join(network_dir, filename))
+
+                def cached_network_completeness():
+                    network_path = selected_network_path()
+                    if network_path is None:
+                        return None
+                    try:
+                        cache_key = file_cache_key(network_path)
+                    except OSError:
+                        return inspect_network_completeness(network_path)
+                    if cache_key not in self.network_completeness_cache:
+                        self.network_completeness_cache[cache_key] = (
+                            inspect_network_completeness(network_path)
+                        )
+                    return self.network_completeness_cache[cache_key]
             
             if net_input and score_input and norm_input and show_plot_input:
                 score_combo = score_input['widget']
@@ -3059,14 +3110,12 @@ class ToolsGUI(QMainWindow):
                     is_blast = network_metadata.network_type == "blast"
                     score_combo.setToolTip(score_default_tip)
                     norm_combo.setToolTip(norm_default_tip)
-                    if is_blast:
-                        update_show_plot_control(
-                            False,
-                            "Isotonic regression plots are unavailable for "
-                            "BLAST networks.",
-                        )
-                    else:
-                        update_show_plot_control(True, show_plot_default_tip)
+
+                    network_info = cached_network_completeness()
+                    plot_enabled, plot_tip = isotonic_regression_switch_state(
+                        network_info, is_blast, show_plot_default_tip
+                    )
+                    update_show_plot_control(plot_enabled, plot_tip)
                     
                     score_combo.setEnabled(not is_blast)
                     norm_combo.setEnabled(not is_blast)
@@ -3126,20 +3175,6 @@ class ToolsGUI(QMainWindow):
                     tree_method_input['widget'] if tree_method_input else None
                 )
 
-                def cached_network_completeness():
-                    network_path = selected_network_path()
-                    if network_path is None:
-                        return None
-                    try:
-                        cache_key = file_cache_key(network_path)
-                    except OSError:
-                        return inspect_network_completeness(network_path)
-                    if cache_key not in self.network_completeness_cache:
-                        self.network_completeness_cache[cache_key] = (
-                            inspect_network_completeness(network_path)
-                        )
-                    return self.network_completeness_cache[cache_key]
-
                 def update_imputed_consensus_toggle(*_):
                     noise_trees_active = (
                         bootstrap_switch.isChecked()
@@ -3159,6 +3194,7 @@ class ToolsGUI(QMainWindow):
                     imputed_consensus_switch.setToolTip(tip)
                     self.tip_db[imputed_consensus_switch] = tip
                     if imputed_consensus_label is not None:
+                        imputed_consensus_label.setEnabled(enabled)
                         imputed_consensus_label.setToolTip(tip)
                         self.tip_db[imputed_consensus_label] = tip
 

@@ -11,6 +11,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
 from EMAPSSN_MCP_Server import _load_agent_instructions, mcp
+from mcp_server.Workflow_Dispatch import REGISTRY
 from mcp import Client, StdioServerParameters
 
 GUIDE = SRC / "mcp_server" / "Agent_Instructions.md"
@@ -27,7 +28,7 @@ class GuideLoadingTests(unittest.TestCase):
             finally:
                 os.chdir(original)
         self.assertGreaterEqual(len(expected.split()), 800)
-        self.assertLessEqual(len(expected.split()), 1200)
+        self.assertLessEqual(len(expected.split()), 1500)
 
     def test_missing_unreadable_or_invalid_utf8_guide_is_actionable(self):
         for error in (FileNotFoundError(), PermissionError(),
@@ -59,12 +60,17 @@ class GuideProtocolTests(unittest.IsolatedAsyncioTestCase):
             table = expected.split("## Run a pipeline")[0]
             references = set(re.findall(r"`([a-z]+_[a-z_]+)`", table))
             self.assertEqual(references, names)
-            self.assertEqual(len(names), 23)
+            self.assertEqual(len(names), 3)
             # Every standalone tool reference in the prose must also resolve.
             identifiers = set(re.findall(r"`([a-z]+_[a-z_]+)`", expected))
             fields = {"tool_id", "settings_document", "settings_path", "job_id",
                       "failure_message", "next_offset"}
             self.assertFalse(identifiers - names - fields)
+            action_references = re.findall(r'(emapssn_[a-z_]+)\(action="([a-z_]+)"\)', expected)
+            self.assertTrue(action_references)
+            for workflow, action in action_references:
+                self.assertIn(workflow, REGISTRY)
+                self.assertIn(action, REGISTRY[workflow])
             for tool in listed.tools:
                 self.assertTrue(tool.description, tool.name)
 
@@ -78,7 +84,10 @@ class GuideProtocolTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(mode=mode):
                 async with Client(parameters, mode=mode, read_timeout_seconds=30) as client:
                     self.assertEqual(client.instructions, GUIDE.read_text(encoding="utf-8"))
-                    self.assertEqual(len((await client.list_tools()).tools), 23)
+                    self.assertEqual({tool.name for tool in (await client.list_tools()).tools}, set(REGISTRY))
+                    self.assertTrue((await client.call_tool("list_pipeline_tools", {})).is_error)
+                    for workflow in REGISTRY:
+                        self.assertFalse((await client.call_tool(workflow, {"action": "help"})).is_error)
 
 
 if __name__ == "__main__":

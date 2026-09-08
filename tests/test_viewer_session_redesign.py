@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from unittest import mock
 
 import numpy as np
@@ -13,7 +14,7 @@ import psutil
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import test_layout_cache_generator as fixtures
 from utilities.Viewer_Settings import validate_viewer_document, ViewerSettingsError, normalize_viewer_settings, DEFAULTS
-from utilities.Execution_Settings import encode_document
+from utilities.Execution_Settings import encode_document, VIEWER_SECTIONS
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
@@ -42,19 +43,25 @@ class SettingsTests(unittest.TestCase):
         self.assertNotIn("network", result)
 
     def test_missing_files_fields_and_manifest_conflicts(self):
-        for key in ("NODE_FASTA_FILE", "INPUT_HDF5", "MSA_FILE", "UMAP_MODE", "ALIGNMENT_SCORE"):
-            doc = dict(self.document); doc.pop(key)
+        field_sections = {key: section for section, keys in VIEWER_SECTIONS.items() for key in keys}
+        for key in ("NODE_FASTA_FILE", "INPUT_HDF5", "MSA_FILE", "TARGET_CACHE_PATH", "ALIGNMENT_REFERENCE"):
+            doc = deepcopy(self.document)
+            doc[field_sections[key]].pop(key)
             with self.subTest(key=key), self.assertRaises(ViewerSettingsError):
                 validate_viewer_document(doc, fixtures.ROOT)
         for override in ({"INPUT_HDF5": "missing.h5"}, {"SIMILARITY_THRESHOLD": 100},
                          {"ALIGNMENT_REFERENCE": "missing"}, {"NODE_SIZE": True}, {"TYPO": 1}):
             with self.subTest(override=override), self.assertRaises(ViewerSettingsError):
-                validate_viewer_document(dict(self.document, **override), fixtures.ROOT)
+                doc = deepcopy(self.document)
+                for key, value in override.items():
+                    doc[field_sections.get(key, "inputs")][key] = value
+                validate_viewer_document(doc, fixtures.ROOT)
 
     def test_aliases_and_header_order(self):
-        doc = dict(self.document, INPUT_FILE_DIR=str(self.root), NODE_FASTA_FILE="$input_file$/set.fasta",
-                   INPUT_HDF5="$input_file$/network.h5")
-        self.assertEqual(validate_viewer_document(doc, fixtures.ROOT)["INPUT_HDF5"], str(self.root / "network.h5"))
+        doc = deepcopy(self.document)
+        doc["directories"]["INPUT_FILE_DIR"] = str(self.root)
+        doc["inputs"].update(NODE_FASTA_FILE="$input_file$/set.fasta", INPUT_HDF5="$input_file$/network.h5")
+        self.assertEqual(validate_viewer_document(doc, fixtures.ROOT)["inputs"]["INPUT_HDF5"], str(self.root / "network.h5"))
         import h5py
         with h5py.File(self.cache, "r+") as cache:
             cache["headers"][:] = cache["headers"][:][::-1]
@@ -78,12 +85,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 output = await client.read_log(info["session_id"])
                 self.assertTrue(output["text"], "Visible Viewer must retain startup terminal output")
                 self.assertIn(f'[{info["session_alias"]}]', summary["window_title"])
-                self.assertEqual(summary["cache_metadata"]["status"], "complete")
+                self.assertEqual(summary["provenance"]["status"], "complete")
                 connected = await client.connect_session(info["session_alias"].lower())
                 self.assertEqual(connected["session_id"], info["session_id"])
                 listed = await client.list_sessions()
                 item = next(s for s in listed["sessions"] if s["session_id"] == info["session_id"])
-                self.assertEqual(item["cache_metadata"]["cache_path"], fixture.cache)
+                self.assertEqual(item["inputs"]["layout_cache"], fixture.cache)
                 self.assertEqual(item["session_alias"], info["session_alias"])
                 if sys.platform == "win32":
                     import ctypes
@@ -163,27 +170,27 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.dict(os.environ, environment), mock.patch.object(tempfile, "tempdir", str(fixture.root)), mock.patch("mcp.os.win32.utilities._create_job_object", return_value=None):
             try:
                 async with Client(parameters, read_timeout_seconds=60) as first:
-                    started = await first.call_tool("start_viewer_session", {"mode": "headless", "settings_document": fixture.document})
+                    started = await first.call_tool("emapssn_viewer_control", {"action": "start_session", "arguments": {"mode": "headless", "settings_document": fixture.document}})
                     self.assertFalse(started.is_error, str(started))
                     info = started.structured_content
-                    output = await first.call_tool("read_viewer_log")
+                    output = await first.call_tool("emapssn_viewer_data", {"action": "read_log", "arguments": {}})
                     self.assertFalse(output.is_error, str(output))
                     self.assertTrue(output.structured_content["text"])
                     async with Client(mcp) as second:
-                        self.assertTrue((await second.call_tool("get_viewer_summary")).is_error)
-                        connected = await second.call_tool("connect_viewer_session", {"session_id": info["session_id"]})
+                        self.assertTrue((await second.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})).is_error)
+                        connected = await second.call_tool("emapssn_viewer_control", {"action": "connect_session", "arguments": {"session_id": info["session_id"]}})
                         self.assertFalse(connected.is_error, str(connected))
-                        self.assertFalse((await second.call_tool("disconnect_viewer_session")).is_error)
-                        self.assertTrue((await second.call_tool("get_viewer_summary")).is_error)
-                        response = await first.call_tool("get_viewer_summary")
+                        self.assertFalse((await second.call_tool("emapssn_viewer_control", {"action": "disconnect_session", "arguments": {}})).is_error)
+                        self.assertTrue((await second.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})).is_error)
+                        response = await first.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})
                         self.assertFalse(response.is_error, str(response))
                 # The STDIO server is gone; the independent Viewer must still answer.
                 async with Client(parameters, read_timeout_seconds=60) as third:
-                    connected = await third.call_tool("connect_viewer_session", {"session_id": info["session_id"]})
+                    connected = await third.call_tool("emapssn_viewer_control", {"action": "connect_session", "arguments": {"session_id": info["session_id"]}})
                     self.assertFalse(connected.is_error, str(connected))
-                    summary = await third.call_tool("get_viewer_summary")
+                    summary = await third.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})
                     self.assertEqual(summary.structured_content["node_count"], 2)
-                    closed = await third.call_tool("close_viewer_session")
+                    closed = await third.call_tool("emapssn_viewer_control", {"action": "close_session", "arguments": {}})
                     self.assertFalse(closed.is_error, str(closed))
                     self.assertFalse(psutil.pid_exists(info["pid"]))
                     info = None

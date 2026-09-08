@@ -187,6 +187,28 @@ raise SystemExit(int(settings.get("EXIT_CODE", 0)))
         repeated = await self.manager.cancel(running["job_id"])
         self.assertEqual(repeated["status"], "cancelled")
 
+    async def test_workflow_job_failure_paging_and_cancellation(self):
+        from mcp_server.Workflow_Dispatch import dispatch
+        ctx = SimpleNamespace(request_context=SimpleNamespace(
+            lifespan_context=SimpleNamespace(jobs=self.manager)))
+        failed = await self.manager.submit("sanitize_sequences", self._document(
+            STDOUT="abcdef", STDERR="problem", EXIT_CODE=7))
+        await self.manager.wait_for_terminal(failed["job_id"])
+        status = await dispatch("emapssn_pipeline", "get_job", {"job_id": failed["job_id"]}, ctx)
+        self.assertEqual(status["status"], "failed")
+        first = await dispatch("emapssn_pipeline", "read_log", {
+            "job_id": failed["job_id"], "stream": "stdout", "limit": 3}, ctx)
+        second = await dispatch("emapssn_pipeline", "read_log", {
+            "job_id": failed["job_id"], "stream": "stdout", "offset": first["next_offset"]}, ctx)
+        self.assertEqual(first["text"], "abc")
+        self.assertEqual(second["text"].strip(), "def")
+        running = await self.manager.submit("sanitize_sequences", self._document(DELAY=10))
+        await self._wait_for_status(running["job_id"], "running")
+        queued = await self.manager.submit("sanitize_sequences", self._document())
+        for job in (queued, running):
+            result = await dispatch("emapssn_pipeline", "cancel_job", {"job_id": job["job_id"]}, ctx)
+            self.assertEqual(result["status"], "cancelled")
+
 
 class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -214,72 +236,41 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             async with Client(mcp) as client:
                 listed = await client.list_tools()
                 names = [tool.name for tool in listed.tools]
-                self.assertEqual(
-                    names,
-                    [
-                        "list_pipeline_tools",
-                        "get_compute_capabilities",
-                        "inspect_pipeline_file",
-                        "get_pipeline_tool_schema",
-                        "validate_pipeline_settings",
-                        "start_pipeline_job",
-                        "start_layout_job",
-                        "list_pipeline_jobs",
-                        "get_pipeline_job",
-                        "read_pipeline_log",
-                        "cancel_pipeline_job",
-                        "list_viewer_sessions",
-                        "get_viewer_summary",
-                        "query_viewer_nodes",
-                        "start_viewer_session",
-                        "close_viewer_session",
-                        "get_viewer_settings_schema",
-                        "export_pipeline_settings",
-                        "export_config_settings",
-                        "validate_viewer_settings",
-                        "connect_viewer_session",
-                        "disconnect_viewer_session",
-                        "read_viewer_log",
-                    ],
-                )
+                self.assertEqual(names, ["emapssn_pipeline", "emapssn_viewer_data", "emapssn_viewer_control"])
                 annotations = {tool.name: tool.annotations for tool in listed.tools}
-                self.assertTrue(annotations["list_pipeline_tools"].read_only_hint)
-                self.assertTrue(annotations["get_compute_capabilities"].read_only_hint)
-                self.assertTrue(annotations["inspect_pipeline_file"].read_only_hint)
-                self.assertTrue(annotations["start_pipeline_job"].destructive_hint)
-                self.assertTrue(annotations["start_layout_job"].destructive_hint)
-                self.assertTrue(annotations["cancel_pipeline_job"].idempotent_hint)
+                self.assertTrue(annotations["emapssn_viewer_data"].read_only_hint)
+                self.assertFalse(annotations["emapssn_pipeline"].read_only_hint)
+                self.assertTrue(annotations["emapssn_pipeline"].destructive_hint)
+                self.assertTrue(annotations["emapssn_viewer_control"].destructive_hint)
 
-                catalog = await client.call_tool("list_pipeline_tools")
+                catalog = await client.call_tool("emapssn_pipeline", {"action": "list_tools", "arguments": {}})
                 self.assertFalse(catalog.is_error)
                 self.assertEqual(len(catalog.structured_content["tools"]), 14)
                 self.assertEqual(catalog.structured_content["max_pending"], 16)
 
-                invalid = await client.call_tool(
-                    "start_pipeline_job",
-                    {"tool_id": "sanitize_sequences"},
-                )
+                invalid = await client.call_tool("emapssn_pipeline", {"action": "start_job", "arguments": {"tool_id": "sanitize_sequences"}})
                 self.assertTrue(invalid.is_error)
                 from mcp_server.Compute_Capabilities import empty_report
                 with mock.patch("mcp_server.Compute_Capabilities.discover_compute_capabilities", return_value=empty_report()):
-                    hardware = await client.call_tool("get_compute_capabilities", {})
+                    hardware = await client.call_tool("emapssn_pipeline", {"action": "get_compute_capabilities", "arguments": {}})
                     self.assertFalse(hardware.is_error)
                     self.assertTrue(hardware.structured_content["metadata_only"])
-                invalid_hardware = await client.call_tool("get_compute_capabilities", {"tool_id": "unknown"})
+                invalid_hardware = await client.call_tool("emapssn_pipeline", {"action": "get_compute_capabilities", "arguments": {"tool_id": "unknown"}})
                 self.assertTrue(invalid_hardware.is_error)
                 for tool_id in ("generate_embeddings", "embedding_msa"):
-                    schema = await client.call_tool("get_pipeline_tool_schema", {"tool_id": tool_id})
+                    schema = await client.call_tool("emapssn_pipeline", {"action": "get_tool_schema", "arguments": {"tool_id": tool_id}})
                     self.assertFalse(schema.is_error)
                     self.assertEqual(schema.structured_content["schema_version"], 1)
-                bad_preview = await client.call_tool("validate_pipeline_settings", {
-                    "tool_id": "sanitize_sequences", "parameters": {"OVER_WRTE": True}})
+                bad_preview = await client.call_tool("emapssn_pipeline", {"action": "validate_settings", "arguments": {
+                    "tool_id": "sanitize_sequences", "parameters": {"OVER_WRTE": True}}})
                 self.assertFalse(bad_preview.is_error)
                 self.assertFalse(bad_preview.structured_content["valid"])
                 self.assertTrue(any(e["field"] == "parameters.OVER_WRTE" for e in bad_preview.structured_content["errors"]))
-                viewers = await client.call_tool("list_viewer_sessions")
+                viewers = await client.call_tool("emapssn_viewer_data", {"action": "list_sessions", "arguments": {}})
                 self.assertEqual(
                     viewers.structured_content,
-                    {"sessions": [], "automatic_selection": False, "connected_session_id": None},
+                    {"sessions": [], "automatic_selection": False, "connected_session_id": None,
+                     "offset": 0, "next_offset": 0, "total": 0, "returned_count": 0, "complete": True},
                 )
 
     async def test_real_stdio_subprocess_has_a_clean_protocol_channel(self):
@@ -294,28 +285,28 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             async with Client(parameters, read_timeout_seconds=30) as client:
                 listed = await client.list_tools()
-                self.assertEqual(len(listed.tools), 23)
-                hardware = await client.call_tool("get_compute_capabilities", {})
+                self.assertEqual(len(listed.tools), 3)
+                hardware = await client.call_tool("emapssn_pipeline", {"action": "get_compute_capabilities", "arguments": {}})
                 self.assertFalse(hardware.is_error)
                 self.assertTrue(hardware.structured_content["metadata_only"])
                 self.assertIn(hardware.structured_content["status"], ("ok", "partial", "unavailable"))
-                catalog = await client.call_tool("list_pipeline_tools")
+                catalog = await client.call_tool("emapssn_pipeline", {"action": "list_tools", "arguments": {}})
                 self.assertFalse(catalog.is_error)
                 self.assertEqual(len(catalog.structured_content["tools"]), 14)
-                schema = await client.call_tool("get_pipeline_tool_schema", {"tool_id": "sanitize_sequences"})
+                schema = await client.call_tool("emapssn_pipeline", {"action": "get_tool_schema", "arguments": {"tool_id": "sanitize_sequences"}})
                 self.assertFalse(schema.is_error)
-                exported = await client.call_tool("export_pipeline_settings", {
+                exported = await client.call_tool("emapssn_pipeline", {"action": "export_tool_settings", "arguments": {
                     "tool_id": "sanitize_sequences",
                     "output_path": str(pathlib.Path(session_directory) / "exported.json"),
-                })
+                }})
                 self.assertFalse(exported.is_error)
                 exported_path = pathlib.Path(exported.structured_content["settings_path"])
                 exported_doc = json.loads(exported_path.read_text())
                 exported_doc["Sanitize_Sequences.py"]["INPUT_FASTA"] = "future.fasta"
                 exported_path.write_text(json.dumps(exported_doc))
-                validated_export = await client.call_tool("validate_pipeline_settings", {
+                validated_export = await client.call_tool("emapssn_pipeline", {"action": "validate_settings", "arguments": {
                     "tool_id": "sanitize_sequences", "settings_path": str(exported_path),
-                })
+                }})
                 self.assertTrue(validated_export.structured_content["valid"])
                 from tests.test_layout_cache_generator import _write_inputs, _settings_document
                 layout_root = pathlib.Path(session_directory)
@@ -324,20 +315,17 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 layout_doc["output"]["CACHE_NAME_MODE"] = "auto"
                 layout_source = layout_root / "layout-source.json"
                 layout_source.write_text(json.dumps(layout_doc))
-                config_export = await client.call_tool("export_config_settings", {
-                    "kind": "layout", "settings_path": str(layout_source),
-                    "output_path": str(layout_root / "layout-export.json"),
-                })
+                config_export = await client.call_tool("emapssn_pipeline", {"action": "export_layout_settings", "arguments": {"settings_path": str(layout_source), "output_path": str(layout_root / "layout-export.json")}})
                 self.assertFalse(config_export.is_error, str(config_export))
                 self.assertEqual(config_export.structured_content["cache_filename"], "version_00.h5")
                 self.assertFalse(pathlib.Path(config_export.structured_content["cache_path"]).exists())
-                preview = await client.call_tool("validate_pipeline_settings", {
-                    "tool_id": "sanitize_sequences", "parameters": {"INPUT_FASTA": "future.fasta"}})
+                preview = await client.call_tool("emapssn_pipeline", {"action": "validate_settings", "arguments": {
+                    "tool_id": "sanitize_sequences", "parameters": {"INPUT_FASTA": "future.fasta"}}})
                 self.assertTrue(preview.structured_content["valid"])
 
                 fasta = pathlib.Path(session_directory) / "inspection.fasta"
                 fasta.write_text(">a\nAC\n", encoding="utf-8")
-                inspected = await client.call_tool("inspect_pipeline_file", {"path": str(fasta)})
+                inspected = await client.call_tool("emapssn_pipeline", {"action": "inspect_file", "arguments": {"path": str(fasta)}})
                 self.assertFalse(inspected.is_error)
                 self.assertEqual(inspected.structured_content["structural_validity"], "valid")
                 self.assertEqual(inspected.structured_content["generation_completion"]["status"], "unknown")
@@ -349,25 +337,25 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             request = {"tool_id": "sanitize_sequences", "parameters": {"INPUT_FASTA": str(fasta)},
                        "directories": {"FASTA_DIR": temp}}
             async with Client(mcp, read_timeout_seconds=10) as client:
-                schema = await client.call_tool("get_pipeline_tool_schema", {"tool_id": "sanitize_sequences"})
+                schema = await client.call_tool("emapssn_pipeline", {"action": "get_tool_schema", "arguments": {"tool_id": "sanitize_sequences"}})
                 self.assertIn("OVER_WRITE", schema.structured_content["parameters_schema"]["properties"])
-                preview = await client.call_tool("validate_pipeline_settings", request)
+                preview = await client.call_tool("emapssn_pipeline", {"action": "validate_settings", "arguments": request})
                 self.assertTrue(preview.structured_content["valid"])
-                listed = await client.call_tool("list_pipeline_jobs")
+                listed = await client.call_tool("emapssn_pipeline", {"action": "list_jobs", "arguments": {}})
                 self.assertEqual(listed.structured_content["jobs"], [])
-                inspected = await client.call_tool("inspect_pipeline_file", {"path": str(fasta)})
+                inspected = await client.call_tool("emapssn_pipeline", {"action": "inspect_file", "arguments": {"path": str(fasta)}})
                 self.assertFalse(inspected.is_error)
                 self.assertEqual(inspected.structured_content["metadata"]["sequence_count"], 2)
-                listed = await client.call_tool("list_pipeline_jobs")
+                listed = await client.call_tool("emapssn_pipeline", {"action": "list_jobs", "arguments": {}})
                 self.assertEqual(listed.structured_content["jobs"], [])
                 files_before = set(pathlib.Path(self.protocol_temp.name).rglob("*"))
-                invalid = await client.call_tool("start_pipeline_job", {
-                    **request, "parameters": {"INPUT_FASTA": str(fasta), "OVER_WRITE": "true"}})
+                invalid = await client.call_tool("emapssn_pipeline", {"action": "start_job", "arguments": {
+                    **request, "parameters": {"INPUT_FASTA": str(fasta), "OVER_WRITE": "true"}}})
                 self.assertTrue(invalid.is_error)
                 self.assertEqual(set(pathlib.Path(self.protocol_temp.name).rglob("*")), files_before)
-                listed = await client.call_tool("list_pipeline_jobs")
+                listed = await client.call_tool("emapssn_pipeline", {"action": "list_jobs", "arguments": {}})
                 self.assertEqual(listed.structured_content["jobs"], [])
-                started = await client.call_tool("start_pipeline_job", request)
+                started = await client.call_tool("emapssn_pipeline", {"action": "start_job", "arguments": request})
                 self.assertFalse(started.is_error)
                 job = started.structured_content
                 self.assertEqual(json.loads(pathlib.Path(job["settings_snapshot"]).read_text()),
@@ -375,10 +363,10 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 deadline = asyncio.get_running_loop().time() + 15
                 while job["status"] in {"queued", "running"} and asyncio.get_running_loop().time() < deadline:
                     await asyncio.sleep(0.05)
-                    status = await client.call_tool("get_pipeline_job", {"job_id": job["job_id"]})
+                    status = await client.call_tool("emapssn_pipeline", {"action": "get_job", "arguments": {"job_id": job["job_id"]}})
                     job = status.structured_content
                 self.assertEqual(job["status"], "succeeded", job)
-                log = await client.call_tool("read_pipeline_log", {"job_id": job["job_id"], "stream": "stdout"})
+                log = await client.call_tool("emapssn_pipeline", {"action": "read_log", "arguments": {"job_id": job["job_id"], "stream": "stdout"}})
                 self.assertIn("Frequency (sequences)", log.structured_content["text"])
                 self.assertEqual((pathlib.Path(temp) / "input_sanitized.fasta").read_text(),
                                  ">a\nAC\n>b\nACDEF\n")
@@ -408,10 +396,10 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
 
             async with Client(mcp, read_timeout_seconds=20) as client:
                 # 1. Invalid request (physics without threshold/top_edge_percent)
-                bad_job = await client.call_tool("start_layout_job", {
+                bad_job = await client.call_tool("emapssn_pipeline", {"action": "start_layout_job", "arguments": {
                     "node_fasta_file": str(fasta),
                     "input_hdf5": str(network_path),
-                })
+                }})
                 self.assertTrue(bad_job.is_error)
 
                 # 2. Valid request
@@ -422,7 +410,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     "similarity_threshold": 0.1,
                     "directories": {"SAVED_LAYOUT_DIR": str(layouts_dir)},
                 }
-                started = await client.call_tool("start_layout_job", valid_request)
+                started = await client.call_tool("emapssn_pipeline", {"action": "start_layout_job", "arguments": valid_request})
                 self.assertFalse(started.is_error)
                 job = started.structured_content
                 self.assertEqual(job["tool_id"], "generate_layout_cache")
@@ -430,7 +418,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 deadline = asyncio.get_running_loop().time() + 20
                 while job["status"] in {"queued", "running"} and asyncio.get_running_loop().time() < deadline:
                     await asyncio.sleep(0.1)
-                    status = await client.call_tool("get_pipeline_job", {"job_id": job["job_id"]})
+                    status = await client.call_tool("emapssn_pipeline", {"action": "get_job", "arguments": {"job_id": job["job_id"]}})
                     job = status.structured_content
 
                 self.assertEqual(job["status"], "succeeded", job)
@@ -441,10 +429,10 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 cache_file = cache_files[0]
 
                 # 3. Inspect layout cache explicitly
-                inspected = await client.call_tool("inspect_pipeline_file", {
+                inspected = await client.call_tool("emapssn_pipeline", {"action": "inspect_file", "arguments": {
                     "path": str(cache_file),
                     "file_type": "layout_cache",
-                })
+                }})
                 self.assertFalse(inspected.is_error)
                 report = inspected.structured_content
                 self.assertEqual(report["detected_format"], "layout_cache")
@@ -453,9 +441,9 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(report["metadata"]["node_count"], 2)
 
                 # 4. Inspect layout cache with auto-detection
-                auto_inspected = await client.call_tool("inspect_pipeline_file", {
+                auto_inspected = await client.call_tool("emapssn_pipeline", {"action": "inspect_file", "arguments": {
                     "path": str(cache_file),
-                })
+                }})
                 self.assertFalse(auto_inspected.is_error)
                 self.assertEqual(auto_inspected.structured_content["detected_format"], "layout_cache")
 
@@ -483,40 +471,42 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 hf.create_dataset("l_len", data=np.asarray([2], dtype=np.uint16))
             async with Client(mcp, read_timeout_seconds=60) as client:
                 # 0. Generate layout cache using start_layout_job
-                started_layout = await client.call_tool("start_layout_job", {
+                started_layout = await client.call_tool("emapssn_pipeline", {"action": "start_layout_job", "arguments": {
                     "node_fasta_file": str(fasta),
                     "input_hdf5": str(network_path),
                     "cache_filename": "version_00.h5",
                     "similarity_threshold": 0.1,
                     "directories": {"SAVED_LAYOUT_DIR": str(layouts_dir)},
-                })
+                }})
                 self.assertFalse(started_layout.is_error)
                 job = started_layout.structured_content
                 deadline = asyncio.get_running_loop().time() + 20
                 while job["status"] in {"queued", "running"} and asyncio.get_running_loop().time() < deadline:
                     await asyncio.sleep(0.1)
-                    status = await client.call_tool("get_pipeline_job", {"job_id": job["job_id"]})
+                    status = await client.call_tool("emapssn_pipeline", {"action": "get_job", "arguments": {"job_id": job["job_id"]}})
                     job = status.structured_content
                 self.assertEqual(job["status"], "succeeded")
                 cache_file = list(layouts_dir.rglob("version_00.h5"))[0]
 
                 # 1. Invalid cache path
-                bad_start = await client.call_tool("start_viewer_session", {
+                bad_start = await client.call_tool("emapssn_viewer_control", {"action": "start_session", "arguments": {
                     "cache_path": str(temp_path / "nonexistent.h5"),
-                })
+                }})
                 self.assertTrue(bad_start.is_error)
 
-                # 2. Valid start in headless mode with settings_document
-                started = await client.call_tool("start_viewer_session", {
+                # 2. Valid start using the current complete Viewer document contract.
+                from utilities.Execution_Settings import encode_document
+                from utilities.Viewer_Settings import DEFAULTS
+                started = await client.call_tool("emapssn_viewer_control", {"action": "start_session", "arguments": {
                     "mode": "headless",
-                    "settings_document": {
+                    "settings_document": encode_document("viewer", {**DEFAULTS,
                         "TARGET_CACHE_PATH": str(cache_file), "NODE_FASTA_FILE": str(fasta),
                         "INPUT_HDF5": str(network_path), "MSA_FILE": "", "ALIGNMENT_REFERENCE": "",
                         "ALIGNMENT_SCORE": "global", "NORM_MODE": "alignment_length",
                         "UMAP_MODE": False, "SIMILARITY_THRESHOLD": 0.1, "TOP_EDGE_PERCENT": None,
                         "NODE_SIZE": 15,
-                    },
-                })
+                    }),
+                }})
                 self.assertFalse(started.is_error, str(started))
                 session_info = started.structured_content
                 self.assertEqual(session_info["status"], "ready")
@@ -526,32 +516,33 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
 
                 try:
                     # 3. List sessions
-                    sessions = await client.call_tool("list_viewer_sessions")
+                    sessions = await client.call_tool("emapssn_viewer_data", {"action": "list_sessions", "arguments": {}})
                     self.assertFalse(sessions.is_error)
                     listed_ids = [s["session_id"] for s in sessions.structured_content["sessions"]]
                     self.assertIn(session_id, listed_ids)
 
-                    disconnected = await client.call_tool("disconnect_viewer_session")
+                    disconnected = await client.call_tool("emapssn_viewer_control", {"action": "disconnect_session", "arguments": {}})
                     self.assertFalse(disconnected.is_error)
-                    unbound = await client.call_tool("get_viewer_summary")
+                    unbound = await client.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})
                     self.assertTrue(unbound.is_error)
-                    connected = await client.call_tool("connect_viewer_session", {"session_id": session_id})
+                    connected = await client.call_tool("emapssn_viewer_control", {"action": "connect_session", "arguments": {"session_id": session_id}})
                     self.assertFalse(connected.is_error, str(connected))
                     # 4. Query summary
-                    summary = await client.call_tool("get_viewer_summary", {"session_id": session_id})
+                    summary = await client.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {"session_id": session_id}})
                     self.assertFalse(summary.is_error)
                     self.assertEqual(summary.structured_content["node_count"], 2)
 
                     # 5. Query nodes
-                    nodes = await client.call_tool("query_viewer_nodes", {
+                    nodes = await client.call_tool("emapssn_viewer_data", {"action": "query_nodes", "arguments": {
                         "session_id": session_id,
+                        "snapshot_id": summary.structured_content["snapshot_id"],
                         "limit": 10,
-                    })
+                    }})
                     self.assertFalse(nodes.is_error)
-                    self.assertEqual(len(nodes.structured_content["nodes"]), 2)
+                    self.assertEqual(len(nodes.structured_content["rows"]), 2)
                 finally:
                     # 6. Close session
-                    closed = await client.call_tool("close_viewer_session", {"session_id": session_id})
+                    closed = await client.call_tool("emapssn_viewer_control", {"action": "close_session", "arguments": {"session_id": session_id}})
                     self.assertFalse(closed.is_error)
                     self.assertTrue(closed.structured_content["closed"])
 
@@ -584,6 +575,7 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
                 ],
                 "automatic_selection": True,
                 "connected_session_id": None,
+                "offset": 0, "next_offset": 1, "total": 1, "returned_count": 1, "complete": True,
             },
         )
         self.assertNotIn("secret-token", json.dumps(payload))

@@ -54,6 +54,11 @@ class ViewerInspectionService:
     def __init__(self, viewer, configuration=None):
         self._viewer = viewer
         self._configuration = configuration
+        from mcp_server.Viewer_Snapshots import SnapshotStore
+        self.snapshots = SnapshotStore()
+
+    def capture_snapshot(self):
+        return self.snapshots.capture(self)
 
     def _node_count(self):
         viewer = self._viewer

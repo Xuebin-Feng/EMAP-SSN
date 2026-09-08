@@ -1,9 +1,42 @@
-# MCP settings (server 0.7.0, pipeline settings schema 1)
+# MCP settings (server 0.9.0, pipeline settings schema 1)
+
+## Three workflow tools (breaking migration)
+
+Only `emapssn_pipeline`, `emapssn_viewer_data`, and `emapssn_viewer_control`
+are registered. Old MCP tool names are removed, with no aliases or legacy mode.
+Restart the server and refresh the client's tool catalog; update saved calls.
+Host approval persistence is controlled by the MCP client, not this server.
+
+Call `help` inside each entry point for its action catalog, then `describe` for
+an individual action's argument schema, effects and example. Arguments are strict
+and reject unknown keys. Example MCP tool name: `emapssn_pipeline`; call arguments:
+
+```json
+{"action": "describe", "arguments": {"action": "start_layout_job"}}
+```
+
+```json
+{"action": "start_layout_job", "arguments": {"settings_path": "layout.json"}}
+```
+
+Layout generation remains separate from pipeline IDs but shares their job queue.
+The cache workflow is pipeline `export_layout_settings` → `start_layout_job` →
+`get_job` / `read_log` → `inspect_file`, followed by viewer-control
+`export_settings` → `validate_settings` → `start_session`.
+The two export actions do not accept `kind`. Existing action result payloads,
+node limits, file contracts, queue ownership and connection isolation are preserved.
+Viewer-data is read-only; the other entry points can write files or change state.
+Richer viewer analyses and response-size budgets are outside this migration.
+
+Below, notation such as `emapssn_pipeline(action="inspect_file")` identifies the
+tool and selected action. Unless a snippet includes `action`, its JSON is the
+contents of the `arguments` object, not the complete MCP call.
+
 
 ## Agent navigation instructions
 
-For a new Viewer or layout, agents must start with `export_config_settings`
-(`kind="viewer"` or `kind="layout"`). Export merges saved `viewer_settings.json`
+For a new Viewer use `emapssn_viewer_control(action="export_settings")`; for a
+layout use `emapssn_pipeline(action="export_layout_settings")`. Export merges saved `viewer_settings.json`
 preferences into the output, including visual, simulation, and physics values.
 Edit only requested fields and necessary dependent inputs, then validate/execute
 the full exported JSON. A Viewer cache-selection overlay can be supplied through
@@ -22,8 +55,8 @@ steps for clients navigating through tool discovery.
 Maintain workflow guidance in that file and parameter rules in tool schemas.
 Restart the MCP server after changing the guide or tool descriptions. A missing,
 unreadable, invalid UTF-8, or empty guide causes an actionable startup error;
-there is no embedded fallback. These documentation changes add no tools and do
-not change execution contracts.
+there is no embedded fallback. The 0.8.0 migration replaces the old public tool names; backend execution
+contracts remain unchanged.
 
 ## Viewer aliases and cache provenance
 
@@ -38,33 +71,79 @@ MCP session arguments accept either a full UUID or the exact eight-character ali
 continue to store full UUIDs internally. Listings, launch results and connect results
 expose `session_alias` alongside the existing `session_id`.
 
-`list_viewer_sessions` and `get_viewer_summary` expose `cache_metadata`, containing
-the absolute `cache_path`, `cache_filename`, the three provenance `attributes`,
-parsed `generation_parameters`, and the parent `folder_manifest`. The reader checks
-the manifest's own identity, its match to `cache_manifest_id`, and the SHA-256
-`layout_compatibility_id` against the canonical parameter JSON. It reads no datasets
-and runs outside the Qt UI thread. Results are refreshed when file identity, size
-or timestamps change and do not rewrite caches.
+`emapssn_viewer_data(action="list_sessions")` pages compact session identities and
+input paths without allocating snapshots. `get_summary` captures immutable backend
+metadata/memberships and returns compact cache provenance (status, filename,
+manifest ID), not complete generation documents. For full file provenance use
+pipeline action `inspect_file` on the known cache path. Provenance checks read no
+numerical datasets and do not establish numerical correctness.
 
-Metadata `status` is `complete`, `partial`, `invalid`, or `unavailable`, with
-`diagnostics`. Older caches missing provenance remain discoverable. If a Viewer
-stops responding during listing, its entry retains identity and reports
-`metadata_error`. Generation parameters describe the saved cache, while fields such
-as `active_threshold` describe current interactive state. A valid provenance hash
-does not establish that coordinates have never been manually edited.
+### Snapshot data access (0.9.0 migration)
+
+The public MCP catalog still contains exactly three entry points. All following
+actions belong to `emapssn_viewer_data`, using its `action` and `arguments` shape:
+
+1. `get_summary` captures a fresh snapshot and returns `snapshot_id`, capture time,
+   population counts, metadata preview, loaded edge count, alignment coverage and
+   effective reference information. Existing snapshots do not follow Viewer edits.
+2. `describe_fields` pages field types, valid/missing/invalid counts and provenance
+   availability. Historical per-column source information is unavailable.
+3. `create_subset` requires `snapshot_id` and `scope` (`all`, `visible`, `selected`),
+   with an optional Boolean selection `expression`. Supported atoms are headers,
+   metadata, labels and `$sele$`; file and residue atoms are rejected before evaluation.
+4. `summarize_subset` accepts optional `subset_id` and `columns`; omitted subset
+   means the whole snapshot. Numeric `quantiles` are min, Q1, median, Q3, max.
+   Text output includes top ten categories, other/missing counts, and pageable full
+   category counts. Membership rows include noise separately; groups can overlap.
+5. `query_nodes` requires `snapshot_id`, accepts optional `subset_id` and explicit
+   `columns`, and returns `rows`. Default limit is 25; omitted columns means no
+   metadata. This intentionally replaces the old live scope/offset query contract.
+6. `read_value` takes snapshot ID, node `index`, `field` (`node_id`, `groups`, or
+   `metadata`) and metadata `column` when applicable. Concatenate returned `text`
+   slices using `next_offset`, then JSON-decode once to recover the exact value.
+   Group-category references also supply `member_index` to identify one label
+   unambiguously; omit it when retrieving the node's complete membership list.
+
+All snapshot data responses have a default serialized UTF-8 JSON budget of 16384
+bytes, configurable with `max_bytes` from 1024 to 65536. Pagination uses opaque
+`next_cursor` values bound to the snapshot, subset, action and query. Changing the
+page limit or budget is allowed; changing columns is a different query. Oversized
+node values carry explicit omission markers and exact retrieval references.
+If one indivisible row cannot fit, request fewer columns or a larger budget.
+`list_sessions` uses row offsets (`next_offset`) and reflects changing live discovery;
+`read_log` retains byte offsets and now defaults to 8192 bytes.
+
+Snapshots live only in the Viewer process: two snapshots, 256 MiB conservative
+accounted storage, 15-minute idle expiry, 32 subsets per snapshot. Capture rejects
+oversized datasets before copying and evicts least-recently-used idle snapshots.
+Expired or cross-Viewer IDs produce refresh-required errors. There are no file
+writes, GUI selection changes or command executions. Older Viewers must be restarted
+after upgrade; the client checks `snapshots_v1` capability before sending data requests.
+
+The Qt bridge copies only the required source data. Filtering, aggregation,
+provenance reads and formatting run in HTTP workers, outside the Qt event thread.
+Sequence/edge records, MSA matrices, coordinates and command-derived analysis are
+outside this stage. Numeric NaN/None/blank values count as missing; infinities and
+unparseable numeric values count as invalid. Non-finite record values are explicitly
+tagged as {"nonfinite":"NaN"}, {"nonfinite":"Infinity"}, or {"nonfinite":"-Infinity"}
+rather than silently converted to null. Unknown annotation sources are not inferred.
+Selection expressions retain the command engine grammar, including `$sele$` and
+its restrictions on metadata property names. JSON column projection and read_value
+preserve arbitrary column names, including commas and Unicode.
+
 
 ## Export, edit, validate, execute
 
 Agents can export saved application settings instead of constructing a complete
-JSON document. `export_pipeline_settings(tool_id, output_path=None)` exports only
+JSON document. `emapssn_pipeline(action="export_tool_settings")(tool_id, output_path=None)` exports only
 the selected tool and its required directories, inheriting `tools_settings.json`
 and filling missing values from the tool defaults. Empty selectors remain editable.
 
-`export_config_settings(kind, output_path=None, settings_path=None)` supports:
+The settings-export actions accept `output_path` and `settings_path`:
 
-- `kind="layout"`: generation inputs, filtering, physics/UMAP settings and output
+- `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP settings and output
   destination. Visual settings and MSA display settings are excluded.
-- `kind="viewer"`: a full effective snapshot of Inputs, Visuals, Physics and
+- `emapssn_viewer_control(action="export_settings")`: a full effective snapshot of Inputs, Visuals, Physics and
   Directories, with the selected existing cache. This is configuration, not window state.
 
 Config inherits saved `viewer_settings.json`. An optional edited JSON file overlays
@@ -81,9 +160,9 @@ does not update personal settings, compute a layout or reserve a cache filename.
 
 Each result contains `settings_path` and `settings_document`; Config results also
 contain `cache_path` and `cache_filename`. Edit the file, validate pipeline JSON
-with `validate_pipeline_settings` or Viewer JSON with `validate_viewer_settings`,
-and submit its path to `start_pipeline_job`, `start_layout_job` or
-`start_viewer_session`. Layout settings are validated on submission and cache/input
+with `emapssn_pipeline(action="validate_settings")` or Viewer JSON with `emapssn_viewer_control(action="validate_settings")`,
+and submit its path to `emapssn_pipeline(action="start_job")`, `emapssn_pipeline(action="start_layout_job")` or
+`emapssn_viewer_control(action="start_session")`. Layout settings are validated on submission and cache/input
 compatibility is rechecked in the worker. Execution does not reapply saved preferences.
 
 ### Cache naming and Viewer selection
@@ -137,15 +216,15 @@ The example filenames are chosen destinations, not pre-existing files. CLI expor
 writes a JSON result to stdout; diagnostics go to stderr. Runtime calculation logs
 remain in the MCP job's private log files.
 
-Use `list_pipeline_tools` to choose one of the 14 pipeline IDs, then
-`get_pipeline_tool_schema` with `{"tool_id": "sanitize_sequences"}` to discover
+Use `emapssn_pipeline(action="list_tools")` to choose one of the 14 pipeline IDs, then
+`emapssn_pipeline(action="get_tool_schema")` with `{"tool_id": "sanitize_sequences"}` to discover
 accepted parameters, descriptions, native JSON types, defaults, allowed choices,
 conditional inputs, directory semantics, and an example. Discovery reads static
 metadata without importing models or initializing a GUI or accelerator.
 
 ## Hardware discovery
 
-Call `get_compute_capabilities` with `{}` for runtime devices and system resources,
+Call `emapssn_pipeline(action="get_compute_capabilities")` with `{}` for runtime devices and system resources,
 or `{"tool_id": "align_similarity_matrix"}` to include applicable pipeline settings.
 This read-only endpoint enumerates devices usable by the server's Python environment,
 preserving installer-approved filtering. It does not scan installed hardware that
@@ -175,7 +254,7 @@ constraints remain runtime checks. Settings validation is unchanged.
 
 ## Inspect an explicitly selected file
 
-Use `inspect_pipeline_file` before submission when file-level evidence is useful:
+Use `emapssn_pipeline(action="inspect_file")` before submission when file-level evidence is useful:
 
 ```json
 {"path": "Embeddings/proteins_embeddings.h5", "tool_id": "embedding_msa"}
@@ -256,7 +335,7 @@ queued jobs may depend on files that preceding jobs have not yet produced.
 
 ## Preview and submit
 
-Call `validate_pipeline_settings` with:
+Call `emapssn_pipeline(action="validate_settings")` with:
 
 ```json
 {
@@ -275,7 +354,7 @@ Call `validate_pipeline_settings` with:
 The preview returns `valid`, field-specific `errors`, a normalized
 `settings_document`, `effective_directories`, `applied_defaults`, and `overrides`.
 It creates no files or jobs. If valid, send the same arguments to
-`start_pipeline_job`. The job snapshots the same normalized document before
+`emapssn_pipeline(action="start_job")`. The job snapshots the same normalized document before
 execution. Invalid submissions do not create job files or enter the queue.
 
 Defaults come from the published contracts, never the GUI's last-used settings.
@@ -354,7 +433,7 @@ output-directory reporting are unchanged.
 
 ## Layout cache generation
 
-After exporting and editing layout JSON, call `start_layout_job` with its path:
+After exporting and editing layout JSON, call `emapssn_pipeline(action="start_layout_job")` with its path:
 
 ```json
 {
@@ -363,8 +442,8 @@ After exporting and editing layout JSON, call `start_layout_job` with its path:
 ```
 
 Layout jobs are enqueued into the same unified FIFO queue managed by `PipelineJobManager`
-and share job tracking, status monitoring, log streaming (`read_pipeline_log`), and
-cancellation (`cancel_pipeline_job`).
+and share job tracking, status monitoring, log streaming (`emapssn_pipeline(action="read_log")`), and
+cancellation (`emapssn_pipeline(action="cancel_job")`).
 
 The worker routes through headless Config to `Layout_Cache_Generator.py`. It
 publishes an HDF5 coordinate cache, a compatible-folder manifest and a canonical
@@ -375,26 +454,26 @@ omitting `cache_filename` in the individual-parameter form now selects automatic
 
 ## Viewer sessions
 
-Viewer sessions are independent of MCP connections. Use `list_viewer_sessions`
+Viewer sessions are independent of MCP connections. Use `emapssn_viewer_data(action="list_sessions")`
 to discover authenticated Viewers started through the GUI, CLI, or MCP.
-`connect_viewer_session` selects an existing session without changing its settings.
+`emapssn_viewer_control(action="connect_session")` selects an existing session without changing its settings.
 Supply `session_id`, or omit it only when exactly one Viewer is running.
 
-`get_viewer_summary`, `query_viewer_nodes`, and `close_viewer_session` use the
+`emapssn_viewer_data(action="get_summary")`, `emapssn_viewer_data(action="query_nodes")`, and `emapssn_viewer_control(action="close_session")` use the
 connected session when `session_id` is omitted. An explicit ID affects only that
 operation. Without a connection or explicit ID, they return a selection error.
 Each MCP connection has its own selection; switching sessions leaves the previous
 Viewer running.
 
-`disconnect_viewer_session` clears the selection and leaves the Viewer running.
+`emapssn_viewer_control(action="disconnect_session")` clears the selection and leaves the Viewer running.
 It is safe to repeat. Closing the MCP connection or server also leaves ready
-Viewers running. Use `close_viewer_session` explicitly to terminate a Viewer;
+Viewers running. Use `emapssn_viewer_control(action="close_session")` explicitly to terminate a Viewer;
 success is returned only after process exit is verified. Failed closure retains
 session information. A disconnected client never automatically reconnects.
 
 ### Launch with complete JSON
 
-`start_viewer_session` accepts exactly one of `settings_document` or
+`emapssn_viewer_control(action="start_session")` accepts exactly one of `settings_document` or
 `settings_path`, plus `mode` (`normal` or `headless`). The old standalone
 `cache_path` argument is no longer accepted. A successful launch also connects
 the caller to the new session. Logs are written to the returned `stdout_log` and
@@ -403,7 +482,7 @@ the caller to the new session. Logs are written to the returned `stdout_log` and
 Normal MCP launches open a visible terminal alongside the Viewer. Both output
 streams are copied to that terminal and retained in the launch logs, including
 native-library output and partial progress lines. Headless launches retain the
-same logs without opening a terminal. `read_viewer_log` pages either stream using
+same logs without opening a terminal. `emapssn_viewer_data(action="read_log")` pages either stream using
 byte offsets (`stream`, `offset`, and `limit`); use the full session ID to read
 retained output after disconnecting or closing within the same MCP transport.
 
@@ -432,8 +511,8 @@ running Viewer is left available for a later connection.
 }
 ```
 
-Use `get_viewer_settings_schema` to discover fields and defaults, and
-`validate_viewer_settings` with the same settings source to validate files and
+Use `emapssn_viewer_control(action="get_settings_schema")` to discover fields and defaults, and
+`emapssn_viewer_control(action="validate_settings")` with the same settings source to validate files and
 return the normalized document before launching. Required scientific settings
 must match the cache manifest. Alignment networks require score and normalization
 settings. Physics layouts require explicit threshold and top-percent fields;
@@ -468,4 +547,4 @@ only their own process trees and retain diagnostic logs.
 On Windows, independent launch requires the host to permit Job Object breakaway.
 A host that forbids it receives a startup error rather than a session that dies on
 MCP disconnect. In that host, open the Viewer through the GUI or CLI and use
-`connect_viewer_session`; connect/disconnect does not require launching a process.
+`emapssn_viewer_control(action="connect_session")`; connect/disconnect does not require launching a process.

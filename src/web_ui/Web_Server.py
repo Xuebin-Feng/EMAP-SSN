@@ -287,7 +287,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         self.serve_file(filepath, content_type)
 
     def _send_json(self, status, payload, *, headers=None):
-        body = json.dumps(payload, cls=NumpyEncoder).encode("utf-8")
+        body = json.dumps(payload, cls=NumpyEncoder, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -318,6 +318,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             if clean_path == "/api/mcp/v1/session":
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
+                    "inspection_capabilities": ["snapshots_v1"],
+                    "inputs": self.server.inspection_bridge.service._input_paths(),
                     "session_id": self.server.inspection_session_id,
                     "session_alias": self.server.viewer.inspection_session_alias,
                     "pid": os.getpid(),
@@ -401,6 +403,30 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.server.unregister_event_queue(q, client_id)
 
     def do_POST(self):
+        if self.path == "/api/mcp/v1/data":
+            if not self._inspection_authorized():
+                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 65536:
+                    raise ViewerInspectionError("Inspection request must be 1..65536 bytes")
+                request = json.loads(self.rfile.read(length).decode("utf-8"))
+                action = request["action"]
+                from mcp_server.Workflow_Dispatch import REGISTRY
+                if action not in {"get_summary", "describe_fields", "create_subset", "summarize_subset", "query_nodes", "read_value"}:
+                    raise ViewerInspectionError("Unknown read-only inspection action")
+                arguments = REGISTRY["emapssn_viewer_data"][action].model.model_validate(request.get("arguments", {})).model_dump()
+                arguments.pop("session_id", None)
+                service = self.server.inspection_bridge.service
+                sid = self.server.inspection_bridge.request("capture_snapshot") if action == "get_summary" else arguments.pop("snapshot_id")
+                payload = service.snapshots.execute(action, sid, **arguments)
+                self._send_json(200, payload)
+            except TimeoutError:
+                self._send_json(503, {"error": "Viewer snapshot capture timed out; retry when idle."})
+            except (ValueError, TypeError, KeyError) as error:
+                self._send_json(400, {"error": str(error)[:1000]})
+            return
         if self.path == "/api/mcp/v1/shutdown":
             if not self._inspection_authorized():
                 self._send_json(
