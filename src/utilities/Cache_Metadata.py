@@ -70,3 +70,6 @@ def _read(path, cache_signature, manifest_signature):
         invalid = invalid or manifest_signature is not None
     result["status"] = "invalid" if invalid else "partial" if errors else "complete"
     return result
+
+
+__all__ = ["read_cache_metadata", "_signature", "_read"]

@@ -304,7 +304,7 @@ class MCPViewerClient:
             raise MCPViewerError(f"Could not close Viewer {target}: {error}") from error
 
     async def list_sessions(self, offset=0, limit=25, max_bytes=16384):
-        from mcp_server.Viewer_Snapshots import encoded
+        from mcp_server.Viewer_Inspection import encoded
         if offset < 0 or not 1 <= limit <= 100 or not 1024 <= max_bytes <= 65536:
             raise MCPViewerError("Invalid session page bounds")
         target = self.connected_session_id

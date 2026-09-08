@@ -262,7 +262,7 @@ def get_viewer_settings_schema():
 
 
 def resolve_cache_settings(path):
-    from mcp_server.Cache_Metadata import read_cache_metadata
+    from utilities.Cache_Metadata import read_cache_metadata
     metadata = read_cache_metadata(path)
     if metadata["status"] != "complete":
         raise ViewerSettingsError("Cache provenance: " + "; ".join(metadata["diagnostics"]))

@@ -11,7 +11,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import h5py
 import Cache_Manifest
-from mcp_server.Cache_Metadata import read_cache_metadata
+from utilities.Cache_Metadata import read_cache_metadata
 from mcp_server.Viewer_Sessions import ensure_viewer_identity, session_alias, select_viewer_session
 from tests.test_layout_cache_generator import _write_inputs
 
