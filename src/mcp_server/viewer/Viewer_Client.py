@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 
 import psutil
-from mcp_server.viewer.Viewer_Sessions import (
+from utilities.Viewer_Sessions import (
     SESSION_DIRECTORY_ENV, LAUNCH_ID_ENV, session_directory,
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
     session_alias,
@@ -304,7 +304,7 @@ class MCPViewerClient:
             raise MCPViewerError(f"Could not close Viewer {target}: {error}") from error
 
     async def list_sessions(self, offset=0, limit=25, max_bytes=16384):
-        from mcp_server.viewer.Viewer_Inspection import encoded
+        from desktop.Viewer_Inspection import encoded
         if offset < 0 or not 1 <= limit <= 100 or not 1024 <= max_bytes <= 65536:
             raise MCPViewerError("Invalid session page bounds")
         target = self.connected_session_id

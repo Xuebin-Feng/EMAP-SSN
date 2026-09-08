@@ -603,7 +603,7 @@ def command_catalog(command=None):
     """Read help text from command source without executing handlers."""
     import ast
     from pathlib import Path
-    root = Path(__file__).resolve().parents[2] / 'commands'
+    root = Path(__file__).resolve().parents[1] / 'commands'
     entries = []
     for path in sorted(root.glob('*.py')):
         if path.stem.startswith('_') or (command is not None and path.stem != command):

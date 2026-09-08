@@ -152,7 +152,7 @@ from desktop.Viewer_State import (
     prepare_network,
     resolve_selected_cache,
 )
-from mcp_server.viewer.Viewer_Inspection import ViewerInspectionService
+from desktop.Viewer_Inspection import ViewerInspectionService
 from web_ui.Browser_Page import open_browser_page
 
 
@@ -713,7 +713,7 @@ class MainViewer:
         # --- 6. Set up MainWindow & WebServer ---
         self._panel_w = 180
         self.main_window = QtWidgets.QMainWindow()
-        from mcp_server.viewer.Viewer_Sessions import ensure_viewer_identity
+        from utilities.Viewer_Sessions import ensure_viewer_identity
         ensure_viewer_identity(self)
         self.main_window.setWindowTitle(f"{VIEWER_DISPLAY_NAME} [{self.inspection_session_alias}]")
         

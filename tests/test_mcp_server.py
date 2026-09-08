@@ -27,7 +27,7 @@ from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     create_settings_snapshot,
     get_tool_spec,
 )
-from mcp_server.viewer.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
+from utilities.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
 
 
 class PipelineJobManagerTests(unittest.IsolatedAsyncioTestCase):

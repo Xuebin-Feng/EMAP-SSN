@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest import mock
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from mcp_server.viewer.Viewer_Inspection import ViewerInspectionService
+from desktop.Viewer_Inspection import ViewerInspectionService
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 
 class SnapshotHTTPTests(unittest.TestCase):

@@ -27,11 +27,11 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
 
-from mcp_server.viewer.Viewer_Inspection import (
+from desktop.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
 )
-from mcp_server.viewer.Viewer_Sessions import (
+from utilities.Viewer_Sessions import (
     SESSION_PROTOCOL_VERSION,
     publish_viewer_session,
     remove_viewer_session,
@@ -128,7 +128,7 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         self.viewer = viewer
         self.inspection_bridge = QtInspectionBridge(viewer)
         self.inspection_token = secrets.token_urlsafe(32)
-        from mcp_server.viewer.Viewer_Sessions import ensure_viewer_identity
+        from utilities.Viewer_Sessions import ensure_viewer_identity
         self.inspection_session_id = ensure_viewer_identity(viewer)
         self.inspection_started_at = (
             datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

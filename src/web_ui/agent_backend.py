@@ -338,7 +338,7 @@ class RefinementWorker(QtCore.QThread):
 
 def get_viewer_session_context(viewer):
     """Use the same bounded snapshot contract as MCP, without MCP transport."""
-    from mcp_server.viewer.Viewer_Inspection import ViewerInspectionService
+    from desktop.Viewer_Inspection import ViewerInspectionService
     service = getattr(viewer, 'viewer_inspection', None) or ViewerInspectionService(viewer)
     viewer.viewer_inspection = service
     try:
