@@ -1416,7 +1416,10 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             ):
                 settings = self.window._collect_layout_generation_settings()
                 document = settings.to_document(project_root=temp_path)
-                payload = document["Layout_Cache_Generator.py"]
+                from utilities.Execution_Settings import decode_document
+                payload = decode_document(document, "layout")
+                self.assertEqual(document["schema_version"], 2)
+                self.assertEqual(document["kind"], "layout")
                 self.assertEqual(payload["CACHE_FILENAME"], "exact.h5")
                 self.assertIs(payload["UMAP_MODE"], False)
                 self.assertIsInstance(payload["MAX_STEPS"], int)
@@ -1426,9 +1429,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertNotIn("NODE_SIZE", payload)
                 self.assertNotIn("MSA_FILE", payload)
                 self.assertNotIn("PRINT_SAVE_DIR", payload)
-                self.assertEqual(
-                    set(document["DIRECTORIES"]), {"SAVED_LAYOUT_DIR"}
-                )
+                self.assertEqual(payload["SAVED_LAYOUT_DIR"], "layouts")
 
                 with mock.patch.object(
                     self.namespace["QFileDialog"],

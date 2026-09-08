@@ -56,6 +56,23 @@ class ExecutionV2Tests(unittest.TestCase):
         _, second = self.cache_and_viewer(BOX_SCALE=4.5, SIMILARITY_THRESHOLD=0.3)
         self.assertEqual(resolve_viewer_document(second, self.root)["BOX_SCALE"], 4.5)
 
+    def test_layout_export_ignores_unrelated_visual_preferences(self):
+        self.saved.update(NODE_SIZE=999, EDGE_COLOR="invalid color", ALIGNMENT_REFERENCE="absent")
+        (self.root / "viewer_settings.json").write_text(json.dumps(self.saved))
+        document = export_config_settings("layout", self.root)["settings_document"]
+        self.assertNotIn("visualization", document)
+        self.assertNotIn("alignment", document)
+        self.assertEqual(document["simulation"]["MAX_STEPS"], self.saved["MAX_STEPS"])
+
+    def test_empty_and_old_export_overlays_fail(self):
+        path = self.root / "bad-overlay.json"
+        for kind in ("viewer", "layout"):
+            for content in ({}, {"TARGET_CACHE_PATH": "other.h5"},
+                            {"schema_version": 1, "kind": kind}):
+                path.write_text(json.dumps(content))
+                with self.assertRaisesRegex(ValueError, "Re-export"):
+                    export_config_settings(kind, self.root, settings_path=path)
+
     def test_top_filter_and_umap(self):
         for overrides in (dict(TOP_EDGE_PERCENT=50.0, SIMILARITY_THRESHOLD=None),
                           dict(UMAP_MODE=True, SIMILARITY_THRESHOLD=None, UMAP_NEIGHBORS=2)):
@@ -69,7 +86,8 @@ class ExecutionV2Tests(unittest.TestCase):
         with h5py.File(self.root / "network.h5", "a") as network:
             for key in ("g_score", "l_score", "g_len", "l_len", "seq_lens"):
                 del network[key]
-            network.create_dataset("evalue", data=[1e-10])
+            network.attrs["model_name"] = "blast"
+            network.create_dataset("score", data=[10.0])
         _, viewer = self.cache_and_viewer(SIMILARITY_THRESHOLD=1e-5)
         self.assertEqual(resolve_viewer_document(viewer, self.root)["SIMILARITY_THRESHOLD"], 1e-5)
 
@@ -127,7 +145,21 @@ class ExecutionV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(ViewerSettingsError, "misplaced"):
             validate_viewer_document(malformed, self.root)
         (self.root / "set.fasta").write_text(">different\nAA\n")
-        with self.assertRaisesRegex(ViewerSettingsError, "manifest"):
+        with self.assertRaisesRegex(ViewerSettingsError, "[Mm]anifest"):
+            validate_viewer_document(viewer, self.root)
+
+    def test_manifest_binding_and_cache_headers_are_verified(self):
+        path, viewer = self.cache_and_viewer()
+        with h5py.File(path, "a") as cache:
+            manifest_id = cache.attrs["cache_manifest_id"]
+            cache.attrs["cache_manifest_id"] = "different-manifest"
+        with self.assertRaisesRegex(ViewerSettingsError, "Cache provenance"):
+            validate_viewer_document(viewer, self.root)
+        with h5py.File(path, "a") as cache:
+            cache.attrs["cache_manifest_id"] = manifest_id
+            del cache["headers"]
+            cache.create_dataset("headers", data=[b"wrong", b"identities"])
+        with self.assertRaisesRegex(ViewerSettingsError, "[Hh]eader"):
             validate_viewer_document(viewer, self.root)
 
 

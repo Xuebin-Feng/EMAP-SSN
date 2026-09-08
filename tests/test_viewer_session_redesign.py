@@ -11,7 +11,9 @@ from unittest import mock
 import numpy as np
 import psutil
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_layout_cache_generator as fixtures
 from utilities.Viewer_Settings import validate_viewer_document, ViewerSettingsError, normalize_viewer_settings, DEFAULTS
 from utilities.Execution_Settings import encode_document, VIEWER_SECTIONS

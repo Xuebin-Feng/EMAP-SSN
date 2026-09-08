@@ -410,11 +410,15 @@ viewer:
 python -u src/Layout_Cache_Generator.py Cache_Files/Layout_Settings/example.json
 ```
 
-The JSON contains the selected FASTA/network inputs, exact cache filename, edge
-filter, optional UMAP settings, and SSN physics layout settings. It intentionally omits
-visual, metadata, command, and analysis settings. Relative paths are resolved
-from the project root. The command exits with an error rather than replacing an
-existing cache file.
+Layout execution JSON uses `schema_version: 2`, `kind: "layout"`, and named
+`inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`
+sections. It contains generation settings only. Viewer JSON uses `kind: "viewer"`
+and `inputs`, `alignment`, `visualization`, and `directories` sections. Score
+interpretation, edge filters, UMAP settings, and box scale are read from verified
+cache provenance, never repeated in Viewer JSON. Both exports inherit relevant
+saved preferences; old execution JSON must be re-exported. Personal settings
+and pipeline-document formats are unchanged. See [MCP settings](docs/mcp_settings.md)
+for the export-first workflow and overlay format.
 
 ### Additional language fonts
 

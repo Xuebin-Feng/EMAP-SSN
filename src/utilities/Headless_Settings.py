@@ -132,7 +132,7 @@ def _config_export_directory(values, project_root):
 
 
 def config_export_document(kind, project_root, *, settings_path=None):
-    from utilities.Viewer_Settings import DEFAULTS, normalize_viewer_settings, validate_viewer_document
+    from utilities.Viewer_Settings import DEFAULTS, normalize_viewer_paths, validate_viewer_document
     from utilities.Viewer_Defaults import DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS
     from Layout_Cache_Generator import LayoutGenerationSettings, resolve_layout_selection
     from Cache_Manifest import find_matching_manifest_folders
@@ -149,7 +149,7 @@ def config_export_document(kind, project_root, *, settings_path=None):
             values[key] = DIRECTORY_PROFILE_DEFAULTS[key]
     overlay = read_object(absolute_path(settings_path, project_root)) if settings_path else {}
     edits = {}
-    if overlay:
+    if settings_path is not None:
         edits = decode_document(overlay, kind, partial=True)
         values.update(edits)
     if kind == "viewer" and values.get("TARGET_CACHE_PATH"):
@@ -168,7 +168,11 @@ def config_export_document(kind, project_root, *, settings_path=None):
     values["TARGET_CACHE_PATH"] = selected or ""
     if not selected:
         values["CACHE_FILENAME"] = ""
-    values = normalize_viewer_settings({key: value for key, value in values.items() if key in DEFAULTS}, project_root, require_cache=False)
+    # MSA and visualization are irrelevant to generating or selecting a layout.
+    path_values = {**values, "MSA_FILE": ""}
+    resolved_paths = normalize_viewer_paths(path_values, project_root, require_cache=False)
+    for key in (*DIRECTORY_PROFILE_DEFAULTS, "SAVED_CONFIG_DIR", "NODE_FASTA_FILE", "INPUT_HDF5", "TARGET_CACHE_PATH", "CACHE_FILENAME"):
+        values[key] = resolved_paths[key]
     if kind == "layout":
         document = build_layout_export(values, project_root,
             cache_filename=edits.get("CACHE_FILENAME"), target_cache_path=edits.get("TARGET_CACHE_PATH"),

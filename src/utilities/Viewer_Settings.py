@@ -86,7 +86,10 @@ def resolve_cache_settings(path):
             values[expected.upper()] = value
         else:
             raise ValueError("invalid edge filter mode")
-        if parameters["SIMILARITY_THRESHOLD"] != values["SIMILARITY_THRESHOLD"]:
+        threshold = parameters["SIMILARITY_THRESHOLD"]
+        if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(threshold)):
+            raise ValueError("invalid generation similarity threshold")
+        if threshold != values["SIMILARITY_THRESHOLD"]:
             raise ValueError("conflicting similarity threshold")
         if compatibility["network_type"] == "blast":
             if values["ALIGNMENT_SCORE"] is not None or values["NORM_MODE"] is not None:
@@ -214,6 +217,12 @@ def normalize_viewer_settings(document, project_root, *, require_cache=True):
                 raise ViewerSettingsError(f"{key}: supply the active filter and explicitly set the inactive filter to null.")
         if result["TOP_EDGE_PERCENT"] is not None and result["SIMILARITY_THRESHOLD"] is not None:
             raise ViewerSettingsError("TOP_EDGE_PERCENT: SIMILARITY_THRESHOLD must be null when selecting top edges.")
+    return normalize_viewer_paths(result, project_root, require_cache=require_cache)
+
+
+def normalize_viewer_paths(values, project_root, *, require_cache=True):
+    """Resolve Config paths without validating unrelated display/physics controls."""
+    result = deepcopy(values)
     root = os.path.abspath(project_root)
 
     def resolve(value, base=None):

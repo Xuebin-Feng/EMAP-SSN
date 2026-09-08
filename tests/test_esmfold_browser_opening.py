@@ -8,7 +8,10 @@ from unittest import mock
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BACKEND_PATH = os.path.join(PROJECT_ROOT, "src", "web_ui", "esmfold_backend.py")
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+BACKEND_PATH = os.path.join(SRC_DIR, "web_ui", "esmfold_backend.py")
 
 config_stub = types.ModuleType("EMAPSSN_Config")
 config_stub.resolve_directory_path = lambda value: value

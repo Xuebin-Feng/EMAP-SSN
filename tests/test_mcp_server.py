@@ -32,7 +32,7 @@ from mcp_server.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
 
 class PipelineJobManagerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.temporary_path = pathlib.Path(self.temporary.name)
         self.fake_script = self.temporary_path / "fake_pipeline.py"
         self.fake_script.write_text(
@@ -448,7 +448,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(auto_inspected.structured_content["detected_format"], "layout_cache")
 
     async def test_viewer_session_lifecycle(self):
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             temp_path = pathlib.Path(temp)
             fasta = temp_path / "nodes.fasta"
             fasta.write_text(">Alpha\nAA\n>Beta\nCC\n", encoding="utf-8")
@@ -529,7 +529,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(connected.is_error, str(connected))
                     # 4. Query summary
                     summary = await client.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {"session_id": session_id}})
-                    self.assertFalse(summary.is_error)
+                    self.assertFalse(summary.is_error, str(summary))
                     self.assertEqual(summary.structured_content["node_count"], 2)
 
                     # 5. Query nodes

@@ -47,8 +47,8 @@ those choices with the user's request.
 ## Reuse saved settings
 
 For Viewer launches use viewer-control action="export_settings"; for layouts use
-pipeline action="export_layout_settings". Both inherit `viewer_settings.json`, including
-visual, simulation, and physics preferences. Execute the full exported JSON with
+pipeline action="export_layout_settings". Both inherit the relevant `viewer_settings.json` preferences: layout exports
+include simulation/physics; Viewer exports include alignment/display preferences. Execute the full exported JSON with
 only necessary edits. Never construct minimal JSON from schema defaults instead.
 Use `emapssn_pipeline(action="export_tool_settings")` for saved pipeline settings. Exports create files;
 explicit output paths must be unused, while omitted paths are allocated automatically.
@@ -97,11 +97,23 @@ rather than arbitrarily choosing one.
 
 For a new Viewer, first call `emapssn_viewer_control(action="export_settings")`. To select
 another cache, its optional `settings_path` can supply an overlay with
-`TARGET_CACHE_PATH` and necessary matching inputs. Keep the full export, consult
+inputs.TARGET_CACHE_PATH and necessary matching inputs. Overlays require
+schema_version=2 and kind="viewer", with edits inside the named sections. Keep the full export, consult
 `emapssn_viewer_control(action="get_settings_schema")`, then call `emapssn_viewer_control(action="validate_settings")` and pass its
 normalized document to `emapssn_viewer_control(action="start_session")`. Validation checks source files and
 cache compatibility. Inheritance happens during export; validation must not replace
-preserved preferences with a minimal payload. `MSA_FILE=""` disables alignment.
+preserved preferences with a minimal payload. alignment.MSA_FILE="" disables alignment.
+
+Both execution formats require schema_version=2 and the matching kind. Layout
+sections are inputs, network, layout, simulation, physics, packing, and output.
+Viewer sections are inputs, alignment, visualization, and directories. Legacy
+execution JSON must be re-exported; personal settings stay unchanged. Never add
+network, layout, physics, BOX_SCALE, or cache_fallback to Viewer JSON: verified
+cache provenance supplies score mode, normalization, edge filters, UMAP settings,
+and box scale internally. Input FASTA/network paths remain explicit because cache
+metadata records fingerprints and basenames, not source locations. Missing or
+inconsistent provenance is an error, not permission to invent defaults. Report
+cache-derived settings from inspection provenance separately from Viewer JSON.
 
 Use the default `normal` mode for a visible Viewer and terminal. Choose `headless`
 only when a desktop window is not wanted. Successful launch returns a ready

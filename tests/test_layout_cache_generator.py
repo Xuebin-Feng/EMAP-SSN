@@ -29,6 +29,9 @@ from Layout_Cache_Generator import (
     generate_layout_cache,
 )
 from utilities.Network_Preparation import prepare_network
+from utilities.Execution_Settings import decode_document, LAYOUT_SECTIONS
+
+FIELD_SECTION = {key: section for section, keys in LAYOUT_SECTIONS.items() for key in keys}
 
 
 def _settings_document(temp_path, *, cache_filename="version_00.h5"):
@@ -196,7 +199,7 @@ class LayoutSettingsTests(unittest.TestCase):
             settings = LayoutGenerationSettings.from_document(document)
             exported = settings.to_document(project_root=ROOT)
 
-            payload = exported["Layout_Cache_Generator.py"]
+            payload = decode_document(exported, "layout")
             self.assertEqual(payload["CACHE_FILENAME"], "version_00.h5")
             self.assertEqual(payload["BOX_SCALE"], 2.0)
             self.assertEqual(payload["PACKING_PADDING"], 10.0)
@@ -212,37 +215,21 @@ class LayoutSettingsTests(unittest.TestCase):
             self.assertNotIn("TARGET_CACHE_PATH", settings.engine_params())
             self.assertNotIn("CACHE_NAME_MODE", settings.engine_params())
 
-            document["Layout_Cache_Generator.py"]["NODE_SIZE"] = 10
+            document["physics"]["NODE_SIZE"] = 10
             with self.assertRaisesRegex(
-                LayoutGenerationError, "Unknown layout-generation setting"
+                LayoutGenerationError, "unknown or misplaced"
             ):
                 LayoutGenerationSettings.from_document(document)
 
-    def test_obsolete_layout_engine_settings_are_ignored(self):
+    def test_obsolete_and_legacy_layout_settings_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = pathlib.Path(temp_dir)
-            document = _settings_document(temp_path)
-            payload = document["Layout_Cache_Generator.py"]
-            payload.update(
-                {
-                    "PHYSICS_ENGINE": "historical engine value",
-                    "MC_SWEEPS": "ignored",
-                    "MC_QUENCH_SWEEPS": -1,
-                    "MC_TELEPORT_PROBABILITY": object(),
-                    "MC_RANDOM_SEED": None,
-                    "SGLD_MIN_K": 20,
-                    "SGLD_K_PERCENT": 0.01,
-                    "SGLD_START_TEMP": 1.5,
-                    "SGLD_NOISE_SCALE": 1.0,
-                }
-            )
-            settings = LayoutGenerationSettings.from_document(document)
-            exported = settings.to_document(project_root=ROOT)[
-                "Layout_Cache_Generator.py"
-            ]
-            self.assertNotIn("PHYSICS_ENGINE", exported)
-            self.assertFalse(any(key.startswith("MC_") for key in exported))
-            self.assertFalse(any(key.startswith("SGLD_") for key in exported))
+            document = _settings_document(pathlib.Path(temp_dir))
+            legacy = {"DIRECTORIES": {}, "Layout_Cache_Generator.py": decode_document(document, "layout")}
+            with self.assertRaisesRegex(LayoutGenerationError, "Re-export"):
+                LayoutGenerationSettings.from_document(legacy)
+            document["physics"]["PHYSICS_ENGINE"] = "obsolete"
+            with self.assertRaisesRegex(LayoutGenerationError, "unknown or misplaced"):
+                LayoutGenerationSettings.from_document(document)
 
     def test_strict_layout_numeric_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -259,8 +246,7 @@ class LayoutSettingsTests(unittest.TestCase):
             for key, value in invalid_cases:
                 with self.subTest(key=key, value=value):
                     document = _settings_document(temp_path)
-                    payload = document["Layout_Cache_Generator.py"]
-                    payload[key] = value
+                    document[FIELD_SECTION[key]][key] = value
                     with self.assertRaises(LayoutGenerationError):
                         LayoutGenerationSettings.from_document(document)
 
@@ -268,16 +254,16 @@ class LayoutSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = pathlib.Path(temp_dir)
             for key, value, message in (
-                ("MAX_STEPS", None, "Missing layout-generation"),
+                ("MAX_STEPS", None, "missing fields"),
                 ("CACHE_FILENAME", "../escape.h5", "plain basename"),
                 ("UMAP_MODE", "false", "JSON boolean"),
             ):
                 with self.subTest(key=key):
                     document = _settings_document(temp_path)
                     if value is None:
-                        del document["Layout_Cache_Generator.py"][key]
+                        del document[FIELD_SECTION[key]][key]
                     else:
-                        document["Layout_Cache_Generator.py"][key] = value
+                        document[FIELD_SECTION[key]][key] = value
                     with self.assertRaisesRegex(Exception, message):
                         LayoutGenerationSettings.from_document(document)
 
@@ -444,8 +430,8 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             temp_path = pathlib.Path(temp_dir)
             _write_inputs(temp_path)
             doc = _settings_document(temp_path, cache_filename="top_edge.h5")
-            doc["Layout_Cache_Generator.py"]["TOP_EDGE_PERCENT"] = 50.0
-            doc["Layout_Cache_Generator.py"]["SIMILARITY_THRESHOLD"] = None
+            doc["network"]["TOP_EDGE_PERCENT"] = 50.0
+            doc["network"]["SIMILARITY_THRESHOLD"] = None
             settings = LayoutGenerationSettings.from_document(doc)
 
             fake_engine = SimpleNamespace(
@@ -472,15 +458,6 @@ class LayoutCacheGenerationTests(unittest.TestCase):
 
             cases = (
                 (False, "md.h5", "Layout_Engine_SSN", {}),
-                (
-                    False,
-                    "legacy_mc.h5",
-                    "Layout_Engine_SSN",
-                    {
-                        "PHYSICS_ENGINE": "Monte Carlo (Style)",
-                        "MC_RANDOM_SEED": None,
-                    },
-                ),
                 (True, "umap.h5", "Layout_Engine_UMAP", {}),
             )
             for umap_mode, filename, module_name, legacy in cases:
@@ -488,9 +465,9 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                     document = _settings_document(
                         temp_path, cache_filename=filename
                     )
-                    payload = document["Layout_Cache_Generator.py"]
-                    payload["UMAP_MODE"] = umap_mode
-                    payload.update(legacy)
+                    document["layout"]["UMAP_MODE"] = umap_mode
+                    if umap_mode:
+                        document["network"]["SIMILARITY_THRESHOLD"] = None
                     settings = LayoutGenerationSettings.from_document(document)
                     fake_engine = SimpleNamespace(
                         calculate_layout=lambda connectivity, count, params: (
@@ -594,8 +571,8 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertNotIn("SSN_TARGET_CACHE_PATH", called_kwargs["env"])
                 snapshot = pathlib.Path(called_cmd[0][4])
                 snapshot_document = captured
-                self.assertEqual(snapshot_document["TARGET_CACHE_PATH"], fake_result.cache_path)
-                self.assertEqual(snapshot_document["MSA_FILE"], "")
+                self.assertEqual(snapshot_document["inputs"]["TARGET_CACHE_PATH"], fake_result.cache_path)
+                self.assertEqual(snapshot_document["alignment"]["MSA_FILE"], "")
                 self.assertIn("--delete-settings", called_cmd[0])
                 self.assertFalse(snapshot.exists())
                 self.assertFalse(settings_file.exists())

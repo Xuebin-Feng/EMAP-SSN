@@ -696,14 +696,18 @@ async def export_config_settings(
     settings_path: str | None = None,
 ) -> dict[str, Any]:
     """Required first step for a new Viewer or layout: export inherited settings.
-    Reads viewer_settings.json and preserves saved visual, simulation, and physics
-    values in an editable JSON file. Change only requested fields and dependencies,
+    Reads viewer_settings.json and preserves the relevant saved preferences:
+    alignment/display for Viewer, generation/simulation/physics for layout.
+    Change only requested fields and dependencies in the exported JSON file,
     then execute the full export; do not rebuild minimal JSON from schema defaults.
     kind selects the contract; settings_path optionally supplies an edited JSON
     overlay, while output_path selects the new export destination.
     Returns settings and cache paths with inherited Config settings.
     Layout exports select the next automatic version (a preview, not a reservation).
-    Viewer exports include all four tabs and select the newest compatible cache
+    Viewer exports include only inputs, alignment, visualization and directories,
+    with schema_version=2 and kind=viewer. Layout exports use kind=layout and
+    inputs/network/layout/simulation/physics/packing/output sections. Viewer
+    generation settings come from verified cache provenance. Exports select the newest compatible cache
     unless an explicit path is supplied in the optional edited JSON overlay.
     Edit the exported file, then execute using settings_path; execution does not
     reload personal settings. Explicit output paths must not already exist.
@@ -722,8 +726,9 @@ async def validate_viewer_settings(
     settings_path: str | None = None,
 ) -> dict[str, Any]:
     """Check the full export from export_config_settings(kind='viewer') before launch.
-    Preserve inherited settings when editing it. This validator fills omitted
-    fields with built-in defaults, so do not replace the export with minimal JSON.
+    Preserve inherited settings when editing it. Required version 2 sections and
+    fields must be explicit. Validation resolves generation settings from verified
+    cache metadata internally; those settings are never added to the returned JSON.
     Supply exactly one settings_document or settings_path following
     get_viewer_settings_schema. Checks source files and cache identity and returns
     valid plus a normalized settings_document; invalid settings raise a tool error.

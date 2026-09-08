@@ -3,8 +3,13 @@ import pathlib
 import unittest
 
 
+import sys
+
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODEL_DIR = PROJECT_ROOT / "src" / "resources" / "pLM_models"
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+MODEL_DIR = SRC_DIR / "resources" / "pLM_models"
 
 
 def load_plugin(module_name):

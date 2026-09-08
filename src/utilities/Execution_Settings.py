@@ -31,21 +31,21 @@ def encode_document(kind, values):
 
 def decode_document(document, kind, *, partial=False):
     if not isinstance(document, dict) or type(document.get("schema_version")) is not int or document.get("schema_version") != 2 or document.get("kind") != kind:
-        raise ValueError(f"Expected schema_version 2, kind '{kind}'. Re-export settings through GUI or export_config_settings; legacy execution JSON is unsupported.")
+        raise ValueError(f"Expected schema_version 2, kind '{kind}'. Re-export settings through the GUI, CLI, or MCP export action; legacy execution JSON is unsupported.")
     mapping = sections(kind)
     unknown = set(document) - {"schema_version", "kind", *mapping}
     if unknown:
-        raise ValueError("Unknown document sections: " + ", ".join(sorted(unknown)))
+        raise ValueError("Unknown document sections: " + ", ".join(sorted(unknown)) + ". Re-export settings.")
     result = {}
     for section, keys in mapping.items():
         values = document.get(section, {})
         if not isinstance(values, dict):
-            raise ValueError(f"{section}: expected an object.")
+            raise ValueError(f"{section}: expected an object. Re-export settings.")
         unknown = set(values) - set(keys)
         missing = set(keys) - set(values)
         if unknown:
-            raise ValueError(f"{section}: unknown or misplaced fields: " + ", ".join(sorted(unknown)))
+            raise ValueError(f"{section}: unknown or misplaced fields: " + ", ".join(sorted(unknown)) + ". Re-export settings.")
         if missing and not partial:
-            raise ValueError(f"{section}: missing fields: " + ", ".join(sorted(missing)))
+            raise ValueError(f"{section}: missing fields: " + ", ".join(sorted(missing)) + ". Re-export settings.")
         result.update(deepcopy(values))
     return result

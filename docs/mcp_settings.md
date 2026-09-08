@@ -37,7 +37,8 @@ contents of the `arguments` object, not the complete MCP call.
 
 For a new Viewer use `emapssn_viewer_control(action="export_settings")`; for a
 layout use `emapssn_pipeline(action="export_layout_settings")`. Export merges saved `viewer_settings.json`
-preferences into the output, including visual, simulation, and physics values.
+preferences into the output: alignment and visualization preferences for Viewer
+exports, and generation, simulation, and physics preferences for layout exports.
 Edit only requested fields and necessary dependent inputs, then validate/execute
 the full exported JSON. A Viewer cache-selection overlay can be supplied through
 the export tool's `settings_path`. Building a minimal document from schema defaults
@@ -143,8 +144,8 @@ The settings-export actions accept `output_path` and `settings_path`:
 
 - `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP settings and output
   destination. Visual settings and MSA display settings are excluded.
-- `emapssn_viewer_control(action="export_settings")`: a full effective snapshot of Inputs, Visuals, Physics and
-  Directories, with the selected existing cache. This is configuration, not window state.
+- `emapssn_viewer_control(action="export_settings")`: a version 2 snapshot of inputs, alignment, visualization and
+  directories, with the selected existing cache. Generation settings are cache-derived. This is configuration, not window state.
 
 Config inherits saved `viewer_settings.json`. An optional edited JSON file overlays
 these preferences; an existing layout document can also be re-exported as layout
@@ -174,8 +175,7 @@ Layout JSON includes `CACHE_FILENAME`, `TARGET_CACHE_PATH` and `CACHE_NAME_MODE`
   it advances to the next version and never overwrites a cache.
 - `explicit` honors the filename and optional path, rejecting mismatches,
   incompatible folders and occupied files. To request a custom name, switch to
-  `explicit` and update both the filename and path. Older documents without
-  `CACHE_NAME_MODE` retain explicit-name behavior.
+  `explicit` and update both the filename and path.
 
 MCP layout jobs execute `EMAPSSN_Config.py --headless generate-layout`, which calls
 the existing layout generator. Writers using the same layout root are serialized
@@ -492,47 +492,59 @@ a missing selected session clears the selection immediately. Backend transport
 shutdown also clears the connection and stops its monitor; the independently
 running Viewer is left available for a later connection.
 
+Viewer exports require `schema_version: 2`, `kind: "viewer"`, and four sections:
+
+| Section | Contents |
+| --- | --- |
+| `inputs` | `TARGET_CACHE_PATH`, `NODE_FASTA_FILE`, `INPUT_HDF5` |
+| `alignment` | `MSA_FILE`, `ALIGNMENT_REFERENCE`, `FILTER_MIN_OCCUPANCY`, `ALIGNMENT_OFFSET` |
+| `visualization` | All visual-profile node, edge, text, color, and low-resource preferences |
+| `directories` | All directory-profile input-resolution and output directories |
+
+Export first, then change only intended fields. To select a cache during export,
+pass a version 2 overlay file as `settings_path`, for example:
+
 ```json
 {
-  "mode": "headless",
-  "settings_document": {
+  "schema_version": 2,
+  "kind": "viewer",
+  "inputs": {
     "TARGET_CACHE_PATH": "my_layout/version_00.h5",
     "NODE_FASTA_FILE": "$input_file$/Sequence_Sets/proteins.fasta",
-    "INPUT_HDF5": "$input_file$/Networks_EValues/proteins_network.h5",
-    "MSA_FILE": "",
-    "ALIGNMENT_REFERENCE": "",
-    "ALIGNMENT_SCORE": "global",
-    "NORM_MODE": "alignment_length",
-    "UMAP_MODE": false,
-    "SIMILARITY_THRESHOLD": 0.1,
-    "TOP_EDGE_PERCENT": null,
-    "NODE_SIZE": 10
+    "INPUT_HDF5": "$input_file$/Networks_EValues/proteins_network.h5"
   }
 }
 ```
 
-Use `emapssn_viewer_control(action="get_settings_schema")` to discover fields and defaults, and
-`emapssn_viewer_control(action="validate_settings")` with the same settings source to validate files and
-return the normalized document before launching. Required scientific settings
-must match the cache manifest. Alignment networks require score and normalization
-settings. Physics layouts require explicit threshold and top-percent fields;
-set the inactive filter to null. UMAP requires `UMAP_NEIGHBORS` and null edge
-filters. `MSA_FILE` must be explicit; an empty string disables alignment loading.
-A supplied alignment reference must exist in the selected MSA.
+This is a partial **export overlay**, not a complete launch document. The export
+fills viewing preferences from saved settings. Validation returns the complete
+normalized version 2 document without generation parameters.
 
-Documents use the existing flat Viewer settings format. Directory aliases
-`$input_file$`, `$cache_file$`, and `$analysis_result$` resolve from the supplied
-base directories or documented project-relative defaults. Bare input filenames
-resolve under their configured input directory; input paths containing directories
-resolve against the project root. Relative `TARGET_CACHE_PATH` values resolve
-under `SAVED_LAYOUT_DIR`. Absolute paths are accepted. A settings file's location
-does not change these rules.
+Layout exports require `kind: "layout"`, `schema_version: 2`, and sections:
+`inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`.
+Inputs are FASTA/network paths; network holds score interpretation and edge filters;
+layout holds UMAP mode/parameters; simulation holds device, timestep, convergence,
+and step limits; physics holds forces/damping; packing holds geometry and box
+settings; output holds the directory, cache path, filename, and naming mode.
+Layout exports exclude visualization and MSA display settings.
 
-Explicit documents never inherit personal `viewer_settings.json` values. Missing
-files, mismatching fingerprints, incompatible scientific parameters, and cache
-header-order mismatches are errors. The Viewer never searches for substitute
-files or silently drops connectivity. Presentation defaults are included in the
-normalized snapshot. The minimal cache format is unchanged.
+Viewer JSON never contains generation settings or a `cache_fallback` section.
+Verified cache attributes and the folder manifest provide alignment score mode,
+normalization, edge filters, UMAP settings, and box scale internally. Source-file
+fingerprints and cache headers are checked. Explicit source paths remain necessary:
+metadata stores basenames and fingerprints, not full source locations. Changing
+an explicit cache uses its provenance even if current saved generation settings differ.
+Missing, tampered, or conflicting provenance is an error; no legacy-cache defaults
+are substituted. `MSA_FILE` accepts FASTA or sparse HDF5; an empty string disables
+alignment, and then `ALIGNMENT_REFERENCE` must also be empty.
+
+Legacy flat Viewer JSON and script-section layout JSON are rejected: re-export
+through GUI, CLI, or the workflow's export action. Unknown/misplaced fields and
+wrong versions/kinds are errors. Personal settings and pipeline JSON formats are
+unchanged. Directory aliases resolve from the supplied directories. Bare input
+filenames use their configured input directory; paths containing directories use
+the project root. Relative cache paths use `SAVED_LAYOUT_DIR`. The JSON file's
+location does not alter these rules. Layout export paths are resolved before writing.
 
 For direct CLI use:
 

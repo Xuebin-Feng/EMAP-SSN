@@ -93,7 +93,8 @@ class SnapshotClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request.call_count,1)
         self.assertEqual(client.connected_session_id,'keep')
     async def test_session_pages_no_snapshot_or_secrets(self):
-        client=MCPViewerClient(); client.connected_session_id='keep'
+        # A live selection outside the returned page must remain selected.
+        client=MCPViewerClient(); client.connected_session_id='019'
         sessions=[SimpleNamespace(session_id=str(i).zfill(3),pid=i,started_at='now',token='secret') for i in range(20)]
         with mock.patch('mcp_server.MCP_Viewer_Client.discover_viewer_sessions',return_value=sessions), mock.patch.object(client,'_request',return_value={'inputs':{},'inspection_capabilities':['snapshots_v1']}) as request:
             first=await client.list_sessions(limit=5,max_bytes=1024)
@@ -101,5 +102,5 @@ class SnapshotClientTests(unittest.IsolatedAsyncioTestCase):
             second=await client.list_sessions(offset=first['next_offset'],limit=5,max_bytes=1024)
             self.assertNotEqual(first['sessions'][0]['session_id'],second['sessions'][0]['session_id'])
             self.assertTrue(all(call.args[1]=='/api/mcp/v1/session' for call in request.call_args_list))
-        self.assertEqual(client.connected_session_id,'keep')
+        self.assertEqual(client.connected_session_id,'019')
         self.assertNotIn('secret',json.dumps(first))

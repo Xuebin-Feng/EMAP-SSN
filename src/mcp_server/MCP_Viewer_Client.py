@@ -307,7 +307,11 @@ class MCPViewerClient:
         from mcp_server.Viewer_Snapshots import encoded
         if offset < 0 or not 1 <= limit <= 100 or not 1024 <= max_bytes <= 65536:
             raise MCPViewerError("Invalid session page bounds")
+        target = self.connected_session_id
         sessions = sorted(await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout), key=lambda s: s.session_id)
+        async with self._selection_lock:
+            if target == self.connected_session_id and target not in {s.session_id for s in sessions}:
+                self.connected_session_id = None
         result = {"sessions": [], "connected_session_id": self.connected_session_id,
                   "automatic_selection": len(sessions) == 1, "total": len(sessions),
                   "offset": offset, "next_offset": offset, "complete": False}
@@ -332,9 +336,13 @@ class MCPViewerClient:
         return result
 
     async def inspect_data(self, action, arguments, session_id=None):
+        target = self._target(session_id)
         try:
-            session = await asyncio.to_thread(select_viewer_session, self._target(session_id), timeout=self.discovery_timeout)
+            session = await asyncio.to_thread(select_viewer_session, target, timeout=self.discovery_timeout)
         except LookupError as error:
+            async with self._selection_lock:
+                if target == self.connected_session_id:
+                    self.connected_session_id = None
             raise MCPViewerError(str(error)) from error
         capabilities = await asyncio.to_thread(self._request, session, "/api/mcp/v1/session")
         if "snapshots_v1" not in capabilities.get("inspection_capabilities", []):

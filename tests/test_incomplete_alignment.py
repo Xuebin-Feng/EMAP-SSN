@@ -233,5 +233,33 @@ class ThreeStateExpressionTests(unittest.TestCase):
         )
 
 
+class IncompleteAlignmentViewerSmokeTests(unittest.TestCase):
+    def test_viewer_load_method_accepts_partial_and_zero_coverage(self):
+        import EMAPSSN_Config as cfg
+        from EMAPSSN_Viewer import MainViewer
+        old_msa = cfg.MSA_FILE
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                for filename, records, expected_count in [
+                    ("partial.fasta", [("node1", "AC")], 1),
+                    ("zero.fasta", [("other", "AC")], 0),
+                ]:
+                    msa_path = os.path.join(directory, filename)
+                    write_fasta(msa_path, records)
+                    cfg.MSA_FILE = msa_path
+
+                    viewer = MainViewer.__new__(MainViewer)
+                    viewer.full_headers = ["node1", "node2"]
+                    viewer.active_reference = "node1"
+                    viewer.alignment_offset = 0
+                    with redirect_stdout(io.StringIO()):
+                        viewer.load_global_alignment()
+
+                    self.assertIsNotNone(viewer.alignment.aln)
+                    self.assertEqual(len(viewer.alignment.aln), expected_count)
+        finally:
+            cfg.MSA_FILE = old_msa
+
+
 if __name__ == "__main__":
     unittest.main()

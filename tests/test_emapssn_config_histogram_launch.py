@@ -87,8 +87,8 @@ class ViewerHandoffTests(unittest.TestCase):
         self.assertEqual(launch.call_args.kwargs["platform_name"], "darwin")
 
     def test_settings_snapshots_are_unique_and_immutable_copies(self):
-        first = EMAPSSN_Config._create_viewer_settings_snapshot({"SEQUENCE_SET": "first"})
-        second = EMAPSSN_Config._create_viewer_settings_snapshot({"SEQUENCE_SET": "second"})
+        first = EMAPSSN_Config._create_viewer_settings_snapshot({"NODE_FASTA_FILE": "first.fasta"})
+        second = EMAPSSN_Config._create_viewer_settings_snapshot({"NODE_FASTA_FILE": "second.fasta"})
         self.addCleanup(lambda: os.path.exists(first) and os.unlink(first))
         self.addCleanup(lambda: os.path.exists(second) and os.unlink(second))
 

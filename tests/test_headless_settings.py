@@ -41,7 +41,7 @@ class HeadlessSettingsTests(unittest.TestCase):
 
     def generate(self, document):
         engine = SimpleNamespace(calculate_layout=lambda *a: (np.array([[0, 0], [1, 1]], dtype=np.float32), 12.0))
-        with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine}):
+        with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine, "Layout_Engine_UMAP": engine}):
             return generate_layout_cache(LayoutGenerationSettings.from_document(document, project_root=self.root))
 
     def test_pipeline_saved_values_and_only_selected_section(self):

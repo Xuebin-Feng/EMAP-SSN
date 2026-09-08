@@ -132,6 +132,8 @@ class SnapshotStore:
             provenance = read_cache_metadata(result['inputs'].get('layout_cache'))
             result['provenance'] = {k: provenance.get(k) for k in ('status', 'cache_filename')}
             result['provenance']['cache_manifest_id'] = provenance.get('attributes', {}).get('cache_manifest_id')
+            result['provenance']['generation_parameters'] = provenance.get('generation_parameters')
+            result['provenance']['network_compatibility'] = (provenance.get('folder_manifest') or {}).get('compatibility')
             return self._fit(result, budget)
         if action == 'create_subset':
             scope = args.pop('scope'); expression = args.pop('expression', None)

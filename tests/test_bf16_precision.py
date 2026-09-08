@@ -18,12 +18,20 @@ for path in (SRC_ROOT, TOOLS_ROOT):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+os.environ["SSN_TOOL_SETTINGS_SCRIPT"] = "Align_Similarity_Matrix.py"
+os.environ["SSN_TOOL_SETTINGS_FILE"] = os.path.join(
+    PROJECT_ROOT, "tests", "nonexistent-settings.json"
+)
+
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as align
     import Embedding_SSEARCH as ssearch
     import Network_Injection as injection
     from utilities import Embedding_Alignment_Engine as engine
     from utilities.Alignment_Network_HDF5 import _normalized_precision
+
+align.ACCELERATOR_PRECISION = "automatic_32bit"
+ssearch.ACCELERATOR_PRECISION = "automatic_32bit"
 
 
 class Bf16PrecisionTests(unittest.TestCase):
