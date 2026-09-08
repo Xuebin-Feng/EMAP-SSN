@@ -63,10 +63,10 @@ def calculate_layout(connectivity, n_nodes, params):
 
     # --- 2. Build Explicit k-NN Tuples (Method 2) ---
     # Decouples "no difference" (distance 0.0) from "no edge" (index -1, distance inf).
-    n_neighbors = params.get('UMAP_NEIGHBORS', 15)
-    n_neighbors = min(n_neighbors, n_nodes - 1)
-    if n_neighbors < 2:
-        n_neighbors = 2
+    # User K counts other nodes; UMAP also requires self in column zero.
+    requested_neighbors = params.get('UMAP_NEIGHBORS', 15)
+    real_neighbors = min(requested_neighbors, n_nodes - 1)
+    n_neighbors = real_neighbors + 1
         
     min_dist = params.get('UMAP_MIN_DIST', 0.1)
 
@@ -79,17 +79,20 @@ def calculate_layout(connectivity, n_nodes, params):
     df = df[df['u'] != df['v']]
     df = df.sort_values(['u', 'd'], ascending=[True, True])
     df = df.drop_duplicates(subset=['u', 'v'])
-    top = df.groupby('u').head(n_neighbors)
+    top = df.groupby('u').head(real_neighbors)
 
     knn_indices = np.full((n_nodes, n_neighbors), -1, dtype=np.int32)
     knn_dists = np.full((n_nodes, n_neighbors), np.inf, dtype=np.float32)
+    knn_indices[:, 0] = np.arange(n_nodes)
+    knn_dists[:, 0] = 0.0
 
-    top = top.assign(rank=top.groupby('u').cumcount())
+    top = top.assign(rank=top.groupby('u').cumcount() + 1)
     knn_indices[top['u'].values, top['rank'].values] = top['v'].values
     knn_dists[top['u'].values, top['rank'].values] = top['d'].values
 
     # --- 3. Run UMAP with Native precomputed_knn ---
-    print(f"  > Initializing UMAP (neighbors={n_neighbors}, min_dist={min_dist})")
+    print(f"  > Initializing UMAP (K={requested_neighbors} other nodes, "
+          f"up to {real_neighbors} available + self, min_dist={min_dist})")
     warnings.filterwarnings('ignore', category=UserWarning, module='umap')
     X_dummy = np.zeros((n_nodes, 1), dtype=np.float32)
     with warnings.catch_warnings():
@@ -99,7 +102,7 @@ def calculate_layout(connectivity, n_nodes, params):
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             precomputed_knn=(knn_indices, knn_dists, None),
-            init='spectral',
+            init='random' if n_nodes <= 3 else 'spectral',
             random_state=42 # fixed seed for reproducible deterministic layouts
         )
         final_pos = reducer.fit_transform(X_dummy).astype(np.float32)

@@ -325,6 +325,7 @@ def build_compatibility(
         "alignment_score": None if network_type == "blast" else str(alignment_score),
         "normalization": None if network_type == "blast" else str(normalization),
         "layout_mode": "umap" if is_umap else "physics",
+        **({"umap_knn_revision": 2} if is_umap else {}),
         "edge_filter": edge_filter,
     }
 

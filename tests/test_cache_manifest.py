@@ -148,6 +148,30 @@ class CacheSelectionTests(unittest.TestCase):
 
 
 class ManifestIdentityTests(unittest.TestCase):
+    def test_umap_revision_rejects_old_caches_and_reuses_corrected_caches(self):
+        current = make_compatibility(umap_mode=True)
+        self.assertEqual(current['umap_knn_revision'], 2)
+        self.assertEqual(current['edge_filter']['value'], 15)
+        for revision in (None, 1):
+            old = dict(current)
+            if revision is None:
+                old.pop('umap_knn_revision')
+            else:
+                old['umap_knn_revision'] = revision
+            with self.assertRaises(Cache_Manifest.CacheManifestError):
+                Cache_Manifest.validate_manifest(make_manifest(old), current)
+        manifest = make_manifest(current)
+        self.assertEqual(Cache_Manifest.validate_manifest(manifest, current), manifest)
+
+    def test_physics_compatibility_has_no_umap_revision(self):
+        expected = {
+            'sequence_sha256': 'a' * 64, 'network_sha256': 'b' * 64,
+            'network_type': 'alignment', 'alignment_score': 'global',
+            'normalization': 'alignment_length', 'layout_mode': 'physics',
+            'edge_filter': {'mode': 'similarity_threshold', 'value': 0.4},
+        }
+        self.assertEqual(make_compatibility(), expected)
+
     def test_file_hash_uses_contents_not_name_or_location(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             first = pathlib.Path(temp_dir) / "first.bin"

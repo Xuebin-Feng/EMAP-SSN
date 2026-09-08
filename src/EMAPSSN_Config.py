@@ -1586,7 +1586,7 @@ if __name__ == "__main__":
                 "PACKING_GEOMETRY": "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window.",
                 "PACKING_GRID_SIZE": "Base grid square unit size used for macro-grid component packing.\nControls spacing and separation between packed independent clusters in the final layout.",
                 "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
-                "UMAP_NEIGHBORS": "Size of the local neighborhood (n_neighbors) used by UMAP to learn manifold topology.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
+                "UMAP_NEIGHBORS": "Maximum number of other nodes in each UMAP neighborhood (K excludes self).\nK=15 supplies up to 15 neighbors plus self to UMAP.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
                 "UMAP_MIN_DIST": "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly.",
                 "FASTA_DIR": "Directory containing input FASTA files for sequence sets and subsets.\nPopulates the Sequence Set dropdown in the Inputs tab.",
                 "MSA_DIR": "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).\nPopulates the MSA dropdown in the Inputs tab.",
