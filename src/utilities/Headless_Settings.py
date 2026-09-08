@@ -34,7 +34,7 @@ def absolute_path(value, root):
 
 
 def build_pipeline_export(tool_id, directories, values, project_root, *, absolute=False):
-    from mcp_server.Pipeline_Settings import serialize_export_settings
+    from mcp_server.pipeline.Pipeline_Settings import serialize_export_settings
     from tools.tool_helpers.Tool_Pipeline import build_settings_document, get_tool_spec
     spec = get_tool_spec(tool_id)
     values = serialize_export_settings(tool_id, values, project_root)
@@ -75,7 +75,7 @@ def export_pipeline_settings(tool_id, project_root, output_path=None):
         DEFAULT_DIRECTORY_PATHS,
         get_tool_spec,
     )
-    from mcp_server.Pipeline_Settings import get_pipeline_schema
+    from mcp_server.pipeline.Pipeline_Settings import get_pipeline_schema
     spec = get_tool_spec(tool_id)
     saved = read_object(Path(project_root) / "tools_settings.json", optional=True)
     directories = saved.get("DIRECTORIES", {})

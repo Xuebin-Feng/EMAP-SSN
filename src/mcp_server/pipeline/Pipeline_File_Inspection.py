@@ -351,7 +351,7 @@ class Inspector:
         self.report["checks_omitted"].append("BLAST numeric values and FASTA header matching were not validated.")
 
     def settings(self, tool_id, root):
-        from mcp_server.Pipeline_Settings import normalize_pipeline_settings
+        from mcp_server.pipeline.Pipeline_Settings import normalize_pipeline_settings
         from tools.tool_helpers.Tool_Pipeline import list_tool_specs
         if self.path.stat().st_size > MAX_JSON_BYTES: raise InspectionLimit("Settings JSON exceeds 8 MiB inspection limit.")
         with open(self.path, encoding="utf-8") as handle: document = json.load(handle)
@@ -437,7 +437,7 @@ def inspect_local(path, file_type="auto", tool_id=None, parameters=None, project
 
 
 def inspect_pipeline_file(path, project_root, file_type="auto", tool_id=None, parameters=None):
-    from mcp_server.Pipeline_Settings import inspection_parameters
+    from mcp_server.pipeline.Pipeline_Settings import inspection_parameters
     if file_type not in FILE_TYPES: raise ValueError(f"file_type must be one of {FILE_TYPES}.")
     if parameters is not None and tool_id is None: raise ValueError("parameters requires tool_id.")
     effective = inspection_parameters(tool_id, {} if parameters is None else parameters, project_root) if tool_id else {}
@@ -459,7 +459,7 @@ def inspect_pipeline_file(path, project_root, file_type="auto", tool_id=None, pa
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     request = json.load(sys.stdin)
     with contextlib.redirect_stdout(io.StringIO()):
         result = inspect_local(**request)

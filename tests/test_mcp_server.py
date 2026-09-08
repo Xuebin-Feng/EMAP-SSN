@@ -17,17 +17,17 @@ if str(SRC_DIR) not in sys.path:
 from mcp import Client, StdioServerParameters  # noqa: E402
 
 from EMAPSSN_MCP_Server import mcp  # noqa: E402
-from mcp_server.MCP_Pipeline_Jobs import (  # noqa: E402
+from mcp_server.pipeline.Pipeline_Jobs import (  # noqa: E402
     PipelineJobManager,
     PipelineQueueFullError,
 )
-from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError  # noqa: E402
+from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError  # noqa: E402
 from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     ToolInvocation,
     create_settings_snapshot,
     get_tool_spec,
 )
-from mcp_server.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
+from mcp_server.viewer.Viewer_Sessions import SESSION_DIRECTORY_ENV  # noqa: E402
 
 
 class PipelineJobManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -58,7 +58,7 @@ raise SystemExit(int(settings.get("EXIT_CODE", 0)))
             temporary_parent=self.temporary_path,
         )
         self.prepare_patch = mock.patch(
-            "mcp_server.MCP_Pipeline_Jobs.prepare_headless_invocation",
+            "mcp_server.pipeline.Pipeline_Jobs.prepare_headless_invocation",
             side_effect=self._prepare_fake_invocation,
         )
         self.prepare_patch.start()
@@ -188,7 +188,7 @@ raise SystemExit(int(settings.get("EXIT_CODE", 0)))
         self.assertEqual(repeated["status"], "cancelled")
 
     async def test_workflow_job_failure_paging_and_cancellation(self):
-        from mcp_server.Workflow_Dispatch import dispatch
+        from mcp_server.core.Workflow_Dispatch import dispatch
         ctx = SimpleNamespace(request_context=SimpleNamespace(
             lifespan_context=SimpleNamespace(jobs=self.manager)))
         failed = await self.manager.submit("sanitize_sequences", self._document(
@@ -250,8 +250,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
 
                 invalid = await client.call_tool("emapssn_pipeline", {"action": "start_job", "arguments": {"tool_id": "sanitize_sequences"}})
                 self.assertTrue(invalid.is_error)
-                from mcp_server.Compute_Capabilities import empty_report
-                with mock.patch("mcp_server.Compute_Capabilities.discover_compute_capabilities", return_value=empty_report()):
+                from mcp_server.pipeline.Compute_Capabilities import empty_report
+                with mock.patch("mcp_server.pipeline.Compute_Capabilities.discover_compute_capabilities", return_value=empty_report()):
                     hardware = await client.call_tool("emapssn_pipeline", {"action": "get_compute_capabilities", "arguments": {}})
                     self.assertFalse(hardware.is_error)
                     self.assertTrue(hardware.structured_content["metadata_only"])
@@ -556,7 +556,7 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
             descriptor_path="secret-path",
         )
         with mock.patch(
-            "mcp_server.MCP_Viewer_Client.discover_viewer_sessions",
+            "mcp_server.viewer.Viewer_Client.discover_viewer_sessions",
             return_value=[descriptor],
         ), mock.patch.object(MCPViewerClient, "_request", side_effect=MCPViewerError("Viewer unavailable")):
             payload = await MCPViewerClient().list_sessions()

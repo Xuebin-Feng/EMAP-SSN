@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest import mock
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from mcp_server.Viewer_Inspection import (
+from mcp_server.viewer.Viewer_Inspection import (
     ViewerInspectionService,
     ViewerInspectionError,
     SnapshotStore,
@@ -81,7 +81,7 @@ class SnapshotAdditionalTests(unittest.TestCase):
 
     def test_preflight_before_copy_and_foreign_snapshot(self):
         store = SnapshotStore(max_bytes=1)
-        with mock.patch('mcp_server.Viewer_Inspection.deepcopy') as copy:
+        with mock.patch('mcp_server.viewer.Viewer_Inspection.deepcopy') as copy:
             with self.assertRaises(ViewerInspectionError):
                 store.capture(self.service)
             copy.assert_not_called()

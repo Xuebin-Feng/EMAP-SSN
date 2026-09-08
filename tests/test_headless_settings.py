@@ -245,7 +245,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
 
 class HeadlessLayoutJobTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_cpu_job_reports_actual_path_and_keeps_original_snapshot(self):
-        from mcp_server.MCP_Pipeline_Jobs import PipelineJobManager
+        from mcp_server.pipeline.Pipeline_Jobs import PipelineJobManager
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             _write_inputs(root)

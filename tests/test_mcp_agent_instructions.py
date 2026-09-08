@@ -11,7 +11,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 
 from EMAPSSN_MCP_Server import _load_agent_instructions, mcp
-from mcp_server.Workflow_Dispatch import REGISTRY
+from mcp_server.core.Workflow_Dispatch import REGISTRY
 from mcp import Client, StdioServerParameters
 
 GUIDE = SRC / "mcp_server" / "Agent_Instructions.md"

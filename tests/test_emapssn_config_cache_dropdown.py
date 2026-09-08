@@ -155,6 +155,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertEqual(self.window.inputs[key].minimumHeight(), 28)
 
     def test_physics_tab_exposes_only_ssn_physics_controls(self):
+        if hasattr(self.window, "check_umap"):
+            self.window.check_umap.setChecked(False)
         self.window.profile_selectors["simulation_physics"].setCurrentText("(new)")
         device = self.window.inputs["LAYOUT_DEVICE_SELECTION"]
         progressive = self.window.inputs["ENABLE_PROGRESSIVE_SIMULATION"]

@@ -23,7 +23,7 @@ from desktop.Viewer_State import (
     encode_document,
     VIEWER_SECTIONS,
 )
-from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
+from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
 
@@ -147,7 +147,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 "import time,sys\nprint('x'*1000000,flush=True)\ntime.sleep(60)\n"
             )
             with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}), mock.patch(
-                "mcp_server.MCP_Viewer_Client.validate_viewer_document", return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}
+                "mcp_server.viewer.Viewer_Client.validate_viewer_document", return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}
             ):
                 client = MCPViewerClient(root)
                 with self.assertRaisesRegex(MCPViewerError, "Timed out"):
@@ -216,7 +216,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_disconnect_and_failed_close_preserve_state(self):
         client = MCPViewerClient()
         client.connected_session_id = "existing"
-        with mock.patch("mcp_server.MCP_Viewer_Client.select_viewer_session", side_effect=LookupError("unreachable")):
+        with mock.patch("mcp_server.viewer.Viewer_Client.select_viewer_session", side_effect=LookupError("unreachable")):
             with self.assertRaises(MCPViewerError):
                 await client.close_session()
         self.assertEqual(client.connected_session_id, "existing")
@@ -231,12 +231,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                                   base_url="http://127.0.0.1:9", token="test")
         client = MCPViewerClient()
         client.connected_session_id = "test"
-        with mock.patch("mcp_server.MCP_Viewer_Client.select_viewer_session", return_value=session), mock.patch(
-            "mcp_server.MCP_Viewer_Client._identity", return_value=mock.Mock()
-        ), mock.patch("mcp_server.MCP_Viewer_Client._alive", return_value=True), mock.patch(
-            "mcp_server.MCP_Viewer_Client.urllib.request.urlopen", side_effect=OSError("offline")
-        ), mock.patch("mcp_server.MCP_Viewer_Client._terminate_tree", side_effect=psutil.AccessDenied(123)), mock.patch(
-            "mcp_server.MCP_Viewer_Client.remove_viewer_session"
+        with mock.patch("mcp_server.viewer.Viewer_Client.select_viewer_session", return_value=session), mock.patch(
+            "mcp_server.viewer.Viewer_Client._identity", return_value=mock.Mock()
+        ), mock.patch("mcp_server.viewer.Viewer_Client._alive", return_value=True), mock.patch(
+            "mcp_server.viewer.Viewer_Client.urllib.request.urlopen", side_effect=OSError("offline")
+        ), mock.patch("mcp_server.viewer.Viewer_Client._terminate_tree", side_effect=psutil.AccessDenied(123)), mock.patch(
+            "mcp_server.viewer.Viewer_Client.remove_viewer_session"
         ) as remove:
             with self.assertRaises(MCPViewerError):
                 await client.close_session(timeout=0)

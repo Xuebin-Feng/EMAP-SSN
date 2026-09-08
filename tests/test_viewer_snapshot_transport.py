@@ -14,8 +14,8 @@ from types import SimpleNamespace
 from unittest import mock
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from mcp_server.Viewer_Inspection import ViewerInspectionService
-from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
+from mcp_server.viewer.Viewer_Inspection import ViewerInspectionService
+from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 
 class SnapshotHTTPTests(unittest.TestCase):
     @classmethod
@@ -88,7 +88,7 @@ class SnapshotHTTPTests(unittest.TestCase):
 class SnapshotClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_older_viewer_requires_restart_without_changing_selection(self):
         client=MCPViewerClient(); client.connected_session_id='keep'
-        with mock.patch('mcp_server.MCP_Viewer_Client.select_viewer_session',return_value=SimpleNamespace()), mock.patch.object(client,'_request',return_value={}) as request:
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session',return_value=SimpleNamespace()), mock.patch.object(client,'_request',return_value={}) as request:
             with self.assertRaisesRegex(MCPViewerError,'restart'): await client.get_summary('explicit')
             self.assertEqual(request.call_count,1)
         self.assertEqual(client.connected_session_id,'keep')
@@ -96,7 +96,7 @@ class SnapshotClientTests(unittest.IsolatedAsyncioTestCase):
         # A live selection outside the returned page must remain selected.
         client=MCPViewerClient(); client.connected_session_id='019'
         sessions=[SimpleNamespace(session_id=str(i).zfill(3),pid=i,started_at='now',token='secret') for i in range(20)]
-        with mock.patch('mcp_server.MCP_Viewer_Client.discover_viewer_sessions',return_value=sessions), mock.patch.object(client,'_request',return_value={'inputs':{},'inspection_capabilities':['snapshots_v1']}) as request:
+        with mock.patch('mcp_server.viewer.Viewer_Client.discover_viewer_sessions',return_value=sessions), mock.patch.object(client,'_request',return_value={'inputs':{},'inspection_capabilities':['snapshots_v1']}) as request:
             first=await client.list_sessions(limit=5,max_bytes=1024)
             self.assertLessEqual(len(json.dumps(first,ensure_ascii=False,separators=(',',':')).encode()),1024)
             second=await client.list_sessions(offset=first['next_offset'],limit=5,max_bytes=1024)

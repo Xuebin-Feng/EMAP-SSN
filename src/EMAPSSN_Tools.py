@@ -89,7 +89,7 @@ from tools.tool_helpers.Tool_Pipeline import (
     save_shared_tool_settings,
     write_json_document,
 )
-from mcp_server.Pipeline_Settings import serialize_export_settings
+from mcp_server.pipeline.Pipeline_Settings import serialize_export_settings
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
     SingleInstanceController,

@@ -13,10 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mcp import Client
 from mcp.server.mcpserver.exceptions import ToolError
 from EMAPSSN_MCP_Server import mcp
-from mcp_server import Workflow_Operations as operations
-from mcp_server.Workflow_Dispatch import (
+from mcp_server.core import App_Context as app_ctx
+from mcp_server.core.Workflow_Dispatch import (
     REGISTRY, PipelineAction, ViewerDataAction, ViewerControlAction, dispatch,
 )
+from mcp_server.pipeline import Pipeline_Operations as pipeline_ops
+from mcp_server.viewer import Viewer_Operations as viewer_ops
 
 
 class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
@@ -40,7 +42,7 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
                     if entry.needs_context:
                         expected["ctx"] = ctx
                     result = {"unchanged_payload": [1, None, {"nested": True}]}
-                    with mock.patch.object(operations, entry.handler_name,
+                    with mock.patch.object(entry.module, entry.handler_name,
                                            new_callable=mock.AsyncMock, return_value=result) as handler:
                         self.assertEqual(await dispatch(workflow, name, example, ctx), result)
                         handler.assert_awaited_once_with(**expected)
@@ -49,7 +51,7 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
         for workflow, actions in REGISTRY.items():
             for name, entry in actions.items():
                 with self.subTest(workflow=workflow, action=name):
-                    with mock.patch.object(operations, entry.handler_name) as handler:
+                    with mock.patch.object(entry.module, entry.handler_name) as handler:
                         with self.assertRaises(ToolError):
                             await dispatch(workflow, name, {**entry.example, "unexpected": True}, None)
                         handler.assert_not_called()
@@ -71,7 +73,7 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
             ("emapssn_viewer_data", "query_nodes", {"scope": "invalid"}),
             ("emapssn_viewer_data", "close_session", {}),
         ]
-        with mock.patch.object(operations, "_context") as context, mock.patch.object(operations, "_viewer") as viewer:
+        with mock.patch.object(app_ctx, "_context") as context, mock.patch.object(app_ctx, "_viewer") as viewer:
             for workflow, name, args in invalid:
                 with self.subTest(workflow=workflow, action=name, arguments=args):
                     with self.assertRaises(ToolError):
@@ -80,21 +82,21 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
             viewer.assert_not_called()
 
     async def test_split_exports_delegate_correct_kind(self):
-        with mock.patch.object(operations, "export_config_settings", new_callable=mock.AsyncMock,
-                               return_value={"exported": True}) as export:
+        with mock.patch("utilities.Headless_Settings.export_config_settings",
+                        return_value={"exported": True}) as export:
             for workflow, action, kind in [
                 ("emapssn_pipeline", "export_layout_settings", "layout"),
                 ("emapssn_viewer_control", "export_settings", "viewer"),
             ]:
                 result = await dispatch(workflow, action, {"output_path": "out.json", "settings_path": "overlay.json"}, None)
                 self.assertEqual(result, {"exported": True})
-                export.assert_awaited_with(kind, "out.json", "overlay.json")
+                export.assert_called_with(kind, pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json")
 
     async def test_models_and_errors_keep_original_payload(self):
-        with mock.patch.object(operations, "list_pipeline_jobs", new_callable=mock.AsyncMock,
-                               return_value=operations.PipelineJobList(jobs=[])):
+        with mock.patch.object(pipeline_ops, "list_pipeline_jobs", new_callable=mock.AsyncMock,
+                               return_value=pipeline_ops.PipelineJobList(jobs=[])):
             self.assertEqual(await dispatch("emapssn_pipeline", "list_jobs", {}, None), {"jobs": []})
-        with mock.patch.object(operations, "get_viewer_summary", side_effect=ToolError("Viewer unavailable")):
+        with mock.patch.object(viewer_ops, "get_viewer_summary", side_effect=ToolError("Viewer unavailable")):
             with self.assertRaisesRegex(ToolError, "Viewer unavailable"):
                 await dispatch("emapssn_viewer_data", "get_summary", {}, None)
 
@@ -107,10 +109,10 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
             jobs = SimpleNamespace(submit_layout_job=mock.AsyncMock(return_value={"job_id": "layout-job"}))
             ctx = SimpleNamespace(request_context=SimpleNamespace(lifespan_context=SimpleNamespace(jobs=jobs)))
             with mock.patch("Layout_Cache_Generator.LayoutGenerationSettings.from_document", return_value=settings) as parse, \
-                    mock.patch.object(operations, "_job_info", side_effect=lambda value: value):
+                    mock.patch.object(pipeline_ops, "_job_info", side_effect=lambda value: value):
                 result = await dispatch("emapssn_pipeline", "start_layout_job", {"settings_path": str(path)}, ctx)
             self.assertEqual(result, {"job_id": "layout-job"})
-            parse.assert_called_once_with(document, project_root=operations._PROJECT_ROOT)
+            parse.assert_called_once_with(document, project_root=pipeline_ops._PROJECT_ROOT)
             jobs.submit_layout_job.assert_awaited_once_with(settings)
 
     async def test_protocol_enums_defaults_discovery_and_old_names_removed(self):

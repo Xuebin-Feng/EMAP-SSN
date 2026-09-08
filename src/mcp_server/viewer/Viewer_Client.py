@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 
 import psutil
-from mcp_server.Viewer_Sessions import (
+from mcp_server.viewer.Viewer_Sessions import (
     SESSION_DIRECTORY_ENV, LAUNCH_ID_ENV, session_directory,
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
     session_alias,
@@ -67,7 +67,7 @@ def _terminate_tree(process, timeout=5.0):
 
 class MCPViewerClient:
     def __init__(self, project_root=None, *, discovery_timeout=0.5, request_timeout=5.0, transport_closed=None):
-        self.project_root = os.path.abspath(project_root or Path(__file__).resolve().parents[2])
+        self.project_root = os.path.abspath(project_root or Path(__file__).resolve().parents[3])
         self.discovery_timeout = float(discovery_timeout)
         self.request_timeout = float(request_timeout)
         self.connected_session_id = None
@@ -304,7 +304,7 @@ class MCPViewerClient:
             raise MCPViewerError(f"Could not close Viewer {target}: {error}") from error
 
     async def list_sessions(self, offset=0, limit=25, max_bytes=16384):
-        from mcp_server.Viewer_Inspection import encoded
+        from mcp_server.viewer.Viewer_Inspection import encoded
         if offset < 0 or not 1 <= limit <= 100 or not 1024 <= max_bytes <= 65536:
             raise MCPViewerError("Invalid session page bounds")
         target = self.connected_session_id
@@ -433,4 +433,8 @@ class MCPViewerClient:
         return dict(payload)
 
 
-__all__ = ["MCPViewerClient", "MCPViewerError"]
+ViewerClient = MCPViewerClient
+ViewerError = MCPViewerError
+
+__all__ = ["MCPViewerClient", "MCPViewerError", "ViewerClient", "ViewerError"]
+

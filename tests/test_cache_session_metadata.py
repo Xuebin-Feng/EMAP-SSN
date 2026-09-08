@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import h5py
 import Cache_Manifest
 from utilities.Cache_Metadata import read_cache_metadata
-from mcp_server.Viewer_Sessions import ensure_viewer_identity, session_alias, select_viewer_session
+from mcp_server.viewer.Viewer_Sessions import ensure_viewer_identity, session_alias, select_viewer_session
 from tests.test_layout_cache_generator import _write_inputs
 
 
@@ -60,9 +60,9 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(len(viewer.inspection_session_alias), 8)
         one = SimpleNamespace(session_id="a7c92f10-0000-4000-8000-000000000001")
         two = SimpleNamespace(session_id="a7c92f10-0000-4000-8000-000000000002")
-        with mock.patch("mcp_server.Viewer_Sessions.discover_viewer_sessions", return_value=[one]):
+        with mock.patch("mcp_server.viewer.Viewer_Sessions.discover_viewer_sessions", return_value=[one]):
             self.assertIs(select_viewer_session("a7c92f10"), one)
-        with mock.patch("mcp_server.Viewer_Sessions.discover_viewer_sessions", return_value=[one, two]):
+        with mock.patch("mcp_server.viewer.Viewer_Sessions.discover_viewer_sessions", return_value=[one, two]):
             with self.assertRaisesRegex(LookupError, "Ambiguous"):
                 select_viewer_session("A7C92F10")
             self.assertIs(select_viewer_session(two.session_id), two)

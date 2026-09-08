@@ -11,7 +11,8 @@ from typing import Any, Literal, get_type_hints
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-from mcp_server import Workflow_Operations as operations
+import mcp_server.pipeline.Pipeline_Operations as pipeline_ops
+import mcp_server.viewer.Viewer_Operations as viewer_ops
 
 PipelineAction = Literal[
     "help", "describe", "list_tools", "get_tool_schema", "get_compute_capabilities",
@@ -35,6 +36,7 @@ class DescribeArguments(Arguments):
 
 @dataclass(frozen=True)
 class Action:
+    module: Any
     handler_name: str
     model: type[BaseModel]
     needs_context: bool
@@ -42,49 +44,47 @@ class Action:
     example: dict[str, Any]
 
 
-# The handler signatures are the single source for action parameter models.
-# Catalog entries supply only routing and user-facing effect/example metadata.
 _SPECS = {
     "emapssn_pipeline": {
-        "list_tools": ("list_pipeline_tools", "Read pipeline catalog and shared queue capacity.", {}),
-        "get_tool_schema": ("get_pipeline_tool_schema", "Read one pipeline's settings contract.", {"tool_id": "sanitize_sequences"}),
-        "get_compute_capabilities": ("get_compute_capabilities", "Read runtime device metadata without computation benchmarks.", {}),
-        "inspect_file": ("inspect_pipeline_file", "Read a selected file without modifying it.", {"path": "input.fasta"}),
-        "export_tool_settings": ("export_pipeline_settings", "Create a settings file from saved pipeline preferences.", {"tool_id": "sanitize_sequences"}),
-        "export_layout_settings": ("export_layout_settings", "Create a layout settings file inheriting saved Config preferences; does not reserve a cache name.", {}),
-        "validate_settings": ("validate_pipeline_settings", "Validate pipeline settings without submitting a job or writing files; not a layout validator.", {"tool_id": "sanitize_sequences", "parameters": {}}),
-        "start_job": ("start_pipeline_job", "Enqueue a pipeline; may create or overwrite files according to settings.", {"tool_id": "sanitize_sequences", "settings_path": "pipeline.json"}),
-        "start_layout_job": ("start_layout_job", "Validate and enqueue layout-cache generation in the shared pipeline queue; writes cache artifacts, does not launch a Viewer.", {"settings_path": "layout.json"}),
-        "list_jobs": ("list_pipeline_jobs", "Read recent server-owned pipeline and layout jobs.", {}),
-        "get_job": ("get_pipeline_job", "Read pipeline or layout job status and output locations.", {"job_id": "job-id"}),
-        "read_log": ("read_pipeline_log", "Read a bounded byte page of a pipeline or layout log.", {"job_id": "job-id", "stream": "stdout"}),
-        "cancel_job": ("cancel_pipeline_job", "Cancel queued work or terminate a running job; does not undo artifact writes.", {"job_id": "job-id"}),
+        "list_tools": (pipeline_ops, "list_pipeline_tools", "Read pipeline catalog and shared queue capacity.", {}),
+        "get_tool_schema": (pipeline_ops, "get_pipeline_tool_schema", "Read one pipeline's settings contract.", {"tool_id": "sanitize_sequences"}),
+        "get_compute_capabilities": (pipeline_ops, "get_compute_capabilities", "Read runtime device metadata without computation benchmarks.", {}),
+        "inspect_file": (pipeline_ops, "inspect_pipeline_file", "Read a selected file without modifying it.", {"path": "input.fasta"}),
+        "export_tool_settings": (pipeline_ops, "export_pipeline_settings", "Create a settings file from saved pipeline preferences.", {"tool_id": "sanitize_sequences"}),
+        "export_layout_settings": (pipeline_ops, "export_layout_settings", "Create a layout settings file inheriting saved Config preferences; does not reserve a cache name.", {}),
+        "validate_settings": (pipeline_ops, "validate_pipeline_settings", "Validate pipeline settings without submitting a job or writing files; not a layout validator.", {"tool_id": "sanitize_sequences", "parameters": {}}),
+        "start_job": (pipeline_ops, "start_pipeline_job", "Enqueue a pipeline; may create or overwrite files according to settings.", {"tool_id": "sanitize_sequences", "settings_path": "pipeline.json"}),
+        "start_layout_job": (pipeline_ops, "start_layout_job", "Validate and enqueue layout-cache generation in the shared pipeline queue; writes cache artifacts, does not launch a Viewer.", {"settings_path": "layout.json"}),
+        "list_jobs": (pipeline_ops, "list_pipeline_jobs", "Read recent server-owned pipeline and layout jobs.", {}),
+        "get_job": (pipeline_ops, "get_pipeline_job", "Read pipeline or layout job status and output locations.", {"job_id": "job-id"}),
+        "read_log": (pipeline_ops, "read_pipeline_log", "Read a bounded byte page of a pipeline or layout log.", {"job_id": "job-id", "stream": "stdout"}),
+        "cancel_job": (pipeline_ops, "cancel_pipeline_job", "Cancel queued work or terminate a running job; does not undo artifact writes.", {"job_id": "job-id"}),
     },
     "emapssn_viewer_data": {
-        "list_sessions": ("list_viewer_sessions", "Read available sessions without selecting one.", {}),
-        "get_summary": ("get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
-        "query_nodes": ("query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),
-        "describe_fields": ("describe_viewer_fields", 'Page snapshot metadata types, missingness and provenance availability.', {'snapshot_id': 'snapshot-id'}),
-        "create_subset": ("create_viewer_subset", 'Intersect explicit scope with metadata/header/label/selection predicates; no commands or file/residue predicates.', {'snapshot_id': 'snapshot-id', 'scope': 'all'}),
-        "summarize_subset": ("summarize_viewer_subset", 'Exact metadata and membership statistics; omitted subset uses all nodes. Page complete category counts.', {'snapshot_id': 'snapshot-id'}),
-        "read_value": ("read_viewer_value", 'Read exact JSON-text character slices; concatenate text then JSON-decode. Continue from next_offset.', {'snapshot_id': 'snapshot-id', 'index': 0, 'field': 'node_id'}),
-        "read_log": ("read_viewer_log", "Read a bounded byte page of captured Viewer output.", {}),
+        "list_sessions": (viewer_ops, "list_viewer_sessions", "Read available sessions without selecting one.", {}),
+        "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
+        "query_nodes": (viewer_ops, "query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),
+        "describe_fields": (viewer_ops, "describe_viewer_fields", 'Page snapshot metadata types, missingness and provenance availability.', {'snapshot_id': 'snapshot-id'}),
+        "create_subset": (viewer_ops, "create_viewer_subset", 'Intersect explicit scope with metadata/header/label/selection predicates; no commands or file/residue predicates.', {'snapshot_id': 'snapshot-id', 'scope': 'all'}),
+        "summarize_subset": (viewer_ops, "summarize_viewer_subset", 'Exact metadata and membership statistics; omitted subset uses all nodes. Page complete category counts.', {'snapshot_id': 'snapshot-id'}),
+        "read_value": (viewer_ops, "read_viewer_value", 'Read exact JSON-text character slices; concatenate text then JSON-decode. Continue from next_offset.', {'snapshot_id': 'snapshot-id', 'index': 0, 'field': 'node_id'}),
+        "read_log": (viewer_ops, "read_viewer_log", "Read a bounded byte page of captured Viewer output.", {}),
     },
     "emapssn_viewer_control": {
-        "get_settings_schema": ("get_viewer_settings_schema", "Read the Viewer settings contract.", {}),
-        "export_settings": ("export_viewer_settings", "Create a full Viewer settings file inheriting saved Config preferences.", {}),
-        "validate_settings": ("validate_viewer_settings", "Read and validate Viewer inputs/cache identity without launching.", {"settings_path": "viewer.json"}),
-        "start_session": ("start_viewer_session", "Launch an independent Viewer and connect this transport to it.", {"settings_path": "viewer.json"}),
-        "connect_session": ("connect_viewer_session", "Change this transport's selected Viewer; does not launch one.", {}),
-        "disconnect_session": ("disconnect_viewer_session", "Clear this transport's selection, leaving the Viewer running.", {}),
-        "close_session": ("close_viewer_session", "Terminate the selected or explicitly identified Viewer.", {}),
+        "get_settings_schema": (viewer_ops, "get_viewer_settings_schema", "Read the Viewer settings contract.", {}),
+        "export_settings": (viewer_ops, "export_viewer_settings", "Create a full Viewer settings file inheriting saved Config preferences.", {}),
+        "validate_settings": (viewer_ops, "validate_viewer_settings", "Read and validate Viewer inputs/cache identity without launching.", {"settings_path": "viewer.json"}),
+        "start_session": (viewer_ops, "start_viewer_session", "Launch an independent Viewer and connect this transport to it.", {"settings_path": "viewer.json"}),
+        "connect_session": (viewer_ops, "connect_viewer_session", "Change this transport's selected Viewer; does not launch one.", {}),
+        "disconnect_session": (viewer_ops, "disconnect_viewer_session", "Clear this transport's selection, leaving the Viewer running.", {}),
+        "close_session": (viewer_ops, "close_viewer_session", "Terminate the selected or explicitly identified Viewer.", {}),
     },
 }
 
 
 def _build_action(workflow, name, spec):
-    handler_name, effects, example = spec
-    handler = getattr(operations, handler_name)
+    module, handler_name, effects, example = spec
+    handler = getattr(module, handler_name)
     hints = get_type_hints(handler, include_extras=True)
     parameters = inspect.signature(handler).parameters
     fields = {
@@ -92,7 +92,7 @@ def _build_action(workflow, name, spec):
         for key, parameter in parameters.items() if key != "ctx"
     }
     model = create_model(f"{workflow}_{name}_Arguments", __base__=Arguments, **fields)
-    return Action(handler_name, model, "ctx" in parameters, effects, example)
+    return Action(module, handler_name, model, "ctx" in parameters, effects, example)
 
 
 REGISTRY = {
@@ -100,8 +100,6 @@ REGISTRY = {
     for workflow, specs in _SPECS.items()
 }
 
-# Handler documentation may refer to other handlers. Translate those references
-# in discovery without coupling the reusable operations to the public MCP names.
 _PUBLIC_NAMES = {
     action.handler_name: f"{workflow}(action='{name}')"
     for workflow, actions in REGISTRY.items() for name, action in actions.items()
@@ -160,7 +158,7 @@ async def dispatch(workflow: str, action: str, arguments: dict[str, Any], ctx) -
         if entry is None:
             raise ToolError(f"Unknown action for {workflow}: {target}; use help.")
         return {"action": target,
-                "description": _public_text(inspect.getdoc(getattr(operations, entry.handler_name)) or entry.effects),
+                "description": _public_text(inspect.getdoc(getattr(entry.module, entry.handler_name)) or entry.effects),
                 "arguments_schema": _public_schema(entry.model.model_json_schema()),
                 "effects": entry.effects,
                 "example": {"action": target, "arguments": entry.example}}
@@ -170,7 +168,17 @@ async def dispatch(workflow: str, action: str, arguments: dict[str, Any], ctx) -
     kwargs = _validate(entry.model, arguments)
     if entry.needs_context:
         kwargs["ctx"] = ctx
-    result = getattr(operations, entry.handler_name)(**kwargs)
+    result = getattr(entry.module, entry.handler_name)(**kwargs)
     if inspect.isawaitable(result):
         result = await result
     return result.model_dump(mode="json") if isinstance(result, BaseModel) else result
+
+
+__all__ = [
+    "Action",
+    "PipelineAction",
+    "REGISTRY",
+    "ViewerControlAction",
+    "ViewerDataAction",
+    "dispatch",
+]
