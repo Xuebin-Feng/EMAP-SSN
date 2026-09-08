@@ -27,8 +27,8 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as align
     import Embedding_SSEARCH as ssearch
     import Network_Injection as injection
-    from utilities import Embedding_Alignment_Engine as engine
-    from utilities.Alignment_Network_HDF5 import _normalized_precision
+    import Embedding_Alignment_Engine as engine
+    from utilities.HDF5_Storage import _normalized_precision
 
 align.ACCELERATOR_PRECISION = "automatic_32bit"
 ssearch.ACCELERATOR_PRECISION = "automatic_32bit"

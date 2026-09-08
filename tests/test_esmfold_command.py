@@ -17,7 +17,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from commands import esmfold as esmfold_command
-from utilities import Hardware_Utils
+from utilities import Hardware_Acceleration as Hardware_Utils
 
 
 class FakeDevice:

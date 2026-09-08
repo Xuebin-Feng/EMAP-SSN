@@ -8,13 +8,14 @@ import numpy as np
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 UTILITIES_DIR = os.path.join(PROJECT_ROOT, "src", "utilities")
 TOOLS_DIR = os.path.join(PROJECT_ROOT, "src", "tools")
-for directory in (UTILITIES_DIR, TOOLS_DIR):
+for directory in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
     if directory not in sys.path:
         sys.path.insert(0, directory)
 
-from Alignment_Score_Kernels import (  # noqa: E402
+from utilities.Network_Kernels import (  # noqa: E402
     global_local_scores,
     global_score_length,
     local_score_length,

@@ -16,7 +16,7 @@
 
 import re
 
-from utilities.Model_License_Utils import require_model_license_acceptance
+from tools.tool_helpers.Model_Plugins import require_model_license_acceptance
 
 SUPPORTED_MODELS = [
     "ankh_base",

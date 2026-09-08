@@ -19,7 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 class CacheDropdownRefreshTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from utilities import Hardware_Utils  # noqa: F401 - load torch before PySide6
+        from utilities import Hardware_Acceleration as Hardware_Utils  # noqa: F401 - load torch before PySide6
         from EMAPSSN_Tools import DynamicComboBox
         from PySide6.QtWidgets import QApplication
         test_app = QApplication.instance() or QApplication([])
@@ -1416,7 +1416,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             ):
                 settings = self.window._collect_layout_generation_settings()
                 document = settings.to_document(project_root=temp_path)
-                from utilities.Execution_Settings import decode_document
+                from desktop.Viewer_State import decode_document
                 payload = decode_document(document, "layout")
                 self.assertEqual(document["schema_version"], 2)
                 self.assertEqual(document["kind"], "layout")

@@ -62,7 +62,7 @@ def _parse_viewer_arguments(argv=None):
 _startup_settings = None
 _startup_args = None
 if __name__ == "__main__":
-    from utilities.Viewer_Settings import read_viewer_settings, resolve_viewer_document
+    from desktop.Viewer_State import read_viewer_settings, resolve_viewer_document
     _startup_args = _parse_viewer_arguments()
     _settings_path = _startup_args.settings_file or os.environ.get("SSN_VIEWER_SETTINGS_PATH")
     _document = json.loads(_startup_args.settings_json) if _startup_args.settings_json else None
@@ -131,28 +131,28 @@ if _startup_settings is not None:
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Background_Job_Scheduler import BackgroundJobScheduler
-from utilities.FASTA_Sanitization import (
+from utilities.Sequence_Utils import (
     load_sanitized_fasta,
 )
-from utilities.Application_Fonts import (
+from desktop.Desktop_App import (
+    APPLICATION_VERSION,
     UI_QSS_FONT_STACK,
+    VIEWER_DESKTOP_FILE_NAME,
+    VIEWER_DISPLAY_NAME,
     VISPY_FALLBACK_FACE,
+    configure_linux_qt_desktop_identity,
     configure_qt_application_fonts,
     force_light_palette,
     register_vispy_application_fonts,
+    show_window_in_front,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
-from utilities.Application_Windows import show_window_in_front
-from utilities.Cache_Selection import resolve_selected_cache
-from utilities.Network_Preparation import prepare_network
-from mcp_server.Viewer_Inspection import ViewerInspectionService
-from utilities.Application_Identity import (
-    APPLICATION_VERSION,
-    VIEWER_DISPLAY_NAME,
-    VIEWER_DESKTOP_FILE_NAME,
-    configure_linux_qt_desktop_identity,
+from desktop.Viewer_State import (
+    prepare_network,
+    resolve_selected_cache,
 )
+from mcp_server.Viewer_Inspection import ViewerInspectionService
 from web_ui.Browser_Page import open_browser_page
 
 
@@ -375,7 +375,7 @@ class HUDDisplay:
 class MainViewer:
     def __init__(self, *, headless=None, settings=None):
         if settings is not None:
-            from utilities.Viewer_Settings import resolve_viewer_document
+            from desktop.Viewer_State import resolve_viewer_document
             cfg.__dict__.update(resolve_viewer_document(settings, cfg.PROJECT_ROOT))
         self.headless = bool(
             headless or (_startup_args and _startup_args.headless)

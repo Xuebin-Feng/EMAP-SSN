@@ -10,9 +10,16 @@ import h5py
 import numpy as np
 
 from tests.test_headless_settings import HeadlessSettingsTests
-from utilities.Execution_Settings import encode_document, decode_document, VIEWER_SECTIONS, LAYOUT_SECTIONS
+from desktop.Viewer_State import (
+    LAYOUT_SECTIONS,
+    VIEWER_SECTIONS,
+    ViewerSettingsError,
+    decode_document,
+    encode_document,
+    resolve_viewer_document,
+    validate_viewer_document,
+)
 from utilities.Headless_Settings import export_config_settings
-from utilities.Viewer_Settings import validate_viewer_document, resolve_viewer_document, ViewerSettingsError
 
 
 class ExecutionV2Tests(unittest.TestCase):

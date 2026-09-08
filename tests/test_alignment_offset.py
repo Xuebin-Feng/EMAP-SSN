@@ -20,9 +20,9 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 import Command_Engine
-from utilities.FASTA_Sanitization import simplify_node_label
-from utilities.Position_Parsing import (
+from utilities.Sequence_Utils import (
     format_alignment_offset_display,
+    simplify_node_label,
     sort_alignment_labels,
 )
 from commands import label as label_command

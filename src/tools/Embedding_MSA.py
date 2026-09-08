@@ -78,14 +78,14 @@ from functools import partial
 from numba import jit
 from tqdm import tqdm
 import sys
-from utilities import Hardware_Utils
+from utilities import Hardware_Acceleration as Hardware_Utils
 from sklearn.isotonic import IsotonicRegression
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 
 from Cache_Manifest import validate_network_schema
-from utilities.FASTA_Sanitization import load_sanitized_fasta
-from utilities.Embedding_HDF5 import read_embedding_manifest
+from utilities.Sequence_Utils import load_sanitized_fasta
+from utilities.HDF5_Storage import read_embedding_manifest
 
 
 # ==========================================
@@ -111,10 +111,10 @@ RANDOM_SEED = 42
 INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS = False
 
 # --- DIRECTORY DEFAULTS ---
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import (
+from tools.tool_helpers.Tool_Pipeline import (
     inherited_settings_path,
     load_tool_settings,
+    project_directory_defaults,
     select_settings_path,
 )
 

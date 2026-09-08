@@ -28,8 +28,7 @@ from Layout_Cache_Generator import (
     LayoutGenerationSettings,
     generate_layout_cache,
 )
-from utilities.Network_Preparation import prepare_network
-from utilities.Execution_Settings import decode_document, LAYOUT_SECTIONS
+from desktop.Viewer_State import decode_document, LAYOUT_SECTIONS, prepare_network
 
 FIELD_SECTION = {key: section for section, keys in LAYOUT_SECTIONS.items() for key in keys}
 
@@ -63,8 +62,7 @@ def _settings_document(temp_path, *, cache_filename="version_00.h5"):
             "PACKING_GRID_SIZE": 20.0,
         },
     }
-    from utilities.Execution_Settings import encode_document
-    from utilities.Viewer_Settings import DEFAULTS
+    from desktop.Viewer_State import DEFAULTS, encode_document
     return encode_document("layout", {**DEFAULTS, **legacy["Layout_Cache_Generator.py"],
         "SAVED_LAYOUT_DIR": str(temp_path / "layouts"), "TARGET_CACHE_PATH": None, "CACHE_NAME_MODE": "explicit"})
 
@@ -502,9 +500,8 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 "-c",
                 (
                     "import sys; import Layout_Cache_Generator; "
-                    "import utilities.Cache_Selection; "
-                    "import utilities.Network_Clustering; "
-                    "import utilities.Network_Preparation; "
+                    "import desktop.Viewer_State; "
+                    "import utilities.Network_Kernels; "
                     "assert 'EMAPSSN_Viewer' not in sys.modules; "
                     "assert 'vispy' not in sys.modules; "
                     "assert 'PySide6' not in sys.modules; "
@@ -556,7 +553,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             with mock.patch(
                 "Layout_Cache_Generator.generate_layout_cache",
                 return_value=fake_result,
-            ) as mock_gen, mock.patch("utilities.Viewer_Settings.validate_viewer_document", side_effect=lambda doc, root: doc), mock.patch(
+            ) as mock_gen, mock.patch("desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc), mock.patch(
                 "subprocess.call",
                 side_effect=capture_launch,
             ) as mock_call:

@@ -14,6 +14,10 @@ import subprocess
 import sys
 import time
 
+SRC_DIR = Path(__file__).resolve().parents[1]
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 try:
     from utilities.Terminal_Launcher import (
         HoldMode,
@@ -21,7 +25,6 @@ try:
         launch_in_terminal,
     )
 except ModuleNotFoundError:
-    # This monitor is also executed directly by the bootstrap launchers.
     from Terminal_Launcher import (  # type: ignore[no-redef]
         HoldMode,
         TerminalUnavailableError,
@@ -130,7 +133,6 @@ def _report_terminal_failure(log_path: Path, error: Exception) -> None:
         if owns_application:
             application.quit()
     except Exception:
-        # The retained log is the final fallback if Qt itself cannot start.
         pass
 
 
@@ -149,7 +151,6 @@ def _cleanup_success(state_dir: Path) -> None:
     except FileNotFoundError:
         pass
     except OSError:
-        # Stale successful state is harmless and can be cleaned next launch.
         pass
 
 

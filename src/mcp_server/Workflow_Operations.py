@@ -33,11 +33,11 @@ from mcp_server.MCP_Pipeline_Jobs import (
     PipelineJobManager,
 )
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
-from utilities.Viewer_Settings import (
+from desktop.Viewer_State import (
     get_viewer_settings_schema as viewer_settings_schema,
     read_viewer_settings, validate_viewer_document, ViewerSettingsError,
 )
-from utilities.Tool_Execution import list_tool_specs
+from tools.tool_helpers.Tool_Pipeline import list_tool_specs
 from mcp_server.Pipeline_Settings import (
     DESCRIPTIONS,
     PipelineSettingsError,
@@ -422,7 +422,7 @@ async def start_layout_job(
             for k, v in parameters.items():
                 payload[k.upper()] = v
 
-        from utilities.Execution_Settings import encode_document
+        from desktop.Viewer_State import encode_document
         target_doc = encode_document("layout", {**payload, "SAVED_LAYOUT_DIR": saved_layout_dir, "TARGET_CACHE_PATH": None})
 
     try:

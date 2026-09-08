@@ -23,8 +23,7 @@ except ModuleNotFoundError:
     import _bootstrap
 
 from utilities.BLAST_Tabular import BlastParseError, build_blast_network
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import load_tool_settings, project_directory_defaults
 
 
 INPUT_BLAST_TABULAR = None

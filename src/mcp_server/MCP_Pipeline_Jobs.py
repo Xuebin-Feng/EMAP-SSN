@@ -21,7 +21,7 @@ import sys
 import tempfile
 import uuid
 
-from utilities.Tool_Execution import (
+from tools.tool_helpers.Tool_Pipeline import (
     ToolInvocation,
     prepare_headless_invocation,
     resolve_tool_directories,

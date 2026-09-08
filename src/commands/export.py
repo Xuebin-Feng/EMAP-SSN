@@ -18,8 +18,8 @@ import os
 import re
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
-from utilities.Application_Windows import open_in_file_manager
-from utilities.FASTA_Sanitization import write_fasta_atomic
+from desktop.Desktop_App import open_in_file_manager
+from utilities.Sequence_Utils import write_fasta_atomic
 
 SEQUENCE_EXPORT_DIRECTORY = os.path.join(
     "$analysis_result$", "Sequence_Export"

@@ -9,7 +9,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mcp_server import Compute_Capabilities as compute
-from utilities import Hardware_Utils as hardware
+from utilities import Hardware_Acceleration as hardware
 
 
 def fake_runtime(backend="cuda", count=1):

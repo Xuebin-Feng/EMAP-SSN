@@ -55,10 +55,10 @@ import gc
 import threading
 import time
 import math
-from utilities.Ssearch_Benchmark import SearchPlan, SearchSelector, SearchTiming, stratified
-from utilities import Hardware_Utils
-from utilities.Alignment_Score_Kernels import global_score_length, local_score_length
-from utilities.Embedding_Alignment_Engine import (
+from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
+from utilities import Hardware_Acceleration as Hardware_Utils
+from utilities.Network_Kernels import global_score_length, local_score_length
+from Embedding_Alignment_Engine import (
     BF16ValidationIntegrityError,
     EmbeddingTileStore,
     bf16_accelerator_support,
@@ -80,8 +80,8 @@ from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method, get_context
 from tqdm import tqdm
 
-from utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
-from utilities.Embedding_HDF5 import (
+from utilities.Sequence_Utils import sanitize_header, sanitize_sequence
+from utilities.HDF5_Storage import (
     dtype_for_saving_mode,
     read_embedding_manifest,
     validate_embedding_array,
@@ -113,8 +113,11 @@ DEVICE_SELECTION = "auto"
 ACCELERATOR_PRECISION = "automatic_32bit"
 ACCELERATOR_LANES = "auto"
 TF32_SEARCH_MIN_TARGETS = 4096
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

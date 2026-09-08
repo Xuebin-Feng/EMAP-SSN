@@ -17,7 +17,7 @@ config_stub = types.ModuleType("EMAPSSN_Config")
 config_stub.resolve_directory_path = lambda value: value
 plugin_manager_stub = types.ModuleType("web_ui.Plugin_Manager")
 plugin_manager_stub.ensure_registry = mock.Mock()
-cache_selection_stub = types.ModuleType("utilities.Cache_Selection")
+cache_selection_stub = types.ModuleType("desktop.Viewer_State")
 cache_selection_stub.resolve_selected_cache = mock.Mock()
 
 spec = importlib.util.spec_from_file_location("esmfold_backend_under_test", BACKEND_PATH)
@@ -27,7 +27,7 @@ with mock.patch.dict(
     {
         "EMAPSSN_Config": config_stub,
         "web_ui.Plugin_Manager": plugin_manager_stub,
-        "utilities.Cache_Selection": cache_selection_stub,
+        "desktop.Viewer_State": cache_selection_stub,
     },
 ):
     spec.loader.exec_module(esmfold_backend)

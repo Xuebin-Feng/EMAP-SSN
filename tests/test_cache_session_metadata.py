@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -39,6 +40,7 @@ class MetadataTests(unittest.TestCase):
             with h5py.File(path, "r+") as cache:
                 cache.attrs["layout_compatibility_json"] = '{"SPRING_K":6.0}'
             self.assertEqual(read_cache_metadata(str(path))["status"], "invalid")
+            time.sleep(0.05)
             with h5py.File(path, "r+") as cache:
                 del cache.attrs["layout_compatibility_json"]
                 del cache.attrs["layout_compatibility_id"]

@@ -19,9 +19,9 @@ for path in (str(SRC), str(UTILITIES), str(TOOLS)):
         sys.path.insert(0, path)
 
 import Generate_Embeddings
-import Hardware_Utils
-import Layout_Hardware
-import PLM_Plugin_Utils
+from utilities import Hardware_Acceleration as Hardware_Utils
+from utilities import Hardware_Acceleration as Layout_Hardware
+from tools.tool_helpers import Model_Plugins as PLM_Plugin_Utils
 import Align_Similarity_Matrix as Alignment
 
 

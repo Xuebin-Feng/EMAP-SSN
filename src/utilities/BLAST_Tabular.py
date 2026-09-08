@@ -18,7 +18,7 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-from utilities.FASTA_Sanitization import sanitize_header
+from utilities.Sequence_Utils import sanitize_header
 
 
 SUPPORTED_LAYOUTS = {

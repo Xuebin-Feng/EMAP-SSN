@@ -13,7 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from mcp_server import Pipeline_File_Inspection as inspection
-from utilities.Embedding_HDF5 import create_metadata_first_file
+from utilities.HDF5_Storage import create_metadata_first_file
 
 
 class FileInspectionTests(unittest.TestCase):

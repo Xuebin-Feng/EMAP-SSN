@@ -20,7 +20,7 @@ import numpy as np
 import json
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
-from utilities.Cache_Selection import resolve_selected_cache
+from desktop.Viewer_State import resolve_selected_cache
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:

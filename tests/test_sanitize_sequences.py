@@ -21,7 +21,7 @@ SPEC = importlib.util.spec_from_file_location("sanitize_sequences", MODULE_PATH)
 sanitize_sequences = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(sanitize_sequences)
 
-from utilities.Tool_Directories import (  # noqa: E402
+from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     DEFAULT_DIRECTORY_PATHS,
     fill_missing_directory_defaults,
     project_directory_defaults,
@@ -63,7 +63,7 @@ class SanitizeSequencesTests(unittest.TestCase):
                 self.assertIn(f", {edges[-1]:.12g}]", rows[-1])
 
     def test_mcp_headless_invocation_never_imports_matplotlib(self):
-        from utilities.Tool_Execution import prepare_headless_invocation
+        from tools.tool_helpers.Tool_Pipeline import prepare_headless_invocation
 
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = pathlib.Path(temp_dir) / "input.fasta"
@@ -307,7 +307,7 @@ class ToolDirectoryDefaultTests(unittest.TestCase):
         self.assertIn("save_shared_tool_settings", gui_calls)
 
         service_source = (
-            PROJECT_ROOT / "src" / "utilities" / "Tool_Execution.py"
+            PROJECT_ROOT / "src" / "tools" / "tool_helpers" / "Tool_Pipeline.py"
         ).read_text(encoding="utf-8")
         service_tree = ast.parse(service_source)
         shared_functions = {

@@ -42,7 +42,7 @@ esac
 activate_existing_instance() {
     local venv_python="$PROJECT_ROOT/.venv/bin/python"
     [ -x "$venv_python" ] || return 1
-    "$venv_python" "$PROJECT_ROOT/src/utilities/Single_Instance_Probe.py" \
+    "$venv_python" "$PROJECT_ROOT/src/desktop/Single_Instance_Probe.py" \
         "$APP_KIND" >/dev/null 2>&1
 }
 
@@ -95,7 +95,7 @@ STATE_ROOT="$PROJECT_ROOT/temp"
 mkdir -p "$STATE_ROOT" || exit 1
 STATE_DIR=$(mktemp -d "$STATE_ROOT/${APP_KIND}.XXXXXX") || exit 1
 printf 'Launching the Qt window...\n'
-"$VENV_PYTHON" -u "$PROJECT_ROOT/src/utilities/Desktop_Launcher_Monitor.py" \
+"$VENV_PYTHON" -u "$PROJECT_ROOT/src/desktop/Desktop_Launcher_Monitor.py" \
     --launch-and-wait "$APP_KIND" "$STATE_DIR"
 launch_result=$?
 case "$launch_result" in

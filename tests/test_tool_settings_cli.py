@@ -17,11 +17,9 @@ if str(SRC_DIR) not in os.sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from utilities.Tool_Directories import (  # noqa: E402
+from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     DEFAULT_DIRECTORY_PATHS,
     TOOL_DIRECTORY_KEYS,
-)
-from utilities.Tool_Settings import (  # noqa: E402
     apply_settings_document,
     inherited_settings_path,
     load_tool_settings,
@@ -449,7 +447,7 @@ class ToolExportGuiTests(unittest.TestCase):
 
     def test_tf32_precision_option_tracks_detected_and_selected_hardware(self):
         from PySide6.QtWidgets import QComboBox
-        from utilities import Hardware_Utils
+        from utilities import Hardware_Acceleration as Hardware_Utils
         import torch
 
         cpu = Hardware_Utils.DeviceCandidate(
@@ -516,7 +514,7 @@ class ToolExportGuiTests(unittest.TestCase):
 
     def test_bf16_precision_option_tracks_runtime_capability(self):
         from PySide6.QtWidgets import QComboBox
-        from utilities import Hardware_Utils
+        from utilities import Hardware_Acceleration as Hardware_Utils
         import torch
 
         cpu = Hardware_Utils.DeviceCandidate(
@@ -559,7 +557,7 @@ class ToolExportGuiTests(unittest.TestCase):
 
     def test_alignment_tiled_option_hides_for_mps_and_restores_for_xpu(self):
         from PySide6.QtWidgets import QComboBox
-        from utilities import Hardware_Utils
+        from utilities import Hardware_Acceleration as Hardware_Utils
         import torch
 
         cpu = Hardware_Utils.DeviceCandidate(

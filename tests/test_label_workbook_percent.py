@@ -20,7 +20,7 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 from commands import label
-from utilities import Application_Windows as application_windows
+from desktop import Desktop_App as application_windows
 
 
 class AlignmentStub:

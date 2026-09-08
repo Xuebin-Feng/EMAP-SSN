@@ -5,7 +5,7 @@
 Personal settings are read only during export. Execution consumes explicit JSON.
 GUI imports must stay out of this module.
 """
-from utilities.Execution_Settings import encode_document, decode_document
+from desktop.Viewer_State import encode_document, decode_document
 from copy import deepcopy
 import json
 import ntpath
@@ -35,7 +35,7 @@ def absolute_path(value, root):
 
 def build_pipeline_export(tool_id, directories, values, project_root, *, absolute=False):
     from mcp_server.Pipeline_Settings import serialize_export_settings
-    from utilities.Tool_Execution import build_settings_document, get_tool_spec
+    from tools.tool_helpers.Tool_Pipeline import build_settings_document, get_tool_spec
     spec = get_tool_spec(tool_id)
     values = serialize_export_settings(tool_id, values, project_root)
     directories = {key: directories.get(key, "") for key in spec.required_directories}
@@ -71,8 +71,10 @@ def write_export(document, project_root, export_directory, stem, output_path=Non
 
 
 def export_pipeline_settings(tool_id, project_root, output_path=None):
-    from utilities.Tool_Directories import DEFAULT_DIRECTORY_PATHS
-    from utilities.Tool_Execution import get_tool_spec
+    from tools.tool_helpers.Tool_Pipeline import (
+        DEFAULT_DIRECTORY_PATHS,
+        get_tool_spec,
+    )
     from mcp_server.Pipeline_Settings import get_pipeline_schema
     spec = get_tool_spec(tool_id)
     saved = read_object(Path(project_root) / "tools_settings.json", optional=True)
@@ -117,7 +119,7 @@ def build_layout_export(values, project_root, *, cache_filename=None, target_cac
 
 
 def _config_export_directory(values, project_root):
-    from utilities.Viewer_Settings import ALIASES
+    from desktop.Viewer_State import ALIASES
     def resolve(value, seen=()):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Config directories must be nonempty strings.")
@@ -132,8 +134,13 @@ def _config_export_directory(values, project_root):
 
 
 def config_export_document(kind, project_root, *, settings_path=None):
-    from utilities.Viewer_Settings import DEFAULTS, normalize_viewer_paths, validate_viewer_document
-    from utilities.Viewer_Defaults import DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS
+    from desktop.Viewer_State import (
+        DEFAULTS,
+        DIRECTORY_PROFILE_DEFAULTS,
+        LEGACY_DEFAULT_DIRECTORY_PATHS,
+        normalize_viewer_paths,
+        validate_viewer_document,
+    )
     from Layout_Cache_Generator import LayoutGenerationSettings, resolve_layout_selection
     from Cache_Manifest import find_matching_manifest_folders
     if kind not in {"layout", "viewer"}:
@@ -231,7 +238,7 @@ def main(application, argv=None):
             print(json.dumps(result, allow_nan=False))
         elif args.operation == "generate-layout":
             from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
-            from utilities.Tool_Execution import write_json_document
+            from tools.tool_helpers.Tool_Pipeline import write_json_document
             settings = LayoutGenerationSettings.from_json_file(absolute_path(args.settings, root), project_root=root)
             generated = generate_layout_cache(settings)
             result = {"TARGET_CACHE_PATH": generated.cache_path, "CACHE_FILENAME": Path(generated.cache_path).name,

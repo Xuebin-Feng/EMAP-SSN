@@ -22,7 +22,7 @@ for path in (
 
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Embedding_SSEARCH as ssearch
-    from utilities import Embedding_Alignment_Engine as alignment_engine
+    import Embedding_Alignment_Engine as alignment_engine
 
 
 def make_tasks(count):

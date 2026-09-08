@@ -27,7 +27,7 @@ from typing import Any, Callable, Mapping
 import weakref
 
 from PySide6 import QtCore
-from utilities.Application_Windows import open_in_file_manager
+from desktop.Desktop_App import open_in_file_manager
 
 
 Worker = Callable[[Any], Mapping[str, Any]]

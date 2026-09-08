@@ -80,7 +80,7 @@ class Inspector:
 
     def embedding(self, hf):
         import h5py
-        from utilities.Embedding_HDF5 import (
+        from utilities.HDF5_Storage import (
             REQUIRED_ATTRIBUTES, REQUIRED_OBJECTS, validate_manifest_records,
             validate_embedding_array, dtype_for_saving_mode,
         )
@@ -352,7 +352,7 @@ class Inspector:
 
     def settings(self, tool_id, root):
         from mcp_server.Pipeline_Settings import normalize_pipeline_settings
-        from utilities.Tool_Execution import list_tool_specs
+        from tools.tool_helpers.Tool_Pipeline import list_tool_specs
         if self.path.stat().st_size > MAX_JSON_BYTES: raise InspectionLimit("Settings JSON exceeds 8 MiB inspection limit.")
         with open(self.path, encoding="utf-8") as handle: document = json.load(handle)
         self.require(isinstance(document, dict), "Settings JSON must contain an object.")

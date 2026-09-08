@@ -16,7 +16,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from utilities import Application_Windows  # noqa: E402
+from desktop import Desktop_App as Application_Windows  # noqa: E402
 
 
 class ApplicationWindowActivationTests(unittest.TestCase):

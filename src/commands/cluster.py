@@ -16,7 +16,7 @@
 import Command_Engine
 import numpy as np
 import matplotlib.pyplot as plt
-from utilities import Network_Clustering as network_clustering
+from utilities import Network_Kernels as network_clustering
 import sys
 import os
 import colorsys

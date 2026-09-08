@@ -21,7 +21,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import Install_Dependencies  # noqa: E402
-from utilities import Desktop_Launcher_Monitor  # noqa: E402
+from desktop import Desktop_Launcher_Monitor  # noqa: E402
 from web_ui import Web_Server  # noqa: E402
 from web_ui import Browser_Page  # noqa: E402
 from web_ui import esmfold_backend  # noqa: E402

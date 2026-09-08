@@ -117,7 +117,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             src = root / "src"
             sys.path.insert(0, str(src))
 
-            from utilities import Hardware_Utils  # preload torch before PySide6
+            from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication
             test_app = QApplication.instance() or QApplication([])
 
@@ -243,7 +243,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             src = root / "src"
             sys.path.insert(0, str(src))
 
-            from utilities import Hardware_Utils  # preload torch before PySide6
+            from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtCore import QTimer, qInstallMessageHandler
             from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
             from EMAPSSN_Config import build_score_histogram_figure

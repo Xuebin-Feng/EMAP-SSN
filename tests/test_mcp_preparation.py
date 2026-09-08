@@ -22,7 +22,7 @@ if str(SRC_DIR) not in os.sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from utilities.Tool_Execution import (  # noqa: E402
+from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     format_invocation_command,
     get_tool_spec,
     list_tool_specs,
@@ -46,7 +46,7 @@ class ToolExecutionTests(unittest.TestCase):
         code = (
             "import sys; "
             f"sys.path.insert(0, {str(SRC_DIR)!r}); "
-            "import utilities.Tool_Execution; "
+            "import tools.tool_helpers.Tool_Pipeline; "
             "import mcp_server.Viewer_Inspection; "
             "import mcp_server.Viewer_Sessions"
         )

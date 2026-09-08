@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src" / "utilities"))
 
 import Detect_GPU
 import Install_Dependencies
-import Hardware_Utils
+from utilities import Hardware_Acceleration as Hardware_Utils
 
 
 def gpu(

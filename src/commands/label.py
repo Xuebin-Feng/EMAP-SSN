@@ -34,7 +34,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
-from utilities.Position_Parsing import (
+from utilities.Sequence_Utils import (
     format_alignment_offset_display,
     sort_alignment_labels,
 )

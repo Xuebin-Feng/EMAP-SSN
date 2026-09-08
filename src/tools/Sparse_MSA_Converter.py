@@ -53,7 +53,7 @@ import numpy as np
 import h5py
 import json
 import tempfile
-from utilities.MSA_Sanitization import (
+from utilities.Sequence_Utils import (
     AA_TO_INT,
     INT_TO_AA,
     MSAValidationError,
@@ -72,8 +72,11 @@ INPUT_FASTA = None
 CONVERT_ALL = False
 
 # --- DIRECTORY DEFAULTS ---
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

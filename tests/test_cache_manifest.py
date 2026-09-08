@@ -18,7 +18,7 @@ if str(SRC_DIR) not in sys.path:
 
 import Cache_Manifest
 from commands import save as save_command
-from utilities.Cache_Selection import resolve_selected_cache
+from desktop.Viewer_State import resolve_selected_cache
 
 
 def make_compatibility(sequence_hash="a" * 64, network_hash="b" * 64, **overrides):

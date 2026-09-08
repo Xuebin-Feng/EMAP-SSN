@@ -18,7 +18,7 @@ for path in (SRC, UTILITIES, TOOLS):
 
 import Embedding_Cropping
 import Embedding_Extraction
-import Embedding_HDF5
+from utilities import HDF5_Storage as Embedding_HDF5
 import Embedding_Injection
 import Embedding_SSEARCH
 import Generate_Embeddings

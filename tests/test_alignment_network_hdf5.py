@@ -12,7 +12,7 @@ SRC_ROOT = os.path.join(REPO_ROOT, "src")
 if SRC_ROOT not in sys.path:
     sys.path.insert(0, SRC_ROOT)
 
-from utilities.Alignment_Network_HDF5 import (  # noqa: E402
+from utilities.HDF5_Storage import (  # noqa: E402
     AlignmentNetworkIdentity,
     CanonicalAlignmentNetworkReader,
     ResumableAlignmentNetworkWriter,

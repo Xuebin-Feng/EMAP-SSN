@@ -59,8 +59,8 @@ def _configure_linux_qtwebengine_rendering(
 # Chromium reads this before the QtWebEngine renderer process starts.
 _configure_linux_qtwebengine_rendering()
 
-from utilities import Hardware_Utils
-from utilities.Embedding_Alignment_Engine import (
+from utilities import Hardware_Acceleration as Hardware_Utils
+from Embedding_Alignment_Engine import (
     DEFAULT_HOST_CACHE_CAP,
     GIB,
     bf16_accelerator_support,
@@ -70,19 +70,16 @@ from utilities.Embedding_Alignment_Engine import (
     tiled_accelerator_support,
 )
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
-from utilities.PLM_Plugin_Utils import (
+from tools.tool_helpers.Model_Plugins import (
     discover_model_execution_modes,
     discover_model_usage_terms,
-)
-from utilities.Model_License_Utils import (
     format_model_selector_label,
     format_model_usage_terms,
     is_model_license_accepted,
     record_model_license_acceptance,
 )
-from utilities.Tool_Directories import DEFAULT_DIRECTORY_PATHS
-from mcp_server.Pipeline_Settings import serialize_export_settings
-from utilities.Tool_Execution import (
+from tools.tool_helpers.Tool_Pipeline import (
+    DEFAULT_DIRECTORY_PATHS,
     build_settings_document,
     format_invocation_command,
     get_tool_spec_for_script,
@@ -92,15 +89,14 @@ from utilities.Tool_Execution import (
     save_shared_tool_settings,
     write_json_document,
 )
-from utilities.Application_Windows import (
-    SingleInstanceController,
-    show_window_in_front,
-)
-from utilities.Application_Identity import (
+from mcp_server.Pipeline_Settings import serialize_export_settings
+from desktop.Desktop_App import (
     APPLICATION_VERSION,
-    TOOLS_DISPLAY_NAME,
+    SingleInstanceController,
     TOOLS_DESKTOP_FILE_NAME,
+    TOOLS_DISPLAY_NAME,
     configure_linux_qt_desktop_identity,
+    show_window_in_front,
 )
 from Cache_Manifest import (
     file_cache_key,
@@ -385,7 +381,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
                              QSizePolicy, QFrame, QInputDialog)
 from PySide6.QtCore import QEvent, Qt
-from utilities.Responsive_Layouts import ResponsiveFieldLayout
+from desktop.Desktop_App import ResponsiveFieldLayout
 
 # QtWebEngine ships inside the PySide6-Addons wheel, but its bundled Chromium
 # links against system libraries that pip cannot install. On a stock Linux
@@ -401,7 +397,7 @@ except ImportError as exc:
     QTWEBENGINE_IMPORT_ERROR = str(exc)
 
 from PySide6.QtGui import QColor, QIcon, QPalette
-from utilities.Application_Fonts import (
+from desktop.Desktop_App import (
     MONOSPACE_QSS_FONT_STACK,
     UI_QSS_FONT_STACK,
     configure_qt_application_fonts,

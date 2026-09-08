@@ -26,9 +26,12 @@ except ImportError:
 try:
     import torch
     try:
-        from utilities import Hardware_Utils, Layout_Hardware
+        from utilities import Hardware_Acceleration
+        Hardware_Utils = Hardware_Acceleration
+        Layout_Hardware = Hardware_Acceleration
     except ImportError:
-        import Hardware_Utils, Layout_Hardware
+        import Hardware_Acceleration as Hardware_Utils
+        Layout_Hardware = Hardware_Utils
     HAS_TORCH = True
 except Exception as e:
     import traceback

@@ -9,7 +9,7 @@ from tests.test_ssearch_cuda_routing import ssearch, make_tasks
 import h5py
 import numpy as np
 import torch
-from utilities.Ssearch_Benchmark import SearchPlan, SearchSelector, SearchTiming, rank_plans, stratified
+from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, rank_plans, stratified
 
 
 def cpu():

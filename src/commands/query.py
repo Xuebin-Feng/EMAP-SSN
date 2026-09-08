@@ -20,7 +20,7 @@ import numpy as np
 from collections import Counter
 import EMAPSSN_Config as cfg
 import Command_Engine
-from utilities.Position_Parsing import (
+from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
     format_alignment_offset_display,
     normalize_displayed_position_atom,

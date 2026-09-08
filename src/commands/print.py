@@ -24,7 +24,7 @@ from matplotlib import colors as mcolors
 from matplotlib.collections import LineCollection
 from vispy import app
 import EMAPSSN_Config as cfg
-from utilities.Application_Windows import open_in_file_manager
+from desktop.Desktop_App import open_in_file_manager
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
 PNG_TRIM_PADDING_PX = 20

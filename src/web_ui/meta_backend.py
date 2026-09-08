@@ -20,7 +20,7 @@ import pandas as pd
 from PySide6 import QtWidgets, QtCore, QtGui
 import Command_Engine
 import EMAPSSN_Config as cfg
-from utilities.Application_Fonts import UI_QSS_FONT_STACK
+from desktop.Desktop_App import UI_QSS_FONT_STACK
 from web_ui.Plugin_Manager import ensure_registry
 
 class MetadataTableModel(QtCore.QAbstractTableModel):

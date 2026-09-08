@@ -25,8 +25,8 @@ import h5py
 import numpy as np
 
 import Cache_Manifest as cache_manifest
-from utilities.FASTA_Sanitization import load_sanitized_fasta
-from utilities.Network_Preparation import prepare_network
+from utilities.Sequence_Utils import load_sanitized_fasta
+from desktop.Viewer_State import prepare_network
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -173,7 +173,7 @@ class LayoutGenerationSettings:
         *,
         project_root: str | os.PathLike[str] = PROJECT_ROOT,
     ) -> "LayoutGenerationSettings":
-        from utilities.Execution_Settings import decode_document
+        from desktop.Viewer_State import decode_document
         try:
             values = decode_document(dict(document), "layout")
         except (ValueError, TypeError) as error:
@@ -406,7 +406,7 @@ class LayoutGenerationSettings:
         }
         values["NODE_FASTA_FILE"] = _portable_path(self.NODE_FASTA_FILE, root)
         values["INPUT_HDF5"] = _portable_path(self.INPUT_HDF5, root)
-        from utilities.Execution_Settings import encode_document
+        from desktop.Viewer_State import encode_document
         values["SAVED_LAYOUT_DIR"] = _portable_path(self.SAVED_LAYOUT_DIR, root)
         return encode_document("layout", values)
 
@@ -878,8 +878,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.launch_viewer:
         viewer_script = os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py")
         env = os.environ.copy()
-        from utilities.Viewer_Settings import DEFAULTS, read_viewer_settings, validate_viewer_document
-        from utilities.Execution_Settings import encode_document
+        from desktop.Viewer_State import (
+            DEFAULTS,
+            encode_document,
+            read_viewer_settings,
+            validate_viewer_document,
+        )
         snapshot_source = env.pop("SSN_VIEWER_SETTINGS_PATH", None)
         if snapshot_source:
             document = read_viewer_settings(settings_path=snapshot_source, project_root=PROJECT_ROOT)

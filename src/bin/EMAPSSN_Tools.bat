@@ -138,7 +138,7 @@ exit /b !APP_EXIT!
 
 :ACTIVATE_EXISTING_INSTANCE
 if not exist ".venv\Scripts\python.exe" exit /b 1
-".venv\Scripts\python.exe" "src\utilities\Single_Instance_Probe.py" tools >nul 2>nul
+".venv\Scripts\python.exe" "src\desktop\Single_Instance_Probe.py" tools >nul 2>nul
 exit /b !ERRORLEVEL!
 
 :SANITIZE_MANAGED_ENVIRONMENT

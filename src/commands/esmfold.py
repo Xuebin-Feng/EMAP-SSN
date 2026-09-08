@@ -132,7 +132,7 @@ def run(viewer, args):
     device_str = None
     if not is_large:
         try:
-            from utilities import Hardware_Utils
+            from utilities import Hardware_Acceleration as Hardware_Utils
             import torch
         except ImportError:
             print("Error: PyTorch or Hardware_Utils could not be imported.")

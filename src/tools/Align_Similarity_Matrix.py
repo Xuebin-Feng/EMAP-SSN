@@ -79,8 +79,8 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
-from utilities import Hardware_Utils
-from utilities.Embedding_Alignment_Engine import (
+from utilities import Hardware_Acceleration as Hardware_Utils
+from Embedding_Alignment_Engine import (
     AcceleratorMemorySnapshot,
     AdaptiveTilePlan,
     BenchmarkPhaseTimer,
@@ -109,8 +109,8 @@ from utilities.Embedding_Alignment_Engine import (
     run_tiled_cuda_pipeline,
     tiled_accelerator_support,
 )
-from utilities.Alignment_Score_Kernels import global_local_scores
-from utilities.Embedding_HDF5 import read_embedding_manifest
+from utilities.Network_Kernels import global_local_scores
+from utilities.HDF5_Storage import read_embedding_manifest
 
 # ==========================================
 # CONFIGURATION
@@ -139,8 +139,11 @@ LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 BATCH_SIZE = 500000
 
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

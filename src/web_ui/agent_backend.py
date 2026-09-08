@@ -38,7 +38,7 @@ if _SRC_DIR not in sys.path:
 import Command_Engine
 from PySide6 import QtCore
 from web_ui.Plugin_Manager import ensure_registry
-from utilities.Cache_Selection import resolve_selected_cache
+from desktop.Viewer_State import resolve_selected_cache
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 

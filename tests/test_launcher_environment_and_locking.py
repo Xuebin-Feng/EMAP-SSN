@@ -21,7 +21,7 @@ class ManagedEnvironmentTests(unittest.TestCase):
         import sys
 
         sys.path.insert(0, str(SRC_DIR))
-        from utilities import Desktop_Launcher_Monitor
+        from desktop import Desktop_Launcher_Monitor
 
         cls.monitor = Desktop_Launcher_Monitor
 

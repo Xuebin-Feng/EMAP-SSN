@@ -27,8 +27,8 @@ except ModuleNotFoundError:
 import h5py
 from tqdm import tqdm
 
-from utilities.FASTA_Sanitization import load_sanitized_fasta, sanitize_header
-from utilities.Embedding_HDF5 import (
+from utilities.Sequence_Utils import load_sanitized_fasta, sanitize_header
+from utilities.HDF5_Storage import (
     create_metadata_first_file,
     mark_generation_complete,
     read_embedding_manifest,
@@ -40,8 +40,11 @@ from utilities.Embedding_HDF5 import (
 INPUT_EMBED = None
 INPUT_FASTA = None
 
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

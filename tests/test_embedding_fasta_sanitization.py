@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-from src.utilities.FASTA_Sanitization import (
+from utilities.Sequence_Utils import (
     load_sanitized_fasta,
     print_sanitization_result,
     sanitize_fasta_records,

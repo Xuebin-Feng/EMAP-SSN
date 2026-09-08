@@ -73,16 +73,16 @@ from tqdm import tqdm
 from collections import Counter
 import numpy as np
 
-from utilities.FASTA_Sanitization import (
+from utilities.Sequence_Utils import (
     allocate_unique_headers,
     sanitize_header,
     sanitize_sequence,
     select_preferred_header,
 )
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import (
+from tools.tool_helpers.Tool_Pipeline import (
     inherited_settings_path,
     load_tool_settings,
+    project_directory_defaults,
     select_settings_path,
 )
 

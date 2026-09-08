@@ -332,7 +332,7 @@ class ResponsiveConfigTests(unittest.TestCase):
     def test_action_buttons_wrap_in_order_and_restore(self):
         from PySide6.QtCore import QRect
         from PySide6.QtWidgets import QPushButton, QWidget
-        from utilities.Responsive_Layouts import ResponsiveFlowLayout
+        from desktop.Desktop_App import ResponsiveFlowLayout
         container = QWidget()
         layout = ResponsiveFlowLayout(container)
         buttons = [QPushButton(text) for text in (

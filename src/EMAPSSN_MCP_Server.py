@@ -16,7 +16,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 from pydantic import Field
-from utilities.Application_Identity import PRODUCT_NAME
+from desktop.Desktop_App import PRODUCT_NAME
 from mcp_server.Workflow_Operations import AppContext, app_lifespan
 from mcp_server.Workflow_Dispatch import dispatch, PipelineAction, ViewerDataAction, ViewerControlAction
 

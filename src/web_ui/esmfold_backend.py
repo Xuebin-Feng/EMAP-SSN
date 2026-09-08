@@ -18,7 +18,7 @@ import json
 import EMAPSSN_Config as cfg
 from web_ui.Plugin_Manager import ensure_registry
 from web_ui.Browser_Page import open_browser_page
-from utilities.Cache_Selection import resolve_selected_cache
+from desktop.Viewer_State import resolve_selected_cache
 
 STRUCTURES_DIRECTORY = os.path.join("$cache_file$", "Predicted_Structures")
 

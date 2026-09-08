@@ -54,7 +54,7 @@ if not exist "!STATE_DIR!" (
 )
 
 echo Launching the Qt window...
-".venv\Scripts\python.exe" -u "src\utilities\Desktop_Launcher_Monitor.py" --launch-and-wait "%APP_KIND%" "!STATE_DIR!"
+".venv\Scripts\python.exe" -u "src\desktop\Desktop_Launcher_Monitor.py" --launch-and-wait "%APP_KIND%" "!STATE_DIR!"
 set "LAUNCH_RESULT=!ERRORLEVEL!"
 if !LAUNCH_RESULT! equ 0 goto GUI_READY
 if !LAUNCH_RESULT! equ 20 goto GUI_EXITED
@@ -96,7 +96,7 @@ exit /b 1
 
 :ACTIVATE_EXISTING_INSTANCE
 if not exist ".venv\Scripts\python.exe" exit /b 1
-".venv\Scripts\python.exe" "src\utilities\Single_Instance_Probe.py" "!APP_KIND!" >nul 2>nul
+".venv\Scripts\python.exe" "src\desktop\Single_Instance_Probe.py" "!APP_KIND!" >nul 2>nul
 exit /b !ERRORLEVEL!
 
 :SANITIZE_MANAGED_ENVIRONMENT

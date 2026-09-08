@@ -15,8 +15,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_layout_cache_generator as fixtures
-from utilities.Viewer_Settings import validate_viewer_document, ViewerSettingsError, normalize_viewer_settings, DEFAULTS
-from utilities.Execution_Settings import encode_document, VIEWER_SECTIONS
+from desktop.Viewer_State import (
+    validate_viewer_document,
+    ViewerSettingsError,
+    normalize_viewer_settings,
+    DEFAULTS,
+    encode_document,
+    VIEWER_SECTIONS,
+)
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters

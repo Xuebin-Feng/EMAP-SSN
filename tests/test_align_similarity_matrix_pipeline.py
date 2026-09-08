@@ -27,8 +27,8 @@ with mock.patch.dict(os.environ, {
     "SSN_TOOL_SETTINGS_FILE": os.path.join(PROJECT_ROOT, "tests", "nonexistent-settings.json"),
 }), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as similarity_matrix
-    import Embedding_HDF5
-    from utilities import Embedding_Alignment_Engine as alignment_engine
+    from utilities import HDF5_Storage as Embedding_HDF5
+    import Embedding_Alignment_Engine as alignment_engine
 
 
 class ImmediateExecutor:

@@ -17,7 +17,7 @@ import Command_Engine
 import numpy as np
 import re
 import os
-from utilities import Network_Clustering as network_clustering
+from utilities import Network_Kernels as network_clustering
 import sys
 import colorsys
 import math

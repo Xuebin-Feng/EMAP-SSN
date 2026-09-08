@@ -21,8 +21,7 @@ from collections import Counter
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
-from utilities.FASTA_Sanitization import simplify_node_label
-from utilities.MSA_Sanitization import (
+from utilities.Sequence_Utils import (
     AA_TO_INT,
     INT_TO_AA,
     MSAValidationError,
@@ -32,6 +31,7 @@ from utilities.MSA_Sanitization import (
     parse_int_to_aa_mapping,
     print_msa_sanitization_result,
     sanitize_msa_headers,
+    simplify_node_label,
 )
 
 

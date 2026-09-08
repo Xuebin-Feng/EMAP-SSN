@@ -13,9 +13,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from utilities import Terminal_Launcher as launcher  # noqa: E402
-from utilities import Application_Identity as identity  # noqa: E402
-from utilities import Application_Fonts as application_fonts  # noqa: E402
-from utilities import Desktop_Launcher_Monitor as desktop_monitor  # noqa: E402
+from desktop import Desktop_App as identity  # noqa: E402
+from desktop import Desktop_App as application_fonts  # noqa: E402
+from desktop import Desktop_Launcher_Monitor as desktop_monitor  # noqa: E402
 
 
 class FakeApplication:
@@ -310,7 +310,7 @@ class CallerIntegrationTests(unittest.TestCase):
             SRC_DIR / "EMAPSSN_Tools.py",
             SRC_DIR / "EMAPSSN_Config.py",
             SRC_DIR / "commands" / "esmfold.py",
-            SRC_DIR / "utilities" / "Desktop_Launcher_Monitor.py",
+            SRC_DIR / "desktop" / "Desktop_Launcher_Monitor.py",
         )
         for path in callers:
             with self.subTest(path=path.name):

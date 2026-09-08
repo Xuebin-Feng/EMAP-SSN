@@ -23,7 +23,7 @@ from mcp_server.Viewer_Sessions import (
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
     session_alias,
 )
-from utilities.Viewer_Settings import read_viewer_settings, validate_viewer_document, ViewerSettingsError
+from desktop.Viewer_State import read_viewer_settings, validate_viewer_document, ViewerSettingsError
 
 
 class MCPViewerError(RuntimeError):
@@ -153,7 +153,7 @@ class MCPViewerClient:
         command = [sys.executable, "-u", str(script), "--headless", "launch-viewer",
                    "--settings", str(snapshot), "--delete-settings", "--viewer-mode", mode]
         if mode == "normal":
-            command = [sys.executable, "-u", str(Path(__file__).resolve().parents[1] / "utilities" / "Viewer_Terminal.py"),
+            command = [sys.executable, "-u", str(Path(__file__).resolve().parent / "Viewer_Terminal.py"),
                        str(directory), *command]
         env = os.environ.copy()
         for key in ("SSN_VIEWER_SETTINGS_PATH", "SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE",

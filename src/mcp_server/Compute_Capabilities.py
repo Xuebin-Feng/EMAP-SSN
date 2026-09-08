@@ -171,7 +171,7 @@ def main():
     try:
         with contextlib.redirect_stdout(output):
             import torch
-            from utilities import Hardware_Utils
+            from utilities import Hardware_Acceleration as Hardware_Utils
             try:
                 import psutil
             except ImportError:

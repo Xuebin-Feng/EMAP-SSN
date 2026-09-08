@@ -16,7 +16,7 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from utilities.Application_Windows import notify_existing_instance
+from desktop.Desktop_App import notify_existing_instance
 
 
 APPLICATION_IDS = {

@@ -30,7 +30,7 @@ from types import SimpleNamespace
 import traceback
 from pathlib import Path
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
-from utilities.Application_Identity import (
+from desktop.Desktop_App import (
     APPLICATION_VERSION,
     CONFIG_DISPLAY_NAME,
     VIEWER_DISPLAY_NAME,
@@ -38,7 +38,7 @@ from utilities.Application_Identity import (
     configure_linux_qt_desktop_identity,
 )
 from Layout_Cache_Generator import LayoutGenerationSettings
-from utilities.Viewer_Defaults import (
+from desktop.Viewer_State import (
     INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES
 )
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
@@ -475,8 +475,7 @@ def _create_layout_settings_snapshot(settings_doc):
 
 def _create_viewer_settings_snapshot(settings):
     """Write one private settings file for a single Viewer process."""
-    from utilities.Execution_Settings import encode_document
-    from utilities.Viewer_Settings import DEFAULTS
+    from desktop.Viewer_State import DEFAULTS, encode_document
     settings = encode_document("viewer", {**DEFAULTS, **settings})
     descriptor, path = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
     try:
@@ -494,7 +493,7 @@ def _create_viewer_settings_snapshot(settings):
 
 def _load_consistency_fasta_headers(fasta_path):
     """Return the canonical FASTA headers used by downstream SSN workflows."""
-    from utilities.FASTA_Sanitization import load_sanitized_fasta
+    from utilities.Sequence_Utils import load_sanitized_fasta
 
     headers, _, _ = load_sanitized_fasta(fasta_path)
     return headers
@@ -502,7 +501,7 @@ def _load_consistency_fasta_headers(fasta_path):
 
 def _load_consistency_msa_headers(msa_path):
     """Return canonical MSA headers using the same rules as the viewer."""
-    from utilities.MSA_Sanitization import (
+    from utilities.Sequence_Utils import (
         load_sanitized_msa_fasta,
         sanitize_msa_headers,
     )
@@ -560,9 +559,9 @@ if __name__ == "__main__":
     # Hardware_Utils imports PyTorch.  On Windows this must happen before
     # PySide6/OpenGL initializes, otherwise torch's c10.dll can fail to load.
     try:
-        from utilities import Hardware_Utils
+        from utilities import Hardware_Acceleration as Hardware_Utils
     except ImportError:
-        import Hardware_Utils
+        import Hardware_Acceleration as Hardware_Utils
 
     os.environ["QT_API"] = "pyside6"
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
@@ -575,8 +574,15 @@ if __name__ == "__main__":
         QStyle, QStyleOptionSlider, QFileDialog, QColorDialog, QSizePolicy,
         QFrame, QScrollArea,
     )
-    from utilities.Responsive_Layouts import (
-        ResponsiveFieldLayout, ResponsiveFlowLayout, ResponsiveSelectorLayout,
+    from desktop.Desktop_App import (
+        ResponsiveFieldLayout,
+        ResponsiveFlowLayout,
+        ResponsiveSelectorLayout,
+        SingleInstanceController,
+        configure_qt_application_fonts,
+        force_light_palette,
+        qt_monospace_font,
+        show_window_in_front,
     )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import (
@@ -588,15 +594,6 @@ if __name__ == "__main__":
     from matplotlib.backends.backend_qtagg import (
         FigureCanvasQTAgg,
         NavigationToolbar2QT,
-    )
-    from utilities.Application_Fonts import (
-        configure_qt_application_fonts,
-        force_light_palette,
-        qt_monospace_font,
-    )
-    from utilities.Application_Windows import (
-        SingleInstanceController,
-        show_window_in_front,
     )
 
     def apply_gated_input_palette(widget):
@@ -1428,7 +1425,7 @@ if __name__ == "__main__":
             
         def run_consistency_check(self):
             import h5py
-            from utilities.FASTA_Sanitization import sanitize_header
+            from utilities.Sequence_Utils import sanitize_header
             
             # 1. Define the file names by grabbing them from the UI dropdowns
             fasta_file = self.cb_fasta.currentText()

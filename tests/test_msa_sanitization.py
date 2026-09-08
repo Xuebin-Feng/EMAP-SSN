@@ -20,7 +20,7 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 from tools import Sparse_MSA_Converter
-from utilities.MSA_Sanitization import AA_TO_INT, INT_TO_AA
+from utilities.Sequence_Utils import AA_TO_INT, INT_TO_AA
 
 
 def write_fasta(path, records):

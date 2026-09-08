@@ -54,9 +54,9 @@ except ModuleNotFoundError:
 import numpy as np
 import h5py
 from tqdm import tqdm
-from utilities import Hardware_Utils
-from utilities.FASTA_Sanitization import load_sanitized_fasta
-from utilities.Embedding_HDF5 import (
+from utilities import Hardware_Acceleration as Hardware_Utils
+from utilities.Sequence_Utils import load_sanitized_fasta
+from utilities.HDF5_Storage import (
     create_metadata_first_file,
     dtype_for_saving_mode,
     mark_generation_complete,
@@ -71,8 +71,11 @@ from utilities.Embedding_HDF5 import (
 INPUT_EMBED = None
 INPUT_FASTA = None
 
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

@@ -11,7 +11,7 @@ from unittest import mock
 SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError
-from utilities.Viewer_Terminal import copy_output
+from mcp_server.Viewer_Terminal import copy_output
 
 
 class ConnectionTests(unittest.IsolatedAsyncioTestCase):
@@ -59,7 +59,7 @@ class ConnectionTests(unittest.IsolatedAsyncioTestCase):
 class OutputTests(unittest.TestCase):
     def test_terminal_runner_captures_native_and_python_streams(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run([sys.executable, str(SRC / "utilities" / "Viewer_Terminal.py"), directory,
+            result = subprocess.run([sys.executable, str(SRC / "mcp_server" / "Viewer_Terminal.py"), directory,
                 sys.executable, "-u", "-c",
                 "import os; print('python output'); os.write(1,b'native partial'); os.write(2,b'native error')"],
                 capture_output=True, timeout=10)

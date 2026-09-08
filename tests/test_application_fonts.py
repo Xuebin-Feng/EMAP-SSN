@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QTabWidget,
 )
 
-from utilities.Application_Fonts import (  # noqa: E402
+from desktop.Desktop_App import (  # noqa: E402
     DESKTOP_FONT_DIR,
     FONT_FILES,
     FONT_MANIFEST_ENTRIES,

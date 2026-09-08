@@ -20,7 +20,7 @@ import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import EMAPSSN_Config as cfg
 import Command_Engine
-from utilities.Position_Parsing import (
+from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
     normalize_displayed_position_atom,
     reject_bare_negative_positions,

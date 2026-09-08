@@ -60,10 +60,10 @@ from tqdm import tqdm
 import numpy as np
 import torch
 import h5py
-from utilities import Hardware_Utils
+from utilities import Hardware_Acceleration as Hardware_Utils
 
-from utilities.FASTA_Sanitization import load_sanitized_fasta
-from utilities.Embedding_HDF5 import (
+from utilities.Sequence_Utils import load_sanitized_fasta
+from utilities.HDF5_Storage import (
     create_metadata_first_file,
     dtype_for_saving_mode,
     mark_generation_complete,
@@ -72,13 +72,11 @@ from utilities.Embedding_HDF5 import (
     validate_manifest_records,
     write_embedding_manifest,
 )
-from utilities.PLM_Plugin_Utils import (
-    read_plugin_metadata,
-    validate_loaded_plugin,
-)
-from utilities.Model_License_Utils import (
+from tools.tool_helpers.Model_Plugins import (
     prompt_for_model_license_acceptance,
+    read_plugin_metadata,
     require_model_license_acceptance,
+    validate_loaded_plugin,
 )
 
 # Script configuration
@@ -87,8 +85,11 @@ MODEL_NAME = None
 SAVING_MODE = "float32" 
 DEVICE_SELECTION = "auto"
                   
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

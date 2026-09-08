@@ -40,9 +40,9 @@ except ModuleNotFoundError:
 import numpy as np
 import torch
 import h5py
-from utilities import Hardware_Utils
-from utilities.FASTA_Sanitization import sanitize_header, sanitize_sequence
-from utilities.Embedding_HDF5 import (
+from utilities import Hardware_Acceleration as Hardware_Utils
+from utilities.Sequence_Utils import sanitize_header, sanitize_sequence
+from utilities.HDF5_Storage import (
     read_embedding_manifest,
     validate_embedding_array,
 )
@@ -68,8 +68,11 @@ ALIGNMENT_MODE = "global"
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)

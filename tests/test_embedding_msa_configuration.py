@@ -26,7 +26,7 @@ import Embedding_MSA
 
 class EmbeddingMsaConfigurationTests(unittest.TestCase):
     def test_headless_overrides_plot_setting_before_running_builder(self):
-        from utilities.Tool_Execution import prepare_headless_invocation
+        from tools.tool_helpers.Tool_Pipeline import prepare_headless_invocation
 
         with tempfile.TemporaryDirectory() as temp_dir:
             invocation = prepare_headless_invocation(

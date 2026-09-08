@@ -22,7 +22,7 @@ from mcp_server.MCP_Pipeline_Jobs import (  # noqa: E402
     PipelineQueueFullError,
 )
 from mcp_server.MCP_Viewer_Client import MCPViewerClient, MCPViewerError  # noqa: E402
-from utilities.Tool_Execution import (  # noqa: E402
+from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     ToolInvocation,
     create_settings_snapshot,
     get_tool_spec,
@@ -495,8 +495,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(bad_start.is_error)
 
                 # 2. Valid start using the current complete Viewer document contract.
-                from utilities.Execution_Settings import encode_document
-                from utilities.Viewer_Settings import DEFAULTS
+                from desktop.Viewer_State import encode_document, DEFAULTS
                 started = await client.call_tool("emapssn_viewer_control", {"action": "start_session", "arguments": {
                     "mode": "headless",
                     "settings_document": encode_document("viewer", {**DEFAULTS,

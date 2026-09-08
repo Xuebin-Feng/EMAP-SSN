@@ -73,8 +73,8 @@ import h5py
 from Bio import SeqIO
 from tqdm import tqdm
 
-from utilities.FASTA_Sanitization import load_sanitized_fasta
-from utilities.Embedding_HDF5 import validate_manifest_records
+from utilities.Sequence_Utils import load_sanitized_fasta
+from utilities.HDF5_Storage import validate_manifest_records
 
 # %% =======================================
 # CONFIGURATION
@@ -93,8 +93,11 @@ NCBI_BIN_DIR    = r"C:\Program Files\NCBI"
 MAKEBLASTDB_CMD = "makeblastdb"
 BLASTP_CMD      = "blastp"
 
-from utilities.Tool_Directories import project_directory_defaults
-from utilities.Tool_Settings import inherited_settings_path, load_tool_settings
+from tools.tool_helpers.Tool_Pipeline import (
+    inherited_settings_path,
+    load_tool_settings,
+    project_directory_defaults,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
