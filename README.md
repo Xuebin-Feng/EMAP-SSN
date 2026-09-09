@@ -15,7 +15,7 @@ Multiple Sequence Alignments (MSAs) directly into network exploration, the
 platform bridges macroscopic sequence relationships with microscopic
 residue-level conservation to provide a multi-scale view of protein sequence
 space.
-The current release is **v0.1.0**, the first stable GitHub release of the
+The current release is **v0.2.0**, the second stable GitHub release of the
 source distribution. Because EMAP-SSN remains below version 1.0, command
 interfaces and persisted formats may evolve between releases. See the
 [changelog](CHANGELOG.md) for release history and [citation metadata](CITATION.cff)
