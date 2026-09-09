@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 
 import h5py
 import numpy as np
@@ -20,6 +21,8 @@ from desktop.Viewer_State import (
     validate_viewer_document,
 )
 from utilities.Headless_Settings import export_config_settings
+from utilities.Cache_Metadata import validate_cache_provenance, read_cache_metadata
+from commands import save as save_command
 
 
 class ExecutionV2Tests(unittest.TestCase):
@@ -62,6 +65,73 @@ class ExecutionV2Tests(unittest.TestCase):
         (self.root / "viewer_settings.json").write_text(json.dumps(self.saved))
         _, second = self.cache_and_viewer(BOX_SCALE=4.5, SIMILARITY_THRESHOLD=0.3)
         self.assertEqual(resolve_viewer_document(second, self.root)["BOX_SCALE"], 4.5)
+
+    def snapshot_viewer(self, path):
+        with h5py.File(path, "r") as cache:
+            manifest_id = cache.attrs["cache_manifest_id"]
+            return SimpleNamespace(
+                cache_manifest_id=manifest_id,
+                _cache_provenance=validate_cache_provenance(cache.attrs, manifest_id),
+                full_headers=cache["headers"].asstr()[:].tolist(),
+                pos=cache["positions"][:],
+            )
+
+    def test_generated_snapshot_reopens_and_preserves_original_provenance(self):
+        for changes in ({"SIMILARITY_THRESHOLD": 0.2},
+                        {"TOP_EDGE_PERCENT": 50.0, "SIMILARITY_THRESHOLD": None},
+                        {"UMAP_MODE": True, "UMAP_NEIGHBORS": 2, "SIMILARITY_THRESHOLD": None}):
+            with self.subTest(changes=changes):
+                source, document = self.cache_and_viewer(**changes)
+                expected = resolve_viewer_document(document, self.root)
+                from EMAPSSN_Viewer import MainViewer
+                import EMAPSSN_Viewer
+                viewer = MainViewer.__new__(MainViewer)
+                with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, **expected):
+                    viewer.load_and_simulate()
+                original = dict(viewer._cache_provenance)
+                for filename in ("snapshot.h5", "snapshot.h5", Path(source).name):
+                    with mock.patch.object(save_command, "resolve_selected_cache", return_value=(source, None)), \
+                         mock.patch.object(save_command.cfg, "BOX_SCALE", 999), \
+                         mock.patch.object(save_command.Command_Engine, "print_help"), \
+                         mock.patch.object(save_command.Command_Engine, "command_failed") as failed:
+                        save_command.run(viewer, [filename])
+                    failed.assert_not_called()
+                    saved = Path(source).parent / filename
+                    metadata = read_cache_metadata(str(saved))
+                    self.assertEqual(metadata["status"], "complete")
+                    self.assertEqual(metadata["attributes"], original)
+                    reopened = copy.deepcopy(document)
+                    reopened["inputs"]["TARGET_CACHE_PATH"] = str(saved)
+                    actual = resolve_viewer_document(reopened, self.root)
+                    for key in ("BOX_SCALE", "UMAP_MODE", "UMAP_NEIGHBORS", "SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"):
+                        self.assertEqual(actual[key], expected[key])
+                    viewer = self.snapshot_viewer(saved)
+
+    def test_invalid_snapshot_provenance_does_not_replace_destination(self):
+        source, _ = self.cache_and_viewer()
+        destination = Path(source).parent / "protected.h5"
+        destination.write_bytes(b"existing destination")
+        for alteration in ("absent", "missing", "hash", "binding", "folder"):
+            with self.subTest(alteration=alteration):
+                viewer = self.snapshot_viewer(source)
+                if alteration == "absent":
+                    del viewer._cache_provenance
+                elif alteration == "missing":
+                    del viewer._cache_provenance["layout_compatibility_json"]
+                elif alteration == "hash":
+                    viewer._cache_provenance["layout_compatibility_id"] = "bad"
+                elif alteration == "binding":
+                    viewer._cache_provenance["cache_manifest_id"] = "bad"
+                else:
+                    viewer.cache_manifest_id = "bad"
+                    viewer._cache_provenance["cache_manifest_id"] = "bad"
+                with mock.patch.object(save_command, "resolve_selected_cache", return_value=(source, None)), \
+                     mock.patch.object(save_command.Command_Engine, "print_help"), \
+                     mock.patch.object(save_command.Command_Engine, "command_failed") as failed:
+                    save_command.run(viewer, [destination.name])
+                failed.assert_called_once()
+                self.assertEqual(destination.read_bytes(), b"existing destination")
+                self.assertFalse(Path(str(destination) + ".partial").exists())
 
     def test_layout_export_ignores_unrelated_visual_preferences(self):
         self.saved.update(NODE_SIZE=999, EDGE_COLOR="invalid color", ALIGNMENT_REFERENCE="absent")

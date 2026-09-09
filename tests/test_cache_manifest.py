@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import pathlib
 import sys
@@ -53,6 +54,11 @@ def make_manifest(compatibility, sequence_name="set.fasta", network_name="networ
         },
         compatibility,
     )
+
+
+def make_provenance(manifest_id):
+    return {"cache_manifest_id": manifest_id, "layout_compatibility_json": "{}",
+            "layout_compatibility_id": hashlib.sha256(b"{}").hexdigest()}
 
 
 class CacheSelectionTests(unittest.TestCase):
@@ -486,6 +492,7 @@ class InteractiveSaveTests(unittest.TestCase):
             default_path = folder / "version_00.h5"
             viewer = SimpleNamespace(
                 cache_manifest_id=manifest["manifest_id"],
+                _cache_provenance=make_provenance(manifest["manifest_id"]),
                 full_headers=["A", "B"],
                 pos=np.zeros((2, 2), dtype=np.float32),
                 original_pos=np.ones((2, 2), dtype=np.float32),

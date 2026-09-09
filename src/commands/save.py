@@ -21,6 +21,7 @@ import json
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Viewer_State import resolve_selected_cache
+from utilities.Cache_Metadata import validate_cache_provenance
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
@@ -55,12 +56,16 @@ def run(viewer, args):
             raise cache_manifest.CacheManifestError(
                 "The active cache folder manifest has changed."
             )
+        provenance = validate_cache_provenance(
+            getattr(viewer, '_cache_provenance', None), manifest_id
+        )
         partial_save_path = final_save_path + ".partial"
         if os.path.exists(partial_save_path):
             os.remove(partial_save_path)
 
         with h5py.File(partial_save_path, "w") as hf:
-            hf.attrs["cache_manifest_id"] = manifest_id
+            for name, value in provenance.items():
+                hf.attrs[name] = value
             dt_str = h5py.string_dtype(encoding='utf-8')
             hf.create_dataset("headers", data=np.array(viewer.full_headers, dtype=object), dtype=dt_str, compression="gzip")
             hf.create_dataset("positions", data=viewer.pos, compression="gzip")

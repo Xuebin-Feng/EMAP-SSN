@@ -1137,6 +1137,10 @@ class MainViewer:
                         cache_manifest.validate_cache_hdf5(
                             hf, expected_headers, self.cache_manifest_id
                         )
+                        from utilities.Cache_Metadata import validate_cache_provenance
+                        self._cache_provenance = validate_cache_provenance(
+                            hf.attrs, self.cache_manifest_id
+                        )
 
                         self.n_nodes = len(self.full_headers)
 

@@ -20,6 +20,7 @@ if str(SRC_DIR) not in sys.path:
 from EMAPSSN_Viewer import MainViewer
 from commands import meta as meta_command
 from commands import save as save_command
+from tests.test_cache_manifest import make_provenance
 from web_ui import meta_backend
 from web_ui.Plugin_Manager import WebPluginRegistry
 
@@ -166,6 +167,7 @@ class MetadataColumnDeletionTests(unittest.TestCase):
         viewer = make_viewer()
         viewer.pos = np.zeros((2, 2), dtype=np.float32)
         viewer.cache_manifest_id = "test-manifest"
+        viewer._cache_provenance = make_provenance(viewer.cache_manifest_id)
         meta_backend.delete_metadata_columns(
             viewer, ["Length", "Organism"], broadcast=False
         )

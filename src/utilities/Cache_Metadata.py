@@ -8,6 +8,36 @@ import json
 import os
 
 
+def _generation_parameters(attrs):
+    parameters = json.loads(attrs["layout_compatibility_json"])
+    if not isinstance(parameters, dict):
+        raise ValueError("layout_compatibility_json must contain an object")
+    canonical = json.dumps(parameters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    if "layout_compatibility_id" in attrs and hashlib.sha256(canonical.encode("utf-8")).hexdigest() != attrs["layout_compatibility_id"]:
+        raise ValueError("Layout parameter hash does not match layout_compatibility_id")
+    return parameters
+
+
+def validate_cache_provenance(attributes, manifest_id):
+    """Return a detached, validated copy of the original HDF5 provenance."""
+    if attributes is None:
+        raise ValueError("The active viewer has no cache provenance binding.")
+    result = {}
+    for name in ("cache_manifest_id", "layout_compatibility_json", "layout_compatibility_id"):
+        if name not in attributes:
+            raise ValueError(f"Missing HDF5 attribute: {name}")
+        value = attributes[name]
+        if isinstance(value, bytes):
+            value = value.decode("utf-8")
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be text")
+        result[name] = value
+    _generation_parameters(result)
+    if result["cache_manifest_id"] != manifest_id:
+        raise ValueError("Cache provenance manifest ID differs from active manifest")
+    return result
+
+
 def _signature(path):
     try:
         stat = os.stat(path)
@@ -49,13 +79,7 @@ def _read(path, cache_signature, manifest_signature):
                 result["attributes"][name] = value
         attrs = result["attributes"]
         if "layout_compatibility_json" in attrs:
-            parameters = json.loads(attrs["layout_compatibility_json"])
-            if not isinstance(parameters, dict):
-                raise ValueError("layout_compatibility_json must contain an object")
-            canonical = json.dumps(parameters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-            result["generation_parameters"] = parameters
-            if "layout_compatibility_id" in attrs and hashlib.sha256(canonical.encode("utf-8")).hexdigest() != attrs["layout_compatibility_id"]:
-                raise ValueError("Layout parameter hash does not match layout_compatibility_id")
+            result["generation_parameters"] = _generation_parameters(attrs)
     except (OSError, ValueError, TypeError) as error:
         errors.append(f"Cache attributes: {error}")
         invalid = cache_signature is not None
@@ -72,4 +96,4 @@ def _read(path, cache_signature, manifest_signature):
     return result
 
 
-__all__ = ["read_cache_metadata", "_signature", "_read"]
+__all__ = ["read_cache_metadata", "validate_cache_provenance", "_signature", "_read"]
