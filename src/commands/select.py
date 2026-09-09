@@ -73,14 +73,13 @@ def run(viewer, args):
         msg = "Error: Select command requires an expression or invert/save action.\nUsage: select [MODE] <EXPRESSION>"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     if args[0].lower() == "save":
@@ -88,7 +87,6 @@ def run(viewer, args):
             msg = "Error: Please provide a filename to save (e.g., 'select save top_nodes.txt' or 'my_seqs.fasta')."
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
             
         filename = args[1]
@@ -111,7 +109,7 @@ def run(viewer, args):
         if not selected_indices:
             msg = "Warning: No nodes are currently selected."
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, msg)
             return
             
         try:
@@ -160,7 +158,8 @@ def run(viewer, args):
             msg = f"Error saving file: {e}"
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+            return
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     mode = "change"
@@ -199,7 +198,6 @@ def run(viewer, args):
                 f"'{expr}' is not a Boolean selection expression."
             )
             Command_Engine.report_selection_error(viewer, expr, error, "Selection")
-            Command_Engine.command_succeeded(viewer)
             return
 
     # --- Strict Invert Mode ---
@@ -208,7 +206,6 @@ def run(viewer, args):
             msg = "Error: 'invert' does not take expressions. Use '!EXPR' instead."
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
             
         current_selection = set(getattr(viewer, 'selected_indices', []))
@@ -224,7 +221,7 @@ def run(viewer, args):
         msg = f"Inverted selection. Selected {new_selected} nodes, Un-selected {un_selected} nodes."
         
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     if not expr:
@@ -252,7 +249,6 @@ def run(viewer, args):
         new_indices = set(np.where(mask)[0].tolist()).intersection(visible_indices)
     except Exception as e:
         Command_Engine.report_selection_error(viewer, expr, e, "Selection")
-        Command_Engine.command_succeeded(viewer)
         return
 
     current_selection = set(getattr(viewer, 'selected_indices', []))
@@ -286,4 +282,4 @@ def run(viewer, args):
     viewer.update_selection_visual()
     
     Command_Engine.print_help(viewer, msg)
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg)

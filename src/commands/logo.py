@@ -732,14 +732,13 @@ def run(viewer, args):
         msg = "Error: Logo command requires a POSITIONS parameter.\nUsage: logo [POSITIONS]"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # 1. Extract Mode Keywords (Aggressively filter to prevent filename confusion)
@@ -791,7 +790,6 @@ def run(viewer, args):
         msg = f"Error: {exc}"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     # 2. Extract Positions Argument (First argument containing brackets)
@@ -801,7 +799,6 @@ def run(viewer, args):
         msg = "Error: No positions provided. Use [...] syntax."
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
         
     pos_idx = bracket_indices[0]
@@ -831,7 +828,6 @@ def run(viewer, args):
                 f"'{expr}' is not a Boolean selection expression."
             )
             Command_Engine.report_selection_error(viewer, expr, error, "Logo")
-            Command_Engine.command_succeeded(viewer)
             return
 
     try:
@@ -855,14 +851,12 @@ def run(viewer, args):
         msg = f"Error: {exc}"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     if not requested_positions:
         msg = "Error: Could not parse positions from brackets."
         Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
         return
 
     alignment = getattr(viewer, 'alignment', None)
@@ -870,7 +864,6 @@ def run(viewer, args):
         msg = "Error: MSA not loaded in viewer. Please check inputs."
         Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
         return
     if len(alignment.aln) == 0:
         msg = (
@@ -878,7 +871,6 @@ def run(viewer, args):
         )
         Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
         return
 
     # 6. Apply Boolean Logic to get matching sequences
@@ -899,13 +891,12 @@ def run(viewer, args):
         selected_nodes = np.where(mask)[0]
     except Exception as e:
         Command_Engine.report_selection_error(viewer, expr, e, "Logo")
-        Command_Engine.command_succeeded(viewer)
         return
         
     if len(selected_nodes) == 0:
         msg = "No nodes matched the criteria for logo generation."
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # 7. Map Reference Sequence
@@ -940,7 +931,6 @@ def run(viewer, args):
         msg = "Error: Requested positions are outside the sequence bounds."
         Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
         return
 
     # 8. Extract Sequences for Selected Nodes
@@ -957,7 +947,6 @@ def run(viewer, args):
         )
         Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
         return
 
     # 9. Freeze the selected data and submit one background artifact job.
@@ -1015,3 +1004,5 @@ def run(viewer, args):
     except (FileExistsError, RuntimeError) as exc:
         Command_Engine.print_help(viewer, f"Logo generation failed: {exc}")
         Command_Engine.command_failed(viewer, f'Logo generation failed: {exc}')
+    else:
+        Command_Engine.command_succeeded(viewer, f"Queued logo generation for {output_path}; waiting for the background job.")

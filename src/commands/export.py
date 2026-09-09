@@ -75,7 +75,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- 1. Parse Arguments ---
@@ -149,7 +149,6 @@ def run(viewer, args):
             Command_Engine.report_selection_error(
                 viewer, " ".join(f"#{label}#" for label in label_tokens), error, "Export"
             )
-            Command_Engine.command_succeeded(viewer)
             return
 
     # --- Validations ---
@@ -174,7 +173,6 @@ def run(viewer, args):
         Command_Engine.command_failed(viewer, msg)
         viewer.console_text.text = msg
         print(msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     fasta_path = (
@@ -301,7 +299,7 @@ def run(viewer, args):
         msg = "No valid subsets found to export."
         viewer.console_text.text = msg
         print(msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     os.makedirs(out_dir, exist_ok=True)
@@ -332,4 +330,4 @@ def run(viewer, args):
     
     # Auto-open the output folder in the system file manager
     open_in_file_manager(out_dir)
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg)

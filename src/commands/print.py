@@ -325,7 +325,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # 2. Parse arguments
@@ -352,7 +352,6 @@ def run(viewer, args):
             print(f"\n{msg}")
             viewer.console_text.text = msg
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
-            Command_Engine.command_succeeded(viewer)
             return
             
         if len(args) > 2:
@@ -361,7 +360,6 @@ def run(viewer, args):
             print(f"\n{msg}")
             viewer.console_text.text = msg
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
-            Command_Engine.command_succeeded(viewer)
             return
 
     args = final_args
@@ -444,7 +442,6 @@ def run(viewer, args):
                 print(f"\n{msg}")
                 viewer.console_text.text = msg
                 if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
-                Command_Engine.command_succeeded(viewer)
                 return
                 
             visible_pos = viewer.pos[vis, :2]
@@ -557,7 +554,8 @@ def run(viewer, args):
         viewer.console_text.text = f"Error saving {ext.upper()}. Check console."
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
-             
+        return
+
     finally:
         # --- RESTORE STATE ---
         
@@ -574,4 +572,4 @@ def run(viewer, args):
             
         viewer.canvas.update()
         app.process_events()
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg)

@@ -37,6 +37,16 @@ class PortalHTTPTests(SnapshotHTTPTests):
         self.url = self.url.replace('/commands', '/data')
         super().test_capture_on_qt_and_aggregation_off_qt()
 
+    def test_catalog_help_requires_no_queued_command(self):
+        portal = get_portal(self.viewer)
+        before = len(portal.requests)
+        general = self.request('get_command_catalog', {})['payload']
+        detailed = self.request('get_command_catalog', {'command': 'reset'})['payload']
+        self.assertTrue(all(entry['help'] is None for entry in general['commands']))
+        self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['commands'][0]['syntax'])
+        self.assertIn('order, layer', detailed['commands'][0]['help'])
+        self.assertEqual(len(portal.requests), before)
+
     def test_command_http_auth_retry_results_capture_and_catalog(self):
         args = {'submission_id': 'http-retry', 'commands': ['zoom help', 'unknown_command', 'zoom help']}
         self.assertEqual(self.request('execute_commands', args, token=False)['status'], 401)

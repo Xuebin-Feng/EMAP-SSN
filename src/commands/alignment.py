@@ -45,7 +45,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     msa_dir = getattr(cfg, 'MSA_DIR', os.path.join("Input_Files", "Multiple_Alignments"))
@@ -64,21 +64,18 @@ def run(viewer, args):
             msg = f"Error opening file dialog: {e}"
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
 
         if not file_path:
             msg = "Alignment selection cancelled."
             Command_Engine.command_cancelled(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
 
         if not os.path.exists(file_path):
             msg = f"Error: File '{file_path}' does not exist."
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
 
         selected_file = os.path.basename(file_path)
@@ -115,7 +112,6 @@ def run(viewer, args):
             msg = f"Error: Alignment file '{identifier}' not found (checked absolute, relative, and {msa_dir})."
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
 
     # Load the selected alignment file
@@ -157,6 +153,8 @@ def run(viewer, args):
             viewer.console_text.text = (
                 f"Loaded {selected_file}: {aligned_count}/{total_count} aligned"
             )
+
+        Command_Engine.command_succeeded(viewer, success_msg)
 
     except Exception as e:
         print(f"\nFailed to load alignment '{selected_file}': {e}")

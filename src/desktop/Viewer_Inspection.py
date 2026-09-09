@@ -599,6 +599,29 @@ __all__ = [
 ]
 
 
+def _command_syntax(help_text, command):
+    """Extract literal command signatures from usage sections, without guessing."""
+    import re
+    signatures = []
+    in_usage = False
+    usage_indent = 0
+    for line in help_text.splitlines():
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        heading = re.match(r'^Usage\s*:?(?:\s+|$)(.*)$', stripped)
+        if heading:
+            in_usage = True
+            usage_indent = indent
+            stripped = heading.group(1).strip()
+        elif (in_usage and stripped and indent <= usage_indent and
+              not re.match(r'^' + re.escape(command) + r'(?:\s|$)', stripped)):
+            in_usage = False
+        if in_usage and re.match(r'^' + re.escape(command) + r'(?:\s|$)', stripped):
+            if stripped not in signatures:
+                signatures.append(stripped)
+    return signatures
+
+
 def command_catalog(command=None):
     """Read help text from command source without executing handlers."""
     import ast
@@ -617,11 +640,13 @@ def command_catalog(command=None):
                 for node in ast.walk(fn):
                     if isinstance(node, ast.Constant) and isinstance(node.value, str) and ('Usage:' in node.value or 'Usage\n' in node.value):
                         help_text.append(node.value)
+        help_text = '\n'.join(dict.fromkeys(help_text))
         entries.append({'command': path.stem,
             'writes_files': path.stem in {'export','save','print','select','meta','label','logo','run','esmfold'},
             'opens_interface': path.stem in {'agent','alignment','run','meta','esmfold','export','print','label','logo'},
             'background_work': path.stem in {'label','logo','esmfold','run'},
-            'help': '\n'.join(dict.fromkeys(help_text)) if command else None})
+            'syntax': _command_syntax(help_text, path.stem),
+            'help': help_text if command else None})
     if command is not None and not entries:
         raise ValueError('Unknown command')
-    return {'commands': entries, 'note': 'Only existing Viewer commands; effects depend on arguments. Model-generated agent calls are blocked.'}
+    return {'commands': entries, 'note': 'Only existing Viewer commands; effects depend on arguments. Model-generated agent calls are blocked. Read detailed help without executing commands: emapssn_viewer_data(action="get_command_catalog", arguments={"command":"reset"}).'}

@@ -67,7 +67,7 @@ def run(viewer, args):
     register(viewer)
 
     if args and args[0] == "--register-only":
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Registered the Agent interface.')
         return
 
     # Help check
@@ -75,7 +75,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # 1. Calling 'agent' alone: Open browser UI (current behavior)
@@ -89,7 +89,7 @@ def run(viewer, args):
     # 2. Deactivate check
     if full_arg.lower() in ["off", "deactivate"]:
         deactivate_agent(viewer)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Agent deactivated.')
         return
 
     # Helper to check if a string matches any loaded model card custom name
@@ -112,6 +112,8 @@ def run(viewer, args):
         if card:
             if not activate_agent_from_card(viewer, card):
                 Command_Engine.command_failed(viewer, "Agent backend activation failed")
+            else:
+                Command_Engine.command_succeeded(viewer, f"Activated Agent model {model_custom_name!r}.")
         else:
             available_names = ", ".join([f"<{c.get('name')}>" for c in cards if c.get("name")])
             Command_Engine.print_help(viewer, f"Error: Model Custom Name '{model_custom_name}' not found in configured model cards.\nAvailable model names: {available_names}")
@@ -134,4 +136,4 @@ def run(viewer, args):
 
     # Forward the message to the agent backend
     run_web_agent_query(viewer, message)
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, 'Submitted the message to the Agent backend.')

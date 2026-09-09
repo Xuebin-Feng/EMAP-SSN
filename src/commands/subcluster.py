@@ -94,14 +94,14 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- CLEAR COMMAND ---
     if args[0].lower() == 'clear':
         if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
             Command_Engine.print_help(viewer, "No groups are currently defined.")
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, 'No groups are currently defined.')
             return
             
         viewer._save_state()
@@ -118,7 +118,7 @@ def run(viewer, args):
         
         msg = f"Cleared all subcluster groups (removed {total_removed} label instances)."
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # --- Parse Cluster Name ---
@@ -292,7 +292,6 @@ def run(viewer, args):
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
-            Command_Engine.command_succeeded(viewer)
             return
             
         print("Building Sparse Adjacency Matrix...")
@@ -333,7 +332,6 @@ def run(viewer, args):
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
-            Command_Engine.command_succeeded(viewer)
             return
 
         print("Building Edge List & Mapping Edge Weights...")
@@ -416,4 +414,4 @@ def run(viewer, args):
     if hasattr(viewer, 'console_text'):
         viewer.console_text.text = msg
     print(msg)
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg)

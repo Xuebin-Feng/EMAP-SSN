@@ -67,22 +67,21 @@ def print_help():
 
 def run(viewer, args):
     if args and args[0].lower() == 'reset':
-        Command_Engine.execute_reset(viewer, ["colors"])
-        Command_Engine.command_succeeded(viewer)
+        msg = Command_Engine.execute_reset(viewer, ["colors"])
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     if not args:
         msg = "Error: Color command requires at least one property (color, scale, or shape) or expression.\nUsage: color [EXPR_1] [COLOR_1] [xSCALE_1] [SHAPE_1]"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     vispy_symbols = ['disc', 'arrow', 'ring', 'clobber', 'square', 'x', 'diamond', 'vbar', 'hbar', 
@@ -168,7 +167,6 @@ def run(viewer, args):
             Command_Engine.report_selection_error(
                 viewer, arg, classification.error, "Color"
             )
-            Command_Engine.command_succeeded(viewer)
             return
         Command_Engine.print_help(
             viewer,
@@ -209,7 +207,6 @@ def run(viewer, args):
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Color")
-            Command_Engine.command_succeeded(viewer)
             return
 
         # Hidden nodes are outside the command's target domain, even when the
@@ -261,4 +258,4 @@ def run(viewer, args):
     else:
         viewer.console_text.text = "No nodes matched criteria."
         print("\nNo nodes matched your criteria.")
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg if total_modified > 0 else "No nodes matched criteria.")

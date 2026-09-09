@@ -90,15 +90,15 @@ def print_help():
 
 def run(viewer, args):
     if args and args[0].lower() == 'reset':
-        Command_Engine.execute_reset(viewer, ["groups"])
-        Command_Engine.command_succeeded(viewer)
+        msg = Command_Engine.execute_reset(viewer, ["groups"])
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- LIST COMMAND ---
@@ -106,7 +106,7 @@ def run(viewer, args):
         if getattr(viewer, 'group_labels', None) is None:
             msg = "No groups are currently defined."
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, msg)
             return
             
         group_counts = {}
@@ -117,7 +117,7 @@ def run(viewer, args):
         if not group_counts:
             msg = "No groups are currently defined."
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, msg)
             return
             
         n_nodes = viewer.n_nodes
@@ -140,7 +140,7 @@ def run(viewer, args):
         
         msg = f"Listed {len(sorted_groups)} groups in console."
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # --- REMOVE / DELETE COMMAND ---
@@ -149,13 +149,12 @@ def run(viewer, args):
             msg = "Error: Please specify one or more groups to remove (e.g., 'group remove group1 group2')."
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
             return
             
         if getattr(viewer, 'group_labels', None) is None:
             msg = "No groups are currently defined."
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, msg)
             return
 
         groups_to_remove = [g.lower() for g in args[1:]]
@@ -177,7 +176,7 @@ def run(viewer, args):
             msg = f"None of the specified groups were found."
             
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # Handle missing selection logic (Default to $sele$)
@@ -189,7 +188,6 @@ def run(viewer, args):
         msg = "Error: Arguments must be in pairs of [expression] [group_name]."
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     # Prepare mapping for boolean logic evaluations
@@ -270,7 +268,6 @@ def run(viewer, args):
             evaluated_pairs.append((name, mask, count))
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Group")
-            Command_Engine.command_succeeded(viewer)
             return
 
     if any(count > 0 for _, _, count in evaluated_pairs):
@@ -295,9 +292,11 @@ def run(viewer, args):
         print(f"\nSuccess! {msg}")
     elif warnings_issued:
         # If nothing was modified but we had warnings, show the first warning on the HUD
+        msg = f"Skipped: {warnings_issued[0]}"
         viewer.console_text.text = f"Skipped: {warnings_issued[0]}"
         print(f"\nOperation skipped or aborted due to warnings.")
     else:
+        msg = "No nodes matched criteria for grouping."
         viewer.console_text.text = "No nodes matched criteria for grouping."
         print("\nNo nodes matched your criteria.")
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg)

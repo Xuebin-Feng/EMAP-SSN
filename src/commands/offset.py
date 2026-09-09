@@ -82,7 +82,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     current_offset, is_active = _current_offset(viewer)
@@ -92,7 +92,7 @@ def run(viewer, args):
             viewer,
             f"Current Alignment Offset: {current_offset}{suffix}",
         )
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, f"Current Alignment Offset: {current_offset}{suffix}")
         return
 
     if len(args) != 1:
@@ -137,4 +137,4 @@ def run(viewer, args):
         viewer,
         f"Alignment Offset set to {new_offset}. Position numbering updated.",
     )
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, f"Alignment Offset set to {new_offset}. Position numbering updated.")

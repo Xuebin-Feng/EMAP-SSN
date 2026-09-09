@@ -472,6 +472,19 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(202, {"status": "accepted", "message": "Viewer shutdown queued."})
             return
 
+        if self.path == "/api/agent/image":
+            from web_ui.agent_images import MAX_IMAGE_BYTES, inspect_source
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if length <= 0 or length > MAX_IMAGE_BYTES:
+                    self.close_connection = True
+                    self._send_json(413, {'error': 'Each image must be nonempty and at most 20 MiB.'})
+                    return
+                self._send_json(200, inspect_source(self.rfile.read(length)))
+            except ValueError as error:
+                self._send_json(400, {'error': str(error)})
+            return
+
         if self.path == "/api/action":
             content_length = int(self.headers['Content-Length'])
             body = self.rfile.read(content_length)

@@ -599,7 +599,20 @@ requests are rejected. General cancellation and rollback are not exposed.
 The web agent keeps translate → execute → explain, displays request status, and
 uses final portal outcomes for its explanation. Changing backend or clearing history
 invalidates old model replies without cancelling submitted commands. The Capture
-Viewer button requests an image on demand.
+Viewer button adds a pending image attachment to the chat composer. It does not
+send or append the image to the conversation immediately. Drop or paste images
+into the composer to add more; each thumbnail has an X button to remove it.
+Send submits the text and pending images together, including image-only messages.
+
+Messages accept up to 10 static images, at most 20 MiB per source image. Images
+must decode in the browser; they are normalized to PNG with a maximum dimension
+of 1600 pixels. Animated and multi-frame images, non-image files, and unsupported
+formats are rejected before submission. SVG images must be static and
+self-contained (no scripts, animation, or embedded images). Sent images remain
+in the existing saved chat history and are included in later model turns and
+command-result analysis. Pending attachments are page-local and are cleared by
+Clear Chat or a page reload. A vision-capable model/provider is required; image
+errors are shown rather than silently sending text alone.
 
 ### Visual readback
 

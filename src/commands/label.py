@@ -656,7 +656,7 @@ def _append_workbook_metadata(
 
 def _run_label_artifact(viewer, args):
     if args and args[0].lower() == 'reset':
-        Command_Engine.execute_reset(viewer, ["clusters"])
+        msg = Command_Engine.execute_reset(viewer, ["clusters"])
         return
 
     try:
@@ -1519,14 +1519,13 @@ def _report_label_error(viewer, error):
 def run(viewer, args):
     """Validate and snapshot label inputs before enqueuing the heavy work."""
     if args and args[0].lower() == "reset":
-        Command_Engine.execute_reset(viewer, ["clusters"])
-        Command_Engine.command_succeeded(viewer)
+        msg = Command_Engine.execute_reset(viewer, ["clusters"])
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     alignment = getattr(viewer, "alignment", None)
     if alignment is None or alignment.aln is None:
         _report_label_error(viewer, "Global Alignment not loaded.")
-        Command_Engine.command_succeeded(viewer)
         return
     if len(alignment.aln) == 0:
         _report_label_error(
@@ -1534,7 +1533,6 @@ def run(viewer, args):
             "The selected MSA contains no aligned rows for the current network. "
             "Label analysis is unavailable.",
         )
-        Command_Engine.command_succeeded(viewer)
         return
     if not getattr(alignment, "has_reference", False):
         _report_label_error(
@@ -1542,30 +1540,26 @@ def run(viewer, args):
             "No active alignment reference. Use 'reference <ID>' with a node "
             "present in the current MSA.",
         )
-        Command_Engine.command_succeeded(viewer)
         return
     if args and args[0].lower() in {"help", "-h", "-?"}:
         print_help()
         if hasattr(viewer, "console_text"):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     try:
         parameters = _parse_label_arguments(args)
     except ValueError as error:
         _report_label_error(viewer, error)
-        Command_Engine.command_succeeded(viewer)
         return
 
     forced_target = parameters["forced_target"]
     if forced_target == "clusters" and getattr(viewer, "cluster_labels", None) is None:
         _report_label_error(viewer, "Run 'cluster' first.")
-        Command_Engine.command_succeeded(viewer)
         return
     if forced_target == "groups" and getattr(viewer, "group_labels", None) is None:
         _report_label_error(viewer, "No groups defined.")
-        Command_Engine.command_succeeded(viewer)
         return
     if (
         forced_target == "all"
@@ -1573,13 +1567,11 @@ def run(viewer, args):
         and getattr(viewer, "group_labels", None) is None
     ):
         _report_label_error(viewer, "No clusters or groups defined.")
-        Command_Engine.command_succeeded(viewer)
         return
 
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
         _report_label_error(viewer, "The background job scheduler is unavailable.")
-        Command_Engine.command_succeeded(viewer)
         return
 
     output_directory = os.path.abspath(
@@ -1608,7 +1600,6 @@ def run(viewer, args):
                 viewer,
                 f"Output file is already reserved by a background job: {output_path}",
             )
-            Command_Engine.command_succeeded(viewer)
             return
 
     try:
@@ -1617,7 +1608,6 @@ def run(viewer, args):
         frozen_alignment = _FrozenAlignmentManager(alignment, viewer_to_aln)
     except Exception as error:
         _report_label_error(viewer, f"Could not snapshot label inputs: {error}")
-        Command_Engine.command_succeeded(viewer)
         return
 
     group_labels = getattr(viewer, "group_labels", None)
@@ -1683,4 +1673,5 @@ def run(viewer, args):
         )
     except (FileExistsError, RuntimeError) as error:
         _report_label_error(viewer, error)
-    Command_Engine.command_succeeded(viewer)
+        return
+    Command_Engine.command_succeeded(viewer, f"Queued label analysis for {output_path}; waiting for the background job.")

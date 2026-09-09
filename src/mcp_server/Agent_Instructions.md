@@ -174,7 +174,17 @@ obtained.
 
 ## Viewer command portal
 
-Discover get_command_catalog. Submit execute_commands with submission_id; reuse it on retries.
-Poll get_command_request; read_command_output pages diagnostics.
+Discover command syntax with get_command_catalog. For detailed help, use
+`emapssn_viewer_data(action="get_command_catalog", arguments={"command":"reset"})`.
+This is read-only and does not require execute_commands or a queued help command.
+General catalog entries have help=null; syntax lists extracted usage signatures
+and may be empty when source help has no extractable signature.
+Submit execute_commands with submission_id; reuse it on retries.
+Poll get_command_request and inspect per-command messages for outcome summaries.
+Execution completion is indicated by status (succeeded, failed, or cancelled);
+the complete flag describes pagination only and does not indicate execution completion.
+Use read_command_output for additional diagnostics or full printed content,
+not as a mandatory step after every success. Submission messages for background
+work do not prove job completion; continue checking status and jobs.
 Batches stop on failure. Awaiting_user_input requires interaction.
 Use capture_view for current PNG/HUD verification. For visual node fields, get_summary(include_visual=true), then query_nodes(visual_fields).

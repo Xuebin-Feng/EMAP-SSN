@@ -28,8 +28,8 @@ def run(viewer, args):
             "Example:\n"
             "  run"
         )
-        Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.print_help(viewer, msg, report_message=False)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # Open the file explorer to select a file
@@ -45,21 +45,18 @@ def run(viewer, args):
         msg = f"Error opening file dialog: {e}"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     if not file_path:
         msg = "File selection cancelled."
         Command_Engine.command_cancelled(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     if not os.path.exists(file_path):
         msg = f"Error: File '{file_path}' does not exist."
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
         return
 
     # Read/execute the file and extract commands
@@ -99,7 +96,6 @@ def run(viewer, args):
                 msg = f"Error: Python script failed (exit code {result.returncode}):\n{stderr_output}"
                 Command_Engine.command_failed(viewer, msg)
                 Command_Engine.print_help(viewer, msg)
-                Command_Engine.command_succeeded(viewer)
                 return
                 
             commands_lines = result.stdout.splitlines()
@@ -143,4 +139,5 @@ def run(viewer, args):
         msg = f"Error reading/executing command file: {e}"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-    Command_Engine.command_succeeded(viewer)
+        return
+    Command_Engine.command_succeeded(viewer, msg)

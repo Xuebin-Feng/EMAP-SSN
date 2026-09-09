@@ -17,8 +17,8 @@ import Command_Engine
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         msg = "Usage: undo\nDescription: Reverts the visual and spatial state of the network to the previous action.\nMost commands automatically save state before execution, allowing them to be undone."
-        Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.print_help(viewer, msg, report_message=False)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
-    viewer._do_undo()
-    Command_Engine.command_succeeded(viewer)
+    changed = viewer._do_undo()
+    Command_Engine.command_succeeded(viewer, "Undo successful." if changed else "Nothing to undo.")

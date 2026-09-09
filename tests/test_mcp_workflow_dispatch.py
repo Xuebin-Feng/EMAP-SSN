@@ -22,6 +22,19 @@ from mcp_server.viewer import Viewer_Operations as viewer_ops
 
 
 class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_catalog_discovery_and_read_only_dispatch(self):
+        from desktop.Viewer_Inspection import command_catalog
+        async def read_catalog(ctx, action, arguments, session_id):
+            self.assertEqual(action, 'get_command_catalog')
+            return command_catalog(**arguments)
+        with mock.patch.object(viewer_ops, '_portal_call', side_effect=read_catalog):
+            general = await dispatch('emapssn_viewer_data', 'get_command_catalog', {}, None)
+            detailed = await dispatch('emapssn_viewer_data', 'get_command_catalog', {'command': 'reset'}, None)
+        self.assertTrue(all(c['help'] is None for c in general['commands']))
+        self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['commands'][0]['syntax'])
+        description = await dispatch('emapssn_viewer_data', 'describe', {'action': 'get_command_catalog'}, None)
+        self.assertEqual(description['example']['arguments'], {'command': 'reset'})
+
     async def test_every_action_discovers_and_forwards_validated_arguments(self):
         ctx = object()
         for workflow, actions in REGISTRY.items():

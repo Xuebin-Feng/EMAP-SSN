@@ -139,7 +139,7 @@ def run(viewer, args):
         print_help()
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- LIST COMMAND ---
@@ -147,7 +147,7 @@ def run(viewer, args):
         if getattr(viewer, 'cluster_labels', None) is None:
             msg = "No clusters are currently defined."
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, msg)
             return
             
         labels = viewer.cluster_labels
@@ -183,7 +183,7 @@ def run(viewer, args):
         
         msg = f"Listed {len(sorted_clusters)} clusters in console."
         viewer.console_text.text = msg
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # --- 2. Parse Arguments ---
@@ -312,7 +312,6 @@ def run(viewer, args):
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
-            Command_Engine.command_succeeded(viewer)
             return
             
         print("Building Sparse Adjacency Matrix...")
@@ -355,7 +354,6 @@ def run(viewer, args):
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             viewer.console_text.text = msg
-            Command_Engine.command_succeeded(viewer)
             return
 
         print("Building Edge List & Mapping Edge Weights...")
@@ -428,4 +426,4 @@ def run(viewer, args):
     msg = f"Done! Found {n_clusters} clusters via {mode.upper()}."
     viewer.console_text.text = msg
     print(msg)
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, msg)

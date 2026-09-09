@@ -28,7 +28,15 @@ class GuideLoadingTests(unittest.TestCase):
             finally:
                 os.chdir(original)
         self.assertGreaterEqual(len(expected.split()), 800)
-        self.assertLessEqual(len(expected.split()), 1500)
+        self.assertLessEqual(len(expected.split()), 1650)
+
+    def test_command_help_and_outcome_workflow_is_explicit(self):
+        guide = _load_agent_instructions()
+        self.assertIn('arguments={"command":"reset"}', guide)
+        self.assertIn('does not require execute_commands', guide)
+        self.assertIn('complete flag describes pagination only', guide)
+        self.assertIn('inspect per-command messages', guide)
+        self.assertIn('not as a mandatory step after every success', guide)
 
     def test_missing_unreadable_or_invalid_utf8_guide_is_actionable(self):
         for error in (FileNotFoundError(), PermissionError(),

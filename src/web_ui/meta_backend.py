@@ -1004,6 +1004,8 @@ def upload_metadata(viewer, file_paths):
 
     msg = " ".join(msg_parts)
     Command_Engine.print_help(viewer, msg)
+    if successful_files and not failed_files:
+        Command_Engine.command_succeeded(viewer, msg)
 
 
 def download_metadata(viewer, filepath, expr=None):
@@ -1086,6 +1088,7 @@ def download_metadata(viewer, filepath, expr=None):
             msg += f" (filtered by: {expr})"
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_artifact(viewer, filepath)
+        Command_Engine.command_succeeded(viewer, msg)
         return True
     except Exception as e:
         Command_Engine.print_help(viewer, f"Error downloading metadata: {e}")

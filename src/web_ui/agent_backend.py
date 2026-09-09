@@ -40,6 +40,7 @@ import Command_Engine
 from PySide6 import QtCore
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
+from web_ui.agent_images import validate_attachments, message_content, history_messages
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 
@@ -223,6 +224,8 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=0.
     }
     if options and isinstance(options, dict):
         payload.update(options)
+    # Model-card options must not replace the user's text or attachments.
+    payload['messages'] = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_query}]
 
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -264,7 +267,7 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=0.
             print(f"\n[Agent Error Detail]\nHTTP Status Code: {e.code}\nServer Response: {body}\n")
         except Exception:
             pass
-        raise e
+        raise ValueError(f'Model request failed (HTTP {e.code}): {body[:2000] if "body" in locals() else e.reason}. Image messages require a vision-capable model/provider.') from e
     return None
 
 # ─── Worker threads ───────────────────────────────────────────────────────────
@@ -300,12 +303,14 @@ class AgentWorker(QtCore.QThread):
 class RefinementWorker(QtCore.QThread):
     finished = QtCore.Signal(str, str, str, str)  # (refined_explanation, reasoning, tokens_json, error)
 
-    def __init__(self, backend, url, model_name, user_query, commands, terminal_output, temperature, api_key, options=None):
+    def __init__(self, backend, url, model_name, user_query, commands, terminal_output, temperature, api_key, options=None, attachments=None, history=None):
         super().__init__()
         self.backend         = backend
         self.url             = url
         self.model_name      = model_name
         self.user_query      = user_query
+        self.attachments     = attachments
+        self.history         = history
         self.commands        = commands
         self.terminal_output = terminal_output
         self.temperature     = temperature
@@ -326,7 +331,7 @@ class RefinementWorker(QtCore.QThread):
             )
             res_dict = None
             if self.backend == "server":
-                res_dict = call_api(self.url, self.model_name, "You are a helpful biological assistant.", refinement_prompt, history=None, temperature=self.temperature, api_key=self.api_key, options=self.options)
+                res_dict = call_api(self.url, self.model_name, "You are a helpful biological assistant.", message_content(refinement_prompt, self.attachments), history=self.history, temperature=self.temperature, api_key=self.api_key, options=self.options)
             if not res_dict or not res_dict.get("content"):
                 self.finished.emit("", "", "", "No response from refinement.")
             else:
@@ -396,25 +401,51 @@ def save_agent_history(viewer):
 
 # ─── Query execution ──────────────────────────────────────────────────────────
 
-def run_web_agent_query(viewer, query):
+def _agent_event(viewer, event, turn=None):
+    if turn and turn.get('submission_id'):
+        event = {**event, 'submission_id': turn['submission_id']}
+        if event['type'] in {'agent_accepted', 'agent_response', 'agent_error'}:
+            submissions = getattr(viewer, '_agent_submissions', {})
+            submissions[turn['submission_id']] = event
+            viewer._agent_submissions = dict(list(submissions.items())[-32:])
+    viewer.broadcast_event(event)
+
+
+def run_web_agent_query(viewer, query, attachments=None, submission_id=None):
+    if submission_id is not None and (not isinstance(submission_id, str) or len(submission_id) > 100):
+        viewer.broadcast_event({'type': 'agent_error', 'error': 'Invalid submission ID.'})
+        return
+    previous = getattr(viewer, '_agent_submissions', {}).get(submission_id)
+    if previous:
+        viewer.broadcast_event(previous)
+        return
+    turn = {'submission_id': submission_id, 'attachments': []}
     if getattr(viewer, '_agent_busy', False):
-        viewer.broadcast_event({'type': 'agent_error', 'error': 'This Viewer already has an active agent turn.'})
+        _agent_event(viewer, {'type': 'agent_error', 'error': 'This Viewer already has an active agent turn.'}, turn)
         return
 
     if not getattr(viewer, "llm_loaded", False):
-        viewer.broadcast_event({"type": "agent_error", "error": "LLM is not loaded. Select a model and activate it in the Agent UI."})
+        _agent_event(viewer, {"type": "agent_error", "error": "LLM is not loaded. Select a model and activate it in the Agent UI."}, turn)
+        return
+
+    try:
+        turn['attachments'] = validate_attachments(attachments)
+        if not isinstance(query, str) or (not query.strip() and not turn['attachments']):
+            raise ValueError('Enter a message or attach an image.')
+    except ValueError as error:
+        _agent_event(viewer, {'type': 'agent_error', 'error': str(error)}, turn)
         return
 
     prompt_path = os.path.join(_SRC_DIR, "resources", "agent", "system_prompt.md")
     if not os.path.exists(prompt_path):
-        viewer.broadcast_event({"type": "agent_error", "error": f"System prompt file missing at {prompt_path}"})
+        _agent_event(viewer, {"type": "agent_error", "error": f"System prompt file missing at {prompt_path}"}, turn)
         return
 
     try:
         with open(prompt_path, "r", encoding="utf-8") as f:
             system_prompt = f.read()
     except Exception as e:
-        viewer.broadcast_event({"type": "agent_error", "error": f"Could not read prompt file: {e}"})
+        _agent_event(viewer, {"type": "agent_error", "error": f"Could not read prompt file: {e}"}, turn)
         return
 
     system_prompt += get_viewer_session_context(viewer)
@@ -422,7 +453,7 @@ def run_web_agent_query(viewer, query):
     generation = getattr(viewer, "_agent_generation", 0)
 
     model_name = getattr(viewer, "llm_model_name", "LLM")
-    viewer.broadcast_event({"type": "agent_thinking", "model_name": model_name})
+    _agent_event(viewer, {"type": "agent_thinking", "model_name": model_name}, turn)
 
     backend     = viewer.llm_backend
     url         = getattr(viewer, "llm_url", None)
@@ -433,21 +464,22 @@ def run_web_agent_query(viewer, query):
     if not hasattr(viewer, "llm_history") or not viewer.llm_history:
         viewer.llm_history = load_agent_history(viewer)
 
-    history = [{"role": msg["role"], "content": msg["content"]} for msg in viewer.llm_history]
+    history = history_messages(viewer.llm_history)
 
-    viewer._web_agent_worker = AgentWorker(backend, url, model_name, system_prompt, query, history, temperature, api_key, options)
+    viewer._web_agent_worker = AgentWorker(backend, url, model_name, system_prompt, message_content(query, turn['attachments']), history, temperature, api_key, options)
     _retain_worker(viewer, viewer._web_agent_worker)
-    viewer._web_agent_worker.finished.connect(lambda res, reasoning, tokens, err: on_web_worker_finished(viewer, query, res, reasoning, tokens, err, generation))
+    viewer._web_agent_worker.finished.connect(lambda res, reasoning, tokens, err: on_web_worker_finished(viewer, query, res, reasoning, tokens, err, generation, turn))
+    _agent_event(viewer, {'type': 'agent_accepted', 'query': query, 'attachments': turn['attachments']}, turn)
     viewer._web_agent_worker.start()
 
 # ─── Response handling ────────────────────────────────────────────────────────
 
-def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_json, error_msg, generation=None):
+def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_json, error_msg, generation=None, turn=None):
     if generation is not None and generation != getattr(viewer, '_agent_generation', 0):
         return
     if error_msg:
         viewer._agent_busy = False
-        viewer.broadcast_event({"type": "agent_error", "error": error_msg})
+        _agent_event(viewer, {"type": "agent_error", "error": error_msg}, turn)
         return
 
     cmd_lines         = []
@@ -482,11 +514,11 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
             request = portal.submit(uuid.uuid4().hex, cmd_lines, source='web_agent')
         except ValueError as error:
             viewer._agent_busy = False
-            viewer.broadcast_event({'type': 'agent_error', 'error': str(error)})
+            _agent_event(viewer, {'type': 'agent_error', 'error': str(error)}, turn)
             return
         request_id = request['request_id']
         viewer._agent_request_id = request_id
-        viewer.broadcast_event({'type': 'agent_command_request', 'request_id': request_id, 'status': request['status']})
+        _agent_event(viewer, {'type': 'agent_command_request', 'request_id': request_id, 'status': request['status']}, turn)
         def finished(completed_id):
             if completed_id != request_id:
                 return
@@ -497,7 +529,7 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
             output = {stream: portal.read_output(request_id, stream, limit=16384) for stream in ('stdout', 'stderr')}
             terminal_output = json.dumps({'result': result, 'output': output}, ensure_ascii=False)
             fallback = f"Command request {result['status']}. See the recorded outcomes and output."
-            start_refinement_worker(viewer, query, fallback, commands_str, terminal_output, tokens_json, reasoning)
+            start_refinement_worker(viewer, query, fallback, commands_str, terminal_output, tokens_json, reasoning, turn=turn)
         portal.completed.connect(finished)
         return
     terminal_output = ''
@@ -514,12 +546,12 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
         tokens_json = json.dumps({"prompt": 0, "completion": 0, "total": 0, "requests": 1})
 
     if not terminal_output:
-        save_and_broadcast_agent_response(viewer, query, explanation_str, commands_str, "", tokens_json, reasoning)
+        save_and_broadcast_agent_response(viewer, query, explanation_str, commands_str, "", tokens_json, reasoning, turn=turn)
     else:
-        start_refinement_worker(viewer, query, explanation_str, commands_str, terminal_output, tokens_json, reasoning)
+        start_refinement_worker(viewer, query, explanation_str, commands_str, terminal_output, tokens_json, reasoning, turn=turn)
 
 
-def save_and_broadcast_agent_response(viewer, query, explanation, commands, terminal_output, tokens_json, reasoning=""):
+def save_and_broadcast_agent_response(viewer, query, explanation, commands, terminal_output, tokens_json, reasoning="", turn=None):
     viewer._agent_busy = False
     if not hasattr(viewer, "llm_history") or not viewer.llm_history:
         viewer.llm_history = load_agent_history(viewer)
@@ -532,7 +564,12 @@ def save_and_broadcast_agent_response(viewer, query, explanation, commands, term
     if terminal_output:
         content_payload += f"\n\nTerminal output:\n```\n{terminal_output}\n```"
 
-    viewer.llm_history.append({"role": "user", "content": query})
+    user_message = {"role": "user", "content": query}
+    if turn and turn.get('submission_id'):
+        user_message['submission_id'] = turn['submission_id']
+    if turn and turn.get('attachments'):
+        user_message['attachments'] = turn['attachments']
+    viewer.llm_history.append(user_message)
     viewer.llm_history.append({
         "role": "assistant", "content": content_payload,
         "explanation": explanation, "commands": commands,
@@ -542,16 +579,16 @@ def save_and_broadcast_agent_response(viewer, query, explanation, commands, term
     viewer.llm_history = viewer.llm_history[-10:]
     save_agent_history(viewer)
 
-    viewer.broadcast_event({
+    _agent_event(viewer, {
         "type": "agent_response", "query": query, "explanation": explanation,
         "commands": commands, "terminal_output": terminal_output,
         "tokens": tokens, "reasoning": reasoning, "llm_history": viewer.llm_history
-    })
+    }, turn)
 
 
-def start_refinement_worker(viewer, query, original_explanation, commands, terminal_output, initial_tokens_json, original_reasoning):
+def start_refinement_worker(viewer, query, original_explanation, commands, terminal_output, initial_tokens_json, original_reasoning, turn=None):
     model_name = getattr(viewer, "llm_model_name", "LLM")
-    viewer.broadcast_event({"type": "agent_thinking", "model_name": f"{model_name} (Analyzing results)"})
+    _agent_event(viewer, {"type": "agent_thinking", "model_name": f"{model_name} (Analyzing results)"}, turn)
 
     backend     = viewer.llm_backend
     url         = getattr(viewer, "llm_url", None)
@@ -559,7 +596,8 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
     api_key     = getattr(viewer, "llm_api_key", None)
     options     = getattr(viewer, "llm_options", None)
 
-    viewer._refinement_worker = RefinementWorker(backend, url, model_name, query, commands, terminal_output, temperature, api_key, options)
+    viewer._refinement_worker = RefinementWorker(backend, url, model_name, query, commands, terminal_output, temperature, api_key, options,
+                                                attachments=(turn or {}).get('attachments'), history=history_messages(getattr(viewer, 'llm_history', [])))
 
     generation = getattr(viewer, "_agent_generation", 0)
     _retain_worker(viewer, viewer._refinement_worker)
@@ -568,6 +606,8 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
         if generation != getattr(viewer, "_agent_generation", 0):
             return
         final_explanation  = refined_explanation if not err and refined_explanation else original_explanation
+        if err:
+            final_explanation += f'\n\nImage/result analysis failed: {err}'
         combined_tokens_json = initial_tokens_json
         try:
             t1 = json.loads(initial_tokens_json) if initial_tokens_json else {}
@@ -585,7 +625,7 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
         if refinement_reasoning:
             combined_reasoning = (original_reasoning + "\n\n[Analysis Thought]\n" + refinement_reasoning).strip() if original_reasoning else refinement_reasoning
 
-        save_and_broadcast_agent_response(viewer, query, final_explanation, commands, terminal_output, combined_tokens_json, combined_reasoning)
+        save_and_broadcast_agent_response(viewer, query, final_explanation, commands, terminal_output, combined_tokens_json, combined_reasoning, turn=turn)
 
     viewer._refinement_worker.finished.connect(on_refinement_finished)
     viewer._refinement_worker.start()
@@ -593,8 +633,8 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
 # ─── Viewer registration ──────────────────────────────────────────────────────
 
 def handle_agent_query(viewer, data):
-    query = data.get("query")
-    run_web_agent_query(viewer, query)
+    query = data.get("query", "")
+    run_web_agent_query(viewer, query, data.get('attachments'), data.get('submission_id'))
 
 def handle_set_backend(viewer, data):
     card = data.get("card")
@@ -655,9 +695,9 @@ def register_backend(registry, viewer):
         from Viewer_Visual_State import capture_view
         try:
             result = capture_view(viewer, data.get('request_id'))
-            viewer.broadcast_event({'type': 'agent_capture', **result})
+            viewer.broadcast_event({'type': 'agent_capture', **result, 'capture_token': data.get('capture_token')})
         except ValueError as error:
-            viewer.broadcast_event({'type': 'agent_error', 'error': str(error)})
+            viewer.broadcast_event({'type': 'agent_capture', 'error': str(error), 'capture_token': data.get('capture_token')})
     registry.register_action('agent', 'capture_view', capture)
     registry.register_static_route(
         "agent",

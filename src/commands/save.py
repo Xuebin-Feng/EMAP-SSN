@@ -25,8 +25,8 @@ from desktop.Viewer_State import resolve_selected_cache
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, render order, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\nExamples:\n  save\n  save my_layout.h5"
-        Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.print_help(viewer, msg, report_message=False)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
         
     try:
@@ -134,4 +134,5 @@ def run(viewer, args):
         msg = f"Error saving layout state: {e}"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
-    Command_Engine.command_succeeded(viewer)
+        return
+    Command_Engine.command_succeeded(viewer, msg)

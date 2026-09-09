@@ -158,7 +158,7 @@ def run(viewer, args):
             print_help()
             if hasattr(viewer, 'console_text'):
                 viewer.console_text.text = "Help information printed to the terminal"
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
             return
         if arg_lower.startswith(('prop:', 'property:', 'scheme:', 'color:')):
             Command_Engine.print_help(
@@ -205,7 +205,6 @@ def run(viewer, args):
             Command_Engine.report_selection_error(
                 viewer, arg, classification.error, "Spectrum"
             )
-            Command_Engine.command_succeeded(viewer)
             return
         if scheme_supplied:
             Command_Engine.print_help(
@@ -263,7 +262,6 @@ def run(viewer, args):
             )
         except Exception as e:
             Command_Engine.report_selection_error(viewer, expr, e, "Spectrum")
-            Command_Engine.command_succeeded(viewer)
             return
     else:
         mask = np.ones(viewer.n_nodes, dtype=bool)
@@ -273,7 +271,7 @@ def run(viewer, args):
 
     if np.sum(mask) == 0:
         Command_Engine.print_help(viewer, "No nodes matched the selection criteria (only visible nodes are colored).")
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'No nodes matched the selection criteria (only visible nodes are colored).')
         return
 
     # Extract values and handle coercion to floats safely
@@ -293,7 +291,7 @@ def run(viewer, args):
 
     if len(valid_vals) == 0:
         Command_Engine.print_help(viewer, f"Warning: No valid numerical values found in '{matched_key}' for the selected nodes.")
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, f"No valid numerical values found in {matched_key!r} for the selected nodes.")
         return
 
     # Save viewer state once for undo support
@@ -355,5 +353,5 @@ def run(viewer, args):
         msg = warning + msg
         terminal_msg = warning + terminal_msg
     
-    Command_Engine.print_help(viewer, msg, terminal_msg=terminal_msg)
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.print_help(viewer, msg, terminal_msg=terminal_msg, report_message=False)
+    Command_Engine.command_succeeded(viewer, msg)

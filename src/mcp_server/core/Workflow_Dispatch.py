@@ -65,7 +65,7 @@ _SPECS = {
         "list_command_requests": (viewer_ops, "list_command_requests", 'Recover Viewer command requests.', {}),
         "read_command_output": (viewer_ops, "read_command_output", 'Read command-scoped diagnostics.', {'request_id': 'request-id'}),
         "capture_view": (viewer_ops, "capture_view", 'Read current canvas as a PNG image.', {}),
-        "get_command_catalog": (viewer_ops, "get_command_catalog", 'Read command vocabulary and help.', {}),
+        "get_command_catalog": (viewer_ops, "get_command_catalog", 'Read command syntax; supply command for detailed help without executing it.', {"command": "reset"}),
         "list_sessions": (viewer_ops, "list_viewer_sessions", "Read available sessions without selecting one.", {}),
         "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
         "query_nodes": (viewer_ops, "query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),

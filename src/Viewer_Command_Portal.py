@@ -100,8 +100,16 @@ class ExecutionContext:
             self.record['outcome'] = status
         if message:
             messages = self.record['messages']
-            if len(messages) < 100 and sum(len(m['text'].encode('utf-8')) for m in messages) < 8192:
-                raw = str(message).encode('utf-8')
+            raw = str(message).encode('utf-8')
+            text = raw[:2048].decode('utf-8', errors='replace')
+            # A handler may print a status immediately before declaring success.
+            # Promote that informational entry instead of repeating the summary.
+            if (status == 'succeeded' and messages and
+                    messages[-1]['status'] is None and
+                    messages[-1]['text'] == text and not messages[-1]['truncated'] and
+                    len(raw) <= 2048):
+                messages[-1]['status'] = status
+            elif len(messages) < 100 and sum(len(m['text'].encode('utf-8')) for m in messages) < 8192:
                 messages.append({'status': status, 'text': raw[:2048].decode('utf-8', errors='replace'), 'truncated': len(raw) > 2048})
             else:
                 self.record['messages_truncated'] = True

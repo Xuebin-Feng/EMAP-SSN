@@ -87,23 +87,21 @@ def run(viewer, args):
     # 1. Registration callback support
     if args and args[0] == '--register-only':
         esmfold_backend.register(viewer)
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Registered the structure viewer interface.')
         return
 
     # 2. Help & Usage Check
     if args and args[0].lower() in ['help', '-h', '--help']:
         if len(args) != 1:
             _report_usage_error(viewer, "Help cannot be combined with other keywords.")
-            Command_Engine.command_succeeded(viewer)
             return
         print_help()
         _set_console_text(viewer, "Help information printed to the terminal")
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     options = _parse_options(viewer, args)
     if options is None:
-        Command_Engine.command_succeeded(viewer)
         return
     is_large = options["large"]
     is_multi = options["multi"]
@@ -148,7 +146,6 @@ def run(viewer, args):
             print("Error: PyTorch or Hardware_Utils could not be imported.")
             Command_Engine.command_failed(viewer, 'Error: PyTorch or Hardware_Utils could not be imported.')
             _set_console_text(viewer, "Error: PyTorch/Hardware_Utils missing")
-            Command_Engine.command_succeeded(viewer)
             return
 
         device = Hardware_Utils.get_optimal_device()
@@ -213,7 +210,6 @@ def run(viewer, args):
         if CURRENT.get() is None:
             QMessageBox.critical(parent, "ESMFold Web Server Error", message)
         _set_console_text(viewer, "Error: Viewer web server unavailable.")
-        Command_Engine.command_succeeded(viewer)
         return
 
     # 9. Save nodes to fold to a temporary JSON file and spawn background worker process
@@ -298,4 +294,4 @@ def run(viewer, args):
         viewer,
         f"Spawning separate console to fold {len(nodes_to_fold)} structure(s) with {mode_label}...",
     )
-    Command_Engine.command_succeeded(viewer)
+    Command_Engine.command_succeeded(viewer, f"Started {mode_label} folding for {len(nodes_to_fold)} structure(s); waiting for the worker.")

@@ -90,7 +90,7 @@ def run(viewer, args):
         register(viewer)
 
     if args and args[0] == '--register-only':
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Registered the metadata interface.')
         return
 
     # 2. No arguments: Open spreadsheet browser page
@@ -106,7 +106,7 @@ def run(viewer, args):
         print_help(meta_dir)
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # 4. Delete Metadata Columns
@@ -117,7 +117,6 @@ def run(viewer, args):
                 viewer,
                 f"Usage: meta {first_arg} <property_name> [property_name ...]",
             )
-            Command_Engine.command_succeeded(viewer)
             return
         try:
             deleted = delete_metadata_columns(
@@ -130,7 +129,7 @@ def run(viewer, args):
         Command_Engine.print_help(
             viewer, "Deleted metadata columns: " + ", ".join(deleted) + "."
         )
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, "Deleted metadata columns: " + ", ".join(deleted) + ".")
         return
 
     # 5. Display/Show Property Check
@@ -138,7 +137,6 @@ def run(viewer, args):
         if len(args) < 2:
             Command_Engine.command_failed(viewer, "Missing metadata command arguments")
             Command_Engine.print_help(viewer, "Usage: meta show <property_name> OR meta show clear/off")
-            Command_Engine.command_succeeded(viewer)
             return
 
         prop_name = " ".join(args[1:]).strip()
@@ -147,7 +145,7 @@ def run(viewer, args):
                 viewer.hud_displays['meta_display'].hide()
             viewer.meta_display_prop = None
             Command_Engine.print_help(viewer, "Metadata display cleared.")
-            Command_Engine.command_succeeded(viewer)
+            Command_Engine.command_succeeded(viewer, 'Metadata display cleared.')
             return
 
         if not prop_name:
@@ -203,7 +201,7 @@ def run(viewer, args):
             display.show(f"{resolved_prop}: -")
 
         Command_Engine.print_help(viewer, f"Metadata display enabled for property: '{resolved_prop}'")
-        Command_Engine.command_succeeded(viewer)
+        Command_Engine.command_succeeded(viewer, f"Metadata display enabled for property: {resolved_prop!r}")
         return
 
     # 6. Download Check
@@ -230,7 +228,6 @@ def run(viewer, args):
             filepath = os.path.abspath(filepath)
 
         download_metadata(viewer, filepath)
-        Command_Engine.command_succeeded(viewer)
         return
 
     # 7. Upload Check (Treat first argument as filename to upload)
@@ -268,4 +265,3 @@ def run(viewer, args):
                     return
 
     upload_metadata(viewer, file_paths)
-    Command_Engine.command_succeeded(viewer)

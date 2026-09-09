@@ -365,7 +365,7 @@ async def get_command_request(ctx: Context[AppContext], request_id: str,
         session_id: str | None = None, offset: Annotated[int, Field(ge=0)] = 0,
         limit: Annotated[int, Field(ge=1, le=100)] = 25, command_id: str | None = None,
         artifact_offset: Annotated[int, Field(ge=0)] = 0, artifact_limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:
-    """Page per-command outcomes, jobs and artifacts. Awaiting input requires interaction in the visible Viewer."""
+    """Page per-command outcomes, messages, jobs and artifacts. Inspect status for execution completion; complete only means this command page is complete. Awaiting input requires interaction in the visible Viewer."""
     return await _portal_call(ctx, 'get_command_request', dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id, artifact_offset=artifact_offset, artifact_limit=artifact_limit), session_id)
 
 async def list_command_requests(ctx: Context[AppContext], session_id: str | None = None,
@@ -387,5 +387,5 @@ async def capture_view(ctx: Context[AppContext], session_id: str | None = None,
 
 async def get_command_catalog(ctx: Context[AppContext], command: str | None = None,
         session_id: str | None = None) -> dict[str, Any]:
-    """List existing commands and effects, or read one command's source help without executing it."""
+    """List existing commands, syntax and effects, or supply command (for example reset) to read detailed source help. Read-only; execute_commands is not required."""
     return await _portal_call(ctx, 'get_command_catalog', dict(command=command), session_id)

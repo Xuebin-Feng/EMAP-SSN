@@ -713,6 +713,20 @@
 
         /* Border-radius on chat log bottom corners */
         #chat-log { border-radius: 0 0 8px 8px; }
+        #chat-composer { padding: 12px; border-top: 1px solid var(--border-color); min-width: 0; flex-shrink: 0; }
+        #chat-composer .chat-input-bar { padding: 0; border: 0; flex-wrap: wrap; }
+        #chat-composer textarea { min-width: 160px; flex: 1 1 240px; }
+        #chat-composer.drag-over { outline: 2px dashed var(--primary); outline-offset: -3px; }
+        #attachment-tray, .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
+        #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
+        .attachment-tile { position: relative; width: 112px; padding: 5px; border: 1px solid var(--border-color); border-radius: 8px; }
+        .attachment-tile img { width: 100%; height: 76px; object-fit: contain; }
+        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+        .attachment-tile button { position: absolute; top: 0; right: 0; width: 25px; height: 25px; border-radius: 50%; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-size: 20px; }
+        #attachment-notice { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+        #attachment-notice:not(:empty) { margin-top: 8px; }
+        .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 5px; }
+        @media (max-width: 600px) { #chat-composer textarea { flex-basis: 100%; } }
     </style>
 </head>
 <body>
@@ -741,10 +755,14 @@
                 </div>
             </div>
             <div id="chat-log"></div>
-            <div class="chat-input-bar">
+            <div id="chat-composer">
+              <div id="attachment-tray" aria-label="Pending image attachments"></div>
+              <div class="chat-input-bar">
                 <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
-                <button class="btn" onclick="sendAction({action: 'capture_view'})">Capture Viewer</button>
+                <button class="btn" id="capture-viewer-btn">Capture Viewer</button>
                 <button class="btn btn-primary" id="chat-send-btn" disabled>Send</button>
+              </div>
+              <div id="attachment-notice" role="status" aria-live="polite"></div>
             </div>
         </div>
 
@@ -764,6 +782,7 @@
         </div>
     </div>
 
+    <script src="/agent_resource/attachments.js"></script>
     <script>
         // ─── State ────────────────────────────────────────────────────────────────
         let eventSource = null;
@@ -1106,6 +1125,7 @@
 
         // ─── Controls ─────────────────────────────────────────────────────────────
         function setupControls() {
+            setupAttachments();
             const inputField  = document.getElementById("chat-input-field");
             const sendBtn     = document.getElementById("chat-send-btn");
             const clearBtn    = document.getElementById("clear-chat-btn");
@@ -1134,6 +1154,8 @@
             });
 
             clearBtn.addEventListener("click", () => {
+                clearAttachmentDraft();
+                enableInput(agentActive);
                 sendAction({ action: "clear_history" });
                 document.getElementById("chat-log").innerHTML = "";
                 appendSystemMsg("Chat history and context memory cleared.");
@@ -1214,6 +1236,7 @@
             element.textContent = `Viewer commands: ${status.replaceAll('_', ' ')}`;
         }
         function handleServerEvent(event) {
+            if (event.submission_id && event.submission_id !== pendingSubmission?.submission_id) return;
             switch (event.type) {
                 case "init":
                     prevLlmLoaded = event.data.llm_loaded;
@@ -1229,6 +1252,7 @@
                             ? `Agent active: ${event.data.llm_model_name}`
                             : "Agent is inactive. Select a model and press the toggle button to activate.");
                     }
+                    reconcileSubmission(event.data.llm_history || []);
                     if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status);
                     break;
                 case "agent_command_request":
@@ -1239,24 +1263,26 @@
                     if (event.request_id === activeCommandRequest) showCommandStatus(event.status);
                     break;
                 case "agent_capture": {
-                    const img = document.createElement('img');
-                    img.src = 'data:image/png;base64,' + event.image_base64;
-                    img.alt = `Current Viewer canvas captured ${event.captured_at}`;
-                    img.style.maxWidth = '100%';
-                    document.getElementById('chat-log').appendChild(img);
+                    finishCapture(event);
                     break;
                 }
+                case "agent_accepted":
+                    acceptSubmission(event);
+                    break;
                 case "backend_state":
+                    if (pendingSubmission) finishSubmission({submission_id: pendingSubmission.submission_id}, true);
                     updateLLMState(event, false);
                     break;
                 case "agent_thinking":
                     setAgentThinking(event.model_name);
                     break;
                 case "agent_response":
+                    if (!finishSubmission(event)) break;
                     appendAgentMsg(event.explanation, event.commands, event.tokens, event.terminal_output, event.reasoning);
                     enableInput(true);
                     break;
                 case "agent_error":
+                    if (!finishSubmission(event, true)) break;
                     appendErrorMsg(event.error);
                     enableInput(true);
                     break;
@@ -1270,8 +1296,8 @@
             const badge       = document.getElementById("active-model-badge");
 
             agentActive = !!data.llm_loaded;
-            inputField.disabled = !agentActive;
-            sendBtn.disabled = !agentActive;
+            composerEnabled = agentActive;
+            refreshComposer();
             toggleInput.checked = agentActive;
 
             if (agentActive) {
@@ -1296,22 +1322,11 @@
         }
 
         // ─── Chat helpers ─────────────────────────────────────────────────────────
-        function sendAgentQuery() {
-            const inputField = document.getElementById("chat-input-field");
-            const query = inputField.value.trim();
-            if (!query) return;
-            appendUserMsg(query);
-            inputField.value = "";
-            inputField.style.height = "40px";
-            enableInput(false);
-            sendAction({ action: "agent_query", query: query });
-        }
-
         function enableInput(enabled) {
             const f = document.getElementById("chat-input-field");
             const b = document.getElementById("chat-send-btn");
-            f.disabled = !enabled;
-            b.disabled = !enabled;
+            composerEnabled = enabled && agentActive;
+            refreshComposer();
             if (enabled) {
                 f.focus();
                 f.style.height = "40px";
@@ -1343,13 +1358,24 @@
             chatLog.scrollTop = chatLog.scrollHeight;
         }
 
-        function appendUserMsg(msg) {
+        function appendUserMsg(msg, attachments = []) {
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-user";
             wrapper.innerHTML = `<div class="msg msg-user">${escapeHtml(msg)}</div>`;
+            const images = document.createElement('div');
+            images.className = 'message-attachments';
+            attachments.forEach(item => {
+                if (!item.data_url || !item.data_url.startsWith('data:image/png;base64,')) return;
+                const img = document.createElement('img');
+                img.src = item.data_url;
+                img.alt = item.name || 'Image';
+                images.appendChild(img);
+            });
+            wrapper.firstElementChild.appendChild(images);
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
+            return wrapper;
         }
 
         function appendAgentMsg(explanation, commands, tokens, terminalOutput, reasoning) {
@@ -1462,7 +1488,7 @@
             chatLog.innerHTML = "";
             history.forEach(msg => {
                 if (msg.role === "user") {
-                    appendUserMsg(msg.content);
+                    appendUserMsg(msg.content, msg.attachments || []);
                 } else if (msg.role === "assistant") {
                     if (msg.explanation !== undefined) appendAgentMsg(msg.explanation || "", msg.commands || "", msg.tokens, msg.terminal_output || "", msg.reasoning || "");
                     else appendAgentMsg(msg.content || "", "", null, "", "");
@@ -1472,11 +1498,17 @@
 
         // ─── Utilities ────────────────────────────────────────────────────────────
         function sendAction(payload) {
-            fetch("/api/action", {
+            return fetch("/api/action", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
-            }).catch(err => console.error("Action error:", err));
+            }).then(response => {
+                if (!response.ok) throw new Error(`Request failed (HTTP ${response.status}).`);
+                return response;
+            }).catch(err => {
+                if (['agent_query', 'capture_view'].includes(payload.action)) throw err;
+                appendErrorMsg(err.message);
+            });
         }
 
         function copyText(text, btn) {

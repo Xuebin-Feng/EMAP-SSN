@@ -1099,10 +1099,11 @@ def parse_advanced_expression(
         selection_mask,
     )
 
-def print_help(viewer, msg, *, terminal_msg=None):
+def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""
     from Viewer_Command_Portal import report
-    report(message=msg if terminal_msg is None else terminal_msg, viewer=viewer)
+    if report_message:
+        report(message=msg if terminal_msg is None else terminal_msg, viewer=viewer)
     print(f"\n{msg if terminal_msg is None else terminal_msg}")
     
     if hasattr(viewer, 'console_text'):
@@ -1197,6 +1198,7 @@ def execute_reset(viewer, targets):
     if hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
 
+    return msg
 
 # Shared command dispatch and explicit outcome reporting.
 def command_succeeded(viewer, message=None, artifact=None):
