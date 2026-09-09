@@ -1,6 +1,10 @@
 import pathlib
+import os
 import sys
 import unittest
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -15,6 +19,64 @@ from EMAPSSN_Tools import (
 
 
 class TestEmbeddingMsaGuiLogic(unittest.TestCase):
+    def test_complete_network_display_preserves_incomplete_preference(self):
+        from PySide6.QtWidgets import QApplication, QTextBrowser
+        from EMAPSSN_Tools import ToolsGUI
+
+        app = QApplication.instance() or QApplication([])
+        incomplete = NetworkCompletenessInfo(
+            status="incomplete", sequence_count=10, edge_count=20,
+            expected_edge_count=45,
+        )
+        complete = NetworkCompletenessInfo(
+            status="complete", sequence_count=10, edge_count=45,
+            expected_edge_count=45,
+        )
+        with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser), patch(
+            "EMAPSSN_Tools.inspect_network_completeness", return_value=incomplete
+        ) as inspect:
+            window = ToolsGUI()
+            try:
+                data = next(value for key, value in window.script_data.items()
+                            if pathlib.Path(key).name == "Embedding_MSA.py")
+                inputs = data["inputs"]
+                network = inputs["INPUT_NETWORK"]["widget"].combo
+                switch = inputs["INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"]["widget"]
+                inputs["TREE_METHOD"]["widget"].setCurrentIndex(0)
+                inputs["BOOTSTRAP_TREE"]["widget"].setChecked(True)
+                network.addItem("test-missing-incomplete.h5")
+                network.setCurrentText("test-missing-incomplete.h5")
+                for preference in (True, False):
+                    switch.setChecked(preference)
+                    inspect.return_value = complete
+                    network.addItem(f"test-missing-complete-{preference}.h5")
+                    network.setCurrentText(f"test-missing-complete-{preference}.h5")
+                    self.assertFalse(switch.isEnabled())
+                    self.assertFalse(switch.isChecked())
+                    self.assertEqual(switch.text(), "OFF")
+                    self.assertEqual(switch.property("incomplete_network_preference"), preference)
+                    self.assertIn("Not applicable", switch.toolTip())
+                    inspect.return_value = incomplete
+                    network.setCurrentText("test-missing-incomplete.h5")
+                    self.assertTrue(switch.isEnabled())
+                    self.assertEqual(switch.isChecked(), preference)
+                    self.assertEqual(switch.text(), "ON" if preference else "OFF")
+                    plot = inputs["SHOW_REGRESSION_PLOT"]["widget"]
+                    plot.setChecked(True)
+                    network.setCurrentIndex(-1)
+                    for control in (switch, plot):
+                        self.assertFalse(control.isEnabled())
+                        self.assertFalse(control.isChecked())
+                        self.assertEqual(control.text(), "OFF")
+                    self.assertEqual(switch.property("incomplete_network_preference"), preference)
+                    network.setCurrentText("test-missing-incomplete.h5")
+                    self.assertTrue(switch.isEnabled())
+                    self.assertEqual(switch.isChecked(), preference)
+            finally:
+                window.close()
+                window.deleteLater()
+                app.processEvents()
+
     def test_isotonic_regression_disabled_for_blast(self):
         sparse_info = NetworkCompletenessInfo(
             status="incomplete",

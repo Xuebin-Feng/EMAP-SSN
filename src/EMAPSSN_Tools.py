@@ -237,7 +237,7 @@ def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
     if network_info.status == "complete":
         return False, (
             f"Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
-            "observed pairs. All pairs are already observed, so full cophenetic "
+            "observed pairs. Not applicable: all pairs are observed, so full cophenetic "
             "consensus is automatic."
         )
 
@@ -3170,8 +3170,26 @@ class ToolsGUI(QMainWindow):
                 tree_method_combo = (
                     tree_method_input['widget'] if tree_method_input else None
                 )
+                imputed_consensus_switch.setProperty(
+                    "incomplete_network_preference", imputed_consensus_switch.isChecked()
+                )
+                updating_imputed_display = False
 
                 def update_imputed_consensus_toggle(*_):
+                    nonlocal updating_imputed_display
+                    if updating_imputed_display:
+                        return
+                    network_info = cached_network_completeness()
+                    preference = imputed_consensus_switch.property(
+                        "incomplete_network_preference"
+                    )
+                    not_applicable = network_info is None or network_info.status == "complete"
+                    updating_imputed_display = True
+                    try:
+                        # Keep signals active so the button text and color also update.
+                        imputed_consensus_switch.setChecked(False if not_applicable else preference)
+                    finally:
+                        updating_imputed_display = False
                     noise_trees_active = (
                         bootstrap_switch.isChecked()
                         and bootstrap_switch.isEnabled()
@@ -3182,7 +3200,7 @@ class ToolsGUI(QMainWindow):
                         )
                     )
                     enabled, tip = imputed_consensus_switch_state(
-                        cached_network_completeness(),
+                        network_info,
                         noise_trees_active,
                         imputed_consensus_switch.isChecked(),
                     )
@@ -3196,9 +3214,15 @@ class ToolsGUI(QMainWindow):
 
                 net_combo.currentTextChanged.connect(update_imputed_consensus_toggle)
                 bootstrap_switch.toggled.connect(update_imputed_consensus_toggle)
-                imputed_consensus_switch.toggled.connect(
-                    update_imputed_consensus_toggle
-                )
+                def remember_imputed_consensus_preference(checked):
+                    if updating_imputed_display:
+                        return
+                    imputed_consensus_switch.setProperty(
+                        "incomplete_network_preference", checked
+                    )
+                    update_imputed_consensus_toggle()
+
+                imputed_consensus_switch.toggled.connect(remember_imputed_consensus_preference)
                 if tree_method_combo is not None:
                     tree_method_combo.currentTextChanged.connect(
                         update_imputed_consensus_toggle
@@ -3830,7 +3854,10 @@ class ToolsGUI(QMainWindow):
                         val += extensions[0] if isinstance(extensions, tuple) else extensions
                 new_settings[var_name] = val
             elif w_type == "switch":
-                new_settings[var_name] = widget.isChecked()
+                preference = widget.property("incomplete_network_preference")
+                new_settings[var_name] = (
+                    widget.isChecked() if preference is None else bool(preference)
+                )
             elif w_type == "slider":
                 new_settings[var_name] = int(widget.slider.value())
             elif w_type == "slider_float":
