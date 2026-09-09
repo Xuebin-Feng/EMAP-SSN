@@ -19,7 +19,7 @@ PipelineAction = Literal[
     "inspect_file", "export_tool_settings", "export_layout_settings", "validate_settings",
     "start_job", "start_layout_job", "list_jobs", "get_job", "read_log", "cancel_job",
 ]
-ViewerDataAction = Literal["help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
+ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
 ViewerControlAction = Literal[
     "help", "describe", "get_settings_schema", "export_settings", "validate_settings",
     "start_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
@@ -78,6 +78,7 @@ _SPECS = {
         "cancel_job": (pipeline_ops, "cancel_pipeline_job", "Cancel queued work or terminate a running job; does not undo artifact writes.", {"job_id": "job-id"}),
     },
     "emapssn_viewer_data": {
+        "get_residue_distribution": (viewer_ops, "get_residue_distribution", "Read paged residue distributions/cross-tabs from an alignment snapshot.", {"snapshot_id": "snapshot-id", "positions": ["1883"]}),
         "get_command_request": (viewer_ops, "get_command_request", 'Read command outcomes using exactly one request_id or submission_id in the selected Viewer.', {'submission_id': 'client-generated-id'}),
         "list_command_requests": (viewer_ops, "list_command_requests", 'Recover Viewer command requests.', {}),
         "read_command_output": (viewer_ops, "read_command_output", 'Read command-scoped diagnostics using exactly one request_id or submission_id.', {'request_id': 'request-id'}),
@@ -87,7 +88,7 @@ _SPECS = {
         "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
         "query_nodes": (viewer_ops, "query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),
         "describe_fields": (viewer_ops, "describe_viewer_fields", 'Page snapshot metadata types, missingness and provenance availability.', {'snapshot_id': 'snapshot-id'}),
-        "create_subset": (viewer_ops, "create_viewer_subset", 'Intersect explicit scope with metadata/header/label/selection predicates; no commands or file/residue predicates.', {'snapshot_id': 'snapshot-id', 'scope': 'all'}),
+        "create_subset": (viewer_ops, "create_viewer_subset", 'Intersect explicit scope with metadata/header/label/selection predicates; residues require include_alignment=true; no commands or file predicates.', {'snapshot_id': 'snapshot-id', 'scope': 'all'}),
         "summarize_subset": (viewer_ops, "summarize_viewer_subset", 'Exact metadata and membership statistics; omitted subset uses all nodes. Page complete category counts.', {'snapshot_id': 'snapshot-id'}),
         "read_value": (viewer_ops, "read_viewer_value", 'Read exact JSON-text character slices; concatenate text then JSON-decode. Continue from next_offset.', {'snapshot_id': 'snapshot-id', 'index': 0, 'field': 'node_id'}),
         "read_log": (viewer_ops, "read_viewer_log", "Read a bounded byte page of captured Viewer output.", {}),

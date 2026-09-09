@@ -28,7 +28,7 @@ class GuideLoadingTests(unittest.TestCase):
             finally:
                 os.chdir(original)
         self.assertGreaterEqual(len(expected.split()), 800)
-        self.assertLessEqual(len(expected.split()), 1650)
+        self.assertLessEqual(len(expected.split()), 1850)
 
     def test_command_help_and_outcome_workflow_is_explicit(self):
         guide = _load_agent_instructions()

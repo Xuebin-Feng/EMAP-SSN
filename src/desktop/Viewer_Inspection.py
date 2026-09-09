@@ -87,7 +87,7 @@ class SnapshotStore:
         self.items = OrderedDict()
         self.lock = threading.RLock()
 
-    def capture(self, service, include_visual=False):
+    def capture(self, service, include_visual=False, include_alignment=False):
         # Called exclusively through the owning Qt thread.
         v = service._viewer
         n = service._node_count()
@@ -100,6 +100,14 @@ class SnapshotStore:
         if include_visual:
             source['visual'] = {k: getattr(v, a, None) for k, a in {'position': 'pos', 'color': 'current_colors', 'size': 'current_sizes'}.items()}
         estimate = size_of(source) + n * 64 + 16384
+        frozen_alignment = None
+        if include_alignment:
+            from desktop.Alignment_Snapshot import freeze_alignment, alignment_bytes
+            try:
+                frozen_alignment = freeze_alignment(v, self.max_bytes - estimate)
+            except ValueError as error:
+                raise ViewerInspectionError(str(error)) from error
+            estimate += alignment_bytes(frozen_alignment)
         with self.lock:
             self._expire()
             if estimate > self.max_bytes:
@@ -110,6 +118,8 @@ class SnapshotStore:
                     raise ViewerInspectionError('Inspection snapshots are busy; retry capture when idle.')
                 del self.items[idle]
             data = deepcopy(source)
+            if frozen_alignment is not None:
+                data['alignment_data'] = frozen_alignment
             alignment = getattr(v, 'alignment', None)
             mapping = getattr(alignment, 'viewer_to_aln', ())
             data['overview'] = {'session_id': getattr(v, 'inspection_session_id', None),
@@ -133,6 +143,8 @@ class SnapshotStore:
             from Viewer_Visual_State import visual_overview
             data['overview'].update(visual_overview(v, service._configuration))
             data['overview']['visual_fields_available'] = list(data.get('visual', {}))
+            data['overview']['alignment']['captured'] = include_alignment
+            data['overview']['capabilities'] += ['get_residue_distribution', 'node_projection_v1', 'alignment_snapshots_v1']
             if alignment is not None:
                 data['overview']['inputs']['msa'] = json_value(getattr(alignment, 'msa_file', None))
             sid = uuid.uuid4().hex
@@ -199,13 +211,21 @@ class SnapshotStore:
                 import Command_Engine as ce
                 tree = ce.parse_selection_expression(expression)
                 def check(node):
-                    if hasattr(node, 'kind') and node.kind not in ('string', 'metadata', 'label', 'selection'):
-                        raise ViewerInspectionError('File and residue predicates are not supported by read-only metadata inspection')
+                    if hasattr(node, 'kind') and node.kind not in ('string', 'metadata', 'label', 'selection', 'aa', 'aa_group'):
+                        raise ViewerInspectionError('File predicates are not supported by read-only inspection')
+                    if getattr(node, 'kind', None) in ('aa', 'aa_group') and 'alignment_data' not in d:
+                        raise ViewerInspectionError('Recapture get_summary with include_alignment=true for residue predicates')
                     for key in ('operand', 'left', 'right'):
                         if hasattr(node, key): check(getattr(node, key))
                 check(tree)
                 selected = np.zeros(n, dtype=bool); selected[d['selected']] = True
-                mask &= ce.evaluate_selection_expression(tree, None, None, d['headers'], d['clusters'], d['groups'], metadata=d['metadata'], selection_mask=selected)
+                alignment = None; mapping = None; valid = None
+                if 'alignment_data' in d:
+                    from desktop.Alignment_Snapshot import adapter
+                    alignment = adapter(d['alignment_data'])
+                    mapping = d['alignment_data']['mapping']
+                    valid = np.flatnonzero(mapping >= 0)
+                mask &= ce.evaluate_selection_expression(tree, mapping, valid, d['headers'], d['clusters'], d['groups'], alignment=alignment, metadata=d['metadata'], selection_mask=selected)
             members = np.flatnonzero(mask)
             with self.lock:
                 charge = size_of(members) + 256
@@ -213,6 +233,24 @@ class SnapshotStore:
                     raise ViewerInspectionError('Subset exceeds snapshot memory budget')
                 key = uuid.uuid4().hex; s['subsets'][key] = members; s['bytes'] += charge
             return self._fit(dict(base, subset_id=key, matched_count=len(members), complete=True), budget)
+        if action == 'get_residue_distribution':
+            from desktop.Alignment_Snapshot import distribution_rows
+            if 'alignment_data' not in d:
+                raise ViewerInspectionError('Recapture get_summary with include_alignment=true for residue distributions')
+            alignment = d['alignment_data']
+            positions = args.get('positions')
+            if not isinstance(positions, list) or not 1 <= len(positions) <= 100 or any(not isinstance(p, str) or p not in alignment['labels'] for p in positions):
+                raise ViewerInspectionError('positions must contain 1..100 known explicit displayed position labels')
+            positions = list(dict.fromkeys(positions))
+            group_by = args.get('group_by', 'none')
+            if group_by not in ('none', 'cluster', 'group'):
+                raise ViewerInspectionError('group_by must be none, cluster or group')
+            if group_by != 'none' and d['clusters' if group_by == 'cluster' else 'groups'] is None:
+                raise ViewerInspectionError('Requested membership data is unavailable in this snapshot')
+            base.update(alignment={k: alignment[k] for k in ('reference', 'requested_reference', 'offset', 'msa')},
+                        denominator_semantics='Mapped network nodes, including gaps; unmapped nodes excluded.',
+                        overlapping_membership=group_by == 'group')
+            return self._page(base, distribution_rows(alignment, indices, positions, group_by, d['clusters'], d['groups']), action, args, budget)
         if action == 'read_value':
             index = args['index']; field = args['field']; column = args.get('column')
             if not 0 <= index < n: raise ViewerInspectionError('Node index out of range')
@@ -239,6 +277,13 @@ class SnapshotStore:
         if action == 'describe_fields':
             rows = ({'name': name, 'type': entry['type'], **self._counts(entry, range(n)), 'provenance': 'unavailable'} for name, entry in d['metadata'].items())
         elif action == 'query_nodes':
+            fields = args.get('fields')
+            allowed = {'index', 'node_id', 'visible', 'selected', 'cluster', 'groups', 'metadata', 'visual'}
+            if fields is not None:
+                if not isinstance(fields, list) or not fields or any(not isinstance(f, str) or f not in allowed for f in fields) or len(set(fields)) != len(fields):
+                    raise ViewerInspectionError('fields must be a nonempty list of unique supported row fields')
+                if (columns and 'metadata' not in fields) or (args.get('visual_fields') and 'visual' not in fields):
+                    raise ViewerInspectionError('fields excludes a requested metadata or visual container')
             visual_fields = args.get('visual_fields') or []
             if any(f not in d.get('visual', {}) for f in visual_fields):
                 raise ViewerInspectionError('Refresh get_summary with include_visual=true before requesting visual fields')
@@ -336,9 +381,13 @@ class SnapshotStore:
             candidate = deepcopy(row)
             if action == 'query_nodes':
                 for field in ('node_id', 'groups'):
-                    if len(encoded(candidate[field])) > budget // 4: candidate[field] = {'omitted': True, 'read_value': {'index': row['index'], 'field': field}}
+                    if (args.get('fields') is None or field in args['fields']) and len(encoded(candidate[field])) > budget // 4: candidate[field] = {'omitted': True, 'read_value': {'index': row['index'], 'field': field}}
                 for c, value in candidate['metadata'].items():
                     if len(encoded(value)) > budget // 4: candidate['metadata'][c] = {'omitted': True, 'read_value': {'index': row['index'], 'field': 'metadata', 'column': c}}
+                if args.get('fields') is not None:
+                    if 'visual' in args['fields'] and 'visual' not in candidate:
+                        candidate['visual'] = {}
+                    candidate = {field: candidate[field] for field in args['fields']}
             if action == 'summarize_subset':
                 if 'top_categories' in candidate and len(encoded(candidate['top_categories'])) > budget // 4:
                     candidate['top_categories'] = {'omitted': True, 'retrieve': 'Continue the category-count rows for this field.'}
@@ -365,8 +414,8 @@ class ViewerInspectionService:
         self._configuration = configuration
         self.snapshots = SnapshotStore()
 
-    def capture_snapshot(self, include_visual=False):
-        return self.snapshots.capture(self, include_visual)
+    def capture_snapshot(self, include_visual=False, include_alignment=False):
+        return self.snapshots.capture(self, include_visual, include_alignment)
 
     def command_action(self, action, arguments):
         from Viewer_Command_Portal import get_portal

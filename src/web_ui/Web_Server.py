@@ -318,7 +318,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             if clean_path == "/api/mcp/v1/session":
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
-                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1"],
+                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1"],
                     "inputs": self.server.inspection_bridge.service._input_paths(),
                     "session_id": self.server.inspection_session_id,
                     "session_alias": self.server.viewer.inspection_session_alias,
@@ -437,12 +437,12 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 request = json.loads(self.rfile.read(length).decode("utf-8"))
                 action = request["action"]
                 from mcp_server.core.Workflow_Dispatch import REGISTRY
-                if action not in {"get_summary", "describe_fields", "create_subset", "summarize_subset", "query_nodes", "read_value"}:
+                if action not in {"get_residue_distribution", "get_summary", "describe_fields", "create_subset", "summarize_subset", "query_nodes", "read_value"}:
                     raise ViewerInspectionError("Unknown read-only inspection action")
                 arguments = REGISTRY["emapssn_viewer_data"][action].model.model_validate(request.get("arguments", {})).model_dump()
                 arguments.pop("session_id", None)
                 service = self.server.inspection_bridge.service
-                sid = (self.server.inspection_bridge.request("capture_snapshot", **({"include_visual": True} if arguments.pop("include_visual", False) else {}))
+                sid = (self.server.inspection_bridge.request("capture_snapshot", **{key: True for key in ("include_visual", "include_alignment") if arguments.pop(key, False)})
                        if action == "get_summary" else arguments.pop("snapshot_id"))
                 payload = service.snapshots.execute(action, sid, **arguments)
                 self._send_json(200, payload)

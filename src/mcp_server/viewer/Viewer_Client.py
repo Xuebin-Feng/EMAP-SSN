@@ -358,6 +358,13 @@ class MCPViewerClient:
         capabilities = await asyncio.to_thread(self._request, session, "/api/mcp/v1/session")
         if "snapshots_v1" not in capabilities.get("inspection_capabilities", []):
             raise MCPViewerError("Viewer does not support snapshots; upgrade and restart the Viewer.")
+        required = []
+        if arguments.get("include_alignment") or action == "get_residue_distribution":
+            required.append("alignment_snapshots_v1")
+        if arguments.get("fields") is not None:
+            required.append("node_projection_v1")
+        if any(cap not in capabilities.get("inspection_capabilities", []) for cap in required):
+            raise MCPViewerError("Viewer lacks requested scientific inspection capabilities; upgrade and restart the Viewer.")
         return await asyncio.to_thread(self._request, session, "/api/mcp/v1/data", {"action": action, "arguments": arguments})
 
     async def get_summary(self, session_id=None, max_bytes=16384):
@@ -372,7 +379,7 @@ class MCPViewerClient:
             try:
                 session = await asyncio.to_thread(select_viewer_session, target, timeout=self.discovery_timeout)
                 if not session.launch_id:
-                    raise MCPViewerError("This Viewer was not launched with MCP output capture.")
+                    raise MCPViewerError("This Viewer was not launched with MCP output capture. For MCP-submitted command output, use read_command_output with request_id or submission_id.")
                 launch_id = uuid.UUID(session.launch_id).hex
                 directory = Path(session_directory()) / "launches" / launch_id
                 self._log_directories[session.session_id] = directory

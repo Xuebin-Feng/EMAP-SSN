@@ -66,8 +66,9 @@ async def get_viewer_summary(
     session_id: str | None = None,
     include_visual: bool = False,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
+    include_alignment: bool = False,
 ) -> dict[str, Any]:
-    """Capture a fresh immutable snapshot; reuse snapshot_id for subsequent reads."""
+    """Capture an immutable snapshot; opt into alignment for residue analysis. Alignment stays in Viewer memory."""
     arguments = dict(locals())
     arguments.pop("ctx")
     arguments.pop("session_id")
@@ -103,7 +104,7 @@ async def create_viewer_subset(
     session_id: str | None = None,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
 ) -> dict[str, Any]:
-    """Intersect explicit scope with metadata/header/label/selection predicates; no commands or file/residue predicates."""
+    """Intersect scope with shared Boolean predicates, including residues on alignment snapshots; no files or commands."""
     arguments = dict(locals())
     arguments.pop("ctx")
     arguments.pop("session_id")
@@ -143,6 +144,7 @@ async def query_viewer_nodes(
     cursor: str | None = None,
     limit: Annotated[int, Field(ge=1, le=500)] = 25,
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
+    fields: list[Literal["index", "node_id", "visible", "selected", "cluster", "groups", "metadata", "visual"]] | None = None,
 ) -> dict[str, Any]:
     """Page snapshot nodes in original index order. Omitted columns returns no metadata."""
     arguments = dict(locals())
@@ -394,3 +396,21 @@ async def get_command_catalog(ctx: Context[AppContext], command: str | None = No
         session_id: str | None = None) -> dict[str, Any]:
     """List existing commands, syntax and effects, or supply command (for example reset) to read detailed source help. Read-only; execute_commands is not required."""
     return await _portal_call(ctx, 'get_command_catalog', dict(command=command), session_id)
+
+
+async def get_residue_distribution(
+    ctx: Context[AppContext], snapshot_id: str,
+    positions: Annotated[list[str], Field(min_length=1, max_length=100)],
+    subset_id: str | None = None, group_by: Literal["none", "cluster", "group"] = "none",
+    session_id: str | None = None, cursor: str | None = None,
+    limit: Annotated[int, Field(ge=1, le=500)] = 25,
+    max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
+) -> dict[str, Any]:
+    """Count residues in frozen network populations; requires include_alignment=true. Gaps dilute fractions; unmapped nodes are excluded. Positions are explicit displayed labels, not ranges."""
+    arguments = dict(locals())
+    arguments.pop("ctx")
+    arguments.pop("session_id")
+    try:
+        return await _viewer(ctx).inspect_data("get_residue_distribution", arguments, session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error

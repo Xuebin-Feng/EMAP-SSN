@@ -18,6 +18,22 @@ from desktop.Viewer_Inspection import ViewerInspectionService
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 
 class SnapshotHTTPTests(unittest.TestCase):
+    def test_alignment_capture_distribution_and_projection_over_http(self):
+        self.url = self.url.replace('/commands', '/data')
+        self.viewer.alignment = SimpleNamespace(
+            aln=[SimpleNamespace(seq='A') for _ in self.viewer.full_headers],
+            viewer_to_aln=np.arange(len(self.viewer.full_headers)),
+            label_to_col={'1883':0}, col_to_label={0:'1883'},
+            resolved_ref_full='ref', msa_file='fixture.fasta')
+        captured = self.request('get_summary', {'include_alignment': True})
+        self.assertEqual(captured['status'], 200, captured)
+        sid = captured['payload']['snapshot_id']
+        result = self.request('get_residue_distribution', {'snapshot_id':sid, 'positions':['1883']})
+        self.assertEqual(result['status'], 200, result)
+        self.assertEqual(result['payload']['rows'][0]['residues'][0]['fraction'], 1)
+        page = self.request('query_nodes', {'snapshot_id':sid, 'fields':['node_id']})
+        self.assertEqual(page['status'], 200, page)
+        self.assertTrue(all(set(row)=={'node_id'} for row in page['payload']['rows']))
     @classmethod
     def setUpClass(cls):
         from PySide6.QtWidgets import QApplication
@@ -86,6 +102,18 @@ class SnapshotHTTPTests(unittest.TestCase):
         self.assertTrue(all(t!=threading.get_ident() for kind,t in events if kind=='execute'))
 
 class SnapshotClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_attached_log_error_directs_to_command_output(self):
+        client = MCPViewerClient()
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', return_value=SimpleNamespace(launch_id=None)):
+            with self.assertRaisesRegex(MCPViewerError, 'read_command_output'):
+                await client.read_log('attached')
+    async def test_scientific_capabilities_require_upgrade(self):
+        client = MCPViewerClient()
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', return_value=SimpleNamespace()), mock.patch.object(client, '_request', return_value={'inspection_capabilities':['snapshots_v1']}) as request:
+            for action, args in [('get_summary', {'include_alignment':True}), ('query_nodes', {'fields':['node_id']}), ('get_residue_distribution', {'positions':['1']})]:
+                with self.assertRaisesRegex(MCPViewerError, 'upgrade and restart'):
+                    await client.inspect_data(action, args, 'explicit')
+            self.assertEqual(request.call_count, 3)
     async def test_older_viewer_requires_restart_without_changing_selection(self):
         client=MCPViewerClient(); client.connected_session_id='keep'
         with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session',return_value=SimpleNamespace()), mock.patch.object(client,'_request',return_value={}) as request:

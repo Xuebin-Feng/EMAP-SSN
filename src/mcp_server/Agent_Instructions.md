@@ -192,3 +192,19 @@ not as a mandatory step after every success. Submission messages for background
 work do not prove job completion; continue checking status and jobs.
 Batches stop on failure. Awaiting_user_input requires interaction.
 Use capture_view for current PNG/HUD verification. For visual node fields, get_summary(include_visual=true), then query_nodes(visual_fields).
+
+## Structured residue analysis
+
+Capture with `get_summary(arguments={"include_alignment":true})` and retain its
+snapshot_id. Alignment data stays in Viewer memory, subject to the snapshot budget.
+Call `emapssn_viewer_data(action="get_residue_distribution")` with snapshot_id, positions=["1883"] and optional
+subset_id or group_by="cluster"/"group". Counts use mapped network nodes; gaps
+remain in the denominator and unmapped nodes are excluded. Fractions are 0..1;
+zero denominators produce null fractions. Group membership can overlap.
+Positions are explicit displayed labels, including negatives and insertions, not ranges.
+On alignment snapshots, create_subset accepts residue predicates with the existing
+Boolean grammar. No live selection changes are needed. File predicates remain unsupported.
+For compact node pages, query_nodes(fields=["node_id"]) returns only node IDs.
+Omitting fields preserves existing rows; columns/visual_fields select container contents.
+read_command_output captures MCP-submitted commands even in attached Viewers.
+read_log requires launch-time process-log capture and is not a substitute.

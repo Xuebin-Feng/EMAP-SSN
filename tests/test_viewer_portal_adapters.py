@@ -17,6 +17,19 @@ from Viewer_Command_Portal import get_portal
 
 
 class PortalHTTPTests(SnapshotHTTPTests):
+    def test_attached_viewer_query_output_without_launch_capture(self):
+        from tests.test_incomplete_alignment_commands import load_manager, write_fasta
+        msa = str(Path(self.directory.name) / 'query.fasta')
+        write_fasta(msa, [(h, 'AC') for h in self.viewer.full_headers])
+        self.viewer.alignment = load_manager(msa, self.viewer.full_headers, self.viewer.full_headers[0])
+        self.viewer.active_reference = self.viewer.full_headers[0]
+        result = self.request('execute_commands', {'submission_id':'query-output', 'commands':'query [1]'})
+        self.assertEqual(result['status'], 200, result)
+        self.app.processEvents()
+        output = self.request('read_command_output', {'submission_id':'query-output'})
+        self.assertEqual(output['status'], 200, output)
+        self.assertIn('100.0%', output['payload']['text'])
+        self.assertIn('Pos 1', output['payload']['text'])
     def setUp(self):
         super().setUp()
         self.url = self.url.replace('/data', '/commands')

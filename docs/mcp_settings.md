@@ -660,3 +660,51 @@ for status inspection, without storing this guidance in the execution record.
 Use execution `status` to determine completion: pagination `complete` and stream
 `eof` do not indicate that execution has finished. Restart the server and Viewer
 after upgrading; no persisted-data migration is needed.
+
+### Frozen residue inspection and node projection
+
+Capture an immutable alignment snapshot:
+
+```python
+emapssn_viewer_data(action="get_summary", arguments={"include_alignment": True})
+emapssn_viewer_data(action="get_residue_distribution", arguments={
+    "snapshot_id": "returned-snapshot-id", "positions": ["-1", "10.1", "1883"],
+    "group_by": "cluster"
+})
+```
+
+Alignment capture is opt-in. Only network-associated alignment rows, mappings,
+reference/offset, and gap definitions are frozen inside the Viewer. Sparse storage
+is retained; the alignment itself is never sent to the agent. Memory-budget failures
+are explicit. Ordinary metadata snapshots retain their existing costs.
+
+Distribution positions are 1–100 explicit displayed labels (strings), not ranges
+or frequency expressions. Repeated labels are deduplicated. Missing positions fail.
+Each row reports population/category, node and mapped/unmapped counts, denominator,
+gap count/fraction, and every observed nongap symbol's count/fraction. Fractions use
+all mapped network nodes, including gaps, with no 1% display cutoff. Empty mapped
+populations have zero counts and null gap fractions (no observed residue entries).
+The response records reference, requested reference, offset and source MSA path;
+these identify captured inputs, not a claim of independently verified scientific provenance.
+
+Omitted subset_id means all snapshot network nodes, not the live selection.
+Optional group_by is none, cluster, or group. Each position starts with the overall
+population, followed by deterministic category rows. Cluster noise is -1; groups
+can overlap and include an explicit ungrouped population. Missing memberships fail.
+Continue next_cursor within the existing row/byte limits.
+
+On an alignment snapshot, create_subset(scope="all", expression="!A1883") evaluates
+against frozen mapping and the shared Boolean semantics: unmapped residues are
+unknown, not automatically matches to negation. Subsets work with distributions,
+summarize_subset and query_nodes. Live state is unchanged; file predicates remain rejected.
+
+query_nodes accepts fields from index, node_id, visible, selected, cluster, groups,
+metadata and visual. For example fields=["node_id"] omits all row housekeeping.
+Omission preserves old rows. columns and visual_fields select container contents;
+requesting those contents while excluding their container is an error. Empty,
+duplicate or unknown fields fail. Changing projection invalidates an existing cursor.
+
+Use read_command_output for text printed by MCP-submitted commands, including query,
+regardless of whether the Viewer was started or merely connected through MCP.
+read_log requires launch-time process-log capture. Snapshot scientific capabilities
+require upgrading and restarting the Viewer and MCP server; no migration is needed.
