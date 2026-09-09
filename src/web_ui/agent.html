@@ -714,8 +714,10 @@
         /* Border-radius on chat log bottom corners */
         #chat-log { border-radius: 0 0 8px 8px; }
         #chat-composer { padding: 12px; border-top: 1px solid var(--border-color); min-width: 0; flex-shrink: 0; }
-        #chat-composer .chat-input-bar { padding: 0; border: 0; flex-wrap: wrap; }
-        #chat-composer textarea { min-width: 160px; flex: 1 1 240px; }
+        #chat-composer .chat-input-bar { padding: 0; border: 0; flex-wrap: nowrap; align-items: stretch; }
+        #chat-composer textarea { min-width: 0; flex: 1 1 0; }
+        #capture-viewer-btn { font-size: 8px; line-height: 1.5; padding: 6px 10px; white-space: normal; }
+        #capture-viewer-btn, #chat-send-btn { height: auto; align-self: stretch; flex-shrink: 0; }
         #chat-composer.drag-over { outline: 2px dashed var(--primary); outline-offset: -3px; }
         #attachment-tray, .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
         #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
@@ -726,7 +728,6 @@
         #attachment-notice { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
         #attachment-notice:not(:empty) { margin-top: 8px; }
         .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 5px; }
-        @media (max-width: 600px) { #chat-composer textarea { flex-basis: 100%; } }
     </style>
 </head>
 <body>
@@ -759,7 +760,7 @@
               <div id="attachment-tray" aria-label="Pending image attachments"></div>
               <div class="chat-input-bar">
                 <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
-                <button class="btn" id="capture-viewer-btn">Capture Viewer</button>
+                <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer">Capture<br>Viewer</button>
                 <button class="btn btn-primary" id="chat-send-btn" disabled>Send</button>
               </div>
               <div id="attachment-notice" role="status" aria-live="polite"></div>
@@ -1154,6 +1155,7 @@
             });
 
             clearBtn.addEventListener("click", () => {
+                if (!window.confirm('Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.')) return;
                 clearAttachmentDraft();
                 enableInput(agentActive);
                 sendAction({ action: "clear_history" });

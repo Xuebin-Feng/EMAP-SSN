@@ -1,0 +1,1749 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2026 Xuebin Feng
+  Author affiliation: University of Toronto
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMAP-SSN Quick Start Manual: Workflow & GUI Guide</title>
+    <!-- Fonts are vendored locally so this page renders offline. They live in
+         docs/fonts/ rather than src/, so this page is self-contained and does
+         not depend on the application source tree. -->
+    <link href="fonts/fonts.css" rel="stylesheet">
+    <style>
+        :root {
+            /* Light theme (default) */
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-sidebar: #ffffff;
+            --bg-code: #f1f5f9;
+            --bg-code-inner: #f8fafc;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --accent: #4f46e5;
+            --accent-hover: #4338ca;
+            --accent-glow: rgba(79, 70, 229, 0.12);
+            --border: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --syntax-cmd: #0f172a;
+            --syntax-param: #0891b2;
+            --syntax-expr: #b45309;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.06), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+            --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.04);
+            --badge-core-bg: #dbeafe;
+            --badge-core-text: #1e40af;
+            --badge-new-bg: #dcfce7;
+            --badge-new-text: #166534;
+            --badge-ext-bg: #f3e8ff;
+            --badge-ext-text: #6b21a8;
+            --badge-util-bg: #fef3c7;
+            --badge-util-text: #92400e;
+            --callout-tip-bg: #f0fdf4;
+            --callout-tip-border: #22c55e;
+            --callout-note-bg: #eff6ff;
+            --callout-note-border: #3b82f6;
+            --callout-warn-bg: #fffbeb;
+            --callout-warn-border: #f59e0b;
+        }
+
+        [data-theme="dark"] {
+            /* Dark theme */
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-sidebar: #111827;
+            --bg-code: #1f2937;
+            --bg-code-inner: #111827;
+            --text-primary: #f9fafb;
+            --text-secondary: #d1d5db;
+            --text-muted: #9ca3af;
+            --accent: #818cf8;
+            --accent-hover: #a5b4fc;
+            --accent-glow: rgba(129, 140, 248, 0.18);
+            --border: #374151;
+            --border-hover: #4b5563;
+            --syntax-cmd: #f9fafb;
+            --syntax-param: #22d3ee;
+            --syntax-expr: #fbbf24;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+            --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+            --badge-core-bg: #1e3a8a;
+            --badge-core-text: #93c5fd;
+            --badge-new-bg: #064e3b;
+            --badge-new-text: #6ee7b7;
+            --badge-ext-bg: #581c87;
+            --badge-ext-text: #d8b4fe;
+            --badge-util-bg: #78350f;
+            --badge-util-text: #fde68a;
+            --callout-tip-bg: #064e3b22;
+            --callout-tip-border: #10b981;
+            --callout-note-bg: #1e3a8a22;
+            --callout-note-border: #60a5fa;
+            --callout-warn-bg: #78350f22;
+            --callout-warn-border: #f59e0b;
+        }
+
+        /* Basic Reset */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Noto Sans', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            display: flex;
+            min-height: 100vh;
+            line-height: 1.65;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Sidebar Styling */
+        aside {
+            width: 320px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            overflow: visible !important;
+            transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-header {
+            padding: 24px 20px 20px 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 1.15rem;
+            font-weight: 800;
+            margin-bottom: 4px;
+            letter-spacing: -0.025em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-title-icon {
+            font-size: 1.3rem;
+        }
+
+        .sidebar-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.35;
+        }
+
+        .toggle-sidebar-btn {
+            position: absolute;
+            top: 24px;
+            right: -30px;
+            width: 30px;
+            height: 48px;
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border);
+            border-left: none;
+            border-radius: 0 8px 8px 0;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 101;
+            box-shadow: 4px 2px 6px -1px rgb(0 0 0 / 0.05);
+            transition: all 0.2s ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .toggle-sidebar-btn:hover {
+            background-color: var(--bg-primary);
+            color: var(--accent);
+            border-color: var(--border-hover);
+        }
+
+        .toggle-sidebar-btn::after {
+            content: "«";
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        body.sidebar-collapsed .toggle-sidebar-btn::after {
+            content: "»";
+        }
+
+        body.sidebar-collapsed aside {
+            transform: translateX(-100%);
+        }
+
+        body.sidebar-collapsed main {
+            margin-left: 0;
+        }
+
+        .search-container {
+            padding: 14px 24px;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 9px 12px 9px 34px;
+            font-size: 0.85rem;
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: inherit;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 36px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+            font-size: 0.9rem;
+        }
+
+        .sidebar-menu {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px 18px;
+        }
+
+        .menu-category {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: var(--text-muted);
+            margin: 16px 0 6px 8px;
+        }
+
+        .menu-category:first-of-type {
+            margin-top: 0;
+        }
+
+        .menu-list {
+            list-style: none;
+        }
+
+        .menu-item a {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 12px;
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-radius: 6px;
+            margin-bottom: 2px;
+            transition: all 0.2s ease;
+        }
+
+        .menu-item a:hover {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .menu-item.active a {
+            background-color: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .menu-item-badge {
+            font-size: 0.62rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        /* Sidebar Footer Styling */
+        .sidebar-footer {
+            padding: 14px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .theme-toggle-btn, .nav-switch-btn {
+            background: none;
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: inherit;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle-btn:hover, .nav-switch-btn:hover {
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+            background-color: var(--bg-primary);
+        }
+
+        /* Main Content Styling */
+        main {
+            margin-left: 320px;
+            flex: 1;
+            padding: 40px 60px 80px 60px;
+            display: flex;
+            justify-content: center;
+            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .content-wrapper {
+            width: 100%;
+            max-width: 1040px;
+        }
+
+        header {
+            margin-bottom: 36px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 24px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        h1 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--text-primary);
+            line-height: 1.25;
+        }
+
+        .badge-manual {
+            background-color: var(--accent-glow);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            white-space: nowrap;
+            display: inline-block;
+            margin-top: 6px;
+        }
+
+        .subtitle {
+            font-size: 1.05rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            line-height: 1.55;
+            max-width: 860px;
+        }
+
+        .quick-nav-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .quick-nav-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 9999px;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .quick-nav-pill:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background-color: var(--accent-glow);
+            transform: translateY(-1px);
+        }
+
+        /* Document Sections */
+        .section-divider {
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin: 54px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            scroll-margin-top: 24px;
+        }
+
+        .section-divider:first-of-type {
+            margin-top: 0;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin: 28px 0 12px 0;
+            color: var(--text-primary);
+        }
+
+        h4 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 20px 0 8px 0;
+            color: var(--text-primary);
+        }
+
+        p {
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+            font-size: 0.96rem;
+            line-height: 1.65;
+        }
+
+        p strong, li strong {
+            color: var(--text-primary);
+        }
+
+        ul, ol {
+            margin: 0 0 20px 24px;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        li {
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        /* Card Container */
+        .manual-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 26px 30px;
+            margin-bottom: 28px;
+            box-shadow: var(--shadow);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
+        }
+
+        .manual-card:hover {
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow-md);
+        }
+
+        .manual-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 18px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .manual-card-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+        }
+
+        .card-tag {
+            font-family: 'Noto Sans Mono', monospace;
+            background-color: var(--bg-code);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* Figure and Image Display */
+        .figure-container {
+            margin: 24px 0 28px 0;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background-color: var(--bg-secondary);
+            overflow: hidden;
+            box-shadow: var(--shadow-md);
+            transition: border-color 0.3s ease;
+        }
+
+        .figure-container:hover {
+            border-color: var(--accent);
+        }
+
+        .figure-img-wrap {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #ffffff;
+            padding: 12px;
+            overflow: auto;
+        }
+
+        [data-theme="dark"] .figure-img-wrap {
+            background-color: #0f1420;
+        }
+
+        .figure-img-wrap img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            display: block;
+            object-fit: contain;
+        }
+
+        .figure-caption {
+            padding: 12px 18px;
+            font-size: 0.86rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            background-color: var(--bg-primary);
+            line-height: 1.45;
+        }
+
+        .figure-caption strong {
+            color: var(--text-primary);
+        }
+
+        /* Callouts / Alerts */
+        .callout {
+            border-left: 4px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 14px 18px;
+            margin: 18px 0;
+            background-color: var(--bg-code);
+            font-size: 0.92rem;
+        }
+
+        .callout-title {
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+            font-size: 0.95rem;
+        }
+
+        .callout-note {
+            border-left-color: var(--callout-note-border);
+            background-color: var(--callout-note-bg);
+        }
+        .callout-note .callout-title { color: #2563eb; }
+        [data-theme="dark"] .callout-note .callout-title { color: #60a5fa; }
+
+        .callout-tip {
+            border-left-color: var(--callout-tip-border);
+            background-color: var(--callout-tip-bg);
+        }
+        .callout-tip .callout-title { color: #16a34a; }
+        [data-theme="dark"] .callout-tip .callout-title { color: #4ade80; }
+
+        .callout-warn {
+            border-left-color: var(--callout-warn-border);
+            background-color: var(--callout-warn-bg);
+        }
+        .callout-warn .callout-title { color: #d97706; }
+        [data-theme="dark"] .callout-warn .callout-title { color: #fbbf24; }
+
+        /* Tables */
+        .table-responsive {
+            overflow-x: auto;
+            margin: 20px 0;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+            text-align: left;
+        }
+
+        th {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-weight: 700;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            vertical-align: top;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: var(--bg-primary);
+        }
+
+        /* Inline Code and Code Blocks */
+        code {
+            font-family: 'Noto Sans Mono', monospace;
+            font-size: 0.85em;
+            background-color: var(--bg-code);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--accent);
+        }
+
+        pre {
+            background-color: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'Noto Sans Mono', monospace;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            color: var(--text-primary);
+            margin: 16px 0;
+        }
+
+        /* Step cards */
+        .step-container {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            margin: 24px 0;
+        }
+
+        .step-row {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .step-number {
+            flex-shrink: 0;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background-color: var(--accent);
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 8px -2px rgba(79, 70, 229, 0.4);
+        }
+
+        .step-content {
+            flex: 1;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px 22px;
+            box-shadow: var(--shadow);
+        }
+
+        .step-content h4 {
+            margin-top: 0;
+            margin-bottom: 6px;
+            font-size: 1.1rem;
+        }
+
+        /* Feature grid */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .grid-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        .grid-card h4 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Badges */
+        .badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 9999px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: inline-block;
+        }
+        .badge-core { background-color: var(--badge-core-bg); color: var(--badge-core-text); }
+        .badge-new { background-color: var(--badge-new-bg); color: var(--badge-new-text); }
+        .badge-ext { background-color: var(--badge-ext-bg); color: var(--badge-ext-text); }
+        .badge-util { background-color: var(--badge-util-bg); color: var(--badge-util-text); }
+
+        /* Keyboard Shortcut badge */
+        .kbd {
+            display: inline-block;
+            padding: 2px 6px;
+            font-family: 'Noto Sans Mono', monospace;
+            font-size: 0.8rem;
+            line-height: 1.2;
+            color: var(--text-primary);
+            background-color: var(--bg-code);
+            border: 1px solid var(--border-hover);
+            border-radius: 4px;
+            box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 60px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            aside {
+                transform: translateX(-100%);
+            }
+            body.sidebar-collapsed aside {
+                transform: translateX(0);
+            }
+            main {
+                margin-left: 0;
+                padding: 24px 20px;
+            }
+            body.sidebar-collapsed main {
+                margin-left: 320px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-title">
+                <span class="sidebar-title-icon">📘</span>
+                <span>EMAP-SSN Manual</span>
+            </div>
+            <div class="sidebar-subtitle">Quick Start & GUI Architecture Guide</div>
+        </div>
+
+        <div class="search-container">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" class="search-input" placeholder="Search manual topics...">
+        </div>
+
+        <button id="toggle-sidebar-btn" class="toggle-sidebar-btn" title="Toggle Sidebar" aria-label="Toggle Sidebar"></button>
+
+        <nav class="sidebar-menu">
+            <div class="menu-category">Getting Started</div>
+            <ul class="menu-list">
+                <li class="menu-item" data-target="overview"><a href="#overview"><span>1. Architecture Overview</span> <span class="menu-item-badge badge-core">Core</span></a></li>
+                <li class="menu-item" data-target="workflow"><a href="#workflow"><span>2. End-to-End Workflow</span> <span class="menu-item-badge badge-new">Pipeline</span></a></li>
+            </ul>
+
+            <div class="menu-category">GUI Suite Walkthrough</div>
+            <ul class="menu-list">
+                <li class="menu-item" data-target="gui-tools"><a href="#gui-tools"><span>3. EMAP-SSN Tools GUI</span> <span class="menu-item-badge badge-ext">Compute</span></a></li>
+                <li class="menu-item" data-target="gui-config"><a href="#gui-config"><span>4. Configuration GUI</span> <span class="menu-item-badge badge-util">Config</span></a></li>
+                <li class="menu-item" data-target="gui-viewer"><a href="#gui-viewer"><span>5. Interactive Viewer GUI</span> <span class="menu-item-badge badge-core">3D UI</span></a></li>
+            </ul>
+
+            <div class="menu-category">Hands-On Practice</div>
+            <ul class="menu-list">
+                <li class="menu-item" data-target="hands-on-tutorial"><a href="#hands-on-tutorial"><span>6. Step-by-Step Tutorial</span> <span class="menu-item-badge badge-new">Walkthrough</span></a></li>
+                <li class="menu-item" data-target="best-practices"><a href="#best-practices"><span>7. Best Practices & Advice</span> <span class="menu-item-badge badge-util">Tips</span></a></li>
+                <li class="menu-item" data-target="next-steps"><a href="#next-steps"><span>8. Related References</span> <span class="menu-item-badge badge-core">Docs</span></a></li>
+            </ul>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle Dark/Light Mode">
+                <span id="theme-icon">🌙</span> <span id="theme-text">Dark Mode</span>
+            </button>
+            <a href="list_of_commands.html" class="nav-switch-btn" title="Go to Command Reference">
+                <span>Console Ref ↗</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main>
+        <div class="content-wrapper">
+            <!-- Header -->
+            <header>
+                <div class="header-top">
+                    <div>
+                        <h1>EMAP-SSN Quick Start Manual</h1>
+                        <span class="badge-manual">Comprehensive Guide: Workflow & GUI Suite</span>
+                    </div>
+                </div>
+                <p class="subtitle">
+                    A comprehensive primer on the <strong>Embedding- and Multiple-Alignment-integrated Protein Sequence Similarity Network (EMAP-SSN)</strong> platform. This manual connects the overarching computational pipeline with the visual graphical user interfaces (GUIs), guiding you from raw sequence databases to interactive 3D multi-scale network analysis.
+                </p>
+
+                <div class="quick-nav-bar">
+                    <a href="#workflow" class="quick-nav-pill">🧬 Complete Workflow</a>
+                    <a href="#gui-tools" class="quick-nav-pill">🛠️ Tools GUI</a>
+                    <a href="#gui-config" class="quick-nav-pill">⚙️ Configuration GUI</a>
+                    <a href="#gui-viewer" class="quick-nav-pill">🔍 3D Viewer GUI</a>
+                    <a href="#hands-on-tutorial" class="quick-nav-pill">🚀 5-Step Tutorial</a>
+                    <a href="list_of_commands.html" class="quick-nav-pill" style="border-color: var(--accent); color: var(--accent);">⌨️ Viewer HUD Commands</a>
+                </div>
+            </header>
+
+            <!-- Callout Note -->
+            <div class="callout callout-note">
+                <div class="callout-title">📌 About This Manual vs. Other Documents</div>
+                <p style="margin-bottom: 0;">
+                    This manual covers <strong>high-level pipeline logic, GUI architectures, and end-to-end user workflows</strong>. For exhaustive parameter references of individual standalone command-line scripts, see the markdown files in <code>src/tools/tool_descriptions/</code>. For complete syntax and parameter documentation of interactive console HUD commands, consult the <a href="list_of_commands.html" style="color: var(--accent); font-weight: 600;">Viewer Command Reference</a>.
+                </p>
+            </div>
+
+            <!-- SECTION 1: ARCHITECTURE OVERVIEW -->
+            <div id="overview" class="section-divider">
+                <span>1. Architectural Overview & Design Philosophy</span>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Bridging Sequence Space: Macroscopic Clusters to Microscopic Residues</span>
+                    </div>
+                    <span class="badge badge-core">Foundations</span>
+                </div>
+
+                <p>
+                    Sequence Similarity Networks (SSNs) are indispensable tools in modern computational biology and protein biochemistry. By transforming all-versus-all sequence comparison scores into graph topologies, SSNs partition large, diverse protein superfamilies into distinct isofunctional clusters, revealing evolutionary trajectories, enzymatic promiscuity, and divergent subfamilies.
+                </p>
+                <p>
+                    However, traditional SSNs present two fundamental limitations:
+                </p>
+                <ol>
+                    <li>
+                        <strong>The Twilight Zone Barrier:</strong> Conventional pairwise alignment methods (e.g., BLAST bit scores, Smith-Waterman identities) fail when sequence identities drop below 20–30%, obscuring remote structural homologs and deorphanized natural enzymes.
+                    </li>
+                    <li>
+                        <strong>The Multi-Scale Disconnect:</strong> Traditional network viewers render macroscopic clusters as abstract spheres or graph nodes without direct, continuous coupling to the underlying Multiple Sequence Alignment (MSA) or 3D atomic structures. An analyst observing a divergent cluster has historically had to manually cross-reference external alignment editors to identify which specific catalytic or specificity-determining residues dictate cluster divergence.
+                    </li>
+                </ol>
+
+                <p>
+                    <strong>EMAP-SSN overcomes both hurdles by introducing:</strong>
+                </p>
+                <div class="grid-2">
+                    <div class="grid-card">
+                        <h4><span>🧠 Protein Language Model (pLM) Embeddings</span></h4>
+                        <p style="font-size: 0.9rem; margin-bottom: 0;">
+                            Leverages state-of-the-art representations (ESM-2, ProtBERT, ProstT5, Ankh) to align sequences using dense embedding similarity matrices rather than static amino acid substitution tables (BLOSUM62/PAM250), capturing deep structural and evolutionary relationships in the twilight zone.
+                        </p>
+                    </div>
+                    <div class="grid-card">
+                        <h4><span>🔬 Native MSA & Structural Integration</span></h4>
+                        <p style="font-size: 0.9rem; margin-bottom: 0;">
+                            Directly maps MSA residue conservation onto the 3D network nodes. Commands like <code>color K188 red</code> or <code>logo selected</code> project microscopic chemical features directly into macroscopic 3D network space in real time, reinforced by integrated Mol* 3D macromolecular structures.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 2: COMPLETE WORKFLOW -->
+            <div id="workflow" class="section-divider">
+                <span>2. The Complete End-to-End System Workflow</span>
+            </div>
+
+            <p>
+                The EMAP-SSN pipeline consists of two overarching stages: the <strong>Computational Stage</strong> (executed via <code>EMAPSSN_Tools.py</code> or headless CLI scripts) and the <strong>Visualization & Analysis Stage</strong> (orchestrated by <code>EMAPSSN_Config.py</code> and visualized in <code>EMAPSSN_Viewer.py</code>).
+            </p>
+
+            <div class="figure-container">
+                <div class="figure-img-wrap">
+                    <img src="assets/work_flow.png" alt="EMAP-SSN System Workflow" style="max-height: 520px;">
+                </div>
+                <div class="figure-caption">
+                    <strong>Figure 1: Complete EMAP-SSN System Architecture & Lifecycle.</strong> 
+                    On the left, the Computational Stage processes an input Sequence Set through either a classical sequence-based workflow (BLAST/SSEARCH + MUSCLE/MAFFT) or a modern embedding-based workflow (pLM embeddings + embedding pairwise alignment + guide-tree MSA). Both paths output pairwise matrices (E-values or similarity scores) and MSAs. On the right, the Visualization & Analysis Stage takes these products through the Configuration GUI into the 3D Viewer for interactive topology exploration, cluster detection, residue inspection, and publication-ready export.
+                </div>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Computational Stage: Traditional vs. Embedding-Based Pathways</span>
+                    </div>
+                    <span class="badge badge-new">Stage I</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Workflow Dimension</th>
+                                <th>Traditional Sequence-Based Path (Blue)</th>
+                                <th>Modern Embedding-Based Path (Orange)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Initial Preparation</strong></td>
+                                <td>Raw FASTA sanitized with <code>Sanitize_Sequences.py</code> to normalize headers and enforce length boundaries.</td>
+                                <td>Raw FASTA sanitized with <code>Sanitize_Sequences.py</code>, ensuring clean input for neural network tokenizers.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Representation</strong></td>
+                                <td>Discrete character amino acid alphabet (20 natural amino acids).</td>
+                                <td>High-dimensional dense vector representations computed via <code>Generate_Embeddings.py</code> (e.g. ESM-2 650M/3B, ProtBERT).</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Pairwise Similarity</strong></td>
+                                <td>BLAST+ (<code>blastp</code>) or FASTA (<code>ssearch36</code>) yielding E-values and bit scores. Stored as HDF5 matrix in <code>Networks_EValues/</code>.</td>
+                                <td>Dynamic programming alignment over residue embedding similarities (<code>Embedding_Pairwise_Alignment.py</code>) or full-vector cosine metrics. Stored in <code>Networks_EValues/</code>.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>MSA Generation</strong></td>
+                                <td>External aligners: MUSCLE, Clustal Omega, MAFFT, or T-Coffee. Resulting FASTA placed in <code>Multiple_Alignments/</code>.</td>
+                                <td>Evolutionary guide-tree construction directly from embedding similarity/distance matrices (<code>Embedding_MSA.py</code>) followed by progressive profile alignment.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Sensitivity Boundary</strong></td>
+                                <td>Optimal for sequence identities &gt; 30–40%. Fast and universally benchmarked.</td>
+                                <td>Succeeds in the "twilight zone" (&lt; 25% identity); sensitive to structural homology and active site conformation.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Layout Generation & Manifold Topologies</h3>
+                <p>
+                    Regardless of whether pairwise scores originate from BLAST E-values or pLM embedding alignments, the pairwise similarity matrix can be solved into spatial coordinates through two distinct mathematical engines:
+                </p>
+                <ul>
+                    <li>
+                        <strong>3D Force-Directed Simulation (Spring-Electrical Physics):</strong> 
+                        Treats nodes as charged particles repelling each other (Coulomb repulsion) and pairwise similarity scores as spring tensions pulling homologous proteins together (Hooke's attraction). This creates an organic, biologically intuitive 3D cluster topology where physical distances reflect evolutionary relationships.
+                    </li>
+                    <li>
+                        <strong>2D UMAP Non-Linear Manifold Projection:</strong> 
+                        Applies Uniform Manifold Approximation and Projection (UMAP) directly onto pairwise distance matrices or embedding vectors. Constructs a $k$-nearest-neighbor Riemannian graph, preserving both local cluster micro-structure and global family geometry on a 2D plane.
+                    </li>
+                </ul>
+            </div>
+
+            <!-- SECTION 3: TOOLS GUI -->
+            <div id="gui-tools" class="section-divider">
+                <span>3. EMAP-SSN Tools GUI (EMAPSSN_Tools.py)</span>
+            </div>
+
+            <p>
+                The <strong>Tools GUI</strong> is the centralized graphical workbench for running all data preparation, embedding calculations, sequence similarity alignments, network edge filterings, and MSA constructions.
+            </p>
+
+            <div class="figure-container">
+                <div class="figure-img-wrap">
+                    <img src="assets/emapssn_tools_gui.png" alt="EMAP-SSN Tools GUI" style="max-height: 520px;">
+                </div>
+                <div class="figure-caption">
+                    <strong>Figure 2: EMAP-SSN Tools GUI Interface Layout.</strong>
+                    The upper tabs organize the pipeline into logical stages. The left panel contains parameter controls (dropdowns bound to workspace directories, toggles, sliders, and numeric inputs) and action buttons (<strong>Save &amp; Run</strong> and <strong>Export Setting</strong>). The bottom-left tooltip bar provides contextual parameter explanations, and the right panel embeds an interactive web-based Markdown documentation viewer with full scientific descriptions and mathematical formulations.
+                </div>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Anatomy of the Tools GUI</span>
+                    </div>
+                    <span class="badge badge-ext">Interface Breakdown</span>
+                </div>
+
+                <h3>1. Pipeline Stage Tabs</h3>
+                <p>
+                    The Tools GUI categorizes 14 computational programs into clear operational tabs:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating) and <code>Generate_Embeddings.py</code> (extracting per-residue and mean-pooled representations from models such as ESM-2, ProtBERT, ProstT5, and Ankh).
+                    </li>
+                    <li>
+                        <strong>Sequence Similarity Calculations:</strong> Hosts traditional pairwise alignment (BLAST/Smith-Waterman), <code>Embedding_Pairwise_Alignment.py</code> (dynamic programming alignment across embedding token dimensions), and <code>Embedding_Cosine_Similarity.py</code> (rapid matrix multiplication over sequence-level pooled representations).
+                    </li>
+                    <li>
+                        <strong>Embedding MSA:</strong> Programs for constructing progressive Multiple Sequence Alignments guided by embedding evolutionary distance trees (<code>Guide_Tree_MSA.py</code>, <code>Sparse_Guide_Tree_MSA.py</code>, and <code>Merge_Guide_Tree_MSA.py</code>).
+                    </li>
+                    <li>
+                        <strong>Embedding &amp; Network Tools:</strong> Utilities for thresholding edge matrices (<code>Filter_Similarity_Network.py</code>), filtering embedding representations (<code>Filter_Embedding_Matrix.py</code>), and merging distributed HDF5 databases (<code>Combine_Network_Files.py</code>).
+                    </li>
+                    <li>
+                        <strong>Others:</strong> Sequence and embedding extraction utilities (<code>Extract_Sequences.py</code>, <code>Extract_Embedding.py</code>) and custom metadata injection (<code>Inject_Metadata.py</code>) for embedding external annotations directly into HDF5 networks.
+                    </li>
+                    <li>
+                        <strong>Directories:</strong> Master path manager defining base directories for FASTA inputs, network outputs, embeddings, layout caches, and analysis results.
+                    </li>
+                </ul>
+
+                <h3>2. Controls, Tooltips, and Parameter Validation</h3>
+                <p>
+                    Input fields in the Tools GUI are context-aware:
+                </p>
+                <ul>
+                    <li><strong>Reactive Dropdowns:</strong> Automatically scan their respective target directories (e.g., <code>Input_Files/Sequence_Sets/</code> for FASTA files, or <code>Embeddings/</code> for HDF5 files) and populate valid options dynamically.</li>
+                    <li><strong>Dynamic Parameter Tooltips:</strong> Hovering your mouse over or clicking into any parameter field instantly updates the status bar at the bottom-left with a concise explanation of the parameter's meaning, expected units, and recommended default range.</li>
+                </ul>
+
+                <h3>3. "Save &amp; Run" vs. "Export Setting" (HPC &amp; Headless Reproduction)</h3>
+                <p>
+                    Every tool card features two primary action buttons:
+                </p>
+                <ul>
+                    <li>
+                        <strong style="color: #16a34a;">Save &amp; Run (Green Button):</strong> Validates input fields, persists settings into <code>tools_settings.json</code>, and launches the computational script in an isolated terminal or background process, displaying live standard output and progress bars.
+                    </li>
+                    <li>
+                        <strong style="color: #2563eb;">Export Setting (Blue Button):</strong> Serializes the exact current configuration into an independent, minimal JSON file saved in <code>Cache_Files/Tool_Settings/</code>. This decoupled file contains only the parameters and directories necessary for that single tool.
+                    </li>
+                </ul>
+
+                <div class="callout callout-tip">
+                    <div class="callout-title">💡 Headless HPC Execution Tip</div>
+                    You can transfer an exported JSON settings file to a remote High-Performance Computing (HPC) cluster or GPU workstation and execute the exact calculation headlessly without launching the GUI:
+                    <pre><code># Linux / macOS HPC Node:
+./.venv/bin/python src/tools/Generate_Embeddings.py Cache_Files/Tool_Settings/my_run.json
+
+# Windows:
+.\.venv\Scripts\python.exe src\tools\Generate_Embeddings.py Cache_Files\Tool_Settings\my_run.json</code></pre>
+                </div>
+            </div>
+
+            <!-- SECTION 4: CONFIGURATION GUI -->
+            <div id="gui-config" class="section-divider">
+                <span>4. EMAP-SSN Configuration GUI (EMAPSSN_Config.py)</span>
+            </div>
+
+            <p>
+                The <strong>Configuration GUI</strong> acts as the central control bridge between the raw computational datasets (HDF5 networks, FASTA sequences, MSA alignments) and the 3D interactive Viewer. Here, you define file bindings, select layout engines, tune physics parameters, and perform vital pre-flight data integrity checks.
+            </p>
+
+            <div class="figure-container">
+                <div class="figure-img-wrap">
+                    <img src="assets/emapssn_config_gui.png" alt="EMAP-SSN Configuration GUI" style="max-height: 520px;">
+                </div>
+                <div class="figure-caption">
+                    <strong>Figure 3: EMAP-SSN Configuration GUI &amp; Network Statistics Panel.</strong>
+                    Left: The <em>Inputs &amp; Outputs</em> tab binds the network H5 file, FASTA sequence cohort, and MSA. It controls thresholding, score normalization, reference anchoring, and layout cache bindings. Right: The <strong>Network Statistics Report</strong> displays total nodes, edge density, score distribution, and threshold percentiles. Bottom: Action buttons include <strong>Save &amp; Run</strong>, <strong>Export Layout Settings</strong>, and the crucial <strong>Consistency Check</strong>.
+                </div>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Configuration Tabs &amp; Key Parameters</span>
+                    </div>
+                    <span class="badge badge-util">Configuration Hub</span>
+                </div>
+
+                <h3>1. Inputs &amp; Outputs Tab</h3>
+                <ul>
+                    <li><strong>Saved Config Profile:</strong> Switch between <code>(custom)</code> (saved in <code>viewer_settings.json</code>), <code>(default)</code> (read-only built-in baseline), or create named project profiles like <code>(new)</code> stored under <code>Cache_Files/Saved_Config/</code>.</li>
+                    <li><strong>Sequence Set / Subset (.fasta):</strong> Selects the protein sequences corresponding to the network nodes.</li>
+                    <li><strong>MSA Input (.fasta / _sparse.h5):</strong> Binds the multiple sequence alignment used for residue conservation mapping and sequence logos.</li>
+                    <li><strong>Network Edges Input (.h5):</strong> Binds the all-vs-all pairwise similarity or E-value matrix.</li>
+                    <li><strong>Alignment Score &amp; Normalization Modes:</strong> Specifies score interpretation (<code>global</code> vs. <code>local</code>) and score normalization (e.g., <code>alignment_length</code>, <code>shorter_sequence</code>, or raw score).</li>
+                    <li><strong>Alignment Reference ID &amp; Offset:</strong> Selects a specific protein sequence header in the MSA to serve as the global coordinate anchor. Numbering across all residue commands (e.g., <code>color K188 red</code>) will align 1:1 with this reference protein's native residue coordinates!</li>
+                    <li><strong>Enable UMAP Layout:</strong> When toggled ON, switches the solver from 3D force-directed physics to 2D UMAP non-linear manifold projection, with tunable <code>UMAP Nearest Neighbors (k)</code> and <code>UMAP Min Distance</code>.</li>
+                    <li><strong>Similarity Threshold &amp; Top Edge %:</strong> Prunes edges below a given similarity score or keeps only the top $X\%$ strongest edges across the entire network to eliminate topological noise.</li>
+                    <li><strong>Target Cache &amp; Selected Cache File:</strong> Automatically scans for pre-computed layout coordinates in <code>Cache_Files/Saved_Layouts/</code>. If found, the Viewer loads the pre-existing 3D layout instantly without recomputing the layout physics! Selecting <code>(New Layout Cache)</code> initiates a fresh simulation.</li>
+                </ul>
+
+                <h3>2. Diagnostic Utilities: Pre-Flight Integrity &amp; Cutoff Optimization</h3>
+                <div class="grid-2">
+                    <div class="grid-card">
+                        <h4><span>📊 Compute Network Statistics</span></h4>
+                        <p style="font-size: 0.88rem;">
+                            Clicking <strong>Compute Network Statistics</strong> processes the network edge distribution and generates the comprehensive report in the right panel:
+                        </p>
+                        <ul style="font-size: 0.85rem; margin-bottom: 0;">
+                            <li>Reports Total Nodes, Stored Edges, Max/Min/Mean scores.</li>
+                            <li>Prints a percentile table showing edge counts at various score cutoffs.</li>
+                            <li><strong>Why it matters:</strong> Prevents launching a simulation with a "giant hairball" network (too dense) or completely disconnected singletons (too sparse).</li>
+                        </ul>
+                    </div>
+                    <div class="grid-card">
+                        <h4><span>🔍 Consistency Check</span></h4>
+                        <p style="font-size: 0.88rem;">
+                            Clicking the yellow <strong>Consistency Check</strong> button performs a strict pre-flight validation:
+                        </p>
+                        <ul style="font-size: 0.85rem; margin-bottom: 0;">
+                            <li>Cross-checks sequence headers and record counts across the Network HDF5, FASTA sequence set, and MSA file.</li>
+                            <li>Verifies that sequence identifiers match exactly.</li>
+                            <li><strong>Why it matters:</strong> Prevents catastrophic index out-of-bounds errors or incorrect residue mapping inside the Viewer before simulation begins!</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h3>3. Simulation &amp; Physics Tab</h3>
+                <p>
+                    When utilizing the 3D Force-Directed Layout, this tab configures the physical simulation solver:
+                </p>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Parameter</th>
+                                <th>Default</th>
+                                <th>Scientific Description &amp; Tuning Impact</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>Spring K</code></td>
+                                <td>5.0</td>
+                                <td>Hooke's law attraction stiffness between connected nodes. Higher values pull homologous proteins tighter into compact clusters.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Coulomb K</code></td>
+                                <td>10.0</td>
+                                <td>Electrostatic repulsion constant. Pushes unrelated nodes apart, expanding distinct clusters into visible open space.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Coulomb Cutoff</code></td>
+                                <td>30.0</td>
+                                <td>Spatial cutoff radius for repulsion forces. Nodes further apart than this distance do not compute repulsive interactions, drastically accelerating performance for large graphs.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Damping</code></td>
+                                <td>0.9</td>
+                                <td>Velocity attenuation factor (0.0 to 1.0). Absorbs kinetic energy to prevent perpetual orbital oscillation and achieve steady convergence.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Max Force Limit</code></td>
+                                <td>20.0</td>
+                                <td>Clamps runaway explosive forces during early iterations when random starting coordinates place nodes in extreme proximity.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Time Step (DT)</code></td>
+                                <td>0.005</td>
+                                <td>Integration step size for Verlet/Euler velocity updates. Lower values increase numerical stability; higher values speed up convergence.</td>
+                            </tr>
+                            <tr>
+                                <td><code>RMSD Threshold</code></td>
+                                <td>0.005</td>
+                                <td>Convergence criterion. When the Root-Mean-Square Deviation of node coordinates over a sliding window drops below this value, the simulation halts automatically.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Cluster Packing Geometry</code></td>
+                                <td>Square</td>
+                                <td>Spatial packing geometry (<code>Square</code>, <code>Circle</code>, <code>Hexagonal</code>) used to organize disconnected components on the outer canvas perimeter.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>4. Visual Effects &amp; Directories Tabs</h3>
+                <ul>
+                    <li><strong>Visual Effects:</strong> Sets default node sizes, edge widths, edge alpha transparency, label font sizes, and default colors (Initial node, hover, connected edges). Includes <strong>Low Resource Mode</strong> toggle for ultra-smooth rendering on hardware with limited GPU VRAM.</li>
+                    <li><strong>Directories:</strong> Configures filesystem base paths. Supports portable directory aliases like <code>$input_file$</code>, <code>$cache_file$</code>, and <code>$analysis_result$</code> so configurations can be shared across different computers seamlessly.</li>
+                </ul>
+            </div>
+
+            <!-- SECTION 5: VIEWER GUI -->
+            <div id="gui-viewer" class="section-divider">
+                <span>5. EMAP-SSN 3D Viewer GUI (EMAPSSN_Viewer.py)</span>
+            </div>
+
+            <p>
+                The <strong>Viewer GUI</strong> is the flagship interactive visualization application of EMAP-SSN. Built upon PySide6 and the VisPy high-performance OpenGL graphics engine, it renders tens of thousands of nodes and edges in real time with buttery 3D camera navigation, dynamic edge filtering, spatial cluster manipulation, and an integrated analytical command console.
+            </p>
+
+            <div class="figure-container">
+                <div class="figure-img-wrap">
+                    <img src="assets/emapssn_viewer_gui.png" alt="EMAP-SSN Viewer GUI" style="max-height: 520px;">
+                </div>
+                <div class="figure-caption">
+                    <strong>Figure 4: EMAP-SSN 3D Viewer GUI Interface Elements.</strong>
+                    Annotated callouts highlight the primary interaction components: (1) <strong>Command Line Interface (HUD)</strong> at top-left for running analytical commands; (2) <strong>Selection Box</strong> for lasso/box-selecting cohorts in space; (3) <strong>Edge Visibility Slide Bar</strong> at bottom-left for live threshold adjustment; (4) <strong>Viewer Status</strong> stack at bottom-right displaying View Width and Hidden Nodes; and (5) <strong>Side Panel Plugins</strong> at top-right for Meta Data, AI Agent, and Fold View (Mol* 3D structure).
+                </div>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Anatomical Tour of the Viewer Interface</span>
+                    </div>
+                    <span class="badge badge-core">Core Interactive Hub</span>
+                </div>
+
+                <h3>1. 3D OpenGL Canvas &amp; Camera Navigation</h3>
+                <p>
+                    The main viewport provides an immersive 3D pan-zoom-rotate space:
+                </p>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Action</th>
+                                <th>Mouse / Keyboard Binding</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>3D Rotation</strong></td>
+                                <td><span class="kbd">Left-Click</span> + Drag on empty canvas</td>
+                                <td>Orbits the camera smoothly around the 3D network centroid.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Pan / Translate</strong></td>
+                                <td><span class="kbd">Right-Click</span> + Drag (or <span class="kbd">Shift</span> + <span class="kbd">Left-Click</span> Drag)</td>
+                                <td>Translates the camera laterally across the current view plane.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Zoom</strong></td>
+                                <td><span class="kbd">Mouse Scroll Wheel</span> or Trackpad Pinch</td>
+                                <td>Zooms in and out continuously centered around the cursor position.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Highlight Node</strong></td>
+                                <td><span class="kbd">Left-Click</span> on a node</td>
+                                <td>Highlights the node, displays its sequence header and metadata in the HUD, and highlights its direct topological neighbors.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Toggle Selection</strong></td>
+                                <td><span class="kbd">Right-Click</span> on a node</td>
+                                <td>Toggles the selection state of individual nodes. Right-clicking empty space clears current selection.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Box / Area Selection</strong></td>
+                                <td><span class="kbd">Shift</span> + <span class="kbd">Left-Click</span> Drag</td>
+                                <td>Draws a visible rectangular <strong>Selection Box</strong> (as seen in Figure 4) to capture all enclosed nodes into the active cohort.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Spatial Cluster Dragging</strong></td>
+                                <td><span class="kbd">Ctrl</span> + <span class="kbd">Left-Click</span> Drag on selected nodes</td>
+                                <td>Physically translates selected nodes across 3D space to cleanly separate overlapping clusters for publication figures! Full Undo/Redo is supported via <span class="kbd">Ctrl+Z</span>.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>2. Real-Time Edge Visibility Slide Bar</h3>
+                <p>
+                    Located at the bottom-left of the viewport (Figure 4), the <strong>Edge Visibility Slide Bar</strong> enables instant topological filtering:
+                </p>
+                <ul>
+                    <li>Dragging the slider dynamically increases or decreases the active similarity score cutoff (or E-value threshold).</li>
+                    <li>Edges below the active slider threshold instantly disappear from the screen without requiring you to re-run the layout simulation!</li>
+                    <li>As the threshold rises, interconnected super-clusters progressively fragment into distinct, specialized sub-clusters, revealing fine-grained evolutionary divergence.</li>
+                </ul>
+
+                <h3>3. Heads-Up Display (HUD) Command Console</h3>
+                <p>
+                    Pressing <span class="kbd">Enter</span> or <span class="kbd">/</span> opens the interactive in-line command prompt in the upper-left corner:
+                </p>
+                <ul>
+                    <li><strong>Instant Analytical Control:</strong> Type commands to color nodes, calculate Leiden/Louvain clusters, compute residue conservation logos, inspect properties, or export cohorts.</li>
+                    <li><strong>Layout-Bound Persistent History:</strong> Press <span class="kbd">Up</span> and <span class="kbd">Down</span> arrow keys to cycle through past commands. Command history is automatically saved per layout in <code>Cache_Files/Saved_Layouts/&lt;layout&gt;/cli_history.txt</code>!</li>
+                    <li><strong>Auto-Completion &amp; Error Feedback:</strong> Invalid command syntax displays helpful hints directly beneath the command bar.</li>
+                </ul>
+
+                <div class="callout callout-tip">
+                    <div class="callout-title">💡 Want the Full List of Console Commands?</div>
+                    Refer to the companion document: <a href="list_of_commands.html" style="color: var(--accent); font-weight: 700;">EMAP-SSN Viewer Command Reference</a> for syntax, arguments, and practical examples of commands like <code>color</code>, <code>cluster</code>, <code>logo</code>, <code>select</code>, <code>label</code>, <code>structure</code>, and <code>print</code>.
+                </div>
+
+                <h3>4. Side Panel Plugins &amp; Embedded Web Utilities</h3>
+                <p>
+                    Located in the top-right corner of the Viewer (Figure 4), the side panel provides expandable web-based analytical tools:
+                </p>
+                <div class="grid-2">
+                    <div class="grid-card">
+                        <h4><span>📊 Meta Data Explorer (Tabulator)</span></h4>
+                        <p style="font-size: 0.88rem;">
+                            Clicking <strong>Meta Data</strong> launches an interactive, searchable spreadsheet displaying all node annotations, organism taxonomy, EC numbers, and custom metadata. Features two-way live selection sync: selecting rows in the table instantly selects those nodes in the 3D network, and vice-versa!
+                        </p>
+                    </div>
+                    <div class="grid-card">
+                        <h4><span>🤖 AI Agent Assistant</span></h4>
+                        <p style="font-size: 0.88rem;">
+                            Clicking <strong>Agent</strong> opens an embedded conversational AI assistant. You can ask high-level questions (e.g. <em>"Which cluster has the highest conservation of Catalytic Aspartate?"</em>) or instruct the agent to run complex multi-step formatting commands automatically.
+                        </p>
+                    </div>
+                    <div class="grid-card" style="grid-column: 1 / -1;">
+                        <h4><span>🧬 Fold View: Integrated Mol* 3D Macromolecular Structure Viewer</span></h4>
+                        <p style="font-size: 0.88rem;">
+                            Clicking <strong>Fold View</strong> launches an embedded Mol* structure visualizer directly inside EMAP-SSN. When a node is selected, Fold View retrieves its predicted AlphaFold/ESMFold coordinate model or experimental PDB structure. Residue-level selections in the network (e.g., MSA conservation columns or catalytic motifs) highlight synchronously on the 3D atomic protein structure, completing the bridge from macroscopic network to atomic mechanism!
+                        </p>
+                    </div>
+                </div>
+
+                <h3>5. Viewer Status Stack</h3>
+                <p>
+                    The bottom-right corner displays real-time telemetry:
+                </p>
+                <ul>
+                    <li><strong>View Width:</strong> Current camera field-of-view dimension in world coordinates.</li>
+                    <li><strong>Hidden Nodes:</strong> Count of nodes currently hidden by selection filters or subnet commands.</li>
+                    <li><strong>Active Metadata:</strong> Displays the attribute currently mapped to the node coloring spectrum.</li>
+                    <li><strong>Background Job Monitor:</strong> Displays a progress indicator whenever asynchronous calculations (e.g., sequence logo generation or structure downloading) are executing in the background.</li>
+                </ul>
+            </div>
+
+            <!-- SECTION 6: STEP-BY-STEP TUTORIAL -->
+            <div id="hands-on-tutorial" class="section-divider">
+                <span>6. Hands-On Step-by-Step Tutorial</span>
+            </div>
+
+            <p>
+                Follow this 5-step tutorial to create, simulate, and analyze your first embedding-based Sequence Similarity Network from scratch.
+            </p>
+
+            <div class="step-container">
+                <div class="step-row">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Step 1: Ingest &amp; Sanitize Your Protein Sequences</h4>
+                        <p>
+                            Place your target protein FASTA file (e.g., <code>kinase_family.fasta</code>) into the <code>Input_Files/Sequence_Sets/</code> directory.
+                        </p>
+                        <p>
+                            Launch <strong>EMAP-SSN Tools</strong> (via shortcut or <code>python src/EMAPSSN_Tools.py</code>). On the <em>Sequence &amp; Embedding Preparation</em> tab, select <code>kinase_family.fasta</code>. Enable <strong>Length Filter</strong> with a minimum length of 150 and maximum of 1000 amino acids to remove incomplete fragments. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
+                        </p>
+                        <div class="callout callout-tip" style="margin-bottom: 0;">
+                            <strong>Result:</strong> Produces a sanitized, deduplicated sequence database <code>kinase_family_sanitized.fasta</code> with normalized headers and standard residue alphabets.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-row">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Step 2: Generate Protein Language Model Embeddings</h4>
+                        <p>
+                            Still in the <em>Sequence &amp; Embedding Preparation</em> tab, navigate to <strong>Generate Embeddings</strong>. Select <code>kinase_family_sanitized.fasta</code> as the input FASTA.
+                        </p>
+                        <p>
+                            Select your desired model, such as <code>esm2_t33_650M_UR50D</code> (standard high-accuracy ESM-2 representation). Verify that GPU acceleration is enabled. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
+                        </p>
+                        <div class="callout callout-tip" style="margin-bottom: 0;">
+                            <strong>Result:</strong> An HDF5 database (<code>kinase_family_embeddings.h5</code>) is written to <code>Embeddings/</code> containing high-dimensional per-residue and sequence-pooled embedding vectors.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-row">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Step 3: Calculate Pairwise Similarity &amp; Guide-Tree MSA</h4>
+                        <p>
+                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Embedding Pairwise Alignment</strong> (or <strong>Pairwise Alignment</strong> for traditional BLAST). Set Score Mode to <code>global</code> and Normalization to <code>alignment_length</code>. Click <strong style="color: #16a34a;">Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
+                        </p>
+                        <p>
+                            Next, switch to the <em>Embedding MSA</em> tab and run <strong>Guide Tree MSA</strong> (<code>Embedding_MSA.py</code>). This builds an evolutionary guide-tree directly from embedding distances and aligns the sequences into a global MSA.
+                        </p>
+                        <div class="callout callout-tip" style="margin-bottom: 0;">
+                            <strong>Result:</strong> Pairwise network HDF5 in <code>Input_Files/Networks_EValues/</code> and an integrated MSA file in <code>Input_Files/Multiple_Alignments/</code>.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-row">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h4>Step 4: Configure Network &amp; Execute Layout Simulation</h4>
+                        <p>
+                            Launch the <strong>Configuration GUI</strong> (<code>python src/EMAPSSN_Config.py</code>).
+                        </p>
+                        <ol style="margin-bottom: 12px;">
+                            <li>Select your Sequence Set, Network Edges H5, and MSA Input in the dropdowns.</li>
+                            <li>Click the blue <strong style="color: #2563eb;">Compute Network Statistics</strong> button. Review the report in the right panel to choose an appropriate <code>Top Edge %</code> (e.g., 5.0% or 10.0%) to prevent excessive edge clutter.</li>
+                            <li>Set your <code>Alignment Reference ID</code> to a known reference protein (e.g., a crystallized family archetype).</li>
+                            <li>Click the yellow <strong style="color: #d97706;">Consistency Check</strong> button to confirm that sequence counts and headers match 100%.</li>
+                            <li>Click <strong style="color: #16a34a;">Save &amp; Run</strong> to start the force-directed physics layout solver and open the Viewer!</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div class="step-row">
+                    <div class="step-number">5</div>
+                    <div class="step-content">
+                        <h4>Step 5: Interactive Exploration, Annotation &amp; Export in the Viewer</h4>
+                        <p>
+                            With the 3D Viewer open, explore and dissect your protein family:
+                        </p>
+                        <ul>
+                            <li><strong>Cluster Partitioning:</strong> Drag the Edge Visibility slider at the bottom-left to isolate subfamilies. Press <span class="kbd">Enter</span> and type:
+                                <pre><code>cluster 1.0 15</code></pre>
+                                This partitions the network into modular clusters using the Louvain/Leiden algorithm.
+                            </li>
+                            <li><strong>Residue Conservation Mapping:</strong> Color the network by conservation of a critical active site residue (e.g. Lysine 188 in the reference protein):
+                                <pre><code>color K188 red</code></pre>
+                                Nodes with conserved Lysine 188 highlight in vibrant red, while substitutions fade to neutral grey.
+                            </li>
+                            <li><strong>Generate Sequence Logo:</strong> Select an interesting cluster with <span class="kbd">Shift+Drag</span> and run:
+                                <pre><code>logo selected</code></pre>
+                                A high-resolution WebLogo sequence motif graphic is generated for that specific subfamily!
+                            </li>
+                            <li><strong>Inspect 3D Atomic Structure:</strong> Click any representative node, then click the <strong>Fold View</strong> button on the top-right side panel to inspect its 3D atomic structure in Mol*.
+                            </li>
+                            <li><strong>Publication Figure Export:</strong> Save a publication-grade high-resolution image:
+                                <pre><code>print 600</code></pre>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 7: BEST PRACTICES -->
+            <div id="best-practices" class="section-divider">
+                <span>7. Best Practices, Hardware Acceleration &amp; Troubleshooting</span>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Hardware Acceleration (CUDA / ROCm / XPU / MPS)</span>
+                    </div>
+                    <span class="badge badge-util">Performance</span>
+                </div>
+
+                <p>
+                    EMAP-SSN features an automated compute hardware detector that discovers available accelerators and validates them via real tensor operations:
+                </p>
+                <ul>
+                    <li><strong>NVIDIA GPUs:</strong> Highly recommended. Supports CUDA 13.2 and CUDA 12.6 profiles with full PyTorch acceleration for both embedding generation and physics layout solvers.</li>
+                    <li><strong>AMD GPUs:</strong> Supported via ROCm 7.14 / 7.2.1 on Windows 11 and Ubuntu Linux.</li>
+                    <li><strong>Intel Arc / Core Ultra:</strong> Supported via Intel XPU on Windows 11 and Ubuntu Linux.</li>
+                    <li><strong>Apple Silicon (M1/M2/M3/M4):</strong> Supported natively via Metal Performance Shaders (MPS) on macOS 14+.</li>
+                    <li><strong>CPU Fallback:</strong> If no accelerator passes tensor validation, the application automatically falls back to multi-threaded CPU execution safely.</li>
+                </ul>
+
+                <div class="callout callout-warn">
+                    <div class="callout-title">⚠️ Windows Users: Enable Long Path Support &amp; Developer Mode</div>
+                    <p>
+                        1. <strong>Long Path Support:</strong> Deep file paths containing predicted structures or long sequence headers can exceed the traditional Windows 260-character limit. Run the following command in an Administrator PowerShell once and reboot:
+                    </p>
+                    <pre><code>New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force</code></pre>
+                    <p style="margin-bottom: 0;">
+                        2. <strong>Developer Mode:</strong> Enabling "Developer Mode" in Windows Settings allows the Hugging Face model cache to create symbolic links without administrative elevation, preventing model weights from consuming duplicate disk space.
+                    </p>
+                </div>
+
+                <h3>Network Density Tuning: Avoiding the "Hairball" Effect</h3>
+                <p>
+                    A common mistake among first-time SSN users is retaining too many low-confidence edges, resulting in an unreadable "giant hairball" where all nodes collapse into a single amorphous cloud.
+                </p>
+                <ul>
+                    <li>Always use the <strong>Compute Network Statistics</strong> report in the Configuration GUI.</li>
+                    <li>Aim for an average node degree between <strong>10 and 50 edges per node</strong>.</li>
+                    <li>For large networks (&gt;10,000 nodes), restrict edges to the top <strong>1.0% – 5.0%</strong> of similarity scores using <code>Top Edge %</code>.</li>
+                    <li>Remember that the <strong>Edge Visibility Slide Bar</strong> in the Viewer can always dynamically filter edges further at runtime!</li>
+                </ul>
+            </div>
+
+            <!-- SECTION 8: RELATED REFERENCES -->
+            <div id="next-steps" class="section-divider">
+                <span>8. Related References &amp; Documentation</span>
+            </div>
+
+            <div class="manual-card">
+                <div class="manual-card-header">
+                    <div class="manual-card-title">
+                        <span>Where to Go Next</span>
+                    </div>
+                    <span class="badge badge-core">Navigation</span>
+                </div>
+
+                <div class="grid-2">
+                    <div class="grid-card">
+                        <h4><span>📖 Interactive Viewer Command Reference</span></h4>
+                        <p style="font-size: 0.9rem;">
+                            Ready to master the HUD console? Read the complete command encyclopedia covering syntax, flags, and examples for all 50+ viewer operations:
+                        </p>
+                        <a href="list_of_commands.html" class="quick-nav-pill" style="border-color: var(--accent); color: var(--accent); font-weight: 700;">
+                            Open list_of_commands.html →
+                        </a>
+                    </div>
+                    <div class="grid-card">
+                        <h4><span>📜 Standalone Script Documentation</span></h4>
+                        <p style="font-size: 0.9rem;">
+                            Need exact mathematical derivations, CLI arguments, or HDF5 dataset schemas for individual scripts? Browse the markdown guides in:
+                        </p>
+                        <code style="font-size: 0.85rem;">src/tools/tool_descriptions/</code>
+                    </div>
+                    <div class="grid-card">
+                        <h4><span>🔌 MCP Server &amp; Headless Pipeline</span></h4>
+                        <p style="font-size: 0.9rem;">
+                            Integrating EMAP-SSN with LLM agents (Claude, Codex, Antigravity) via Model Context Protocol? Read:
+                        </p>
+                        <code style="font-size: 0.85rem;">docs/mcp_settings.md</code>
+                    </div>
+                    <div class="grid-card">
+                        <h4><span>🧩 Web Plugin Development</span></h4>
+                        <p style="font-size: 0.9rem;">
+                            Want to build custom side-panel plugins or embedded web utilities for the 3D Viewer? Consult:
+                        </p>
+                        <code style="font-size: 0.85rem;">docs/web_plugin_development.md</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <footer>
+                <p>
+                    EMAP-SSN Platform &bull; Developed by Xuebin Feng &bull; University of Toronto &bull; Licensed under Apache-2.0
+                </p>
+                <p style="margin-top: 6px;">
+                    Offline-ready documentation powered by vendored Noto Sans &amp; Noto Sans Mono fonts.
+                </p>
+            </footer>
+        </div>
+    </main>
+
+    <!-- Interactive Scripts for Sidebar, Theme, Search, and TOC -->
+    <script>
+        // Theme Management
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        const themeIcon = document.getElementById('theme-icon');
+        const themeText = document.getElementById('theme-text');
+
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('emapssn-manual-theme', theme);
+            if (theme === 'dark') {
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light Mode';
+            } else {
+                themeIcon.textContent = '🌙';
+                themeText.textContent = 'Dark Mode';
+            }
+        }
+
+        // Initialize Theme from localStorage or system preference
+        const savedTheme = localStorage.getItem('emapssn-manual-theme');
+        if (savedTheme) {
+            setTheme(savedTheme);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            setTheme('dark');
+        } else {
+            setTheme('light');
+        }
+
+        themeBtn.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+        });
+
+        // Sidebar Toggle
+        const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+        toggleSidebarBtn.addEventListener('click', () => {
+            document.body.classList.toggle('sidebar-collapsed');
+        });
+
+        // Sidebar Navigation & Active Link Highlighting
+        const navMenuItems = document.querySelectorAll('.menu-item');
+        const sectionDividers = Array.from(document.querySelectorAll('div.section-divider'));
+        let isClickNavigating = false;
+        let clickNavTimer = null;
+
+        function setActiveMenuItem(targetId) {
+            if (!targetId) return;
+            navMenuItems.forEach(item => {
+                if (item.getAttribute('data-target') === targetId) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        // Handle direct clicks on sidebar menu links
+        navMenuItems.forEach(item => {
+            const link = item.querySelector('a');
+            if (!link) return;
+            link.addEventListener('click', (e) => {
+                const targetId = item.getAttribute('data-target');
+                const targetElem = document.getElementById(targetId);
+                if (targetElem) {
+                    e.preventDefault();
+                    setActiveMenuItem(targetId);
+
+                    // Suppress scroll listener while smoothly navigating
+                    isClickNavigating = true;
+                    if (clickNavTimer) clearTimeout(clickNavTimer);
+                    clickNavTimer = setTimeout(() => {
+                        isClickNavigating = false;
+                    }, 800);
+
+                    targetElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    history.pushState(null, '', `#${targetId}`);
+                }
+            });
+        });
+
+        // Handle clicks on header quick-nav pills
+        document.querySelectorAll('.quick-nav-pill').forEach(pill => {
+            const href = pill.getAttribute('href');
+            if (href && href.startsWith('#')) {
+                pill.addEventListener('click', (e) => {
+                    const targetId = href.slice(1);
+                    const targetElem = document.getElementById(targetId);
+                    if (targetElem) {
+                        e.preventDefault();
+                        setActiveMenuItem(targetId);
+
+                        isClickNavigating = true;
+                        if (clickNavTimer) clearTimeout(clickNavTimer);
+                        clickNavTimer = setTimeout(() => {
+                            isClickNavigating = false;
+                        }, 800);
+
+                        targetElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        history.pushState(null, '', href);
+                    }
+                });
+            }
+        });
+
+        // Robust scroll-spy for content browsing
+        function updateActiveSectionOnScroll() {
+            if (isClickNavigating) return;
+
+            // If scrolled to the bottom of the page, activate the last item
+            if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 60) {
+                const lastItem = navMenuItems[navMenuItems.length - 1];
+                if (lastItem) {
+                    setActiveMenuItem(lastItem.getAttribute('data-target'));
+                    return;
+                }
+            }
+
+            // Find the section closest to or currently at the top of the viewport
+            const activationThreshold = 160;
+            let currentId = null;
+
+            for (let i = 0; i < sectionDividers.length; i++) {
+                const rect = sectionDividers[i].getBoundingClientRect();
+                if (rect.top <= activationThreshold) {
+                    currentId = sectionDividers[i].getAttribute('id');
+                } else {
+                    break;
+                }
+            }
+
+            if (currentId) {
+                setActiveMenuItem(currentId);
+            } else if (window.scrollY < 200 && navMenuItems.length > 0) {
+                setActiveMenuItem(navMenuItems[0].getAttribute('data-target'));
+            }
+        }
+
+        window.addEventListener('scroll', updateActiveSectionOnScroll, { passive: true });
+
+        // Initialize active state on page load based on current hash or scroll position
+        window.addEventListener('DOMContentLoaded', () => {
+            const hash = window.location.hash.replace('#', '');
+            if (hash && document.getElementById(hash)) {
+                setActiveMenuItem(hash);
+            } else {
+                updateActiveSectionOnScroll();
+            }
+        });
+
+        // Search Filter for Sidebar Menu and Headings
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            const menuItems = document.querySelectorAll('.menu-item');
+
+            menuItems.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                if (text.includes(query)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>

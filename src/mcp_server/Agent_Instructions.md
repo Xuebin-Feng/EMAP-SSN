@@ -174,12 +174,16 @@ obtained.
 
 ## Viewer command portal
 
-Discover command syntax with get_command_catalog. For detailed help, use
+Discover summaries, arguments, choices/aliases and syntax with get_command_catalog. For detailed help, use
 `emapssn_viewer_data(action="get_command_catalog", arguments={"command":"reset"})`.
 This is read-only and does not require execute_commands or a queued help command.
 General catalog entries have help=null; syntax lists extracted usage signatures
 and may be empty when source help has no extractable signature.
 Submit execute_commands with submission_id; reuse it on retries.
+Follow its next_step (tool, action, arguments) to poll the originating session.
+get_command_request and read_command_output accept exactly one nonempty request_id
+or submission_id. IDs are Viewer-local; supply session_id after reconnecting.
+Unknown/evicted submissions return errors without executing work.
 Poll get_command_request and inspect per-command messages for outcome summaries.
 Execution completion is indicated by status (succeeded, failed, or cancelled);
 the complete flag describes pagination only and does not indicate execution completion.

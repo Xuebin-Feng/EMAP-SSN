@@ -31,7 +31,7 @@ for how to cite the software.
 
 ## 📸 Overview
 
-The application streamlines the entire SSN pipeline—from generation to interactive analysis—within a single unified workflow. It supports both traditional sequence similarity methods (e.g., BLAST) and modern embedding-based language model algorithms. Beyond dynamic visual formatting, the viewer provides an interactive command console with specialized commands tailored for deep analysis of the protein sequence space (see the [Viewer Command Reference](docs/list_of_commands.html) for detailed usage and examples).
+The application streamlines the entire SSN pipeline—from generation to interactive analysis—within a single unified workflow. It supports both traditional sequence similarity methods (e.g., BLAST) and modern embedding-based language model algorithms. For an end-to-end architectural guide, complete workflow description, and visual walkthrough of each GUI, see the [Quick Start Manual](docs/quickstart.html). Beyond dynamic visual formatting, the viewer provides an interactive command console with specialized commands tailored for deep analysis of the protein sequence space (see the [Viewer Command Reference](docs/list_of_commands.html) for detailed usage and examples).
 
 ---
 ## 🖥️ Graphical User Interface
@@ -181,6 +181,8 @@ The main visualization window, `EMAPSSN_Viewer.py`, serves as the interactive co
 The pipeline supports two primary pathways for Sequence Similarity Network (SSN) generation: a **traditional pathway** utilizing sequence alignment algorithms (like BLAST) and an **embedding-based pathway** driven by protein language models. Additionally, users can generate alternative 2D manifold layouts using UMAP based on pairwise sequence similarity distances (derived from either traditional alignment or pLM embedding score matrices). *Note: UMAP layout requires the `umap-learn` package (`pip install umap-learn`) and constructs a $k$-nearest-neighbor topology where each sequence requires at least $k$ pairwise connections.*
 
 ![System Workflow](docs/assets/work_flow.png)
+
+See the [Quick Start Manual](docs/quickstart.html#workflow) for an in-depth walkthrough of this pipeline from sequence preparation to 3D network exploration.
 
 ---
 
@@ -494,7 +496,8 @@ EMAP-SSN/
 │   └── web_ui/               # Embedded web UI backend and interfaces
 │       └── plugins/          # Auto-discovered bundled web-utility descriptors
 │
-├── docs/                     # Screenshots, command reference, and metadata template
+├── docs/                     # Screenshots, documentation, and metadata template
+│   ├── quickstart.html       # Comprehensive Quick Start Manual & GUI architecture guide
 │   └── list_of_commands.html # Interactive Viewer command reference
 │
 ├── viewer_settings.json      # Settings saved by the configuration GUI

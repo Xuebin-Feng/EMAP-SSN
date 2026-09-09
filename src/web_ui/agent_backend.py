@@ -576,7 +576,6 @@ def save_and_broadcast_agent_response(viewer, query, explanation, commands, term
         "terminal_output": terminal_output, "tokens": tokens,
         "reasoning": reasoning
     })
-    viewer.llm_history = viewer.llm_history[-10:]
     save_agent_history(viewer)
 
     _agent_event(viewer, {

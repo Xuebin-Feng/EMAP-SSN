@@ -9,7 +9,7 @@ import re
 from typing import Any, Literal, get_type_hints
 
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, ConfigDict, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, ValidationError, create_model, model_validator
 
 import mcp_server.pipeline.Pipeline_Operations as pipeline_ops
 import mcp_server.viewer.Viewer_Operations as viewer_ops
@@ -32,6 +32,23 @@ class Arguments(BaseModel):
 
 class DescribeArguments(Arguments):
     action: str
+
+
+class CommandLookupArguments(Arguments):
+    model_config = ConfigDict(extra="forbid", strict=True, json_schema_extra={
+        "oneOf": [
+            {"required": ["request_id"], "properties": {"request_id": {"type": "string", "minLength": 1, "pattern": r"\S"}, "submission_id": {"type": "null"}}},
+            {"required": ["submission_id"], "properties": {"submission_id": {"type": "string", "minLength": 1, "pattern": r"\S"}, "request_id": {"type": "null"}}},
+        ]})
+
+    @model_validator(mode="after")
+    def check_identifier(self):
+        if (self.request_id is None) == (self.submission_id is None):
+            raise ValueError('Supply exactly one of request_id or submission_id')
+        value = self.request_id if self.request_id is not None else self.submission_id
+        if not value.strip():
+            raise ValueError('request_id or submission_id must be a nonempty string')
+        return self
 
 
 @dataclass(frozen=True)
@@ -61,11 +78,11 @@ _SPECS = {
         "cancel_job": (pipeline_ops, "cancel_pipeline_job", "Cancel queued work or terminate a running job; does not undo artifact writes.", {"job_id": "job-id"}),
     },
     "emapssn_viewer_data": {
-        "get_command_request": (viewer_ops, "get_command_request", 'Read command outcomes.', {'request_id': 'request-id'}),
+        "get_command_request": (viewer_ops, "get_command_request", 'Read command outcomes using exactly one request_id or submission_id in the selected Viewer.', {'submission_id': 'client-generated-id'}),
         "list_command_requests": (viewer_ops, "list_command_requests", 'Recover Viewer command requests.', {}),
-        "read_command_output": (viewer_ops, "read_command_output", 'Read command-scoped diagnostics.', {'request_id': 'request-id'}),
+        "read_command_output": (viewer_ops, "read_command_output", 'Read command-scoped diagnostics using exactly one request_id or submission_id.', {'request_id': 'request-id'}),
         "capture_view": (viewer_ops, "capture_view", 'Read current canvas as a PNG image.', {}),
-        "get_command_catalog": (viewer_ops, "get_command_catalog", 'Read command syntax; supply command for detailed help without executing it.', {"command": "reset"}),
+        "get_command_catalog": (viewer_ops, "get_command_catalog", 'Read command summaries, argument choices/aliases and syntax; supply command for detailed help without executing it.', {"command": "reset"}),
         "list_sessions": (viewer_ops, "list_viewer_sessions", "Read available sessions without selecting one.", {}),
         "get_summary": (viewer_ops, "get_viewer_summary", "Capture an immutable Viewer snapshot and overview.", {}),
         "query_nodes": (viewer_ops, "query_viewer_nodes", "Read snapshot nodes; omitted columns returns no metadata.", {"snapshot_id": "snapshot-id", "limit": 25, "columns": []}),
@@ -97,7 +114,8 @@ def _build_action(workflow, name, spec):
         key: (hints[key], ... if parameter.default is inspect.Parameter.empty else parameter.default)
         for key, parameter in parameters.items() if key != "ctx"
     }
-    model = create_model(f"{workflow}_{name}_Arguments", __base__=Arguments, **fields)
+    base = CommandLookupArguments if name in {'get_command_request', 'read_command_output'} else Arguments
+    model = create_model(f"{workflow}_{name}_Arguments", __base__=base, **fields)
     return Action(module, handler_name, model, "ctx" in parameters, effects, example)
 
 

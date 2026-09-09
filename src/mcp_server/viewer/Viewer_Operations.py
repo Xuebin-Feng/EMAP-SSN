@@ -359,26 +359,31 @@ async def _portal_call(ctx, action, arguments, session_id):
 async def execute_viewer_commands(ctx: Context[AppContext], submission_id: str,
         commands: str | list[str], session_id: str | None = None) -> dict[str, Any]:
     """Submit existing user commands, ordered and stopped on failure. Reuse submission_id on retries. Poll get_command_request; accepted is not completed. May write files, open dialogs, and start external work."""
-    return await _portal_call(ctx, 'execute_commands', dict(submission_id=submission_id, commands=commands), session_id)
+    result = await _portal_call(ctx, 'execute_commands', dict(submission_id=submission_id, commands=commands), session_id)
+    return result | {'next_step': {'tool': 'emapssn_viewer_data',
+        'action': 'get_command_request', 'arguments': {
+            'request_id': result['request_id'], 'session_id': result['session_id']}}}
 
-async def get_command_request(ctx: Context[AppContext], request_id: str,
+async def get_command_request(ctx: Context[AppContext], request_id: str | None = None,
         session_id: str | None = None, offset: Annotated[int, Field(ge=0)] = 0,
         limit: Annotated[int, Field(ge=1, le=100)] = 25, command_id: str | None = None,
-        artifact_offset: Annotated[int, Field(ge=0)] = 0, artifact_limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:
-    """Page per-command outcomes, messages, jobs and artifacts. Inspect status for execution completion; complete only means this command page is complete. Awaiting input requires interaction in the visible Viewer."""
-    return await _portal_call(ctx, 'get_command_request', dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id, artifact_offset=artifact_offset, artifact_limit=artifact_limit), session_id)
+        artifact_offset: Annotated[int, Field(ge=0)] = 0, artifact_limit: Annotated[int, Field(ge=1, le=100)] = 25,
+        submission_id: str | None = None) -> dict[str, Any]:
+    """Read by exactly one request_id or submission_id in the selected Viewer. Page outcomes, messages, jobs and artifacts. status indicates execution completion; complete only describes pagination. Awaiting input requires interaction in the visible Viewer."""
+    return await _portal_call(ctx, 'get_command_request', dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id, artifact_offset=artifact_offset, artifact_limit=artifact_limit, submission_id=submission_id), session_id)
 
 async def list_command_requests(ctx: Context[AppContext], session_id: str | None = None,
         offset: Annotated[int, Field(ge=0)] = 0, limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:
     """Recover Viewer-owned request IDs after reconnecting. Completed history is bounded."""
     return await _portal_call(ctx, 'list_command_requests', dict(offset=offset, limit=limit), session_id)
 
-async def read_command_output(ctx: Context[AppContext], request_id: str,
+async def read_command_output(ctx: Context[AppContext], request_id: str | None = None,
         session_id: str | None = None, stream: Literal['stdout', 'stderr'] = 'stdout',
         offset: Annotated[int, Field(ge=0)] = 0,
-        limit: Annotated[int, Field(ge=4, le=32768)] = 8192) -> dict[str, Any]:
-    """Read attributed output by byte cursor; eof is not completion. Inspect truncation and available_from."""
-    return await _portal_call(ctx, 'read_command_output', dict(request_id=request_id, stream=stream, offset=offset, limit=limit), session_id)
+        limit: Annotated[int, Field(ge=4, le=32768)] = 8192,
+        submission_id: str | None = None) -> dict[str, Any]:
+    """Read by exactly one request_id or submission_id in the selected Viewer. Output uses byte cursors; eof is not execution completion. Inspect truncation and available_from."""
+    return await _portal_call(ctx, 'read_command_output', dict(request_id=request_id, stream=stream, offset=offset, limit=limit, submission_id=submission_id), session_id)
 
 async def capture_view(ctx: Context[AppContext], session_id: str | None = None,
         request_id: str | None = None) -> dict[str, Any]:

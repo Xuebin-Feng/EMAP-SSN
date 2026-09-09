@@ -168,7 +168,10 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 0)
         self.js("renderHistory([{role:'user',content:'old text'},{role:'user',content:'',attachments:pendingAttachments}])")
         self.assertEqual(self.js("document.querySelectorAll('#chat-log img').length"), 1)
-        self.js("document.getElementById('clear-chat-btn').click()")
+        self.js("window.confirm = message => { window.clearWarning = message; return false; }; document.getElementById('clear-chat-btn').click()")
+        self.assertEqual(self.js('pendingAttachments.length'), 1)
+        self.assertIn('will be lost', self.js('window.clearWarning'))
+        self.js("window.confirm = () => true; document.getElementById('clear-chat-btn').click()")
         self.assertEqual(self.js('pendingAttachments.length'), 0)
         self.assertEqual(self.js("document.querySelectorAll('#chat-log img').length"), 0)
 
@@ -202,6 +205,14 @@ class ComposerTests(unittest.TestCase):
         self.assertTrue(self.js('pendingSubmission === null'))
         self.assertEqual(self.js("document.querySelectorAll('#chat-log img').length"), 1)
         self.assertFalse(self.js("document.getElementById('chat-send-btn').disabled"))
+
+    def test_buttons_stretch_with_multiline_input(self):
+        for width in (1000, 390):
+            self.view.resize(width, 800)
+            self.wait_for(f'window.innerWidth === {width}')
+            self.js("var input = document.getElementById('chat-input-field'); input.value = 'First line\\nSecond line\\nThird line\\nFourth line'; input.dispatchEvent(new Event('input'))")
+            self.assertTrue(self.js("['capture-viewer-btn','chat-send-btn'].every(id => Math.abs(document.getElementById(id).getBoundingClientRect().height - document.getElementById('chat-input-field').getBoundingClientRect().height) < 1)"))
+            self.assertEqual(self.js("document.querySelectorAll('#capture-viewer-btn br').length"), 1)
 
 
 if __name__ == '__main__':

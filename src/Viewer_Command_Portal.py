@@ -275,9 +275,24 @@ class ViewerCommandPortal(QtCore.QObject):
                 'request_id': request_id, 'status': request['status'],
                 'commands': [{'command': c['command'], 'status': c['status']} for c in request['commands']]})
 
-    def get(self, request_id, offset=0, limit=25, command_id=None, artifact_offset=0, artifact_limit=25):
+    def _resolve_request(self, request_id=None, submission_id=None):
+        if (request_id is None) == (submission_id is None):
+            raise ValueError('Supply exactly one of request_id or submission_id')
+        value = request_id if request_id is not None else submission_id
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError('request_id or submission_id must be a nonempty string')
+        if submission_id is not None:
+            if submission_id not in self.submissions:
+                raise ValueError('Unknown submission_id in this Viewer')
+            request_id = self.submissions[submission_id][1]
+            if request_id not in self.requests:
+                raise ValueError('Submission is known but its result was evicted from this Viewer')
         if request_id not in self.requests:
             raise ValueError('Command request is unknown or evicted from this Viewer')
+        return request_id
+
+    def get(self, request_id=None, offset=0, limit=25, command_id=None, artifact_offset=0, artifact_limit=25, submission_id=None):
+        request_id = self._resolve_request(request_id, submission_id)
         if offset < 0 or not 1 <= limit <= 100 or artifact_offset < 0 or not 1 <= artifact_limit <= 100:
             raise ValueError('Invalid command page bounds')
         request = self.requests[request_id]
@@ -329,7 +344,8 @@ class ViewerCommandPortal(QtCore.QObject):
                     s['base'] += n
                     excess -= n
 
-    def read_output(self, request_id, stream='stdout', offset=0, limit=8192):
+    def read_output(self, request_id=None, stream='stdout', offset=0, limit=8192, submission_id=None):
+        request_id = self._resolve_request(request_id, submission_id)
         if stream not in {'stdout', 'stderr'} or offset < 0 or not 1 <= limit <= 32768:
             raise ValueError('Invalid output page bounds')
         with self.output_lock:

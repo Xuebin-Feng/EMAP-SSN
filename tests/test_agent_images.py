@@ -84,12 +84,13 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(call.call_args.kwargs['history'][0]['content'], 'prior')
 
     def test_history_roundtrip_and_legacy_messages(self):
-        viewer = SimpleNamespace(llm_history=[{'role': 'user', 'content': 'legacy'}], broadcast_event=mock.Mock())
+        viewer = SimpleNamespace(llm_history=[{'role': 'user', 'content': 'legacy'} for _ in range(12)], broadcast_event=mock.Mock())
         items = [attachment()]
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(agent, 'get_agent_history_path', return_value=str(Path(folder) / 'history.json')):
             agent.save_and_broadcast_agent_response(viewer, '', 'answer', '', '', '{}', turn={'attachments': items, 'submission_id': 'one'})
             restored = agent.load_agent_history(viewer)
         self.assertEqual(restored[-2]['attachments'], items)
+        self.assertEqual(len(restored), 14)
         self.assertEqual(history_messages(restored)[0]['content'], 'legacy')
         self.assertEqual(history_messages(restored)[-2]['content'][0]['type'], 'image_url')
 

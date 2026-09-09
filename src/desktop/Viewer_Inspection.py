@@ -626,6 +626,7 @@ def command_catalog(command=None):
     """Read help text from command source without executing handlers."""
     import ast
     from pathlib import Path
+    from desktop.Command_Metadata import get_command_metadata
     root = Path(__file__).resolve().parents[1] / 'commands'
     entries = []
     for path in sorted(root.glob('*.py')):
@@ -641,7 +642,7 @@ def command_catalog(command=None):
                     if isinstance(node, ast.Constant) and isinstance(node.value, str) and ('Usage:' in node.value or 'Usage\n' in node.value):
                         help_text.append(node.value)
         help_text = '\n'.join(dict.fromkeys(help_text))
-        entries.append({'command': path.stem,
+        entries.append({'command': path.stem, **get_command_metadata(path.stem),
             'writes_files': path.stem in {'export','save','print','select','meta','label','logo','run','esmfold'},
             'opens_interface': path.stem in {'agent','alignment','run','meta','esmfold','export','print','label','logo'},
             'background_work': path.stem in {'label','logo','esmfold','run'},

@@ -45,7 +45,20 @@ class PortalHTTPTests(SnapshotHTTPTests):
         self.assertTrue(all(entry['help'] is None for entry in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['commands'][0]['syntax'])
         self.assertIn('order, layer', detailed['commands'][0]['help'])
+        self.assertIn('summary', detailed['commands'][0])
+        self.assertIn('targets', [a['name'] for a in detailed['commands'][0]['arguments']])
         self.assertEqual(len(portal.requests), before)
+
+    def test_identifier_lookup_over_http(self):
+        request = self.request('execute_commands', {'submission_id': 'lookup', 'commands': ['zoom help']})['payload']
+        self.app.processEvents()
+        for action in ('get_command_request', 'read_command_output'):
+            by_request = self.request(action, {'request_id': request['request_id']})
+            by_submission = self.request(action, {'submission_id': 'lookup'})
+            self.assertEqual(by_request['payload'], by_submission['payload'])
+            for args in ({}, {'submission_id': ''}, {'submission_id': 12},
+                         {'submission_id': 'lookup', 'request_id': request['request_id']}):
+                self.assertEqual(self.request(action, args)['status'], 400)
 
     def test_command_http_auth_retry_results_capture_and_catalog(self):
         args = {'submission_id': 'http-retry', 'commands': ['zoom help', 'unknown_command', 'zoom help']}

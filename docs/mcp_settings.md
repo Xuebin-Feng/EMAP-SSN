@@ -571,7 +571,7 @@ syntax, file effects, history, and manual controls remain the user-command behav
 1. Connect to the intended Viewer and call `emapssn_viewer_data(action="get_command_catalog")`.
    Supply `command` to read an individual command's source help and effects.
 2. Call `emapssn_viewer_control(action="execute_commands", arguments={"submission_id": "a-client-generated-unique-id", "commands": ["select \"example\"", "color \"example\" red"]})`.
-3. Poll `emapssn_viewer_data(action="get_command_request", arguments={"request_id": "returned-id"})`.
+3. Follow the execution response's `next_step`, which contains the tool, action and arguments (including the resolved `session_id`). Alternatively poll `emapssn_viewer_data(action="get_command_request", arguments={"submission_id": "a-client-generated-unique-id", "session_id": "viewer-session-id"})`; `request_id` remains supported.
    Submission is not completion. States distinguish queued, running,
    awaiting_user_input, succeeded, failed, cancelled, and skipped.
 4. Read diagnostics using `read_command_output` with byte offsets. Inspect final
@@ -611,7 +611,9 @@ formats are rejected before submission. SVG images must be static and
 self-contained (no scripts, animation, or embedded images). Sent images remain
 in the existing saved chat history and are included in later model turns and
 command-result analysis. Pending attachments are page-local and are cleared by
-Clear Chat or a page reload. A vision-capable model/provider is required; image
+Clear Chat or a page reload. Saved history has no automatic message limit; Clear
+Chat asks for confirmation before deleting all saved messages and images.
+A vision-capable model/provider is required; image
 errors are shown rather than silently sending text alone.
 
 ### Visual readback
@@ -629,3 +631,32 @@ Pass `include_visual=true` when capturing a snapshot, then request
 `visual_fields=["position", "color", "size"]` in `query_nodes` for bounded visual
 node records. These fields are opt-in; existing metadata and byte bounds remain.
 Older Viewers require restart after upgrade (`commands_v1` capability).
+
+### Command discovery and identifier lookup
+
+General `get_command_catalog` entries include `summary`, `arguments` (each with
+`name`, `description`, and `choices`), and existing `syntax`/effect fields.
+Finite choices contain `value` and `aliases`; an empty choices list denotes an
+open-ended argument such as a filename, expression or number. Descriptions explain
+defaults and prerequisites. This is documentation, not another command parser.
+General `help` stays null; pass `arguments={"command":"reset"}` for source help.
+
+Both `get_command_request` and `read_command_output` accept exactly one non-null,
+nonempty `request_id` or `submission_id`. Lookup is read-only and limited to the
+selected/explicit Viewer session. Unknown submissions and known-but-evicted results
+produce distinct errors; lookup never submits work. Responses retain canonical
+request IDs, paging and byte cursors. For example:
+
+```python
+emapssn_viewer_data(action="read_command_output", arguments={
+    "submission_id": "a-client-generated-unique-id", "session_id": "viewer-session-id",
+    "stream": "stdout", "offset": 0, "limit": 8192
+})
+```
+
+Execution remains under `viewer_control` and discovery/status/output remain under
+read-only `viewer_data`. New submissions and identical retries return `next_step`
+for status inspection, without storing this guidance in the execution record.
+Use execution `status` to determine completion: pagination `complete` and stream
+`eof` do not indicate that execution has finished. Restart the server and Viewer
+after upgrading; no persisted-data migration is needed.
