@@ -34,6 +34,7 @@ def print_help():
 
     Attributes:
       1. Color: Name (red, blue) or Hex (#ff0000)
+         C<number> always denotes cysteine selection, never a color-cycle entry.
       2. Scale: Prefix with 'x' (e.g., x2, x0.5)
       3. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
 
@@ -140,8 +141,9 @@ def run(viewer, args):
         # 3. Check if Color
         is_color = False
         try:
-            mcolors.to_rgba(arg)
-            is_color = True
+            if not Command_Engine.is_reserved_cysteine_selection(arg):
+                mcolors.to_rgba(arg)
+                is_color = True
         except (TypeError, ValueError):
             pass
         

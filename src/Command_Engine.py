@@ -881,6 +881,11 @@ def _parse_selection_expression(text):
     return _SelectionSyntaxParser(text).parse()
 
 
+def is_reserved_cysteine_selection(text):
+    """Reserve Matplotlib's uppercase cycle shorthand for residue selection."""
+    return isinstance(text, str) and re.fullmatch(r'C[0-9]+', text) is not None
+
+
 def classify_selection_expression(text):
     """Classify text without consulting viewer data or the filesystem."""
     try:

@@ -92,6 +92,7 @@ def print_help():
       Referenced clusters, groups, alignment positions, metadata properties, and
       files must exist. Invalid references abort before colors are changed.
       A valid expression may match zero nodes.
+      C<number> always denotes cysteine selection, never a color scheme.
 
     Examples:
       spectrum {Length}
@@ -180,7 +181,8 @@ def run(viewer, args):
             prop_name = property_match.group(1)
             continue
 
-        if is_registered_colormap(arg):
+        if (not Command_Engine.is_reserved_cysteine_selection(arg)
+                and is_registered_colormap(arg)):
             if scheme_supplied:
                 Command_Engine.print_help(
                     viewer, "Error: Spectrum accepts at most one color scheme."
