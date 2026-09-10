@@ -1816,6 +1816,11 @@ if __name__ == "__main__":
             else:
                 if self.cb_score_mode.currentIndex() == -1:
                     self.cb_score_mode.setCurrentText("global")
+                # Signals are blocked above, so the currentTextChanged-driven
+                # refresh of cb_norm_mode's item list never fires here. Refresh
+                # it explicitly or a stale item list (e.g. left over from
+                # "local" mode) can silently reject the default below.
+                self.update_norm_mode_options()
                 if self.cb_norm_mode.currentIndex() == -1:
                     self.cb_norm_mode.setCurrentText("alignment_length")
             self.cb_score_mode.blockSignals(False)
