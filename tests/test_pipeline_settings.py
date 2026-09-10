@@ -113,6 +113,20 @@ class PipelineSettingsTests(unittest.TestCase):
             path.write_text(json.dumps(doc))
             self.assertFalse(self.preview(settings_path=str(path))["valid"])
 
+    def test_parameters_mode_falls_back_to_saved_tool_directories(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            custom_msa_dir = root / "OneDrive" / "Multiple_Alignments"
+            (root / "tools_settings.json").write_text(json.dumps(
+                {"DIRECTORIES": {"MSA_DIR": str(custom_msa_dir)}}
+            ))
+            result = normalize_pipeline_settings(
+                "sparse_msa_converter", root, parameters={"CONVERT_ALL": True},
+            )
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertEqual(result["effective_directories"]["MSA_DIR"], str(custom_msa_dir))
+            self.assertFalse((root / "Input_Files").exists())
+
     def test_conditional_requirements_and_combinations(self):
         cases = [
             ("embedding_msa", {"USE_SEQUENCE_FILTER": True}),

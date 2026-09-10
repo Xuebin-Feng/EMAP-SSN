@@ -296,7 +296,6 @@ async def start_layout_job(
     This operation does not launch a Viewer.
     """
     from Layout_Cache_Generator import LayoutGenerationSettings, LayoutGenerationError
-    import EMAPSSN_Config as cfg
 
     target_doc = None
     if settings_path is not None:
@@ -321,9 +320,16 @@ async def start_layout_job(
             raise ToolError("input_hdf5 is required when settings_document or settings_path is not supplied.")
 
         dirs = dict(directories) if isinstance(directories, dict) else {}
-        saved_layout_dir = dirs.get("SAVED_LAYOUT_DIR") or getattr(cfg, "SAVED_LAYOUT_DIR", "Cache_Files/Saved_Layouts")
-        if isinstance(saved_layout_dir, str) and not os.path.isabs(saved_layout_dir):
-            saved_layout_dir = os.path.join(_PROJECT_ROOT, saved_layout_dir)
+        saved_layout_dir = dirs.get("SAVED_LAYOUT_DIR")
+        if saved_layout_dir:
+            if not os.path.isabs(saved_layout_dir):
+                saved_layout_dir = os.path.join(_PROJECT_ROOT, saved_layout_dir)
+        else:
+            from utilities.Headless_Settings import resolve_saved_directory
+            try:
+                saved_layout_dir = resolve_saved_directory("SAVED_LAYOUT_DIR", _PROJECT_ROOT)
+            except ValueError as error:
+                raise ToolError(str(error)) from error
 
         payload: dict[str, Any] = {
             "NODE_FASTA_FILE": str(node_fasta_file).strip(),

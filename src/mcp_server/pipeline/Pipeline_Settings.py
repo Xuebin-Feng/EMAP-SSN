@@ -47,6 +47,16 @@ class PipelineSettingsError(ValueError):
         super().__init__("; ".join(f"{e['field']}: {e['message']}" for e in errors))
 
 
+def _saved_tool_directories(project_root):
+    """This project's persisted tool directory preferences (tools_settings.json), if any."""
+    try:
+        document = json.loads((Path(project_root) / "tools_settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    directories = document.get("DIRECTORIES") if isinstance(document, dict) else None
+    return directories if isinstance(directories, dict) else {}
+
+
 def _required_fields(*names):
     return {"required": list(names), "properties": {
         name: {"type": "string", "pattern": r"\S"} for name in names
@@ -217,11 +227,13 @@ def normalize_pipeline_settings(tool_id, project_root, *, parameters=None, direc
             fail(f"directories.{key}", "Must be a string or null.")
     if result["errors"]:
         return result
+    saved_directories = _saved_tool_directories(project_root) if parameters is not None else {}
     resolved = {}
     for key in spec.required_directories:
         value = directory_values.get(key)
         if value is None or not value.strip():
-            value = DEFAULT_DIRECTORY_PATHS[key]
+            saved_value = saved_directories.get(key)
+            value = saved_value if isinstance(saved_value, str) and saved_value.strip() else DEFAULT_DIRECTORY_PATHS[key]
             result["applied_defaults"][f"directories.{key}"] = value
         if not os.path.isabs(value):
             value = os.path.join(project_root, value)

@@ -71,6 +71,18 @@ class HeadlessSettingsTests(unittest.TestCase):
             export_pipeline_settings("sanitize_sequences", self.root)
         self.assertFalse((self.root / "Cache_Files").exists())
 
+    def test_resolve_saved_directory_uses_project_settings_not_relative_defaults(self):
+        from utilities.Headless_Settings import resolve_saved_directory
+        self.saved_config()  # writes viewer_settings.json with CACHE_FILE_DIR under self.root/custom-cache
+        resolved = resolve_saved_directory("SAVED_LAYOUT_DIR", self.root)
+        self.assertEqual(resolved, str(self.root / "custom-cache" / "Saved_Layouts"))
+        self.assertFalse((self.root / "Cache_Files").exists())
+        # No saved settings at all: falls back to the built-in project-relative default.
+        other_root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(other_root, ignore_errors=True))
+        fallback = resolve_saved_directory("SAVED_LAYOUT_DIR", other_root)
+        self.assertEqual(fallback, str(other_root / "Cache_Files" / "Saved_Layouts"))
+
     def test_layout_preview_and_reexport_after_edits(self):
         self.saved_config()
         result = export_config_settings("layout", self.root)

@@ -119,18 +119,35 @@ def build_layout_export(values, project_root, *, cache_filename=None, target_cac
 
 
 def _config_export_directory(values, project_root):
+    return resolve_directory_value(values, "SETTING_EXPORT_DIR", project_root)
+
+
+def resolve_directory_value(values, key, project_root):
     from desktop.Viewer_State import ALIASES
     def resolve(value, seen=()):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Config directories must be nonempty strings.")
-        for alias, key in ALIASES.items():
+        for alias, alias_key in ALIASES.items():
             if value == alias or value.startswith((alias + "/", alias + "\\")):
-                if key in seen:
-                    raise ValueError(f"Circular directory alias: {key}")
-                value = os.path.join(resolve(values[key], (*seen, key)), value[len(alias):].lstrip("/\\"))
+                if alias_key in seen:
+                    raise ValueError(f"Circular directory alias: {alias_key}")
+                value = os.path.join(resolve(values[alias_key], (*seen, alias_key)), value[len(alias):].lstrip("/\\"))
                 break
         return absolute_path(value, project_root)
-    return resolve(values["SETTING_EXPORT_DIR"])
+    return resolve(values[key])
+
+
+def resolve_saved_directory(key, project_root):
+    """Resolve a directory key using this project's persisted viewer_settings.json.
+
+    Falls back to the built-in relative default only when the project has no
+    saved override for ``key`` (or for the alias base it points through).
+    """
+    from desktop.Viewer_State import DEFAULTS
+    saved = read_object(Path(project_root) / "viewer_settings.json", optional=True)
+    values = deepcopy(DEFAULTS)
+    values.update({k: v for k, v in saved.items() if k in DEFAULTS})
+    return resolve_directory_value(values, key, project_root)
 
 
 def config_export_document(kind, project_root, *, settings_path=None):
