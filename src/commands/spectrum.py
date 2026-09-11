@@ -92,7 +92,7 @@ def print_help():
       Referenced clusters, groups, alignment positions, metadata properties, and
       files must exist. Invalid references abort before colors are changed.
       A valid expression may match zero nodes.
-      C<number> always denotes cysteine selection, never a color scheme.
+      Valid selection expressions take precedence over color scheme names.
 
     Examples:
       spectrum {Length}
@@ -181,18 +181,6 @@ def run(viewer, args):
             prop_name = property_match.group(1)
             continue
 
-        if (not Command_Engine.is_reserved_cysteine_selection(arg)
-                and is_registered_colormap(arg)):
-            if scheme_supplied:
-                Command_Engine.print_help(
-                    viewer, "Error: Spectrum accepts at most one color scheme."
-                )
-                Command_Engine.command_failed(viewer, 'Error: Spectrum accepts at most one color scheme.')
-                return
-            scheme_name = arg
-            scheme_supplied = True
-            continue
-
         classification = Command_Engine.classify_selection_expression(arg)
         if classification.kind == Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
             if expr is not None:
@@ -203,6 +191,17 @@ def run(viewer, args):
                 return
             expr = arg
             continue
+        if is_registered_colormap(arg):
+            if scheme_supplied:
+                Command_Engine.print_help(
+                    viewer, "Error: Spectrum accepts at most one color scheme."
+                )
+                Command_Engine.command_failed(viewer, 'Error: Spectrum accepts at most one color scheme.')
+                return
+            scheme_name = arg
+            scheme_supplied = True
+            continue
+
         if classification.kind == Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION:
             Command_Engine.report_selection_error(
                 viewer, arg, classification.error, "Spectrum"

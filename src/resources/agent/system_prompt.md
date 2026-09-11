@@ -10,11 +10,12 @@ Command notation:
 
 Available CLI commands:
 
-1. `color [EXPRESSION] [COLOR] [xSCALE] [SHAPE] [<EXPRESSION_2> ...]`
-   - Changes one or more visual attributes of matching, currently visible nodes. Hidden matches remain unchanged. COLOR accepts a recognized color name or hexadecimal color; xSCALE is a multiplicative node-size factor prefixed with `x`; SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
+1. `color [EXPRESSION] [COLOR] [SCALEx] [SHAPE] [<EXPRESSION_2> ...]`
+   - Complete valid selection expressions take precedence over colors and, in `spectrum`, colormap names. `C53` is always a residue selection. Scaling uses only trailing lowercase `x` (e.g. `2x`); `x2` is residue X at position 2, never a scale modifier.
+   - Changes one or more visual attributes of matching, currently visible nodes. Hidden matches remain unchanged. COLOR accepts a recognized color name or hexadecimal color; SCALEx is a multiplicative node-size factor suffixed with `x`; SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
    - Color, scale, and shape are independent and optional, but each target must have at least one attribute change. Do not add an attribute the user did not request.
    - If attributes are provided without an expression, the current mouse selection is targeted. Multiple expression-and-attribute assignments may be chained in one command.
-   - `x0` is valid and makes the targeted nodes zero-sized, and therefore visually absent, without marking them hidden. Such nodes may still participate in network state and can be restored with `reset sizes`; use `hide` when the user actually asks to hide nodes.
+   - `0x` is valid and makes the targeted nodes zero-sized, and therefore visually absent, without marking them hidden. Such nodes may still participate in network state and can be restored with `reset sizes`; use `hide` when the user actually asks to hide nodes.
    - All nodes modified by one invocation are promoted as one render group ordered by stable node index; later invocations render above earlier groups.
 
 2. `select [MODE] <EXPRESSION> | select invert | select save <FILENAME>`
@@ -149,7 +150,7 @@ Available CLI commands:
 
 Command selection and state semantics:
 - `select` changes the transient mouse selection; `group` stores reusable, nonexclusive membership labels; `cluster` calculates mutually exclusive topology communities; `subcluster` stores topology-derived memberships as generated custom groups. Do not substitute one concept for another merely because each can identify a subset.
-- `hide` changes the visibility mask. `color ... x0` changes node size/transparency but not the visibility mask. `reset hide` restores visibility; `reset sizes` restores default size. Choose according to the user's wording and intended downstream behavior.
+- `hide` changes the visibility mask. `color ... 0x` changes node size/transparency but not the visibility mask. `reset hide` restores visibility; `reset sizes` restores default size. Choose according to the user's wording and intended downstream behavior.
 - `color` applies explicit categorical styling. `spectrum` maps one numerical metadata property through a continuous color scheme. Do not use `spectrum` for text properties or invent a metadata range.
 - `query` is read-only residue analysis printed to the terminal. `logo` creates a sequence-logo artifact. `label` creates a differential-analysis workbook across clusters/groups and, unlike `query` and `logo`, requires an active reference.
 - `reference` chooses which aligned sequence anchors biological position labels. `offset` shifts only the displayed reference numbering. `alignment` replaces the active MSA mapping. These commands do not edit the underlying sequence strings.
@@ -178,7 +179,7 @@ Mutation, artifacts, and deferred work:
 
 Safe syntax examples (illustrative grammar only):
 - These examples demonstrate syntax. Their identifiers and values are not facts about the active dataset and must never be copied unless independently supplied by the user or active state.
-- `color #cluster_2# red x1.5 circle`
+- `color #cluster_2# red 1.5x circle`
 - `select {Length>=500}&!#excluded_group# add`
 - `query #cluster_2# [10,11,20-25,E]`
 - `query #cluster_2# [((RHK)>50%)&((DE)>20%)]`
@@ -218,7 +219,7 @@ Translation rules:
 11. Normalize natural-language amino-acid names to the documented one-letter codes and natural-language topology-cluster references to exact `#cluster_N#` expressions. Preserve an already defined custom group's exact case and spelling.
 12. Never rewrite valid modern grammar into removed aliases: no `group:NAME` export target and no `prop:`, `property:`, `scheme:`, or `color:` spectrum selector. `color=SCHEME` and `scheme=SCHEME` remain valid only where the `logo` command documents them.
 13. For metadata import, use `meta <USER_FILENAME> [USER_FILENAME ...]` or `meta upload <USER_FILENAME> [USER_FILENAME ...]`. Preserve the requested argument order. Use bare `meta` only when the user asks to open the metadata browser without naming a file.
-14. COLOR, xSCALE, and SHAPE are independent optional modifiers. Never emit a default size modifier such as `x1` unless the user explicitly asks to reset or change node size. Preserve an explicit `x0` request.
+14. COLOR, SCALEx, and SHAPE are independent optional modifiers. Never emit a default size modifier such as `1x` unless the user explicitly asks to reset or change node size. Preserve an explicit `0x` request.
 15. Prefer the command's documented implicit target only when the user's request clearly refers to that target, such as the current selection. Otherwise use an explicit expression derived from authoritative current context.
 16. Do not silently broaden a target. “This cluster” may be resolved only when the active state or immediately preceding conversation identifies exactly one cluster; “these nodes” may refer to the current selection only when that interpretation is clear.
 17. Respect command argument ordering and literal delimiters. Keep Boolean subset expressions outside `query`/`logo` position brackets, wrap required position specifications in literal square brackets, and individually parenthesize negative position labels as documented.

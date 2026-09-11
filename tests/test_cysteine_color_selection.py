@@ -10,6 +10,7 @@ import numpy as np
 from tests import test_viewer_command_portal as portal_tests
 from tests.test_viewer_command_portal import Viewer
 from commands import color, spectrum
+import EMAPSSN_Config as cfg
 
 
 def add_alignment(viewer):
@@ -58,7 +59,7 @@ class CysteineColorTests(unittest.TestCase):
         for value in ['red', '#123abc', 'c']:
             viewer = self.viewer()
             viewer.selected_indices = [1]
-            color.run(viewer, [value, 'x0', 'square'])
+            color.run(viewer, [value, '0x', 'square'])
             np.testing.assert_array_equal(viewer.current_colors[1], mcolors.to_rgba(value))
             self.assertEqual(viewer.current_sizes[1], 0)
             self.assertEqual(viewer.current_shapes[1], 'square')
@@ -74,6 +75,40 @@ class CysteineColorTests(unittest.TestCase):
             np.testing.assert_array_equal(viewer.current_colors[1:], np.ones((2, 4)))
             self.assertEqual(viewer.saved, 1)
 
+    def test_suffix_scales_and_bare_x_shape(self):
+        for token, factor in [('2x', 2), ('0.5x', .5), ('0x', 0)]:
+            for expression in [[], ['C53']]:
+                viewer = self.viewer()
+                viewer.selected_indices = [0]
+                color.run(viewer, expression + ['red', token, 'x'])
+                self.assertEqual(viewer.current_sizes[0], cfg.NODE_SIZE * factor)
+                np.testing.assert_array_equal(viewer.current_sizes[1:], [1, 1])
+                self.assertEqual(viewer.current_shapes[0], 'x')
+
+    def test_old_prefix_is_only_a_residue_selection(self):
+        for token in ['x2', 'X2']:
+            for available in [False, True]:
+                viewer = self.viewer()
+                viewer.selected_indices = [1]
+                if available:
+                    viewer.alignment.label_to_col['2'] = 0
+                    viewer.alignment.aln[0].seq = 'X' * 7
+                color.run(viewer, [token, 'red'])
+                np.testing.assert_array_equal(viewer.current_sizes, np.ones(3))
+                np.testing.assert_array_equal(viewer.current_colors[1:], np.ones((2, 4)))
+                expected = mcolors.to_rgba('red') if available else np.ones(4)
+                np.testing.assert_array_equal(viewer.current_colors[0], expected)
+
+    def test_spectrum_non_cysteine_expression_beats_colormap(self):
+        mpl.colormaps.register(mcolors.ListedColormap(['black', 'white']), name='K54')
+        self.addCleanup(mpl.colormaps.unregister, 'K54')
+        viewer = self.viewer()
+        viewer.alignment.label_to_col['54'] = 0
+        with mock.patch('commands.meta.run'):
+            spectrum.run(viewer, ['K54', '{Length}', 'viridis'])
+        np.testing.assert_allclose(viewer.current_colors[1], mpl.colormaps['viridis'](.5))
+        np.testing.assert_array_equal(viewer.current_colors[[0, 2]], np.ones((2, 4)))
+
 
 class CysteinePortalTests(unittest.TestCase):
     setUpClass = classmethod(portal_tests.PortalTests.setUpClass.__func__)
@@ -84,9 +119,11 @@ class CysteinePortalTests(unittest.TestCase):
         manual = add_alignment(Viewer(self.directory.name))
         add_alignment(self.viewer)
         manual.selected_indices = self.viewer.selected_indices = [1]
-        manual.process_command('color C53 red')
-        result = self.finish(self.portal.submit('cysteine', 'color C53 red')['request_id'])
+        manual.process_command('color C53 red 2x')
+        result = self.finish(self.portal.submit('cysteine', 'color C53 red 2x')['request_id'])
         self.assertEqual(result['status'], 'succeeded', result)
         np.testing.assert_array_equal(manual.current_colors, self.viewer.current_colors)
+        np.testing.assert_array_equal(manual.current_sizes, self.viewer.current_sizes)
+        self.assertEqual(self.viewer.current_sizes[0], cfg.NODE_SIZE * 2)
         np.testing.assert_array_equal(self.viewer.current_colors[0], mcolors.to_rgba('red'))
         np.testing.assert_array_equal(self.viewer.current_colors[1:], np.ones((2, 4)))

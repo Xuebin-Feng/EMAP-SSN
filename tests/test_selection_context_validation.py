@@ -363,7 +363,7 @@ class AtomicCommandTests(unittest.TestCase):
     def test_color_zero_scale_is_applied(self):
         viewer = self.make_viewer()
 
-        color_command.run(viewer, ['"node"', "x0"])
+        color_command.run(viewer, ['"node"', "0x"])
 
         np.testing.assert_array_equal(viewer.current_sizes, np.array([0.0]))
         viewer._save_state.assert_called_once_with()

@@ -377,7 +377,7 @@ class CommandPromotionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             cfg, "HEADER_LIST_DIR", temp_dir, create=True
         ):
-            color_command.run(viewer, ["red", "x2", "triangle"])
+            color_command.run(viewer, ["red", "2x", "triangle"])
 
         viewer._save_state.assert_called_once_with()
         viewer.promote_nodes.assert_called_once()
@@ -408,7 +408,7 @@ class CommandPromotionTests(unittest.TestCase):
         ):
             color_command.run(
                 viewer,
-                ['"A"|"B"|"C"', "red", "x2", "triangle"],
+                ['"A"|"B"|"C"', "red", "2x", "triangle"],
             )
 
         np.testing.assert_array_equal(
@@ -425,7 +425,7 @@ class CommandPromotionTests(unittest.TestCase):
         )
         self.assertEqual(
             viewer.console_text.text,
-            "Applied: 1 nodes (red, x2.0, triangle_up)",
+            "Applied: 1 nodes (red, 2.0x, triangle_up)",
         )
 
     def test_spectrum_promotes_gradient_and_gray_nodes_together(self):
