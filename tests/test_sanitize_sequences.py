@@ -2,6 +2,7 @@ import ast
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import pathlib
 import sys
@@ -102,6 +103,55 @@ class SanitizeSequencesTests(unittest.TestCase):
                 (pathlib.Path(temp_dir) / "input_sanitized.fasta").read_text(),
                 ">short\nAC\n>long\nACDEF\n",
             )
+
+    def test_utf8_inputs_match_downstream_and_write_without_bom(self):
+        from utilities.Sequence_Utils import load_sanitized_fasta
+
+        for encoding in ("utf-8", "utf-8-sig"):
+            for overwrite in (False, True):
+                with self.subTest(encoding=encoding, overwrite=overwrite):
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        input_path = pathlib.Path(temp_dir) / "input.fasta"
+                        input_path.write_text(
+                            ">long descriptive header\nACDE\n"
+                            ">short\nACDE\n>unique\nFGHI\n",
+                            encoding=encoding,
+                        )
+                        expected_headers, expected_sequences, _ = load_sanitized_fasta(
+                            input_path, report=False,
+                        )
+                        settings_path = pathlib.Path(temp_dir) / "settings.json"
+                        settings_path.write_text(json.dumps({
+                            "DIRECTORIES": {"FASTA_DIR": temp_dir},
+                            "Sanitize_Sequences.py": {
+                                "INPUT_FASTA": str(input_path),
+                                "OVER_WRITE": overwrite,
+                                "ENABLE_LENGTH_FILTER": False,
+                                "REMOVE_BY_HEADER_STRING": "",
+                            },
+                        }), encoding="utf-8")
+
+                        result = subprocess.run(
+                            [sys.executable, "-B", str(MODULE_PATH), str(settings_path)],
+                            cwd=PROJECT_ROOT,
+                            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                            capture_output=True, text=True, encoding="utf-8", timeout=30,
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        output_path = (
+                            input_path if overwrite
+                            else pathlib.Path(temp_dir) / "input_sanitized.fasta"
+                        )
+                        output_bytes = output_path.read_bytes()
+                        self.assertFalse(output_bytes.startswith(b"\xef\xbb\xbf"))
+                        self.assertEqual(
+                            output_bytes.decode("utf-8"),
+                            ">long_descriptive_header\nACDE\n>unique\nFGHI\n",
+                        )
+                        self.assertEqual(
+                            sanitize_sequences.read_fasta(output_path),
+                            (expected_headers, expected_sequences),
+                        )
 
     def test_lossy_sequence_sanitization_remains_intentional(self):
         gap_sequence, _, _ = sanitize_sequences.sanitize_sequence("AC-D")

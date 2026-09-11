@@ -75,6 +75,7 @@ import numpy as np
 
 from utilities.Sequence_Utils import (
     allocate_unique_headers,
+    read_fasta,
     sanitize_header,
     sanitize_sequence,
     select_preferred_header,
@@ -209,35 +210,8 @@ def validate_configuration(fasta_dir, input_fasta, output_fasta):
     if output_fasta is None or not str(output_fasta).strip():
         raise ValueError("Unable to determine the sanitized FASTA output path.")
 
-def read_fasta(file_path):
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"FASTA file not found: {file_path}")
-        
-    headers, sequences = [], []
-    current_header, current_sequence = None, []
-    
-    with open(file_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue  
-            
-            if line.startswith(">"):
-                if current_header is not None:
-                    headers.append(current_header)
-                    sequences.append("".join(current_sequence))
-                current_header = line[1:]
-                current_sequence = []
-            else:
-                current_sequence.append(line)
-        
-        if current_header is not None:
-            headers.append(current_header)
-            sequences.append("".join(current_sequence))
-            
-    return headers, sequences
-
 def write_fasta_atomic(file_path, headers, sequences, refuse_empty=False):
-    """Write a FASTA through a same-directory temporary file and replace atomically."""
+    """Atomically write UTF-8 FASTA without a BOM via a same-directory temp file."""
     if len(headers) != len(sequences):
         raise ValueError("FASTA header and sequence counts do not match.")
     if refuse_empty and not headers:
