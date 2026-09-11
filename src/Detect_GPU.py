@@ -29,7 +29,7 @@ import subprocess
 from typing import Any, Iterable
 
 
-COMPATIBILITY_REVISION = 5
+COMPATIBILITY_REVISION = 6
 CUDA_13_MIN_DRIVER = (580, 0)
 WINDOWS_11_MIN_BUILD = 22000
 WINDOWS_11_25H2_MIN_BUILD = 26200
@@ -58,10 +58,17 @@ LINUX_ROCM_64_TARGETS = frozenset(
 )
 INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152"})
 
+INTEL_ARC_PREFIX = r"\bintel\b.*\barc(?:\(tm\)|™)?\s+"
+INTEL_SERIES_3_ARC_PATTERN = INTEL_ARC_PREFIX + r"(?:pro\s+)?b3[79]0\b"
+INTEL_INTEGRATED_ARC_PATTERNS = (
+    INTEL_ARC_PREFIX + r"1[34]0[vt]\b",
+    INTEL_SERIES_3_ARC_PATTERN,
+)
 INTEL_XPU_PATTERNS = (
-    r"intel.*arc(?:\(tm\))?\s+[ab]-?series",
-    r"intel.*arc(?:\(tm\))?\s+[ab]\d{3}",
-    r"intel.*arc(?:\(tm\))?\s+graphics",
+    INTEL_ARC_PREFIX + r"[ab]-?series\b",
+    INTEL_ARC_PREFIX + r"[ab]\d{3}",
+    INTEL_ARC_PREFIX + r"(?:graphics|gpu)\b",
+    *INTEL_INTEGRATED_ARC_PATTERNS,
     r"intel.*data\s+center\s+gpu\s+max",
 )
 
@@ -230,6 +237,10 @@ def _device_kind(vendor: str, name: str, gfx_target: str | None, processors: lis
         if re.search(r"\b(?:rx|pro\s+w|v)\s*\d", text) or "radeon ai pro" in text:
             return "discrete"
     if vendor == "INTEL":
+        # Numbered integrated Arc GPUs do not require a CPU-name probe. In
+        # particular, B370/B390 are integrated despite their B-series names.
+        if any(re.search(pattern, name, re.I) for pattern in INTEL_INTEGRATED_ARC_PATTERNS):
+            return "integrated"
         if "data center gpu max" in text or re.search(r"arc.*\b[ab]\d{3}", text):
             return "discrete"
         if "arc" in text and any("core" in value.lower() and "ultra" in value.lower() for value in processors):
@@ -402,7 +413,11 @@ def _intel_os_supported(system: str, os_info: dict[str, Any], device_name: str) 
             distro in {"rhel", "redhat"} and version.startswith("9.2")
         ) or (distro in {"sles", "suse"} and version.startswith("15"))
     supported_ubuntu = ("24.04", "25.10", "26.04")
-    if "series 3" in device_name.lower() or "panther" in device_name.lower():
+    if (
+        "series 3" in device_name.lower()
+        or "panther" in device_name.lower()
+        or re.search(INTEL_SERIES_3_ARC_PATTERN, device_name, re.I)
+    ):
         supported_ubuntu = ("25.10", "26.04")
     return distro == "ubuntu" and version.startswith(supported_ubuntu)
 
@@ -495,6 +510,8 @@ def _evaluate_devices(
             else:
                 reasons.append("ROCm is not configured for this operating system.")
         elif vendor == "INTEL":
+            # Installation eligibility is about compatibility, not speed.
+            # Validated integrated Arc devices participate in workload benchmarks.
             recognized = any(re.search(pattern, device["name"], re.I) for pattern in INTEL_XPU_PATTERNS)
             if not recognized:
                 reasons.append("Intel adapter is not an Arc/Core Ultra Arc/Data Center GPU Max device.")

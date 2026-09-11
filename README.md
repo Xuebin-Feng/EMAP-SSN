@@ -287,6 +287,11 @@ for the matching operating system, driver, and hardware requirements.
 | Intel Data Center GPU Max | Ubuntu 22.04, RHEL 9.2, or SLES 15. The non-Ubuntu combinations are upstream-listed but project-untested. |
 | Intel HD, UHD, Iris, and non-Arc integrated graphics | Not eligible for XPU; another accelerator or CPU is used. |
 
+Integrated Arc graphics are eligible for the XPU PyTorch installation, including
+Arc 130V/140V, 130T/140T, and B370/B390 model names. After runtime tensor validation,
+automatic workload benchmarks compare available devices with CPU; integrated
+graphics are not excluded based on assumed performance.
+
 The Intel driver must already be installed. See the [PyTorch Intel XPU
 matrix](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html) for the
 validated hardware and operating-system combinations.

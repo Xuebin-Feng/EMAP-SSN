@@ -188,6 +188,66 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertEqual(arc["eligible_profiles"], ["xpu"])
         self.assertEqual(uhd["eligible_profiles"], [])
 
+    def test_numbered_integrated_arc_selects_xpu_without_cpu_inventory(self):
+        for model in ("130V", "140V", "130T", "140T", "B370", "B390", "Pro B390"):
+            for brand in ("Intel(R) Arc(TM)", "Intel® Arc™", "Intel Arc"):
+                name = f"{brand} {model} Graphics"
+                with self.subTest(name=name):
+                    kind = Detect_GPU._device_kind("INTEL", name, None, [])
+                    self.assertEqual(kind, "integrated")
+                    device = gpu(name, "INTEL", identifier="intel0", kind=kind)
+                    Detect_GPU._evaluate_devices(
+                        [device], "windows", {"windows_build": 26200}, set()
+                    )
+                    candidates, ignored = Detect_GPU._candidate_ladder([device])
+                    self.assertEqual([item["backend"] for item in candidates], ["xpu", "cpu"])
+                    self.assertEqual(candidates[0]["device_ids"], ["intel0"])
+                    self.assertEqual(ignored, [])
+                    specs = Install_Dependencies.backend_specs({"backend_candidates": candidates})
+                    self.assertEqual(specs[0].backend, "xpu")
+
+    def test_integrated_arc_retains_os_and_driver_checks(self):
+        for system, os_info, model, expected in (
+            ("windows", {"windows_build": 19045}, "140V", False),
+            ("linux", {"id": "ubuntu", "version_id": "24.04"}, "140V", True),
+            ("linux", {"id": "ubuntu", "version_id": "22.04"}, "140V", False),
+            ("linux", {"id": "ubuntu", "version_id": "24.04"}, "B390", False),
+            ("linux", {"id": "ubuntu", "version_id": "25.10"}, "B370", True),
+            ("linux", {"id": "ubuntu", "version_id": "26.04"}, "B390", True),
+            ("linux", {"id": "fedora", "version_id": "43"}, "140V", False),
+            ("darwin", {}, "140V", False),
+        ):
+            with self.subTest(system=system, os_info=os_info, model=model):
+                device = gpu(f"Intel Arc {model}", "INTEL", identifier="intel0", driver=None)
+                Detect_GPU._evaluate_devices([device], system, os_info, set())
+                self.assertEqual(device["eligible_profiles"], ["xpu"] if expected else [])
+                if expected:
+                    self.assertEqual(device["eligibility"], "provisional")
+
+    def test_non_arc_intel_graphics_remain_ineligible(self):
+        for name in ("Intel HD Graphics 630", "Intel UHD Graphics 770", "Intel Iris Xe Graphics", "Intel Graphics"):
+            with self.subTest(name=name):
+                device = gpu(name, "INTEL", identifier="intel0", kind="integrated")
+                Detect_GPU._evaluate_devices([device], "windows", {"windows_build": 26200}, set())
+                self.assertEqual(device["eligible_profiles"], [])
+
+    def test_mixed_intel_devices_keep_integrated_arc_in_xpu_candidate(self):
+        devices = []
+        for index, (name, expected_kind) in enumerate((
+            ("Intel Arc B390", "integrated"),
+            ("Intel Arc B580", "discrete"),
+            ("Intel(R) Arc(TM) A770M Graphics", "discrete"),
+            ("Intel Arc Graphics", "integrated"),
+        )):
+            kind = Detect_GPU._device_kind("INTEL", name, None, ["Intel Core Ultra 7"])
+            self.assertEqual(kind, expected_kind)
+            devices.append(gpu(name, "INTEL", identifier=f"intel{index}", kind=kind))
+        Detect_GPU._evaluate_devices(devices, "windows", {"windows_build": 26200}, set())
+        candidates, ignored = Detect_GPU._candidate_ladder(devices)
+        self.assertEqual(set(candidates[0]["device_ids"]), {"intel0", "intel1", "intel2", "intel3"})
+        self.assertIn(candidates[0]["device_ids"][0], {"intel1", "intel2"})
+        self.assertEqual(ignored, [])
+
     def test_amd_discrete_target_excludes_integrated_target(self):
         discrete = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd-d", kind="discrete", architecture="gfx1100", profiles=["rocm714", "rocm721"])
         integrated = gpu("AMD Radeon 890M", "AMD", identifier="amd-i", kind="integrated", architecture="gfx1150", profiles=["rocm714", "rocm721"])

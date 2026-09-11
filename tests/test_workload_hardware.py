@@ -62,6 +62,20 @@ class HardwareUtilityTests(unittest.TestCase):
         self.assertTrue(candidates[3].supports_streams)
         self.assertFalse(candidates[-1].supports_streams)
 
+    def test_integrated_arc_benchmark_can_choose_cpu_or_xpu(self):
+        cpu = Hardware_Utils.DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")
+        arc = Hardware_Utils.DeviceCandidate(
+            "xpu:0", "Intel Arc 140V", torch.device("xpu:0"), "xpu", 0, True
+        )
+        for arc_seconds, expected in ((2.0, "cpu"), (0.5, "xpu:0"), (0.99, "cpu")):
+            with self.subTest(arc_seconds=arc_seconds):
+                ranked = Hardware_Utils.rank_benchmark_results(
+                    [Hardware_Utils.BenchmarkResult(arc, arc_seconds),
+                     Hardware_Utils.BenchmarkResult(cpu, 1.0)],
+                    higher_is_better=False,
+                )
+                self.assertEqual(ranked[0].candidate.spec, expected)
+
     def test_legacy_directml_selection_migrates_to_auto(self):
         self.assertEqual(Hardware_Utils.normalize_device_selection("directml"), "auto")
         self.assertEqual(Hardware_Utils.normalize_device_selection("directml:2"), "auto")
