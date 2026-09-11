@@ -444,15 +444,14 @@ def _validate_flat_viewer_document(document, project_root):
         with h5py.File(result["TARGET_CACHE_PATH"], "r") as cache:
             manifest.validate_cache_hdf5(cache, headers, stored["manifest_id"])
         if result["MSA_FILE"]:
+            # Preserve header readability checks. Alignment_Manager resolves the
+            # requested reference and warns/falls back to occupancy if absent.
             if result["MSA_FILE"].lower().endswith(".h5"):
                 with h5py.File(result["MSA_FILE"], "r") as msa:
-                    msa_headers = [h.decode() if isinstance(h, bytes) else str(h) for h in msa["headers"][:]]
+                    _msa_headers = [h.decode() if isinstance(h, bytes) else str(h) for h in msa["headers"][:]]
             else:
                 with open(result["MSA_FILE"], encoding="utf-8") as msa:
-                    msa_headers = [line[1:].strip() for line in msa if line.startswith(">")]
-            reference = result["ALIGNMENT_REFERENCE"].strip().lower()
-            if reference and not any(reference in h.lower() for h in msa_headers):
-                raise ViewerSettingsError("ALIGNMENT_REFERENCE: not found in MSA_FILE.")
+                    _msa_headers = [line[1:].strip() for line in msa if line.startswith(">")]
         elif result["ALIGNMENT_REFERENCE"]:
             raise ViewerSettingsError("ALIGNMENT_REFERENCE: requires MSA_FILE; use an empty reference when alignment is disabled.")
     except ViewerSettingsError:

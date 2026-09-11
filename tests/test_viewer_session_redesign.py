@@ -76,8 +76,55 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(ViewerSettingsError):
             validate_viewer_document(doc, fixtures.ROOT)
 
+    def test_missing_reference_does_not_bypass_msa_readability_checks(self):
+        import h5py
+        doc = deepcopy(self.document)
+        doc["alignment"]["ALIGNMENT_REFERENCE"] = "absent"
+        for filename, data in (("missing.fasta", None), ("invalid.fasta", b"\xff"), ("invalid.h5", b"not HDF5")):
+            with self.subTest(filename=filename):
+                path = self.root / filename
+                if data is not None:
+                    path.write_bytes(data)
+                doc["alignment"]["MSA_FILE"] = str(path)
+                with self.assertRaises(ViewerSettingsError):
+                    validate_viewer_document(doc, fixtures.ROOT)
+        path = self.root / "no_headers.h5"
+        with h5py.File(path, "w"):
+            pass
+        doc["alignment"]["MSA_FILE"] = str(path)
+        with self.assertRaises(ViewerSettingsError):
+            validate_viewer_document(doc, fixtures.ROOT)
+
 
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_validation_preserves_missing_reference_preferences(self):
+        fixture = SettingsTests(); fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        msa_path = fixture.root / "alignment.fasta"
+        msa_path.write_text(">Alpha_Beta\nAA\n>Gamma_Delta\nCC\n", encoding="utf-8")
+        fixture.document["alignment"].update(
+            MSA_FILE=str(msa_path), ALIGNMENT_REFERENCE="absent",
+            FILTER_MIN_OCCUPANCY=75, ALIGNMENT_OFFSET=10,
+        )
+        original = deepcopy(fixture.document)
+        settings_path = fixture.root / "viewer.json"
+        settings_path.write_text(json.dumps(original), encoding="utf-8")
+        original_bytes = settings_path.read_bytes()
+        with mock.patch.object(tempfile, "tempdir", str(fixture.root)):
+            async with Client(mcp) as client:
+                for arguments in ({"settings_document": fixture.document}, {"settings_path": str(settings_path)}):
+                    response = await client.call_tool("emapssn_viewer_control", {
+                        "action": "validate_settings", "arguments": arguments,
+                    })
+                    self.assertFalse(response.is_error, str(response))
+                    result = response.structured_content
+                    self.assertEqual(set(result), {"valid", "settings_document"})
+                    self.assertTrue(result["valid"])
+                    self.assertEqual(result["settings_document"]["schema_version"], 2)
+                    self.assertEqual(result["settings_document"]["alignment"], original["alignment"])
+                    self.assertEqual(fixture.document, original)
+                    self.assertEqual(settings_path.read_bytes(), original_bytes)
+
     async def test_visible_viewer_launch_through_headless_config(self):
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -169,6 +216,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_stdio_survival_connection_isolation_and_verified_close(self):
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
+        msa_path = fixture.root / "alignment.fasta"
+        msa_path.write_text(">Alpha_Beta\nAA\n>Gamma_Delta\nCC\n", encoding="utf-8")
+        fixture.document["alignment"].update(
+            MSA_FILE=str(msa_path), ALIGNMENT_REFERENCE="absent",
+            FILTER_MIN_OCCUPANCY=75, ALIGNMENT_OFFSET=10,
+        )
         directory = fixture.root / "sessions"
         environment = dict(os.environ, SSN_VIEWER_SESSION_DIR=str(directory), PYTHONIOENCODING="utf-8",
                            TEMP=str(fixture.root), TMP=str(fixture.root))
@@ -184,6 +237,40 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     output = await first.call_tool("emapssn_viewer_data", {"action": "read_log", "arguments": {}})
                     self.assertFalse(output.is_error, str(output))
                     self.assertTrue(output.structured_content["text"])
+                    self.assertIn("pure occupancy mode", output.structured_content["text"])
+                    self.assertIn("alignment offsets are inactive", output.structured_content["text"])
+                    summary = await first.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {"include_alignment": True}})
+                    self.assertFalse(summary.is_error, str(summary))
+                    alignment = summary.structured_content["alignment"]
+                    self.assertTrue(alignment["available"])
+                    self.assertEqual(alignment["mapped_nodes"], 2)
+                    self.assertEqual(alignment["requested_reference"], "absent")
+                    self.assertEqual(alignment["reference"], "None")
+                    residues = await first.call_tool("emapssn_viewer_data", {
+                        "action": "get_residue_distribution", "arguments": {
+                            "snapshot_id": summary.structured_content["snapshot_id"],
+                            "positions": ["1", "2"],
+                        },
+                    })
+                    self.assertFalse(residues.is_error, str(residues))
+                    command = await first.call_tool("emapssn_viewer_control", {
+                        "action": "execute_commands", "arguments": {
+                            "submission_id": "missing-reference-help", "commands": ["offset help"],
+                        },
+                    })
+                    self.assertFalse(command.is_error, str(command))
+                    request_id = command.structured_content["request_id"]
+                    deadline = asyncio.get_running_loop().time() + 10
+                    while True:
+                        state = await first.call_tool("emapssn_viewer_data", {
+                            "action": "get_command_request", "arguments": {"request_id": request_id},
+                        })
+                        self.assertFalse(state.is_error, str(state))
+                        if state.structured_content["status"] in {"succeeded", "failed", "cancelled"}:
+                            break
+                        self.assertLess(asyncio.get_running_loop().time(), deadline, str(state))
+                        await asyncio.sleep(0.1)
+                    self.assertEqual(state.structured_content["status"], "succeeded", str(state))
                     async with Client(mcp) as second:
                         self.assertTrue((await second.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})).is_error)
                         connected = await second.call_tool("emapssn_viewer_control", {"action": "connect_session", "arguments": {"session_id": info["session_id"]}})

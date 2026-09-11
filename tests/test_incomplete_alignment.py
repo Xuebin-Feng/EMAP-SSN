@@ -9,6 +9,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -35,6 +36,41 @@ def write_fasta(path, records):
 
 
 class IncompleteAlignmentLoaderTests(unittest.TestCase):
+    def test_reference_modes_preserve_occupancy_and_offset_semantics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fasta_path = os.path.join(directory, "alignment.fasta")
+            write_fasta(fasta_path, [("reference", "A-C"), ("other", "ATC")])
+            sparse_path = os.path.join(directory, "alignment.h5")
+            with h5py.File(sparse_path, "w") as hf:
+                matrix = hf.create_group("matrix")
+                matrix.attrs["shape"] = (2, 3)
+                matrix.create_dataset("data", data=np.array([1, 2, 1, 3, 2], dtype=np.uint8))
+                matrix.create_dataset("indices", data=np.array([0, 2, 0, 1, 2], dtype=np.int32))
+                matrix.create_dataset("indptr", data=np.array([0, 2, 5], dtype=np.int32))
+                hf.create_dataset("headers", data=[b"reference", b"other"])
+                hf.create_dataset("int_to_aa", data=json.dumps({"1": "A", "2": "C", "3": "T"}).encode())
+
+            for path in (fasta_path, sparse_path):
+                for reference in ("reference", "absent", ""):
+                    with self.subTest(path=path, reference=reference):
+                        with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 75), redirect_stdout(io.StringIO()) as output:
+                            manager = Alignment_Manager.Alignment_Manager(
+                                path, full_headers=["reference", "other"],
+                                active_reference=reference, alignment_offset=10,
+                            )
+                        self.assertEqual(len(manager.aln), 2)
+                        self.assertEqual(set(manager.valid_cols), {0, 2})
+                        matched = reference == "reference"
+                        self.assertEqual(manager.has_reference, matched)
+                        self.assertEqual(manager.offset, 10 if matched else 0)
+                        self.assertEqual(manager.col_to_label, {0: "11", 2: "12"} if matched else {0: "1", 2: "2"})
+                        if reference == "absent":
+                            self.assertIn("was not found", output.getvalue())
+                            self.assertIn("pure occupancy mode", output.getvalue())
+                            self.assertIn("alignment offsets are inactive", output.getvalue())
+                        else:
+                            self.assertNotIn("was not found", output.getvalue())
+
     def test_partial_fasta_load_tracks_exact_coverage_and_warns_red(self):
         with tempfile.TemporaryDirectory() as directory:
             fasta_path = os.path.join(directory, "partial.fasta")

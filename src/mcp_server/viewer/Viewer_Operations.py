@@ -269,6 +269,10 @@ async def validate_viewer_settings(
     Supply exactly one settings_document or settings_path following
     get_viewer_settings_schema. Checks source files and cache identity and returns
     valid plus a normalized settings_document; invalid settings raise a tool error.
+    A reference absent from the selected MSA is allowed: the Viewer keeps the MSA,
+    warns in its startup log, and uses occupancy numbering with offsets inactive.
+    The configured reference and offset are preserved; valid does not guarantee
+    reference-based numbering. A nonempty reference still requires MSA_FILE.
     Next launch with that document. This does not create a Viewer or prove
     numerical/scientific correctness of its inputs.
     """

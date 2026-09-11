@@ -103,6 +103,12 @@ schema_version=2 and kind="viewer", with edits inside the named sections. Keep t
 normalized document to `emapssn_viewer_control(action="start_session")`. Validation checks source files and
 cache compatibility. Inheritance happens during export; validation must not replace
 preserved preferences with a minimal payload. alignment.MSA_FILE="" disables alignment.
+When the selected MSA does not contain alignment.ALIGNMENT_REFERENCE, validation
+preserves the requested reference and offset. The Viewer loads the MSA, warns in
+its startup log, and uses occupancy-based numbering with alignment offsets inactive.
+Successful validation does not guarantee reference-based numbering; inspect the
+Viewer summary's requested/resolved reference and startup log after launch.
+A nonempty reference with an empty MSA_FILE remains invalid.
 
 Both execution formats require schema_version=2 and the matching kind. Layout
 sections are inputs, network, layout, simulation, physics, packing, and output.

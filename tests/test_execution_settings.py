@@ -183,8 +183,13 @@ class ExecutionV2Tests(unittest.TestCase):
             for key, value in viewer["alignment"].items():
                 self.assertEqual(runtime[key], value)
             viewer["alignment"]["ALIGNMENT_REFERENCE"] = "absent"
-            with self.assertRaisesRegex(ViewerSettingsError, "not found"):
-                validate_viewer_document(viewer, self.root)
+            original = copy.deepcopy(viewer)
+            normalized = validate_viewer_document(viewer, self.root)
+            runtime = resolve_viewer_document(normalized, self.root)
+            self.assertEqual(viewer, original)
+            self.assertEqual(normalized["alignment"], original["alignment"])
+            for key, value in original["alignment"].items():
+                self.assertEqual(runtime[key], value)
 
     def test_corrupt_missing_conflicting_provenance(self):
         path, viewer = self.cache_and_viewer()
