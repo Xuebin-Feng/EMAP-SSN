@@ -22,7 +22,7 @@ def print_help():
     print("""
     Advanced Coloring & Highlighting Tool
     =====================================
-    Usage: color [EXPR_1] [COLOR_1] [xSCALE_1] [SHAPE_1] [<EXPR_2> ...]
+    Usage: color [EXPR_1] [COLOR_1] [SCALEx_1] [SHAPE_1] [<EXPR_2> ...]
            color help
 
     Description:
@@ -34,8 +34,9 @@ def print_help():
 
     Attributes:
       1. Color: Name (red, blue) or Hex (#ff0000)
-         C<number> always denotes cysteine selection, never a color-cycle entry.
-      2. Scale: Prefix with 'x' (e.g., x2, x0.5)
+         Valid selection expressions take precedence over colors and other modifiers.
+      2. Scale: Suffix with 'x' (e.g., 2x, 0.5x)
+         Old x2 scale syntax is removed; x2 now selects residue X at position 2.
       3. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
 
     Expression Targets (Do NOT use spaces inside expressions!):
@@ -58,12 +59,12 @@ def print_help():
       A valid expression may match zero nodes.
 
     Examples:
-      color red x2 triangle             (Modifies currently selected nodes)
+      color red 2x triangle             (Modifies currently selected nodes)
       color P106 red                    (Colors nodes with Proline at pos 106 red)
       color (RHK)71 blue                (Colors nodes with R, H, or K at pos 71 blue)
-      color "ATA"&#cluster_2# blue x1.5 (Colors "ATA" matches inside Cluster 2)
+      color "ATA"&#cluster_2# blue 1.5x (Colors "ATA" matches inside Cluster 2)
       color {Organism=*coli*} green     (Colors nodes where Organism matches *coli* green)
-      color #cluster_1# red #noise# x0  (Chains multiple commands together)
+      color #cluster_1# red #noise# 0x  (Chains multiple commands together)
     """)
 
 def run(viewer, args):
@@ -73,7 +74,7 @@ def run(viewer, args):
         return
 
     if not args:
-        msg = "Error: Color command requires at least one property (color, scale, or shape) or expression.\nUsage: color [EXPR_1] [COLOR_1] [xSCALE_1] [SHAPE_1]"
+        msg = "Error: Color command requires at least one property (color, scale, or shape) or expression.\nUsage: color [EXPR_1] [COLOR_1] [SCALEx_1] [SHAPE_1]"
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -117,10 +118,18 @@ def run(viewer, args):
             print(f"Warning: Skipping '{current_expr}' (No valid color, scale, or shape provided)")
 
     for arg in args:
-        # 1. Check if Scale (e.g., x2.5). Force lowercase 'x'.
-        if arg.startswith('x'):
+        # Classify a complete Boolean expression.
+        classification = Command_Engine.classify_selection_expression(arg)
+        if classification.kind == Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
+            if current_expr:
+                push_assignment()
+                current_color = None; current_scale = None; current_shape = None
+            current_expr = arg
+            continue
+        # Scale uses a trailing lowercase x (e.g., 2.5x).
+        if arg.endswith('x'):
             try:
-                current_scale = float(arg[1:])
+                current_scale = float(arg[:-1])
                 continue
             except ValueError:
                 pass
@@ -141,9 +150,8 @@ def run(viewer, args):
         # 3. Check if Color
         is_color = False
         try:
-            if not Command_Engine.is_reserved_cysteine_selection(arg):
-                mcolors.to_rgba(arg)
-                is_color = True
+            mcolors.to_rgba(arg)
+            is_color = True
         except (TypeError, ValueError):
             pass
         
@@ -157,14 +165,6 @@ def run(viewer, args):
                 current_color = arg
             continue
 
-        # 4. Classify a complete Boolean expression.
-        classification = Command_Engine.classify_selection_expression(arg)
-        if classification.kind == Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
-            if current_expr:
-                push_assignment()
-                current_color = None; current_scale = None; current_shape = None
-            current_expr = arg
-            continue
         if classification.kind == Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION:
             Command_Engine.report_selection_error(
                 viewer, arg, classification.error, "Color"
@@ -173,9 +173,9 @@ def run(viewer, args):
         Command_Engine.print_help(
             viewer,
             f"Error: Unrecognized color argument '{arg}'. Expected a Boolean "
-            "expression, color, x-scale, or shape.",
+            "expression, color, scale with trailing x, or shape.",
         )
-        Command_Engine.command_failed(viewer, f"Error: Unrecognized color argument '{arg}'. Expected a Boolean expression, color, x-scale, or shape.")
+        Command_Engine.command_failed(viewer, f"Error: Unrecognized color argument '{arg}'. Expected a Boolean expression, color, scale with trailing x, or shape.")
         return
 
     if current_expr or current_color or current_scale is not None or current_shape:
@@ -247,7 +247,7 @@ def run(viewer, args):
         labels = []
         if color_str: labels.append(color_str)
         if scale_val is not None:
-            labels.append(f"x{scale_val}")
+            labels.append(f"{scale_val}x")
         if shape_val: labels.append(shape_val)
         stats.append(f"{count} nodes ({', '.join(labels)})")
             
