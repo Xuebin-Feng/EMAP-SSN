@@ -25,7 +25,7 @@ import h5py
 import numpy as np
 
 import Cache_Manifest as cache_manifest
-from utilities.Sequence_Utils import load_sanitized_fasta
+from utilities.Sequence_Utils import derive_node_metadata, load_sanitized_fasta
 from desktop.Viewer_State import prepare_network
 
 
@@ -791,6 +791,16 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
                 compression="gzip",
             )
             output.create_dataset("positions", data=positions, compression="gzip")
+            try:
+                initial_metadata = derive_node_metadata(full_headers, records)
+            except ValueError as error:
+                raise LayoutGenerationError(str(error)) from error
+            metadata_group = output.create_group("metadata")
+            for name, prop in initial_metadata.items():
+                dataset = metadata_group.create_dataset(
+                    name, data=prop["values"], compression="gzip"
+                )
+                dataset.attrs["type"] = prop["type"]
             output.flush()
 
         _publish_fasta_backup(staged_fasta, backup_path)

@@ -380,6 +380,25 @@ def load_sanitized_fasta(file_path, *, report=True):
     return clean_headers, clean_sequences, stats
 
 
+def derive_node_metadata(full_headers, records):
+    """Derive the initial per-node metadata columns from sanitized FASTA records."""
+    import numpy as np
+
+    sequences = dict(records)
+    if len(sequences) != len(records):
+        raise ValueError("Sanitized FASTA records contain duplicate headers.")
+
+    lengths = np.empty(len(full_headers), dtype=np.float64)
+    for index, header in enumerate(full_headers):
+        try:
+            lengths[index] = len(sequences[header])
+        except KeyError:
+            raise ValueError(
+                f"Network node header '{header}' has no sanitized FASTA record."
+            ) from None
+    return {"Length": {"type": "number", "values": lengths}}
+
+
 # =====================================================================
 # 3. Position-Preserving Multiple Sequence Alignment (MSA) Sanitization
 # =====================================================================
@@ -731,6 +750,7 @@ __all__ = [
     "sanitize_fasta_records",
     "print_sanitization_result",
     "load_sanitized_fasta",
+    "derive_node_metadata",
     "GAP_CODES",
     "VALID_RESIDUES",
     "AA_TO_INT",

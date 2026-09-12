@@ -29,6 +29,7 @@ from Layout_Cache_Generator import (
     generate_layout_cache,
 )
 from desktop.Viewer_State import decode_document, LAYOUT_SECTIONS, prepare_network
+from utilities.Sequence_Utils import derive_node_metadata
 
 FIELD_SECTION = {key: section for section, keys in LAYOUT_SECTIONS.items() for key in keys}
 
@@ -358,7 +359,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 manifest["manifest_id"],
             )
 
-    def test_generation_publishes_only_minimal_cache_and_never_overwrites(self):
+    def test_generation_publishes_initial_metadata_and_never_overwrites(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = pathlib.Path(temp_dir)
             _write_inputs(temp_path)
@@ -385,7 +386,14 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             cache_path = pathlib.Path(result.cache_path)
             self.assertTrue(cache_path.exists())
             with h5py.File(cache_path, "r") as cache:
-                self.assertEqual(set(cache.keys()), {"headers", "positions"})
+                self.assertEqual(
+                    set(cache.keys()), {"headers", "positions", "metadata"}
+                )
+                self.assertEqual(set(cache["metadata"].keys()), {"Length"})
+                lengths = cache["metadata"]["Length"]
+                self.assertEqual(lengths.attrs["type"], "number")
+                self.assertEqual(lengths.dtype, np.int32)
+                np.testing.assert_array_equal(lengths[:], [2, 2])
                 self.assertEqual(
                     cache.attrs["cache_manifest_id"], result.manifest["manifest_id"]
                 )
@@ -573,6 +581,30 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertIn("--delete-settings", called_cmd[0])
                 self.assertFalse(snapshot.exists())
                 self.assertFalse(settings_file.exists())
+
+
+class NodeMetadataDerivationTests(unittest.TestCase):
+    def test_lengths_follow_network_node_order(self):
+        records = [("Gamma_Delta", "CCC"), ("Alpha_Beta", "AA")]
+
+        metadata = derive_node_metadata(["Alpha_Beta", "Gamma_Delta"], records)
+
+        self.assertEqual(set(metadata), {"Length"})
+        self.assertEqual(metadata["Length"]["type"], "number")
+        self.assertEqual(metadata["Length"]["values"].dtype, np.int32)
+        np.testing.assert_array_equal(metadata["Length"]["values"], [2, 3])
+
+    def test_node_absent_from_records_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Gamma_Delta"):
+            derive_node_metadata(
+                ["Alpha_Beta", "Gamma_Delta"], [("Alpha_Beta", "AA")]
+            )
+
+    def test_duplicate_record_headers_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "duplicate headers"):
+            derive_node_metadata(
+                ["Alpha_Beta"], [("Alpha_Beta", "AA"), ("Alpha_Beta", "CCC")]
+            )
 
 
 if __name__ == "__main__":

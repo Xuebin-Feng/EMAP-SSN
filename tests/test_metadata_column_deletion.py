@@ -113,10 +113,9 @@ class MetadataColumnDeletionTests(unittest.TestCase):
         self.assertEqual(deleted, ["Length"])
         self.assertNotIn("Length", viewer.metadata)
 
-    def test_saved_metadata_schema_does_not_regenerate_deleted_length(self):
+    def test_deleted_length_is_not_regenerated(self):
         viewer = make_viewer()
         viewer.metadata = {}
-        viewer._metadata_loaded_from_cache = True
         viewer.sequences_map = {"node-1": "AAAA", "node-2": "AAAAA"}
 
         viewer._init_colors()

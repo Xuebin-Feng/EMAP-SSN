@@ -1120,7 +1120,6 @@ class MainViewer:
                 )
 
             raw_loaded = False
-            self._metadata_loaded_from_cache = False
 
             # --- Try Loading Cache ---
             if cache_mode == 'existing':
@@ -1180,15 +1179,12 @@ class MainViewer:
                         # --- Load Metadata from Cache ---
                         self.metadata = {}
                         if "metadata" in hf:
-                            self._metadata_loaded_from_cache = True
                             meta_group = hf["metadata"]
                             for prop_name in meta_group.keys():
                                 ds = meta_group[prop_name]
                                 prop_type = ds.attrs.get("type", "text")
                                 raw_vals = ds[:]
-                                if prop_name == "Length":
-                                    values = raw_vals.astype(np.int32)
-                                elif prop_type == "number":
+                                if prop_type == "number":
                                     values = raw_vals.astype(np.float64)
                                 else:
                                     values = np.array([v.decode('utf-8') if isinstance(v, bytes) else str(v) for v in raw_vals], dtype=object)
@@ -1279,31 +1275,8 @@ class MainViewer:
         if not hasattr(self, 'group_labels'): self.group_labels = [set() for _ in range(self.n_nodes)]
         if not hasattr(self, 'metadata'): self.metadata = {}
         
-        # New layouts start with generated Length metadata.  A saved metadata
-        # group without Length represents an intentional column deletion.
-        if (
-            "Length" not in self.metadata
-            and not getattr(self, "_metadata_loaded_from_cache", False)
-        ):
-            lengths_map = {
-                header: len(sequence)
-                for header, sequence in self.sequences_map.items()
-            }
-            
-            length_values = np.zeros(self.n_nodes, dtype=np.int32)
-            for i, h in enumerate(self.full_headers):
-                rec_id = h.split()[0]
-                if h in lengths_map:
-                    length_values[i] = lengths_map[h]
-                elif rec_id in lengths_map:
-                    length_values[i] = lengths_map[rec_id]
-            
-            self.metadata["Length"] = {
-                "type": "number",
-                "values": length_values
-            }
-            
-        # Reorder metadata dictionary so "Length" is the first property
+        # Layout generation writes the initial metadata group, so the viewer only
+        # orders what the cache provides.  "Length" is the first property.
         if self.metadata and "Length" in self.metadata:
             ordered_metadata = {"Length": self.metadata["Length"]}
             for k, v in self.metadata.items():
