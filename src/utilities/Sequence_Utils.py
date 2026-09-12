@@ -380,6 +380,147 @@ def load_sanitized_fasta(file_path, *, report=True):
     return clean_headers, clean_sequences, stats
 
 
+# Average isotopic masses of the free amino acids (IUPAC).  One water molecule
+# is released per peptide bond, so a polypeptide mass is the sum of the residue
+# masses (free mass less one water) plus a single water.
+_WATER_MASS = 18.0153
+_FREE_AMINO_ACID_MASS = {
+    "A": 89.0932, "C": 121.1582, "D": 133.1027, "E": 147.1293, "F": 165.1891,
+    "G": 75.0666, "H": 155.1546, "I": 131.1729, "K": 146.1876, "L": 131.1729,
+    "M": 149.2113, "N": 132.1179, "O": 255.3134, "P": 115.1305, "Q": 146.1445,
+    "R": 174.2010, "S": 105.0926, "T": 119.1192, "U": 168.0532, "V": 117.1463,
+    "W": 204.2252, "Y": 181.1885,
+}
+
+# Kyte-Doolittle hydropathy, the scale averaged by the GRAVY index.  No value is
+# published for selenocysteine or pyrrolysine, so those stay unscored.
+_HYDROPATHY = {
+    "A": 1.8, "C": 2.5, "D": -3.5, "E": -3.5, "F": 2.8, "G": -0.4, "H": -3.2,
+    "I": 4.5, "K": -3.9, "L": 3.8, "M": 1.9, "N": -3.5, "P": -1.6, "Q": -3.5,
+    "R": -4.5, "S": -0.8, "T": -0.7, "V": 4.2, "W": -0.9, "Y": -1.3,
+}
+
+# Bjellqvist pKa values, matching the isoelectric points reported by ExPASy
+# ProtParam.  Both termini carry residue-specific values where they are defined.
+_POSITIVE_PKA = {"K": 10.0, "R": 12.0, "H": 5.98}
+_NEGATIVE_PKA = {"D": 4.05, "E": 4.45, "C": 9.0, "Y": 10.0}
+_NTERM_PKA = {"A": 7.59, "M": 7.0, "S": 6.93, "P": 8.36, "T": 6.82, "V": 7.44, "E": 7.7}
+_CTERM_PKA = {"D": 4.55, "E": 4.75}
+_DEFAULT_NTERM_PKA = 7.5
+_DEFAULT_CTERM_PKA = 3.55
+
+# The bisection bracket spans the theoretical extremes of the Bjellqvist scale:
+# an all-aspartate chain below, an all-arginine chain above.  Seventeen halvings
+# narrow that bracket to under 0.0001 pH units.
+_PI_MINIMUM = 4.05
+_PI_MAXIMUM = 12.0
+_PI_ITERATIONS = 17
+
+# Ambiguity codes resolve to the mean of the residues they stand for.  Anything
+# still unresolved carries an average mass, no charge, and no hydropathy.
+_AMBIGUOUS_RESIDUES = {"B": ("D", "N"), "Z": ("E", "Q"), "J": ("L", "I")}
+_HALF_AMBIGUOUS_CHARGE = {"D": "B", "E": "Z"}
+
+
+def _residue_index(residue):
+    return ord(residue) - ord("A")
+
+
+def _residue_vector(values, default=0.0):
+    """Spread a residue-keyed table across one 26-slot lookup vector."""
+    import numpy as np
+
+    vector = np.full(26, float(default), dtype=np.float64)
+    for residue, value in values.items():
+        vector[_residue_index(residue)] = value
+    return vector
+
+
+def _mass_vector():
+    residue_mass = {
+        residue: mass - _WATER_MASS
+        for residue, mass in _FREE_AMINO_ACID_MASS.items()
+    }
+    standard = [residue_mass[residue] for residue in _HYDROPATHY]
+    for code, candidates in _AMBIGUOUS_RESIDUES.items():
+        residue_mass[code] = sum(residue_mass[r] for r in candidates) / len(candidates)
+    residue_mass["X"] = sum(standard) / len(standard)
+    return _residue_vector(residue_mass)
+
+
+def _hydropathy_vectors():
+    hydropathy = dict(_HYDROPATHY)
+    for code, candidates in _AMBIGUOUS_RESIDUES.items():
+        hydropathy[code] = sum(_HYDROPATHY[r] for r in candidates) / len(candidates)
+    scored = {residue: 1.0 for residue in hydropathy}
+    return _residue_vector(hydropathy), _residue_vector(scored)
+
+
+def _residue_counts(full_headers, sequences):
+    """Tabulate residue counts and both terminal residues for every node."""
+    import numpy as np
+
+    node_count = len(full_headers)
+    counts = np.zeros((node_count, 26), dtype=np.int32)
+    first_residue = np.zeros(node_count, dtype=np.intp)
+    last_residue = np.zeros(node_count, dtype=np.intp)
+    for index, header in enumerate(full_headers):
+        try:
+            sequence = sequences[header]
+        except KeyError:
+            raise ValueError(
+                f"Network node header '{header}' has no sanitized FASTA record."
+            ) from None
+        residues = np.frombuffer(
+            sequence.encode("utf-8"), dtype=np.uint8
+        ).astype(np.int16) - ord("A")
+        if residues.size == 0 or residues.min() < 0 or residues.max() > 25:
+            raise ValueError(
+                f"Sequence for '{header}' is empty or holds a non-residue character."
+            )
+        counts[index] = np.bincount(residues, minlength=26)
+        first_residue[index] = residues[0]
+        last_residue[index] = residues[-1]
+    return counts, first_residue, last_residue
+
+
+def _isoelectric_points(counts, first_residue, last_residue):
+    """Bisect the Bjellqvist titration curve for every node at once."""
+    import numpy as np
+
+    node_count = counts.shape[0]
+    ones = np.ones(node_count, dtype=np.float64)
+    nterm_pka = _residue_vector(_NTERM_PKA, _DEFAULT_NTERM_PKA)[first_residue]
+    cterm_pka = _residue_vector(_CTERM_PKA, _DEFAULT_CTERM_PKA)[last_residue]
+
+    positive = [
+        (counts[:, _residue_index(residue)].astype(np.float64), np.float64(pka))
+        for residue, pka in _POSITIVE_PKA.items()
+    ]
+    positive.append((ones, nterm_pka))
+
+    negative = []
+    for residue, pka in _NEGATIVE_PKA.items():
+        column = counts[:, _residue_index(residue)].astype(np.float64)
+        ambiguous = _HALF_AMBIGUOUS_CHARGE.get(residue)
+        if ambiguous is not None:
+            column = column + 0.5 * counts[:, _residue_index(ambiguous)]
+        negative.append((column, np.float64(pka)))
+    negative.append((ones, cterm_pka))
+
+    low = np.full(node_count, _PI_MINIMUM, dtype=np.float64)
+    high = np.full(node_count, _PI_MAXIMUM, dtype=np.float64)
+    ph = (low + high) / 2.0
+    for _ in range(_PI_ITERATIONS):
+        charge = sum(n / (10.0 ** (ph - pka) + 1.0) for n, pka in positive)
+        charge -= sum(n / (10.0 ** (pka - ph) + 1.0) for n, pka in negative)
+        rising = charge > 0.0
+        low = np.where(rising, ph, low)
+        high = np.where(rising, high, ph)
+        ph = (low + high) / 2.0
+    return ph
+
+
 def derive_node_metadata(full_headers, records):
     """Derive the initial per-node metadata columns from sanitized FASTA records."""
     import numpy as np
@@ -388,15 +529,26 @@ def derive_node_metadata(full_headers, records):
     if len(sequences) != len(records):
         raise ValueError("Sanitized FASTA records contain duplicate headers.")
 
-    lengths = np.empty(len(full_headers), dtype=np.float64)
-    for index, header in enumerate(full_headers):
-        try:
-            lengths[index] = len(sequences[header])
-        except KeyError:
-            raise ValueError(
-                f"Network node header '{header}' has no sanitized FASTA record."
-            ) from None
-    return {"Length": {"type": "number", "values": lengths}}
+    counts, first_residue, last_residue = _residue_counts(full_headers, sequences)
+    hydropathy_vector, hydropathy_mask = _hydropathy_vectors()
+    lengths = counts.sum(axis=1).astype(np.float64)
+    masses = counts @ _mass_vector() + _WATER_MASS
+    scored = counts @ hydropathy_mask
+    gravy = np.divide(
+        counts @ hydropathy_vector,
+        scored,
+        out=np.full(len(full_headers), np.nan),
+        where=scored > 0,
+    )
+    return {
+        "Length": {"type": "number", "values": lengths},
+        "kDa": {"type": "number", "values": masses / 1000.0},
+        "pI": {
+            "type": "number",
+            "values": _isoelectric_points(counts, first_residue, last_residue),
+        },
+        "GRAVY": {"type": "number", "values": gravy},
+    }
 
 
 # =====================================================================

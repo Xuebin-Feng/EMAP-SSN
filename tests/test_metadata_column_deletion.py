@@ -262,5 +262,62 @@ class MetadataWebMarkupTests(unittest.TestCase):
         self.assertIn('right: 10px !important;', html)
 
 
+class MetadataValueFormattingTests(unittest.TestCase):
+    def test_display_drops_the_decimal_only_from_integral_numbers(self):
+        cases = [
+            (np.float64(500.0), "500"),
+            (np.float64(500.5), "500.5"),
+            (np.float64(1234567.0), "1234567"),
+            (np.float64(-12.0), "-12"),
+            ("alpha", "alpha"),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    meta_backend.format_metadata_value(value), expected
+                )
+
+    def test_export_keeps_cells_numeric_while_dropping_the_decimal(self):
+        integral = meta_backend.export_metadata_value(np.float64(500.0))
+        self.assertIsInstance(integral, int)
+        self.assertEqual(integral, 500)
+
+        fractional = meta_backend.export_metadata_value(np.float64(500.5))
+        self.assertEqual(fractional, 500.5)
+        self.assertEqual(meta_backend.export_metadata_value("alpha"), "alpha")
+
+    def test_hud_renders_a_float_backed_length_without_a_decimal(self):
+        viewer = make_viewer()
+        viewer.metadata["Length"]["values"] = np.array([100.0, 110.0])
+        display = viewer.hud_displays["meta_display"]
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            meta_command.cfg, "METADATA_DIR", temp_dir
+        ), mock.patch.object(meta_command, "register"), mock.patch.object(
+            meta_command.Command_Engine, "print_help"
+        ):
+            meta_command.run(viewer, ["display", "Length"])
+
+        self.assertEqual(display.messages[-1], "Length: 100")
+
+    def test_download_writes_integral_numbers_without_a_decimal(self):
+        viewer = make_viewer()
+        viewer.metadata["Length"]["values"] = np.array([100.0, 110.5])
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            meta_backend.Command_Engine, "print_help"
+        ), mock.patch.object(
+            meta_backend.Command_Engine, "command_artifact"
+        ), mock.patch.object(
+            meta_backend.Command_Engine, "command_succeeded"
+        ):
+            target = os.path.join(temp_dir, "metadata.csv")
+            self.assertTrue(meta_backend.download_metadata(viewer, target))
+            written = Path(target).read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(written[2].split(",")[1], "100")
+        self.assertEqual(written[3].split(",")[1], "110.5")
+
+
 if __name__ == "__main__":
     unittest.main()

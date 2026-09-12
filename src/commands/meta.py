@@ -27,6 +27,7 @@ import EMAPSSN_Config as cfg
 from web_ui.meta_backend import (
     MetadataColumnDeleteError,
     delete_metadata_columns,
+    format_metadata_value,
     register,
     upload_metadata,
     download_metadata,
@@ -184,7 +185,11 @@ def run(viewer, args):
                     p_name = getattr(self.viewer, 'meta_display_prop', None)
                     if p_name and getattr(self.viewer, 'metadata', None) and p_name in self.viewer.metadata:
                         val = self.viewer.metadata[p_name]["values"][node_idx]
-                        val_str = str(val).strip() if pd.notna(val) and val is not None else "N/A"
+                        val_str = (
+                            format_metadata_value(val).strip()
+                            if pd.notna(val) and val is not None
+                            else "N/A"
+                        )
                         self.show(f"{p_name}: {val_str}")
                     else:
                         self.show(f"{p_name}: N/A")
@@ -195,7 +200,11 @@ def run(viewer, args):
         node_idx = getattr(viewer, 'selected_node_idx', None)
         if node_idx is not None and getattr(viewer, 'metadata', None) and resolved_prop in viewer.metadata:
             val = viewer.metadata[resolved_prop]["values"][node_idx]
-            val_str = str(val).strip() if pd.notna(val) and val is not None else "N/A"
+            val_str = (
+                format_metadata_value(val).strip()
+                if pd.notna(val) and val is not None
+                else "N/A"
+            )
             display.show(f"{resolved_prop}: {val_str}")
         else:
             display.show(f"{resolved_prop}: -")

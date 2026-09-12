@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import random
 import subprocess
 import sys
 import tempfile
@@ -389,11 +390,18 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertEqual(
                     set(cache.keys()), {"headers", "positions", "metadata"}
                 )
-                self.assertEqual(set(cache["metadata"].keys()), {"Length"})
-                lengths = cache["metadata"]["Length"]
-                self.assertEqual(lengths.attrs["type"], "number")
-                self.assertEqual(lengths.dtype, np.int32)
-                np.testing.assert_array_equal(lengths[:], [2, 2])
+                self.assertEqual(
+                    set(cache["metadata"].keys()),
+                    {"Length", "kDa", "pI", "GRAVY"},
+                )
+                for name in ("Length", "kDa", "pI", "GRAVY"):
+                    column = cache["metadata"][name]
+                    self.assertEqual(column.attrs["type"], "number")
+                    self.assertEqual(column.dtype, np.float64)
+                    self.assertEqual(column.shape, (2,))
+                np.testing.assert_array_equal(
+                    cache["metadata"]["Length"][:], [2, 2]
+                )
                 self.assertEqual(
                     cache.attrs["cache_manifest_id"], result.manifest["manifest_id"]
                 )
@@ -584,15 +592,79 @@ class LayoutCacheGenerationTests(unittest.TestCase):
 
 
 class NodeMetadataDerivationTests(unittest.TestCase):
-    def test_lengths_follow_network_node_order(self):
+    def test_columns_follow_network_node_order(self):
         records = [("Gamma_Delta", "CCC"), ("Alpha_Beta", "AA")]
 
         metadata = derive_node_metadata(["Alpha_Beta", "Gamma_Delta"], records)
 
-        self.assertEqual(set(metadata), {"Length"})
-        self.assertEqual(metadata["Length"]["type"], "number")
-        self.assertEqual(metadata["Length"]["values"].dtype, np.int32)
+        self.assertEqual(set(metadata), {"Length", "kDa", "pI", "GRAVY"})
+        for name, entry in metadata.items():
+            with self.subTest(column=name):
+                self.assertEqual(entry["type"], "number")
+                self.assertEqual(entry["values"].dtype, np.float64)
         np.testing.assert_array_equal(metadata["Length"]["values"], [2, 3])
+        np.testing.assert_allclose(metadata["GRAVY"]["values"], [1.8, 2.5])
+
+    def test_derived_columns_match_expasy_protparam(self):
+        from Bio.SeqUtils.ProtParam import ProteinAnalysis
+
+        random.seed(20260912)
+        alphabet = "ACDEFGHIKLMNPQRSTVWY"
+        sequences = [
+            "".join(random.choice(alphabet) for _ in range(random.randint(30, 400)))
+            for _ in range(50)
+        ]
+        headers = [f"node_{index}" for index in range(len(sequences))]
+
+        metadata = derive_node_metadata(headers, list(zip(headers, sequences)))
+
+        for index, sequence in enumerate(sequences):
+            analysis = ProteinAnalysis(sequence)
+            # The isoelectric point is bisected to 0.0001 pH units; mass and
+            # hydropathy are closed forms and agree to machine precision.
+            self.assertAlmostEqual(
+                metadata["pI"]["values"][index],
+                analysis.isoelectric_point(),
+                places=3,
+            )
+            self.assertAlmostEqual(
+                metadata["kDa"]["values"][index],
+                analysis.molecular_weight() / 1000.0,
+                places=9,
+            )
+            self.assertAlmostEqual(
+                metadata["GRAVY"]["values"][index], analysis.gravy(), places=12
+            )
+
+    def test_ambiguity_codes_average_the_residues_they_stand_for(self):
+        def derived(sequence):
+            return derive_node_metadata(["n"], [("n", sequence)])
+
+        aspartate = derived("ADK")
+        asparagine = derived("ANK")
+        ambiguous = derived("ABK")
+
+        # Mass is linear in composition, so B lands exactly halfway.
+        self.assertAlmostEqual(
+            ambiguous["kDa"]["values"][0],
+            (aspartate["kDa"]["values"][0] + asparagine["kDa"]["values"][0]) / 2,
+            places=9,
+        )
+        # The titration curve is not linear, so averaging half of aspartate's
+        # charge places the isoelectric point between the two, not at their mean.
+        self.assertLess(aspartate["pI"]["values"][0], ambiguous["pI"]["values"][0])
+        self.assertLess(ambiguous["pI"]["values"][0], asparagine["pI"]["values"][0])
+
+    def test_unscored_residues_leave_gravy_undefined(self):
+        metadata = derive_node_metadata(["n"], [("n", "XXUO")])
+
+        self.assertTrue(np.isnan(metadata["GRAVY"]["values"][0]))
+        self.assertEqual(metadata["Length"]["values"][0], 4)
+        self.assertGreater(metadata["kDa"]["values"][0], 0)
+
+    def test_non_residue_characters_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "non-residue character"):
+            derive_node_metadata(["n"], [("n", "AC-DE")])
 
     def test_node_absent_from_records_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Gamma_Delta"):

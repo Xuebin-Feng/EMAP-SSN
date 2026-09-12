@@ -57,11 +57,9 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
                 meta_entry = self.viewer.metadata.get(col_name)
                 if meta_entry is not None:
                     val = meta_entry["values"][row]
-                    if isinstance(val, (float, np.floating)):
-                        if pd.isna(val):
-                            return ""
-                        return f"{val:g}"
-                    return str(val) if pd.notna(val) else ""
+                    if pd.isna(val):
+                        return ""
+                    return format_metadata_value(val)
         elif role == QtCore.Qt.ItemDataRole.EditRole:
             if col_name == "Node ID":
                 return str(self.viewer.full_headers[row])
@@ -279,6 +277,27 @@ def is_logic_expression(arg):
 
 class MetadataColumnDeleteError(ValueError):
     """Raised when a metadata-column deletion request is not atomic and valid."""
+
+
+def _is_integral_number(value):
+    """Report a floating metadata value that carries no fractional part."""
+    if isinstance(value, (float, np.floating)):
+        return float(value).is_integer()
+    return False
+
+
+def format_metadata_value(value):
+    """Render one metadata value for display, without a decimal point when integral."""
+    if _is_integral_number(value):
+        return f"{float(value):.0f}"
+    return str(value)
+
+
+def export_metadata_value(value):
+    """Return one metadata value for file export, keeping spreadsheet cells numeric."""
+    if _is_integral_number(value):
+        return int(value)
+    return value
 
 
 def _parse_metadata_value(prop_type, value):
@@ -1062,7 +1081,7 @@ def download_metadata(viewer, filepath, expr=None):
                 if viewer.metadata[p]["type"] == "number":
                     if pd.notna(val):
                         has_valid_prop = True
-                        row_val.append(val)
+                        row_val.append(export_metadata_value(val))
                     else:
                         row_val.append("")
                 else:
