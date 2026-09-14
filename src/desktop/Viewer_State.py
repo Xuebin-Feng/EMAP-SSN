@@ -32,7 +32,6 @@ INPUT_PROFILE_DEFAULTS = {
     "NORM_MODE": "alignment_length",
     "ALIGNMENT_REFERENCE": "",
     "ALIGNMENT_OFFSET": 0,
-    "LAYOUT_DIMENSIONS": 2,
     "UMAP_MODE": False,
     "UMAP_NEIGHBORS": 15,
     "UMAP_MIN_DIST": 0.1,
@@ -101,7 +100,6 @@ PROFILE_ENUM_VALUES = {
         "alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"
     },
     "PACKING_GEOMETRY": {"Square", "Circle"},
-    "LAYOUT_DIMENSIONS": {2, 3},
 }
 
 PROFILE_RANGES = {
