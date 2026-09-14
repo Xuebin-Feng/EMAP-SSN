@@ -360,6 +360,8 @@ async def start_layout_job(
             "PACKING_PADDING": 10.0,
             "MAX_FORCE_LIMIT": 20.0,
             "MAX_TOTAL_REPULSION_FORCE": 0.0,
+            "LAYOUT_DIMENSIONS": 2,
+            "LAYOUT_SEED": 42,
         }
         if parameters and isinstance(parameters, dict):
             for k, v in parameters.items():

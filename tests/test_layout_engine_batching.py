@@ -275,5 +275,97 @@ class SegmentedBatchTests(unittest.TestCase):
         self.assertLess(np.linalg.norm(positions[2] - positions[1]), 0.25)
 
 
+class DeterministicLayoutTests(unittest.TestCase):
+    """LAYOUT_SEED must make calculate_layout reproducible run to run."""
+
+    NODES = 24
+
+    def _connectivity(self):
+        edges = []
+        for base, size in ((0, 12), (12, 12)):
+            for offset in range(size):
+                edges.append((base + offset, base + (offset + 1) % size))
+        return np.array([(u, v, 1.0) for u, v in edges], dtype=np.float64)
+
+    def _layout(self, *, seed=0, dimensions=2):
+        params = {
+            **BASE_LAYOUT_PARAMS,
+            "MAX_STEPS": 25,
+            "LAYOUT_DEVICE_SELECTION": "cpu",
+            "LAYOUT_SEED": seed,
+        }
+        if dimensions != 2:
+            params["LAYOUT_DIMENSIONS"] = dimensions
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            positions, _ = ssn_engine.calculate_layout(
+                self._connectivity(), self.NODES, params
+            )
+        return np.asarray(positions)
+
+    def test_fixed_seed_is_reproducible_in_2d(self):
+        first = self._layout(seed=0)
+        second = self._layout(seed=0)
+        self.assertEqual(first.shape, (self.NODES, 2))
+        np.testing.assert_array_equal(first, second)
+
+    def test_fixed_seed_is_reproducible_in_3d(self):
+        first = self._layout(seed=0, dimensions=3)
+        second = self._layout(seed=0, dimensions=3)
+        self.assertEqual(first.shape, (self.NODES, 3))
+        np.testing.assert_array_equal(first, second)
+
+    def test_distinct_seeds_produce_distinct_layouts(self):
+        self.assertFalse(
+            np.array_equal(self._layout(seed=0), self._layout(seed=7))
+        )
+
+    def test_null_seed_opts_out_of_reproducibility(self):
+        first = self._layout(seed=None)
+        second = self._layout(seed=None)
+        self.assertTrue(np.isfinite(first).all())
+        self.assertFalse(np.array_equal(first, second))
+
+    def test_negative_seed_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._layout(seed=-1)
+
+    def test_three_dimensional_kernel_reduces_to_the_two_dimensional_one(self):
+        """With z pinned to zero the 3D kernel must match the 2D kernel."""
+        rng = np.random.default_rng(7)
+        count = 16
+        positions_2d = (rng.random((count, 2)).astype(np.float32) - 0.5) * 20.0
+        positions_3d = np.zeros((count, 3), dtype=np.float32)
+        positions_3d[:, :2] = positions_2d
+        velocity_2d = np.zeros((count, 2), dtype=np.float32)
+        velocity_3d = np.zeros((count, 3), dtype=np.float32)
+        springs = np.array(
+            [(index, (index * 3 + 1) % count) for index in range(count)],
+            dtype=np.int32,
+        )
+        labels = np.zeros(count, dtype=np.int32)
+        mask = np.ones(count, dtype=np.bool_)
+        active = np.flatnonzero(mask).astype(np.int32)
+        limits = np.full(count, 20.0, dtype=np.float32)
+        arguments = (0.005, 0.9, 5.0, 10.0, 20.0, 0.0, 30.0)
+
+        kernel_2d = ssn_engine._get_physics_kernel(2)
+        kernel_3d = ssn_engine._get_physics_kernel(3)
+        for _ in range(10):
+            rmsd_2d = kernel_2d(
+                positions_2d, velocity_2d, springs, labels, mask, active,
+                limits, *arguments,
+            )
+            rmsd_3d = kernel_3d(
+                positions_3d, velocity_3d, springs, labels, mask, active,
+                limits, *arguments,
+            )
+
+        np.testing.assert_array_equal(positions_3d[:, :2], positions_2d)
+        np.testing.assert_array_equal(
+            positions_3d[:, 2], np.zeros(count, dtype=np.float32)
+        )
+        self.assertEqual(rmsd_2d, rmsd_3d)
+
+
 if __name__ == "__main__":
     unittest.main()

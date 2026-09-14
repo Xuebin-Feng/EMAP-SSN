@@ -172,5 +172,68 @@ class TestLayoutEngineUMAP(unittest.TestCase):
         self.assertGreater(box_limit, 0.0)
 
 
+class UMAPSeedTests(unittest.TestCase):
+    """LAYOUT_SEED must drive the UMAP engine, replacing its hardcoded 42."""
+
+    EDGES = [(i, j, 100.0) for i in range(12) for j in range(i + 1, 12)]
+
+    def _captured_kwargs(self, params):
+        captured = []
+
+        def construct(**kwargs):
+            captured.append(kwargs)
+            return mock.Mock(
+                fit_transform=lambda x: np.column_stack(
+                    (np.arange(12), np.arange(12))
+                ).astype(np.float32)
+            )
+
+        with mock.patch.object(
+            Layout_Engine_UMAP.umap, "UMAP", side_effect=construct
+        ):
+            Layout_Engine_UMAP.calculate_layout(
+                np.array(self.EDGES, dtype=np.float32),
+                12,
+                {"UMAP_NEIGHBORS": 5, **params},
+            )
+        return captured[0]
+
+    @unittest.skipUnless(Layout_Engine_UMAP.UMAP_AVAILABLE, "umap-learn is required")
+    def test_default_seed_is_forty_two(self):
+        self.assertEqual(self._captured_kwargs({})["random_state"], 42)
+
+    @unittest.skipUnless(Layout_Engine_UMAP.UMAP_AVAILABLE, "umap-learn is required")
+    def test_explicit_seed_reaches_the_reducer(self):
+        self.assertEqual(
+            self._captured_kwargs({"LAYOUT_SEED": 7})["random_state"], 7
+        )
+
+    @unittest.skipUnless(Layout_Engine_UMAP.UMAP_AVAILABLE, "umap-learn is required")
+    def test_null_seed_opts_out_of_determinism(self):
+        self.assertIsNone(
+            self._captured_kwargs({"LAYOUT_SEED": None})["random_state"]
+        )
+
+    def _empty_layout(self, params):
+        positions, _ = Layout_Engine_UMAP.calculate_layout(
+            np.zeros((0, 3), dtype=np.float32), n_nodes=10, params=params
+        )
+        return positions
+
+    def test_empty_network_fallback_is_seeded(self):
+        first = self._empty_layout({"BOX_SCALE": 1.5})
+        second = self._empty_layout({"BOX_SCALE": 1.5})
+        np.testing.assert_array_equal(first, second)
+
+    def test_empty_network_fallback_varies_with_seed(self):
+        first = self._empty_layout({"BOX_SCALE": 1.5, "LAYOUT_SEED": 1})
+        second = self._empty_layout({"BOX_SCALE": 1.5, "LAYOUT_SEED": 2})
+        self.assertFalse(np.array_equal(first, second))
+
+    def test_negative_seed_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._empty_layout({"BOX_SCALE": 1.5, "LAYOUT_SEED": -1})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -42,7 +42,14 @@ except Exception as e:
 
 # --- 1. Physics Kernels ---
 
-def _get_physics_kernel():
+def _compile_physics_kernel(kernel):
+    """JIT-compile a kernel when numba is present, else return the closure."""
+    if NUMBA_AVAILABLE:
+        return jit(nopython=True, fastmath=True)(kernel)
+    return kernel
+
+
+def _build_physics_kernel_2d():
     def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
         n_balls = pos.shape[0]
         acc = np.zeros_like(pos)
@@ -132,11 +139,143 @@ def _get_physics_kernel():
             return 0.0
         return math.sqrt(rmsd / n_active)
         
-    if NUMBA_AVAILABLE:
-        return jit(nopython=True, fastmath=True)(_run_physics_kernel)
-    return _run_physics_kernel
+    return _compile_physics_kernel(_run_physics_kernel)
 
-run_physics_kernel = _get_physics_kernel()
+
+def _build_physics_kernel_3d():
+    """Line-for-line 3D twin of the 2D kernel.
+
+    The axis components are written out explicitly rather than looped over a
+    runtime-length dimension so numba keeps the same fully unrolled codegen it
+    produces for the 2D path. Every formula, clamp and ordering below matches
+    _build_physics_kernel_2d exactly; only the z terms are added.
+    """
+    def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
+        n_balls = pos.shape[0]
+        acc = np.zeros_like(pos)
+        repulsion = np.zeros_like(pos)
+
+        # Calculate squared cutoff for efficient distance comparison
+        cutoff_sq = cutoff_dist * cutoff_dist
+        taper_start = cutoff_dist * 0.8
+        taper_width = max(cutoff_dist * 0.2, 1e-9)
+
+        # --- SPRINGS (Attraction) ---
+        for i in range(springs.shape[0]):
+            idx_a, idx_b = springs[i, 0], springs[i, 1]
+            if not active_mask[idx_a] or not active_mask[idx_b]:
+                continue
+            dx = pos[idx_a, 0] - pos[idx_b, 0]
+            dy = pos[idx_a, 1] - pos[idx_b, 1]
+            dz = pos[idx_a, 2] - pos[idx_b, 2]
+            dist = math.sqrt(dx*dx + dy*dy + dz*dz) + 1e-9
+
+            f = -k_spr * dist
+
+            acc[idx_a, 0] += f * (dx/dist); acc[idx_a, 1] += f * (dy/dist); acc[idx_a, 2] += f * (dz/dist)
+            acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist); acc[idx_b, 2] -= f * (dz/dist)
+
+        # --- REPULSION (Coulomb Only) ---
+        for active_i in range(active_nodes.shape[0]):
+            i = active_nodes[active_i]
+            for active_j in range(active_i + 1, active_nodes.shape[0]):
+                j = active_nodes[active_j]
+                if comp_labels[i] != comp_labels[j]:
+                    continue
+
+                dx = pos[i, 0] - pos[j, 0]
+                dy = pos[i, 1] - pos[j, 1]
+                dz = pos[i, 2] - pos[j, 2]
+                dist_sq = dx*dx + dy*dy + dz*dz
+
+                if dist_sq > cutoff_sq: continue
+                if dist_sq == 0.0: continue
+
+                dist = math.sqrt(dist_sq)
+                safe_dist = max(dist, 0.5)
+
+                f = k_coul / (safe_dist**2)
+
+                if max_f > 0.0 and f > max_f:
+                    f = max_f
+                if dist > taper_start:
+                    f *= max(0.0, (cutoff_dist - dist) / taper_width)
+
+                repulsion[i, 0] += f*(dx/dist); repulsion[i, 1] += f*(dy/dist); repulsion[i, 2] += f*(dz/dist)
+                repulsion[j, 0] -= f*(dx/dist); repulsion[j, 1] -= f*(dy/dist); repulsion[j, 2] -= f*(dz/dist)
+
+        # MAX_FORCE_LIMIT caps each pair. This second cap limits the norm of the
+        # accumulated repulsive force on a node before it is combined with springs.
+        for active_idx in range(active_nodes.shape[0]):
+            i = active_nodes[active_idx]
+            rep_norm = math.sqrt(
+                repulsion[i, 0] * repulsion[i, 0]
+                + repulsion[i, 1] * repulsion[i, 1]
+                + repulsion[i, 2] * repulsion[i, 2]
+            )
+            if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
+                rep_scale = max_total_repulsion / rep_norm
+                repulsion[i, 0] *= rep_scale
+                repulsion[i, 1] *= rep_scale
+                repulsion[i, 2] *= rep_scale
+            acc[i, 0] += repulsion[i, 0]
+            acc[i, 1] += repulsion[i, 1]
+            acc[i, 2] += repulsion[i, 2]
+
+        # --- INTEGRATION (Euler) ---
+        rmsd = 0.0
+        n_active = active_nodes.shape[0]
+        for i in range(n_balls):
+            if not active_mask[i]:
+                continue
+            box_limit = box_limits[i]
+            acc[i] -= damping * vel[i]
+            vel[i] += acc[i] * dt
+            old_p = pos[i].copy()
+            pos[i] += vel[i] * dt
+
+            if pos[i,0] > box_limit: pos[i,0]=box_limit; vel[i,0]*=-0.5
+            elif pos[i,0] < -box_limit: pos[i,0]=-box_limit; vel[i,0]*=-0.5
+            if pos[i,1] > box_limit: pos[i,1]=box_limit; vel[i,1]*=-0.5
+            elif pos[i,1] < -box_limit: pos[i,1]=-box_limit; vel[i,1]*=-0.5
+            if pos[i,2] > box_limit: pos[i,2]=box_limit; vel[i,2]*=-0.5
+            elif pos[i,2] < -box_limit: pos[i,2]=-box_limit; vel[i,2]*=-0.5
+
+            diff = pos[i] - old_p
+            rmsd += diff[0]**2 + diff[1]**2 + diff[2]**2
+
+        if n_active == 0:
+            return 0.0
+        return math.sqrt(rmsd / n_active)
+
+    return _compile_physics_kernel(_run_physics_kernel)
+
+
+_PHYSICS_KERNEL_BUILDERS = {
+    2: _build_physics_kernel_2d,
+    3: _build_physics_kernel_3d,
+}
+_PHYSICS_KERNEL_CACHE = {}
+
+
+def _get_physics_kernel(dimensions=2):
+    """Return the physics kernel specialized for `dimensions` coordinates."""
+    key = int(dimensions)
+    builder = _PHYSICS_KERNEL_BUILDERS.get(key)
+    if builder is None:
+        raise ValueError(
+            f"Unsupported layout dimensionality {dimensions!r}; expected 2 or 3."
+        )
+    kernel = _PHYSICS_KERNEL_CACHE.get(key)
+    if kernel is None:
+        kernel = builder()
+        _PHYSICS_KERNEL_CACHE[key] = kernel
+    return kernel
+
+
+# Backward-compatible alias: the 2D kernel remains importable under its
+# historical name for callers that predate the dimensionality switch.
+run_physics_kernel = _get_physics_kernel(2)
 
 def _normalize_active_mask(active_mask, n_nodes):
     if active_mask is None:
@@ -171,9 +310,13 @@ class SSNSimulationCPU:
         self.box_limits = _normalize_box_limits(box_limit, len(self.pos))
         self.params = params
         self.cutoff = float(self.params.get('COULOMB_CUTOFF', 15.0))
+        # Dimensionality is carried by the position array itself, so the
+        # simulation-object protocol is unchanged for 2D callers.
+        self.dimensions = int(self.pos.shape[1])
+        self._kernel = _get_physics_kernel(self.dimensions)
 
     def step(self, current_step):
-        return run_physics_kernel(
+        return self._kernel(
             self.pos, self.vel, self.springs, self.comp_labels,
             self.active_mask, self.active_nodes, self.box_limits,
             self.params.get('DT', 0.1), 
@@ -282,12 +425,14 @@ if HAS_TORCH:
             self.pos[self.active_mask] += self.vel[self.active_mask] * dt
             
             # --- Boundary Collisions (Match CPU Bouncing) ---
-            out_of_bounds_x = (self.pos[:, 0].abs() > self.box_limits) & self.active_mask
-            out_of_bounds_y = (self.pos[:, 1].abs() > self.box_limits) & self.active_mask
-            
-            # Reverse and dampen velocity for nodes hitting the walls
-            self.vel[out_of_bounds_x, 0] *= -0.5
-            self.vel[out_of_bounds_y, 1] *= -0.5
+            # Reverse and dampen velocity for nodes hitting the walls.
+            # Every other tensor op in this class is already rank-agnostic, so
+            # iterating the axes is all that 3D support requires here.
+            for axis in range(self.pos.shape[1]):
+                out_of_bounds = (
+                    self.pos[:, axis].abs() > self.box_limits
+                ) & self.active_mask
+                self.vel[out_of_bounds, axis] *= -0.5
             
             # Clamp positions
             limits = self.box_limits[self.active_mask].unsqueeze(1)
@@ -349,6 +494,156 @@ def get_component_labels(n_nodes, edges):
         for node in comp:
             labels[node] = c_id
     return labels
+
+def _resolve_seed(params):
+    """Return the layout seed, or None for non-reproducible behaviour."""
+    value = params.get('LAYOUT_SEED', 42)
+    if value is None:
+        return None
+    seed = int(value)
+    if seed < 0:
+        raise ValueError(
+            f"LAYOUT_SEED must be a non-negative integer or null, got {value!r}."
+        )
+    return seed
+
+
+def _job_generator(seed, job_index):
+    """Independent stream per job.
+
+    Spawning per job rather than sharing one Generator means adding or
+    removing a component cannot shift the random draws of every component
+    scheduled after it.
+    """
+    if seed is None:
+        return np.random.default_rng()
+    return np.random.default_rng([seed, job_index])
+
+
+def _resolve_dimensions(params):
+    """Read the coordinate count for this run. Defaults to the historical 2D."""
+    value = int(params.get('LAYOUT_DIMENSIONS', 2) or 2)
+    if value not in (2, 3):
+        raise ValueError(
+            f"LAYOUT_DIMENSIONS must be 2 or 3, got {value!r}."
+        )
+    return value
+
+
+def _initial_lattice(n_nodes, box_limit, dimensions):
+    """Uniform lattice seed. For dimensions=2 this reproduces the 2D meshgrid."""
+    if n_nodes <= 0:
+        return np.zeros((0, dimensions), dtype=np.float32)
+    side = max(int(np.ceil(n_nodes ** (1.0 / dimensions))), 1)
+    axis = np.linspace(-box_limit * 0.5, box_limit * 0.5, side)
+    mesh = np.meshgrid(*([axis] * dimensions))
+    lattice = np.column_stack([component.flatten() for component in mesh])
+    if lattice.shape[0] < n_nodes:
+        repeats = int(np.ceil(n_nodes / lattice.shape[0]))
+        lattice = np.tile(lattice, (repeats, 1))
+    return lattice[:n_nodes].astype(np.float32)
+
+
+def _fibonacci_sphere(count):
+    """Near-uniform unit vectors on the sphere via the golden-angle spiral."""
+    if count <= 0:
+        return np.zeros((0, 3), dtype=np.float64)
+    if count == 1:
+        return np.array([[0.0, 0.0, 1.0]], dtype=np.float64)
+    index = np.arange(count, dtype=np.float64)
+    golden_angle = math.pi * (3.0 - math.sqrt(5.0))
+    z = 1.0 - 2.0 * index / (count - 1)
+    ring = np.sqrt(np.clip(1.0 - z * z, 0.0, None))
+    theta = golden_angle * index
+    return np.column_stack((np.cos(theta) * ring, np.sin(theta) * ring, z))
+
+
+def pack_components_to_shells(pos, edges, n_nodes, spacing, padding):
+    """Distribute independent components over concentric spherical shells.
+
+    The 2D packer tiles components into a readable poster because a flat view
+    has to show everything at once. In a headset the viewer flies between
+    components, so the 3D analogue optimizes for navigability instead of area:
+    the largest component sits at the origin and the rest are distributed over
+    shells around it, each placed on a golden-angle direction that clears every
+    component already placed.
+    """
+    print("Packing independent components onto concentric spherical shells...")
+    components = find_connected_components(n_nodes, edges)
+
+    if not components:
+        return pos, 100.0
+
+    gap = max(float(spacing), 0.0)
+    pad = max(float(padding), 0.0) / 2.0
+
+    component_info = []
+    for component in components:
+        indices = np.asarray(component, dtype=np.int64)
+        block = pos[indices].astype(np.float64)
+        centroid = block.mean(axis=0)
+        local = block - centroid
+        extent = (
+            float(np.max(np.linalg.norm(local, axis=1))) if indices.size else 0.0
+        )
+        component_info.append({
+            'indices': indices,
+            'local': local,
+            'radius': max(extent, 1e-6) + pad,
+            'num_nodes': int(indices.size),
+        })
+
+    # Largest first, matching the 2D packer's ordering intent.
+    component_info.sort(key=lambda c: (c['radius'], c['num_nodes']), reverse=True)
+
+    new_pos = np.asarray(pos, dtype=np.float64).copy()
+    placed_centers = np.zeros((len(component_info), 3), dtype=np.float64)
+    placed_radii = np.zeros(len(component_info), dtype=np.float64)
+    placed_count = 0
+
+    def _place(component, center):
+        nonlocal placed_count
+        new_pos[component['indices']] = component['local'] + center
+        placed_centers[placed_count] = center
+        placed_radii[placed_count] = component['radius']
+        placed_count += 1
+
+    _place(component_info[0], np.zeros(3, dtype=np.float64))
+
+    pending = component_info[1:]
+    cursor = 0
+    shell = 0
+    shell_radius = component_info[0]['radius']
+
+    while cursor < len(pending):
+        shell += 1
+        shell_radius += max(c['radius'] for c in pending[cursor:]) + gap
+        # Candidate density grows with the shell's surface area.
+        directions = _fibonacci_sphere(max(16, 10 * shell * shell))
+        for direction in directions:
+            if cursor >= len(pending):
+                break
+            component = pending[cursor]
+            center = direction * shell_radius
+            required = placed_radii[:placed_count] + component['radius'] + gap
+            offsets = placed_centers[:placed_count] - center
+            separation = np.einsum('ij,ij->i', offsets, offsets)
+            if np.all(separation >= required * required):
+                _place(component, center)
+                cursor += 1
+
+    global_min = np.min(new_pos, axis=0)
+    global_max = np.max(new_pos, axis=0)
+    new_pos -= (global_max + global_min) / 2.0
+
+    new_box_limit = float(np.max(global_max - global_min)) / 2.0 * 1.1
+
+    print(
+        f"Packed {len(components)} objects onto {shell} shells. "
+        "Ready for display."
+    )
+    return new_pos.astype(np.float32), new_box_limit
+
 
 def pack_components_to_grid(pos, edges, n_nodes, grid_size, padding, packing_geometry="Square"):
     """Packs independent network components into a strict master grid layout."""
@@ -541,7 +836,9 @@ def pack_components_to_grid(pos, edges, n_nodes, grid_size, padding, packing_geo
 
 # --- 3. Main Layout Algorithm ---
 
-def _prepare_progressive_stage(pos, stage_edges, stage_scores, previous_active):
+def _prepare_progressive_stage(
+    pos, stage_edges, stage_scores, previous_active, rng=None
+):
     """Activate stage nodes and place newly introduced nodes near active neighbors."""
     active_mask = np.zeros(len(pos), dtype=np.bool_)
     for u, v in stage_edges:
@@ -574,8 +871,9 @@ def _prepare_progressive_stage(pos, stage_edges, stage_scores, previous_active):
             weighted_sum[anchored_nodes]
             / weight_sum[anchored_nodes, None]
         ).astype(np.float32)
-        pos[anchored_nodes] += np.random.normal(
-            0.0, 0.05, (len(anchored_nodes), 2)
+        draw = np.random.normal if rng is None else rng.normal
+        pos[anchored_nodes] += draw(
+            0.0, 0.05, (len(anchored_nodes), pos.shape[1])
         ).astype(np.float32)
 
     return active_mask
@@ -673,22 +971,20 @@ def calculate_layout(connectivity, n_nodes, params):
     params: Dictionary containing physics and execution parameters
     
     Returns:
-        pos (np.ndarray): Final X/Y coordinates
+        pos (np.ndarray): Final coordinates, (n_nodes, LAYOUT_DIMENSIONS)
         box_limit (float): Boundary box size
     """
     device_selection = params.get('LAYOUT_DEVICE_SELECTION', 'auto')
+    dimensions = _resolve_dimensions(params)
+    layout_seed = _resolve_seed(params)
     
     edges = connectivity[:, :2].astype(np.int32)
     edge_scores = connectivity[:, 2]
     
     # Initialize basic grid positioning to start
-    side = int(np.ceil(np.sqrt(n_nodes)))
     base_box = np.sqrt(n_nodes) * 2.5 + 5.0
     initial_box_limit = base_box * params.get('BOX_SCALE', 1.0)
-    x = np.linspace(-initial_box_limit*0.5, initial_box_limit*0.5, side)
-    y = np.linspace(-initial_box_limit*0.5, initial_box_limit*0.5, side)
-    xv, yv = np.meshgrid(x, y)
-    initial_pos = np.column_stack((xv.flatten(), yv.flatten()))[:n_nodes].astype(np.float32)
+    initial_pos = _initial_lattice(n_nodes, initial_box_limit, dimensions)
 
     components = find_connected_components(n_nodes, edges)
     
@@ -774,12 +1070,14 @@ def calculate_layout(connectivity, n_nodes, params):
     
     # 3. Simulate jobs sequentially
     for job_idx, batch_comps in enumerate(jobs):
+        job_rng = _job_generator(layout_seed, job_idx)
         prepared_batch = Layout_Hardware.prepare_layout_batch(
             batch_comps,
             node_to_comp_idx,
             comp_edges,
             comp_scores,
             params,
+            rng=job_rng,
         )
         n_batch_nodes = prepared_batch.node_count
         is_large_job = prepared_batch.is_large_job
@@ -837,6 +1135,7 @@ def calculate_layout(connectivity, n_nodes, params):
                 stage_edges,
                 stage_scores,
                 previous_active,
+                rng=job_rng,
             )
             previous_active = stage_active_mask.copy()
 
@@ -883,6 +1182,14 @@ def calculate_layout(connectivity, n_nodes, params):
     print("\nSimulation Complete.")
     
     # Pack independent components into a grid
+    if dimensions == 3:
+        final_pos, final_box_limit = pack_components_to_shells(
+            final_pos, edges, n_nodes,
+            params.get('PACKING_GRID_SIZE', 200.0),
+            params.get('PACKING_PADDING', 50.0),
+        )
+        return final_pos, final_box_limit
+
     final_pos, final_box_limit = pack_components_to_grid(
         final_pos, edges, n_nodes, 
         params.get('PACKING_GRID_SIZE', 200.0), 

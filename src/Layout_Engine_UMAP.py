@@ -24,6 +24,25 @@ except ImportError:
     UMAP_AVAILABLE = False
 
 
+def _resolve_seed(params):
+    """Return the layout seed, or None for non-reproducible behaviour.
+
+    Kept behaviourally identical to Layout_Engine_SSN._resolve_seed. The two
+    engines share no imports by design - the only contract between them is
+    calculate_layout(connectivity, n_nodes, params) - so the check is
+    duplicated rather than imported.
+    """
+    value = params.get('LAYOUT_SEED', 42)
+    if value is None:
+        return None
+    seed = int(value)
+    if seed < 0:
+        raise ValueError(
+            f"LAYOUT_SEED must be a non-negative integer or null, got {value!r}."
+        )
+    return seed
+
+
 def calculate_layout(connectivity, n_nodes, params):
     """
     Alternative layout generation pipeline using UMAP with native k-NN precomputed tuples.
@@ -33,13 +52,20 @@ def calculate_layout(connectivity, n_nodes, params):
     params: Dictionary containing execution parameters
     
     Returns:
-        pos (np.ndarray): Final X/Y coordinates
+        pos (np.ndarray): Final coordinates, (n_nodes, LAYOUT_DIMENSIONS)
         box_limit (float): Boundary box size
     """
     if not UMAP_AVAILABLE:
         raise ImportError("UMAP library is not installed. Please install 'umap-learn' to use the UMAP layout engine.")
         
     print(f"Running UMAP global layout on {n_nodes} nodes...")
+
+    layout_seed = _resolve_seed(params)
+    dimensions = int(params.get('LAYOUT_DIMENSIONS', 2) or 2)
+    if dimensions not in (2, 3):
+        raise ValueError(
+            f"LAYOUT_DIMENSIONS must be 2 or 3, got {dimensions!r}."
+        )
     
     target_box = (np.sqrt(n_nodes) * 2.5 + 5.0)
     final_box_limit = target_box * params.get('BOX_SCALE', 1.0)
@@ -47,7 +73,9 @@ def calculate_layout(connectivity, n_nodes, params):
     if connectivity.shape[0] == 0:
         # Edge case: No edges at all
         print("Warning: Network has no edges. Generating random layout.")
-        pos = np.random.uniform(-final_box_limit / 2.0, final_box_limit / 2.0, (n_nodes, 2)).astype(np.float32)
+        pos = np.random.default_rng(layout_seed).uniform(
+            -final_box_limit / 2.0, final_box_limit / 2.0, (n_nodes, dimensions)
+        ).astype(np.float32)
         return pos, final_box_limit
 
     # Extract connectivity data
@@ -98,20 +126,20 @@ def calculate_layout(connectivity, n_nodes, params):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         reducer = umap.UMAP(
-            n_components=2,
+            n_components=dimensions,
             n_neighbors=n_neighbors,
             min_dist=min_dist,
             precomputed_knn=(knn_indices, knn_dists, None),
             init='random' if n_nodes <= 3 else 'spectral',
-            random_state=42 # fixed seed for reproducible deterministic layouts
+            random_state=layout_seed # LAYOUT_SEED; None opts out of determinism
         )
         final_pos = reducer.fit_transform(X_dummy).astype(np.float32)
 
     # --- 4. Handle Disconnected Vertices (NaN coordinates) ---
     nan_mask = ~np.isfinite(final_pos).all(axis=1)
     if np.any(nan_mask):
-        rng = np.random.RandomState(42)
-        final_pos[nan_mask] = rng.uniform(-0.5, 0.5, (np.sum(nan_mask), 2)).astype(np.float32)
+        rng = np.random.RandomState(layout_seed)
+        final_pos[nan_mask] = rng.uniform(-0.5, 0.5, (np.sum(nan_mask), dimensions)).astype(np.float32)
 
     # --- 5. Scale and Center Output ---
     connected_mask = ~nan_mask
@@ -121,7 +149,7 @@ def calculate_layout(connectivity, n_nodes, params):
         center = (global_max + global_min) / 2.0
         final_pos -= center
         ptp = np.ptp(final_pos[connected_mask], axis=0)
-        umap_max_spread = max(ptp[0], ptp[1]) + 1e-9  # avoid division by zero
+        umap_max_spread = float(np.max(ptp)) + 1e-9  # avoid division by zero
     else:
         umap_max_spread = 1.0
 

@@ -128,7 +128,7 @@ PROFILE_RANGES = {
 LAYOUT_SECTIONS = {
     "inputs": ("NODE_FASTA_FILE", "INPUT_HDF5"),
     "network": ("ALIGNMENT_SCORE", "NORM_MODE", "SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"),
-    "layout": ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST"),
+    "layout": ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST", "LAYOUT_DIMENSIONS", "LAYOUT_SEED"),
     "simulation": ("LAYOUT_DEVICE_SELECTION", "DT", "MAX_STEPS", "RMSD_THRESHOLD", "PERCENTAGE_DROP_THRESHOLD", "RMSD_WINDOW", "ENABLE_PROGRESSIVE_SIMULATION"),
     "physics": ("SPRING_K", "COULOMB_K", "COULOMB_CUTOFF", "DAMPING", "MAX_FORCE_LIMIT", "MAX_TOTAL_REPULSION_FORCE"),
     "packing": ("PACKING_GEOMETRY", "PACKING_GRID_SIZE", "BOX_SCALE", "PACKING_PADDING"),
@@ -143,16 +143,37 @@ VIEWER_SECTIONS = {
 }
 
 
+# Keys a document may omit. Absent ones decode to the default below, so
+# documents exported before the key existed remain valid.
+OPTIONAL_DOCUMENT_KEYS = {
+    "layout": {"LAYOUT_DIMENSIONS": 2, "LAYOUT_SEED": 42},
+    "viewer": {},
+}
+
+
 def sections(kind):
     return {"layout": LAYOUT_SECTIONS, "viewer": VIEWER_SECTIONS}[kind]
 
 
+def optional_keys(kind):
+    return OPTIONAL_DOCUMENT_KEYS[kind]
+
+
 def encode_document(kind, values):
+    optional = optional_keys(kind)
+
+    def value_for(key):
+        if key in values:
+            return deepcopy(values[key])
+        if key in optional:
+            return deepcopy(optional[key])
+        raise KeyError(key)
+
     return {
         "schema_version": 2,
         "kind": kind,
         **{
-            section: {key: deepcopy(values[key]) for key in keys}
+            section: {key: value_for(key) for key in keys}
             for section, keys in sections(kind).items()
         },
     }
@@ -162,6 +183,7 @@ def decode_document(document, kind, *, partial=False):
     if not isinstance(document, dict) or type(document.get("schema_version")) is not int or document.get("schema_version") != 2 or document.get("kind") != kind:
         raise ValueError(f"Expected schema_version 2, kind '{kind}'. Re-export settings through the GUI, CLI, or MCP export action; legacy execution JSON is unsupported.")
     mapping = sections(kind)
+    optional = optional_keys(kind)
     unknown = set(document) - {"schema_version", "kind", *mapping}
     if unknown:
         raise ValueError("Unknown document sections: " + ", ".join(sorted(unknown)) + ". Re-export settings.")
@@ -171,12 +193,14 @@ def decode_document(document, kind, *, partial=False):
         if not isinstance(values, dict):
             raise ValueError(f"{section}: expected an object. Re-export settings.")
         unknown = set(values) - set(keys)
-        missing = set(keys) - set(values)
+        missing = set(keys) - set(values) - set(optional)
         if unknown:
             raise ValueError(f"{section}: unknown or misplaced fields: " + ", ".join(sorted(unknown)) + ". Re-export settings.")
         if missing and not partial:
             raise ValueError(f"{section}: missing fields: " + ", ".join(sorted(missing)) + ". Re-export settings.")
         result.update(deepcopy(values))
+    for key, default in optional.items():
+        result.setdefault(key, deepcopy(default))
     return result
 
 

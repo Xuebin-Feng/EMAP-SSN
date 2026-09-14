@@ -361,6 +361,11 @@ def prepare_layout_batch(
     rng: np.random.Generator | None = None,
 ) -> PreparedLayoutBatch:
     """Build one vectorized physics batch without mutating source inputs."""
+    dimensions = int(params.get("LAYOUT_DIMENSIONS", 2) or 2)
+    if dimensions not in (2, 3):
+        raise ValueError(
+            f"LAYOUT_DIMENSIONS must be 2 or 3, got {dimensions!r}."
+        )
     node_count = sum(len(component) for component in batch_components)
     is_large_job = len(batch_components) == 1 and node_count >= 500
     global_nodes = [node for component in batch_components for node in component]
@@ -393,7 +398,7 @@ def prepare_layout_batch(
         local_positions = None
         spectral_success = False
 
-        if component_node_count >= 4:
+        if component_node_count >= dimensions + 2:
             if verbose and component_node_count >= 50:
                 print(
                     "  > Calculating Spectral Layout for sub-component "
@@ -423,24 +428,24 @@ def prepare_layout_batch(
                 )
                 _, vectors = eigsh(
                     graph_laplacian,
-                    k=3,
+                    k=dimensions + 1,
                     which="SM",
                     tol=1e-3,
                     v0=eigsh_v0,
                 )
-                x_coordinates = vectors[:, 1]
-                y_coordinates = vectors[:, 2]
-                x_normalized = (x_coordinates - np.min(x_coordinates)) / (
-                    np.ptp(x_coordinates) + 1e-9
-                )
-                y_normalized = (y_coordinates - np.min(y_coordinates)) / (
-                    np.ptp(y_coordinates) + 1e-9
-                )
-                local_positions = np.column_stack(
-                    (
-                        (x_normalized - 0.5) * box_limit * 0.8,
-                        (y_normalized - 0.5) * box_limit * 0.8,
+                # Eigenvector 0 is the trivial constant vector; take the
+                # next `dimensions` as the coordinate axes.
+                axis_blocks = []
+                for axis_index in range(1, dimensions + 1):
+                    coordinates = vectors[:, axis_index]
+                    normalized = (coordinates - np.min(coordinates)) / (
+                        np.ptp(coordinates) + 1e-9
                     )
+                    axis_blocks.append(
+                        (normalized - 0.5) * box_limit * 0.8
+                    )
+                local_positions = np.column_stack(
+                    axis_blocks
                 ).astype(np.float32)
                 spectral_success = True
             except Exception as error:
@@ -451,12 +456,18 @@ def prepare_layout_batch(
                     )
 
         if not spectral_success:
-            side = int(np.ceil(np.sqrt(component_node_count)))
+            side = max(
+                int(np.ceil(component_node_count ** (1.0 / dimensions))), 1
+            )
             axis = np.linspace(-box_limit * 0.5, box_limit * 0.5, side)
-            x_grid, y_grid = np.meshgrid(axis, axis)
-            local_positions = np.column_stack(
-                (x_grid.flatten(), y_grid.flatten())
-            )[:component_node_count].astype(np.float32)
+            mesh = np.meshgrid(*([axis] * dimensions))
+            grid = np.column_stack([block.flatten() for block in mesh])
+            if grid.shape[0] < component_node_count:
+                repeats = int(np.ceil(component_node_count / grid.shape[0]))
+                grid = np.tile(grid, (repeats, 1))
+            local_positions = grid[
+                :component_node_count
+            ].astype(np.float32)
 
         local_minimum = np.min(local_positions, axis=0)
         local_maximum = np.max(local_positions, axis=0)

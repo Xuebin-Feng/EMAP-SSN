@@ -299,11 +299,18 @@ def build_compatibility(
     umap_neighbors=15,
     top_edge_percent=None,
     similarity_threshold=None,
+    layout_dimensions=2,
 ):
     """Build the canonical fields that define one compatible cache folder."""
     network_type = str(network_type).lower()
     if network_type not in {"blast", "alignment"}:
         raise CacheManifestError(f"Unsupported network type: {network_type}")
+
+    dimensions = int(layout_dimensions)
+    if dimensions not in {2, 3}:
+        raise CacheManifestError(
+            f"Unsupported layout dimensionality: {layout_dimensions}"
+        )
 
     is_umap = bool(umap_mode)
     if is_umap:
@@ -324,7 +331,10 @@ def build_compatibility(
         "network_type": network_type,
         "alignment_score": None if network_type == "blast" else str(alignment_score),
         "normalization": None if network_type == "blast" else str(normalization),
-        "layout_mode": "umap" if is_umap else "physics",
+        "layout_mode": (
+            ("umap" if is_umap else "physics")
+            + ("_3d" if dimensions == 3 else "")
+        ),
         **({"umap_knn_revision": 2} if is_umap else {}),
         "edge_filter": edge_filter,
     }
@@ -489,6 +499,7 @@ def build_canonical_cache_name(
     umap_neighbors=15,
     top_edge_percent=None,
     similarity_threshold=None,
+    layout_dimensions=2,
 ):
     """Build a human-readable cache name from authoritative network metadata."""
     fasta_base = os.path.splitext(os.path.basename(sequence_path))[0] or "Network"
@@ -515,6 +526,8 @@ def build_canonical_cache_name(
             threshold = _optional_float(similarity_threshold)
             if threshold is not None:
                 suffix += f"_Score{threshold}"
+    if int(layout_dimensions) == 3:
+        suffix += "_3D"
     return f"{fasta_base}{model_string}{suffix}"
 
 
@@ -671,8 +684,10 @@ def validate_cache_hdf5(hf, expected_headers, manifest_id):
 
     node_count = len(cached_headers)
     positions = hf["positions"][:]
-    if positions.shape != (node_count, 2):
-        raise CacheManifestError("Cache positions must have shape (node_count, 2).")
+    if positions.ndim != 2 or positions.shape[0] != node_count or positions.shape[1] not in (2, 3):
+        raise CacheManifestError(
+            "Cache positions must have shape (node_count, 2) or (node_count, 3)."
+        )
     if not np.issubdtype(positions.dtype, np.number) or not np.all(np.isfinite(positions)):
         raise CacheManifestError("Cache positions contain invalid coordinates.")
 

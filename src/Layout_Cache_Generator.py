@@ -154,6 +154,8 @@ class LayoutGenerationSettings:
     ENABLE_PROGRESSIVE_SIMULATION: bool
     PACKING_GEOMETRY: str
     PACKING_GRID_SIZE: float
+    LAYOUT_DIMENSIONS: int = 2
+    LAYOUT_SEED: int | None = 42
 
     # Coordinate-affecting values which are currently hidden in EMAP-SSN Configuration.
     BOX_SCALE: float = 2.0
@@ -275,6 +277,8 @@ class LayoutGenerationSettings:
             "PACKING_PADDING": 10.0,
             "MAX_FORCE_LIMIT": 20.0,
             "MAX_TOTAL_REPULSION_FORCE": 0.0,
+            "LAYOUT_DIMENSIONS": 2,
+            "LAYOUT_SEED": 42,
         }
         values = {
             key: getattr(namespace, key, default)
@@ -339,6 +343,16 @@ class LayoutGenerationSettings:
             )
         if self.PACKING_GEOMETRY not in {"Square", "Circle"}:
             raise LayoutGenerationError("PACKING_GEOMETRY must be Square or Circle.")
+        if self.LAYOUT_DIMENSIONS not in {2, 3}:
+            raise LayoutGenerationError("LAYOUT_DIMENSIONS must be 2 or 3.")
+        if self.LAYOUT_SEED is not None and (
+            not isinstance(self.LAYOUT_SEED, int)
+            or isinstance(self.LAYOUT_SEED, bool)
+            or self.LAYOUT_SEED < 0
+        ):
+            raise LayoutGenerationError(
+                "LAYOUT_SEED must be a non-negative integer or null."
+            )
         if not isinstance(self.LAYOUT_DEVICE_SELECTION, str) or not self.LAYOUT_DEVICE_SELECTION:
             raise LayoutGenerationError("LAYOUT_DEVICE_SELECTION must be a non-empty string.")
 
@@ -451,6 +465,7 @@ def _manifest_settings(settings: LayoutGenerationSettings) -> dict[str, Any]:
         "umap_neighbors": settings.UMAP_NEIGHBORS,
         "top_edge_percent": settings.TOP_EDGE_PERCENT,
         "similarity_threshold": settings.SIMILARITY_THRESHOLD,
+        "layout_dimensions": settings.LAYOUT_DIMENSIONS,
     }
 
 
@@ -746,7 +761,8 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
         connectivity, n_nodes, params
     )
     positions = np.asarray(positions, dtype=np.float32)
-    if positions.shape != (n_nodes, 2) or not np.isfinite(positions).all():
+    expected_shape = (n_nodes, int(settings.LAYOUT_DIMENSIONS))
+    if positions.shape != expected_shape or not np.isfinite(positions).all():
         raise LayoutGenerationError(
             f"Layout engine returned invalid positions with shape {positions.shape}."
         )
@@ -784,6 +800,7 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
             output.attrs["cache_manifest_id"] = manifest["manifest_id"]
             output.attrs["layout_compatibility_json"] = layout_compatibility
             output.attrs["layout_compatibility_id"] = layout_compatibility_id
+            output.attrs["layout_dimensions"] = int(settings.LAYOUT_DIMENSIONS)
             output.create_dataset(
                 "headers",
                 data=np.asarray(full_headers, dtype=object),
