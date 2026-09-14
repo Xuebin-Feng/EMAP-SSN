@@ -15,8 +15,9 @@ Multiple Sequence Alignments (MSAs) directly into network exploration, the
 platform bridges macroscopic sequence relationships with microscopic
 residue-level conservation to provide a multi-scale view of protein sequence
 space.
-The current release is **v0.2.0**, the second stable GitHub release of the
-source distribution. Because EMAP-SSN remains below version 1.0, command
+The latest release recorded in the changelog is **v0.2.0**.
+This README describes the current source checkout, which may include changes
+since that release. Because EMAP-SSN remains below version 1.0, command
 interfaces and persisted formats may evolve between releases. See the
 [changelog](CHANGELOG.md) for release history and [citation metadata](CITATION.cff)
 for how to cite the software.
@@ -42,9 +43,9 @@ All calculations related to SSN generation are centralized in the `EMAPSSN_Tools
 
 ![EMAP-SSN Tools GUI](docs/assets/emapssn_tools_gui.png)
 
-Each tool card also provides **Export Setting** below **Save & Run**. The
+Each tool card also provides **Export Setting** beside **Save & Run**. The
 Directories tab controls the export location through **Setting Export
-Directory**, which defaults to `Cache_Files/Tool_Settings/`. An exported file
+Directory**, which defaults to `Cache_Files/Exported_Settings/`. An exported file
 contains the current settings for one tool and only the global directories
 used by that tool. For example:
 
@@ -64,12 +65,12 @@ Run any exported configuration as the sole positional argument to its tool:
 
 ```powershell
 # Windows
-.\.venv\Scripts\python.exe src\tools\Sanitize_Sequences.py Cache_Files\Tool_Settings\example.json
+.\.venv\Scripts\python.exe src\tools\Sanitize_Sequences.py Cache_Files\Exported_Settings\example.json
 ```
 
 ```bash
 # Linux or macOS
-./.venv/bin/python src/tools/Sanitize_Sequences.py Cache_Files/Tool_Settings/example.json
+./.venv/bin/python src/tools/Sanitize_Sequences.py Cache_Files/Exported_Settings/example.json
 ```
 
 The settings-file argument is resolved from the terminal's current working
@@ -82,11 +83,31 @@ separate command, for example
 
 ### 🔌 Local STDIO MCP server
 
-`src/EMAPSSN_MCP_Server.py` exposes the 14 pipeline programs and bounded,
-Viewer launch, connection, inspection, and explicit shutdown to local MCP clients. It uses STDIO only: the
-client starts one server process and communicates through its standard input
-and output. Run the normal project installer after updating this branch so the
-managed environment includes the pinned MCP SDK.
+`src/EMAPSSN_MCP_Server.py` exposes 14 pipeline programs, layout-cache generation,
+Viewer inspection, command execution, and session management to local MCP clients.
+It registers exactly three workflow tools:
+
+| MCP tool | Purpose |
+| --- | --- |
+| `emapssn_pipeline` | Discover tools, export and validate settings, inspect files and compute capabilities, run pipeline/layout jobs, and monitor or cancel work. |
+| `emapssn_viewer_data` | Discover sessions, inspect immutable snapshots and residue distributions, read command results and logs, and capture the Viewer canvas. |
+| `emapssn_viewer_control` | Export and validate Viewer settings, launch or connect to sessions, execute Viewer commands, disconnect, or close a Viewer. |
+
+Each tool accepts `action` and an `arguments` object. Call `help` to list actions,
+or `describe` to inspect one action's strict argument schema. For example, pass
+this JSON to `emapssn_pipeline`:
+
+```json
+{"action": "describe", "arguments": {"action": "start_job"}}
+```
+
+Pipeline IDs are values inside `arguments`, not additional MCP tool names.
+Legacy standalone MCP tool names are no longer registered; restart the server
+and refresh the client's tool catalog after updating.
+
+The server uses STDIO only: the client starts one server process and communicates through its standard input
+and output. Before configuring a client, launch the Viewer or Tools through its
+managed launcher so `.venv` is created or updated with the pinned MCP SDK.
 
 Use absolute paths in client configuration. On Windows, replace `<PROJECT>`
 below with the absolute repository path:
@@ -132,13 +153,13 @@ No environment activation or wrapper script is required. A harness with a
 different configuration schema needs only the same executable and server-file
 arguments over its local STDIO transport.
 
-The MCP server provides pipeline discovery, settings validation, start, status,
-log, and cancellation tools. A start request accepts parameters with optional
+Pipeline action `start_job` accepts parameters with optional
 directory overrides, an exported JSON document, or a path to that document.
-Use `get_compute_capabilities` for metadata-only discovery of usable runtime
-devices and memory, and `inspect_pipeline_file` for read-only structural inspection
-of an explicitly selected file. See [MCP settings and examples](docs/mcp_settings.md) for the version 0.4 strict
-settings contract and GUI export compatibility. Each client connection owns one
+Use pipeline action `get_compute_capabilities` for metadata-only discovery of runtime
+devices and memory, and `inspect_file` for read-only structural inspection
+of an explicitly selected file. Device discovery does not benchmark a workload
+or establish that it will fit in memory. See [MCP settings and examples](docs/mcp_settings.md)
+for the strict settings contracts and GUI export compatibility. Each client connection owns one
 FIFO with one running and at most 16 pending jobs. Closing or restarting that
 client terminates its running job and cancels its queued jobs; different MCP
 clients do not share a queue and can start conflicting calculations. Pipeline
@@ -153,13 +174,33 @@ are removed on normal server shutdown; an abrupt crash can leave a private
 operating system's temporary directory, which is safe to remove when no MCP
 server is running.
 
-Viewer tools discover running Viewer processes through authenticated local endpoints.
-Use `connect_viewer_session` to select one, `disconnect_viewer_session` to leave it
-running, and `close_viewer_session` to explicitly stop it. New sessions require a
-complete JSON document through `start_viewer_session`; use
-`get_viewer_settings_schema` and `validate_viewer_settings` to prepare it.
+Viewer-data action `list_sessions` discovers running Viewers through authenticated
+local endpoints. Viewer-control action `connect_session` selects one;
+`disconnect_session` leaves it running, while `close_session` explicitly stops it.
+For a new session, use viewer-control `export_settings` to inherit saved preferences,
+review the complete JSON, then call `validate_settings` and `start_session`.
+Use `get_settings_schema` to inspect the accepted fields. Exporting writes a settings
+file; validation and launch consume that explicit document without merging personal
+settings again. A visible Viewer uses `mode: "normal"`; `mode: "headless"` runs
+without a desktop window but still uses Qt/VisPy.
 See [Viewer session settings](docs/mcp_settings.md#viewer-sessions), including the
 Windows host restriction on independent subprocesses.
+
+For analysis, capture a snapshot with viewer-data `get_summary`, then reuse its
+`snapshot_id` with `describe_fields`, `create_subset`, `summarize_subset`, and
+`query_nodes`. Alignment and visual data are opt-in through `include_alignment`
+and `include_visual`. Use `get_residue_distribution` for residue counts and
+cross-tabs from an alignment snapshot. Snapshots remain frozen after Viewer edits;
+capture a new one to inspect the changed state, and follow returned cursors for
+paged results.
+
+Viewer-control `execute_commands` uses the same command portal as the web agent.
+Supply a unique `submission_id` and reuse it if retrying that submission. Follow
+viewer-data `get_command_request` until completion; `read_command_output` provides
+printed diagnostics and `capture_view` returns the current canvas as PNG. Batches
+stop on failure, and command submission alone does not mean background work has
+finished. The server supplies an [agent workflow guide](src/mcp_server/Agent_Instructions.md)
+during MCP initialization.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
@@ -171,29 +212,70 @@ The GUI also features a **Compute Network Statistics** utility that analyzes net
 
 ### 🔍 EMAP-SSN Viewer GUI
 
-The main visualization window, `EMAPSSN_Viewer.py`, serves as the interactive core for network exploration, formatting, and analysis. It provides full mouse and keyboard controls for 3D navigation and graphic customization, along with an in-line command console (HUD) to execute analytical operations, highlight specific residues, select clusters, and export figures.
+The main visualization window, `EMAPSSN_Viewer.py`, provides a 2D network canvas
+with mouse and keyboard controls for panning, zooming, selection, and formatting.
+Its in-line command console (HUD) runs analytical operations, highlights residues,
+selects clusters, and exports figures. The `meta`, `esmfold`, and `agent` commands
+open session-specific utilities in the system browser: a metadata table, a Mol*
+structure viewer, and a conversational agent. The Tools documentation panel uses
+embedded QtWebEngine.
+
+**Layout Dimensions** in Configuration offers **2D (desktop viewer)** and
+**3D (VR viewer)**. Both physics and UMAP can generate either coordinate format;
+3D caches use a separate cache folder with the `_3D` suffix and are intended for
+the optional `opt_vr` submodule. The desktop Viewer uses the 2D workflow.
 
 ![EMAP-SSN Viewer GUI](docs/assets/emapssn_viewer_gui.png)
 
 ---
 ## 🧬 System Workflow
 
-The pipeline supports two primary pathways for Sequence Similarity Network (SSN) generation: a **traditional pathway** utilizing sequence alignment algorithms (like BLAST) and an **embedding-based pathway** driven by protein language models. Additionally, users can generate alternative 2D manifold layouts using UMAP based on pairwise sequence similarity distances (derived from either traditional alignment or pLM embedding score matrices). *Note: UMAP layout requires the `umap-learn` package (`pip install umap-learn`) and constructs a $k$-nearest-neighbor topology where each sequence requires at least $k$ pairwise connections.*
+Start with a protein FASTA file and choose a traditional BLAST or embedding-based
+network. The desktop workflow is:
+
+1. **Prepare sequences.** Run `Sanitize_Sequences.py` from Tools to standardize the
+   FASTA used by downstream calculations.
+2. **Build a network.** Run `Align_Substitution_Matrix.py` for BLASTP, or generate
+   embeddings with `Generate_Embeddings.py` and score pairs with
+   `Align_Similarity_Matrix.py`. `Parse_BLAST_Output.py` imports external BLAST
+   tabular results using a matching FASTA manifest. The BLAST calculation requires
+   separate `blastp` and `makeblastdb` executables; the importer reads saved results
+   without running BLAST.
+3. **Add an alignment when needed.** Generate an embedding-guided MSA with
+   `Embedding_MSA.py`, or select an existing compatible full or sparse alignment.
+   An MSA is optional for network viewing and required for residue-level analysis.
+4. **Configure and cache the layout.** Select the matching node FASTA and network
+   HDF5 in Configuration, choose **2D (desktop viewer)**, and select an existing
+   compatible cache or **(New Layout Cache)**. For a new cache, **Save & Run**
+   calculates the layout before opening the Viewer. Reopening a compatible cache
+   reuses its coordinates and verified generation settings.
+5. **Explore and export.** Use the Viewer console to select, color, cluster,
+   inspect residues, and export figures or sequence subsets.
+
+The default layout uses a force-directed physics solver. **UMAP Mode** offers a
+manifold layout based on network scores and uses the `umap-learn` dependency
+already included in the managed installation. `UMAP_NEIGHBORS` counts up to $k$
+other nodes per sequence; the implementation adds a separate self-neighbor slot.
+Missing connections remain missing rather than becoming zero-distance matches.
+UMAP uses its neighbor topology instead of the physics layout's similarity and
+top-edge filters.
 
 ![System Workflow](docs/assets/work_flow.png)
 
-See the [Quick Start Manual](docs/quickstart.html#workflow) for an in-depth walkthrough of this pipeline from sequence preparation to 3D network exploration.
+See the [Quick Start Manual](docs/quickstart.html#workflow) for a visual walkthrough
+and the [Viewer Command Reference](docs/list_of_commands.html) for command syntax.
 
 ---
 
 ## 🚀 Key Features
 
-*   **Embedding-Based Dynamic Programming Alignment**: Align sequences using high-dimensional dense embedding similarity vectors instead of simple substitution matrices (BLOSUM/PAM), resolving structural and functional relationships even at low sequence identity.
-*   **High-Performance Visualization**: Powered by PySide6 and VisPy, allowing real-time rendering, rotation, zooming, and manipulation of large networks containing thousands of nodes and edges.
+*   **Embedding-Based Dynamic Programming Alignment**: Score residue pairs using protein-language-model embeddings for pairwise alignment, network construction, and guide-tree multiple alignment.
+*   **Interactive Visualization**: PySide6 and VisPy provide a 2D canvas for panning, zooming, selecting, and formatting nodes and edges. Performance depends on the dataset and rendering hardware.
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
 *   **Comprehensive Utilities Suite**: Centralized GUI in `EMAPSSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
 *   **Cross-Platform Hardware Acceleration**: Automatic eligibility checks and runtime validation for supported NVIDIA CUDA, AMD ROCm, Intel XPU, and Apple MPS configurations, with safe fallback to CPU.
+*   **Scriptable Workflows**: Export tool and layout JSON for batch execution, or use the local MCP server for pipeline jobs, Viewer commands, and bounded scientific data inspection.
 
 ---
 
@@ -413,9 +495,20 @@ Settings** saves a generation-only JSON file. Run that file with the same
 managed Python environment to calculate and save the cache without opening the
 viewer:
 
-```text
-python -u src/Layout_Cache_Generator.py Cache_Files/Layout_Settings/example.json
+```powershell
+# Windows, from the project root
+.\.venv\Scripts\python.exe -u src\Layout_Cache_Generator.py Cache_Files\Exported_Settings\example.json
 ```
+
+```bash
+# Linux or macOS, from the project root
+./.venv/bin/python -u src/Layout_Cache_Generator.py Cache_Files/Exported_Settings/example.json
+```
+
+The export location follows **Setting Export Directory**, whose default is
+`Cache_Files/Exported_Settings/`. This command generates a cache without starting
+the interactive Viewer. An existing destination cache is rejected rather than
+overwritten.
 
 Layout execution JSON uses `schema_version: 2`, `kind: "layout"`, and named
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`
@@ -453,8 +546,8 @@ VisPy network labels remain limited to the bundled Noto Sans face.
 
 ## 🔧 Linux Troubleshooting
 
-* **Blank, black, or repeatedly failing 3D canvas on a Wayland session.**
-  The Viewer forces `QT_QPA_PLATFORM=xcb` before importing Qt/VisPy. On affected Linux drivers, Qt's native Wayland plugin supplies an OpenGL ES context while VisPy compiles desktop GLSL shaders, producing repeated `Error drawing visual` messages. XWayland/XCB supplies the compatible desktop OpenGL context; the installer includes its required Ubuntu/Debian libraries.
+* **Blank, black, or repeatedly failing network canvas on a Wayland session.**
+  The Viewer selects `QT_QPA_PLATFORM=xcb` when Wayland is detected or explicitly requested, while preserving offscreen/headless platforms. On affected Linux drivers, Qt's native Wayland plugin supplies an OpenGL ES context while VisPy compiles desktop GLSL shaders, producing repeated `Error drawing visual` messages. XWayland/XCB supplies the compatible desktop OpenGL context; the installer includes its required Ubuntu/Debian libraries.
 
 * **The application closes immediately when launched from a desktop icon.**
   The Ubuntu/Debian launchers now check the Qt/XCB libraries before startup and print the exact `sudo apt install` command for anything missing. If any later startup step fails, a desktop-launched terminal remains open until you press Enter so the original error stays visible.
@@ -482,6 +575,8 @@ EMAP-SSN/
 │   ├── EMAPSSN_Viewer.py         # Main PySide6 / VisPy desktop visualization application
 │   ├── EMAPSSN_Tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
 │   ├── EMAPSSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
+│   ├── EMAPSSN_MCP_Server.py     # Three local STDIO MCP workflow entry points
+│   ├── Layout_Cache_Generator.py # Standalone physics/UMAP layout-cache generation
 │   │
 │   ├── bin/                  # Startup scripts and launchers
 │   │   ├── EMAPSSN.bat          # Windows platform startup script
@@ -494,6 +589,8 @@ EMAP-SSN/
 │   │   └── logos/            # Application custom icon files (.png and .ico)
 │   │
 │   ├── commands/             # Command modules for interactive viewer console
+│   ├── desktop/              # Qt integration, Viewer state, snapshots, and settings contracts
+│   ├── mcp_server/           # Workflow dispatch, pipeline jobs, and Viewer session adapters
 │   ├── resources/            # Configuration and system prompts
 │   ├── tools/                # Executable processing scripts exposed by EMAPSSN_Tools
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
@@ -503,7 +600,12 @@ EMAP-SSN/
 │
 ├── docs/                     # Screenshots, documentation, and metadata template
 │   ├── quickstart.html       # Comprehensive Quick Start Manual & GUI architecture guide
-│   └── list_of_commands.html # Interactive Viewer command reference
+│   ├── list_of_commands.html # Interactive Viewer command reference
+│   ├── mcp_settings.md      # MCP actions, export workflows, and execution settings
+│   └── web_plugin_development.md # Browser utility extension contract
+│
+├── tests/                    # Focused regression tests
+├── opt_vr/                   # Optional VR viewer submodule
 │
 ├── viewer_settings.json      # Settings saved by the configuration GUI
 ├── tools_settings.json       # Shared settings saved by the Tools GUI
@@ -518,8 +620,9 @@ EMAP-SSN/
 │
 ├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
 │   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)
+│   ├── Saved_Config/         # Named per-tab Configuration profiles
 │   ├── Structures/           # Predicted structures and viewer assets
-│   └── Tool_Settings/        # Exported per-tool command-line settings
+│   └── Exported_Settings/    # Exported tool, layout, and Viewer execution JSON
 │
 ├── Embeddings/               # Protein-language-model embedding databases (.h5)
 └── Analysis_Results/          # User-facing exported analysis results
@@ -571,7 +674,7 @@ including which components are redistributed and which are merely required at
 runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-This MCP-enabled branch also installs the official `mcp` 2.1.1 Python SDK and
+The managed environment also installs the official `mcp` 2.1.1 Python SDK and
 its Pydantic runtime dependency; both are MIT-licensed and are not bundled in
 the source repository.
 
