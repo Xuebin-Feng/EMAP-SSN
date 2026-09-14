@@ -51,6 +51,7 @@ SIMILARITY_THRESHOLD = None
 TOP_EDGE_PERCENT = None    
 ALIGNMENT_SCORE = None
 NORM_MODE = None
+LAYOUT_DIMENSIONS = 2
 UMAP_MODE = None
 UMAP_NEIGHBORS = None
 UMAP_MIN_DIST = None
@@ -193,6 +194,10 @@ PROFILE_TAB_DISPLAY_NAMES = {
     "simulation_physics": "Simulation & Physics",
     "directories": "Directories",
 }
+
+#: Combos whose profile value is the item's data rather than its label,
+#: so the stored setting stays machine-readable (a device spec, an int).
+DATA_VALUED_COMBOS = {"LAYOUT_DEVICE_SELECTION", "LAYOUT_DIMENSIONS"}
 
 RESERVED_PROFILE_NAMES = {"custom", "default", "new"}
 CONFIG_TAB_CONTENT_MARGIN = 18
@@ -1273,6 +1278,11 @@ if __name__ == "__main__":
                         widget.addItem(f"Unavailable saved device [{value}]", value)
                         index = widget.count() - 1
                     widget.setCurrentIndex(index)
+                elif key in DATA_VALUED_COMBOS:
+                    # A fixed set of valid entries; fall back to the first
+                    # rather than inventing an item for an unknown value.
+                    index = widget.findData(value)
+                    widget.setCurrentIndex(index if index >= 0 else 0)
                 else:
                     text_value = str(value)
                     if key in {"NODE_FASTA_FILE", "MSA_FILE", "INPUT_HDF5"}:
@@ -1583,6 +1593,7 @@ if __name__ == "__main__":
                 "PERCENTAGE_DROP_THRESHOLD": "Early termination threshold based on the rate of RMSD change over the moving window.\nTerminates simulation when layout change plateaus (set to 0 to disable).",
                 "RMSD_WINDOW": "Number of simulation steps over which moving-average RMSD is calculated for plateau detection.\nSmoothes transient velocity spikes to ensure early termination triggers only on true convergence.",
                 "ENABLE_PROGRESSIVE_SIMULATION": "Progressively lowers the similarity threshold in stages for massive connected components.\nHelps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.",
+                "LAYOUT_DIMENSIONS": "Number of coordinates the layout engine solves for.\n2D is the desktop viewer; 3D produces the cache the opt_vr VR viewer consumes.\n3D layouts are written to their own cache folder, suffixed _3D.",
                 "PACKING_GEOMETRY": "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window.",
                 "PACKING_GRID_SIZE": "Base grid square unit size used for macro-grid component packing.\nControls spacing and separation between packed independent clusters in the final layout.",
                 "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
@@ -2114,6 +2125,36 @@ if __name__ == "__main__":
                 name="alignmentModeRow", equal_fields=True,
             )
             layout.addRow(mode_container)
+
+            # Layout dimensionality. 2D drives the desktop viewer; 3D produces
+            # the cache the opt_vr VR viewer consumes. The value is carried in
+            # the item data so the profile stores 2 or 3, not a display string.
+            # This gets its own row: the existing rows pair up two fields each
+            # and the responsive layout aligns their columns against one
+            # another, so adding a third field to one of them misaligns it.
+            self.cb_dimensions = NoScrollComboBox()
+            self.cb_dimensions.addItem("2D (desktop viewer)", 2)
+            self.cb_dimensions.addItem("3D (VR viewer)", 3)
+            self.cb_dimensions.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+            )
+            dimension_label = QLabel("Layout Dimensions:")
+            dimension_container = self._make_field_group(
+                [(dimension_label, self.cb_dimensions)],
+                name="layoutDimensionRow", equal_fields=True,
+            )
+            layout.addRow(dimension_container)
+            self.labels["LAYOUT_DIMENSIONS"] = dimension_label
+            self.inputs["LAYOUT_DIMENSIONS"] = self.cb_dimensions
+            try:
+                initial_dimensions = int(globals().get("LAYOUT_DIMENSIONS", 2))
+            except (TypeError, ValueError):
+                initial_dimensions = 2
+            dimension_index = self.cb_dimensions.findData(initial_dimensions)
+            self.cb_dimensions.setCurrentIndex(
+                dimension_index if dimension_index >= 0 else 0
+            )
+
             self.labels["ALIGNMENT_SCORE"] = score_label
             self.inputs["ALIGNMENT_SCORE"] = self.cb_score_mode
             self.labels["NORM_MODE"] = norm_label
@@ -3583,7 +3624,7 @@ if __name__ == "__main__":
                     continue
                     
                 if isinstance(widget, QComboBox):
-                    if key == "LAYOUT_DEVICE_SELECTION":
+                    if key in DATA_VALUED_COMBOS:
                         val = widget.currentData()
                     else:
                         val = widget.currentText()
@@ -3618,7 +3659,7 @@ if __name__ == "__main__":
             if isinstance(widget, QComboBox):
                 value = (
                     widget.currentData()
-                    if key == "LAYOUT_DEVICE_SELECTION"
+                    if key in DATA_VALUED_COMBOS
                     else widget.currentText()
                 )
             elif isinstance(widget, OptionalNoScrollDoubleSpinBox):
