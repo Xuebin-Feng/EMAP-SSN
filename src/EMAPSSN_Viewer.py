@@ -277,6 +277,52 @@ def _contiguous_line_positions(positions):
     return result
 
 
+def _build_adjacency_index(edges, node_count):
+    """Index an undirected edge list as CSR offsets and neighbour ids.
+
+    Neighbours of node ``i`` are ``indices[indptr[i]:indptr[i + 1]]``, so a
+    neighbour query costs the summed degree of the queried nodes instead of a
+    scan of every edge. Duplicate and out-of-range pairs are dropped, and each
+    node's neighbours come back ascending and unique.
+    """
+    from scipy import sparse
+
+    node_count = max(int(node_count), 0)
+    pairs = np.asarray(
+        edges if edges is not None else (), dtype=np.int64
+    ).reshape(-1, 2)
+    if node_count == 0 or len(pairs) == 0:
+        return (
+            np.zeros(node_count + 1, dtype=np.int64),
+            np.empty(0, dtype=np.int32),
+        )
+
+    in_range = (
+        (pairs[:, 0] >= 0)
+        & (pairs[:, 0] < node_count)
+        & (pairs[:, 1] >= 0)
+        & (pairs[:, 1] < node_count)
+    )
+    pairs = pairs[in_range]
+    if len(pairs) == 0:
+        return (
+            np.zeros(node_count + 1, dtype=np.int64),
+            np.empty(0, dtype=np.int32),
+        )
+
+    # Both directions, so an undirected edge is reachable from either endpoint.
+    rows = np.concatenate((pairs[:, 0], pairs[:, 1]))
+    columns = np.concatenate((pairs[:, 1], pairs[:, 0]))
+    matrix = sparse.csr_array(
+        (np.ones(len(rows), dtype=np.int8), (rows, columns)),
+        shape=(node_count, node_count),
+    )
+    return (
+        matrix.indptr.astype(np.int64, copy=False),
+        matrix.indices.astype(np.int32, copy=False),
+    )
+
+
 def _topmost_nearest_visible_node_index(
     positions,
     visible_mask,
@@ -1256,6 +1302,9 @@ class MainViewer:
                 )
 
             self._init_colors()
+            # Index the topology now that the layout has arrived, so the first
+            # selection does not pay for the build.
+            self._adjacency_index()
 
     def _init_colors(self):
         import matplotlib.colors as mcolors
@@ -1559,7 +1608,9 @@ class MainViewer:
                     self.line_visual.visible = False
         else:
             self.line_visual = None
-            
+        self._uploaded_active_edges = None
+        self._uploaded_edge_positions = None
+
         # Left-click rings are interleaved into this marker visual immediately
         # before their nodes so their layer relationship remains exact.
         self.left_click_highlight = None
@@ -1647,7 +1698,18 @@ class MainViewer:
         self._cached_active_edges = active_edges
         if len(active_edges):
             self.line_visual.visible = True
-            self.line_visual.set_data(pos=_contiguous_line_positions(self.pos[active_edges].reshape(-1, 2)))
+            # The edge vertex buffer is by far the largest upload in the
+            # viewer, and VisPy re-sends it whole on every set_data. Selection
+            # changes touch neither the drawn segments nor the node positions,
+            # so upload only when one of those two actually differs.
+            drawn_positions = self.pos.tobytes()
+            if (
+                active_edges is not getattr(self, '_uploaded_active_edges', None)
+                or drawn_positions != getattr(self, '_uploaded_edge_positions', None)
+            ):
+                self._uploaded_active_edges = active_edges
+                self._uploaded_edge_positions = drawn_positions
+                self.line_visual.set_data(pos=_contiguous_line_positions(self.pos[active_edges].reshape(-1, 2)))
         else:
             self.line_visual.visible = False
 
@@ -1729,20 +1791,46 @@ class MainViewer:
             )
         return tuple(boundary_rgba) != tuple(connected_rgba)
 
+    def _adjacency_index(self):
+        """Return the CSR adjacency index over the complete topology.
+
+        The index is built once per edge list. Holding the indexed array keeps
+        the identity test exact, so a replaced topology rebuilds and an
+        unchanged one never does.
+        """
+        edges = getattr(self, 'edges', None)
+        cached = getattr(self, '_adjacency_index_cache', None)
+        if cached is not None and cached[0] is edges:
+            return cached[1], cached[2]
+        indptr, indices = _build_adjacency_index(edges, self.n_nodes)
+        self._adjacency_index_cache = (edges, indptr, indices)
+        return indptr, indices
+
     def _connected_to_selected_indices(self, selected):
         """Return nodes adjacent to selected nodes in the complete topology."""
         cache_key = (id(self.edges), tuple(np.asarray(selected).tolist()))
         if getattr(self, '_render_order_neighbor_cache_key', None) == cache_key:
             return self._render_order_neighbor_cache.copy()
-        if len(selected) == 0 or len(self.edges) == 0:
+
+        nodes = self._valid_node_indices(selected).astype(np.int64, copy=False)
+        indptr, indices = self._adjacency_index()
+        starts = indptr[nodes]
+        counts = indptr[nodes + 1] - starts
+        total = int(counts.sum())
+        if total == 0:
             connected = np.empty(0, dtype=np.int32)
         else:
-            touches_selection = np.isin(self.edges[:, 0], selected) | np.isin(
-                self.edges[:, 1], selected
+            # Expand every selected node's CSR slice into one flat gather:
+            # entry j of group g reads indices[starts[g] + (j - group_start[g])].
+            group_starts = np.cumsum(counts) - counts
+            gather = np.arange(total, dtype=np.int64) + np.repeat(
+                starts - group_starts, counts
             )
-            connected = np.unique(self.edges[touches_selection].reshape(-1))
-            connected = connected[~np.isin(connected, selected)]
-            connected = connected.astype(np.int32, copy=False)
+            reached = np.zeros(self.n_nodes, dtype=bool)
+            reached[indices[gather]] = True
+            reached[nodes] = False
+            connected = np.flatnonzero(reached).astype(np.int32, copy=False)
+
         self._render_order_neighbor_cache_key = cache_key
         self._render_order_neighbor_cache = connected.copy()
         return connected
