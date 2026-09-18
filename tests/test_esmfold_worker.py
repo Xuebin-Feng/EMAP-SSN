@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import numpy
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -38,11 +40,13 @@ class FakeGenerationConfig:
 
 
 class FakeOutput:
-    def __init__(self, pdb="ATOM\n"):
-        self.plddt = None
+    def __init__(self, pdb="ATOM\n", plddt=None):
+        self.plddt = plddt
         self.pdb = pdb
+        self.plddt_at_write = None
 
     def to_pdb_string(self):
+        self.plddt_at_write = self.plddt
         return self.pdb
 
 
@@ -272,6 +276,26 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         notify_server.assert_called_once_with("node_1", "node_1.pdb", action_url)
+
+
+class WritePredictionScaleTests(unittest.TestCase):
+    """pLDDT must reach to_pdb_string() unscaled.
+
+    esm >= 3.4 multiplies ProteinChain.confidence by PLDDT_B_FACTOR_SCALE
+    (100.0) itself when building the atom array. Pre-scaling here as well
+    pushes B-factors to ~10000, which overflows the six-column PDB
+    temperature-factor field and makes biotite raise BadStructureError.
+    """
+
+    def test_write_prediction_does_not_rescale_plddt(self):
+        confidence = numpy.array([0.31, 0.58, 0.95], dtype=numpy.float32)
+        output = FakeOutput(plddt=confidence.copy())
+
+        with tempfile.TemporaryDirectory() as structures_dir:
+            esmfold_worker._write_prediction(output, "node/name", structures_dir)
+
+        numpy.testing.assert_allclose(output.plddt_at_write, confidence)
+        numpy.testing.assert_allclose(output.plddt, confidence)
 
 
 if __name__ == "__main__":

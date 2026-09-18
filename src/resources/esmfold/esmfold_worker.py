@@ -255,8 +255,10 @@ def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None)
     pdb_filename = f"{clean_identifier}{suffix}.pdb"
     pdb_path = os.path.join(structures_dir, pdb_filename)
 
-    if output_protein.plddt is not None:
-        output_protein.plddt = output_protein.plddt * 100.0
+    # ESMProtein.plddt is on a 0-1 scale and to_pdb_string() already applies
+    # esm's PLDDT_B_FACTOR_SCALE (100.0) when it builds the atom array. Do not
+    # pre-scale here: a second factor of 100 overflows the 6-column PDB
+    # temperature-factor field and biotite rejects the structure.
     pdb_content = output_protein.to_pdb_string()
     with open(pdb_path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(pdb_content)
