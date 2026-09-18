@@ -117,7 +117,7 @@ if [ "$environment_ready" -ne 1 ]; then
     else
         if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
             echo "Creating isolated local virtual environment (.venv)..."
-            "$UV_EXE" venv --clear --python 3.12 || exit 1
+            "$UV_EXE" venv --clear --python 3.13 || exit 1
         fi
 
         # 3. Resolve base, ESM, and hardware-specific PyTorch dependencies.

@@ -96,7 +96,7 @@ if !ERRORLEVEL! equ 0 goto INSTALL_DEPENDENCIES
 
 :CREATE_VENV
 echo Creating isolated local virtual environment .venv...
-"!UV_EXE!" venv --clear --python 3.12
+"!UV_EXE!" venv --clear --python 3.13
 if !ERRORLEVEL! neq 0 (
     set "INSTALL_ERROR=!ERRORLEVEL!"
     call :RELEASE_SETUP_LOCK

@@ -14,8 +14,8 @@
 # they open in the system browser against the local web server. On Linux
 # QtWebEngine also needs system libraries that pip cannot install; EMAPSSN_Tools.py
 # names them if the import fails.
-PySide6==6.11.1
-biopython==1.87
+PySide6==6.11.2
+biopython==1.88
 httpx==0.28.1
 h5py==3.16.0
 # graspologic-native (MIT, Microsoft) provides Leiden community detection. It
@@ -27,33 +27,44 @@ graspologic-native==1.3.1
 logomaker==0.8.7
 markdown>=3.10.2
 markov-clustering==0.0.6.dev0
-matplotlib==3.11.1
+matplotlib==3.11.2
 # Official Model Context Protocol SDK used only by EMAPSSN_MCP_Server.py.
-mcp==2.1.1
+mcp==2.2.0
 # Viewer session process identity and verified termination.
 psutil==7.2.2
 # Shared pipeline JSON Schemas and GUI export validation.
 jsonschema==4.26.0
 networkx==3.6.1
-# numba 0.66.0 caps numpy at <2.5; 2.4.6 is the highest stable release under it.
-# Do not jump to 2.5.x until numba raises the bound.
-numba==0.66.0
-numpy==2.4.6
+# numba 0.67.0 raised its ceiling to numpy<2.6, which is what unblocked the
+# jump to numpy 2.5.x below. Do not move numpy to 2.6.x until numba raises the
+# bound again.
+numba==0.67.0
+numpy==2.5.3
 openpyxl==3.1.5
 # pandas 3.0 makes copy-on-write mandatory and infers a dedicated string dtype
 # instead of object. The exposure here is narrow — six files import pandas, none
 # use inplace=True or applymap — but web_ui/meta_backend.py reads metadata via
 # pd.read_excel() with no explicit dtype, which is where the change would show.
-pandas==3.0.5
-scikit-learn==1.9.0
-scipy==1.18.0
-sentencepiece==0.2.1
-tqdm==4.70.0
+pandas==3.0.6
+scikit-learn==1.9.1
+scipy==1.18.1
+# Retained for Transformers' sentencepiece-backed tokenizer conversion. Under
+# Transformers 5.x, T5Tokenizer is Unigram-backed via the `tokenizers` library,
+# so this may now be reachable only during first-load conversion of a .spm
+# vocabulary. Confirm before removing.
+sentencepiece==0.2.2
+tqdm==4.70.1
 umap-learn==0.5.12
-vispy==0.16.2
+vispy==0.17.0
 
-# The bundled ESM and Biohub Transformers wheels, ESM's other runtime
-# dependencies (including accelerate), and the platform-specific PyTorch build
-# are installed in a controlled order by Install_Dependencies.py. Keep them out
-# of this shared file so the generic resolver cannot download or replace either
-# verified wheel or the selected accelerator backend.
+# esm, transformers and the platform-specific PyTorch build are installed in a
+# controlled order by Install_Dependencies.py and are deliberately kept out of
+# this shared file:
+#   1. this file            (no torch, no transformers, no esm)
+#   2. torch                (from the selected accelerator index)
+#   3. transformers         (pinned; declares torch only under an extra)
+#   4. esm_runtime_requirements.txt
+#   5. esm                  (--no-deps)
+# The ordering matters: several ESM runtime dependencies (accelerate in
+# particular) require torch, so installing them before step 2 would pull a
+# default PyPI torch and silently discard the selected accelerator build.
