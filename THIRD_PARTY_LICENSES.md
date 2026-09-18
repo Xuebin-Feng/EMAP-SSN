@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-18
 
 ---
 
@@ -137,7 +137,8 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | accelerate | Apache-2.0 |
 | mcp 2.2.0 (official Model Context Protocol Python SDK) | MIT |
 | pydantic (MCP runtime dependency) | MIT |
-| sentencepiece 0.2.1 | Apache-2.0 |
+| sentencepiece 0.2.2 | Apache-2.0 |
+| protobuf 7.36.2 (required by Transformers to convert sentencepiece tokenizers) | BSD-3-Clause |
 | numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown | BSD-3-Clause |
 | numba | BSD-2-Clause |

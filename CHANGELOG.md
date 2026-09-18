@@ -51,6 +51,12 @@ still change before version 1.0.0.
   move to the Python 3.13 environment.
 - Raised the managed virtual environment from Python 3.12 to 3.13 in all four
   launchers.
+- `Generate_Embeddings.py` now filters Transformers weight-load reports that found
+  nothing wrong. Every pLM is loaded into an encoder-only class, so the checkpoint's
+  decoder and LM head are listed as UNEXPECTED — 340 tensors for Ankh alone — which
+  is routine noise. Reports containing a MISSING entry are still shown, because a
+  missing tensor is randomly initialized and would silently corrupt every embedding.
+  Other Transformers warnings are unaffected.
 - Upgraded `numba` to 0.67.0, which raised its ceiling to `numpy<2.6` and unblocked
   `numpy` 2.5.3. Also bumped PySide6 6.11.2, biopython 1.88, matplotlib 3.11.2,
   mcp 2.2.0, pandas 3.0.6, scikit-learn 1.9.1, scipy 1.18.1, sentencepiece 0.2.2,
@@ -70,6 +76,24 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- Ankh embedding generation produced one row more than the sequence had residues
+  under Transformers 5, failing with "has N+1 rows but its stored sequence has N
+  residues". Transformers 5 rebuilt `T5Tokenizer` on the Rust `tokenizers` backend
+  with a Metaspace pre-tokenizer that always prepends the sentencepiece word-start
+  marker. Ankh's vocabulary contains bare amino acids and no such marker, so every
+  unspaced sequence gained a leading `<unk>` token that the trailing-token slice did
+  not remove. The Ankh adapter now rebuilds the pre-tokenizer without the prefix,
+  only when a probe shows the extra token, and verifies residue alignment at model
+  load rather than mid-generation. The ProtBERT and ESM-2 adapters were checked and
+  are unaffected.
+- ProstT5 failed to load under Transformers 5 with a misleading
+  "`tiktoken` is required to read a `tiktoken` file" error. ProstT5 ships only
+  `spiece.model` and no `tokenizer.json`, so Transformers 5 must convert
+  sentencepiece to the Rust `tokenizers` backend on first load. That conversion
+  parses the `.spm` through `SentencePieceExtractor`, which needs protobuf; with
+  protobuf absent it fell back to a TikToken extractor and reported the wrong
+  missing library. `protobuf` is now a pinned dependency. ProstT5's token
+  alignment itself was verified correct and needed no code change.
 - Windows ROCm eligibility no longer offers a retired profile on an OS build the
   surviving profile does not support. The ROCm 7.2.1 detection path remained after
   the backend consolidation, so a Windows 11 build older than 25H2 could still be

@@ -49,6 +49,7 @@ Algorithm:
    directly to disk under a sanitized header name key to prevent RAM overflow.
 """
 # %% Import Necessary Libraries
+import logging
 import os
 import sys
 try:
@@ -146,6 +147,36 @@ if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
 FULL_INPUT_FASTA = None
 SEQUENCE_SET = ""
 OUTPUT_HDF5 = None
+
+
+class _CleanLoadReportFilter(logging.Filter):
+    """Drop Transformers weight-load reports that found nothing wrong.
+
+    Every pLM here is loaded into an encoder-only class, so the decoder and
+    language-modelling head in the published checkpoint have no slot and are
+    listed as UNEXPECTED. Loading Ankh alone discards 340 such tensors. That is
+    routine and the report is pure noise.
+
+    A MISSING entry is not routine: it means a tensor the model needs was absent
+    from the checkpoint and was randomly initialized, which silently corrupts
+    every embedding produced. Those reports are kept.
+
+    Filtering on the report body rather than silencing the logger keeps all other
+    Transformers warnings visible.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not ("LOAD REPORT" in message and "MISSING" not in message)
+
+
+def _quiet_clean_load_reports() -> None:
+    logging.getLogger("transformers.modeling_utils").addFilter(
+        _CleanLoadReportFilter()
+    )
+
+
+_quiet_clean_load_reports()
 
 
 def configure_runtime_paths():

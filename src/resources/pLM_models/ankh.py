@@ -88,10 +88,61 @@ def load_model(model_name, device):
     
     hf_id = hf_mappings.get(model_name, model_name)
     print(f"Loading {model_name} ({hf_id}) ...")
-    tokenizer = AutoTokenizer.from_pretrained(hf_id)
+    tokenizer = _residue_aligned_tokenizer(AutoTokenizer.from_pretrained(hf_id))
     model = T5EncoderModel.from_pretrained(hf_id).to(device)
     model.eval()
     return tokenizer, model
+
+
+# One bare residue per token, plus the single trailing </s> that get_embedding
+# slices off. Anything else means the tokenizer is not residue-aligned.
+_ALIGNMENT_PROBE = "MKTA"
+
+
+def _tokenized_residue_count(tokenizer) -> int:
+    """Return how many rows get_embedding would keep for the probe sequence."""
+    return len(tokenizer(_ALIGNMENT_PROBE)["input_ids"]) - 1
+
+
+def _residue_aligned_tokenizer(tokenizer):
+    """Ensure Ankh tokenizes to exactly one token per residue.
+
+    Ankh's vocabulary holds bare amino acids and has no sentencepiece word-start
+    marker. Transformers 5 rebuilt T5Tokenizer on the Rust ``tokenizers``
+    backend and gives it a Metaspace pre-tokenizer with
+    ``prepend_scheme="always"``, so an unspaced sequence gains a leading "▁"
+    that is absent from the vocabulary and encodes as <unk>. That produced one
+    row more than the sequence has residues. Transformers 4 did not do this.
+
+    The prefix is dropped only when the probe actually shows the extra token, so
+    a future tokenizer that is already correct is left untouched. Alignment is
+    re-checked afterwards and a failure is raised here, at load time, rather
+    than surfacing later as a row-count error during embedding generation.
+    """
+    if _tokenized_residue_count(tokenizer) == len(_ALIGNMENT_PROBE):
+        return tokenizer
+
+    try:
+        from tokenizers.pre_tokenizers import Metaspace, Sequence, WhitespaceSplit
+
+        tokenizer._tokenizer.pre_tokenizer = Sequence([
+            WhitespaceSplit(),
+            Metaspace(replacement="▁", prepend_scheme="never", split=True),
+        ])
+    except Exception as error:
+        raise RuntimeError(
+            "Ankh tokenizer emits more tokens than residues and the "
+            f"word-start prefix could not be removed: {error}"
+        ) from error
+
+    actual = _tokenized_residue_count(tokenizer)
+    if actual != len(_ALIGNMENT_PROBE):
+        raise RuntimeError(
+            "Ankh tokenizer is not residue-aligned: probe "
+            f"{_ALIGNMENT_PROBE!r} produced {actual} residue tokens, expected "
+            f"{len(_ALIGNMENT_PROBE)}."
+        )
+    return tokenizer
 
 def get_embedding(seq, model_obj, device, target_dtype):
     """

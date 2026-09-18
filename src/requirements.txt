@@ -48,11 +48,17 @@ openpyxl==3.1.5
 pandas==3.0.6
 scikit-learn==1.9.1
 scipy==1.18.1
-# Retained for Transformers' sentencepiece-backed tokenizer conversion. Under
-# Transformers 5.x, T5Tokenizer is Unigram-backed via the `tokenizers` library,
-# so this may now be reachable only during first-load conversion of a .spm
-# vocabulary. Confirm before removing.
+# Required for Transformers' sentencepiece-backed tokenizer conversion, not
+# optional. Transformers 5.x rebuilt T5Tokenizer on the Rust `tokenizers`
+# backend, so a model that ships only `spiece.model` and no `tokenizer.json`
+# must be converted on first load. ProstT5 (Rostlab/ProstT5_fp16) is exactly
+# that case. The converter reads the .spm through `SentencePieceExtractor`,
+# which needs protobuf to parse the model schema; without it Transformers falls
+# back to a TikToken extractor and fails with a misleading
+# "`tiktoken` is required" error. Ankh and ProtBERT ship `tokenizer.json` and
+# `vocab.txt` respectively and need neither package at load time.
 sentencepiece==0.2.2
+protobuf==7.36.2
 tqdm==4.70.1
 umap-learn==0.5.12
 vispy==0.17.0
