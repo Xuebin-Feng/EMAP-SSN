@@ -1,6 +1,6 @@
 # EMAP-SSN
 
-[![Python Version](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
 [![Release](https://img.shields.io/github/v/release/Xuebin-Feng/EMAP-SSN?display_name=tag)](https://github.com/Xuebin-Feng/EMAP-SSN/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS%20(Apple%20Silicon)-lightgrey.svg)](https://github.com/Xuebin-Feng/EMAP-SSN)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -281,7 +281,7 @@ and the [Viewer Command Reference](docs/list_of_commands.html) for command synta
 
 ## ✅ Compatibility
 
-*Compatibility snapshot: August 2026.* Compatibility is the intersection of
+*Compatibility snapshot: September 2026.* Compatibility is the intersection of
 the application detector, the pinned Python packages, the operating system,
 and the installed GPU driver. A device can be eligible for an installation
 attempt without being guaranteed to work; the installer records it as
@@ -294,21 +294,21 @@ The status terms used below are:
   the configuration.
 - **Provisional:** the detector can attempt it, but the configuration has not
   been project-tested or is outside a fully validated upstream combination.
-- **Unsupported:** the current managed Python 3.12 dependency set cannot be
+- **Unsupported:** the current managed Python 3.13 dependency set cannot be
   installed or the application deliberately excludes the configuration.
 
 ### Operating systems and processor architectures
 
 | Platform | Status | Requirements and limits |
 | --- | --- | --- |
-| Windows x64 | Supported | CPU use requires Windows 10 version 1809 or newer. NVIDIA CUDA requires Windows 10 22H2 or Windows 11. Native AMD ROCm and Intel XPU require Windows 11; Windows 11 25H2 build 26200+ is required for the ROCm 7.14 profile. Windows 11 is recommended. |
+| Windows x64 | Supported | CPU use requires Windows 10 version 1809 or newer. NVIDIA CUDA requires Windows 10 22H2 or Windows 11. Intel XPU requires Windows 11. Native AMD ROCm requires Windows 11 25H2 build 26200+, the only Windows build covered by the ROCm 7.14 profile. Windows 11 is recommended. |
 | Windows x86 (32-bit) | Unsupported | The pinned binary dependencies do not provide Win32 wheels. |
-| Windows ARM64 | Unsupported | Python 3.12 and `uv` exist for ARM64, but the pinned PyTorch 2.12.1 Python 3.12 CPU artifact and the CUDA, XPU, and ROCm builds used by this project do not provide a complete native ARM64 environment. Running the x64 environment under Windows emulation is not project-supported. |
+| Windows ARM64 | Unsupported | Python 3.13 and `uv` exist for ARM64, but the pinned PyTorch 2.12.0 Python 3.13 CPU artifact and the CUDA, XPU, and ROCm builds used by this project do not provide a complete native ARM64 environment. Running the x64 environment under Windows emulation is not project-supported. |
 | Linux x86_64 | Tested on Ubuntu and Debian | Exact tested release numbers were not recorded. The pinned Qt wheel requires glibc 2.34 or newer; Ubuntu 22.04+ and Debian 12+ satisfy that baseline. The installer automates GUI system dependencies only on Debian-family systems. |
 | Other x86_64 Linux distributions | Provisional | Modern glibc-based distributions may work after their Qt/XCB/QtWebEngine packages are installed manually. Fedora, RHEL, SUSE, Arch, and other distributions have not been project-tested. Accelerator support remains subject to the narrower vendor tables below. |
 | Linux ARM64 and other Linux architectures | Unsupported | Some individual upstream packages publish ARM wheels, but the complete pinned application environment has not been resolved or project-tested on these architectures. |
 | macOS ARM64 | Supported | Apple Silicon only, macOS 14 or newer, using MPS or CPU. |
-| macOS x86_64 | Unsupported | PyTorch 2.12.1 used by this project does not provide the required Intel macOS runtime. |
+| macOS x86_64 | Unsupported | PyTorch 2.12.0 used by this project does not provide the required Intel macOS runtime. |
 
 The operating-system baseline follows the pinned [Qt 6.11 platform
 matrix](https://doc.qt.io/qt-6/supported-platforms.html), the [official PyTorch
@@ -322,7 +322,7 @@ vendor listing alone does not constitute live application testing.
 | --- | --- | --- | --- |
 | CPU | Supported on Windows 10 version 1809+ and Windows 11 | Supported on the tested Ubuntu/Debian families; other distributions are provisional | Supported on macOS 14+ |
 | NVIDIA CUDA | CUDA 13.2 or CUDA 12.6 on Windows 10 22H2+/Windows 11 | CUDA 13.2 or CUDA 12.6; distribution and driver must support the selected runtime | Not supported |
-| AMD ROCm | Windows 11 only: ROCm 7.14 on 25H2 build 26200+, then ROCm 7.2.1 where eligible | Ubuntu only: ROCm 7.2 first, then ROCm 6.4 for the narrower fallback target set | Not supported |
+| AMD ROCm | Windows 11 25H2 build 26200+ only: ROCm 7.14 | Ubuntu only: ROCm 7.14 | Not supported |
 | Intel XPU | Windows 11 only for supported Arc/Core Ultra Arc devices | Supported only for the device/OS combinations below | Not supported |
 | Apple MPS | Not applicable | Not applicable | Supported on Apple Silicon with macOS 14+ |
 
@@ -347,17 +347,39 @@ for newly released hardware. The following are application eligibility targets,
 not a promise that every product with the same architecture will pass its
 driver and tensor validation:
 
+A single ROCm profile now covers both operating systems. Windows and Linux
+install the same PyTorch 2.12.0 build from AMD's multi-architecture channel,
+selected per GFX target:
+
 | Platform/profile | Eligible GFX targets | Additional requirements |
 | --- | --- | --- |
-| Windows ROCm 7.14 / PyTorch 2.12 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
-| Windows ROCm 7.2.1 / PyTorch 2.9.1 | `gfx1100`, `gfx1101`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 and AMD Software 26.2.2 or newer when the version can be detected. |
-| Linux ROCm 7.2 / PyTorch 2.12.1 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | A listed Ubuntu release, readable and writable `/dev/kfd`, and a matching target from `rocm_agent_enumerator` or `rocminfo`. |
-| Linux ROCm 6.4 / PyTorch 2.9.1 fallback | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1200`, `gfx1201` | Same Linux preflight requirements; attempted only after ROCm 7.2 fails. |
+| Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
+| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus any other target the ROCm channel ships a device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`, `gfx1153`, `gfx1250`. | A listed Ubuntu release, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. |
+
+The two platforms differ because of how the GFX target is identified. Windows
+exposes no way to query it, so the target is inferred from the product name
+against a pinned snapshot, and only models in that snapshot are eligible. On
+Linux the installed ROCm stack reports the target directly; when the product
+name is not in the snapshot the reported target is used instead, provided the
+ROCm channel publishes a device package for it. That covers AMD Instinct parts
+and RDNA1/RDNA2 consumer cards whose `lspci` names the snapshot never matched.
+If two or more distinct targets are reported, the reported value is not
+attributed to any single adapter and name matching remains the only source.
+
+Earlier releases offered four ROCm profiles (Windows 7.14 and 7.2.1, Linux 7.2
+and 6.4). ROCm 7.14 covers every GFX target the retired profiles did, so no
+previously eligible GPU loses support. The retired Windows ROCm 7.2.1 profile
+was limited by AMD to Python 3.12, which is why it could not move to the
+managed Python 3.13 environment.
+
+One consequence is worth stating plainly: **Windows ROCm now requires
+Windows 11 25H2 build 26200 or newer.** The retired 7.2.1 profile was the only
+one AMD published for earlier Windows 11 builds. A Windows 11 machine below
+25H2 is no longer eligible for ROCm and uses the next available accelerator or
+CPU.
 
 The installer does not install the Linux kernel driver or system ROCm stack.
-Consult the [ROCm 7.14 matrix](https://rocm.docs.amd.com/en/docs-7.14.0/about/release-notes.html),
-[ROCm 7.2.1 Windows matrix](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html),
-and [ROCm 6.4 matrix](https://rocm.docs.amd.com/en/docs-6.4.3/compatibility/compatibility-matrix.html)
+Consult the [ROCm 7.14 matrix](https://rocm.docs.amd.com/en/docs-7.14.0/about/release-notes.html)
 for the matching operating system, driver, and hardware requirements.
 
 #### Intel XPU
@@ -397,7 +419,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 - A failed installation or tensor validation advances to the next eligible
   backend and ultimately to CPU.
 - The selected backend and validation results are stored in
-  `.venv/ssn_backend.json`. Requirements, bundled artifacts, compatibility
+  `.venv/ssn_backend.json`. Requirements, pinned ESM and Transformers versions, compatibility
   rules, or a change to the required PyTorch profile invalidate the relevant
   saved state. Physical GPU addresses, device enumeration order, and driver
   updates that remain within the same CUDA compatibility profile do not force
@@ -426,7 +448,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 
 2. **Set up the environment:**
 
-   The generated Viewer and Tools launchers create a managed Python 3.12
+   The generated Viewer and Tools launchers create a managed Python 3.13
    environment and automatically install and validate one pinned PyTorch
    backend. Review [Compatibility](#-compatibility) for supported hosts,
    accelerator profiles, drivers, and fallback behavior before continuing.
@@ -666,15 +688,13 @@ License, and [NOTICE](NOTICE) for required attributions.
 
 ### Third-party components
 
-This repository bundles the MIT-licensed ESM wheel, the Apache-2.0 Biohub
-Transformers wheel, Mol*, and Tabulator, depends
-on Python packages under a range of licenses, and can load
-protein-language-model weights governed by their own terms. A full inventory,
-including which components are redistributed and which are merely required at
-runtime, is in
+This repository bundles Mol* and Tabulator, depends on Python packages under a
+range of licenses, and can load protein-language-model weights governed by
+their own terms. A full inventory, including which components are redistributed
+and which are merely required at runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-The managed environment also installs the official `mcp` 2.1.1 Python SDK and
+The managed environment also installs the official `mcp` 2.2.0 Python SDK and
 its Pydantic runtime dependency; both are MIT-licensed and are not bundled in
 the source repository.
 
@@ -688,15 +708,18 @@ separately and are not included in this source repository. Any future executable
 or installer that redistributes Qt binaries needs a separate LGPL compliance
 review.
 
-The repository bundles an unmodified ESM 3.3.0 wheel and a reproducible Biohub
-Transformers wheel labeled `4.57.6+biohub.3a8956f`. Their source commits,
-SHA-256 values, build documentation, and adjacent licenses are recorded under
-`src/resources/wheels/`. Biohub functionality is unchanged by the project-side
-packaging patch: it only adds the distinguishable local version label and
-prominent modification notices. Installation does not clone the Biohub
-repository, but it is not fully offline: ordinary PyPI dependencies, the
-selected PyTorch build, and model weights remain separately downloaded. Model
-weights retain their publishers' licenses. See sections 1 and 5 of
+**No Python wheels are redistributed by this repository.** Earlier releases
+bundled an ESM 3.3.0 wheel and a reproducible fork of Transformers labeled
+`4.57.6+biohub.3a8956f`, because ESM 3.3.0 required a Transformers build
+carrying `transformers/models/esmc`. ESM 3.4 moved ESMC and ESMFold2 into the
+`esm` package itself, so both are now installed from PyPI at their published
+versions — MIT-licensed `esm` 3.4.1.post1 and Apache-2.0 `transformers` 5.17.0 —
+and the fork is no longer needed or referenced. This removes the project's
+wheel-redistribution obligations entirely.
+
+Installation is not offline: ordinary PyPI dependencies, the selected PyTorch
+build, and model weights are downloaded separately. Model weights retain their
+publishers' licenses. See sections 1 and 5 of
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 Before publishing a release, confirm that copyright ownership and release

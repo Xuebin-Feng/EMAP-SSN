@@ -29,11 +29,10 @@ import subprocess
 from typing import Any, Iterable
 
 
-COMPATIBILITY_REVISION = 6
+COMPATIBILITY_REVISION = 7
 CUDA_13_MIN_DRIVER = (580, 0)
 WINDOWS_11_MIN_BUILD = 22000
 WINDOWS_11_25H2_MIN_BUILD = 26200
-WINDOWS_ROCM_721_MIN_AMD_SOFTWARE = (26, 2, 2)
 
 # This is a deliberately pinned local snapshot. A newly released GPU is not
 # guessed to be compatible until its model/GFX target is added here.
@@ -50,12 +49,27 @@ AMD_GFX_PATTERNS = (
     ("gfx1152", (r"radeon\s*(?:860m|840m)", r"ryzen\s*ai\s*[57]\s*3[45]0")),
 )
 ROCM_714_TARGETS = frozenset(target for target, _patterns in AMD_GFX_PATTERNS)
-ROCM_721_TARGETS = frozenset(
-    {"gfx1201", "gfx1200", "gfx1100", "gfx1101", "gfx1150", "gfx1151", "gfx1152"}
-)
-LINUX_ROCM_64_TARGETS = frozenset(
-    {"gfx1201", "gfx1200", "gfx1100", "gfx1101", "gfx1030"}
-)
+
+# Every GFX target the ROCm 7.14 multi-architecture channel publishes an
+# `amd-torch-device-*` package for. Verified against
+# https://repo.amd.com/rocm/whl-multi-arch/ on 2026-09-18.
+#
+# The channel also carries `gfx11`, `gfx110x`, `gfx115x` and `gfx12`. Those are
+# multi-architecture bundles, not device identities, so they are excluded: a
+# device must resolve to exactly one target for `torch[device-<target>]`.
+#
+# This set is wider than AMD_GFX_PATTERNS on purpose. The pattern table maps a
+# product NAME to a target and is the only option on Windows, where nothing
+# reports the GFX target directly. On Linux the ROCm runtime reports it, so the
+# eligibility gate there uses this set instead — see _linux_rocm_fallback_target.
+ROCM_CHANNEL_TARGETS = frozenset({
+    "gfx908", "gfx90a", "gfx942", "gfx950",
+    "gfx1010", "gfx1011", "gfx1012",
+    "gfx1030", "gfx1031", "gfx1032", "gfx1033", "gfx1034", "gfx1035", "gfx1036",
+    "gfx1100", "gfx1101", "gfx1102", "gfx1103",
+    "gfx1150", "gfx1151", "gfx1152", "gfx1153",
+    "gfx1200", "gfx1201", "gfx1250",
+})
 INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152"})
 
 INTEL_ARC_PREFIX = r"\bintel\b.*\barc(?:\(tm\)|™)?\s+"
@@ -124,17 +138,6 @@ def _windows_cim(class_name: str, properties: Iterable[str]) -> list[dict[str, A
 def _windows_os() -> dict[str, Any]:
     values = _windows_cim("Win32_OperatingSystem", ("Caption", "Version", "BuildNumber"))
     return values[0] if values else {}
-
-
-def _windows_amd_software_version() -> str | None:
-    script = (
-        "$keys=@('HKLM:\\SOFTWARE\\AMD\\CN','HKLM:\\SOFTWARE\\WOW6432Node\\AMD\\CN');"
-        "$names=@('ProductVersion','ReleaseVersion','DriverVersion');"
-        "foreach($key in $keys){if(Test-Path $key){$item=Get-ItemProperty $key;"
-        "foreach($name in $names){$value=$item.$name;if($value){Write-Output $value;exit}}}}"
-    )
-    values = _lines(_run(["powershell", "-NoProfile", "-Command", script]))
-    return values[0] if values else None
 
 
 def _windows_names(class_name: str) -> list[str]:
@@ -401,6 +404,25 @@ def _rocm_targets() -> set[str]:
     return {target.lower() for target in targets}
 
 
+def _linux_rocm_fallback_target(rocm_targets: set[str]) -> str | None:
+    """Resolve a GFX target from the ROCm runtime when name matching fails.
+
+    On Linux the installed ROCm stack reports the real target, which is ground
+    truth and does not depend on AMD_GFX_PATTERNS recognizing a product name.
+    That covers hardware the pinned snapshot has no pattern for, Instinct parts
+    in particular, whose lspci names never matched.
+
+    Only applied when exactly one supported target is reported. The agent list
+    is unordered and carries no PCI address, so with two distinct targets there
+    is no reliable way to attribute one to a specific lspci entry; the
+    conservative unmapped result is kept instead of guessing. A target the
+    ROCm 7.14 channel has no device package for is also ignored, because the
+    resulting `torch[device-<target>]` requirement could not be resolved.
+    """
+    supported = {target for target in rocm_targets if target in ROCM_CHANNEL_TARGETS}
+    return next(iter(supported)) if len(supported) == 1 else None
+
+
 def _intel_os_supported(system: str, os_info: dict[str, Any], device_name: str) -> bool:
     if system == "windows":
         return int(os_info.get("windows_build") or 0) >= WINDOWS_11_MIN_BUILD
@@ -456,34 +478,39 @@ def _evaluate_devices(
             reasons.append("NVIDIA display device detected; runtime validation is required.")
         elif vendor == "AMD":
             target = device.get("architecture")
+            if not target and system == "linux":
+                # The product name did not match the pinned snapshot, but the
+                # ROCm runtime reports the real target. Prefer that over
+                # declaring the device unsupported.
+                target = _linux_rocm_fallback_target(rocm_targets)
+                if target:
+                    device["architecture"] = target
+                    device["architecture_source"] = "rocm_agent_enumerator"
+                    reasons.append(
+                        f"GFX target {target} resolved from the ROCm runtime; "
+                        "the model is not in the pinned name table."
+                    )
             if not target:
                 reasons.append("AMD model is not in the pinned GFX compatibility table.")
             elif system == "windows":
-                if windows_build is None or int(windows_build) < WINDOWS_11_MIN_BUILD:
-                    reasons.append("Native Windows ROCm requires Windows 11.")
+                # ROCm 7.14 is the only Windows profile. AMD publishes it for
+                # Windows 11 25H2 only, so an older Windows 11 build is not
+                # eligible for ROCm at all and falls through to the next
+                # accelerator or CPU.
+                if windows_build is None or int(windows_build) < WINDOWS_11_25H2_MIN_BUILD:
+                    reasons.append(
+                        "Native Windows ROCm requires Windows 11 25H2 build "
+                        f"{WINDOWS_11_25H2_MIN_BUILD} or newer."
+                    )
+                elif target in ROCM_714_TARGETS:
+                    profiles.append("rocm")
+                    status = "eligible" if device.get("driver_version") else "provisional"
+                    device.setdefault("profile_eligibility", {})["rocm"] = status
+                    reasons.append(f"{target} is listed for: rocm.")
                 else:
-                    if int(windows_build) >= WINDOWS_11_25H2_MIN_BUILD and target in ROCM_714_TARGETS:
-                        profiles.append("rocm714")
-                        device.setdefault("profile_eligibility", {})["rocm714"] = (
-                            "eligible" if device.get("driver_version") else "provisional"
-                        )
-                    if target in ROCM_721_TARGETS:
-                        amd_release = str(os_info.get("amd_software_version") or "")
-                        if amd_release and _version_tuple(amd_release) < WINDOWS_ROCM_721_MIN_AMD_SOFTWARE:
-                            reasons.append(
-                                f"ROCm 7.2.1 requires AMD Software 26.2.2 or newer; detected {amd_release}."
-                            )
-                        else:
-                            profiles.append("rocm721")
-                            device.setdefault("profile_eligibility", {})["rocm721"] = (
-                                "eligible" if amd_release else "provisional"
-                            )
-                    if profiles:
-                        profile_states = device.get("profile_eligibility", {}).values()
-                        status = "eligible" if "eligible" in profile_states else "provisional"
-                        reasons.append(f"{target} is listed for: {', '.join(profiles)}.")
-                    else:
-                        reasons.append(f"{target} is not supported by a Windows ROCm profile for this OS build.")
+                    reasons.append(
+                        f"{target} is not in the pinned Windows GFX compatibility table."
+                    )
             elif system == "linux":
                 distro = str(os_info.get("id") or "").lower()
                 version = str(os_info.get("version_id") or "")
@@ -496,16 +523,21 @@ def _evaluate_devices(
                     reasons.append("/dev/kfd is missing or inaccessible; the installer does not install system GPU drivers.")
                 elif not target_seen:
                     reasons.append(f"ROCm agents do not report the mapped target {target}.")
-                elif target in ROCM_714_TARGETS:
-                    profiles = ["rocm72"]
-                    if target in LINUX_ROCM_64_TARGETS:
-                        profiles.append("rocm64")
+                elif target in ROCM_CHANNEL_TARGETS:
+                    # Linux gates on what the ROCm channel actually ships rather
+                    # than on the name-pattern table, because the target here is
+                    # either name-matched or reported by the ROCm runtime.
+                    profiles = ["rocm"]
                     status = "eligible" if rocm_targets else "provisional"
                     device["profile_eligibility"] = {
                         profile: status for profile in profiles
                     }
                     reasons.append(
                         f"Linux ROCm preflight accepted {target} for: {', '.join(profiles)}."
+                    )
+                else:
+                    reasons.append(
+                        f"{target} has no device package on the ROCm 7.14 channel."
                     )
             else:
                 reasons.append("ROCm is not configured for this operating system.")
@@ -662,7 +694,6 @@ def detect_hardware() -> dict[str, Any]:
         os_info = {
             "caption": os_row.get("Caption"), "version": os_row.get("Version") or version,
             "windows_build": build,
-            "amd_software_version": _windows_amd_software_version(),
         }
         devices = _windows_inventory(processors)
     elif system == "linux":

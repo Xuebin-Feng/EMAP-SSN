@@ -52,12 +52,6 @@ STATE_FILENAME = "ssn_backend.json"
 STATE_SCHEMA = 6
 SETUP_REQUIRED_EXIT = 10
 ROCM_BACKEND = "rocm"
-# Detect_GPU still reports the historical per-release ROCm profile names. They
-# all resolve to the same AMD multi-arch channel now, so they are normalized to
-# a single backend here rather than duplicated down the candidate ladder.
-ROCM_PROFILE_ALIASES = frozenset(
-    {"rocm", "rocm64", "rocm72", "rocm714", "rocm721"}
-)
 ACCELERATOR_BACKENDS = {
     "cuda126", "cuda132", "xpu", ROCM_BACKEND, "mps",
 }
@@ -89,11 +83,8 @@ class BackendSpec:
 
 
 def _standard_spec(candidate: dict[str, Any]) -> BackendSpec:
-    raw_backend = str(candidate.get("backend", "cpu"))
-    # Every historical ROCm profile now installs the same wheel from the same
-    # AMD channel; only the GFX target varies.
-    backend = ROCM_BACKEND if raw_backend in ROCM_PROFILE_ALIASES else raw_backend
-    profile = str(candidate.get("profile") or raw_backend)
+    backend = str(candidate.get("backend", "cpu"))
+    profile = str(candidate.get("profile") or backend)
     gfx_target = candidate.get("gfx_target")
     device_ids = tuple(str(value) for value in candidate.get("device_ids") or ())
     if backend == ROCM_BACKEND:
@@ -144,8 +135,8 @@ def backend_specs(report: dict[str, Any]) -> list[BackendSpec]:
             "device_ids": (),
         }]
     specs = [_standard_spec(candidate) for candidate in candidates if isinstance(candidate, dict)]
-    # Collapsing the ROCm profiles can make two candidates resolve to the same
-    # install; keep the first and drop the duplicate rung from the ladder.
+    # Defensive: each vendor currently contributes one candidate, but if two ever
+    # resolve to an identical install, keep the first and drop the repeat rung.
     deduplicated: list[BackendSpec] = []
     seen: set[tuple[str, str | None, tuple[Any, ...]]] = set()
     for spec in specs:
