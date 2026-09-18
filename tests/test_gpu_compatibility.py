@@ -141,22 +141,23 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertIsNone(devices[0]["driver_version"])
         self.assertEqual(devices[1]["id"], "00000000:02:00.0")
 
-    def test_windows_25h2_amd_gets_two_profiles(self):
+    def test_windows_25h2_amd_gets_the_single_rocm_profile(self):
         device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", kind="discrete", architecture="gfx1100")
         Detect_GPU._evaluate_devices([device], "windows", {"windows_build": 26200}, set())
-        self.assertEqual(device["eligible_profiles"], ["rocm714", "rocm721"])
+        self.assertEqual(device["eligible_profiles"], ["rocm"])
         self.assertEqual(device["eligibility"], "eligible")
+        self.assertEqual(device["profile_eligibility"]["rocm"], "eligible")
 
-    def test_older_windows_11_uses_rocm_721_only(self):
-        device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", kind="discrete", architecture="gfx1100")
-        Detect_GPU._evaluate_devices([device], "windows", {"windows_build": 26100}, set())
-        self.assertEqual(device["eligible_profiles"], ["rocm721"])
-
-    def test_windows_10_rejects_native_rocm(self):
-        device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100")
-        Detect_GPU._evaluate_devices([device], "windows", {"windows_build": 19045}, set())
-        self.assertEqual(device["eligible_profiles"], [])
-        self.assertEqual(device["eligibility"], "ineligible")
+    def test_windows_before_25h2_rejects_native_rocm(self):
+        # AMD publishes native Windows ROCm for Windows 11 25H2 only, so both
+        # Windows 10 and an older Windows 11 build are ineligible outright.
+        for build in (19045, 26100):
+            with self.subTest(build=build):
+                device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100")
+                Detect_GPU._evaluate_devices([device], "windows", {"windows_build": build}, set())
+                self.assertEqual(device["eligible_profiles"], [])
+                self.assertEqual(device["eligibility"], "ineligible")
+                self.assertIn("Windows 11 25H2", device["reasons"][0])
 
     def test_unknown_amd_is_never_provisional(self):
         device = gpu("AMD Radeon Graphics", "AMD", identifier="amd0", architecture=None, driver=None)
@@ -167,19 +168,6 @@ class DetectionCompatibilityTests(unittest.TestCase):
         device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100", driver=None)
         Detect_GPU._evaluate_devices([device], "windows", {"windows_build": 26200}, set())
         self.assertEqual(device["eligibility"], "provisional")
-
-    def test_rocm_721_applies_amd_software_version_predicate(self):
-        old = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd-old", architecture="gfx1100")
-        supported = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd-new", architecture="gfx1100")
-        Detect_GPU._evaluate_devices(
-            [old], "windows", {"windows_build": 26100, "amd_software_version": "26.2.1"}, set()
-        )
-        Detect_GPU._evaluate_devices(
-            [supported], "windows", {"windows_build": 26100, "amd_software_version": "26.2.2"}, set()
-        )
-        self.assertEqual(old["eligible_profiles"], [])
-        self.assertEqual(supported["eligible_profiles"], ["rocm721"])
-        self.assertEqual(supported["profile_eligibility"]["rocm721"], "eligible")
 
     def test_intel_arc_is_xpu_but_uhd_is_not(self):
         arc = gpu("Intel(R) Arc(TM) A770 Graphics", "INTEL", identifier="intel0")
@@ -249,15 +237,16 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertEqual(ignored, [])
 
     def test_amd_discrete_target_excludes_integrated_target(self):
-        discrete = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd-d", kind="discrete", architecture="gfx1100", profiles=["rocm714", "rocm721"])
-        integrated = gpu("AMD Radeon 890M", "AMD", identifier="amd-i", kind="integrated", architecture="gfx1150", profiles=["rocm714", "rocm721"])
+        discrete = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd-d", kind="discrete", architecture="gfx1100", profiles=["rocm"])
+        integrated = gpu("AMD Radeon 890M", "AMD", identifier="amd-i", kind="integrated", architecture="gfx1150", profiles=["rocm"])
         candidates, ignored = Detect_GPU._candidate_ladder([integrated, discrete])
         self.assertEqual(candidates[0]["device_ids"], ["amd-d"])
-        self.assertEqual([item["backend"] for item in candidates], ["rocm714", "rocm721", "cpu"])
+        self.assertEqual(candidates[0]["gfx_target"], "gfx1100")
+        self.assertEqual([item["backend"] for item in candidates], ["rocm", "cpu"])
         self.assertEqual(ignored[0]["id"], "amd-i")
 
     def test_discrete_intel_precedes_integrated_amd(self):
-        amd = gpu("AMD Radeon 890M", "AMD", identifier="amd-i", kind="integrated", architecture="gfx1150", profiles=["rocm714"])
+        amd = gpu("AMD Radeon 890M", "AMD", identifier="amd-i", kind="integrated", architecture="gfx1150", profiles=["rocm"])
         intel = gpu("Intel Arc B580", "INTEL", identifier="intel-d", kind="discrete", profiles=["xpu"])
         candidates, _ignored = Detect_GPU._candidate_ladder([amd, intel])
         self.assertEqual(candidates[0]["backend"], "xpu")
@@ -307,59 +296,79 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertEqual(inaccessible_kfd["eligible_profiles"], [])
         self.assertIn("/dev/kfd", inaccessible_kfd["reasons"][0])
 
-    def test_linux_rocm_profiles_prefer_72_and_limit_64_targets(self):
+    def test_linux_rocm_accepts_every_channel_target_as_one_profile(self):
+        # The per-release Linux profiles are gone. Eligibility is now a single
+        # question: does the ROCm 7.14 multi-arch channel ship a device package
+        # for this target? A target outside that set stays ineligible.
         supported = gpu(
             "AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100"
         )
-        newer_only = gpu(
+        integrated = gpu(
             "AMD Radeon 890M", "AMD", identifier="amd1", architecture="gfx1150"
+        )
+        off_channel = gpu(
+            "AMD Radeon Test", "AMD", identifier="amd2", architecture="gfx900"
         )
         with mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
                 mock.patch.object(Detect_GPU.os, "access", return_value=True):
             Detect_GPU._evaluate_devices(
-                [supported, newer_only],
+                [supported, integrated, off_channel],
                 "linux",
                 {"id": "ubuntu", "version_id": "24.04"},
-                {"gfx1100", "gfx1150"},
+                {"gfx1100", "gfx1150", "gfx900"},
             )
 
-        self.assertEqual(supported["eligible_profiles"], ["rocm72", "rocm64"])
-        self.assertEqual(newer_only["eligible_profiles"], ["rocm72"])
+        self.assertEqual(supported["eligible_profiles"], ["rocm"])
+        self.assertEqual(integrated["eligible_profiles"], ["rocm"])
+        self.assertEqual(off_channel["eligible_profiles"], [])
+        self.assertIn("ROCm 7.14 channel", off_channel["reasons"][0])
 
         candidates, _ignored = Detect_GPU._candidate_ladder([supported])
         self.assertEqual(
             [candidate["backend"] for candidate in candidates],
-            ["rocm72", "rocm64", "cpu"],
+            ["rocm", "cpu"],
         )
 
 
 class InstallerProfileTests(unittest.TestCase):
-    def test_linux_rocm_profiles_have_distinct_versions_and_indexes(self):
-        report = {
-            "backend_candidates": [
-                {"backend": "rocm72", "profile": "rocm72", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
-                {"backend": "rocm64", "profile": "rocm64", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
-                {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
-            ]
-        }
-        specs = Install_Dependencies.backend_specs(report)
-        self.assertEqual([spec.torch_version for spec in specs], ["2.12.1", "2.9.1", "2.12.1"])
-        self.assertTrue(specs[0].install_steps[0].index_url.endswith("/rocm7.2"))
-        self.assertTrue(specs[1].install_steps[0].index_url.endswith("/rocm6.4"))
+    def test_rocm_is_one_rung_on_every_platform(self):
+        # ROCm is a single profile now, so Linux and Windows produce the same
+        # one-step install and the ladder is just ROCm then CPU.
+        for platform_name in ("linux", "windows"):
+            with self.subTest(platform=platform_name):
+                report = {
+                    "platform": platform_name,
+                    "backend_candidates": [
+                        {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
+                        {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
+                    ],
+                }
+                specs = Install_Dependencies.backend_specs(report)
+                self.assertEqual([spec.backend for spec in specs], ["rocm", "cpu"])
+                self.assertEqual(
+                    [spec.torch_version for spec in specs],
+                    [Install_Dependencies.TORCH_VERSION] * 2,
+                )
+                self.assertEqual(len(specs[0].install_steps), 1)
+                self.assertEqual(
+                    specs[0].install_steps[0].index_url,
+                    "https://repo.amd.com/rocm/whl-multi-arch/",
+                )
 
-    def test_windows_rocm_profiles_have_distinct_steps_and_versions(self):
+    def test_candidates_resolving_to_the_same_install_collapse_to_one_rung(self):
+        # Two AMD devices on one target used to differ by ROCm release; with a
+        # single profile they resolve to an identical install, and the repeat
+        # rung is dropped rather than retried.
         report = {
             "backend_candidates": [
-                {"backend": "rocm714", "profile": "rocm714", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
-                {"backend": "rocm721", "profile": "rocm721", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
+                {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
+                {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["amd1"]},
                 {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
             ]
         }
         specs = Install_Dependencies.backend_specs(report)
-        self.assertEqual([spec.torch_version for spec in specs], ["2.12.0", "2.9.1", "2.12.1"])
-        self.assertEqual(len(specs[0].install_steps), 1)
-        self.assertEqual(len(specs[1].install_steps), 2)
-        self.assertIn("rocm_sdk_core", specs[1].install_steps[0].requirements[0])
+        self.assertEqual([spec.backend for spec in specs], ["rocm", "cpu"])
+        self.assertEqual(specs[0].device_ids, ("amd0",))
 
     def test_hardware_fingerprint_ignores_physical_identity_and_driver_release(self):
         report = {
@@ -449,7 +458,6 @@ class InstallerProfileTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as folder, \
             mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
             mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
             mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
             mock.patch.object(Install_Dependencies, "install_backend", side_effect=[None, validation]) as install_backend, \
@@ -461,61 +469,33 @@ class InstallerProfileTests(unittest.TestCase):
         self.assertEqual([call.args[2].backend for call in install_backend.call_args_list], ["cuda126", "xpu"])
         self.assertEqual(written["active_backend"]["backend"], "xpu")
 
-    def test_failed_rocm_72_falls_through_to_rocm_64(self):
-        report = {
-            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
-            "platform": "linux",
-            "os": {"id": "ubuntu", "version_id": "24.04"},
-            "devices": [],
-            "ignored_devices": [],
-            "reason": "test ladder",
-            "backend_candidates": [
-                {"backend": "rocm72", "profile": "rocm72", "gfx_target": "gfx1100", "device_ids": ["a0"]},
-                {"backend": "rocm64", "profile": "rocm64", "gfx_target": "gfx1100", "device_ids": ["a0"]},
-                {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
-            ],
-        }
-        validation = {"validated_devices": [{"spec": "cuda:0", "architecture": "gfx1100", "success": True}]}
-        completed = subprocess.CompletedProcess([], 0, "", "")
-        written: dict = {}
-
-        def capture_state(_path, payload, _report=None):
-            written.update(payload)
-
-        with tempfile.TemporaryDirectory() as folder, \
-            mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
-            mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
-            mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
-            mock.patch.object(Install_Dependencies, "install_backend", side_effect=[None, validation]) as install_backend, \
-            mock.patch.object(Install_Dependencies, "write_state", side_effect=capture_state):
-            result = Install_Dependencies.install(
-                project_root=ROOT, venv=Path(folder), uv_executable="uv"
-            )
-
-        self.assertEqual(result, 0)
-        self.assertEqual(
-            [call.args[2].backend for call in install_backend.call_args_list],
-            ["rocm72", "rocm64"],
-        )
-        self.assertEqual(written["active_backend"]["backend"], "rocm64")
-
     def test_previous_compatibility_revision_is_invalidated(self):
         requirements = ROOT / "src" / "requirements.txt"
         specs = Install_Dependencies.backend_specs(
             {"backend_candidates": [{"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]}]}
         )
-        stale = {
+        current = {
             "schema": Install_Dependencies.STATE_SCHEMA,
-            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION - 1,
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
             "hardware_fingerprint": "fingerprint",
             "requirements_sha256": Install_Dependencies._sha256(requirements),
             "esm_version": Install_Dependencies.ESM_VERSION,
-            "esm_wheel_sha256": Install_Dependencies.ESM_WHEEL_SHA256,
+            "transformers_version": Install_Dependencies.TRANSFORMERS_VERSION,
+            "esm_runtime_requirements_sha256": Install_Dependencies._sha256(
+                Install_Dependencies._esm_runtime_requirements_path(ROOT)
+            ),
             "requested_candidates": Install_Dependencies._spec_payloads(specs),
         }
-        self.assertFalse(
-            Install_Dependencies._state_matches(stale, specs, "fingerprint", requirements)
+        self.assertTrue(
+            Install_Dependencies._state_matches(current, specs, "fingerprint", requirements)
+        )
+        stale = dict(current)
+        stale["compatibility_revision"] = Detect_GPU.COMPATIBILITY_REVISION - 1
+        self.assertEqual(
+            Install_Dependencies._state_mismatches(
+                stale, specs, "fingerprint", requirements
+            ),
+            ["compatibility_revision"],
         )
 
     def test_dry_run_prints_every_candidate(self):
@@ -523,57 +503,20 @@ class InstallerProfileTests(unittest.TestCase):
             "compatibility_revision": 3, "platform": "windows", "os": {}, "devices": [],
             "ignored_devices": [], "reason": "test",
             "backend_candidates": [
-                {"backend": "rocm714", "profile": "rocm714", "gfx_target": "gfx1100", "device_ids": ["a"]},
-                {"backend": "rocm721", "profile": "rocm721", "gfx_target": "gfx1100", "device_ids": ["a"]},
+                {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["a"]},
                 {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
             ],
         }
         with tempfile.TemporaryDirectory() as folder, \
             mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
             mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
             mock.patch("builtins.print") as printer:
             result = Install_Dependencies.install(project_root=ROOT, venv=Path(folder), uv_executable="uv", dry_run=True)
         output = "\n".join(" ".join(str(value) for value in call.args) for call in printer.call_args_list)
         self.assertEqual(result, 0)
-        self.assertIn("Windows ROCm 7.14", output)
-        self.assertIn("Windows ROCm 7.2.1", output)
-        self.assertIn("CPU", output)
-
-    def test_linux_rocm_dry_run_prints_72_and_64_candidates(self):
-        report = {
-            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
-            "platform": "linux",
-            "os": {"id": "ubuntu", "version_id": "24.04"},
-            "devices": [],
-            "ignored_devices": [],
-            "reason": "test",
-            "backend_candidates": [
-                {"backend": "rocm72", "profile": "rocm72", "gfx_target": "gfx1100", "device_ids": ["a"]},
-                {"backend": "rocm64", "profile": "rocm64", "gfx_target": "gfx1100", "device_ids": ["a"]},
-                {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
-            ],
-        }
-        with tempfile.TemporaryDirectory() as folder, \
-            mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
-            mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
-            mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
-            mock.patch("builtins.print") as printer:
-            result = Install_Dependencies.install(
-                project_root=ROOT,
-                venv=Path(folder),
-                uv_executable="uv",
-                dry_run=True,
-            )
-
-        output = "\n".join(
-            " ".join(str(value) for value in call.args)
-            for call in printer.call_args_list
-        )
-        self.assertEqual(result, 0)
-        self.assertIn("Linux ROCm 7.2", output)
-        self.assertIn("Linux ROCm 6.4", output)
-        self.assertIn("CPU", output)
+        self.assertIn("Dry run candidate 1: ROCm 7.14 (gfx1100)", output)
+        self.assertIn("torch[device-gfx1100]", output)
+        self.assertIn("Dry run candidate 2: CPU", output)
 
 
 class RuntimeFilteringTests(unittest.TestCase):

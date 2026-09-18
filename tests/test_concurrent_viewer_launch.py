@@ -38,7 +38,7 @@ class DependencyReadinessTests(unittest.TestCase):
             state = {"active_backend": {"backend": "cpu"}}
             active = Install_Dependencies.backend_spec({"backend": "cpu"})
             with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
-                    mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
+                    mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
                     mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
                     mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
@@ -72,7 +72,7 @@ class DependencyReadinessTests(unittest.TestCase):
             python = root / "python"
             python.touch()
             with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
-                    mock.patch.object(Install_Dependencies, "verify_bundled_artifacts"), \
+                    mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
                     mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
                     mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
                     mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \

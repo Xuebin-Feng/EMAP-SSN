@@ -21,6 +21,10 @@
 # try/except ImportError and falls back to pure PyTorch. Including them would
 # pull large CUDA binaries onto every Linux install, including AMD and CPU-only
 # machines. Add them back if ESMFold2 inference is ever adopted.
+#
+# `uv pip check` reports both as missing on every Linux x86_64 install, so
+# Install_Dependencies.ESM_OMITTED_REQUIREMENTS lists them as sanctioned
+# deviations. Keep that set and these two omissions in sync.
 ipython
 einops
 biotite>=1.0.0

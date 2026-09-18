@@ -2,8 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-from contextlib import redirect_stdout
-import hashlib
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -11,7 +10,6 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,11 +44,12 @@ class GPUDetectionTests(unittest.TestCase):
                 mock.patch.object(Detect_GPU.platform, "machine", return_value="x86_64"), \
                 mock.patch.object(Detect_GPU, "_controller_names", return_value=list(controllers)), \
                 mock.patch.object(Detect_GPU, "_windows_names", return_value=list(processors)), \
-                mock.patch.object(Detect_GPU, "_windows_amd_software_version", return_value="26.2.2"), \
                 mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=list(nvidia)):
             return Detect_GPU.detect_hardware()
 
     def test_windows_amd_models_map_to_official_gfx_targets(self):
+        # ROCm 7.14 is the single AMD profile, so every supported model now
+        # resolves to the same backend and differs only in its GFX target.
         examples = {
             "AMD Radeon RX 9070 XT": "gfx1201",
             "AMD Radeon RX 9060 XT": "gfx1200",
@@ -66,7 +65,7 @@ class GPUDetectionTests(unittest.TestCase):
         for name, target in examples.items():
             with self.subTest(name=name):
                 report = self._detect(controllers=[name])
-                self.assertEqual(report["backend"], "rocm714")
+                self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
                 self.assertEqual(report["gfx_target"], target)
 
     def test_unknown_windows_amd_uses_intel_if_available_otherwise_cpu(self):
@@ -75,21 +74,31 @@ class GPUDetectionTests(unittest.TestCase):
         amd_only = self._detect(controllers=["AMD Radeon Graphics"])
         self.assertEqual(amd_only["backend"], "cpu")
 
-    def test_windows_10_rejects_rocm(self):
-        report = self._detect(version="10.0.19045", controllers=["AMD Radeon RX 7900 XTX"])
-        self.assertEqual(report["backend"], "cpu")
-        self.assertIn("Windows 11", report["reason"])
-
-    def test_older_windows_11_routes_supported_amd_to_rocm_721(self):
+    def test_windows_11_25h2_routes_supported_amd_to_rocm(self):
         report = self._detect(
-            version="10.0.26100", controllers=["AMD Radeon RX 7900 XTX"]
+            version="10.0.26200", controllers=["AMD Radeon RX 7900 XTX"]
         )
-        self.assertEqual(report["backend"], "rocm721")
+        self.assertEqual(report["backend"], "rocm")
         self.assertEqual(report["gfx_target"], "gfx1100")
         self.assertEqual(
             [candidate["backend"] for candidate in report["backend_candidates"]],
-            ["rocm721", "cpu"],
+            ["rocm", "cpu"],
         )
+
+    def test_windows_before_11_25h2_rejects_rocm(self):
+        # AMD publishes native Windows ROCm for Windows 11 25H2 only, so both
+        # Windows 10 and an older Windows 11 build fall through to CPU.
+        for version in ("10.0.19045", "10.0.26100"):
+            with self.subTest(version=version):
+                report = self._detect(
+                    version=version, controllers=["AMD Radeon RX 7900 XTX"]
+                )
+                self.assertEqual(report["backend"], "cpu")
+                self.assertEqual(
+                    [candidate["backend"] for candidate in report["backend_candidates"]],
+                    ["cpu"],
+                )
+                self.assertIn("Windows 11 25H2", report["reason"])
 
     def test_nvidia_cuda_version_depends_on_architecture_and_driver(self):
         modern = [{"name": "RTX 5090", "compute_capability": "12.0", "driver_version": "595.10"}]
@@ -134,8 +143,23 @@ class GPUDetectionTests(unittest.TestCase):
         self.assertEqual(report["backend"], "cuda132")
 
     def test_linux_amd_and_apple_silicon_backends(self):
+        # The inventory is supplied explicitly: on Linux the controller names
+        # only seed discovery, so an unpatched host would otherwise decide this.
+        amd_device = {
+            "id": "0000:03:00.0",
+            "name": "AMD Radeon RX 7900 XTX",
+            "vendor": "AMD",
+            "pci_id": "1002:744c",
+            "driver_version": None,
+            "driver": "amdgpu",
+            "kind": "discrete",
+            "architecture": "gfx1100",
+            "source": "lspci",
+        }
         with mock.patch.object(
                 Detect_GPU, "_read_os_release", return_value={"id": "ubuntu", "version_id": "24.04"}
+            ), mock.patch.object(
+                Detect_GPU, "_linux_inventory", return_value=[amd_device]
             ), mock.patch.object(
                 Detect_GPU, "_rocm_targets", return_value={"gfx1100"}
             ), mock.patch.object(
@@ -146,10 +170,13 @@ class GPUDetectionTests(unittest.TestCase):
             linux = self._detect(
                 system="Linux", version="6.8", controllers=["AMD Radeon RX 7900 XTX"]
             )
-        self.assertEqual(linux["backend"], "rocm72")
+        # The four ROCm profiles collapsed into one, so the ladder is the single
+        # ROCm candidate followed by the portable CPU fallback.
+        self.assertEqual(linux["backend"], "rocm")
+        self.assertEqual(linux["gfx_target"], "gfx1100")
         self.assertEqual(
             [candidate["backend"] for candidate in linux["backend_candidates"]],
-            ["rocm72", "rocm64", "cpu"],
+            ["rocm", "cpu"],
         )
         with mock.patch.object(Detect_GPU.platform, "machine", return_value="arm64"), \
                 mock.patch.object(Detect_GPU.platform, "system", return_value="Darwin"), \
@@ -200,6 +227,21 @@ class DependencyInstallerTests(unittest.TestCase):
             reason="test CUDA profile",
         )
 
+    def _rocm_report(self, gfx_target="gfx1100"):
+        return detected_report(
+            vendor="AMD",
+            backend=Install_Dependencies.ROCM_BACKEND,
+            gfx_target=gfx_target,
+            reason="supported AMD test GPU",
+        )
+
+    def _pinned_versions(self):
+        """Report the pinned ESM/Transformers versions as installed."""
+        return lambda _python, package: (
+            Install_Dependencies.TRANSFORMERS_VERSION
+            if package == "transformers" else Install_Dependencies.ESM_VERSION
+        )
+
     def test_subprocess_commands_are_not_echoed(self):
         success = mock.Mock(returncode=0, stdout="", stderr="")
         output = io.StringIO()
@@ -228,7 +270,8 @@ class DependencyInstallerTests(unittest.TestCase):
             returncode=0,
             stdout=json.dumps({
                 "backend": "cuda126", "profile": "cuda126",
-                "torch_version": "2.12.1+cu126", "package_error": None,
+                "torch_version": f"{Install_Dependencies.TORCH_VERSION}+cu126",
+                "package_error": None,
             }),
             stderr="",
         )
@@ -254,31 +297,48 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_backend_commands_use_exact_versions_and_indexes(self):
         python = Path(".venv/Scripts/python.exe")
-        cases = {
-            "cpu": ("torch==2.12.1", "/cpu"),
-            "cuda126": ("torch==2.12.1", "/cu126"),
-            "cuda132": ("torch==2.12.1", "/cu132"),
-            "xpu": ("torch==2.12.1", "/xpu"),
-            "rocm72": ("torch==2.12.1", "/rocm7.2"),
-            "rocm64": ("torch==2.9.1", "/rocm6.4"),
+        index_suffixes = {
+            "cpu": "/cpu",
+            "cuda126": "/cu126",
+            "cuda132": "/cu132",
+            "xpu": "/xpu",
         }
-        for backend, (requirement, index_suffix) in cases.items():
+        for backend, index_suffix in index_suffixes.items():
             with self.subTest(backend=backend):
                 spec = Install_Dependencies.backend_spec({"backend": backend})
                 command = Install_Dependencies.torch_install_command("uv", python, spec)
-                self.assertIn(requirement, command)
+                self.assertIn(f"torch=={Install_Dependencies.TORCH_VERSION}", command)
                 self.assertTrue(command[-1].endswith(index_suffix))
 
         mps = Install_Dependencies.backend_spec({"backend": "mps"})
         self.assertNotIn("--index-url", Install_Dependencies.torch_install_command("uv", python, mps))
 
-    def test_windows_rocm_command_is_architecture_specific(self):
+    def test_rocm_is_one_architecture_specific_profile(self):
+        # The per-ROCm-release profiles are gone: a single `rocm` backend
+        # installs from AMD's multi-arch channel and selects the device
+        # package with the validated GFX target.
+        self.assertEqual(
+            sorted(
+                backend for backend in Install_Dependencies.ACCELERATOR_BACKENDS
+                if backend.startswith("rocm")
+            ),
+            [Install_Dependencies.ROCM_BACKEND],
+        )
         spec = Install_Dependencies.backend_spec(
-            {"backend": "rocm714", "gfx_target": "gfx1100"}
+            {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"}
         )
         command = Install_Dependencies.torch_install_command("uv", Path("python"), spec)
-        self.assertIn("torch[device-gfx1100]==2.12.0+rocm7.14.0", command)
+        self.assertIn(
+            f"torch[device-gfx1100]=={Install_Dependencies.ROCM_TORCH_VERSION}", command
+        )
         self.assertEqual(command[-1], "https://repo.amd.com/rocm/whl-multi-arch/")
+        # The recorded version drops the +rocm local segment so it stays
+        # comparable with torch.__version__ during runtime validation.
+        self.assertEqual(spec.torch_version, Install_Dependencies.TORCH_VERSION)
+        with self.assertRaises(ValueError):
+            Install_Dependencies.backend_spec(
+                {"backend": Install_Dependencies.ROCM_BACKEND}
+            )
 
     def test_malformed_local_state_is_ignored(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -288,13 +348,16 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_state_distinguishes_requested_backend_from_cpu_fallback(self):
         requested = Install_Dependencies.backend_spec(
-            {"backend": "rocm714", "gfx_target": "gfx1100"}
+            {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"}
         )
         active = Install_Dependencies.backend_spec({"backend": "cpu"})
         profile = Install_Dependencies._state_profile(
             active, ROOT / "src" / "requirements.txt", requested
         )
-        self.assertEqual(profile["requested_backend"]["backend"], "rocm714")
+        self.assertEqual(
+            profile["requested_backend"]["backend"], Install_Dependencies.ROCM_BACKEND
+        )
+        self.assertEqual(profile["requested_backend"]["gfx_target"], "gfx1100")
         self.assertEqual(profile["active_backend"]["backend"], "cpu")
 
     def test_backend_cleanup_includes_xpu_and_rocm_runtime_packages(self):
@@ -309,85 +372,54 @@ class DependencyInstallerTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(Install_Dependencies._is_backend_package(name))
 
-    def test_bundled_wheels_match_manifest_hashes_metadata_licenses_and_modules(self):
-        wheels = ROOT / "src" / "resources" / "wheels"
-        manifest = json.loads((wheels / "manifest.json").read_text(encoding="utf-8"))
-        artifacts = {item["package"]: item for item in manifest["artifacts"]}
-        expected = {
-            "esm": (
-                "esm-3.3.0-py3-none-any.whl",
-                Install_Dependencies.ESM_VERSION,
-                Install_Dependencies.ESM_WHEEL_SHA256,
-                "MIT",
-            ),
-            "transformers": (
-                "transformers-4.57.6+biohub.3a8956f-py3-none-any.whl",
-                Install_Dependencies.TRANSFORMERS_VERSION,
-                Install_Dependencies.TRANSFORMERS_WHEEL_SHA256,
-                "Apache-2.0",
-            ),
+    def test_esm_runtime_requirements_never_pin_torch_or_transformers(self):
+        # esm is installed with --no-deps, so this file is the only place its
+        # runtime dependencies are declared. torch comes from the accelerator
+        # index and transformers is pinned separately; either one listed here
+        # would silently replace the selected build.
+        path = Install_Dependencies._esm_runtime_requirements_path(ROOT)
+        Install_Dependencies.verify_esm_runtime_requirements(path)
+        names = {
+            Install_Dependencies._requirement_name(entry)
+            for entry in Install_Dependencies._requirements_entries(path)
         }
-        for package, (filename, version, sha256, license_name) in expected.items():
-            with self.subTest(package=package):
-                artifact = artifacts[package]
-                wheel = wheels / filename
-                self.assertEqual(artifact["filename"], filename)
-                self.assertEqual(artifact["version"], version)
-                self.assertEqual(artifact["sha256"], sha256)
-                self.assertEqual(artifact["license"], license_name)
-                self.assertEqual(artifact["size"], wheel.stat().st_size)
-                self.assertEqual(hashlib.sha256(wheel.read_bytes()).hexdigest(), sha256)
-                license_text = (wheels / artifact["license_file"]).read_text(
-                    encoding="utf-8"
+        self.assertEqual(names & {"torch", "transformers"}, set())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rejected = Path(temp_dir) / "rejected.txt"
+            for line in ("torch==2.12.0", "Transformers >= 5.17.0", "torch"):
+                with self.subTest(line=line):
+                    rejected.write_text(f"# comment\neinops\n{line}\n", encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "must not pin"):
+                        Install_Dependencies.verify_esm_runtime_requirements(rejected)
+
+            # A distribution whose name merely starts with "torch" is a
+            # different package and must not be rejected.
+            accepted = Path(temp_dir) / "accepted.txt"
+            accepted.write_text("# comment\ntorch_geometric\neinops\n", encoding="utf-8")
+            Install_Dependencies.verify_esm_runtime_requirements(accepted)
+            self.assertEqual(
+                Install_Dependencies._requirements_entries(accepted),
+                ("torch_geometric", "einops"),
+            )
+
+            with self.assertRaises(FileNotFoundError):
+                Install_Dependencies.verify_esm_runtime_requirements(
+                    Path(temp_dir) / "missing.txt"
                 )
-                self.assertIn("permission", license_text.lower())
 
-        esm_metadata = Install_Dependencies.verify_esm_wheel(
-            wheels / expected["esm"][0]
-        )
-        transformers_metadata = Install_Dependencies.verify_transformers_wheel(
-            wheels / expected["transformers"][0]
-        )
-        self.assertEqual(esm_metadata["Version"], Install_Dependencies.ESM_VERSION)
+    def test_runtime_requirements_are_declared_for_the_pinned_esm_version(self):
+        # esm no longer ships as a bundled wheel, so its Requires-Dist metadata
+        # cannot be read back here. The file records the release it was derived
+        # from instead, and the installer requires it to be rewritten whenever
+        # ESM_VERSION moves; this keeps the two from drifting apart silently.
+        header = Install_Dependencies._esm_runtime_requirements_path(ROOT).read_text(
+            encoding="utf-8"
+        ).splitlines()[0]
         self.assertEqual(
-            transformers_metadata["Version"], Install_Dependencies.TRANSFORMERS_VERSION
+            header,
+            f"# ESM runtime dependencies (esm {Install_Dependencies.ESM_VERSION})",
         )
-        self.assertEqual(transformers_metadata["License"], "Apache 2.0 License")
-        self.assertEqual(artifacts["transformers"]["upstream_version"], "4.57.6")
-        self.assertEqual(
-            artifacts["transformers"]["source_commit"],
-            "3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf",
-        )
-        notice = (
-            "Modified by the Sequence Similarity Network Viewer project on 2026-08-15"
-        )
-        with zipfile.ZipFile(wheels / expected["transformers"][0]) as archive:
-            package_init = archive.read("transformers/__init__.py").decode("utf-8")
-        self.assertIn(notice, package_init)
-        patch_text = (
-            wheels / "transformers-4.57.6+biohub.3a8956f.patch"
-        ).read_text(encoding="utf-8")
-        self.assertEqual(patch_text.count(notice), 2)
-
-    def test_esm_runtime_requirements_exactly_follow_verified_wheel_metadata(self):
-        esm_wheel, _, requirements = Install_Dependencies._bundled_paths(ROOT)
-        metadata = Install_Dependencies.verify_esm_wheel(esm_wheel)
-        all_requirements = tuple(metadata.get_all("Requires-Dist", []))
-        expected = tuple(
-            value
-            for value in all_requirements
-            if Install_Dependencies._requirement_name(value)
-            not in {"torch", "transformers"}
-        )
-        actual = Install_Dependencies._requirements_entries(requirements)
-        self.assertEqual(actual, expected)
-        excluded = {
-            Install_Dependencies._requirement_name(value)
-            for value in all_requirements
-            if value not in actual
-        }
-        self.assertEqual(excluded, {"torch", "transformers"})
-        Install_Dependencies.verify_esm_runtime_requirements(esm_wheel, requirements)
 
     def test_install_order_uses_transformers_dependencies_then_esm_no_deps(self):
         report = self._cpu_report()
@@ -413,36 +445,48 @@ class DependencyInstallerTests(unittest.TestCase):
         ), mock.patch.object(
             Install_Dependencies, "install_backend", side_effect=install_backend
         ), mock.patch.object(
-            Install_Dependencies, "_installed_version", return_value="4.57.6"
+            Install_Dependencies, "_installed_version", return_value=None
         ), mock.patch.object(Install_Dependencies, "write_state"):
             code = Install_Dependencies.install(
                 project_root=ROOT, venv=Path(temp_dir), uv_executable="uv"
             )
 
         self.assertEqual(code, 0)
-        joined = [" ".join(str(part) for part in command) for command in commands]
+        transformers_requirement = (
+            f"transformers=={Install_Dependencies.TRANSFORMERS_VERSION}"
+        )
+        esm_requirement = f"esm=={Install_Dependencies.ESM_VERSION}"
+        runtime_requirements = str(ROOT / "src" / "esm_runtime_requirements.txt")
         positions = {
             "base": next(i for i, value in enumerate(events) if str(ROOT / "src" / "requirements.txt") in value),
             "backend": events.index("BACKEND"),
-            "transformers": next(i for i, value in enumerate(events) if "transformers-4.57.6+biohub" in value),
-            "runtime": next(i for i, value in enumerate(events) if "esm-3.3.0-runtime-requirements.txt" in value),
-            "esm": next(i for i, value in enumerate(events) if "esm-3.3.0-py3-none-any.whl" in value),
+            "transformers": next(i for i, value in enumerate(events) if transformers_requirement in value),
+            "runtime": next(i for i, value in enumerate(events) if runtime_requirements in value),
+            "esm": next(i for i, value in enumerate(events) if esm_requirement in value),
             "check": next(i for i, value in enumerate(events) if "pip check" in value),
         }
         self.assertEqual(list(positions.values()), sorted(positions.values()))
         transformers_command = next(
             command for command in commands
-            if "transformers-4.57.6+biohub" in " ".join(str(part) for part in command)
+            if transformers_requirement in " ".join(str(part) for part in command)
         )
         esm_command = next(
             command for command in commands
-            if "esm-3.3.0-py3-none-any.whl" in " ".join(str(part) for part in command)
+            if esm_requirement in " ".join(str(part) for part in command)
         )
+        # Transformers resolves its own dependencies; esm must not, because it
+        # pins an older torch and Transformers than this installer selects.
         self.assertNotIn("--no-deps", transformers_command)
         self.assertIn("--no-deps", esm_command)
         self.assertLess(esm_command.index("--no-deps"), len(esm_command) - 1)
+        # The hand-maintained runtime requirements replace what --no-deps skips.
+        runtime_command = next(
+            command for command in commands
+            if runtime_requirements in " ".join(str(part) for part in command)
+        )
+        self.assertEqual(runtime_command[-2:], ["-r", runtime_requirements])
 
-    def test_dry_run_names_local_wheels_without_biohub_git_url(self):
+    def test_dry_run_names_pypi_packages_and_the_runtime_requirements_file(self):
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             Install_Dependencies, "venv_python", return_value=Path(sys.executable)
@@ -459,20 +503,28 @@ class DependencyInstallerTests(unittest.TestCase):
             )
         text = output.getvalue()
         self.assertEqual(code, 0)
-        self.assertIn("transformers-4.57.6+biohub.3a8956f-py3-none-any.whl", text)
-        self.assertIn("esm-3.3.0-py3-none-any.whl", text)
+        self.assertIn(f"transformers=={Install_Dependencies.TRANSFORMERS_VERSION}", text)
+        self.assertIn(f"esm=={Install_Dependencies.ESM_VERSION}", text)
+        self.assertIn(str(ROOT / "src" / "esm_runtime_requirements.txt"), text)
         self.assertIn("--no-deps", text)
-        self.assertNotIn("github.com/Biohub/transformers", text)
+        self.assertIn(f"torch=={Install_Dependencies.TORCH_VERSION}", text)
+        # Both packages come from PyPI now: no bundled wheel and no fork.
+        self.assertNotIn(".whl", text)
+        self.assertNotIn("github.com", text)
 
-    def test_missing_or_corrupt_bundle_fails_before_any_install_command(self):
+    def test_unusable_runtime_requirements_fail_before_any_install_command(self):
         errors = (
-            FileNotFoundError("Bundled transformers wheel is missing"),
-            ValueError("Bundled transformers wheel checksum mismatch"),
+            FileNotFoundError("ESM runtime requirements are missing"),
+            ValueError("ESM runtime requirements must not pin torch"),
         )
         for error in errors:
             with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temp_dir, \
                     mock.patch.object(Install_Dependencies, "venv_python", return_value=Path(sys.executable)), \
-                    mock.patch.object(Install_Dependencies, "verify_bundled_artifacts", side_effect=error), \
+                    mock.patch.object(
+                        Install_Dependencies,
+                        "verify_esm_runtime_requirements",
+                        side_effect=error,
+                    ), \
                     mock.patch.object(Install_Dependencies, "_run") as run:
                 with self.assertRaises(type(error)):
                     Install_Dependencies.install(
@@ -480,25 +532,44 @@ class DependencyInstallerTests(unittest.TestCase):
                     )
                 run.assert_not_called()
 
-    def test_wrong_transformers_metadata_version_fails_closed(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wheel = Path(temp_dir) / "transformers.whl"
-            wheel.touch()
-            members = {
-                "transformers/__init__.py",
-                "transformers/models/esmc/configuration_esmc.py",
-                "transformers/models/esmfold2/configuration_esmfold2.py",
-            }
-            metadata = {"Name": "transformers", "Version": "4.57.6"}
-            with mock.patch.object(
-                Install_Dependencies,
-                "_sha256",
-                return_value=Install_Dependencies.TRANSFORMERS_WHEEL_SHA256,
-            ), mock.patch.object(
-                Install_Dependencies, "_wheel_metadata", return_value=(metadata, members)
-            ):
-                with self.assertRaisesRegex(ValueError, "reports version"):
-                    Install_Dependencies.verify_transformers_wheel(wheel)
+    def test_wrong_installed_pin_makes_the_environment_not_ready(self):
+        report = self._cpu_report()
+        spec = Install_Dependencies.backend_specs(report)[0]
+        stale = {"transformers": "4.57.6", "esm": "3.3.0"}
+        for package, version in stale.items():
+            with self.subTest(package=package), tempfile.TemporaryDirectory() as temp_dir:
+                venv = Path(temp_dir)
+                Install_Dependencies.write_state(
+                    venv / Install_Dependencies.STATE_FILENAME,
+                    Install_Dependencies._state_profile(
+                        spec, ROOT / "src" / "requirements.txt"
+                    ),
+                    report,
+                )
+                pinned = self._pinned_versions()
+                with mock.patch.object(
+                    Install_Dependencies, "venv_python", return_value=Path(sys.executable)
+                ), mock.patch.object(
+                    Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report
+                ), mock.patch.object(
+                    Install_Dependencies,
+                    "validate_backend",
+                    return_value={"validated_devices": [{"spec": "cpu", "success": True}]},
+                ), mock.patch.object(
+                    Install_Dependencies,
+                    "_installed_version",
+                    side_effect=lambda python, name: (
+                        version if name == package else pinned(python, name)
+                    ),
+                ), mock.patch.object(
+                    Install_Dependencies, "validate_package_consistency", return_value=True
+                ), mock.patch.object(
+                    Install_Dependencies, "validate_esm_stack", return_value=True
+                ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    ready = Install_Dependencies.environment_is_ready(
+                        project_root=ROOT, venv=venv, uv_executable="uv"
+                    )
+                self.assertFalse(ready)
 
     def test_state_schema_versions_hashes_and_runtime_requirements_invalidate(self):
         report = self._cpu_report()
@@ -514,9 +585,10 @@ class DependencyInstallerTests(unittest.TestCase):
             Install_Dependencies._state_matches(state, specs, fingerprint, requirements)
         )
         mutations = {
-            "schema": 3,
+            "schema": Install_Dependencies.STATE_SCHEMA - 1,
+            "esm_version": "3.3.0",
             "transformers_version": "4.57.6",
-            "transformers_wheel_sha256": "0" * 64,
+            "requirements_sha256": "0" * 64,
             "esm_runtime_requirements_sha256": "0" * 64,
         }
         for field, value in mutations.items():
@@ -540,7 +612,7 @@ class DependencyInstallerTests(unittest.TestCase):
             "requested_candidates": [],
             "schema": Install_Dependencies.STATE_SCHEMA - 1,
             "requirements_sha256": "old-requirements",
-            "esm_wheel_sha256": "old-esm-wheel",
+            "esm_version": "old-esm",
         })
         self.assertEqual(
             Install_Dependencies._state_mismatches(
@@ -548,7 +620,7 @@ class DependencyInstallerTests(unittest.TestCase):
             ),
             [
                 "schema", "hardware_fingerprint", "requirements_sha256",
-                "esm_wheel_sha256", "requested_candidates",
+                "esm_version", "requested_candidates",
             ],
         )
 
@@ -574,8 +646,6 @@ class DependencyInstallerTests(unittest.TestCase):
             with mock.patch.object(
                 Install_Dependencies, "venv_python", return_value=Path(sys.executable)
             ), mock.patch.object(
-                Install_Dependencies, "verify_bundled_artifacts"
-            ), mock.patch.object(
                 Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report
             ), mock.patch.object(
                 Install_Dependencies, "_run", return_value=success
@@ -584,12 +654,8 @@ class DependencyInstallerTests(unittest.TestCase):
             ) as validate, mock.patch.object(
                 Install_Dependencies, "install_backend"
             ) as install_backend, mock.patch.object(
-                Install_Dependencies,
-                "_installed_version",
-                side_effect=lambda _python, package: (
-                    Install_Dependencies.TRANSFORMERS_VERSION
-                    if package == "transformers" else Install_Dependencies.ESM_VERSION
-                ),
+                Install_Dependencies, "_installed_version",
+                side_effect=self._pinned_versions(),
             ), mock.patch.object(
                 Install_Dependencies, "validate_package_consistency", return_value=True
             ), mock.patch.object(
@@ -621,8 +687,6 @@ class DependencyInstallerTests(unittest.TestCase):
             with mock.patch.object(
                 Install_Dependencies, "venv_python", return_value=python
             ), mock.patch.object(
-                Install_Dependencies, "verify_bundled_artifacts"
-            ), mock.patch.object(
                 Install_Dependencies.Detect_GPU,
                 "detect_hardware",
                 return_value=cpu_report,
@@ -633,12 +697,8 @@ class DependencyInstallerTests(unittest.TestCase):
             ) as package_validation, mock.patch.object(
                 Install_Dependencies, "validate_backend"
             ) as runtime_validation, mock.patch.object(
-                Install_Dependencies,
-                "_installed_version",
-                side_effect=lambda _python, package: (
-                    Install_Dependencies.TRANSFORMERS_VERSION
-                    if package == "transformers" else Install_Dependencies.ESM_VERSION
-                ),
+                Install_Dependencies, "_installed_version",
+                side_effect=self._pinned_versions(),
             ), mock.patch.object(
                 Install_Dependencies, "validate_package_consistency", return_value=True
             ), mock.patch.object(
@@ -670,8 +730,6 @@ class DependencyInstallerTests(unittest.TestCase):
             with mock.patch.object(
                 Install_Dependencies, "venv_python", return_value=Path(sys.executable)
             ), mock.patch.object(
-                Install_Dependencies, "verify_bundled_artifacts"
-            ), mock.patch.object(
                 Install_Dependencies.Detect_GPU, "detect_hardware", return_value=cpu_report
             ), mock.patch.object(
                 Install_Dependencies, "_run", return_value=success
@@ -680,12 +738,8 @@ class DependencyInstallerTests(unittest.TestCase):
             ) as install_backend, mock.patch.object(
                 Install_Dependencies, "validate_backend_package"
             ) as package_validation, mock.patch.object(
-                Install_Dependencies,
-                "_installed_version",
-                side_effect=lambda _python, package: (
-                    Install_Dependencies.TRANSFORMERS_VERSION
-                    if package == "transformers" else Install_Dependencies.ESM_VERSION
-                ),
+                Install_Dependencies, "_installed_version",
+                side_effect=self._pinned_versions(),
             ), mock.patch.object(
                 Install_Dependencies, "validate_package_consistency", return_value=True
             ), mock.patch.object(
@@ -782,8 +836,6 @@ class DependencyInstallerTests(unittest.TestCase):
             with mock.patch.object(
                 Install_Dependencies, "venv_python", return_value=Path(sys.executable)
             ), mock.patch.object(
-                Install_Dependencies, "verify_bundled_artifacts"
-            ), mock.patch.object(
                 Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report
             ), mock.patch.object(
                 Install_Dependencies, "_run", return_value=success
@@ -792,12 +844,8 @@ class DependencyInstallerTests(unittest.TestCase):
             ), mock.patch.object(
                 Install_Dependencies, "install_backend", return_value=repaired
             ) as install_backend, mock.patch.object(
-                Install_Dependencies,
-                "_installed_version",
-                side_effect=lambda _python, package: (
-                    Install_Dependencies.TRANSFORMERS_VERSION
-                    if package == "transformers" else Install_Dependencies.ESM_VERSION
-                ),
+                Install_Dependencies, "_installed_version",
+                side_effect=self._pinned_versions(),
             ), mock.patch.object(
                 Install_Dependencies, "validate_package_consistency", return_value=True
             ), mock.patch.object(
@@ -811,12 +859,7 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(install_backend.call_args.args[2].backend, "cuda126")
 
     def test_failed_accelerator_install_falls_back_to_cpu(self):
-        report = detected_report(
-            vendor="AMD",
-            backend="rocm714",
-            gfx_target="gfx1100",
-            reason="supported AMD test GPU",
-        )
+        report = self._rocm_report()
         success = mock.Mock(returncode=0, stdout="", stderr="")
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as temp_dir, \
@@ -833,9 +876,15 @@ class DependencyInstallerTests(unittest.TestCase):
                 uv_executable="uv",
             )
         self.assertEqual(code, 0)
-        self.assertEqual(install_backend.call_args_list[0].args[2].backend, "rocm714")
+        self.assertEqual(
+            install_backend.call_args_list[0].args[2].backend,
+            Install_Dependencies.ROCM_BACKEND,
+        )
         self.assertEqual(install_backend.call_args_list[1].args[2].backend, "cpu")
-        self.assertEqual(write_state.call_args.args[2]["fallback_from"], "rocm714")
+        self.assertEqual(
+            write_state.call_args.args[2]["fallback_from"],
+            Install_Dependencies.ROCM_BACKEND,
+        )
         status = output.getvalue()
         self.assertNotIn("$ ", status)
         self.assertNotIn("Selected PyTorch backend:", status)
@@ -843,12 +892,7 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertIn("Dependency environment is ready (CPU).", status)
 
     def test_validated_cpu_fallback_is_reused_for_the_same_hardware(self):
-        report = detected_report(
-            vendor="AMD",
-            backend="rocm714",
-            gfx_target="gfx1100",
-            reason="supported AMD test GPU",
-        )
+        report = self._rocm_report()
         requested = Install_Dependencies.backend_spec(report)
         active = Install_Dependencies.backend_spec({"backend": "cpu"})
         success = mock.Mock(returncode=0, stdout="", stderr="")
@@ -872,7 +916,8 @@ class DependencyInstallerTests(unittest.TestCase):
                 ) as validate, mock.patch.object(
                     Install_Dependencies, "install_backend"
                 ) as install_backend, mock.patch.object(
-                    Install_Dependencies, "_installed_version", return_value=Install_Dependencies.ESM_VERSION
+                    Install_Dependencies, "_installed_version",
+                    side_effect=self._pinned_versions(),
                 ):
                 code = Install_Dependencies.install(
                     project_root=ROOT,
@@ -882,6 +927,107 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(validate.call_args.args[1].backend, "cpu")
         install_backend.assert_not_called()
+
+
+class PackageConsistencyTests(unittest.TestCase):
+    """`uv pip check` reports the deviations this installer creates on purpose.
+
+    esm is installed with --no-deps against a newer torch and Transformers than
+    it declares, and its runtime requirements omit the ESMFold2-only
+    cuequivariance kernels, so a clean install always reports four
+    incompatibilities in uv's two shapes: an unsatisfied version and an absent
+    dependency. Anything else must fail closed.
+    """
+
+    TORCH_LINE = (
+        "The package `esm` requires `torch>=2.11.0,<2.12.0`, "
+        f"but `{Install_Dependencies.TORCH_VERSION}+cu132` is installed"
+    )
+    TRANSFORMERS_LINE = (
+        "The package `esm` requires `transformers>=4.57.6,<5.0.0`, "
+        f"but `{Install_Dependencies.TRANSFORMERS_VERSION}` is installed"
+    )
+    MISSING_LINES = tuple(
+        f"The package `esm` requires `{name}>=0.8.1 ; platform_machine == "
+        "'x86_64' and sys_platform == 'linux'`, but it's not installed"
+        for name in sorted(Install_Dependencies.ESM_OMITTED_REQUIREMENTS)
+    )
+
+    def _check(self, *lines):
+        report = "\n".join(
+            ("Checked 155 packages in 1ms", f"Found {len(lines)} incompatibilities", *lines)
+        )
+        completed = mock.Mock(returncode=1, stdout=report, stderr="")
+        stdout = io.StringIO()
+        with mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            return Install_Dependencies.validate_package_consistency("uv", Path("python"))
+
+    def _expected(self):
+        return (self.TORCH_LINE, self.TRANSFORMERS_LINE, *self.MISSING_LINES)
+
+    def test_clean_report_passes(self):
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch.object(Install_Dependencies, "_run", return_value=completed):
+            self.assertTrue(
+                Install_Dependencies.validate_package_consistency("uv", Path("python"))
+            )
+
+    def test_sanctioned_version_and_missing_deviations_pass(self):
+        self.assertTrue(self._check(*self._expected()))
+
+    def test_unsanctioned_missing_dependency_fails(self):
+        lines = (
+            self.TORCH_LINE,
+            self.TRANSFORMERS_LINE,
+            "The package `esm` requires `biotite>=1.0.0`, but it's not installed",
+        )
+        self.assertFalse(self._check(*lines))
+
+    def test_missing_dependency_of_another_package_fails(self):
+        lines = (
+            self.TORCH_LINE,
+            self.TRANSFORMERS_LINE,
+            "The package `scanpy` requires `cuequivariance-torch>=0.8.1`, "
+            "but it's not installed",
+        )
+        self.assertFalse(self._check(*lines))
+
+    def test_unpinned_torch_or_transformers_version_fails(self):
+        for line in (
+            self.TORCH_LINE.replace(Install_Dependencies.TORCH_VERSION, "2.9.0"),
+            self.TRANSFORMERS_LINE.replace(
+                Install_Dependencies.TRANSFORMERS_VERSION, "4.57.6"
+            ),
+        ):
+            with self.subTest(line=line):
+                self.assertFalse(self._check(line))
+
+    def test_unaccounted_or_unparseable_report_fails(self):
+        # The declared count is the safety net: a line uv words differently, or
+        # a report shape this installer cannot parse, must not pass silently.
+        completed = mock.Mock(
+            returncode=1,
+            stdout="Found 5 incompatibilities\n" + "\n".join(self._expected()),
+            stderr="",
+        )
+        with mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertFalse(
+                Install_Dependencies.validate_package_consistency("uv", Path("python"))
+            )
+        self.assertFalse(self._check("something uv started wording differently"))
+
+    def test_omitted_requirements_are_absent_from_the_runtime_file(self):
+        # The sanctioned-missing set only holds while the file really omits
+        # them; listing one there would install it and silence the report.
+        entries = Install_Dependencies._requirements_entries(
+            Install_Dependencies._esm_runtime_requirements_path(ROOT)
+        )
+        names = {Install_Dependencies._requirement_name(entry) for entry in entries}
+        self.assertEqual(
+            names & Install_Dependencies.ESM_OMITTED_REQUIREMENTS, set()
+        )
 
 
 if __name__ == "__main__":

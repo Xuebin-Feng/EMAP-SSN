@@ -46,6 +46,15 @@ ROCM_TORCH_VERSION = "2.12.0+rocm7.14.1"
 # carried transformers/models/esmc is no longer required and is not bundled.
 ESM_VERSION = "3.4.1.post1"
 TRANSFORMERS_VERSION = "5.17.0"
+# esm declares these two NVIDIA CUDA 13 kernel packages on Linux/x86_64, and
+# esm_runtime_requirements.txt omits them on purpose: only the ESMFold2 fused
+# attention and triangle-multiplication paths import them, behind a try/except
+# ImportError that falls back to pure PyTorch. This project uses ESMC
+# embeddings only, so `uv pip check` reports them as missing on every Linux
+# x86_64 install. Drop them from this set if ESMFold2 inference is adopted.
+ESM_OMITTED_REQUIREMENTS = frozenset({
+    "cuequivariance-torch", "cuequivariance-ops-torch-cu13",
+})
 STATE_FILENAME = "ssn_backend.json"
 # Schema 6 drops the bundled-wheel checksum fields and collapses the four ROCm
 # profiles into one, so schema-5 state is not comparable and must be rebuilt.
@@ -686,22 +695,34 @@ _PIP_CHECK_PROBLEM = re.compile(
     r"The package `(?P<package>[^`]+)` requires `(?P<requirement>[^`]+)`, "
     r"but `(?P<installed>[^`]+)` is installed"
 )
+# "The package `esm` requires `cuequivariance-torch>=0.8.1 ; ...`, but it's
+# not installed" — uv's other report shape, used for a dependency that is
+# absent rather than present at an unsatisfying version.
+_PIP_CHECK_MISSING = re.compile(
+    r"The package `(?P<package>[^`]+)` requires `(?P<requirement>[^`]+)`, "
+    r"but it'?s not installed"
+)
 _PIP_CHECK_COUNT = re.compile(r"Found (\d+) incompatibilit", re.I)
 
 
 def _is_sanctioned_incompatibility(
-    package: str, requirement: str, installed: str
+    package: str, requirement: str, installed: str | None
 ) -> bool:
-    """Allow only the two deviations this installer creates on purpose.
+    """Allow only the deviations this installer creates on purpose.
 
     esm is installed with --no-deps against a newer torch and a newer
-    Transformers than it declares, so `uv pip check` always reports those two.
-    Both are accepted only when the installed version is exactly the one this
-    installer pinned; anything else is a real inconsistency.
+    Transformers than it declares, and its runtime requirements deliberately
+    omit the ESMFold2-only cuequivariance kernels, so `uv pip check` always
+    reports those. A version deviation is accepted only when the installed
+    version is exactly the one this installer pinned, and a missing dependency
+    only when it is one of the documented omissions; anything else is a real
+    inconsistency. `installed` is None for a dependency uv reports as absent.
     """
     if package.lower() != "esm":
         return False
     name = _requirement_name(requirement)
+    if installed is None:
+        return name in ESM_OMITTED_REQUIREMENTS
     if name == "torch":
         # Every backend installs the same base version; the local segment
         # (+cu132, +rocm7.14.1, ...) identifies the accelerator build.
@@ -727,12 +748,13 @@ def validate_package_consistency(uv_executable: str, python: Path) -> bool:
     unsanctioned: list[str] = []
     for line in (item.strip() for item in output.splitlines()):
         match = _PIP_CHECK_PROBLEM.search(line)
+        installed = match.group("installed") if match is not None else None
+        if match is None:
+            match = _PIP_CHECK_MISSING.search(line)
         if match is None:
             continue
         if _is_sanctioned_incompatibility(
-            match.group("package"),
-            match.group("requirement"),
-            match.group("installed"),
+            match.group("package"), match.group("requirement"), installed
         ):
             accepted.append(line)
         else:
