@@ -1,0 +1,46 @@
+# ESM runtime dependencies (esm 3.4.1.post1)
+#
+# esm is installed with --no-deps by Install_Dependencies.py, so this file is
+# the only place its runtime dependencies are declared. It is installed AFTER
+# the accelerator-specific torch build and the pinned Transformers version.
+#
+# torch and transformers must never appear here. torch is supplied by the
+# selected accelerator index and transformers is pinned separately; either one
+# listed here would silently replace them. Install_Dependencies.py rejects this
+# file if it names either package.
+#
+# Derived from the Requires-Dist entries of the esm 3.4.1.post1 wheel, with two
+# deliberate omissions:
+#
+#   cuequivariance-torch>=0.8.1          ; sys_platform == "linux" and platform_machine == "x86_64"
+#   cuequivariance-ops-torch-cu13>=0.8.1 ; sys_platform == "linux" and platform_machine == "x86_64"
+#
+# Those are NVIDIA CUDA 13 kernel binaries for the ESMFold2 fused attention and
+# triangle-multiplication paths. This project only uses ESMC embeddings, which
+# never import them, and esm/models/esmfold2/layers.py guards the import with
+# try/except ImportError and falls back to pure PyTorch. Including them would
+# pull large CUDA binaries onto every Linux install, including AMD and CPU-only
+# machines. Add them back if ESMFold2 inference is ever adopted.
+ipython
+einops
+biotite>=1.0.0
+rdkit
+msgpack-numpy
+biopython
+scikit-learn
+brotli
+attrs
+pandas
+cloudpathlib
+httpx
+tenacity
+zstd
+ipywidgets
+py3dmol
+pydssp
+boto3
+huggingface_hub
+safetensors
+pygtrie
+dna_features_viewer
+accelerate

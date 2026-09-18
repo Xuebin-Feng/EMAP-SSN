@@ -193,8 +193,9 @@ def torch_install_command(uv_executable: str, python: Path, spec: BackendSpec) -
 def esm_install_command(uv_executable: str, python: Path) -> list[str]:
     # --no-deps is load-bearing: esm pins torch<2.12.0 and transformers<5.0.0,
     # and resolving those would replace the selected accelerator build and
-    # downgrade Transformers. Its runtime dependencies are installed separately
-    # from esm_runtime_requirements.txt, which is kept in sync by a test.
+    # downgrade Transformers. Its runtime dependencies are therefore declared
+    # by hand in esm_runtime_requirements.txt and installed separately; that
+    # file must be updated whenever ESM_VERSION changes.
     return _uv_prefix(uv_executable, python) + ["--no-deps", f"esm=={ESM_VERSION}"]
 
 
