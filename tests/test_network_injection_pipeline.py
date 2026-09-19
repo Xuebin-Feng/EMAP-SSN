@@ -36,8 +36,6 @@ class EmbeddingInjectionPluginTests(unittest.TestCase):
         "esm2_t12_35m": "esm2",
         "esm2_t30_150m": "esm2",
         "esm2_t33_650m": "esm2",
-        "esm2_t36_3b": "esm2",
-        "esm2_t48_15b": "esm2",
         "esmc_300m": "esmc",
         "esmc_600m": "esmc",
         "esmc_6b": "esmc_6b_api",

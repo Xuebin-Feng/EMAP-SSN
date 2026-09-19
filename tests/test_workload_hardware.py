@@ -201,7 +201,7 @@ class PluginContractTests(unittest.TestCase):
         )
         self.assertEqual(modes["esmc_6b"], "remote_api")
         self.assertEqual(modes["esmc_300m"], "local")
-        self.assertIn("esm2_t48_15b", modes)
+        self.assertIn("esm2_t33_650m", modes)
 
     def test_missing_and_unknown_modes_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -777,6 +777,88 @@ class ToolExportGuiTests(unittest.TestCase):
                 self.assertEqual(compact_row, host_row - 1)
                 form_parent.close()
 
+    def test_embedding_row_widens_model_name_at_the_cost_of_saving_mode(self):
+        from PySide6.QtWidgets import (
+            QComboBox,
+            QFormLayout,
+            QLabel,
+            QSizePolicy,
+            QWidget,
+        )
+
+        def build_row():
+            form_parent = QWidget()
+            layout = QFormLayout(form_parent)
+            layout.setHorizontalSpacing(30)
+            row_widgets = {}
+            definitions = (
+                ("MODEL_NAME", "Model Name:",
+                 ["ankh_large [non-commercial]", "esm2_t33_650M_UR50D"]),
+                ("SAVING_MODE", "Saving Mode:", ["float32", "float16"]),
+                ("DEVICE_SELECTION", "Device:", ["Auto Benchmark", "CPU"]),
+            )
+            for var_name, label_text, options in definitions:
+                label = QLabel(label_text)
+                field = QComboBox()
+                field.addItems(options)
+                field.setMinimumContentsLength(12)
+                field.setSizeAdjustPolicy(
+                    QComboBox.SizeAdjustPolicy
+                    .AdjustToMinimumContentsLengthWithIcon
+                )
+                field.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+                layout.addRow(label, field)
+                row_widgets[var_name] = (label, field)
+
+            self.tools_gui_class._merge_compact_rows(
+                layout, "Generate_Embeddings.py", row_widgets
+            )
+            # The leading label shares the form's label column width.
+            row_widgets["MODEL_NAME"][0].setFixedWidth(
+                QLabel("Sequence Set (.fasta):").sizeHint().width()
+            )
+            form_parent.show()
+            self.app.processEvents()
+            return form_parent, layout, row_widgets
+
+        def field_widths(width):
+            form_parent, layout, row_widgets = build_row()
+            form_parent.resize(width, form_parent.sizeHint().height())
+            layout.activate()
+            self.app.processEvents()
+            compact = form_parent.findChild(
+                QWidget, "compactRow_MODEL_NAME_SAVING_MODE_DEVICE_SELECTION"
+            )
+            self.assertIsNotNone(compact)
+            self.assertFalse(compact.property("stacked"))
+            widths = {
+                name: field.width() for name, (_, field) in row_widgets.items()
+            }
+            form_parent.close()
+            return widths
+
+        form_parent = build_row()[0]
+        compact = form_parent.findChild(
+            QWidget, "compactRow_MODEL_NAME_SAVING_MODE_DEVICE_SELECTION"
+        )
+        self.assertEqual(compact.property("compactColumnRatio"), "5:3:4")
+        form_parent.close()
+
+        widths = field_widths(1700)
+        self.assertGreater(widths["MODEL_NAME"], widths["SAVING_MODE"])
+        # Saving mode only ever shows "float32"/"float16"; it keeps a legible
+        # dropdown while the surrendered space goes to the model names.
+        self.assertGreaterEqual(
+            widths["SAVING_MODE"],
+            QComboBox().fontMetrics().horizontalAdvance("float32") * 2,
+        )
+        # The device column keeps the third of the row it had before.
+        self.assertLess(
+            abs(widths["DEVICE_SELECTION"] - widths["MODEL_NAME"]), 100
+        )
+
     def test_tab_pages_release_shared_content_width_without_resizing_tab_labels(self):
         from PySide6.QtWidgets import QScrollArea, QTabWidget, QWidget
 
