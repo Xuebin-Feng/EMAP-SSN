@@ -663,15 +663,14 @@ def _esm_stack_program() -> str:
         # the pLM adapters actually import, plus the generic Transformers API
         # used by the ESM-2, ProtBERT, ProstT5 and Ankh adapters.
         import esm
-        from esm.models.esmc import ESMC
-        from esm.pretrained import register_local_model
+        from esm.models.esmc import EsmcModel, EsmcTokenizer
         from esm.sdk.forge import ESMCForgeInferenceClient
         from transformers import AutoModel, AutoTokenizer, T5EncoderModel
 
         assert metadata.version("esm") == {ESM_VERSION!r}
         assert metadata.version("transformers") == {TRANSFORMERS_VERSION!r}
-        assert ESMC is not None and callable(register_local_model)
-        assert callable(getattr(ESMC, "from_pretrained", None))
+        assert EsmcModel is not None and EsmcTokenizer is not None
+        assert callable(getattr(EsmcModel, "from_pretrained", None))
         assert ESMCForgeInferenceClient is not None
         assert AutoModel is not None and AutoTokenizer is not None
         assert T5EncoderModel is not None

@@ -40,16 +40,23 @@ def load_model(model_name, device):
     """
     Loads the ProstT5 model and tokenizer on the specified device.
     """
+    import torch
     from transformers import T5Tokenizer, T5EncoderModel
 
     hf_mappings = {
-        "prost_t5": "Rostlab/ProstT5_fp16"
+        "prost_t5": "Rostlab/ProstT5"
     }
 
     hf_id = hf_mappings.get(model_name, model_name)
     print(f"Loading {model_name} ({hf_id}) ...")
     tokenizer = T5Tokenizer.from_pretrained(hf_id, do_lower_case=False)
-    model = T5EncoderModel.from_pretrained(hf_id).to(device)
+    # Stated explicitly rather than inherited from the checkpoint config.
+    # Transformers 5 defaults to dtype="auto", which adopts whatever type
+    # the publisher uploaded, so the compute precision would otherwise be
+    # theirs to change rather than ours to declare.
+    # Rostlab/ProstT5 provides unrounded float32 weights. Point hf_mappings
+    # at "Rostlab/ProstT5_fp16" if you prefer halving checkpoint download size.
+    model = T5EncoderModel.from_pretrained(hf_id, dtype=torch.float32).to(device)
     return tokenizer, model
 
 def get_embedding(seq, model_obj, device, target_dtype):

@@ -40,10 +40,17 @@ def load_model(model_name, device):
     """
     Loads the ProtBERT model and tokenizer on the specified device.
     """
+    import torch
     from transformers import BertTokenizer, BertModel
     print(f"Loading {model_name} ...")
     tokenizer = BertTokenizer.from_pretrained(f"Rostlab/{model_name}", do_lower_case=False)
-    model = BertModel.from_pretrained(f"Rostlab/{model_name}").to(device)
+    # Stated explicitly rather than inherited from the checkpoint config.
+    # Transformers 5 defaults to dtype="auto", which adopts whatever type
+    # the publisher uploaded, so the compute precision would otherwise be
+    # theirs to change rather than ours to declare.
+    model = BertModel.from_pretrained(
+        f"Rostlab/{model_name}", dtype=torch.float32
+    ).to(device)
     model.eval()
     return tokenizer, model
 

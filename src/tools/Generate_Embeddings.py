@@ -36,8 +36,17 @@ Settings:
   ESMC 6B model (`esmc_6b`), the ESM-2 family (`esm2_t6_8m` ... `esm2_t48_15b`), the Ankh family
   (`ankh_base`, `ankh_large`), and the Rostlab families (`prot_bert`, `prost_t5`). Model identifiers
   are always lower case.
-- SAVING_MODE: Determines data precision (`float32` by default). `float16` halves HDF5 file size and RAM requirements by slightly reducing gradient precision, 
-  which is recommended for massive datasets. `float32` uses standard uncompressed precision.
+- SAVING_MODE: Determines the on-disk storage precision (`float32` by default). `float16` halves HDF5 file size and
+  RAM requirements by rounding each stored value, which is recommended for massive datasets. `float32` stores the
+  values as computed.
+
+Precision:
+Every plugin loads its weights as float32 and runs inference in float32, stated explicitly at the call to
+`from_pretrained` rather than inherited from the checkpoint config, so SAVING_MODE is purely a storage choice and
+never a compute one. The local ESMC checkpoints are published in bfloat16 and are upcast at load time (its wrapper
+otherwise forces bfloat16 on every non-CPU device). Upcasting restores float32 arithmetic, not information the
+publisher already rounded away. The exception is `esmc_6b`, whose inference runs on Biohub's servers at a precision
+this project does not control; its response is upcast on arrival.
 
 Algorithm:
 1. Sequentially parses and sanitizes the target FASTA records in RAM.
@@ -45,8 +54,8 @@ Algorithm:
 3. Initializes a new HDF5 file stream in append mode ("a"), checking for existing embeddings to allow seamless resuming.
 4. Iterates linearly over the sanitized sequences and passes them into the loaded neural network.
 5. The model strips start/stop tokens internally and isolates the output matrices characterizing every residue in the sequence.
-6. The resultant PyTorch tensor is demoted to a Numpy array, cast to the selected precision (`float16/float32`), and streamed 
-   directly to disk under a sanitized header name key to prevent RAM overflow.
+6. The resultant float32 PyTorch tensor is demoted to a Numpy array, cast to the selected storage precision
+   (`float16/float32`), and streamed directly to disk under a sanitized header name key to prevent RAM overflow.
 """
 # %% Import Necessary Libraries
 import logging

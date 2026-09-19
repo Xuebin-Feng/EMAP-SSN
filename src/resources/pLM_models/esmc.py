@@ -40,72 +40,54 @@ def _clean_sequence(seq):
         code if code in SUPPORTED_RESIDUE_CODES else "X" for code in core_seq
     )
 
-def _patch_esm_pretrained_registry():
-    """
-    Patches the local model registry in esm==3.2.1 for ESMC models.
-    In upstream esm, ESMC model builders pass the parent repository snapshot directory
-    to huggingface_hub.load_torch_model rather than the checkpoint weight file path
-    under data/weights/*.pth, and fail to pass assign=True to materialize meta tensors.
-    """
-    import torch
-    from accelerate import init_empty_weights
-    from esm.models.esmc import ESMC
-    from esm.tokenization import get_esmc_model_tokenizers
-    from esm.utils.constants.esm3 import data_root
-    from esm.pretrained import register_local_model
-
-    configs = {
-        "esmc_300m": (960, 15, 30, "esmc-300", "esmc_300m_2024_12_v0.pth"),
-        "esmc_600m": (1152, 18, 36, "esmc-600", "esmc_600m_2024_12_v0.pth"),
-        "esmc_6b": (2560, 40, 80, "esmc-6b", "esmc_6b_2024_12_v0.pth"),
-    }
-
-    for name, (d_model, n_heads, n_layers, repo_name, weight_file) in configs.items():
-        def _make_builder(_d=d_model, _h=n_heads, _l=n_layers, _r=repo_name, _w=weight_file):
-            def _builder(device="cpu", use_flash_attn=True):
-                with init_empty_weights():
-                    model = ESMC(
-                        d_model=_d,
-                        n_heads=_h,
-                        n_layers=_l,
-                        tokenizer=get_esmc_model_tokenizers(),
-                        use_flash_attn=use_flash_attn,
-                    ).eval()
-                weight_path = data_root(_r) / "data" / "weights" / _w
-                state_dict = torch.load(weight_path, map_location="cpu")
-                model.load_state_dict(state_dict, assign=True)
-                return model.to(device)
-            return _builder
-
-        register_local_model(name, _make_builder())
-
 
 def load_model(model_name, device):
+    """Load the ESMC encoder and tokenizer on the specified device, in float32.
+
+    This loads the bare encoder rather than the deprecated ``ESMC`` wrapper.
+    That wrapper's ``from_pretrained`` forces ``dtype=torch.bfloat16`` on every
+    non-CPU device, and its ``logits()`` additionally runs the forward pass
+    under bfloat16 autocast on CUDA, so the same sequence came back at a
+    different precision on CPU than on GPU. It also carries the masked-LM head
+    and stacks every hidden state, neither of which this pipeline reads.
+
+    ``dtype`` is stated explicitly rather than inherited from the checkpoint
+    config, so the compute precision is a property of this plugin and cannot
+    change under us when a publisher re-uploads weights in a narrower type.
     """
-    Loads the ESMC model on the specified device.
-    """
-    from esm.models.esmc import ESMC
-    _patch_esm_pretrained_registry()
-    print(f"Loading {model_name} ...")
-    client = ESMC.from_pretrained(model_name, device=device)
-    return client
+    import torch
+    from esm.models.esmc import EsmcModel, EsmcTokenizer
+
+    hf_mappings = {
+        "esmc_300m": "biohub/ESMC-300M",
+        "esmc_600m": "biohub/ESMC-600M",
+    }
+
+    hf_id = hf_mappings.get(model_name, model_name)
+    print(f"Loading {model_name} ({hf_id}) ...")
+    # The tokenizer is built from the packaged ESMC vocabulary, not downloaded.
+    tokenizer = EsmcTokenizer()
+    model = EsmcModel.from_pretrained(hf_id, device=device, dtype=torch.float32)
+    model.eval()
+    return tokenizer, model
+
 
 def get_embedding(seq, model_obj, device, target_dtype):
     """
     Generates embedding for a sequence using the loaded ESMC model.
     """
     import torch
-    from esm.sdk.api import ESMProtein, LogitsConfig
+    tokenizer, model = model_obj
 
     seq = _clean_sequence(seq)
     if not seq:
         raise ValueError("Sequence contains no supported amino-acid characters.")
 
     with torch.no_grad():
-        protein_tensor = model_obj.encode(ESMProtein(sequence=seq))
-        logits = model_obj.logits(protein_tensor, LogitsConfig(sequence=True, return_embeddings=True))
-        # Slice out the start/end special tokens and convert to target precision.
-        # ESMC returns bfloat16 tensors, which NumPy cannot represent, so upcast
-        # to float32 before leaving PyTorch and then apply the storage dtype.
-        embeddings = logits.embeddings.squeeze(0)[1:-1]
-        return embeddings.to(torch.float32).cpu().numpy().astype(target_dtype)
+        # ESMC takes continuous unspaced sequences
+        inputs = tokenizer(seq, return_tensors="pt").to(device)
+        outputs = model(**inputs)
+        # The ESMC tokenizer wraps every sequence in <cls> ... <eos>, so we
+        # slice 1:-1. The encoder runs in float32, so no upcast is needed
+        # before NumPy; only the selected storage dtype is applied.
+        return outputs.last_hidden_state[0, 1:-1].cpu().numpy().astype(target_dtype)
