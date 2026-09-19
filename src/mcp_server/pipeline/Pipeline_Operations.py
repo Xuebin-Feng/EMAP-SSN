@@ -287,9 +287,10 @@ async def start_layout_job(
     replace omitted preferences with built-in defaults; use the exported document.
     Validate and enqueue into the shared pipeline FIFO queue; this is separate
     from the pipeline IDs in list_pipeline_tools and has no standalone validator.
-    Calculates 2D node coordinates via iterative force-directed physics or UMAP dimension
+    Calculates node coordinates via iterative force-directed physics or UMAP dimension
     reduction and publishes an HDF5 layout cache file along with a canonical FASTA backup and
-    manifest. Supply either individual parameters, settings_document, or settings_path.
+    manifest. Coordinates are 2D unless LAYOUT_DIMENSIONS is set to 3 in parameters or the
+    settings document. Supply either individual parameters, settings_document, or settings_path.
     Missing defaults and directory paths inherit from EMAP-SSN configuration.
     Follow the returned job_id with get_pipeline_job and read_pipeline_log;
     after success inspect the cache before preparing complete Viewer settings.
