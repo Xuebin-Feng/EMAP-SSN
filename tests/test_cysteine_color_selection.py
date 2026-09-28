@@ -8,6 +8,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 
 from tests import test_viewer_command_portal as portal_tests
+from tests.sparse_alignment import sparse_alignment
 from tests.test_viewer_command_portal import Viewer
 from commands import color, spectrum
 import EMAPSSN_Config as cfg
@@ -16,7 +17,9 @@ import EMAPSSN_Config as cfg
 def add_alignment(viewer):
     labels = ['0', '1', '53', '01', '53.1', '-1', '1000']
     viewer.alignment = SimpleNamespace(
-        aln=[SimpleNamespace(seq=aa * len(labels)) for aa in ['C', 'K', 'C']],
+        aln=sparse_alignment(
+            (f'row{index}', aa * len(labels)) for index, aa in enumerate(['C', 'K', 'C'])
+        ),
         label_to_col=dict(zip(labels, range(len(labels)))),
         viewer_to_aln=np.arange(3),
     )
@@ -49,7 +52,7 @@ class CysteineColorTests(unittest.TestCase):
 
     def test_zero_matches_does_not_fall_back_to_selection(self):
         viewer = self.viewer()
-        viewer.alignment.aln = [SimpleNamespace(seq='K' * 7) for _ in range(3)]
+        viewer.alignment.aln = sparse_alignment((f'row{index}', 'K' * 7) for index in range(3))
         viewer.selected_indices = [1]
         color.run(viewer, ['C53', 'red'])
         np.testing.assert_array_equal(viewer.current_colors, np.ones((3, 4)))
@@ -92,7 +95,9 @@ class CysteineColorTests(unittest.TestCase):
                 viewer.selected_indices = [1]
                 if available:
                     viewer.alignment.label_to_col['2'] = 0
-                    viewer.alignment.aln[0].seq = 'X' * 7
+                    viewer.alignment.aln = sparse_alignment(
+                        [('row0', 'X' * 7), ('row1', 'K' * 7), ('row2', 'C' * 7)]
+                    )
                 color.run(viewer, [token, 'red'])
                 np.testing.assert_array_equal(viewer.current_sizes, np.ones(3))
                 np.testing.assert_array_equal(viewer.current_colors[1:], np.ones((2, 4)))

@@ -88,21 +88,7 @@ class _FrozenSparseAlignment:
 
 class _FrozenAlignmentManager:
     def __init__(self, alignment, viewer_to_aln=None):
-        source = alignment.aln
-        if hasattr(source, "matrix"):
-            self.aln = _FrozenSparseAlignment(source)
-        else:
-            self.aln = MultipleSeqAlignment(
-                [
-                    SeqRecord(
-                        Seq(str(record.seq)),
-                        id=record.id,
-                        name=record.name,
-                        description=record.description,
-                    )
-                    for record in source
-                ]
-            )
+        self.aln = _FrozenSparseAlignment(alignment.aln)
         self.col_to_label = dict(alignment.col_to_label)
         self.label_to_col = dict(alignment.label_to_col)
         self.has_reference = bool(getattr(alignment, "has_reference", False))

@@ -15,51 +15,51 @@
 
 import Command_Engine
 import fnmatch
+import re
+
+# Canonical SSN headers (Sequence_Utils.sanitize_header) hold no whitespace and
+# none of the wildcard characters * ? [ ]: whitespace becomes `_`, so an
+# identifier such as `WP_0123.1` is followed by `_` or by a `|` field separator.
+_SEGMENT_DELIMITER = re.compile(r"[_|]")
 
 
-def _matches(header, target_lower):
-    """Case-insensitive substring or wildcard (`*`, `?`, `[...]`) match."""
-    header_lower = header.lower()
-    return fnmatch.fnmatch(header_lower, target_lower) or target_lower in header_lower
+def _identifiers(header_lower):
+    """Names a header answers to: its leading segments ending at `_` or `|`, and itself."""
+    prefixes = [header_lower[:match.start()] for match in _SEGMENT_DELIMITER.finditer(header_lower)]
+    return prefixes + [header_lower]
 
 
-def _alignment_headers(alignment):
-    """Full MSA row headers, read without materializing sparse sequence rows."""
-    aln = getattr(alignment, 'aln', None) if alignment is not None else None
-    if not aln:
-        return []
-    headers = getattr(aln, 'headers', None)
-    if headers is not None:
-        return list(headers)
-    return [record.description or record.id for record in aln]
+def _pick_header(candidates, target):
+    """Choose the header TARGET names, preferring an exact identifier.
 
-
-def _pick_header(candidates, target, target_lower):
-    exact = [header for header in candidates if header.lower() == target_lower]
-    if exact:
-        return exact[0]
-    matches = [header for header in candidates if _matches(header, target_lower)]
+    `WP_0123.1` names `WP_0123.1_protein_A` exactly and is only a substring of
+    `WP_0123.10_protein_B`, so a versioned accession resolves to its own
+    sequence. Wildcards match the whole header or any leading segment, which
+    lets `*.1` select a version suffix. When several headers qualify at the
+    chosen tier, the first in network order is used and a warning names it.
+    """
+    target_lower = target.lower()
+    identifiers = {header: _identifiers(header.lower()) for header in candidates}
+    exact = [header for header, names in identifiers.items() if target_lower in names]
+    matches = exact or [
+        header
+        for header, names in identifiers.items()
+        if target_lower in header.lower()
+        or any(fnmatch.fnmatchcase(name, target_lower) for name in names)
+    ]
     if len(matches) > 1:
         print(f"Warning: Multiple matches found for '{target}'. Using '{matches[0]}'.")
     return matches[0] if matches else None
 
 
 def _resolve_reference_header(viewer, target):
-    """Resolve TARGET once to the exact full header that will anchor numbering.
+    """Resolve TARGET once to the exact full network header that anchors numbering.
 
-    Network headers are searched first, then the rows of the loaded MSA. An exact
-    (case-insensitive) header wins outright; otherwise the first substring or
-    wildcard match is used, with a warning naming it when several match. The
-    alignment receives this full header, so it anchors on the same row that is
-    reported.
+    The alignment holds only rows whose headers are network headers, so the
+    network headers are the complete candidate set. The alignment receives the
+    chosen full header, so it anchors on the same row that is reported.
     """
-    target_lower = target.lower()
-    header = _pick_header(viewer.full_headers, target, target_lower)
-    if header is None:
-        header = _pick_header(
-            _alignment_headers(getattr(viewer, 'alignment', None)), target, target_lower
-        )
-    return header
+    return _pick_header(viewer.full_headers, target)
 
 
 def _current_reference_message(viewer):
@@ -80,7 +80,7 @@ def run(viewer, args):
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: reference [TARGET]\nDescription: Changes the reference sequence for alignment mapping.\n  - Call without arguments to see the current reference and whether it is active.\n  - Pass a full or partial sequence header, or a wildcard pattern such as WP_01*, to set a new reference.\n    An exact header takes priority; otherwise the first match is used and a warning names it.\nExamples:\n  reference\n  reference SeqA"
+        msg = "Usage: reference [TARGET]\nDescription: Changes the reference sequence for alignment mapping.\n  - Call without arguments to see the current reference and whether it is active.\n  - Pass a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard\n    pattern such as WP_01* to set a new reference. An exact header or identifier takes priority;\n    otherwise the first match is used and a warning names it.\nExamples:\n  reference\n  reference SeqA"
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return

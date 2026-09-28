@@ -9,9 +9,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
-from Bio.Align import MultipleSeqAlignment
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +16,8 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+import Alignment_Manager
+from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
 from commands.logo import (
     _configure_logo_y_axis,
@@ -505,14 +504,8 @@ class LogoSnapshotTests(unittest.TestCase):
 
     def test_enqueued_logo_keeps_invocation_time_selection_and_sequences(self):
         with tempfile.TemporaryDirectory() as directory:
-            alignment_rows = MultipleSeqAlignment(
-                [
-                    SeqRecord(Seq("AAAA"), id="node0"),
-                    SeqRecord(Seq("CCCC"), id="node1"),
-                ]
-            )
             alignment = SimpleNamespace(
-                aln=alignment_rows,
+                aln=sparse_alignment([("node0", "AAAA"), ("node1", "CCCC")]),
                 viewer_to_aln=np.array([0, 1]),
                 col_to_label={0: "1", 1: "2", 2: "3", 3: "4"},
                 label_to_col={"1": 0, "2": 1, "3": 2, "4": 3},
@@ -539,7 +532,10 @@ class LogoSnapshotTests(unittest.TestCase):
                 logo_command.run(viewer, ["[1]", "snapshot.svg"])
 
             viewer.selected_indices[:] = [1]
-            alignment_rows[0].seq = Seq("GGGG")
+            # Rows are materialized from the sparse matrix, so mutate the matrix.
+            live = alignment.aln.matrix
+            live.data[live.indptr[0]:live.indptr[1]] = Alignment_Manager.AA_TO_INT["G"]
+            self.assertEqual(str(alignment.aln[0].seq), "GGGG")
             alignment.label_to_col["1"] = 3
 
             payload = scheduler.job["payload"]
@@ -549,14 +545,8 @@ class LogoSnapshotTests(unittest.TestCase):
 
     def test_run_submits_explicit_fractional_position_to_logo_job(self):
         with tempfile.TemporaryDirectory() as directory:
-            alignment_rows = MultipleSeqAlignment(
-                [
-                    SeqRecord(Seq("A-AA"), id="node0"),
-                    SeqRecord(Seq("ACAA"), id="node1"),
-                ]
-            )
             alignment = SimpleNamespace(
-                aln=alignment_rows,
+                aln=sparse_alignment([("node0", "A-AA"), ("node1", "ACAA")]),
                 viewer_to_aln=np.array([0, 1]),
                 col_to_label={0: "1", 1: "1.1", 2: "2", 3: "3"},
                 label_to_col={"1": 0, "1.1": 1, "2": 2, "3": 3},
@@ -590,14 +580,8 @@ class LogoSnapshotTests(unittest.TestCase):
         # Occupancy mode: the first row's gap in column 1 must not shift the
         # plotted columns away from the labels that query reports.
         with tempfile.TemporaryDirectory() as directory:
-            alignment_rows = MultipleSeqAlignment(
-                [
-                    SeqRecord(Seq("M-KCD"), id="node0"),
-                    SeqRecord(Seq("MAKCD"), id="node1"),
-                ]
-            )
             alignment = SimpleNamespace(
-                aln=alignment_rows,
+                aln=sparse_alignment([("node0", "M-KCD"), ("node1", "MAKCD")]),
                 viewer_to_aln=np.array([0, 1]),
                 col_to_label={0: "1", 1: "2", 2: "3", 3: "4", 4: "5"},
                 label_to_col={"1": 0, "2": 1, "3": 2, "4": 3, "5": 4},
@@ -638,13 +622,8 @@ class LogoSnapshotTests(unittest.TestCase):
             with open(existing_file, "wb") as f:
                 f.write(b"previous_content")
 
-            alignment_rows = MultipleSeqAlignment(
-                [
-                    SeqRecord(Seq("AAAA"), id="node0"),
-                ]
-            )
             alignment = SimpleNamespace(
-                aln=alignment_rows,
+                aln=sparse_alignment([("node0", "AAAA")]),
                 viewer_to_aln=np.array([0]),
                 col_to_label={0: "1", 1: "2", 2: "3", 3: "4"},
                 label_to_col={"1": 0, "2": 1, "3": 2, "4": 3},

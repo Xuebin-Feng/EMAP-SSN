@@ -105,6 +105,34 @@ class ReferenceResolutionTests(unittest.TestCase):
             ],
         )
 
+    # Canonical headers replace whitespace with `_`, so an accession is the
+    # header's leading segment and `WP_0123.1` is a substring of `WP_0123.10`.
+    ACCESSION_RECORDS = [
+        ("WP_0123.10_protein_B", "MA--CD"),
+        ("WP_0123.1_protein_A", "MAKLCD"),
+        ("S3_other", "MAKLCD"),
+    ]
+
+    def test_versioned_accession_resolves_to_its_own_sequence(self):
+        records = self.ACCESSION_RECORDS
+
+        viewer, log, messages = self.run_reference(
+            records, [h for h, _ in records], "WP_0123.1"
+        )
+
+        self.assertNotIn("Multiple matches", log)
+        self.assertEqual(viewer.active_reference, "WP_0123.1_protein_A")
+        self.assertEqual(viewer.alignment.resolved_ref_full, "WP_0123.1_protein_A")
+        self.assertEqual(messages, ["Reference successfully set: WP_0123.1_protein_A."])
+
+    def test_wildcard_can_select_a_version_suffix(self):
+        records = self.ACCESSION_RECORDS
+
+        viewer, log, _ = self.run_reference(records, [h for h, _ in records], "*.1")
+
+        self.assertNotIn("Multiple matches", log)
+        self.assertEqual(viewer.alignment.resolved_ref_full, "WP_0123.1_protein_A")
+
     def test_bare_reference_marks_an_unresolved_reference_inactive(self):
         viewer, _, _ = self.run_reference(
             [("node1", "AC")], ["node1", "node2"], "node2", ""

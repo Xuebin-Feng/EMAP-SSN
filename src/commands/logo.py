@@ -923,16 +923,11 @@ def run(viewer, args):
             numbering = "occupancy"
     else:
         if ref_id:
-            if hasattr(viewer.alignment.aln, 'header_map'): # Sparse mode
-                for k, idx in viewer.alignment.aln.header_map.items():
-                    if ref_id in k:
-                        ref_seq_str = str(viewer.alignment.aln[idx].seq)
-                        break
-            if not ref_seq_str: # Fallback / Legacy mode
-                for r in viewer.alignment.aln:
-                    if ref_id in r.id or ref_id in r.description:
-                        ref_seq_str = str(r.seq)
-                        break
+            # Keys cover every row's full header, ID, and simplified accession.
+            for key, idx in viewer.alignment.aln.header_map.items():
+                if ref_id in key:
+                    ref_seq_str = str(viewer.alignment.aln[idx].seq)
+                    break
 
         if not ref_seq_str:
             print(f"Warning: Reference ID '{ref_id}' not found. Using the first sequence as reference.")

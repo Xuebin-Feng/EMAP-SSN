@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from copy import deepcopy
 import numpy as np
 from scipy.sparse import csr_matrix
+from tests.sparse_alignment import sparse_alignment
 from tests.test_viewer_snapshots import SnapshotTests
+import Alignment_Manager
 from desktop.Viewer_Inspection import ViewerInspectionError, encoded
 
 
@@ -13,8 +15,10 @@ class ResidueSnapshotTests(unittest.TestCase):
         SnapshotTests.setUp(self)
         self.v.alignment_offset = 10
         self.v.active_reference = 'ref'
+        # Row 3 is loaded but mapped to no network node. `.` reads back as a gap
+        # and U (selenocysteine) is a rare residue the loader preserves.
         self.v.alignment = SimpleNamespace(
-            aln=[SimpleNamespace(seq=s) for s in ('A-X', 'C.Z', 'AA?', 'unused')],
+            aln=sparse_alignment([('ref', 'A-X'), ('row1', 'C.Z'), ('row2', 'AAU'), ('row3', 'MKV')]),
             viewer_to_aln=np.array([0, 1, 2, -1]),
             label_to_col={'-1': 0, '10.1': 1, '1883': 2},
             col_to_label={0:'-1',1:'10.1',2:'1883'}, resolved_ref_full='ref', msa_file='fixture.fasta')
@@ -35,21 +39,18 @@ class ResidueSnapshotTests(unittest.TestCase):
         self.assertEqual(first['residues'], [{'residue':'A','count':2,'fraction':2/3}, {'residue':'C','count':1,'fraction':1/3}])
         self.assertEqual(gap['gap_count'], 2)
         self.assertEqual(gap['gap_fraction'], 2/3)
-        self.assertEqual({r['residue'] for r in ambiguous['residues']}, {'?','X','Z'})
+        self.assertEqual({r['residue'] for r in ambiguous['residues']}, {'U','X','Z'})
         self.assertEqual(result['alignment']['offset'], 10)
         self.assertNotIn('matrix', repr(result))
 
-    def test_sparse_equivalence_and_copy_only_network_rows(self):
-        dense = self.distribution()['rows']
-        codes = {1:'A',2:'C',3:'X',4:'Z',5:'?'}
-        self.v.alignment.aln = SimpleNamespace(matrix=csr_matrix([[1,0,3],[2,0,4],[1,1,5],[9,9,9]]),int_to_aa=codes)
-        self.sid = self.service.capture_snapshot(include_alignment=True)
-        self.assertEqual(self.distribution()['rows'], dense)
+    def test_copies_only_network_rows_and_isolates_the_snapshot(self):
+        baseline = self.distribution()['rows']
         data = self.store.items[self.sid]['data']['alignment_data']
         self.assertEqual(data['matrix'].shape,(3,3))
         self.assertEqual(data['matrix'].format,'csr')
         self.v.alignment.aln.matrix.data[:] = 0
-        self.assertEqual(self.distribution()['rows'], dense)
+        self.assertEqual(str(self.v.alignment.aln[0].seq), '---')
+        self.assertEqual(self.distribution()['rows'], baseline)
 
     def test_residue_subset_shared_boolean_semantics_and_isolation(self):
         subset = self.call('create_subset', scope='all', expression='!A(-1)')['subset_id']
@@ -58,7 +59,9 @@ class ResidueSnapshotTests(unittest.TestCase):
         compound = self.call('create_subset', scope='all', expression='(AC)(-1)&#a#')['subset_id']
         self.assertEqual(self.call('query_nodes', subset_id=compound, fields=['index'])['rows'],[{'index':0},{'index':1}])
         baseline = self.distribution(group_by='group')['rows']
-        self.v.alignment.aln[0].seq='CCC'
+        live = self.v.alignment.aln.matrix
+        live.data[live.indptr[0]:live.indptr[1]] = Alignment_Manager.AA_TO_INT['C']
+        self.assertEqual(str(self.v.alignment.aln[0].seq), 'C-C')
         self.v.alignment.label_to_col.clear()
         self.v.alignment_offset = 999
         self.v.group_labels[0].clear()
@@ -129,8 +132,9 @@ class ResidueSnapshotTests(unittest.TestCase):
 
     def test_no_display_cutoff_and_expiry(self):
         from desktop.Alignment_Snapshot import distribution_rows
-        data={'mapping':np.arange(201),'labels':{'1':0},'gaps':('-', '.'),'sparse':False,
-              'sequences':('A',)*200+('Z',)}
+        codes = {1: 'A', 2: 'Z'}
+        data={'mapping':np.arange(201),'labels':{'1':0},'gaps':('-', '.'),
+              'matrix':csr_matrix(np.array([[1]]*200+[[2]])),'codes':codes}
         row=next(distribution_rows(data,range(201),['1'],'none',None,None))
         self.assertEqual(row['residues'][-1],{'residue':'Z','count':1,'fraction':1/201})
         self.store.ttl=-1

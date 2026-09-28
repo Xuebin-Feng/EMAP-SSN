@@ -9,8 +9,6 @@ from io import StringIO
 from types import SimpleNamespace
 
 import numpy as np
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +17,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from commands.query import evaluate_frequency_logic, parse_query_positions, print_help, run
+from tests.sparse_alignment import sparse_alignment
 
 
 class QueryFrequencyLogicTests(unittest.TestCase):
@@ -124,12 +123,8 @@ class QueryFrequencyLogicTests(unittest.TestCase):
 
     def test_command_uses_all_mapped_sequences_as_grouped_frequency_denominator(self):
         headers = ["arginine", "histidine", "gap", "alanine"]
-        records = [
-            SeqRecord(Seq(residue), id=header)
-            for header, residue in zip(headers, ["R", "H", "-", "A"])
-        ]
         alignment = SimpleNamespace(
-            aln=records,
+            aln=sparse_alignment(zip(headers, ["R", "H", "-", "A"])),
             label_to_col={"1": 0},
             col_to_label={0: "1"},
             seq_map={header: index for index, header in enumerate(headers)},

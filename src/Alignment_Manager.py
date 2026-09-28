@@ -17,7 +17,6 @@ import os
 import sys
 import json
 import numpy as np
-from collections import Counter
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
@@ -65,43 +64,28 @@ class Alignment_Manager:
             print("An MSA is not selected and will not be loaded.")
             return
 
-        self.aln, is_sparse = load_alignment_smart(msa_file, filter_headers=full_headers)
+        self.aln = load_alignment_smart(msa_file, filter_headers=full_headers)
         if self.aln is None:
             print('Warning: Failed to load alignment.')
             return
         self.sanitization_stats = getattr(self.aln, "sanitization_stats", None)
 
-        self._initialize_coverage(is_sparse)
+        self._initialize_coverage()
 
         has_ref = bool(active_reference and str(active_reference).strip().lower() != 'none')
         reference_fallback = False
-        ref_idx = self._find_reference_index(active_reference, is_sparse) if has_ref else -1
+        ref_idx = self._find_reference_index(active_reference) if has_ref else -1
 
-        if has_ref and ref_idx not in (None, -1):
-            if is_sparse:
-                self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(
-                    cfg.FILTER_MIN_OCCUPANCY,
-                    ref_header=active_reference,
-                )
-                _, self.col_to_label = self.aln.get_ref_anchored_mapping(
-                    active_reference,
-                    self.valid_cols,
-                )
-            else:
-                self.valid_cols, ref_length, forced_retained = get_valid_columns_legacy(
-                    self.aln,
-                    ref_header=active_reference,
-                )
-                _, self.col_to_label = get_ref_anchored_mapping_legacy(
-                    self.aln,
-                    active_reference,
-                    self.valid_cols,
-                )
-            if is_sparse:
-                self.resolved_ref_full = self.aln.headers[ref_idx]
-            else:
-                rec = self.aln[ref_idx]
-                self.resolved_ref_full = rec.description if rec.description else rec.id
+        if has_ref and ref_idx != -1:
+            self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(
+                cfg.FILTER_MIN_OCCUPANCY,
+                ref_header=active_reference,
+            )
+            _, self.col_to_label = self.aln.get_ref_anchored_mapping(
+                active_reference,
+                self.valid_cols,
+            )
+            self.resolved_ref_full = self.aln.headers[ref_idx]
             self.has_reference = True
             self._base_col_to_label = dict(self.col_to_label)
             self.set_offset(alignment_offset)
@@ -111,7 +95,7 @@ class Alignment_Manager:
             print(f"Alignment Ready. Valid Cols: {len(self.valid_cols)} (Reference: {ref_length}, Forced to Retain: {forced_retained})")
         else:
             reference_fallback = has_ref
-            self._configure_occupancy_mapping(is_sparse)
+            self._configure_occupancy_mapping()
 
         self.label_to_col = {v: k for k, v in self.col_to_label.items()}
 
@@ -124,18 +108,10 @@ class Alignment_Manager:
                 "alignment offsets are inactive."
             )
 
-    def _initialize_coverage(self, is_sparse):
+    def _initialize_coverage(self):
         """Build the exact network-node to alignment-row mapping once per load."""
-        if is_sparse:
-            alignment_headers = list(self.aln.headers)
-        else:
-            alignment_headers = [
-                record.description if record.description else record.id
-                for record in self.aln
-            ]
-
         exact_header_to_row = {
-            header: row_idx for row_idx, header in enumerate(alignment_headers)
+            header: row_idx for row_idx, header in enumerate(self.aln.headers)
         }
         for node_idx, header in enumerate(self.network_headers):
             row_idx = exact_header_to_row.get(header)
@@ -146,43 +122,23 @@ class Alignment_Manager:
             self.aligned_node_mask[node_idx] = True
             self.matched_headers.append(header)
 
-        if is_sparse:
-            self.seq_map = self.aln.header_map
-        else:
-            for i, record in enumerate(self.aln):
-                self.seq_map[record.id] = i
-                self.seq_map[record.description] = i
-                self.seq_map[simplify_node_label(record.id)] = i
+        self.seq_map = self.aln.header_map
 
-    def _find_reference_index(self, active_reference, is_sparse):
+    def _find_reference_index(self, active_reference):
         if not active_reference or len(self.aln) == 0:
             return -1
-        if is_sparse:
-            return self.aln.find_reference_index(active_reference)
+        return self.aln.find_reference_index(active_reference)
 
-        target_lower = str(active_reference).lower()
-        for i, record in enumerate(self.aln):
-            if target_lower in record.id.lower() or target_lower in record.description.lower():
-                return i
-        return -1
-
-    def _configure_occupancy_mapping(self, is_sparse):
+    def _configure_occupancy_mapping(self):
         self.resolved_ref_full = 'None'
         self.has_reference = False
         self.offset = 0
 
         if len(self.aln) == 0:
             self.valid_cols = set()
-            ref_length = 0
-            forced_retained = 0
-        elif is_sparse:
-            self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(
-                cfg.FILTER_MIN_OCCUPANCY,
-                ref_header=None,
-            )
         else:
-            self.valid_cols, ref_length, forced_retained = get_valid_columns_legacy(
-                self.aln,
+            self.valid_cols, _, _ = self.aln.get_valid_columns(
+                cfg.FILTER_MIN_OCCUPANCY,
                 ref_header=None,
             )
 
@@ -248,10 +204,6 @@ class Alignment_Manager:
         }
         self.label_to_col = {label: col_idx for col_idx, label in self.col_to_label.items()}
         return True
-
-    def calculate_frequencies(self, mapping, exclude=[], aln=None):
-        target_aln = aln if aln is not None else self.aln
-        return calculate_frequencies(target_aln, mapping, exclude)
 
 # --- 4. Sparse Alignment Loading (Updated for Filtering) ---
 
@@ -569,19 +521,6 @@ class SparseAlignmentLoader:
                 mapping[col_i] = label
         return ref_idx, mapping
 
-    def get_frequencies(self, col_idx):
-        col_vec = self.matrix[:, col_idx]
-        residues = col_vec.data
-        n_valid = len(residues)
-        if n_valid == 0: return ('-', 0.0, 0.0)
-        occupancy = n_valid / self.n_seqs
-        counts = Counter(residues)
-        top_aa_int, count = counts.most_common(1)[0]
-        top_aa = self.int_to_aa.get(top_aa_int, 'X')
-
-        consensus = count / self.n_seqs 
-        return (top_aa, consensus, occupancy)
-    
     def bulk_residue_check(self, col_idx, target_aa_char):
         """
         Efficiently checks which sequences have a specific amino acid at a specific column.
@@ -670,9 +609,12 @@ def load_alignment_smart(msa_path, filter_headers=None):
     Strict loader: Respects the exact file extension provided.
     - .h5: Loads the pre-computed sparse matrix from disk.
     - .fasta: Converts the FASTA to a sparse matrix directly in RAM.
+
+    Returns the sparse loader, or None when the path is empty, missing,
+    unsupported, or rejected. Every loaded alignment is sparse.
     """
     if not msa_path or str(msa_path).strip() == "" or str(msa_path).strip().lower() == "none":
-        return None, False
+        return None
 
     msa_path = os.fspath(msa_path)
     extension = os.path.splitext(msa_path)[1].lower()
@@ -681,119 +623,29 @@ def load_alignment_smart(msa_path, filter_headers=None):
         if os.path.exists(msa_path):
             print(f"--- Loading Sparse Alignment in HDF5 format: {msa_path} ---")
             try:
-                loader = SparseAlignmentLoader(msa_path, filter_headers)
-                return loader, True
+                return SparseAlignmentLoader(msa_path, filter_headers)
             except MSAValidationError as e:
                 _print_red_warning(f"ERROR: MSA rejected: {e}")
-                return None, False
+                return None
             except Exception as e:
                 print(f"Error loading HDF5: {e}")
-                return None, False
+                return None
         else:
             print(f"Error: Specified HDF5 file does not exist: {msa_path}")
-            return None, False
+            return None
 
     if extension != ".fasta":
         _print_red_warning(
             f"ERROR: MSA rejected: Unsupported alignment extension '{extension or '(none)'}'. "
             "Expected .fasta or .h5."
         )
-        return None, False
+        return None
 
     try:
-        loader = InMemorySparseLoader(msa_path, filter_headers)
-        return loader, True 
+        return InMemorySparseLoader(msa_path, filter_headers)
     except MSAValidationError as e:
         _print_red_warning(f"ERROR: MSA rejected: {e}")
-        return None, False
+        return None
     except Exception as e:
         print(f"Error loading FASTA into memory: {e}")
-        return None, False
-
-# --- 5. Shared Alignment Utilities ---
-
-def calculate_frequencies(aln, mapping, exclude=[]):
-    stats = {}
-    if isinstance(aln, SparseAlignmentLoader) and not exclude:
-        for col_i, label in mapping.items():
-            stats[label] = aln.get_frequencies(col_i)
-        return stats
-
-    valid_rows = [r for i, r in enumerate(aln) if i not in exclude]
-    if not valid_rows: return {}
-    
-    try: n_cols = aln.get_alignment_length()
-    except: n_cols = len(aln[0])
-
-    total_seqs = len(valid_rows)
-
-    for col_i in range(n_cols):
-        if col_i not in mapping: continue
-        label = mapping[col_i]
-        col_chars = [r.seq[col_i] for r in valid_rows]
-        valid_aa = [c for c in col_chars if c not in cfg.GAP_CHARS]
-        n_valid = len(valid_aa)
-        
-        if total_seqs > 0: occupancy = n_valid / total_seqs
-        else: occupancy = 0.0
-        
-        if n_valid == 0:
-            stats[label] = ('-', 0.0, 0.0); continue
-            
-        c = Counter(valid_aa).most_common(1)
-        consensus = c[0][1] / total_seqs
-        stats[label] = (c[0][0], consensus, occupancy)
-    return stats
-
-def get_valid_columns_legacy(aln, ref_header=None):
-    valid_indices = set()
-    ref_length = 0
-    added = 0
-    try:
-        n_cols = aln.get_alignment_length()
-        n_seqs = len(aln)
-        min_occ = cfg.FILTER_MIN_OCCUPANCY / 100.0
-        
-        # 1. Occupancy Filter
-        for col_i in range(n_cols):
-            non_gaps = sum(1 for c in aln[:, col_i] if c not in cfg.GAP_CHARS)
-            if (non_gaps / n_seqs) >= min_occ: valid_indices.add(col_i)
-            
-        # 2. Reference Force-Keep (NEW)
-        if ref_header:
-            ref_rec = None
-            for r in aln:
-                if ref_header in r.description or ref_header in r.id:
-                    ref_rec = r
-                    break
-            
-            if ref_rec:
-                # Add any column where the reference has a residue
-                for col_i, char in enumerate(ref_rec.seq):
-                    if char not in cfg.GAP_CHARS:
-                        ref_length += 1
-                        if col_i not in valid_indices:
-                            added += 1
-                            valid_indices.add(col_i)
-                            
-    except Exception as e: print(f"Warning: {e}")
-    return valid_indices, ref_length, added
-
-def get_ref_anchored_mapping_legacy(aln, ref_id, valid_cols_global):
-    ref_idx = -1
-    target_lower = ref_id.lower() if ref_id else ""
-    for i, r in enumerate(aln):
-        if target_lower in r.id.lower() or target_lower in r.description.lower():
-            ref_idx = i; break
-    if ref_idx == -1: return None, None
-    ref_seq = str(aln[ref_idx].seq)
-    mapping = {}
-    last_int = 0; dec_cnt = 0
-    for col_i, char in enumerate(ref_seq):
-        if char in cfg.GAP_CHARS:
-            dec_cnt += 1; label = f"{last_int}.{dec_cnt}"
-        else:
-            last_int += 1; dec_cnt = 0; label = str(last_int)
-        if valid_cols_global is not None and col_i in valid_cols_global:
-            mapping[col_i] = label
-    return ref_idx, mapping
+        return None

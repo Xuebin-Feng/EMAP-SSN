@@ -8,9 +8,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
-from Bio.Align import MultipleSeqAlignment
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,18 +26,14 @@ from commands import label as label_command
 from commands import logo as logo_command
 from commands import offset as offset_command
 from commands import query as query_command
+from tests.sparse_alignment import sparse_alignment
 
 
 def make_reference_manager():
     manager = Alignment_Manager.Alignment_Manager.__new__(
         Alignment_Manager.Alignment_Manager
     )
-    manager.aln = MultipleSeqAlignment(
-        [
-            SeqRecord(Seq("ACG"), id="ref"),
-            SeqRecord(Seq("ATG"), id="other"),
-        ]
-    )
+    manager.aln = sparse_alignment([("ref", "ACG"), ("other", "ATG")])
     manager.has_reference = True
     manager.offset = 0
     manager._base_col_to_label = {0: "1", 1: "1.1", 2: "2"}
@@ -134,7 +127,7 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
         self.assertFalse(manager.set_offset(10))
         self.assertEqual(manager.col_to_label[0], "1")
 
-    def test_shifted_mapping_drives_query_lookup_and_label_statistics(self):
+    def test_shifted_mapping_drives_query_lookup(self):
         manager = make_reference_manager()
         manager.set_offset(10)
 
@@ -154,11 +147,9 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
             np.array([0, 1]),
             np.array([0, 1]),
         )
-        label_stats = manager.calculate_frequencies(manager.col_to_label)
 
         np.testing.assert_array_equal(query_mask, np.array([True, True]))
         np.testing.assert_array_equal(old_position_mask, np.array([False, False]))
-        self.assertEqual(set(label_stats), {"11", "11.1", "12"})
 
     def test_shifted_mapping_drives_logo_position_resolution(self):
         manager = make_reference_manager()
@@ -206,7 +197,6 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
     def test_query_output_reports_current_offset(self):
         manager = make_reference_manager()
         manager.set_offset(10)
-        manager.aln = list(manager.aln)
         viewer = SimpleNamespace(
             alignment=manager,
             alignment_offset=10,

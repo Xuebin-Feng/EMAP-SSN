@@ -16,12 +16,13 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from desktop.Viewer_Inspection import ViewerInspectionService
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
+from tests.sparse_alignment import sparse_alignment
 
 class SnapshotHTTPTests(unittest.TestCase):
     def test_alignment_capture_distribution_and_projection_over_http(self):
         self.url = self.url.replace('/commands', '/data')
         self.viewer.alignment = SimpleNamespace(
-            aln=[SimpleNamespace(seq='A') for _ in self.viewer.full_headers],
+            aln=sparse_alignment((f'row{index}', 'A') for index in range(len(self.viewer.full_headers))),
             viewer_to_aln=np.arange(len(self.viewer.full_headers)),
             label_to_col={'1883':0}, col_to_label={0:'1883'},
             resolved_ref_full='ref', msa_file='fixture.fasta')

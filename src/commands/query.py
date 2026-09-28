@@ -491,8 +491,6 @@ def run(viewer, args):
         getattr(viewer, "alignment", None),
         getattr(viewer, "alignment_offset", getattr(cfg, "ALIGNMENT_OFFSET", 0)),
     )
-    is_sparse = hasattr(viewer.alignment.aln, 'matrix')
-
     # Get mapped position labels in order
     label_to_col = getattr(viewer, 'alignment', None).label_to_col if getattr(viewer, 'alignment', None) else {}
     valid_labels = []
@@ -536,47 +534,29 @@ def run(viewer, args):
 
         for idx, pos_label in enumerate(ordered_pos_labels):
             col_idx = label_to_col[pos_label]
-            if is_sparse:
-                if subset_mode:
-                    sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
-                    if hasattr(sliced, 'toarray'):
-                        dense_col = sliced.toarray().flatten()
-                    else:
-                        dense_col = np.array(sliced).flatten()
-                    n_gaps = np.sum(dense_col == 0)
-                    residues = dense_col[dense_col != 0]
-                    counts = Counter(residues)
+            if subset_mode:
+                sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
+                if hasattr(sliced, 'toarray'):
+                    dense_col = sliced.toarray().flatten()
                 else:
-                    col_vec = viewer.alignment.aln.matrix[:, col_idx]
-                    residues = col_vec.data
-                    n_gaps = n_seqs - len(residues)
-                    counts = Counter(residues)
-
-                gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
-                all_gap_fracs[idx] = gap_frac
-
-                for aa_int, count in counts.items():
-                    aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X').upper()
-                    if aa_char not in all_aa_fracs:
-                        all_aa_fracs[aa_char] = np.zeros(n_cols, dtype=float)
-                    all_aa_fracs[aa_char][idx] += (count / n_seqs) if n_seqs > 0 else 0.0
+                    dense_col = np.array(sliced).flatten()
+                n_gaps = np.sum(dense_col == 0)
+                residues = dense_col[dense_col != 0]
+                counts = Counter(residues)
             else:
-                if subset_mode:
-                    col_chars = [viewer.alignment.aln[row].seq[col_idx].upper() for row in target_rows]
-                else:
-                    col_chars = [rec.seq[col_idx].upper() for rec in viewer.alignment.aln]
+                col_vec = viewer.alignment.aln.matrix[:, col_idx]
+                residues = col_vec.data
+                n_gaps = n_seqs - len(residues)
+                counts = Counter(residues)
 
-                raw_counts = Counter(col_chars)
-                n_gaps = sum(raw_counts[g] for g in cfg.GAP_CHARS if g in raw_counts)
-                gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
-                all_gap_fracs[idx] = gap_frac
+            gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
+            all_gap_fracs[idx] = gap_frac
 
-                for aa_char, count in raw_counts.items():
-                    if aa_char not in cfg.GAP_CHARS:
-                        aa_clean = aa_char.upper()
-                        if aa_clean not in all_aa_fracs:
-                            all_aa_fracs[aa_clean] = np.zeros(n_cols, dtype=float)
-                        all_aa_fracs[aa_clean][idx] += (count / n_seqs) if n_seqs > 0 else 0.0
+            for aa_int, count in counts.items():
+                aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X').upper()
+                if aa_char not in all_aa_fracs:
+                    all_aa_fracs[aa_char] = np.zeros(n_cols, dtype=float)
+                all_aa_fracs[aa_char][idx] += (count / n_seqs) if n_seqs > 0 else 0.0
 
         try:
             pos_mask = evaluate_frequency_logic(
@@ -665,38 +645,28 @@ def run(viewer, args):
         col_idx = viewer.alignment.label_to_col[pos]
         found_count += 1
         
-        if is_sparse:
-            if subset_mode:
-                # Slicing specific rows returns a dense matrix or array
-                sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
-                if hasattr(sliced, 'toarray'):
-                    dense_col = sliced.toarray().flatten()
-                else:
-                    dense_col = np.array(sliced).flatten()
-                
-                n_gaps = np.sum(dense_col == 0)
-                residues = dense_col[dense_col != 0]
-                counts = Counter(residues)
+        if subset_mode:
+            # Slicing specific rows returns a dense matrix or array
+            sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
+            if hasattr(sliced, 'toarray'):
+                dense_col = sliced.toarray().flatten()
             else:
-                col_vec = viewer.alignment.aln.matrix[:, col_idx]
-                residues = col_vec.data
-                n_gaps = n_seqs - len(residues)
-                counts = Counter(residues)
-                
-            aa_counts = {}
-            for aa_int, count in counts.items():
-                aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X')
-                aa_counts[aa_char] = aa_counts.get(aa_char, 0) + count
+                dense_col = np.array(sliced).flatten()
+
+            n_gaps = np.sum(dense_col == 0)
+            residues = dense_col[dense_col != 0]
+            counts = Counter(residues)
         else:
-            if subset_mode:
-                col_chars = [viewer.alignment.aln[row].seq[col_idx].upper() for row in target_rows]
-            else:
-                col_chars = [rec.seq[col_idx].upper() for rec in viewer.alignment.aln]
-                
-            raw_counts = Counter(col_chars)
-            n_gaps = sum(raw_counts[g] for g in cfg.GAP_CHARS if g in raw_counts)
-            aa_counts = {aa: count for aa, count in raw_counts.items() if aa not in cfg.GAP_CHARS}
-            
+            col_vec = viewer.alignment.aln.matrix[:, col_idx]
+            residues = col_vec.data
+            n_gaps = n_seqs - len(residues)
+            counts = Counter(residues)
+
+        aa_counts = {}
+        for aa_int, count in counts.items():
+            aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X')
+            aa_counts[aa_char] = aa_counts.get(aa_char, 0) + count
+
         # Gap-Diluted Calculation
         gap_pct = (n_gaps / n_seqs) * 100.0 if n_seqs > 0 else 0.0
         

@@ -90,7 +90,7 @@ COMMAND_METADATA = {
         argument('positions_or_logic', 'Required brackets: positions/ranges (E or END denotes the last residue), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps.')),
     'redo': entry('Reapply the last undone state; report a no-op if redo history is empty.'),
     'reference': entry('Inspect or change the reference sequence used for alignment mapping.',
-        argument('target', 'Omit to inspect the current reference and whether it is active. Supply a full or partial header or a wildcard pattern; an exact header takes priority, and the resolved full header anchors numbering. A configured reference absent from the current MSA remains inactive in occupancy mode.')),
+        argument('target', 'Omit to inspect the current reference and whether it is active. Supply a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard pattern; an exact header or identifier takes priority, and the resolved full header anchors numbering. A configured reference absent from the current MSA remains inactive in occupancy mode.')),
     'reset': entry('Restore selected network properties in one undoable action.',
         argument('targets', 'One or more targets: reset colors/sizes to configured defaults, shapes to discs, clear clusters/groups, unhide nodes, restore original/last-saved positions, or reset render order. Keywords are case-insensitive.',
             choice('colors','color'), choice('sizes','size'), choice('shapes','shape'), choice('clusters','cluster'), choice('groups','group'),

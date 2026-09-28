@@ -60,7 +60,6 @@ class MSAFastaSanitizationTests(unittest.TestCase):
             loader.bulk_residue_check(1, "B"),
             np.array([True, True]),
         )
-        self.assertEqual(loader.get_frequencies(1)[0], "B")
 
     def test_sanitization_preserves_columns_and_reports_once(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -98,12 +97,11 @@ class MSAFastaSanitizationTests(unittest.TestCase):
             original = Path(path).read_bytes()
             output = io.StringIO()
             with redirect_stdout(output):
-                loader, is_sparse = Alignment_Manager.load_alignment_smart(path)
+                loader = Alignment_Manager.load_alignment_smart(path)
 
             self.assertEqual(Path(path).read_bytes(), original)
 
         self.assertIsNone(loader)
-        self.assertFalse(is_sparse)
         self.assertIn("ERROR: MSA rejected", output.getvalue())
         self.assertIn("equal aligned lengths", output.getvalue())
 
@@ -112,7 +110,7 @@ class MSAFastaSanitizationTests(unittest.TestCase):
             path = os.path.join(directory, "collision.fasta")
             write_fasta(path, [("A?", "AC"), ("A#", "AC")])
             with redirect_stdout(io.StringIO()) as output:
-                loader, _ = Alignment_Manager.load_alignment_smart(path)
+                loader = Alignment_Manager.load_alignment_smart(path)
 
         self.assertIsNone(loader)
         self.assertIn("creates a duplicate header", output.getvalue())
@@ -122,7 +120,7 @@ class MSAFastaSanitizationTests(unittest.TestCase):
             path = os.path.join(directory, "filtered_invalid.fasta")
             write_fasta(path, [("kept", "AC"), ("excluded", "A")])
             with redirect_stdout(io.StringIO()) as output:
-                loader, _ = Alignment_Manager.load_alignment_smart(
+                loader = Alignment_Manager.load_alignment_smart(
                     path,
                     filter_headers=["kept"],
                 )
@@ -136,7 +134,7 @@ class MSAFastaSanitizationTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("AC\n>one\nAC\n")
             with redirect_stdout(io.StringIO()) as output:
-                loader, _ = Alignment_Manager.load_alignment_smart(path)
+                loader = Alignment_Manager.load_alignment_smart(path)
 
         self.assertIsNone(loader)
         self.assertIn("before the first header", output.getvalue())
@@ -203,7 +201,7 @@ class SparseHDF5SanitizationTests(unittest.TestCase):
                 mapping={"1": "A", "2": "C"},
             )
             with redirect_stdout(io.StringIO()) as output:
-                loader, _ = Alignment_Manager.load_alignment_smart(path)
+                loader = Alignment_Manager.load_alignment_smart(path)
 
         self.assertIsNone(loader)
         self.assertIn("duplicate column indices", output.getvalue())
@@ -219,7 +217,7 @@ class SparseHDF5SanitizationTests(unittest.TestCase):
                 hf.create_dataset("headers", data=np.array([b"one"]))
                 hf.create_dataset("int_to_aa", data=json.dumps({"1": "A"}))
             with redirect_stdout(io.StringIO()) as output:
-                loader, _ = Alignment_Manager.load_alignment_smart(path)
+                loader = Alignment_Manager.load_alignment_smart(path)
 
         self.assertIsNone(loader)
         self.assertIn("local hard link", output.getvalue())
@@ -264,7 +262,7 @@ class SparseHDF5SanitizationTests(unittest.TestCase):
             for path, expected in expected_messages:
                 with self.subTest(path=path):
                     with redirect_stdout(io.StringIO()) as output:
-                        loader, _ = Alignment_Manager.load_alignment_smart(path)
+                        loader = Alignment_Manager.load_alignment_smart(path)
                     self.assertIsNone(loader)
                     self.assertIn(expected, output.getvalue())
 
@@ -280,7 +278,7 @@ class SparseHDF5SanitizationTests(unittest.TestCase):
                 hf.create_dataset("headers", data=np.array([b"\xff"], dtype="S1"))
                 hf.create_dataset("int_to_aa", data=json.dumps({"1": "A"}))
             with redirect_stdout(io.StringIO()) as output:
-                loader, _ = Alignment_Manager.load_alignment_smart(path)
+                loader = Alignment_Manager.load_alignment_smart(path)
 
         self.assertIsNone(loader)
         self.assertIn("not valid UTF-8", output.getvalue())

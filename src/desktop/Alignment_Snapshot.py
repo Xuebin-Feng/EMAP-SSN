@@ -15,38 +15,30 @@ def freeze_alignment(viewer, budget):
     mapping = np.asarray(mapping, dtype=int)
     rows = np.unique(mapping[mapping >= 0])
     source = alignment.aln
-    sparse = hasattr(source, 'matrix')
     remapped = np.full(len(mapping), -1, dtype=int)
     remapped[mapping >= 0] = np.searchsorted(rows, mapping[mapping >= 0])
     labels = deepcopy(alignment.label_to_col)
     estimate = remapped.nbytes * 2 + sum(len(str(k)) * 4 + 128 for k in labels) + 16384
-    if sparse:
-        matrix = source.matrix
-        # Count only retained rows, without allocating a sliced alignment first.
-        if matrix.format == 'csr':
-            nnz = int(np.sum(matrix.indptr[rows + 1] - matrix.indptr[rows]))
-        else:
-            nnz = sum(matrix.getrow(int(row)).nnz for row in rows)
-        estimate += nnz * (matrix.data.dtype.itemsize + matrix.indices.dtype.itemsize) + (len(rows) + 1) * 8
+    matrix = source.matrix
+    # Count only retained rows, without allocating a sliced alignment first.
+    if matrix.format == 'csr':
+        nnz = int(np.sum(matrix.indptr[rows + 1] - matrix.indptr[rows]))
     else:
-        estimate += sum(len(source[int(row)].seq) * 4 + 128 for row in rows)
+        nnz = sum(matrix.getrow(int(row)).nnz for row in rows)
+    estimate += nnz * (matrix.data.dtype.itemsize + matrix.indices.dtype.itemsize) + (len(rows) + 1) * 8
     if estimate > budget:
         raise ValueError('Alignment snapshot exceeds inspection memory budget.')
-    data = {'mapping': remapped, 'labels': labels,
+    frozen = matrix[rows, :].tocsr(copy=True)
+    frozen.sum_duplicates()
+    frozen.sort_indices()
+    return {'mapping': remapped, 'labels': labels,
             'col_to_label': deepcopy(getattr(alignment, 'col_to_label', {})),
             'gaps': tuple(str(g).upper() for g in cfg.GAP_CHARS),
             'reference': getattr(alignment, 'resolved_ref_full', None),
             'requested_reference': getattr(viewer, 'active_reference', None),
             'offset': getattr(viewer, 'alignment_offset', 0),
-            'msa': getattr(alignment, 'msa_file', None), 'sparse': sparse}
-    if sparse:
-        frozen = matrix[rows, :].tocsr(copy=True)
-        frozen.sum_duplicates()
-        frozen.sort_indices()
-        data.update(matrix=frozen, codes=deepcopy(source.int_to_aa))
-    else:
-        data['sequences'] = tuple(str(source[int(row)].seq).upper() for row in rows)
-    return data
+            'msa': getattr(alignment, 'msa_file', None),
+            'matrix': frozen, 'codes': deepcopy(source.int_to_aa)}
 
 
 def alignment_bytes(data):
@@ -56,10 +48,9 @@ def alignment_bytes(data):
 
 
 def column(data, index):
-    if data['sparse']:
-        codes = data['matrix'][:, index].toarray().ravel()
-        return np.asarray([str(data['codes'].get(int(c), 'X')).upper() if c else '-' for c in codes])
-    return np.asarray([seq[index] for seq in data['sequences']])
+    """Residues of one alignment column; a zero code (gap) reads as '-'."""
+    codes = data['matrix'][:, index].toarray().ravel()
+    return np.asarray([str(data['codes'].get(int(c), 'X')).upper() if c else '-' for c in codes])
 
 
 def adapter(data):
@@ -67,7 +58,7 @@ def adapter(data):
         def bulk_residue_check(self, index, residue):
             values = column(data, index)
             if residue in ('-', '.'):
-                return np.isin(values, data['gaps'] + (('-',) if data['sparse'] else ()))
+                return np.isin(values, data['gaps'] + ('-',))
             return values == residue.upper()
     return SimpleNamespace(aln=Residues(), label_to_col=data['labels'], col_to_label=data['col_to_label'])
 
@@ -89,7 +80,7 @@ def distribution_rows(data, indices, positions, group_by, clusters, groups):
             rows = data['mapping'][members]
             mapped = rows[rows >= 0]
             counts = Counter(values[mapped].tolist())
-            gap_symbols = set(data['gaps']) | ({'-'} if data['sparse'] else set())
+            gap_symbols = set(data['gaps']) | {'-'}
             gaps = sum(counts.pop(symbol, 0) for symbol in gap_symbols)
             denominator = len(mapped)
             yield {'position': position, 'population': kind, 'category': category,

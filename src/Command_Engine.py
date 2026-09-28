@@ -564,27 +564,17 @@ def evaluate_aa_mask(full_headers, alignment, target_aa, target_pos_label, viewe
     col_idx = alignment.label_to_col[target_pos_label]
     is_gap_query = (target_aa == '_')
     aln_rows = viewer_to_aln[valid_indices]
-    
-    if hasattr(alignment.aln, 'bulk_residue_check'):
-        if is_gap_query:
-            mask_dash = alignment.aln.bulk_residue_check(col_idx, '-')
-            mask_dot = alignment.aln.bulk_residue_check(col_idx, '.')
-            aln_mask = mask_dash | mask_dot
-        else:
-            aln_mask = alignment.aln.bulk_residue_check(col_idx, target_aa)
-        mask[valid_indices] = aln_mask[aln_rows]
+
+    # The viewer's sparse alignment and frozen snapshot adapters both answer
+    # whole-column residue checks.
+    if is_gap_query:
+        mask_dash = alignment.aln.bulk_residue_check(col_idx, '-')
+        mask_dot = alignment.aln.bulk_residue_check(col_idx, '.')
+        aln_mask = mask_dash | mask_dot
     else:
-        for i in valid_indices:
-            row = int(viewer_to_aln[i])
-            try:
-                char = str(alignment.aln[row].seq[col_idx]).upper()
-                if is_gap_query:
-                    if char in cfg.GAP_CHARS: mask[i] = True
-                else:
-                    if char == target_aa: mask[i] = True
-            except:
-                pass
-                
+        aln_mask = alignment.aln.bulk_residue_check(col_idx, target_aa)
+    mask[valid_indices] = aln_mask[aln_rows]
+
     return mask
 
 

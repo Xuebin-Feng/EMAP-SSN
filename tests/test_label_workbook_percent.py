@@ -8,9 +8,6 @@ from unittest import mock
 
 import numpy as np
 import openpyxl
-from Bio.Align import MultipleSeqAlignment
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,29 +18,22 @@ if SRC_DIR not in sys.path:
 import Alignment_Manager
 from commands import label
 from desktop import Desktop_App as application_windows
+from tests.sparse_alignment import sparse_alignment
 
 
 class AlignmentStub:
+    """Alignment_Manager state for label: a sparse alignment plus a fixed mapping."""
+
     def __init__(self, sequences=None):
         sequences = ["A", "A", "C"] if sequences is None else list(sequences)
-        self.aln = MultipleSeqAlignment(
-            [
-                SeqRecord(Seq(sequence), id=f"node{index}")
-                for index, sequence in enumerate(sequences)
-            ]
+        self.aln = sparse_alignment(
+            (f"node{index}", sequence) for index, sequence in enumerate(sequences)
         )
         self.col_to_label = {0: "1"}
         self.label_to_col = {"1": 0}
         self.has_reference = True
         self.resolved_ref_full = "node0"
         self.viewer_to_aln = np.arange(len(sequences), dtype=int)
-
-    def calculate_frequencies(self, mapping, exclude=None, aln=None):
-        return Alignment_Manager.calculate_frequencies(
-            aln if aln is not None else self.aln,
-            mapping,
-            exclude or [],
-        )
 
 
 class ImmediateScheduler:
@@ -697,7 +687,9 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 label.run(viewer, [])
                 automatic_job = scheduler.job
 
-            alignment.aln[0].seq = Seq("G")
+            # Rows are materialized from the sparse matrix, so mutate the matrix.
+            alignment.aln.matrix[0, 0] = Alignment_Manager.AA_TO_INT["G"]
+            self.assertEqual(str(alignment.aln[0].seq), "G")
             alignment.col_to_label[0] = "99"
             viewer.cluster_labels[0] = 9
             viewer.group_labels[0].add("LaterGroup")

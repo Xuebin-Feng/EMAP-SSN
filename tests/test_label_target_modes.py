@@ -6,9 +6,6 @@ import unittest
 from types import SimpleNamespace
 
 import numpy as np
-from Bio.Align import MultipleSeqAlignment
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,16 +14,13 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from commands import label
+from tests.sparse_alignment import sparse_alignment
 
 
 class LabelTargetModeTests(unittest.TestCase):
     def setUp(self):
         alignment = SimpleNamespace(
-            aln=MultipleSeqAlignment([
-                SeqRecord(Seq("A"), id="node0"),
-                SeqRecord(Seq("C"), id="node1"),
-                SeqRecord(Seq("D"), id="node2"),
-            ]),
+            aln=sparse_alignment([("node0", "A"), ("node1", "C"), ("node2", "D")]),
             col_to_label={0: "1"},
         )
         self.viewer = SimpleNamespace(

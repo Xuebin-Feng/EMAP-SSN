@@ -58,7 +58,7 @@ Available CLI commands:
 
 10. `reference [TARGET]`
     - With no target, reports the active alignment reference, or marks the configured reference inactive when it does not resolve.
-    - TARGET is a full header, a case-insensitive substring, or a wildcard pattern such as `WP_01*`; a full header is safest. An exact header takes priority; when several headers match, the first is used and a warning names it. The resolved full header anchors numbering, so the reported reference is the sequence actually used.
+    - TARGET is a full header, a leading identifier ending at `_` or `|` such as `WP_0123.1`, a case-insensitive substring, or a wildcard pattern such as `WP_01*` or `*.1`; a full header or versioned accession is safest. An exact header or identifier takes priority, so `WP_0123.1` never selects `WP_0123.10_...`; when several headers match, the first is used and a warning names it. The resolved full header anchors numbering, so the reported reference is the sequence actually used.
     - Changing the reference reloads alignment mapping and therefore changes reference-anchored position labels used by position-aware commands. A target absent from the current MSA may remain configured but inactive.
     - When an MSA is loaded but no reference resolves, `query`, `logo`, and amino-acid expressions use occupancy mode: retained alignment columns are numbered sequentially from 1 and the configured offset is inactive. `offset` and `label` still require an active reference.
 

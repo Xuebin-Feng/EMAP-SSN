@@ -195,9 +195,12 @@ still change before version 1.0.0.
   `reference WP_01*` left the reference inactive with a message claiming the sequence
   was absent. When several headers matched, the warning and the success message could
   name a different sequence from the one the alignment anchored on. The command now
-  resolves the target once, preferring an exact header, stores that full header, and
-  reports the sequence actually used; a bare `reference` marks an unresolved
-  reference as inactive.
+  resolves the target once and stores that full header, so the sequence reported is
+  the one used, and a bare `reference` marks an unresolved reference as inactive. An
+  exact header or leading identifier takes priority over substring matches, so
+  `reference WP_0123.1` selects `WP_0123.1_protein_A` instead of the first header
+  containing it, such as `WP_0123.10_protein_B`, and wildcards such as `*.1` can
+  match that identifier.
 - Headless Viewer launches through MCP on Windows opened a stray terminal window.
   The launcher started the venv's `python.exe` redirector without any console, so
   Windows gave the interpreter it starts a new, visible one; when that process ended
@@ -270,6 +273,19 @@ still change before version 1.0.0.
   (`verify_bundled_artifacts`, `verify_esm_wheel`, `verify_transformers_wheel`,
   `esm_runtime_requirements_from_wheel`, `_bundled_paths`, and the SHA-256
   constants).
+- The non-sparse alignment code path. Every MSA, FASTA or HDF5, loads as a sparse
+  matrix, so `Alignment_Manager`'s branches for Bio alignments,
+  `get_valid_columns_legacy`, `get_ref_anchored_mapping_legacy`, the per-row
+  residue-predicate fallback in `Command_Engine`, the sequence-based representation
+  of MCP alignment snapshots, and the matching fallbacks in `query`, `logo`, and
+  `label` could never run. `load_alignment_smart` now returns the loader, or `None`
+  when the file is rejected, instead of a `(loader, is_sparse)` pair. The
+  `reference` command's second search over MSA rows is gone too: the alignment holds
+  only rows whose headers are network headers.
+- `Alignment_Manager.calculate_frequencies`, the module-level `calculate_frequencies`
+  it wrapped, and `SparseAlignmentLoader.get_frequencies`, which only that function
+  called. Nothing in the application computed statistics through them; `label`,
+  `logo`, `query`, and MCP residue distributions each count residues themselves.
 
 ## [0.2.0] - 2026-09-09
 
