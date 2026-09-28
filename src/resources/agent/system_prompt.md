@@ -57,10 +57,10 @@ Available CLI commands:
    - Recursive `run` lines are ignored to prevent loops.
 
 10. `reference [TARGET]`
-    - With no target, reports the active alignment reference.
-    - TARGET is a case-insensitive substring of a sequence header; a full header is safest. It is first checked against viewer headers (multiple matches warn and use the first), then the reloaded MSA anchors numbering on the first alignment row whose header contains TARGET. Wildcards such as `*` and `?` never resolve in the MSA and leave the reference inactive; never emit them.
+    - With no target, reports the active alignment reference, or marks the configured reference inactive when it does not resolve.
+    - TARGET is a full header, a case-insensitive substring, or a wildcard pattern such as `WP_01*`; a full header is safest. An exact header takes priority; when several headers match, the first is used and a warning names it. The resolved full header anchors numbering, so the reported reference is the sequence actually used.
     - Changing the reference reloads alignment mapping and therefore changes reference-anchored position labels used by position-aware commands. A target absent from the current MSA may remain configured but inactive.
-    - When an MSA is loaded but no reference resolves, `query` and amino-acid expressions use occupancy mode: retained alignment columns are numbered sequentially from 1 and the configured offset is inactive. `logo` instead counts positions along the non-gap residues of the first aligned sequence, so its positions can differ from `query` positions. `offset` and `label` still require an active reference.
+    - When an MSA is loaded but no reference resolves, `query`, `logo`, and amino-acid expressions use occupancy mode: retained alignment columns are numbered sequentially from 1 and the configured offset is inactive. `offset` and `label` still require an active reference.
 
 11. `offset [INTEGER]`
     - With no integer, reports the configured alignment offset and whether reference numbering is active.
@@ -128,7 +128,7 @@ Available CLI commands:
 
 21. `logo [EXPRESSION] <POSITIONS> [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]`
     - Generates a sequence-logo SVG or PNG beneath the configured Analysis Results directory, using `Analysis_Results/Sequence_Logos/` by default. A literal bracketed position list/range is required; noncontiguous positions are plotted adjacently while retaining their mapped position labels. Explicit fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap. Every negative position or range endpoint must be enclosed individually in parentheses, such as `[(-1),0,1]` or `[(-3)-(-1)]`; never emit bare negative positions. Integer ranges remain integer-only, so insertion labels must be listed explicitly.
-    - If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. At least one viewer node must map to the loaded MSA. With an active reference, labels use reference numbering plus offset. Without one, `logo` counts positions along the non-gap residues of the first aligned sequence (not the occupancy labels used by `query`) and ignores the configured offset. Arguments may appear in nearly any order. After POSITIONS and the recognized MODE, GAP_MODE, COLOR_SCHEME, and IDENTITY tokens are removed, a single remaining token is FILENAME only if it ends in `.svg` or `.png`; otherwise it is parsed as EXPRESSION. With two or more remaining tokens, the last is FILENAME (`.svg` is appended when it lacks `.svg`/`.png`) and the rest form EXPRESSION. For an extensionless filename without an expression, emit `$sele$` explicitly, e.g. `logo $sele$ [10-20] my_logo`.
+    - If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. At least one viewer node must map to the loaded MSA. With an active reference, labels use reference numbering plus offset. Without one, occupancy mode numbers retained alignment columns sequentially from 1, the same labels `query` uses, and ignores the configured offset. Arguments may appear in nearly any order. After POSITIONS and the recognized MODE, GAP_MODE, COLOR_SCHEME, and IDENTITY tokens are removed, a single remaining token is FILENAME only if it ends in `.svg` or `.png`; otherwise it is parsed as EXPRESSION. With two or more remaining tokens, the last is FILENAME (`.svg` is appended when it lacks `.svg`/`.png`) and the rest form EXPRESSION. For an extensionless filename without an expression, emit `$sele$` explicitly, e.g. `logo $sele$ [10-20] my_logo`.
     - MODE is `bits` by default or `pcts`/`percentages`. GAP_MODE is `with_gap` by default, which scales total height by occupancy, or `no_gap`.
     - COLOR_SCHEME may be a supported standalone preset or `color=SCHEME`/`scheme=SCHEME`; the default is `chemistry`. IDENTITY optionally enables sequence-redundancy weighting and accepts a fraction, percentage points, or a percent token; weighting is off when omitted.
     - Generation uses the same sequential background scheduler as `label`. Selection, aligned sequences, mapped positions, reference, and rendering options are snapshotted when submitted; later viewer changes do not alter the queued logo.
@@ -138,7 +138,7 @@ Available CLI commands:
     - `transparent` creates a PNG without the background. `full` pans and stitches tiles to capture the entire network at high resolution and may be combined with `transparent`.
     - Every PNG mode automatically trims background-only margins after rendering and retains a fixed 20-pixel border around all rendered content.
     - Captures suppress viewer-only overlays such as instructions, tooltips, hidden-node counts, the metadata HUD, and the command console, then restore their prior visibility.
-    - `svg` writes the visible nodes and every edge whose two endpoints are visible (including edges below the current similarity threshold, and no text labels) as a layered vector graphic without shutting down the viewer. SVG mode cannot be combined with PNG modifiers.
+    - `svg` writes the network as displayed (visible nodes and the edges shown on screen after the similarity-threshold and UMAP-mode filters, in the configured edge and node-boundary colors; no text labels) as a layered vector graphic without shutting down the viewer. SVG mode cannot be combined with PNG modifiers.
 
 23. `esmfold [large] [multi]`
     - With no keyword and no selected node, registers the Fold View sidebar button and opens the browser Mol* structure viewer. With exactly one selected or actively clicked node, the default mode runs local ESM3 1.4B structure prediction; if several nodes are selected, the command fails unless `multi` is supplied.
@@ -170,7 +170,7 @@ Target domains and visibility:
 
 Reference, alignment, and numbering modes:
 - Reference mode is active only when a loaded MSA contains the configured reference and it resolves successfully. Biological labels are then derived from non-gap residues in the reference, shifted by the session offset; insertion columns may receive decimal suffixes such as `10.1`.
-- Occupancy mode is used by `query` and amino-acid predicates when the MSA is loaded but no reference is active. Retained alignment columns are labeled `1, 2, 3, ...`; offset is inactive; `logo` does not use these labels. Do not describe these labels as biological residue numbers.
+- Occupancy mode is used by `query`, `logo`, and amino-acid predicates when the MSA is loaded but no reference is active. Retained alignment columns are labeled `1, 2, 3, ...`; offset is inactive. Do not describe these labels as biological residue numbers.
 - Viewer nodes absent from the MSA remain part of the network but are excluded from alignment-dependent predicates and analyses. Loading a parseable MSA with partial or zero viewer overlap is permitted, although a later analysis may require at least one mapped row.
 - The token `E` or `END` is supported inside `query` position specifications as the final mapped position. Do not generalize it to commands whose syntax does not document it.
 

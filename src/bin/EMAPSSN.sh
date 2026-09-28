@@ -83,8 +83,11 @@ fi
 
 # 2. Validate, create, or repair the managed virtual environment
 VENV_PYTHON=".venv/bin/python"
+# The managed environment must run Python 3.13. A .venv on another version,
+# such as one kept by an in-place upgrade, is recreated instead of reused.
+VENV_PROBE='import sys; sys.exit(0 if sys.version_info[:2] == (3, 13) else 1)'
 if [ "$LAUNCH_MODE" = "--check-only" ]; then
-    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
+    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
         exit 10
     fi
     "$VENV_PYTHON" src/Install_Dependencies.py --check-only --uv-executable "$UV_EXE" --venv .venv
@@ -93,7 +96,7 @@ fi
 
 if [ "$LAUNCH_MODE" = "--run-only" ]; then
     ssn_wait_for_dependency_setup "$PROJECT_ROOT" || exit 1
-    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
+    if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
         printf 'Managed Python is unavailable; run setup before --run-only.\n' >&2
         exit 10
     fi
@@ -102,7 +105,7 @@ fi
 
 # Healthy direct launches take the same read-only fast path as desktop launches.
 environment_ready=0
-if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1 &&
+if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
         "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
             --uv-executable "$UV_EXE" --venv .venv; then
     environment_ready=1
@@ -112,12 +115,12 @@ if [ "$environment_ready" -ne 1 ]; then
     ssn_acquire_dependency_setup_lock "$PROJECT_ROOT" || exit 1
 
     # Another launcher may have completed setup while this process waited.
-    if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1 &&
+    if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
             "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
                 --uv-executable "$UV_EXE" --venv .venv; then
         printf 'Dependency setup was completed by another launcher.\n'
     else
-        if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "import sys" >/dev/null 2>&1; then
+        if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then
             echo "Creating isolated local virtual environment (.venv)..."
             "$UV_EXE" venv --clear --python 3.13 || exit 1
         fi

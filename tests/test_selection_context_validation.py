@@ -534,16 +534,20 @@ class AtomicCommandTests(unittest.TestCase):
                     return_value=metadata,
                 ),
             )
-            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            # Without this patch the real file manager opens the export folder,
+            # which TemporaryDirectory has already deleted when it appears.
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+                    mock.patch.object(export_command, "open_in_file_manager") as open_folder:
                 with redirect_stdout(io.StringIO()):
                     export_command.run(viewer, ["clusters"])
 
-            output_path = os.path.join(
-                export_root,
-                "source_[test]",
-                "Score0.5",
-                "Cluster_0.fasta",
+            output_dir = os.path.join(export_root, "source_[test]", "Score0.5")
+            open_folder.assert_called_once()
+            self.assertEqual(
+                os.path.normpath(open_folder.call_args.args[0]),
+                os.path.normpath(output_dir),
             )
+            output_path = os.path.join(output_dir, "Cluster_0.fasta")
             self.assertTrue(os.path.isfile(output_path))
             with open(output_path, "r", encoding="utf-8") as handle:
                 self.assertEqual(handle.read(), ">node\nCCCC\n")

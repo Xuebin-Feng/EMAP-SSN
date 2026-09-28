@@ -1,7 +1,0 @@
-{
-  "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-  "model_name": "gemini-3.1-flash-lite",
-  "prefer_backend": "auto",
-  "gguf_model_path": null,
-  "temperature": 0.0
-}

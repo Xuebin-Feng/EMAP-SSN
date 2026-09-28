@@ -174,6 +174,35 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
         self.assertEqual(positions, [11, "11.1", 12])
         self.assertEqual(missing, [1])
 
+    def test_occupancy_mapping_drives_logo_position_resolution(self):
+        # Without a resolved reference, logo must use the occupancy labels that
+        # query and residue predicates use. The first row has a gap in column 1;
+        # counting its residues instead shifted every later position by one.
+        with tempfile.TemporaryDirectory() as directory:
+            msa_path = os.path.join(directory, "occupancy.fasta")
+            with open(msa_path, "w", encoding="utf-8") as handle:
+                handle.write(">S1\nM-KCD\n>S2\nMAKCD\n>S3\nMAKCD\n")
+            with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
+                    mock.patch.object(Alignment_Manager.cfg, "ALIGNMENT_REFERENCE", ""), \
+                    redirect_stdout(io.StringIO()):
+                manager = Alignment_Manager.Alignment_Manager(
+                    msa_path, full_headers=["S1", "S2", "S3"], active_reference=""
+                )
+
+        self.assertFalse(manager.has_reference)
+        columns, positions, missing = logo_command.resolve_reference_columns(
+            manager,
+            [1, 2, 3, 4, 5],
+            "M-KCD",
+        )
+
+        self.assertEqual(
+            columns, [manager.label_to_col[str(position)] for position in positions]
+        )
+        self.assertEqual(columns, [0, 1, 2, 3, 4])
+        self.assertEqual(positions, [1, 2, 3, 4, 5])
+        self.assertEqual(missing, [])
+
     def test_query_output_reports_current_offset(self):
         manager = make_reference_manager()
         manager.set_offset(10)

@@ -166,7 +166,11 @@ class MCPViewerClient:
             env["SSN_VIEWER_HEADLESS"] = "1"
         elif env.get("QT_QPA_PLATFORM") == "offscreen":
             env.pop("QT_QPA_PLATFORM")
-        options = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_BREAKAWAY_FROM_JOB}
+        # CREATE_NO_WINDOW rather than DETACHED_PROCESS: a venv's python.exe is a
+        # redirector that starts the real interpreter as its child, and a
+        # redirector without any console makes Windows allocate a new, visible
+        # console for that child. A hidden console is inherited instead.
+        options = ({"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_BREAKAWAY_FROM_JOB}
                    if sys.platform == "win32" else {"start_new_session": True})
         proc = None
         root_process = None
@@ -180,7 +184,7 @@ class MCPViewerClient:
             if sys.platform == "win32":
                 child_options = ("stdin=None,stdout=None,stderr=None,creationflags=subprocess.CREATE_NEW_CONSOLE"
                                  if mode == "normal" else
-                                 "stdin=subprocess.DEVNULL,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP")
+                                 "stdin=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW|subprocess.CREATE_NEW_PROCESS_GROUP")
                 broker = (
                     "import subprocess,sys,json,psutil; "
                     f"p=subprocess.Popen(json.loads(sys.argv[1]),{child_options}); "

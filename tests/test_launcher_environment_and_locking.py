@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import builtins
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -13,6 +16,27 @@ from unittest import mock
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 INSTALLER = PROJECT_ROOT / "install.sh"
+MANAGED_LAUNCHERS = ("EMAPSSN.bat", "EMAPSSN_Tools.bat", "EMAPSSN.sh", "EMAPSSN_Tools.sh")
+
+
+def run_interpreter_probe(probe, version_info):
+    """Run a launcher's `-c` interpreter probe as the given Python version would."""
+    fake_sys = types.SimpleNamespace(version_info=version_info)
+
+    def fake_exit(code=0):
+        raise SystemExit(code)
+
+    fake_sys.exit = fake_exit
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        return fake_sys if name == "sys" else real_import(name, *args, **kwargs)
+
+    try:
+        exec(probe, {"__builtins__": {**vars(builtins), "__import__": fake_import}})
+    except SystemExit as stop:
+        return stop.code
+    return 0
 
 
 class ManagedEnvironmentTests(unittest.TestCase):
@@ -123,6 +147,32 @@ class ManagedEnvironmentTests(unittest.TestCase):
             self.assertIn("dependency_setup.lock", sources[name])
             self.assertIn("--locked-setup", sources[name])
             self.assertIn('"%COMSPEC%" /d /c', sources[name])
+
+    def test_launchers_recreate_a_venv_that_is_not_the_managed_python(self):
+        # An in-place upgrade kept a working Python 3.12 .venv: the probes only
+        # ran `import sys`, so any interpreter passed and the new pins were
+        # installed into it instead of a recreated Python 3.13 environment.
+        for name in MANAGED_LAUNCHERS:
+            source = (SRC_DIR / "bin" / name).read_text(encoding="utf-8")
+            with self.subTest(launcher=name):
+                self.assertNotIn('-c "import sys"', source)
+                self.assertIn(
+                    '-c "!VENV_PROBE!"' if name.endswith(".bat") else '-c "$VENV_PROBE"',
+                    source,
+                )
+                probe = re.search(r"VENV_PROBE='?(import sys;[^'\"\r\n]*)", source).group(1)
+                created = tuple(
+                    int(part)
+                    for part in re.search(
+                        r"venv --clear --python (\d+)\.(\d+)", source
+                    ).groups()
+                )
+
+                self.assertEqual(run_interpreter_probe(probe, created + (0,)), 0)
+                self.assertEqual(run_interpreter_probe(probe, (3, 12, 3)), 1)
+                self.assertEqual(run_interpreter_probe(probe, (3, 14, 0)), 1)
+                # Windows delayed expansion would strip a literal "!" from the probe.
+                self.assertNotIn("!", probe)
 
     def test_launchers_probe_for_existing_windows_before_validation(self):
         paths = (

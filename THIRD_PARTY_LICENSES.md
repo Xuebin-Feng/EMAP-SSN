@@ -139,7 +139,7 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | transformers 5.17.0 | Apache-2.0 (Hugging Face, upstream) — installed from PyPI, not redistributed |
 | huggingface-hub, tokenizers (installed with Transformers; imported directly) | Apache-2.0 |
 | torch 2.12.0 | BSD-3-Clause — one build selected at installation: CPU, CUDA 12.6, CUDA 13.2, or Intel XPU from `download.pytorch.org`; ROCm 7.14 for Windows or Linux from AMD's multi-arch index; or Apple MPS from PyPI |
-| AMD ROCm 7.14 runtime wheel components | MIT — downloaded dynamically from AMD's official index only when a supported AMD GPU is detected on Windows 11 25H2 or newer, or on Linux |
+| AMD ROCm 7.14 runtime wheels (`rocm`, `rocm-sdk-core`, and the per-GPU `rocm-sdk-device-*` and `amd-torch-device-*` packages) | AMD's packaging code is MIT: every source file of the `rocm` 7.14.1 meta-package carries `SPDX-License-Identifier: MIT` (Copyright Advanced Micro Devices, Inc.), although its package metadata declares no license. The runtime binaries in the other wheels remain under the terms AMD ships inside them and were not reviewed here. Downloaded dynamically from AMD's official index only when a supported AMD GPU is detected on Windows 11 25H2 or newer, or on Linux |
 | mcp 2.2.0 (official Model Context Protocol Python SDK) | MIT |
 | pydantic (installed with mcp; imported directly by the MCP server) | MIT |
 | sentencepiece 0.2.2 | Apache-2.0 |
@@ -285,7 +285,8 @@ University of Toronto ownership review as the rest of the project.
 carries its own Apache-2.0 `LICENSE`. Its contents are not part of this
 repository's source archives, and this inventory does not cover them. That
 repository tracks a prebuilt Unity player, including Unity, Mono, Direct3D,
-SteamVR, and OpenXR binaries, which remain under their vendors' terms.
+SteamVR, and OpenXR binaries, which remain under their vendors' terms. Its
+`THIRD_PARTY_NOTICES.md` inventories them.
 
 ---
 

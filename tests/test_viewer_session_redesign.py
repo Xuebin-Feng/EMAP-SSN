@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -212,6 +213,33 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 identity = json.loads(path.read_text())
                 self.assertFalse(psutil.pid_exists(identity["pid"]))
             self.assertTrue(any(p.stat().st_size >= 1000000 for p in (root / "sessions").rglob("stdout.log")))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows console creation flags")
+    async def test_windows_launch_keeps_headless_viewers_off_screen(self):
+        # A venv's python.exe redirector started with DETACHED_PROCESS has no
+        # console, so Windows opened a new, visible terminal for the interpreter it
+        # started. The broker and headless children must use a hidden console;
+        # normal mode still opens its terminal deliberately.
+        expected_child_flag = {"headless": "CREATE_NO_WINDOW", "normal": "CREATE_NEW_CONSOLE"}
+        for mode, child_flag in expected_child_flag.items():
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(Path(temporary) / "sessions")}), \
+                    mock.patch(
+                        "mcp_server.viewer.Viewer_Client.validate_viewer_document",
+                        return_value={"inputs": {"TARGET_CACHE_PATH": "test"}},
+                    ), \
+                    mock.patch("mcp_server.viewer.Viewer_Client._identity", return_value=None), \
+                    mock.patch("mcp_server.viewer.Viewer_Client.subprocess.Popen") as popen:
+                popen.return_value.wait.return_value = 1  # broker fails; nothing real starts
+                with self.assertRaisesRegex(MCPViewerError, "broker failed"):
+                    await MCPViewerClient(Path(temporary)).launch_session(settings_document={}, mode=mode)
+
+                flags = popen.call_args.kwargs["creationflags"]
+                broker_code = popen.call_args.args[0][2]
+                self.assertTrue(flags & subprocess.CREATE_NO_WINDOW)
+                self.assertFalse(flags & subprocess.DETACHED_PROCESS)
+                self.assertIn(f"creationflags=subprocess.{child_flag}", broker_code)
+                self.assertNotIn("DETACHED_PROCESS", broker_code)
 
     async def test_stdio_survival_connection_isolation_and_verified_close(self):
         fixture = SettingsTests(); fixture.setUp()

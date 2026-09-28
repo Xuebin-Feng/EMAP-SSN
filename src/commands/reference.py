@@ -16,62 +16,98 @@
 import Command_Engine
 import fnmatch
 
+
+def _matches(header, target_lower):
+    """Case-insensitive substring or wildcard (`*`, `?`, `[...]`) match."""
+    header_lower = header.lower()
+    return fnmatch.fnmatch(header_lower, target_lower) or target_lower in header_lower
+
+
+def _alignment_headers(alignment):
+    """Full MSA row headers, read without materializing sparse sequence rows."""
+    aln = getattr(alignment, 'aln', None) if alignment is not None else None
+    if not aln:
+        return []
+    headers = getattr(aln, 'headers', None)
+    if headers is not None:
+        return list(headers)
+    return [record.description or record.id for record in aln]
+
+
+def _pick_header(candidates, target, target_lower):
+    exact = [header for header in candidates if header.lower() == target_lower]
+    if exact:
+        return exact[0]
+    matches = [header for header in candidates if _matches(header, target_lower)]
+    if len(matches) > 1:
+        print(f"Warning: Multiple matches found for '{target}'. Using '{matches[0]}'.")
+    return matches[0] if matches else None
+
+
+def _resolve_reference_header(viewer, target):
+    """Resolve TARGET once to the exact full header that will anchor numbering.
+
+    Network headers are searched first, then the rows of the loaded MSA. An exact
+    (case-insensitive) header wins outright; otherwise the first substring or
+    wildcard match is used, with a warning naming it when several match. The
+    alignment receives this full header, so it anchors on the same row that is
+    reported.
+    """
+    target_lower = target.lower()
+    header = _pick_header(viewer.full_headers, target, target_lower)
+    if header is None:
+        header = _pick_header(
+            _alignment_headers(getattr(viewer, 'alignment', None)), target, target_lower
+        )
+    return header
+
+
+def _current_reference_message(viewer):
+    alignment = getattr(viewer, 'alignment', None)
+    if alignment is not None and getattr(alignment, 'has_reference', False):
+        return f"Current Reference: {alignment.resolved_ref_full}"
+    configured = getattr(viewer, 'active_reference', None)
+    if configured and str(configured).strip().lower() != 'none':
+        return f"Current Reference: {configured} (inactive; not resolved in the current MSA)"
+    return "Current Reference: None"
+
+
 def run(viewer, args):
     if not args:
-        current_ref = getattr(viewer, 'resolved_ref_full', None) or getattr(viewer, 'active_reference', 'None')
-        msg = f"Current Reference: {current_ref}"
+        msg = _current_reference_message(viewer)
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
-        
+
     if args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: reference [TARGET]\nDescription: Changes the reference sequence for alignment mapping.\n  - Call without arguments to see the current active reference.\n  - Pass a partial sequence header name to set a new reference.\nExamples:\n  reference\n  reference SeqA"
+        msg = "Usage: reference [TARGET]\nDescription: Changes the reference sequence for alignment mapping.\n  - Call without arguments to see the current reference and whether it is active.\n  - Pass a full or partial sequence header, or a wildcard pattern such as WP_01*, to set a new reference.\n    An exact header takes priority; otherwise the first match is used and a warning names it.\nExamples:\n  reference\n  reference SeqA"
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     target = args[0]
-    target_lower = target.lower()
-    found_ref = None
-    found_ref_full = None
+    resolved_header = _resolve_reference_header(viewer, target)
 
-    matches = [h for h in viewer.full_headers if fnmatch.fnmatch(h.lower(), target_lower) or target_lower in h.lower()]
-    if matches:
-        found_ref = matches[0]
-        found_ref_full = found_ref
-        if len(matches) > 1:
-            print(f"Warning: Multiple matches found for '{target}'. Using '{found_ref}'.")
-    else:
-        if getattr(viewer, 'alignment', None) and viewer.alignment.aln:
-            for record in viewer.alignment.aln:
-                k = record.id
-                if fnmatch.fnmatch(k.lower(), target_lower) or target_lower in k.lower():
-                    found_ref = k
-                    found_ref_full = record.description if record.description else k
-                    break
-    
-    if found_ref:
-        viewer.active_reference = target
-        if found_ref_full:
-            viewer.resolved_ref_full = found_ref_full
-        else:
-            viewer.resolved_ref_full = found_ref 
-            
+    if resolved_header:
+        viewer.active_reference = resolved_header
+
         print(f"\nReloading alignment...")
-        viewer.console_text.text = f"Reloading alignment with new reference: {target}..."
-        
+        viewer.console_text.text = f"Reloading alignment with new reference: {resolved_header}..."
+
         viewer.load_global_alignment()
-        
+
         if (
             viewer.alignment
             and viewer.alignment.aln is not None
             and getattr(viewer.alignment, 'has_reference', False)
         ):
-            msg = f"Reference successfully set: {found_ref_full or found_ref}."
+            viewer.resolved_ref_full = viewer.alignment.resolved_ref_full
+            msg = f"Reference successfully set: {viewer.alignment.resolved_ref_full}."
             viewer.console_text.text = "Reference successfully set."
         elif viewer.alignment and viewer.alignment.aln is not None:
+            viewer.resolved_ref_full = None
             msg = (
-                f"Reference '{target}' is configured but inactive because it is not "
+                f"Reference '{resolved_header}' is configured but inactive because it is not "
                 "present in the current MSA. Pure occupancy mode remains active."
             )
             viewer.console_text.text = msg

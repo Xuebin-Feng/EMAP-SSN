@@ -490,9 +490,7 @@ def _generate_logo_artifact(payload):
         ax.set_xticks(plot_coordinates)
         ax.set_xticklabels(plot_positions)
         ax.set_xlim(-0.5, len(plot_coordinates) - 0.5)
-        ax.set_xlabel(
-            f"Position (relative to {payload['ref_id'] or 'first sequence'})"
-        )
+        ax.set_xlabel(_position_axis_label(payload))
 
         _configure_logo_y_axis(ax, mode, gap_mode)
 
@@ -564,15 +562,30 @@ def _available_automatic_filename(scheduler, directory, filename):
         index += 1
 
 
+def _position_axis_label(payload):
+    """Describe the numbering the plotted position labels actually use."""
+    if payload.get("numbering") == "occupancy":
+        return "Position (occupancy numbering)"
+    return f"Position (relative to {payload['ref_id'] or 'first sequence'})"
+
+
 def resolve_reference_columns(alignment, requested_positions, ref_seq_str):
-    """Resolve displayed integer positions to alignment columns."""
+    """Resolve displayed positions to alignment columns.
+
+    The alignment's displayed-label mapping is used whenever it exists, in both
+    reference mode (reference numbering plus offset) and occupancy mode
+    (retained columns numbered from 1), so logo positions match `query` and
+    residue predicates. Counting the non-gap residues of ``ref_seq_str`` is
+    only a fallback for an alignment that carries no label mapping.
+    """
     valid_cols = []
     plot_positions = []
     missing_positions = []
 
-    if getattr(alignment, 'has_reference', False) and getattr(alignment, 'label_to_col', None):
+    label_to_col = getattr(alignment, 'label_to_col', None)
+    if label_to_col:
         for position in requested_positions:
-            col_idx = alignment.label_to_col.get(str(position))
+            col_idx = label_to_col.get(str(position))
             if col_idx is None:
                 missing_positions.append(position)
             else:
@@ -899,25 +912,32 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, msg)
         return
 
-    # 7. Map Reference Sequence
+    # 7. Map positions through the alignment's displayed labels, the mapping
+    # `query` and residue predicates use. A reference sequence is looked up
+    # only for an alignment that carries no label mapping.
     ref_id = getattr(viewer, 'active_reference', None) or getattr(cfg, 'ALIGNMENT_REFERENCE', '')
     ref_seq_str = None
+    numbering = "reference"
+    if getattr(viewer.alignment, 'label_to_col', None):
+        if not getattr(viewer.alignment, 'has_reference', False):
+            numbering = "occupancy"
+    else:
+        if ref_id:
+            if hasattr(viewer.alignment.aln, 'header_map'): # Sparse mode
+                for k, idx in viewer.alignment.aln.header_map.items():
+                    if ref_id in k:
+                        ref_seq_str = str(viewer.alignment.aln[idx].seq)
+                        break
+            if not ref_seq_str: # Fallback / Legacy mode
+                for r in viewer.alignment.aln:
+                    if ref_id in r.id or ref_id in r.description:
+                        ref_seq_str = str(r.seq)
+                        break
 
-    if ref_id:
-        if hasattr(viewer.alignment.aln, 'header_map'): # Sparse mode
-            for k, idx in viewer.alignment.aln.header_map.items():
-                if ref_id in k:
-                    ref_seq_str = str(viewer.alignment.aln[idx].seq)
-                    break
-        if not ref_seq_str: # Fallback / Legacy mode
-            for r in viewer.alignment.aln:
-                if ref_id in r.id or ref_id in r.description:
-                    ref_seq_str = str(r.seq)
-                    break
-                
-    if not ref_seq_str:
-        print(f"Warning: Reference ID '{ref_id}' not found. Using the first sequence as reference.")
-        ref_seq_str = str(viewer.alignment.aln[0].seq)
+        if not ref_seq_str:
+            print(f"Warning: Reference ID '{ref_id}' not found. Using the first sequence as reference.")
+            ref_seq_str = str(viewer.alignment.aln[0].seq)
+            ref_id = ""
 
     valid_cols, plot_positions, missing_positions = resolve_reference_columns(
         viewer.alignment,
@@ -991,6 +1011,7 @@ def run(viewer, args):
         "output_path": output_path,
         "allow_overwrite": allow_overwrite,
         "ref_id": ref_id,
+        "numbering": numbering,
     }
     try:
         scheduler.enqueue(

@@ -48,6 +48,9 @@ powershell -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps
 
 :: 2. Validate, create, or repair the managed virtual environment
 set "VENV_PYTHON=.venv\Scripts\python.exe"
+:: The managed environment must run Python 3.13. A .venv on another version,
+:: such as one kept by an in-place upgrade, is recreated instead of reused.
+set "VENV_PROBE=import sys; sys.exit(0 if sys.version_info[:2] == (3, 13) else 1)"
 if /I "%LAUNCH_MODE%"=="--check-only" (
     call :ENVIRONMENT_READY
     exit /b !ERRORLEVEL!
@@ -57,7 +60,7 @@ if /I "%LAUNCH_MODE%"=="--run-only" (
     "%COMSPEC%" /d /c ""%~f0" --wait-for-setup"
     if !ERRORLEVEL! neq 0 exit /b 1
     if not exist "!VENV_PYTHON!" exit /b 10
-    "!VENV_PYTHON!" -c "import sys" >nul 2>nul
+    "!VENV_PYTHON!" -c "!VENV_PROBE!" >nul 2>nul
     if !ERRORLEVEL! neq 0 exit /b 10
     goto RUN_APPLICATION
 )
@@ -91,7 +94,7 @@ if !ERRORLEVEL! equ 0 (
 )
 
 if not exist "!VENV_PYTHON!" goto CREATE_VENV
-"!VENV_PYTHON!" -c "import sys" >nul 2>nul
+"!VENV_PYTHON!" -c "!VENV_PROBE!" >nul 2>nul
 if !ERRORLEVEL! equ 0 goto INSTALL_DEPENDENCIES
 
 :CREATE_VENV
@@ -152,7 +155,7 @@ exit /b 0
 
 :ENVIRONMENT_READY
 if not exist "!VENV_PYTHON!" exit /b 10
-"!VENV_PYTHON!" -c "import sys" >nul 2>nul
+"!VENV_PYTHON!" -c "!VENV_PROBE!" >nul 2>nul
 if !ERRORLEVEL! neq 0 exit /b 10
 "!VENV_PYTHON!" src\Install_Dependencies.py --check-only --uv-executable "!UV_EXE!" --venv .venv
 exit /b !ERRORLEVEL!

@@ -25,6 +25,7 @@ from matplotlib.collections import LineCollection
 from vispy import app
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import open_in_file_manager
+from Viewer_Visual_State import edge_stages
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
 PNG_TRIM_PADDING_PX = 20
@@ -120,19 +121,23 @@ def _export_svg(viewer, filepath):
     svg_lines.append(f'  <!-- Background -->')
     svg_lines.append(f'  <rect width="{width:.3f}" height="{height:.3f}" fill="{bg_color_str}" fill-opacity="{bg_color[3]:.3f}" />')
     
-    # 5. Edges layer
-    valid_edges_mask = viewer.visible_mask[viewer.edges[:, 0]] & viewer.visible_mask[viewer.edges[:, 1]]
-    active_edges = viewer.edges[valid_edges_mask]
-    
+    # 5. Edges layer: the on-screen filter (similarity threshold, visible
+    # endpoints, UMAP selection edges) in the configured edge color and alpha.
+    active_edges, _ = edge_stages(viewer, cfg)
+
     edge_alpha = getattr(cfg, 'EDGE_ALPHA', 0.2)
     edge_width = getattr(cfg, 'EDGE_WIDTH', 0.5)
-    
+    edge_rgba = mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000'))
+    edge_stroke = get_color_attrs((*edge_rgba[:3], edge_alpha), is_stroke=True)
+    boundary_rgba = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
+    boundary_stroke = get_color_attrs(boundary_rgba, is_stroke=True) + ' stroke-width="0.5"'
+
     svg_lines.append(f'  <!-- Edges -->')
     svg_lines.append(f'  <g id="edges" name="Edges">')
     for edge in active_edges:
         x1, y1 = get_svg_coords(viewer.pos[edge[0], 0], viewer.pos[edge[0], 1])
         x2, y2 = get_svg_coords(viewer.pos[edge[1], 0], viewer.pos[edge[1], 1])
-        svg_lines.append(f'    <line x1="{x1:.3f}" y1="{y1:.3f}" x2="{x2:.3f}" y2="{y2:.3f}" stroke="rgb(0,0,0)" stroke-opacity="{edge_alpha:.3f}" stroke-width="{edge_width:.3f}" />')
+        svg_lines.append(f'    <line x1="{x1:.3f}" y1="{y1:.3f}" x2="{x2:.3f}" y2="{y2:.3f}" {edge_stroke} stroke-width="{edge_width:.3f}" />')
     svg_lines.append(f'  </g>')
     
     # 6. Nodes layer
@@ -154,7 +159,7 @@ def _export_svg(viewer, filepath):
             stroke_attrs = get_color_attrs(rgba, is_stroke=True) + f' stroke-width="{r * 0.4:.3f}"'
         else:
             fill_attrs = get_color_attrs(rgba)
-            stroke_attrs = 'stroke="rgb(0,0,0)" stroke-opacity="1.0" stroke-width="0.5"'
+            stroke_attrs = boundary_stroke
             
         attrs = f'{fill_attrs} {stroke_attrs}'
         

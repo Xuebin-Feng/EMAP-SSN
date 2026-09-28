@@ -6,8 +6,9 @@
 # linked and user-replaceable — a normal pip install satisfies that; do not
 # vendor or statically link Qt.
 #
-# PySide6 6.11.1 avoids the transient QPainter warning cascade produced by
-# Qt 6.9.1 when a Vispy QOpenGLWidget is maximized or restored on Windows.
+# PySide6 6.11.1 and later avoid the transient QPainter warning cascade
+# produced by Qt 6.9.1 when a Vispy QOpenGLWidget is maximized or restored on
+# Windows.
 # The metapackage pulls PySide6-Essentials and
 # PySide6-Addons; QtWebEngine lives in Addons and renders the EMAPSSN_Tools.py
 # documentation panel only. The esmfold, meta and agent panels do NOT use it --
@@ -51,7 +52,7 @@ scipy==1.18.1
 # Required for Transformers' sentencepiece-backed tokenizer conversion, not
 # optional. Transformers 5.x rebuilt T5Tokenizer on the Rust `tokenizers`
 # backend, so a model that ships only `spiece.model` and no `tokenizer.json`
-# must be converted on first load. ProstT5 (Rostlab/ProstT5_fp16) is exactly
+# must be converted on first load. ProstT5 (Rostlab/ProstT5) is exactly
 # that case. The converter reads the .spm through `SentencePieceExtractor`,
 # which needs protobuf to parse the model schema; without it Transformers falls
 # back to a TikToken extractor and fails with a misleading

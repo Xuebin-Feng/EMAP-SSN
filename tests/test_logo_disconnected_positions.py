@@ -1,8 +1,10 @@
+import io
 import os
 import re
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -584,6 +586,52 @@ class LogoSnapshotTests(unittest.TestCase):
             self.assertEqual(payload["valid_cols"], (0, 1, 2))
             self.assertEqual(payload["plot_positions"], (1, "1.1", 2))
 
+    def test_run_uses_occupancy_labels_without_active_reference(self):
+        # Occupancy mode: the first row's gap in column 1 must not shift the
+        # plotted columns away from the labels that query reports.
+        with tempfile.TemporaryDirectory() as directory:
+            alignment_rows = MultipleSeqAlignment(
+                [
+                    SeqRecord(Seq("M-KCD"), id="node0"),
+                    SeqRecord(Seq("MAKCD"), id="node1"),
+                ]
+            )
+            alignment = SimpleNamespace(
+                aln=alignment_rows,
+                viewer_to_aln=np.array([0, 1]),
+                col_to_label={0: "1", 1: "2", 2: "3", 3: "4", 4: "5"},
+                label_to_col={"1": 0, "2": 1, "3": 2, "4": 3, "5": 4},
+                has_reference=False,
+            )
+            scheduler = CapturingScheduler()
+            viewer = SimpleNamespace(
+                alignment=alignment,
+                full_headers=["node0", "node1"],
+                selected_indices=[0, 1],
+                cluster_labels=None,
+                group_labels=None,
+                active_reference="",
+                console_text=SimpleNamespace(text=""),
+                background_job_scheduler=scheduler,
+            )
+            output = io.StringIO()
+
+            with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory), \
+                    mock.patch.object(
+                        logo_command.cfg,
+                        "HEADER_LIST_DIR",
+                        directory,
+                    ), \
+                    mock.patch.object(logo_command.cfg, "ALIGNMENT_REFERENCE", ""), \
+                    redirect_stdout(output):
+                logo_command.run(viewer, ["[2-5]", "occupancy.svg"])
+
+            payload = scheduler.job["payload"]
+            self.assertEqual(payload["valid_cols"], (1, 2, 3, 4))
+            self.assertEqual(payload["plot_positions"], (2, 3, 4, 5))
+            self.assertEqual(payload["numbering"], "occupancy")
+            self.assertNotIn("Using the first sequence", output.getvalue())
+
     def test_run_scopes_overwrite_to_explicit_filename(self):
         with tempfile.TemporaryDirectory() as directory:
             existing_file = os.path.join(directory, "custom_logo.svg")
@@ -634,6 +682,21 @@ class LogoSnapshotTests(unittest.TestCase):
             self.assertFalse(automatic_job["allow_overwrite"])
             self.assertFalse(automatic_job["payload"]["allow_overwrite"])
             self.assertEqual(viewer.console_text.text, "")
+
+
+class LogoPositionAxisLabelTests(unittest.TestCase):
+    def test_axis_label_names_the_numbering_actually_plotted(self):
+        label = logo_command._position_axis_label
+        self.assertEqual(
+            label({"numbering": "occupancy", "ref_id": "WP_1"}),
+            "Position (occupancy numbering)",
+        )
+        self.assertEqual(
+            label({"numbering": "reference", "ref_id": "WP_1"}),
+            "Position (relative to WP_1)",
+        )
+        # Payloads without the key keep the historical reference wording.
+        self.assertEqual(label({"ref_id": ""}), "Position (relative to first sequence)")
 
 
 if __name__ == "__main__":

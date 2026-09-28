@@ -988,7 +988,7 @@
                     <div class="syntax-content">reference [target]</div>
                     <button class="copy-btn" onclick="copyText('reference', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; is a case-insensitive substring of a sequence header; a full header is the most reliable choice. The target is first checked against network FASTA headers (if several match, the first is used and a warning is issued), and the reloaded MSA then anchors numbering on the first alignment row whose header contains the target. Wildcards such as <code>*</code> are not resolved in the MSA and leave the reference inactive. If no alignment row contains the target, the MSA remains loaded in reference-free occupancy mode and positions are numbered sequentially. Calling <code>reference</code> without an argument displays the configured reference; use <code>offset</code> without an argument to check whether reference numbering is active.</p>
+                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; can be a full header, a case-insensitive substring, or a wildcard pattern such as <code>WP_01*</code> matching a network FASTA header. An exact header takes priority; otherwise, if several headers match, the first is used and a warning names it. The resolved full header anchors the alignment numbering, so the reported reference is always the sequence actually used. If that sequence is absent from the active MSA, the MSA remains loaded in reference-free occupancy mode and positions are numbered sequentially. Calling <code>reference</code> without an argument displays the active reference, or marks the configured reference as inactive when it does not resolve.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>reference</span><button class="copy-btn" onclick="copyText('reference', this)">Copy</button></li>
@@ -1584,7 +1584,7 @@
                 <ul>
                     <li><strong>transparent:</strong> Removes the solid background, making the output PNG transparent.</li>
                     <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Automatically pans the camera across the network, captures high-resolution tiles, and stitches them into a massive, ultra-high-resolution PNG. Can be combined with transparency.</li>
-                    <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the visible nodes and every edge whose two endpoints are visible, including edges below the current similarity threshold, without shutting down the OpenGL viewer. Text labels are not included. Cannot be combined with other modifiers.</li>
+                    <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the network as displayed, without shutting down the OpenGL viewer: visible nodes and the edges shown on screen (the similarity-threshold and UMAP-mode filters apply), in the configured edge and node-boundary colors. Text labels are not included. Cannot be combined with other modifiers.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1614,7 +1614,7 @@
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
-                    <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, positions are counted along the non-gap residues of the first aligned sequence rather than by the occupancy-mode labels used by <code>query</code>, and the offset is ignored; set a reference before comparing <code>logo</code> and <code>query</code> positions.</p>
+                    <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, the command uses the occupancy-mode labels numbered sequentially from 1, the same positions <code>query</code> reports, and the axis reads &ldquo;occupancy numbering&rdquo;.</p>
                 </div>
 
                 <div class="subheading">Core Arguments</div>

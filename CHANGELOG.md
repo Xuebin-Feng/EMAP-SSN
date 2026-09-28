@@ -52,10 +52,9 @@ still change before version 1.0.0.
 - **Windows ROCm requires Windows 11 25H2.** AMD GPUs on earlier Windows 11 builds,
   which v0.2.0 served through the retired ROCm 7.2.1 profile, now fall back to the
   next eligible accelerator or to the CPU.
-- **Dependencies are installed again on first launch.** Schema-5 installer state from
-  v0.2.0 is not reused. The launchers create a new virtual environment only when
-  `.venv` is missing or unusable, so delete `.venv` before the first launch to move
-  an existing installation to Python 3.13.
+- **The managed environment is rebuilt on first launch.** The launchers recreate a
+  `.venv` that does not run Python 3.13, so the first launch after upgrading rebuilds
+  it with Python 3.13 and reinstalls every dependency, including PyTorch.
 
 ### Added
 
@@ -80,10 +79,10 @@ still change before version 1.0.0.
 - Integrated Intel Arc GPUs (Arc 130V/140V, 130T/140T, and B370/B390) are eligible
   for the XPU backend. After runtime validation, workload benchmarks compare them
   with the CPU instead of excluding them in advance.
-- The optional `opt_vr` Git submodule (EMAP-SSN-VR), which contains the VR viewer for
-  3D caches. The desktop application does not need it. GitHub source archives do not
-  include submodule contents; clone with `git clone --recurse-submodules`, or run
-  `git submodule update --init` in an existing clone, to obtain it.
+- The optional `opt_vr` Git submodule (EMAP-SSN-VR), a VR viewer for 3D caches for
+  Windows users with a supported NVIDIA or AMD GPU. EMAP-SSN does not need it, and
+  GitHub source archives do not include it; it can be fetched with
+  `git clone --recurse-submodules`.
 - `src/esm_runtime_requirements.txt` declaring ESM's runtime dependencies, installed
   after the accelerator-specific PyTorch build. It replaces the generated file that
   lived beside the bundled wheels, and the installer rejects it if it ever names
@@ -113,7 +112,9 @@ still change before version 1.0.0.
   limited by AMD to Python 3.12, which is why it could not move to the Python 3.13
   environment.
 - Raised the managed virtual environment from Python 3.12 to 3.13 in all four
-  launchers.
+  launchers. Every interpreter probe checks the version, so an existing `.venv` on
+  another Python version, such as one kept from v0.2.0, is recreated instead of
+  reused.
 - `Generate_Embeddings.py` now filters Transformers weight-load reports that found
   nothing wrong. Every pLM is loaded into an encoder-only class, so the checkpoint's
   decoder and LM head are listed as UNEXPECTED — 340 tensors for Ankh alone — which
@@ -173,9 +174,35 @@ still change before version 1.0.0.
   functions, so existing imports keep working.
 - The README and `docs/mcp_settings.md` document the three MCP entry points, Viewer
   sessions and actions, the layout-cache workflow, and alignment snapshots.
+- The MCP server reports version `0.11.0` to clients (previously `0.10.0`) to reflect
+  the additive interface changes in this release.
 
 ### Fixed
 
+- `logo` numbered positions differently from `query` when no reference was active.
+  It counted the non-gap residues of the first MSA row instead of using the occupancy
+  labels, so after any gap in that row the same position number plotted a different
+  alignment column, and the axis label named the first sequence or the inactive
+  reference as the numbering basis. `logo` now uses the alignment's label mapping in
+  both modes, and its axis reads "occupancy numbering" in occupancy mode.
+- `print svg` did not match the displayed network. It drew every edge between visible
+  nodes, including edges below the similarity threshold and, in UMAP mode, edges not
+  attached to the selection, and it drew edges and node outlines in black. It now
+  applies the same edge filter as the screen and the configured `EDGE_COLOR` and
+  `NODE_BOUNDARY_COLOR`.
+- `reference` resolved its target twice, with different rules. A wildcard target
+  matched a network header but was then looked up literally in the MSA, so
+  `reference WP_01*` left the reference inactive with a message claiming the sequence
+  was absent. When several headers matched, the warning and the success message could
+  name a different sequence from the one the alignment anchored on. The command now
+  resolves the target once, preferring an exact header, stores that full header, and
+  reports the sequence actually used; a bare `reference` marks an unresolved
+  reference as inactive.
+- Headless Viewer launches through MCP on Windows opened a stray terminal window.
+  The launcher started the venv's `python.exe` redirector without any console, so
+  Windows gave the interpreter it starts a new, visible one; when that process ended
+  early, Windows Terminal left an error message on screen. Headless launches now use
+  a hidden console, and normal-mode launches still open their terminal on purpose.
 - Sanitize Sequences silently dropped the first record of a FASTA file saved with a
   UTF-8 byte-order mark, as Windows Notepad can write. Its private reader decoded the
   BOM into the first line, which then no longer started with `>`. The tool now uses
@@ -222,6 +249,9 @@ still change before version 1.0.0.
 - ESM-2 `esm2_t36_3b` and `esm2_t48_15b` from model support, execution-mode mapping,
   and Hugging Face ID resolution.
 - The prefix `x<number>` scale syntax of `color`.
+- `src/resources/agent/agent_config.json`, an unused single-model agent configuration
+  that no code had read since the 2026-07-07 restructure. The agent reads per-user
+  model cards from `model_card.json`.
 - The Windows ROCm 7.2.1 detection path, its GFX target set, and the AMD Software
   26.2.2 version gate. The historical `rocm721`, `rocm72`, `rocm714` and `rocm64`
   profile names are gone entirely: the detector reports a single `rocm` profile and

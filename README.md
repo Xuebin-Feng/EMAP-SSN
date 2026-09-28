@@ -220,10 +220,10 @@ open session-specific utilities in the system browser: a metadata table, a Mol*
 structure viewer, and a conversational agent. The Tools documentation panel uses
 embedded QtWebEngine.
 
-**Layout Dimensions** in Configuration offers **2D (desktop viewer)** and
-**3D (VR viewer)**. Both physics and UMAP can generate either coordinate format;
-3D caches use a separate cache folder with the `_3D` suffix and are intended for
-the optional `opt_vr` submodule. The desktop Viewer uses the 2D workflow.
+Dimensionality follows from the viewer: the desktop Configuration and Viewer
+always use 2D layouts. Headless and MCP layout jobs also accept
+`LAYOUT_DIMENSIONS` (`2` or `3`); 3D caches use a separate cache folder with the
+`_3D` suffix and are read by the optional VR viewer (`opt_vr` submodule).
 
 ![EMAP-SSN Viewer GUI](docs/assets/emapssn_viewer_gui.png)
 
@@ -445,6 +445,11 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    git clone https://github.com/Xuebin-Feng/EMAP-SSN.git
    cd EMAP-SSN
    ```
+
+   > [!NOTE]
+   > An optional VR viewer, the `opt_vr` submodule, exists for Windows users with
+   > a supported NVIDIA or AMD GPU. EMAP-SSN does not need it. It can be fetched
+   > with `git clone --recurse-submodules`.
 
 2. **Set up the environment:**
 
@@ -688,9 +693,9 @@ License, and [NOTICE](NOTICE) for required attributions.
 
 ### Third-party components
 
-This repository bundles Mol* and Tabulator, depends on Python packages under a
-range of licenses, and can load protein-language-model weights governed by
-their own terms. A full inventory, including which components are redistributed
+This repository bundles Mol*, Tabulator, marked, KaTeX, and the Noto fonts,
+depends on Python packages under a range of licenses, and can load
+protein-language-model weights governed by their own terms. A full inventory, including which components are redistributed
 and which are merely required at runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
