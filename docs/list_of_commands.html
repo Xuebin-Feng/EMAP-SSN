@@ -740,7 +740,7 @@
                     <div class="collapsible-content">
                         <p>Surrounding text in double quotes searches node FASTA headers.</p>
                         <ul>
-                            <li><strong>Exact Substring:</strong> <code>"kinase"</code> matches any header containing the word kinase.</li>
+                            <li><strong>Case-Insensitive Substring:</strong> <code>"kinase"</code> matches any header containing kinase, in any letter case.</li>
                             <li><strong>Wildcards:</strong> Supports standard glob patterns. <code>"*A5?T*"</code> matches any header containing 'A5', any single character, and 'T'.</li>
                         </ul>
                     </div>
@@ -749,7 +749,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>2. Attribute Labels (<span class="expr-label">#Label#</span>)</span></div>
                     <div class="collapsible-content">
-                        <p>Surrounding text in hash symbols searches internal network metadata, clusters, and manually assigned groups.</p>
+                        <p>Surrounding a name with hash symbols selects a topology cluster, the noise set, or a custom group; names are matched case-insensitively. Metadata is matched with <code>{...}</code> queries instead.</p>
                         <ul>
                             <li><strong>Clusters:</strong> <code>#cluster_1#</code>, <code>#cluster_2#</code>, etc.</li>
                             <li><strong>Noise:</strong> <code>#noise#</code> isolates unclustered/filtered nodes (Cluster -1).</li>
@@ -764,9 +764,9 @@
                     <div class="collapsible-content">
                         <p>Allows targeting based on the Multiple Sequence Alignment (MSA) residue distribution.</p>
                         <ul>
-                            <li><strong>Specific Amino Acid:</strong> <code>P106</code> targets all nodes that have a Proline (P) at alignment column 106.</li>
-                            <li><strong>Grouped Amino Acids:</strong> <code>(RHK)71</code> targets nodes with R, H, or K at position 71. Grouped insertion and negative positions use forms such as <code>(RHK)71.1</code> and <code>(RHK)(-1)</code>.</li>
-                            <li><strong>Gap Queries:</strong> <code>_100</code> targets all nodes that have a gap (<code>-</code> or <code>.</code>) at alignment column 100.</li>
+                            <li><strong>Specific Amino Acid:</strong> <code>P106</code> targets all nodes that have a Proline (P) at displayed position 106: reference numbering plus the session offset, or occupancy numbering when no reference is active. Residue letters are case-insensitive.</li>
+                            <li><strong>Grouped Amino Acids:</strong> <code>(RHK)71</code> targets nodes with R, H, or K at position 71. Grouped insertion and negative positions use forms such as <code>(RHK)71.1</code> and <code>(RHK)(-1)</code>. A residue set needs at least two letters and cannot contain <code>_</code>; combine gaps with <code>|</code>, e.g. <code>_71|(DE)71</code>.</li>
+                            <li><strong>Gap Queries:</strong> <code>_100</code> targets all nodes that have a gap (<code>-</code> or <code>.</code>) at displayed position 100.</li>
                             <li><strong>Negative Offset Positions:</strong> Parentheses are required around negative displayed positions: use <code>K(-1)</code> or <code>K(-1.1)</code>. Bare forms such as <code>K-1</code> are invalid, preserving <code>-</code> for future expression functions.</li>
                         </ul>
                     </div>
@@ -777,7 +777,7 @@
                     <div class="collapsible-content">
                         <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory.</p>
                         <ul>
-                            <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> checks if the network header matches lines in the file exactly.</li>
+                            <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case. <code>.txt</code> is appended when the name ends in neither <code>.txt</code> nor <code>.fasta</code>.</li>
                             <li><strong>NCBI Extraction:</strong> <code>@[NCBI]my_targets.txt@</code> automatically scans the text file for standard NCBI accession codes (e.g., <code>WP_01234.1</code>) and matches the network headers containing those codes, ignoring surrounding text.</li>
                             <li><strong>PDB Extraction:</strong> <code>@[PDB]my_targets.txt@</code> performs the same extraction but for Protein Data Bank codes (e.g., <code>1XYZ</code>).</li>
                         </ul>
@@ -794,10 +794,10 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>6. Metadata Queries (<code>{KeyOpVal}</code>)</span></div>
                     <div class="collapsible-content">
-                        <p>Allows targeting based on custom metadata fields uploaded using Excel or CSV tables.</p>
+                        <p>Allows targeting based on node metadata: the FASTA-derived numeric columns <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> written when the layout cache is generated (caches from v0.2.0 and earlier lack them until regenerated), plus fields uploaded from Excel or CSV tables. Property names inside braces may contain only letters, digits, <code>_</code>, and <code>-</code>.</p>
                         <ul>
-                            <li><strong>Numerical:</strong> <code>{Length>500}</code> targets nodes where sequence length is greater than 500.</li>
-                            <li><strong>Text:</strong> <code>{Organism=*coli*}</code> targets nodes where Organism metadata contains "coli".</li>
+                            <li><strong>Numerical:</strong> <code>{Length>500}</code> targets nodes where sequence length is greater than 500. Numeric properties accept <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>=</code>, <code>==</code>, and <code>!=</code>, plus ranges such as <code>{Length=300-500}</code>.</li>
+                            <li><strong>Text:</strong> <code>{Organism=*coli*}</code> targets nodes where Organism metadata contains "coli". Text properties accept <code>=</code>, <code>==</code>, and <code>!=</code>.</li>
                         </ul>
                     </div>
                 </div>
@@ -810,6 +810,7 @@
                     <li><strong>! (NOT):</strong> <code>!#noise#</code> (Must NOT be noise).</li>
                     <li><strong>^ (XOR):</strong> <code>#cluster_1#^P106</code> (Exclusive OR - either in cluster 1 or has Proline at 106, but not both).</li>
                     <li><strong>() (Grouping):</strong> Parentheses can be used to enforce order of operations, e.g., <code>!(#cluster_1#|#cluster_2#)</code>.</li>
+                    <li><strong>Precedence:</strong> <code>!</code> binds tightest, then <code>&amp;</code>, then <code>^</code>, then <code>|</code>. Parenthesize when mixing operators.</li>
                 </ul>
                 <div class="callout">
                     <div class="callout-title">Strict Context Validation</div>
@@ -830,7 +831,7 @@
                 </div>
                 <div class="syntax-box">
                     <div class="syntax-content">zoom &lt;width&gt;</div>
-                    <button class="copy-btn" onclick="copyText('zoom &lt;width&gt;', this)">Copy</button>
+                    <button class="copy-btn" onclick="copyText('zoom', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio.</p>
                 <div class="subheading">Examples</div>
@@ -850,7 +851,7 @@
                 </div>
                 <div class="syntax-box">
                     <div class="syntax-content">save [filename / filename.h5]</div>
-                    <button class="copy-btn" onclick="copyText('save [filename / filename.h5]', this)">Copy</button>
+                    <button class="copy-btn" onclick="copyText('save', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Atomically saves positions, colors, sizes, shapes, visibility, persistent node render order, clusters, groups, metadata, supported cacheable node attributes, the latest clustering parameters, and cache-manifest identity to an HDF5 layout cache. If no filename is provided, it creates the next available simple version name (for example, <code>version_00.h5</code>, then <code>version_01.h5</code>) in the active cache folder. A supplied name receives <code>.h5</code> when omitted and must be a safe basename.</p>
                 <div class="subheading">Examples</div>
@@ -871,12 +872,12 @@
                 </div>
                 <div class="syntax-box">
                     <div class="syntax-content">reset &lt;target_1&gt; [target_2] ...</div>
-                    <button class="copy-btn" onclick="copyText('reset &lt;target_1&gt; [target_2] ...', this)">Copy</button>
+                    <button class="copy-btn" onclick="copyText('reset', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Reset selected properties to their initial states. Supported targets include:</p>
                 <div class="subheading">Supported Targets</div>
                 <ul>
-                    <li><code>color / colors</code>: Reverts all node colors to the default neighbor color.</li>
+                    <li><code>color / colors</code>: Reverts all node colors to the configured initial node color.</li>
 <li><code>size / sizes</code>: Resets all node sizes to the baseline size defined in configuration.</li>
 <li><code>shape / shapes</code>: Resets all nodes back to standard circular &#x27;disc&#x27; shapes.</li>
 <li><code>cluster / clusters</code>: Strips all cluster labels, removes cluster UI visuals, and clears the cluster tooltip data.</li>
@@ -985,9 +986,9 @@
                 </div>
                 <div class="syntax-box">
                     <div class="syntax-content">reference [target]</div>
-                    <button class="copy-btn" onclick="copyText('reference [target]', this)">Copy</button>
+                    <button class="copy-btn" onclick="copyText('reference', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; can be a substring or wildcard that matches a network FASTA header. If a substring matches multiple headers, the first match is used and a warning is issued. If the matched network header is absent from the active MSA, the MSA remains loaded in reference-free occupancy mode and positions are numbered sequentially. Calling <code>reference</code> without an argument displays the current active reference state.</p>
+                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; is a case-insensitive substring of a sequence header; a full header is the most reliable choice. The target is first checked against network FASTA headers (if several match, the first is used and a warning is issued), and the reloaded MSA then anchors numbering on the first alignment row whose header contains the target. Wildcards such as <code>*</code> are not resolved in the MSA and leave the reference inactive. If no alignment row contains the target, the MSA remains loaded in reference-free occupancy mode and positions are numbered sequentially. Calling <code>reference</code> without an argument displays the configured reference; use <code>offset</code> without an argument to check whether reference numbering is active.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>reference</span><button class="copy-btn" onclick="copyText('reference', this)">Copy</button></li>
@@ -1087,7 +1088,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last reference residue (for example, <code>[10,15.1,20-30,250-E]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),(-1.1),0]</code> or <code>[(-3)-2]</code>; bare forms such as <code>[-1]</code> and <code>[-3--1]</code> are invalid.</li>
+                    <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last mapped position label, which may be an insertion or occupancy label (for example, <code>[10,15.1,20-30,250-E]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),(-1.1),0]</code> or <code>[(-3)-2]</code>; bare forms such as <code>[-1]</code> and <code>[-3--1]</code> are invalid.</li>
                     <li><strong>Insertions (Decimals):</strong> Insertion residues are marked using decimals (e.g., <code>106.1</code>, <code>106.2</code>). Querying <code>[106-107]</code> natively prints statistics for 106, 106.1, 106.2, and 107 in order.</li>
                     <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. Frequencies divide by all MSA rows mapped from the selected/global node subset, so gaps dilute residue percentages. A grouped target sums its residue frequencies, as in <code>[(RHK)&gt;50%]</code>. Multi-condition searches still require parentheses around each complete comparison: <code>[((RHK)&gt;50%)&amp;((DE)&gt;20%)]</code> or <code>[((RHK)&gt;50%)&amp;(GAP&lt;20%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
                 </ul>
@@ -1125,8 +1126,9 @@
                 <div class="subheading">Arguments</div>
                 <ul>
                     <li><strong>MODE:</strong> The clustering algorithm to apply: <code>leiden</code>, <code>mcl</code>, or <code>jaccard</code>. Defaults to <code>leiden</code>.</li>
-                    <li><strong>PARAMETER:</strong> The primary tuning variable for the chosen algorithm (resolution or inflation).</li>
+                    <li><strong>PARAMETER:</strong> The primary tuning variable for the chosen algorithm (Leiden resolution, MCL inflation, or Jaccard threshold).</li>
                     <li><strong>MIN_SIZE:</strong> An integer defining the minimum number of nodes required to form a valid cluster. Smaller communities are classified as Noise (grey) and ignored by downstream tools. Defaults to 10.</li>
+                    <li><strong>Scope and Numbering:</strong> Clustering uses every loaded edge and node, regardless of the similarity-threshold slider or hidden nodes. Retained clusters are numbered by size, so <code>cluster_1</code> is the largest.</li>
                 </ul>
 
                 <div class="subheading">Algorithms</div>
@@ -1233,24 +1235,25 @@
                 <div class="subheading">Attributes</div>
                 <ul>
                     <li><strong>Color:</strong> Standard color names (<code>red</code>, <code>blue</code>, <code>green</code>, etc.) or Hex codes (<code>#ff0000</code>).</li>
-                    <li><strong>Scale:</strong> Size multiplier prefixed with <code>x</code> (e.g. <code>x2</code> for double size, <code>x0.5</code> for half size, <code>x0</code> to hide).</li>
+                    <li><strong>Scale:</strong> Size multiplier written with a trailing lowercase <code>x</code> (e.g. <code>2x</code> for double size, <code>0.5x</code> for half size), relative to the configured default node size rather than cumulative. <code>0x</code> shrinks nodes to zero size without hiding them; restore them with <code>reset sizes</code>, or use <code>hide</code> to hide nodes. The old prefix form is removed: <code>x2</code> now selects nodes with residue X at position 2.</li>
                     <li><strong>Shape:</strong> circle, square, triangle, star, diamond, cross, x, vbar (vertical bar), and hbar (horizontal bar).</li>
+                    <li><strong>Precedence:</strong> A token that forms a complete selection expression is always read as an expression before a color, scale, or shape. <code>C53</code> selects cysteine at position 53 rather than the Matplotlib color <code>C53</code>, and <code>x2</code> selects residue X at position 2.</li>
                 </ul>
 
                 <div class="subheading">Usage Mechanics</div>
                 <ul>
-                    <li><strong>Implicit UI Targeting (Quick Route):</strong> If nodes are selected in the viewer with the mouse, you do not need to write an expression. Simply typing <code>color red x2</code> will apply styling directly to your selection.</li>
-                    <li><strong>Chaining Commands:</strong> You can style multiple subsets in a single rapid command, e.g. <code>color #cluster_1# red #cluster_2# blue x1.5</code>.</li>
-                    <li><strong>Attribute Stacking:</strong> You do not need to provide all three attributes. If you only want to scale, simply pass the scale, e.g., <code>color &quot;Mutant&quot; x3</code>.</li>
+                    <li><strong>Implicit UI Targeting (Quick Route):</strong> If nodes are selected in the viewer with the mouse, you do not need to write an expression. Simply typing <code>color red 2x</code> will apply styling directly to your selection.</li>
+                    <li><strong>Chaining Commands:</strong> You can style multiple subsets in a single rapid command, e.g. <code>color #cluster_1# red #cluster_2# blue 1.5x</code>.</li>
+                    <li><strong>Attribute Stacking:</strong> You do not need to provide all three attributes. If you only want to scale, simply pass the scale, e.g., <code>color &quot;Mutant&quot; 3x</code>.</li>
                     <li><strong>Render Order:</strong> Every node modified by one command invocation is brought to the top as one group, ordered internally by stable node index. A later color invocation is rendered above earlier groups.</li>
                     <li><strong>Undo Support:</strong> Revert color modifications instantly by typing <code>undo</code>.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>color red x2 triangle</span><button class="copy-btn" onclick="copyText('color red x2 triangle', this)">Copy</button></li>
+                    <li class="example-item"><span>color red 2x triangle</span><button class="copy-btn" onclick="copyText('color red 2x triangle', this)">Copy</button></li>
                     <li class="example-item"><span>color P106 red</span><button class="copy-btn" onclick="copyText('color P106 red', this)">Copy</button></li>
-                    <li class="example-item"><span>color #cluster_1# red #noise# x0</span><button class="copy-btn" onclick="copyText('color #cluster_1# red #noise# x0', this)">Copy</button></li>
+                    <li class="example-item"><span>color #cluster_1# red #noise# 0x</span><button class="copy-btn" onclick="copyText('color #cluster_1# red #noise# 0x', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1264,7 +1267,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">group [expression] &lt;group_name&gt; [&lt;expr_2&gt; &lt;name_2&gt; ...]  |  group list  |  group remove &lt;name_1&gt;</div>
+                    <div class="syntax-content">group [expression] &lt;group_name&gt; [&lt;expr_2&gt; &lt;name_2&gt; ...]  |  group list  |  group remove|delete &lt;name_1&gt; [name_2 ...]</div>
                     <button class="copy-btn" onclick="copyText('group', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> While the cluster command relies on mathematics to divide the network into distinct communities, the group command allows for human-driven, manual curation. It allows you to tag specific nodes with custom metadata labels.</p>
@@ -1288,7 +1291,7 @@
                 <ul>
                     <li><strong>Viewing Groups:</strong> Type <code>group list</code> to print a statistical table showing active custom groups, node counts, and network percentages.</li>
                     <li><strong>Inspecting Nodes:</strong> Left-clicking a node displays its custom groups on the second line of the tooltip header.</li>
-                    <li><strong>Deleting Groups:</strong> Run <code>group remove &lt;Group1&gt; [Group2]</code> to delete custom groups from the network.</li>
+                    <li><strong>Deleting Groups:</strong> Run <code>group remove &lt;Group1&gt; [Group2]</code> (or <code>group delete</code>) to delete custom groups from the network.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1330,8 +1333,8 @@
                 <div class="subheading">Exporting Selections (<code>select save</code>)</div>
                 <p>Simple tools to write output lists to the disk (saves to <code>Input_Files/Header_Lists/</code>):</p>
                 <ul>
-                    <li><strong>Saving Headers (<code>.txt</code>):</strong> If you provide a `.txt` filename (e.g. <code>select save targets.txt</code>), generates a text file containing the exact, full FASTA headers of selected nodes.</li>
-                    <li><strong>Extracting Raw Sequences (<code>.fasta</code>):</strong> If you provide a `.fasta` filename (e.g. <code>select save targets.fasta</code>), extracts raw amino acid sequences from the source sequence file and writes them to a standalone FASTA file.</li>
+                    <li><strong>Saving Headers (<code>.txt</code>):</strong> If you provide a <code>.txt</code> filename (e.g. <code>select save targets.txt</code>), generates a text file containing the exact, full FASTA headers of selected nodes. Any other extension receives an appended <code>.txt</code>, so <code>hits.csv</code> becomes <code>hits.csv.txt</code>.</li>
+                    <li><strong>Extracting Raw Sequences (<code>.fasta</code>):</strong> If you provide a <code>.fasta</code> filename (e.g. <code>select save targets.fasta</code>), extracts raw amino acid sequences from the source sequence file and writes them to a standalone FASTA file.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1416,7 +1419,7 @@
                 
                 <div class="subheading">Targets &amp; Extraction Modes</div>
                 <ul>
-                    <li><strong>clusters (Default):</strong> Run as <code>export</code> or <code>export clusters</code>. Generates a separate <code>.fasta</code> file for every valid mathematical cluster (e.g. <code>Cluster_0.fasta</code>). Noise nodes are skipped to ensure data conservation.</li>
+                    <li><strong>clusters (Default):</strong> Run as <code>export</code> or <code>export clusters</code>. Generates a separate <code>.fasta</code> file for every valid mathematical cluster (e.g. <code>Cluster_1.fasta</code>). Noise nodes are skipped to ensure data conservation.</li>
                     <li><strong>groups / group:</strong> Run as <code>export groups</code>. Generates a separate <code>.fasta</code> file for every custom group label currently defined in the session.</li>
                     <li><strong>#LABEL#:</strong> Exports one specific custom group, topology cluster, or noise subset. Repeat and mix label targets as needed (for example, <code>export #kinase# #cluster_1# #noise#</code>); repeated labels are deduplicated.</li>
                     <li><strong>Validation:</strong> All labels are resolved before any output is created. All-target modes cannot be mixed with specific labels, ambiguous cluster/group names are rejected, and the former <code>group:NAME</code> syntax is no longer accepted.</li>
@@ -1454,7 +1457,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>No Arguments:</strong> Predicts one selected node locally with ESM3 1.4B and produces a backbone-coordinate PDB file. With no selection, registers the Fold View button and opens Mol* without launching a prediction.</li>
+                    <li><strong>No Arguments:</strong> Predicts one selected node locally with ESM3 1.4B and produces a backbone-coordinate PDB file. With no selection, registers the Fold View button and opens Mol* without launching a prediction. If several nodes are selected, the command fails unless <code>multi</code> is given.</li>
                     <li><strong>multi:</strong> Processes all currently selected nodes sequentially in the background console. It uses the local backbone-only mode unless combined with <code>large</code>.</li>
                     <li><strong>large:</strong> Predicts one selected node remotely using the model in <code>src/resources/Biohub_API.json</code>, currently ESM3 Large 98B. The current Biohub output includes side-chain heavy atoms, unlike the local backbone-only output. Combine with <code>multi</code> in either order for a sequential remote batch.</li>
                     <li><strong>help:</strong> Prints CLI help and usage instructions.</li>
@@ -1503,7 +1506,7 @@
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>:</strong> Activates a HUD text box in the bottom-right corner of the viewer displaying the value of the specified property when a node is clicked.</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>:</strong> Deactivates and hides the metadata property HUD.</li>
                     <li><strong><code>meta retrieve|download|export [filename]</code>:</strong> Exports all current session metadata to the configured metadata directory. With no filename, chooses the next free <code>metadata.csv</code>, <code>metadata1.csv</code>, and so on. An explicit filename defaults to <code>.csv</code> when it has no extension and overwrites an existing file. This subcommand does not accept an expression filter.</li>
-                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt; [property_name ...]</code>:</strong> Atomically deletes one or more metadata columns using case-insensitive property matching. Repeated names are ignored; if any requested name is missing, ambiguous, or protected, nothing is deleted. <code>Node ID</code>/<code>Sequence Header</code> is protected, while <code>Length</code> is ordinary deletable metadata. The keyword <code>all</code> is not supported. Use <code>undo</code>/<code>redo</code> to restore or reapply the deletion.</li>
+                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt; [property_name ...]</code>:</strong> Atomically deletes one or more metadata columns using case-insensitive property matching. Repeated names are ignored; if any requested name is missing, ambiguous, or protected, nothing is deleted. <code>Node ID</code>/<code>Sequence Header</code> is protected, while the FASTA-derived <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> columns are ordinary deletable metadata. The keyword <code>all</code> is not supported. Use <code>undo</code>/<code>redo</code> to restore or reapply the deletion.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1538,7 +1541,7 @@
                 <div class="subheading">Arguments</div>
                 <ul>
                     <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression.</li>
-                    <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>; an unrecognized name warns and falls back to that default.</li>
+                    <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>; an unrecognized name warns and falls back to that default. A token that forms a complete selection expression is read as an expression before it is tried as a colormap name.</li>
                     <li><strong>[expression]:</strong> (Optional) Logical expression to select which visible nodes are colored. If omitted, all visible nodes in the network are colored. Targeted nodes whose property value is missing or non-numeric are colored light gray and excluded from the numeric minimum/maximum range.</li>
                     <li><strong>Ordering:</strong> The property, expression, and color scheme may appear in any order because each role is classified before execution. The former <code>prop:</code>, <code>property:</code>, <code>scheme:</code>, and <code>color:</code> forms are no longer accepted.</li>
                 </ul>
@@ -1547,7 +1550,7 @@
                 <ul>
                     <li><strong>Perceptually Uniform:</strong> viridis, plasma, inferno, magma, cividis</li>
                     <li><strong>Sequential:</strong> Blues, BuGn, BuPu, GnBu, Greens, Greys, Oranges, OrRd, PuBu, PuBuGn, PuRd, Purples, RdPu, Reds, YlGn, YlGnBu, YlOrBr, YlOrRd</li>
-                    <li><strong>Diverging:</strong> coolwarm, bwr, seismic, spectral, BrBG, PiYG, PRGn, PuOr, RdBu, RdGy, RdYlBu, RdYlGn</li>
+                    <li><strong>Diverging:</strong> coolwarm, bwr, seismic, Spectral, BrBG, PiYG, PRGn, PuOr, RdBu, RdGy, RdYlBu, RdYlGn</li>
                     <li><strong>Cyclic:</strong> twilight, twilight_shifted, hsv</li>
                     <li><strong>Qualitative:</strong> tab10, tab20, tab20b, tab20c, Pastel1, Pastel2, Paired, Accent, Dark2, Set1, Set2, Set3</li>
                 </ul>
@@ -1581,7 +1584,7 @@
                 <ul>
                     <li><strong>transparent:</strong> Removes the solid background, making the output PNG transparent.</li>
                     <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Automatically pans the camera across the network, captures high-resolution tiles, and stitches them into a massive, ultra-high-resolution PNG. Can be combined with transparency.</li>
-                    <li><strong>svg:</strong> Reconstructs the currently visible node and edge data with Matplotlib and writes a Scalable Vector Graphic without shutting down the OpenGL viewer. Cannot be combined with other modifiers.</li>
+                    <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the visible nodes and every edge whose two endpoints are visible, including edges below the current similarity threshold, without shutting down the OpenGL viewer. Text labels are not included. Cannot be combined with other modifiers.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1611,13 +1614,13 @@
                 
                 <div class="callout">
                     <div class="callout-title">📋 Prerequisites</div>
-                    <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, the command uses occupancy-mode labels numbered sequentially from 1.</p>
+                    <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, positions are counted along the non-gap residues of the first aligned sequence rather than by the occupancy-mode labels used by <code>query</code>, and the offset is ignored; set a reference before comparing <code>logo</code> and <code>query</code> positions.</p>
                 </div>
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
                     <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior.</li>
-                    <li><strong>FILENAME:</strong> Output file ending in <code>.svg</code> or <code>.png</code>. Saved beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Sequence_Logos/</code>).</li>
+                    <li><strong>FILENAME:</strong> Output name; <code>.svg</code> is appended unless it ends in <code>.svg</code> or <code>.png</code>, and without a name a timestamped <code>logo_YYYYMMDD_HHMMSS.svg</code> is created. Saved beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Sequence_Logos/</code>). Without an expression, a lone filename must end in <code>.svg</code> or <code>.png</code>; otherwise it is read as an expression, so write <code>logo $sele$ [10-20] my_logo</code> instead.</li>
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
                     <li><strong>COLOR_SCHEME:</strong> Preset color scheme. Defaults to <code>chemistry</code>. Presets: chemistry, classic, grays, base_pairing, colorblind_safe, charge, hydrophobicity, etc.</li>
