@@ -159,16 +159,21 @@ OUTPUT_HDF5 = None
 
 
 class _CleanLoadReportFilter(logging.Filter):
-    """Drop Transformers weight-load reports that found nothing wrong.
+    """Drop Transformers weight-load reports that contain no MISSING entry.
 
-    Every pLM here is loaded into an encoder-only class, so the decoder and
-    language-modelling head in the published checkpoint have no slot and are
-    listed as UNEXPECTED. Loading Ankh alone discards 340 such tensors. That is
-    routine and the report is pure noise.
+    The pLMs loaded through Transformers use encoder-only classes, so pretraining
+    heads in the published checkpoints, such as ProtBERT's cls.* tensors and
+    Ankh's lm_head.weight, have no slot and are listed as UNEXPECTED. That is
+    routine and the report is pure noise. Transformers drops the T5 decoder
+    itself without reporting it.
 
     A MISSING entry is not routine: it means a tensor the model needs was absent
     from the checkpoint and was randomly initialized, which silently corrupts
-    every embedding produced. Those reports are kept.
+    every embedding produced. Those reports are kept. ESM-2 always shows one for
+    the EsmModel pooler, which its checkpoints lack and its embeddings never use.
+
+    A report with a shape MISMATCH but no MISSING entry is dropped as well;
+    Transformers still raises an error for such a load.
 
     Filtering on the report body rather than silencing the logger keeps all other
     Transformers warnings visible.

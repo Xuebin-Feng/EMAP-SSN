@@ -59,8 +59,8 @@ def print_help(meta_dir):
       meta delete/remove/clear <property_name> [property_name ...]
           Atomically deletes one or more metadata columns from the current session.
           Property matching is case-insensitive. Node ID/Sequence Header cannot be
-          deleted; Length is deletable metadata. Deleting every column with "all"
-          is not supported.
+          deleted; the generated Length, kDa, pI, and GRAVY columns are deletable
+          metadata. Deleting every column with "all" is not supported.
       meta help
           Displays this help message.
 

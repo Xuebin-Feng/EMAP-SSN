@@ -254,7 +254,7 @@ async def start_layout_job(
     ] = False,
     layout_device_selection: Annotated[
         str,
-        Field(description="Target compute device: 'auto', 'cpu', 'cuda:N', or 'mps'"),
+        Field(description="Target compute device: 'auto', 'cpu', 'cuda:N', 'xpu:N', or 'mps'"),
     ] = "auto",
     alignment_score: Annotated[
         Literal["global", "local"] | None,
@@ -290,7 +290,8 @@ async def start_layout_job(
     Calculates node coordinates via iterative force-directed physics or UMAP dimension
     reduction and publishes an HDF5 layout cache file along with a canonical FASTA backup and
     manifest. Coordinates are 2D unless LAYOUT_DIMENSIONS is set to 3 in parameters or the
-    settings document. Supply either individual parameters, settings_document, or settings_path.
+    settings document; LAYOUT_SEED (default 42, or null for an unseeded run) seeds the layout.
+    Supply either individual parameters, settings_document, or settings_path.
     Missing defaults and directory paths inherit from EMAP-SSN configuration.
     Follow the returned job_id with get_pipeline_job and read_pipeline_log;
     after success inspect the cache before preparing complete Viewer settings.

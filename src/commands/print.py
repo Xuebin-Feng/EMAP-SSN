@@ -40,14 +40,14 @@ def print_help():
            print help
 
     Description:
-      Exports a high-resolution snapshot of the current 3D viewer state. 
+      Exports a high-resolution snapshot of the current viewer state.
       Images are saved beneath the configured Analysis Results directory
       (default: 'Analysis_Results/Saved_Images/').
       PNG exports automatically trim empty margins while retaining a 20-pixel
       border around all rendered content. SVG view-box padding is unchanged.
 
     Modifiers (Can be combined, except for SVG):
-      transparent : Removes the white background (PNG only).
+      transparent : Removes the configured background color (PNG only).
       full        : Automatically pans the camera and stitches multiple tiles 
                     together to generate a massive, ultra-high-resolution PNG 
                     of the entire network without OpenGL edge-clipping.

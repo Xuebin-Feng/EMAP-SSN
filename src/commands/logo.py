@@ -699,18 +699,22 @@ def print_help():
         defaults to analyzing ALL nodes in the entire network.
 
     Arguments (Can be provided in almost any order):
-      1. [POSITIONS] : (Required) Comma-separated reference positions or integer
-                       ranges enclosed in brackets. Fractional insertion positions
+      1. [POSITIONS] : (Required) Comma-separated displayed positions or integer
+                       ranges enclosed in brackets: reference numbering when a
+                       reference is active, otherwise occupancy numbering, the same
+                       labels 'query' uses. Fractional insertion positions
                        (alignment columns where the reference has a gap) are accepted
                        when listed explicitly. Negative positions must be enclosed
                        individually in parentheses.
                        Examples: [1,2,9-12], [10,10.1,10.2,11],
                        or [(-3)-(-1),0]
                        Non-contiguous positions are plotted adjacently while retaining
-                       their original reference-position labels.
+                       their original position labels.
       2. EXPRESSION  : Boolean logic target (e.g., #cluster_1#, "ATA", or $sele$).
       3. FILENAME    : Output name. Defaults to logo_YYYYMMDD_HHMMSS.svg.
-                       (Note: The LAST unrecognized string is treated as the filename).
+                       (Note: With two or more remaining strings, the LAST is the
+                       filename. A single remaining string is a filename only if it
+                       ends in .svg or .png; otherwise it is read as the expression.)
       4. MODE        : 'bits' (Default, Information Content) or 'pcts' (Percentages).
       5. GAP_MODE    : 'with_gap' (Default, scales total height by occupancy) or 'no_gap'.
       6. COLOR_SCHEME: Preset color scheme name. (Default: chemistry)

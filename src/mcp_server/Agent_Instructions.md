@@ -80,8 +80,10 @@ limit, and packing) unless changes are required. Pass the edited document/path t
 JSON differs from pipeline parameters and the sectioned Viewer document.
 
 Provide the node FASTA and network HDF5, choose physics or UMAP, and use scientific
-settings consistent with the network. Ask for missing scientific choices when
-they cannot be established from the user's request or inspected metadata. The
+settings consistent with the network. layout.LAYOUT_DIMENSIONS is 2 (desktop Viewer)
+or 3; layout.LAYOUT_SEED is a non-negative integer, default 42, or null (unseeded).
+Ask for missing scientific choices when they cannot be established from the user's
+request or inspected metadata. The
 start operation validates before enqueueing; there is no separate layout
 validation tool. Resolve export errors instead of bypassing saved preferences.
 Track the returned job using the shared job tools. After success, inspect the
@@ -130,7 +132,8 @@ immutable metadata/membership snapshot. Reuse its snapshot_id with describe_fiel
 create_subset, summarize_subset, query_nodes, and read_value. Use describe for each
 action's schema. create_subset requires all, visible, or selected scope; an optional
 header/metadata/label/selection expression intersects that scope. Empty selection
-stays empty. File/residue predicates are unavailable in read-only subsets. Execute user commands through the separate command portal when requested.
+stays empty. Residue predicates need an include_alignment=true snapshot; file
+predicates are unavailable. Execute user commands through the separate command portal when requested.
 Summarize the population before reading individual records; do not exhaustively
 page nodes when aggregates answer the question. query_nodes defaults to 25 rows
 and no metadata columns. Request only relevant columns. Node keys are snapshot ID

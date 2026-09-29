@@ -78,7 +78,7 @@ def print_help():
                                 * Sequential: Blues, BuGn, BuPu, GnBu, Greens, Greys, Oranges, 
                                   OrRd, PuBu, PuBuGn, PuRd, Purples, RdPu, Reds, YlGn, YlGnBu, 
                                   YlOrBr, YlOrRd
-                                * Diverging: coolwarm, bwr, seismic, spectral, BrBG, PiYG, PRGn, 
+                                * Diverging: coolwarm, bwr, seismic, Spectral, BrBG, PiYG, PRGn,
                                   PuOr, RdBu, RdGy, RdYlBu, RdYlGn
                                 * Cyclic: twilight, twilight_shifted, hsv
                                 * Qualitative: tab10, tab20, tab20b, tab20c, Pastel1, Pastel2, 

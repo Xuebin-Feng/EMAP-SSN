@@ -58,7 +58,7 @@ Available CLI commands:
 
 10. `reference [TARGET]`
     - With no target, reports the active alignment reference, or marks the configured reference inactive when it does not resolve.
-    - TARGET is a full header, a leading identifier ending at `_` or `|` such as `WP_0123.1`, a case-insensitive substring, or a wildcard pattern such as `WP_01*` or `*.1`; a full header or versioned accession is safest. An exact header or identifier takes priority, so `WP_0123.1` never selects `WP_0123.10_...`; when several headers match, the first is used and a warning names it. The resolved full header anchors numbering, so the reported reference is the sequence actually used.
+    - TARGET is a full header, a leading identifier ending at `_` or `|` such as `WP_0123.1`, a case-insensitive substring, or a wildcard pattern such as `WP_01*` or `*.1`; a full header or versioned accession is safest. An exact header or identifier takes priority, so `WP_0123.1` selects a header whose identifier is exactly `WP_0123.1` rather than `WP_0123.10_...`; substring matches are used only when no header has that exact identifier. When several headers match, the first is used and a warning names it. The resolved full header anchors numbering, so the reported reference is the sequence actually used.
     - Changing the reference reloads alignment mapping and therefore changes reference-anchored position labels used by position-aware commands. A target absent from the current MSA may remain configured but inactive.
     - When an MSA is loaded but no reference resolves, `query`, `logo`, and amino-acid expressions use occupancy mode: retained alignment columns are numbered sequentially from 1 and the configured offset is inactive. `offset` and `label` still require an active reference.
 
@@ -94,7 +94,7 @@ Available CLI commands:
 
 16. `spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]`
     - Colors visible nodes by values from exactly one loaded numerical metadata property enclosed in braces. A bare target such as `{Length}` selects the spectrum property, while a complete predicate such as `{Length>500}` remains a Boolean selection expression. The expression, property, and optional standalone color scheme may appear in any order.
-    - If EXPRESSION is omitted, all visible nodes are targeted. Hidden matches remain unchanged. Text properties are invalid for spectrum coloring. Nodes lacking a finite numerical value are excluded from the gradient minimum/maximum and colored light gray.
+    - If EXPRESSION is omitted, all visible nodes are targeted. Hidden matches remain unchanged. Text properties are invalid for spectrum coloring. Nodes whose value is missing or non-numeric are excluded from the gradient minimum/maximum and colored light gray.
     - The default Matplotlib color scheme is `coolwarm`. An unrecognized scheme warns and falls back to the default. Do not emit the removed `prop:`, `property:`, `scheme:`, or `color:` forms.
     - All nodes colored by one invocation, including invalid-value nodes colored light gray, are promoted as one node-index-ordered render group.
 

@@ -301,7 +301,7 @@ def print_help():
     Syntax Modes:
       1. Position Breakdown Mode:
          [POSITIONS] - Comma-separated list or ranges enclosed in brackets.
-         Accepts decimal positions, and 'E' or 'END' for the last residue.
+         Accepts decimal positions, and 'E' or 'END' for the last displayed position.
          Negative positions must be enclosed individually in parentheses.
          Example: [(-1), 0, 15.1, 20-30, 250-E, END] or [(-3)-(-1)]
 
@@ -325,7 +325,7 @@ def print_help():
       3. File Search:  @[File]@  (e.g., @my_list@, @my_seqs.fasta@)
       4. NCBI List:    @[NCBI][File]@ (Extracts & matches NCBI IDs from file and headers)
       5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#, #my_group#)
-      6. UI Selection: $sele     (Targets nodes currently selected in viewer)
+      6. UI Selection: $sele$    (Targets nodes currently selected in viewer)
       7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
 
     Logic Operators:

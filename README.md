@@ -20,7 +20,8 @@ This README describes the current source checkout, which may include changes
 since that release. Because EMAP-SSN remains below version 1.0, command
 interfaces and persisted formats may evolve between releases. See the
 [changelog](CHANGELOG.md) for release history and [citation metadata](CITATION.cff)
-for how to cite the software.
+for how to cite the software. When upgrading an existing checkout, read the
+release's Upgrade Notes in the changelog first.
 
 ---
 ## ⚠️ Important Note
@@ -204,7 +205,7 @@ during MCP initialization.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
-The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the SSN force-directed physics layout solver; UMAP remains available as an optional non-physics layout mode on the Inputs & Outputs tab. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)` loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
+The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the SSN force-directed physics layout solver; UMAP remains available as an optional non-physics layout mode on the Inputs & Outputs tab. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)`, offered on every tab except Inputs & Outputs, loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, or `$analysis_result$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
@@ -245,8 +246,8 @@ network. The desktop workflow is:
    `Embedding_MSA.py`, or select an existing compatible full or sparse alignment.
    An MSA is optional for network viewing and required for residue-level analysis.
 4. **Configure and cache the layout.** Select the matching node FASTA and network
-   HDF5 in Configuration, choose **2D (desktop viewer)**, and select an existing
-   compatible cache or **(New Layout Cache)**. For a new cache, **Save & Run**
+   HDF5 in Configuration, and select an existing compatible cache or
+   **(New Layout Cache)**. For a new cache, **Save & Run**
    calculates the layout before opening the Viewer. Reopening a compatible cache
    reuses its coordinates and verified generation settings.
 5. **Explore and export.** Use the Viewer console to select, color, cluster,
@@ -648,7 +649,7 @@ EMAP-SSN/
 ├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
 │   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)
 │   ├── Saved_Config/         # Named per-tab Configuration profiles
-│   ├── Structures/           # Predicted structures and viewer assets
+│   ├── Predicted_Structures/ # Predicted structures and viewer assets
 │   └── Exported_Settings/    # Exported tool, layout, and Viewer execution JSON
 │
 ├── Embeddings/               # Protein-language-model embedding databases (.h5)
@@ -714,13 +715,13 @@ or installer that redistributes Qt binaries needs a separate LGPL compliance
 review.
 
 **No Python wheels are redistributed by this repository.** Earlier releases
-bundled an ESM 3.3.0 wheel and a reproducible fork of Transformers labeled
-`4.57.6+biohub.3a8956f`, because ESM 3.3.0 required a Transformers build
-carrying `transformers/models/esmc`. ESM 3.4 moved ESMC and ESMFold2 into the
-`esm` package itself, so both are now installed from PyPI at their published
-versions — MIT-licensed `esm` 3.4.1.post1 and Apache-2.0 `transformers` 5.17.0 —
-and the fork is no longer needed or referenced. This removes the project's
-wheel-redistribution obligations entirely.
+bundled a self-built ESM 3.3.0 wheel, because the ESM releases on PyPI at the time
+carried the Cambrian license, and a reproducible fork of Transformers labeled
+`4.57.6+biohub.3a8956f`, which ESM 3.3.0 declared as a direct Git dependency.
+ESM 3.4 is published on PyPI and no longer depends on the fork, so both are now
+installed from PyPI at their published versions — MIT-licensed `esm` 3.4.1.post1
+and Apache-2.0 `transformers` 5.17.0 — and the fork is no longer needed or
+referenced. This removes the project's wheel-redistribution obligations entirely.
 
 Installation is not offline: ordinary PyPI dependencies, the selected PyTorch
 build, and model weights are downloaded separately. Model weights retain their

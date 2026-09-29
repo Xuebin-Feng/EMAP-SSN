@@ -860,14 +860,14 @@
                     </div>
                 </div>
                 <p class="subtitle">
-                    A comprehensive primer on the <strong>Embedding- and Multiple-Alignment-integrated Protein Sequence Similarity Network (EMAP-SSN)</strong> platform. This manual connects the overarching computational pipeline with the visual graphical user interfaces (GUIs), guiding you from raw sequence databases to interactive 3D multi-scale network analysis.
+                    A comprehensive primer on the <strong>Embedding- and Multiple-Alignment-integrated Protein Sequence Similarity Network (EMAP-SSN)</strong> platform. This manual connects the overarching computational pipeline with the visual graphical user interfaces (GUIs), guiding you from raw sequence databases to interactive multi-scale network analysis.
                 </p>
 
                 <div class="quick-nav-bar">
                     <a href="#workflow" class="quick-nav-pill">🧬 Complete Workflow</a>
                     <a href="#gui-tools" class="quick-nav-pill">🛠️ Tools GUI</a>
                     <a href="#gui-config" class="quick-nav-pill">⚙️ Configuration GUI</a>
-                    <a href="#gui-viewer" class="quick-nav-pill">🔍 3D Viewer GUI</a>
+                    <a href="#gui-viewer" class="quick-nav-pill">🔍 Viewer GUI</a>
                     <a href="#hands-on-tutorial" class="quick-nav-pill">🚀 5-Step Tutorial</a>
                     <a href="list_of_commands.html" class="quick-nav-pill" style="border-color: var(--accent); color: var(--accent);">⌨️ Viewer HUD Commands</a>
                 </div>
@@ -922,7 +922,7 @@
                     <div class="grid-card">
                         <h4><span>🔬 Native MSA & Structural Integration</span></h4>
                         <p style="font-size: 0.9rem; margin-bottom: 0;">
-                            Directly maps MSA residue conservation onto the 3D network nodes. Commands like <code>color K188 red</code> or <code>logo selected</code> project microscopic chemical features directly into macroscopic 3D network space in real time, reinforced by integrated Mol* 3D macromolecular structures.
+                            Directly maps MSA residue conservation onto the 3D network nodes. Commands like <code>color K188 red</code> or <code>logo [180-195]</code> project microscopic chemical features directly into the macroscopic network view in real time, complemented by Mol* 3D views of predicted protein structures.
                         </p>
                     </div>
                 </div>
@@ -943,7 +943,7 @@
                 </div>
                 <div class="figure-caption">
                     <strong>Figure 1: Complete EMAP-SSN System Architecture & Lifecycle.</strong> 
-                    On the left, the Computational Stage processes an input Sequence Set through either a classical sequence-based workflow (BLAST/SSEARCH + MUSCLE/MAFFT) or a modern embedding-based workflow (pLM embeddings + embedding pairwise alignment + guide-tree MSA). Both paths output pairwise matrices (E-values or similarity scores) and MSAs. On the right, the Visualization & Analysis Stage takes these products through the Configuration GUI into the 3D Viewer for interactive topology exploration, cluster detection, residue inspection, and publication-ready export.
+                    On the left, the Computational Stage processes an input Sequence Set through either a classical sequence-based workflow (BLAST/SSEARCH + MUSCLE/MAFFT) or a modern embedding-based workflow (pLM embeddings + embedding pairwise alignment + guide-tree MSA). Both paths output pairwise matrices (E-values or similarity scores) and MSAs. On the right, the Visualization & Analysis Stage takes these products through the Configuration GUI into the Viewer for interactive topology exploration, cluster detection, residue inspection, and publication-ready export.
                 </div>
             </div>
 
@@ -973,12 +973,12 @@
                             <tr>
                                 <td><strong>Representation</strong></td>
                                 <td>Discrete character amino acid alphabet (20 natural amino acids).</td>
-                                <td>High-dimensional dense vector representations computed via <code>Generate_Embeddings.py</code> (e.g. ESM-2 650M/3B, ProtBERT).</td>
+                                <td>High-dimensional dense vector representations computed via <code>Generate_Embeddings.py</code> (e.g. ESM-2 650M, ESM C, ProtBERT).</td>
                             </tr>
                             <tr>
                                 <td><strong>Pairwise Similarity</strong></td>
                                 <td>BLAST+ (<code>blastp</code>) or FASTA (<code>ssearch36</code>) yielding E-values and bit scores. Stored as HDF5 matrix in <code>Networks_EValues/</code>.</td>
-                                <td>Dynamic programming alignment over residue embedding similarities (<code>Embedding_Pairwise_Alignment.py</code>) or full-vector cosine metrics. Stored in <code>Networks_EValues/</code>.</td>
+                                <td>All-vs-all dynamic programming alignment over residue-level embedding similarities (<code>Align_Similarity_Matrix.py</code>). Stored in <code>Networks_EValues/</code>.</td>
                             </tr>
                             <tr>
                                 <td><strong>MSA Generation</strong></td>
@@ -1000,14 +1000,17 @@
                 </p>
                 <ul>
                     <li>
-                        <strong>3D Force-Directed Simulation (Spring-Electrical Physics):</strong> 
-                        Treats nodes as charged particles repelling each other (Coulomb repulsion) and pairwise similarity scores as spring tensions pulling homologous proteins together (Hooke's attraction). This creates an organic, biologically intuitive 3D cluster topology where physical distances reflect evolutionary relationships.
+                        <strong>Force-Directed Simulation (Spring-Electrical Physics):</strong>
+                        Treats nodes as charged particles repelling each other (Coulomb repulsion) and pairwise similarity scores as spring tensions pulling homologous proteins together (Hooke's attraction). This creates an organic, biologically intuitive cluster topology where spatial distances reflect evolutionary relationships.
                     </li>
                     <li>
-                        <strong>2D UMAP Non-Linear Manifold Projection:</strong> 
-                        Applies Uniform Manifold Approximation and Projection (UMAP) directly onto pairwise distance matrices or embedding vectors. Constructs a $k$-nearest-neighbor Riemannian graph, preserving both local cluster micro-structure and global family geometry on a 2D plane.
+                        <strong>UMAP Non-Linear Manifold Projection:</strong>
+                        Applies Uniform Manifold Approximation and Projection (UMAP) to a $k$-nearest-neighbor graph built from the network's pairwise scores, preserving both local cluster micro-structure and global family geometry.
                     </li>
                 </ul>
+                <p>
+                    Both engines produce 2D coordinates by default, which the desktop Viewer displays. A layout settings document with <code>LAYOUT_DIMENSIONS</code> set to <code>3</code> produces a separate 3D cache that the desktop Viewer does not open. <code>LAYOUT_SEED</code> (default <code>42</code>) seeds both engines, so UMAP layouts and CPU physics layouts reproduce exactly.
+                </p>
             </div>
 
             <!-- SECTION 3: TOOLS GUI -->
@@ -1043,19 +1046,19 @@
                 </p>
                 <ul>
                     <li>
-                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating) and <code>Generate_Embeddings.py</code> (extracting per-residue and mean-pooled representations from models such as ESM-2, ProtBERT, ProstT5, and Ankh).
+                        <strong>Sequence &amp; Embedding Preparation:</strong> Contains <code>Sanitize_Sequences.py</code> (cleaning sequence databases, enforcing length thresholds, stripping fragment keywords, deduplicating), <code>Generate_Embeddings.py</code> (computing per-residue representations with models such as ESM-2, ESM C, ProtBERT, ProstT5, and Ankh), and <code>Embedding_Cropping.py</code> (slicing embeddings for cropped sequences out of an existing full-sequence database instead of embedding the fragments in isolation).
                     </li>
                     <li>
-                        <strong>Sequence Similarity Calculations:</strong> Hosts traditional pairwise alignment (BLAST/Smith-Waterman), <code>Embedding_Pairwise_Alignment.py</code> (dynamic programming alignment across embedding token dimensions), and <code>Embedding_Cosine_Similarity.py</code> (rapid matrix multiplication over sequence-level pooled representations).
+                        <strong>Sequence Similarity Calculations:</strong> Hosts <code>Align_Similarity_Matrix.py</code> (all-vs-all dynamic programming alignment over residue-level embedding similarities), <code>Align_Substitution_Matrix.py</code> (all-vs-all BLASTP alignment with traditional substitution matrices; requires NCBI BLAST+), and <code>Parse_BLAST_Output.py</code> (importing existing tabular BLAST results as an E-value network).
                     </li>
                     <li>
-                        <strong>Embedding MSA:</strong> Programs for constructing progressive Multiple Sequence Alignments guided by embedding evolutionary distance trees (<code>Guide_Tree_MSA.py</code>, <code>Sparse_Guide_Tree_MSA.py</code>, and <code>Merge_Guide_Tree_MSA.py</code>).
+                        <strong>Embedding MSA:</strong> <code>Embedding_MSA.py</code> builds progressive Multiple Sequence Alignments from a guide tree derived from network scores, using residue embeddings for alignment, and <code>Sparse_MSA_Converter.py</code> compresses an aligned FASTA into a compact sparse HDF5 MSA.
                     </li>
                     <li>
-                        <strong>Embedding &amp; Network Tools:</strong> Utilities for thresholding edge matrices (<code>Filter_Similarity_Network.py</code>), filtering embedding representations (<code>Filter_Embedding_Matrix.py</code>), and merging distributed HDF5 databases (<code>Combine_Network_Files.py</code>).
+                        <strong>Embedding &amp; Network Tools:</strong> <code>Embedding_Injection.py</code> and <code>Network_Injection.py</code> add new sequences to an existing embedding database or network while reusing the stored results, and <code>Embedding_Extraction.py</code> and <code>Network_Extraction.py</code> extract subsets of them for a list of sequence headers.
                     </li>
                     <li>
-                        <strong>Others:</strong> Sequence and embedding extraction utilities (<code>Extract_Sequences.py</code>, <code>Extract_Embedding.py</code>) and custom metadata injection (<code>Inject_Metadata.py</code>) for embedding external annotations directly into HDF5 networks.
+                        <strong>Manual Tools:</strong> <code>Embedding_PWA.py</code> aligns two sequences by their residue embeddings and maps positions between them, and <code>Embedding_SSEARCH.py</code> searches one query sequence against an embedding database, similar to FASTA's <code>ssearch</code>.
                     </li>
                     <li>
                         <strong>Directories:</strong> Master path manager defining base directories for FASTA inputs, network outputs, embeddings, layout caches, and analysis results.
@@ -1080,7 +1083,7 @@
                         <strong style="color: #16a34a;">Save &amp; Run (Green Button):</strong> Validates input fields, persists settings into <code>tools_settings.json</code>, and launches the computational script in an isolated terminal or background process, displaying live standard output and progress bars.
                     </li>
                     <li>
-                        <strong style="color: #2563eb;">Export Setting (Blue Button):</strong> Serializes the exact current configuration into an independent, minimal JSON file saved in <code>Cache_Files/Tool_Settings/</code>. This decoupled file contains only the parameters and directories necessary for that single tool.
+                        <strong style="color: #2563eb;">Export Setting (Blue Button):</strong> Serializes the exact current configuration into an independent, minimal JSON file saved in <code>Cache_Files/Exported_Settings/</code>. This decoupled file contains only the parameters and directories necessary for that single tool.
                     </li>
                 </ul>
 
@@ -1088,10 +1091,10 @@
                     <div class="callout-title">💡 Headless HPC Execution Tip</div>
                     You can transfer an exported JSON settings file to a remote High-Performance Computing (HPC) cluster or GPU workstation and execute the exact calculation headlessly without launching the GUI:
                     <pre><code># Linux / macOS HPC Node:
-./.venv/bin/python src/tools/Generate_Embeddings.py Cache_Files/Tool_Settings/my_run.json
+./.venv/bin/python src/tools/Generate_Embeddings.py Cache_Files/Exported_Settings/my_run.json
 
 # Windows:
-.\.venv\Scripts\python.exe src\tools\Generate_Embeddings.py Cache_Files\Tool_Settings\my_run.json</code></pre>
+.\.venv\Scripts\python.exe src\tools\Generate_Embeddings.py Cache_Files\Exported_Settings\my_run.json</code></pre>
                 </div>
             </div>
 
@@ -1101,7 +1104,7 @@
             </div>
 
             <p>
-                The <strong>Configuration GUI</strong> acts as the central control bridge between the raw computational datasets (HDF5 networks, FASTA sequences, MSA alignments) and the 3D interactive Viewer. Here, you define file bindings, select layout engines, tune physics parameters, and perform vital pre-flight data integrity checks.
+                The <strong>Configuration GUI</strong> acts as the central control bridge between the raw computational datasets (HDF5 networks, FASTA sequences, MSA alignments) and the interactive Viewer. Here, you define file bindings, select layout engines, tune physics parameters, and perform vital pre-flight data integrity checks.
             </p>
 
             <div class="figure-container">
@@ -1124,15 +1127,15 @@
 
                 <h3>1. Inputs &amp; Outputs Tab</h3>
                 <ul>
-                    <li><strong>Saved Config Profile:</strong> Switch between <code>(custom)</code> (saved in <code>viewer_settings.json</code>), <code>(default)</code> (read-only built-in baseline), or create named project profiles like <code>(new)</code> stored under <code>Cache_Files/Saved_Config/</code>.</li>
+                    <li><strong>Saved Config Profile:</strong> Switch between <code>(custom)</code> (saved in <code>viewer_settings.json</code>) and named project profiles stored under <code>Cache_Files/Saved_Config/</code>, created with <code>(new)</code>. The other tabs also offer <code>(default)</code>, a read-only built-in baseline; this tab does not.</li>
                     <li><strong>Sequence Set / Subset (.fasta):</strong> Selects the protein sequences corresponding to the network nodes.</li>
                     <li><strong>MSA Input (.fasta / _sparse.h5):</strong> Binds the multiple sequence alignment used for residue conservation mapping and sequence logos.</li>
                     <li><strong>Network Edges Input (.h5):</strong> Binds the all-vs-all pairwise similarity or E-value matrix.</li>
-                    <li><strong>Alignment Score &amp; Normalization Modes:</strong> Specifies score interpretation (<code>global</code> vs. <code>local</code>) and score normalization (e.g., <code>alignment_length</code>, <code>shorter_sequence</code>, or raw score).</li>
-                    <li><strong>Alignment Reference ID &amp; Offset:</strong> Selects a specific protein sequence header in the MSA to serve as the global coordinate anchor. Numbering across all residue commands (e.g., <code>color K188 red</code>) will align 1:1 with this reference protein's native residue coordinates!</li>
-                    <li><strong>Enable UMAP Layout:</strong> When toggled ON, switches the solver from 3D force-directed physics to 2D UMAP non-linear manifold projection, with tunable <code>UMAP Nearest Neighbors (k)</code> and <code>UMAP Min Distance</code>.</li>
+                    <li><strong>Alignment Score &amp; Normalization Modes:</strong> Specifies score interpretation (<code>global</code> vs. <code>local</code>) and score normalization (<code>alignment_length</code>, <code>shorter_sequence</code>, <code>longer_sequence</code>, or <code>average_sequence</code>; <code>alignment_length</code> applies to global scores only).</li>
+                    <li><strong>Alignment Reference ID &amp; Offset:</strong> Selects a specific protein sequence header in the MSA to serve as the global coordinate anchor. Numbering across all residue commands (e.g., <code>color K188 red</code>) will align 1:1 with this reference protein's native residue coordinates. If the reference is absent from the MSA, the Viewer warns at startup and uses occupancy numbering instead.</li>
+                    <li><strong>Enable UMAP Layout:</strong> When toggled ON, switches the solver from force-directed physics to UMAP non-linear manifold projection, with tunable <code>UMAP Nearest Neighbors (k)</code> and <code>UMAP Min Distance</code>.</li>
                     <li><strong>Similarity Threshold &amp; Top Edge %:</strong> Prunes edges below a given similarity score or keeps only the top $X\%$ strongest edges across the entire network to eliminate topological noise.</li>
-                    <li><strong>Target Cache &amp; Selected Cache File:</strong> Automatically scans for pre-computed layout coordinates in <code>Cache_Files/Saved_Layouts/</code>. If found, the Viewer loads the pre-existing 3D layout instantly without recomputing the layout physics! Selecting <code>(New Layout Cache)</code> initiates a fresh simulation.</li>
+                    <li><strong>Target Cache &amp; Selected Cache File:</strong> Automatically scans for pre-computed layout coordinates in <code>Cache_Files/Saved_Layouts/</code>. If found, the Viewer loads the pre-existing layout instantly without recomputing it. Selecting <code>(New Layout Cache)</code> initiates a fresh simulation.</li>
                 </ul>
 
                 <h3>2. Diagnostic Utilities: Pre-Flight Integrity &amp; Cutoff Optimization</h3>
@@ -1163,7 +1166,7 @@
 
                 <h3>3. Simulation &amp; Physics Tab</h3>
                 <p>
-                    When utilizing the 3D Force-Directed Layout, this tab configures the physical simulation solver:
+                    When utilizing the force-directed layout, this tab configures the physical simulation solver:
                 </p>
                 <div class="table-responsive">
                     <table>
@@ -1193,12 +1196,12 @@
                             <tr>
                                 <td><code>Damping</code></td>
                                 <td>0.9</td>
-                                <td>Velocity attenuation factor (0.0 to 1.0). Absorbs kinetic energy to prevent perpetual orbital oscillation and achieve steady convergence.</td>
+                                <td>Velocity damping coefficient (0.1 to 2.0 in the GUI). Absorbs kinetic energy to prevent perpetual orbital oscillation and achieve steady convergence.</td>
                             </tr>
                             <tr>
                                 <td><code>Max Force Limit</code></td>
                                 <td>20.0</td>
-                                <td>Clamps runaway explosive forces during early iterations when random starting coordinates place nodes in extreme proximity.</td>
+                                <td>Hidden setting: not shown on the tab, but included in exported layout settings, where it can be edited. Clamps runaway explosive forces during early iterations when random starting coordinates place nodes in extreme proximity.</td>
                             </tr>
                             <tr>
                                 <td><code>Time Step (DT)</code></td>
@@ -1213,7 +1216,7 @@
                             <tr>
                                 <td><code>Cluster Packing Geometry</code></td>
                                 <td>Square</td>
-                                <td>Spatial packing geometry (<code>Square</code>, <code>Circle</code>, <code>Hexagonal</code>) used to organize disconnected components on the outer canvas perimeter.</td>
+                                <td>Spatial packing geometry (<code>Square</code> or <code>Circle</code>) used to organize disconnected components on the outer canvas perimeter.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1228,11 +1231,11 @@
 
             <!-- SECTION 5: VIEWER GUI -->
             <div id="gui-viewer" class="section-divider">
-                <span>5. EMAP-SSN 3D Viewer GUI (EMAPSSN_Viewer.py)</span>
+                <span>5. EMAP-SSN Viewer GUI (EMAPSSN_Viewer.py)</span>
             </div>
 
             <p>
-                The <strong>Viewer GUI</strong> is the flagship interactive visualization application of EMAP-SSN. Built upon PySide6 and the VisPy high-performance OpenGL graphics engine, it renders tens of thousands of nodes and edges in real time with buttery 3D camera navigation, dynamic edge filtering, spatial cluster manipulation, and an integrated analytical command console.
+                The <strong>Viewer GUI</strong> is the flagship interactive visualization application of EMAP-SSN. Built upon PySide6 and the VisPy high-performance OpenGL graphics engine, it renders tens of thousands of nodes and edges in real time with smooth pan-and-zoom navigation, dynamic edge filtering, spatial cluster manipulation, and an integrated analytical command console.
             </p>
 
             <div class="figure-container">
@@ -1240,8 +1243,8 @@
                     <img src="assets/emapssn_viewer_gui.png" alt="EMAP-SSN Viewer GUI" style="max-height: 520px;">
                 </div>
                 <div class="figure-caption">
-                    <strong>Figure 4: EMAP-SSN 3D Viewer GUI Interface Elements.</strong>
-                    Annotated callouts highlight the primary interaction components: (1) <strong>Command Line Interface (HUD)</strong> at top-left for running analytical commands; (2) <strong>Selection Box</strong> for lasso/box-selecting cohorts in space; (3) <strong>Edge Visibility Slide Bar</strong> at bottom-left for live threshold adjustment; (4) <strong>Viewer Status</strong> stack at bottom-right displaying View Width and Hidden Nodes; and (5) <strong>Side Panel Plugins</strong> at top-right for Meta Data, AI Agent, and Fold View (Mol* 3D structure).
+                    <strong>Figure 4: EMAP-SSN Viewer GUI Interface Elements.</strong>
+                    Annotated callouts highlight the primary interaction components: (1) <strong>Command Line Interface (HUD)</strong> at top-left for running analytical commands; (2) <strong>Selection Box</strong> for box-selecting cohorts; (3) <strong>Edge Visibility Slide Bar</strong> at bottom-left for live threshold adjustment; (4) <strong>Viewer Status</strong> stack at bottom-right displaying View Width and Hidden Nodes; and (5) <strong>Side Panel Plugins</strong> at top-right for Meta Data, AI Agent, and Fold View (Mol* 3D structure).
                 </div>
             </div>
 
@@ -1253,9 +1256,9 @@
                     <span class="badge badge-core">Core Interactive Hub</span>
                 </div>
 
-                <h3>1. 3D OpenGL Canvas &amp; Camera Navigation</h3>
+                <h3>1. OpenGL Canvas &amp; Camera Navigation</h3>
                 <p>
-                    The main viewport provides an immersive 3D pan-zoom-rotate space:
+                    The main viewport is a 2D pan-and-zoom canvas. The Viewer's on-screen control hint summarizes these bindings:
                 </p>
                 <div class="table-responsive">
                     <table>
@@ -1268,39 +1271,39 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td><strong>3D Rotation</strong></td>
-                                <td><span class="kbd">Left-Click</span> + Drag on empty canvas</td>
-                                <td>Orbits the camera smoothly around the 3D network centroid.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>Pan / Translate</strong></td>
-                                <td><span class="kbd">Right-Click</span> + Drag (or <span class="kbd">Shift</span> + <span class="kbd">Left-Click</span> Drag)</td>
-                                <td>Translates the camera laterally across the current view plane.</td>
+                                <td><strong>Pan</strong></td>
+                                <td><span class="kbd">Left-Click</span> + Drag</td>
+                                <td>Moves the view across the network.</td>
                             </tr>
                             <tr>
                                 <td><strong>Zoom</strong></td>
-                                <td><span class="kbd">Mouse Scroll Wheel</span> or Trackpad Pinch</td>
-                                <td>Zooms in and out continuously centered around the cursor position.</td>
+                                <td><span class="kbd">Mouse Scroll Wheel</span></td>
+                                <td>Zooms in and out around the cursor position.</td>
                             </tr>
                             <tr>
                                 <td><strong>Highlight Node</strong></td>
                                 <td><span class="kbd">Left-Click</span> on a node</td>
-                                <td>Highlights the node, displays its sequence header and metadata in the HUD, and highlights its direct topological neighbors.</td>
+                                <td>Highlights the node and its direct topological neighbors and displays its sequence header in the HUD (plus its value for a property enabled with <code>meta show</code>).</td>
                             </tr>
                             <tr>
-                                <td><strong>Toggle Selection</strong></td>
+                                <td><strong>Select Nodes</strong></td>
                                 <td><span class="kbd">Right-Click</span> on a node</td>
-                                <td>Toggles the selection state of individual nodes. Right-clicking empty space clears current selection.</td>
+                                <td>Selects that node. Hold <span class="kbd">Shift</span> to add it to the selection or <span class="kbd">Ctrl</span> (<span class="kbd">⌘</span> on macOS) to remove it. Right-clicking empty space clears the selection.</td>
                             </tr>
                             <tr>
                                 <td><strong>Box / Area Selection</strong></td>
-                                <td><span class="kbd">Shift</span> + <span class="kbd">Left-Click</span> Drag</td>
-                                <td>Draws a visible rectangular <strong>Selection Box</strong> (as seen in Figure 4) to capture all enclosed nodes into the active cohort.</td>
+                                <td><span class="kbd">Right-Click</span> + Drag on empty canvas</td>
+                                <td>Draws the rectangular <strong>Selection Box</strong> (as seen in Figure 4) and selects the enclosed nodes. Hold <span class="kbd">Shift</span> to add them to the selection or <span class="kbd">Ctrl</span> (<span class="kbd">⌘</span>) to remove them.</td>
                             </tr>
                             <tr>
-                                <td><strong>Spatial Cluster Dragging</strong></td>
-                                <td><span class="kbd">Ctrl</span> + <span class="kbd">Left-Click</span> Drag on selected nodes</td>
-                                <td>Physically translates selected nodes across 3D space to cleanly separate overlapping clusters for publication figures! Full Undo/Redo is supported via <span class="kbd">Ctrl+Z</span>.</td>
+                                <td><strong>Move Selected Nodes</strong></td>
+                                <td><span class="kbd">Right-Click</span> + Drag on a selected node</td>
+                                <td>Moves the selected nodes to separate overlapping clusters for publication figures (not available in UMAP mode); scrolling while dragging rotates them. Undo with <span class="kbd">Ctrl+Z</span> and redo with <span class="kbd">Ctrl+Y</span>.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Copy Header / Sequence</strong></td>
+                                <td><span class="kbd">Shift</span> or <span class="kbd">Ctrl</span> + <span class="kbd">Left-Click</span> on a node</td>
+                                <td><span class="kbd">Shift</span> copies the node's full header and <span class="kbd">Ctrl</span> copies its sequence to the clipboard.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1318,28 +1321,28 @@
 
                 <h3>3. Heads-Up Display (HUD) Command Console</h3>
                 <p>
-                    Pressing <span class="kbd">Enter</span> or <span class="kbd">/</span> opens the interactive in-line command prompt in the upper-left corner:
+                    Pressing <span class="kbd">Enter</span> opens the interactive in-line command prompt in the upper-left corner:
                 </p>
                 <ul>
-                    <li><strong>Instant Analytical Control:</strong> Type commands to color nodes, calculate Leiden/Louvain clusters, compute residue conservation logos, inspect properties, or export cohorts.</li>
+                    <li><strong>Instant Analytical Control:</strong> Type commands to color nodes, calculate Leiden, MCL, or Jaccard clusters, compute residue conservation logos, inspect properties, or export cohorts.</li>
                     <li><strong>Layout-Bound Persistent History:</strong> Press <span class="kbd">Up</span> and <span class="kbd">Down</span> arrow keys to cycle through past commands. Command history is automatically saved per layout in <code>Cache_Files/Saved_Layouts/&lt;layout&gt;/cli_history.txt</code>!</li>
-                    <li><strong>Auto-Completion &amp; Error Feedback:</strong> Invalid command syntax displays helpful hints directly beneath the command bar.</li>
+                    <li><strong>Error Feedback:</strong> Invalid commands report the problem, with usage help, in the console.</li>
                 </ul>
 
                 <div class="callout callout-tip">
                     <div class="callout-title">💡 Want the Full List of Console Commands?</div>
-                    Refer to the companion document: <a href="list_of_commands.html" style="color: var(--accent); font-weight: 700;">EMAP-SSN Viewer Command Reference</a> for syntax, arguments, and practical examples of commands like <code>color</code>, <code>cluster</code>, <code>logo</code>, <code>select</code>, <code>label</code>, <code>structure</code>, and <code>print</code>.
+                    Refer to the companion document: <a href="list_of_commands.html" style="color: var(--accent); font-weight: 700;">EMAP-SSN Viewer Command Reference</a> for syntax, arguments, and practical examples of commands like <code>color</code>, <code>cluster</code>, <code>logo</code>, <code>select</code>, <code>label</code>, <code>esmfold</code>, and <code>print</code>.
                 </div>
 
                 <h3>4. Side Panel Plugins &amp; Embedded Web Utilities</h3>
                 <p>
-                    Located in the top-right corner of the Viewer (Figure 4), the side panel provides expandable web-based analytical tools:
+                    Located in the top-right corner of the Viewer (Figure 4), the side panel opens web-based analytical tools in your browser, served by the Viewer's local web server:
                 </p>
                 <div class="grid-2">
                     <div class="grid-card">
                         <h4><span>📊 Meta Data Explorer (Tabulator)</span></h4>
                         <p style="font-size: 0.88rem;">
-                            Clicking <strong>Meta Data</strong> launches an interactive, searchable spreadsheet displaying all node annotations, organism taxonomy, EC numbers, and custom metadata. Features two-way live selection sync: selecting rows in the table instantly selects those nodes in the 3D network, and vice-versa!
+                            Clicking <strong>Meta Data</strong> launches an interactive, searchable spreadsheet displaying all node annotations, organism taxonomy, EC numbers, and custom metadata. Features two-way live selection sync: selecting rows in the table instantly selects those nodes in the network, and vice-versa!
                         </p>
                     </div>
                     <div class="grid-card">
@@ -1349,9 +1352,9 @@
                         </p>
                     </div>
                     <div class="grid-card" style="grid-column: 1 / -1;">
-                        <h4><span>🧬 Fold View: Integrated Mol* 3D Macromolecular Structure Viewer</span></h4>
+                        <h4><span>🧬 Fold View: Mol* 3D Structure Viewer</span></h4>
                         <p style="font-size: 0.88rem;">
-                            Clicking <strong>Fold View</strong> launches an embedded Mol* structure visualizer directly inside EMAP-SSN. When a node is selected, Fold View retrieves its predicted AlphaFold/ESMFold coordinate model or experimental PDB structure. Residue-level selections in the network (e.g., MSA conservation columns or catalytic motifs) highlight synchronously on the 3D atomic protein structure, completing the bridge from macroscopic network to atomic mechanism!
+                            Clicking <strong>Fold View</strong> opens the Mol* structure viewer for structures predicted with the <code>esmfold</code> command. Select one node and run <code>esmfold</code> to predict it with the local ESM3 1.4B model, or <code>esmfold large</code> to use ESM3 Large through Biohub's API; <code>multi</code> allows several selected nodes. The prediction opens in Mol*, bridging the network view with atomic structure.
                         </p>
                     </div>
                 </div>
@@ -1402,10 +1405,10 @@
                             Still in the <em>Sequence &amp; Embedding Preparation</em> tab, navigate to <strong>Generate Embeddings</strong>. Select <code>kinase_family_sanitized.fasta</code> as the input FASTA.
                         </p>
                         <p>
-                            Select your desired model, such as <code>esm2_t33_650M_UR50D</code> (standard high-accuracy ESM-2 representation). Verify that GPU acceleration is enabled. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
+                            Select your desired model, such as <code>esm2_t33_650m</code> (the largest supported ESM-2 model). Verify that GPU acceleration is enabled. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
-                            <strong>Result:</strong> An HDF5 database (<code>kinase_family_embeddings.h5</code>) is written to <code>Embeddings/</code> containing high-dimensional per-residue and sequence-pooled embedding vectors.
+                            <strong>Result:</strong> An HDF5 database (<code>kinase_family_embeddings.h5</code>) is written to <code>Embeddings/</code> containing high-dimensional per-residue embedding vectors.
                         </div>
                     </div>
                 </div>
@@ -1415,10 +1418,10 @@
                     <div class="step-content">
                         <h4>Step 3: Calculate Pairwise Similarity &amp; Guide-Tree MSA</h4>
                         <p>
-                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Embedding Pairwise Alignment</strong> (or <strong>Pairwise Alignment</strong> for traditional BLAST). Set Score Mode to <code>global</code> and Normalization to <code>alignment_length</code>. Click <strong style="color: #16a34a;">Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
+                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Dynamic Programming Embedding Alignment</strong> (<code>Align_Similarity_Matrix.py</code>), or <strong>Substitution Matrix Alignment</strong> (<code>Align_Substitution_Matrix.py</code>) for traditional BLAST. Set Score Mode to <code>global</code> and Normalization to <code>alignment_length</code>. Click <strong style="color: #16a34a;">Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
                         </p>
                         <p>
-                            Next, switch to the <em>Embedding MSA</em> tab and run <strong>Guide Tree MSA</strong> (<code>Embedding_MSA.py</code>). This builds an evolutionary guide-tree directly from embedding distances and aligns the sequences into a global MSA.
+                            Next, switch to the <em>Embedding MSA</em> tab and run <strong>Embedding Multiple Sequence Alignment</strong> (<code>Embedding_MSA.py</code>). This builds a guide tree from the network's scores and progressively aligns the sequences into a global MSA using their embeddings.
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>Result:</strong> Pairwise network HDF5 in <code>Input_Files/Networks_EValues/</code> and an integrated MSA file in <code>Input_Files/Multiple_Alignments/</code>.
@@ -1448,25 +1451,25 @@
                     <div class="step-content">
                         <h4>Step 5: Interactive Exploration, Annotation &amp; Export in the Viewer</h4>
                         <p>
-                            With the 3D Viewer open, explore and dissect your protein family:
+                            With the Viewer open, explore and dissect your protein family:
                         </p>
                         <ul>
                             <li><strong>Cluster Partitioning:</strong> Drag the Edge Visibility slider at the bottom-left to isolate subfamilies. Press <span class="kbd">Enter</span> and type:
                                 <pre><code>cluster 1.0 15</code></pre>
-                                This partitions the network into modular clusters using the Louvain/Leiden algorithm.
+                                This partitions the network into modular clusters with the default Leiden algorithm (resolution 1.0); clusters smaller than 15 nodes become noise.
                             </li>
                             <li><strong>Residue Conservation Mapping:</strong> Color the network by conservation of a critical active site residue (e.g. Lysine 188 in the reference protein):
                                 <pre><code>color K188 red</code></pre>
-                                Nodes with conserved Lysine 188 highlight in vibrant red, while substitutions fade to neutral grey.
+                                Nodes with Lysine at position 188 turn red; all other nodes keep their current colors.
                             </li>
-                            <li><strong>Generate Sequence Logo:</strong> Select an interesting cluster with <span class="kbd">Shift+Drag</span> and run:
-                                <pre><code>logo selected</code></pre>
-                                A high-resolution WebLogo sequence motif graphic is generated for that specific subfamily!
+                            <li><strong>Generate Sequence Logo:</strong> Select an interesting cluster by right-dragging a box around it and run:
+                                <pre><code>logo [180-195]</code></pre>
+                                A high-resolution sequence logo of those alignment positions is generated for the selected nodes and saved beneath <code>Analysis_Results/Sequence_Logos/</code>.
                             </li>
-                            <li><strong>Inspect 3D Atomic Structure:</strong> Click any representative node, then click the <strong>Fold View</strong> button on the top-right side panel to inspect its 3D atomic structure in Mol*.
+                            <li><strong>Inspect 3D Atomic Structure:</strong> Select one representative node and run <code>esmfold</code> to predict its structure; the result opens in the Mol* Fold View.
                             </li>
-                            <li><strong>Publication Figure Export:</strong> Save a publication-grade high-resolution image:
-                                <pre><code>print 600</code></pre>
+                            <li><strong>Publication Figure Export:</strong> Save a publication-grade high-resolution image; <code>full</code> stitches tiles into an ultra-high-resolution PNG, and <code>svg</code> writes a vector graphic instead:
+                                <pre><code>print my_figure full</code></pre>
                             </li>
                         </ul>
                     </div>
@@ -1491,7 +1494,7 @@
                 </p>
                 <ul>
                     <li><strong>NVIDIA GPUs:</strong> Highly recommended. Supports CUDA 13.2 and CUDA 12.6 profiles with full PyTorch acceleration for both embedding generation and physics layout solvers.</li>
-                    <li><strong>AMD GPUs:</strong> Supported via ROCm 7.14 / 7.2.1 on Windows 11 and Ubuntu Linux.</li>
+                    <li><strong>AMD GPUs:</strong> Supported via ROCm 7.14 on Windows 11 25H2 (build 26200 or newer) and on Ubuntu Linux.</li>
                     <li><strong>Intel Arc / Core Ultra:</strong> Supported via Intel XPU on Windows 11 and Ubuntu Linux.</li>
                     <li><strong>Apple Silicon (M1/M2/M3/M4):</strong> Supported natively via Metal Performance Shaders (MPS) on macOS 14+.</li>
                     <li><strong>CPU Fallback:</strong> If no accelerator passes tensor validation, the application automatically falls back to multi-threaded CPU execution safely.</li>
@@ -1537,7 +1540,7 @@
                     <div class="grid-card">
                         <h4><span>📖 Interactive Viewer Command Reference</span></h4>
                         <p style="font-size: 0.9rem;">
-                            Ready to master the HUD console? Read the complete command encyclopedia covering syntax, flags, and examples for all 50+ viewer operations:
+                            Ready to master the HUD console? Read the complete command encyclopedia covering syntax, flags, and examples for all 24 viewer commands:
                         </p>
                         <a href="list_of_commands.html" class="quick-nav-pill" style="border-color: var(--accent); color: var(--accent); font-weight: 700;">
                             Open list_of_commands.html →
@@ -1560,7 +1563,7 @@
                     <div class="grid-card">
                         <h4><span>🧩 Web Plugin Development</span></h4>
                         <p style="font-size: 0.9rem;">
-                            Want to build custom side-panel plugins or embedded web utilities for the 3D Viewer? Consult:
+                            Want to build custom side-panel plugins or web utilities for the Viewer? Consult:
                         </p>
                         <code style="font-size: 0.85rem;">docs/web_plugin_development.md</code>
                     </div>

@@ -1,4 +1,4 @@
-# MCP settings (server 0.9.0, pipeline settings schema 1)
+# MCP settings (server 0.11.0, pipeline settings schema 1)
 
 ## Three workflow tools (breaking migration)
 
@@ -91,7 +91,9 @@ actions belong to `emapssn_viewer_data`, using its `action` and `arguments` shap
    availability. Historical per-column source information is unavailable.
 3. `create_subset` requires `snapshot_id` and `scope` (`all`, `visible`, `selected`),
    with an optional Boolean selection `expression`. Supported atoms are headers,
-   metadata, labels and `$sele$`; file and residue atoms are rejected before evaluation.
+   metadata, labels and `$sele$`, plus residue atoms on snapshots captured with
+   `include_alignment=true` (see "Frozen residue inspection" below); file atoms are
+   rejected before evaluation.
 4. `summarize_subset` accepts optional `subset_id` and `columns`; omitted subset
    means the whole snapshot. Numeric `quantiles` are min, Q1, median, Q3, max.
    Text output includes top ten categories, other/missing counts, and pageable full
@@ -452,6 +454,14 @@ completed job's `output_locations` rather than reconstructing it from the previe
 The existing individual-parameter and `settings_document` forms remain supported;
 omitting `cache_filename` in the individual-parameter form now selects automatic naming.
 
+The layout section's `LAYOUT_DIMENSIONS` is `2` (default) or `3`. 3D caches are
+written to separate `_3D`-suffixed folders and record `physics_3d` or `umap_3d` as
+their layout mode; the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
+non-negative integer (default `42`) or `null` for an unseeded run. With a fixed seed,
+UMAP layouts and CPU physics layouts reproduce exactly; GPU physics runs can differ
+slightly. Layout documents exported before these keys existed load with the
+defaults. In the individual-parameter form, pass either key through `parameters`.
+
 ## Viewer sessions
 
 Viewer sessions are independent of MCP connections. Use `emapssn_viewer_data(action="list_sessions")`
@@ -523,7 +533,8 @@ normalized version 2 document without generation parameters.
 Layout exports require `kind: "layout"`, `schema_version: 2`, and sections:
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`.
 Inputs are FASTA/network paths; network holds score interpretation and edge filters;
-layout holds UMAP mode/parameters; simulation holds device, timestep, convergence,
+layout holds UMAP mode/parameters, `LAYOUT_DIMENSIONS`, and `LAYOUT_SEED`;
+simulation holds device, timestep, convergence,
 and step limits; physics holds forces/damping; packing holds geometry and box
 settings; output holds the directory, cache path, filename, and naming mode.
 Layout exports exclude visualization and MSA display settings.
