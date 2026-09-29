@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+import fnmatch
 import os
 import re
 import sys
@@ -193,6 +194,50 @@ def simplify_node_label(header):
             pass
 
     return header.split()[0] if header else ""
+
+
+# Canonical SSN headers (sanitize_header) hold no whitespace and none of the
+# wildcard characters * ? [ ]: whitespace becomes `_`, so an identifier such as
+# `WP_0123.1` is followed by `_` or by a `|` field separator.
+_HEADER_SEGMENT_DELIMITER = re.compile(r"[_|]")
+
+
+def header_identifiers(header):
+    """Names a header answers to: its leading segments ending at `_` or `|`, and itself."""
+    header_lower = header.lower()
+    prefixes = [
+        header_lower[:match.start()]
+        for match in _HEADER_SEGMENT_DELIMITER.finditer(header_lower)
+    ]
+    return prefixes + [header_lower]
+
+
+def pick_reference_header(candidates, target):
+    """Choose the header TARGET names: the whole header, then an identifier, then a pattern.
+
+    `E1_RA` names the header `E1_RA` even when `E1_RA_variant`, which has `E1_RA`
+    as its leading identifier, comes first. `WP_0123.1` names `WP_0123.1_protein_A`
+    exactly and is only a substring of `WP_0123.10_protein_B`, so a versioned
+    accession resolves to its own sequence. Wildcards match the whole header or
+    any leading segment, which lets `*.1` select a version suffix. When several
+    headers qualify at the chosen tier, the first in CANDIDATES order is used and
+    a warning names it. Returns None when no header matches.
+    """
+    target_lower = str(target).lower()
+    identifiers = {header: header_identifiers(header) for header in candidates}
+    matches = (
+        [header for header in identifiers if header.lower() == target_lower]
+        or [header for header, names in identifiers.items() if target_lower in names]
+        or [
+            header
+            for header, names in identifiers.items()
+            if target_lower in header.lower()
+            or any(fnmatch.fnmatchcase(name, target_lower) for name in names)
+        ]
+    )
+    if len(matches) > 1:
+        print(f"Warning: Multiple matches found for '{target}'. Using '{matches[0]}'.")
+    return matches[0] if matches else None
 
 
 def sanitize_sequence(seq):

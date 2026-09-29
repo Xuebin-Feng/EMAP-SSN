@@ -606,7 +606,6 @@ class LogoSnapshotTests(unittest.TestCase):
                         "HEADER_LIST_DIR",
                         directory,
                     ), \
-                    mock.patch.object(logo_command.cfg, "ALIGNMENT_REFERENCE", ""), \
                     redirect_stdout(output):
                 logo_command.run(viewer, ["[2-5]", "occupancy.svg"])
 
@@ -614,7 +613,65 @@ class LogoSnapshotTests(unittest.TestCase):
             self.assertEqual(payload["valid_cols"], (1, 2, 3, 4))
             self.assertEqual(payload["plot_positions"], (2, 3, 4, 5))
             self.assertEqual(payload["numbering"], "occupancy")
-            self.assertNotIn("Using the first sequence", output.getvalue())
+
+    def run_logo_on(self, alignment, active_reference, args):
+        """Run `logo` over both nodes of ALIGNMENT and return the viewer and scheduler."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        scheduler = CapturingScheduler()
+        viewer = SimpleNamespace(
+            alignment=alignment,
+            full_headers=[str(record.id) for record in alignment.aln],
+            selected_indices=[0, 1],
+            cluster_labels=None,
+            group_labels=None,
+            active_reference=active_reference,
+            console_text=SimpleNamespace(text=""),
+            background_job_scheduler=scheduler,
+        )
+        with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory.name), \
+                mock.patch.object(logo_command.cfg, "HEADER_LIST_DIR", directory.name), \
+                redirect_stdout(io.StringIO()):
+            logo_command.run(viewer, args)
+        return viewer, scheduler
+
+    def test_run_names_the_anchored_header_on_the_axis(self):
+        # The reference may be requested by identifier or wildcard; the axis
+        # names the header the alignment anchored numbering on.
+        alignment = SimpleNamespace(
+            aln=sparse_alignment([("WP_0123.1_protein_A", "MAKCD"), ("node1", "MAKCD")]),
+            viewer_to_aln=np.array([0, 1]),
+            col_to_label={0: "1", 1: "2", 2: "3", 3: "4", 4: "5"},
+            label_to_col={"1": 0, "2": 1, "3": 2, "4": 3, "5": 4},
+            has_reference=True,
+            resolved_ref_full="WP_0123.1_protein_A",
+        )
+
+        _, scheduler = self.run_logo_on(alignment, "WP_0123.1", ["[2-3]", "anchor.svg"])
+
+        payload = scheduler.job["payload"]
+        self.assertEqual(payload["numbering"], "reference")
+        self.assertEqual(payload["ref_id"], "WP_0123.1_protein_A")
+
+    def test_run_without_retained_columns_finds_no_positions(self):
+        # No column passes the occupancy filter, so there are no displayed
+        # positions. logo reports them missing, as query does, instead of
+        # numbering the residues of some row.
+        alignment = SimpleNamespace(
+            aln=sparse_alignment([("node0", "M-KCD"), ("node1", "MAKCD")]),
+            viewer_to_aln=np.array([0, 1]),
+            col_to_label={},
+            label_to_col={},
+            has_reference=False,
+        )
+
+        viewer, scheduler = self.run_logo_on(alignment, "node0", ["[1-3]", "empty.svg"])
+
+        self.assertIsNone(scheduler.job)
+        self.assertEqual(
+            viewer.console_text.text,
+            "Error: Requested positions are outside the sequence bounds.",
+        )
 
     def test_run_scopes_overwrite_to_explicit_filename(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -674,8 +731,6 @@ class LogoPositionAxisLabelTests(unittest.TestCase):
             label({"numbering": "reference", "ref_id": "WP_1"}),
             "Position (relative to WP_1)",
         )
-        # Payloads without the key keep the historical reference wording.
-        self.assertEqual(label({"ref_id": ""}), "Position (relative to first sequence)")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ from utilities.Sequence_Utils import (
     canonicalize_sparse_values,
     load_sanitized_msa_fasta,
     parse_int_to_aa_mapping,
+    pick_reference_header,
     print_msa_sanitization_result,
     sanitize_msa_headers,
     simplify_node_label,
@@ -74,15 +75,16 @@ class Alignment_Manager:
 
         has_ref = bool(active_reference and str(active_reference).strip().lower() != 'none')
         reference_fallback = False
-        ref_idx = self._find_reference_index(active_reference) if has_ref else -1
+        ref_header = self._resolve_reference_header(active_reference) if has_ref else None
+        ref_idx = self.aln.find_reference_index(ref_header) if ref_header else -1
 
         if has_ref and ref_idx != -1:
             self.valid_cols, ref_length, forced_retained = self.aln.get_valid_columns(
                 cfg.FILTER_MIN_OCCUPANCY,
-                ref_header=active_reference,
+                ref_header=ref_header,
             )
             _, self.col_to_label = self.aln.get_ref_anchored_mapping(
-                active_reference,
+                ref_header,
                 self.valid_cols,
             )
             self.resolved_ref_full = self.aln.headers[ref_idx]
@@ -124,10 +126,18 @@ class Alignment_Manager:
 
         self.seq_map = self.aln.header_map
 
-    def _find_reference_index(self, active_reference):
-        if not active_reference or len(self.aln) == 0:
-            return -1
-        return self.aln.find_reference_index(active_reference)
+    def _resolve_reference_header(self, active_reference):
+        """Resolve the requested reference to one full header, as `reference` does.
+
+        The network headers are the candidates, so a sequence the MSA lacks
+        resolves to its own header and leaves the reference inactive instead of
+        anchoring on another row whose header merely contains the text. Without
+        network headers, the MSA rows are the candidates.
+        """
+        if len(self.aln) == 0:
+            return None
+        candidates = self.network_headers or self.aln.headers
+        return pick_reference_header(candidates, str(active_reference).strip())
 
     def _configure_occupancy_mapping(self):
         self.resolved_ref_full = 'None'
@@ -449,18 +459,26 @@ class SparseAlignmentLoader:
         return self.n_cols
 
     def find_reference_index(self, ref_header):
-        """Resolve a reference within the rows retained for the active network."""
+        """Return the row whose header is REF_HEADER, or -1.
+
+        Callers resolve identifiers, substrings and wildcards to one full header
+        first (Sequence_Utils.pick_reference_header). Matching only that header
+        means a sequence the MSA lacks reads as absent, instead of anchoring
+        numbering on another row whose header contains it or is contained in it.
+        A case-sensitive match wins over a case-insensitive one.
+        """
         if not ref_header or self.n_seqs == 0:
             return -1
 
-        target_lower = str(ref_header).lower()
-        for header_key, idx in self.header_map.items():
-            if target_lower == str(header_key).lower():
-                return idx
+        target = str(ref_header)
+        target_lower = target.lower()
+        case_insensitive_idx = -1
         for i, header in enumerate(self.headers):
-            if target_lower in header.lower() or header.lower() in target_lower:
+            if header == target:
                 return i
-        return -1
+            if case_insensitive_idx == -1 and header.lower() == target_lower:
+                case_insensitive_idx = i
+        return case_insensitive_idx
 
     def get_valid_columns(self, min_occupancy_pct, ref_header=None):
         if self.n_seqs == 0:
@@ -474,18 +492,10 @@ class SparseAlignmentLoader:
         ref_length = 0
         added = 0
         
-        # 2. Reference Force-Keep (NEW)
-        search_targets = []
-        if ref_header: search_targets.append(ref_header)
-        if hasattr(cfg, 'ALIGNMENT_REFERENCE') and cfg.ALIGNMENT_REFERENCE: 
-            search_targets.append(cfg.ALIGNMENT_REFERENCE)
+        # 2. Reference Force-Keep, for the active reference only. Pure occupancy
+        # mode passes no reference and keeps no row's columns.
+        ref_idx = self.find_reference_index(ref_header)
 
-        ref_idx = -1
-        for target in search_targets:
-            ref_idx = self.find_reference_index(target)
-            if ref_idx != -1:
-                break
-        
         if ref_idx != -1:
             # Get the reference row
             ref_row = self.matrix[ref_idx].toarray()[0]
@@ -500,8 +510,8 @@ class SparseAlignmentLoader:
             added = len(valid_indices) - before_len
         return valid_indices, ref_length, added
 
-    def get_ref_anchored_mapping(self, ref_id_substring, valid_cols):
-        ref_idx = self.find_reference_index(ref_id_substring)
+    def get_ref_anchored_mapping(self, ref_header, valid_cols):
+        ref_idx = self.find_reference_index(ref_header)
         
         if ref_idx == -1: return None, None
 

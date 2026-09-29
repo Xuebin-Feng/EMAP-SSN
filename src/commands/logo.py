@@ -566,47 +566,30 @@ def _position_axis_label(payload):
     """Describe the numbering the plotted position labels actually use."""
     if payload.get("numbering") == "occupancy":
         return "Position (occupancy numbering)"
-    return f"Position (relative to {payload['ref_id'] or 'first sequence'})"
+    return f"Position (relative to {payload['ref_id']})"
 
 
-def resolve_reference_columns(alignment, requested_positions, ref_seq_str):
+def resolve_reference_columns(alignment, requested_positions):
     """Resolve displayed positions to alignment columns.
 
-    The alignment's displayed-label mapping is used whenever it exists, in both
-    reference mode (reference numbering plus offset) and occupancy mode
-    (retained columns numbered from 1), so logo positions match `query` and
-    residue predicates. Counting the non-gap residues of ``ref_seq_str`` is
-    only a fallback for an alignment that carries no label mapping.
+    Uses the alignment's displayed-label mapping in both reference mode
+    (reference numbering plus offset) and occupancy mode (retained columns
+    numbered from 1), so logo positions match `query` and residue predicates.
+    A position without a label is missing, as it is for `query`; with no
+    retained columns, every position is.
     """
     valid_cols = []
     plot_positions = []
     missing_positions = []
 
-    label_to_col = getattr(alignment, 'label_to_col', None)
-    if label_to_col:
-        for position in requested_positions:
-            col_idx = label_to_col.get(str(position))
-            if col_idx is None:
-                missing_positions.append(position)
-            else:
-                valid_cols.append(col_idx)
-                plot_positions.append(position)
-        return valid_cols, plot_positions, missing_positions
-
-    ref_pos_to_col = {}
-    curr_pos = 1
-    for col_idx, char in enumerate(ref_seq_str):
-        if char not in getattr(cfg, 'GAP_CHARS', ['-', '.']):
-            ref_pos_to_col[curr_pos] = col_idx
-            curr_pos += 1
-
+    label_to_col = getattr(alignment, 'label_to_col', None) or {}
     for position in requested_positions:
-        if position in ref_pos_to_col:
-            valid_cols.append(ref_pos_to_col[position])
-            plot_positions.append(position)
-        else:
+        col_idx = label_to_col.get(str(position))
+        if col_idx is None:
             missing_positions.append(position)
-
+        else:
+            valid_cols.append(col_idx)
+            plot_positions.append(position)
     return valid_cols, plot_positions, missing_positions
 
 
@@ -917,31 +900,15 @@ def run(viewer, args):
         return
 
     # 7. Map positions through the alignment's displayed labels, the mapping
-    # `query` and residue predicates use. A reference sequence is looked up
-    # only for an alignment that carries no label mapping.
-    ref_id = getattr(viewer, 'active_reference', None) or getattr(cfg, 'ALIGNMENT_REFERENCE', '')
-    ref_seq_str = None
-    numbering = "reference"
-    if getattr(viewer.alignment, 'label_to_col', None):
-        if not getattr(viewer.alignment, 'has_reference', False):
-            numbering = "occupancy"
-    else:
-        if ref_id:
-            # Keys cover every row's full header, ID, and simplified accession.
-            for key, idx in viewer.alignment.aln.header_map.items():
-                if ref_id in key:
-                    ref_seq_str = str(viewer.alignment.aln[idx].seq)
-                    break
-
-        if not ref_seq_str:
-            print(f"Warning: Reference ID '{ref_id}' not found. Using the first sequence as reference.")
-            ref_seq_str = str(viewer.alignment.aln[0].seq)
-            ref_id = ""
+    # `query` and residue predicates use. The axis names the header the
+    # alignment anchored on, not the text the reference was requested by.
+    has_reference = getattr(viewer.alignment, 'has_reference', False)
+    numbering = "reference" if has_reference else "occupancy"
+    ref_id = getattr(viewer.alignment, 'resolved_ref_full', None) if has_reference else ""
 
     valid_cols, plot_positions, missing_positions = resolve_reference_columns(
         viewer.alignment,
         requested_positions,
-        ref_seq_str,
     )
     for position in missing_positions:
         print(f"Warning: Position {position} was not found in the active alignment mapping.")

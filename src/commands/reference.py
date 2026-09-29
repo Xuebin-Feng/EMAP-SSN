@@ -14,52 +14,18 @@
 # limitations under the License.
 
 import Command_Engine
-import fnmatch
-import re
-
-# Canonical SSN headers (Sequence_Utils.sanitize_header) hold no whitespace and
-# none of the wildcard characters * ? [ ]: whitespace becomes `_`, so an
-# identifier such as `WP_0123.1` is followed by `_` or by a `|` field separator.
-_SEGMENT_DELIMITER = re.compile(r"[_|]")
-
-
-def _identifiers(header_lower):
-    """Names a header answers to: its leading segments ending at `_` or `|`, and itself."""
-    prefixes = [header_lower[:match.start()] for match in _SEGMENT_DELIMITER.finditer(header_lower)]
-    return prefixes + [header_lower]
-
-
-def _pick_header(candidates, target):
-    """Choose the header TARGET names, preferring an exact identifier.
-
-    `WP_0123.1` names `WP_0123.1_protein_A` exactly and is only a substring of
-    `WP_0123.10_protein_B`, so a versioned accession resolves to its own
-    sequence. Wildcards match the whole header or any leading segment, which
-    lets `*.1` select a version suffix. When several headers qualify at the
-    chosen tier, the first in network order is used and a warning names it.
-    """
-    target_lower = target.lower()
-    identifiers = {header: _identifiers(header.lower()) for header in candidates}
-    exact = [header for header, names in identifiers.items() if target_lower in names]
-    matches = exact or [
-        header
-        for header, names in identifiers.items()
-        if target_lower in header.lower()
-        or any(fnmatch.fnmatchcase(name, target_lower) for name in names)
-    ]
-    if len(matches) > 1:
-        print(f"Warning: Multiple matches found for '{target}'. Using '{matches[0]}'.")
-    return matches[0] if matches else None
+from utilities.Sequence_Utils import pick_reference_header
 
 
 def _resolve_reference_header(viewer, target):
     """Resolve TARGET once to the exact full network header that anchors numbering.
 
     The alignment holds only rows whose headers are network headers, so the
-    network headers are the complete candidate set. The alignment receives the
-    chosen full header, so it anchors on the same row that is reported.
+    network headers are the complete candidate set. The alignment matches the
+    chosen full header exactly, so it anchors on the row that is reported, or
+    leaves the reference inactive when the MSA lacks that sequence.
     """
-    return _pick_header(viewer.full_headers, target)
+    return pick_reference_header(viewer.full_headers, target)
 
 
 def _current_reference_message(viewer):

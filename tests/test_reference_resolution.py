@@ -21,11 +21,13 @@ from tests.test_incomplete_alignment_commands import load_manager, write_fasta  
 
 
 class ReferenceResolutionTests(unittest.TestCase):
-    def run_reference(self, records, headers, *targets):
+    def run_reference(self, records, headers, *targets, configured=""):
         """Run `reference` for each target on a toy MSA.
 
-        Returns the viewer, the terminal log, and the success messages reported
-        to the command portal.
+        RECORDS are the MSA rows and HEADERS the network headers, so a network
+        node can be absent from the MSA. CONFIGURED is the ALIGNMENT_REFERENCE
+        setting. Returns the viewer, the terminal log, and the success messages
+        reported to the command portal.
         """
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -50,7 +52,7 @@ class ReferenceResolutionTests(unittest.TestCase):
         output = io.StringIO()
         engine = reference_command.Command_Engine
         with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
-                mock.patch.object(Alignment_Manager.cfg, "ALIGNMENT_REFERENCE", ""), \
+                mock.patch.object(Alignment_Manager.cfg, "ALIGNMENT_REFERENCE", configured), \
                 mock.patch.object(
                     engine, "command_succeeded", wraps=engine.command_succeeded
                 ) as succeeded, \
@@ -59,6 +61,25 @@ class ReferenceResolutionTests(unittest.TestCase):
                 reference_command.run(viewer, [target] if target else [])
         messages = [call.args[1] for call in succeeded.call_args_list]
         return viewer, output.getvalue(), messages
+
+    def load_configured(self, records, headers, reference):
+        """Load a toy MSA as the Viewer does at startup, with ALIGNMENT_REFERENCE set.
+
+        The Viewer, including an MCP launch, hands the setting to the alignment
+        without running the `reference` command.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        msa_path = os.path.join(directory.name, "toy.fasta")
+        write_fasta(msa_path, records)
+        output = io.StringIO()
+        with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
+                mock.patch.object(Alignment_Manager.cfg, "ALIGNMENT_REFERENCE", reference), \
+                redirect_stdout(output):
+            manager = Alignment_Manager.Alignment_Manager(
+                msa_path, full_headers=list(headers), active_reference=reference
+            )
+        return manager, output.getvalue()
 
     def test_wildcard_target_resolves_and_activates_the_reference(self):
         records = [("WP1_E1_RA_protein", "MAC-D"), ("WP2_other_protein", "MACKD")]
@@ -86,6 +107,18 @@ class ReferenceResolutionTests(unittest.TestCase):
         )
         # Numbering is anchored on E1_RA, which has a residue in every column.
         self.assertEqual(viewer.alignment.label_to_col["5"], 4)
+
+    def test_exact_header_wins_over_a_longer_header_that_starts_with_it(self):
+        # `E1_RA` is also the leading identifier of the earlier `E1_RA_variant`.
+        records = [("E1_RA_variant", "MA--CD"), ("E1_RA", "MAKLCD")]
+
+        viewer, log, messages = self.run_reference(
+            records, [h for h, _ in records], "E1_RA"
+        )
+
+        self.assertNotIn("Multiple matches", log)
+        self.assertEqual(viewer.alignment.resolved_ref_full, "E1_RA")
+        self.assertEqual(messages, ["Reference successfully set: E1_RA."])
 
     def test_ambiguous_target_reports_the_row_the_alignment_uses(self):
         records = [("XE1_RA_variant", "MA--CD"), ("E1_RA", "MAKLCD"), ("S3", "MAKLCD")]
@@ -143,6 +176,77 @@ class ReferenceResolutionTests(unittest.TestCase):
             viewer.console_text.text,
             "Current Reference: node2 (inactive; not resolved in the current MSA)",
         )
+
+    def test_reference_missing_from_the_msa_stays_inactive(self):
+        # The network has the node but the MSA lacks it. Another row's header
+        # contains the target, or is contained in it; neither may anchor numbering.
+        cases = (
+            (
+                [("XE1_RA_variant", "MA--CD"), ("S3", "MAKLCD")],
+                ["XE1_RA_variant", "E1_RA", "S3"],
+                "E1_RA",
+            ),
+            (
+                [("P1", "MA--CD"), ("S3", "MAKLCD")],
+                ["P1", "P12_kinase", "S3"],
+                "P12_kinase",
+            ),
+        )
+        for msa, network, target in cases:
+            with self.subTest(target=target):
+                viewer, _, messages = self.run_reference(msa, network, target)
+
+                self.assertFalse(viewer.alignment.has_reference)
+                self.assertEqual(viewer.alignment.resolved_ref_full, "None")
+                self.assertEqual(
+                    messages,
+                    [
+                        f"Reference '{target}' is configured but inactive because it "
+                        "is not present in the current MSA. Pure occupancy mode "
+                        "remains active."
+                    ],
+                )
+
+    def test_occupancy_mode_keeps_no_columns_for_the_configured_reference(self):
+        # After `reference` selects a sequence the MSA lacks, numbering is pure
+        # occupancy: S3, the ALIGNMENT_REFERENCE setting, no longer keeps its
+        # low-occupancy column 1.
+        msa = [("alpha", "M-C"), ("beta", "M-C"), ("S3", "MKC")]
+
+        viewer, _, _ = self.run_reference(
+            msa, ["alpha", "beta", "S3", "E1_RA"], "E1_RA", configured="S3"
+        )
+
+        self.assertFalse(viewer.alignment.has_reference)
+        self.assertEqual(viewer.alignment.valid_cols, {0, 2})
+        self.assertEqual(viewer.alignment.label_to_col, {"1": 0, "2": 2})
+
+    def test_configured_reference_resolves_like_the_command(self):
+        manager, log = self.load_configured(
+            self.ACCESSION_RECORDS,
+            [h for h, _ in self.ACCESSION_RECORDS],
+            "WP_0123.1",
+        )
+
+        self.assertNotIn("Multiple matches", log)
+        self.assertEqual(manager.resolved_ref_full, "WP_0123.1_protein_A")
+
+        records = [("WP1_E1_RA_protein", "MAC-D"), ("WP2_other_protein", "MACKD")]
+        manager, _ = self.load_configured(records, [h for h, _ in records], "WP1*")
+
+        self.assertTrue(manager.has_reference)
+        self.assertEqual(manager.resolved_ref_full, "WP1_E1_RA_protein")
+
+    def test_configured_reference_missing_from_the_msa_stays_inactive(self):
+        msa = [("XE1_RA_variant", "MA--CD"), ("S3", "MAKLCD")]
+
+        manager, log = self.load_configured(
+            msa, ["XE1_RA_variant", "E1_RA", "S3"], "E1_RA"
+        )
+
+        self.assertFalse(manager.has_reference)
+        self.assertEqual(manager.resolved_ref_full, "None")
+        self.assertIn("Configured reference 'E1_RA' is missing", log)
 
 
 if __name__ == "__main__":

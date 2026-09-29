@@ -158,7 +158,6 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
         columns, positions, missing = logo_command.resolve_reference_columns(
             manager,
             [1, 11, "11.1", 12],
-            "ACG",
         )
 
         self.assertEqual(columns, [0, 1, 2])
@@ -174,7 +173,6 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
             with open(msa_path, "w", encoding="utf-8") as handle:
                 handle.write(">S1\nM-KCD\n>S2\nMAKCD\n>S3\nMAKCD\n")
             with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
-                    mock.patch.object(Alignment_Manager.cfg, "ALIGNMENT_REFERENCE", ""), \
                     redirect_stdout(io.StringIO()):
                 manager = Alignment_Manager.Alignment_Manager(
                     msa_path, full_headers=["S1", "S2", "S3"], active_reference=""
@@ -184,7 +182,6 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
         columns, positions, missing = logo_command.resolve_reference_columns(
             manager,
             [1, 2, 3, 4, 5],
-            "M-KCD",
         )
 
         self.assertEqual(

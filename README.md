@@ -355,17 +355,18 @@ selected per GFX target:
 | Platform/profile | Eligible GFX targets | Additional requirements |
 | --- | --- | --- |
 | Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
-| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus any other target the ROCm channel ships a device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`, `gfx1153`, `gfx1250`. | A listed Ubuntu release, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. |
+| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`, `gfx1153`. | A listed Ubuntu release, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. |
 
 The two platforms differ because of how the GFX target is identified. Windows
 exposes no way to query it, so the target is inferred from the product name
 against a pinned snapshot, and only models in that snapshot are eligible. On
 Linux the installed ROCm stack reports the target directly; when the product
 name is not in the snapshot the reported target is used instead, provided the
-ROCm channel publishes a device package for it. That covers AMD Instinct parts
-and RDNA1/RDNA2 consumer cards whose `lspci` names the snapshot never matched.
-If two or more distinct targets are reported, the reported value is not
-attributed to any single adapter and name matching remains the only source.
+ROCm channel publishes a PyTorch 2.12.0 device package for it. That covers
+AMD Instinct parts and RDNA1/RDNA2 consumer cards whose `lspci` names the
+snapshot never matched. If two or more distinct targets are reported, the
+reported value is not attributed to any single adapter and name matching
+remains the only source.
 
 Earlier releases offered four ROCm profiles (Windows 7.14 and 7.2.1, Linux 7.2
 and 6.4). ROCm 7.14 covers every GFX target the retired profiles did, so no

@@ -298,8 +298,9 @@ class DetectionCompatibilityTests(unittest.TestCase):
 
     def test_linux_rocm_accepts_every_channel_target_as_one_profile(self):
         # The per-release Linux profiles are gone. Eligibility is now a single
-        # question: does the ROCm 7.14 multi-arch channel ship a device package
-        # for this target? A target outside that set stays ineligible.
+        # question: does the pinned torch wheel on the ROCm 7.14 multi-arch
+        # channel ship a device package for this target? A target outside that
+        # set stays ineligible.
         supported = gpu(
             "AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100"
         )
@@ -328,6 +329,27 @@ class DetectionCompatibilityTests(unittest.TestCase):
             [candidate["backend"] for candidate in candidates],
             ["rocm", "cpu"],
         )
+
+    def test_linux_rocm_rejects_a_target_the_pinned_torch_has_no_extra_for(self):
+        # AMD's channel ships gfx1250 kernels only for torch 2.11.0, so the pinned
+        # 2.12.0 wheel declares no `device-gfx1250` extra. uv would only warn about
+        # the unknown extra and install torch without gfx1250 kernels.
+        named = gpu("AMD Test GPU", "AMD", identifier="amd0", architecture="gfx1250")
+        reported = gpu("AMD Test GPU", "AMD", identifier="amd1")
+        with mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
+                mock.patch.object(Detect_GPU.os, "access", return_value=True):
+            Detect_GPU._evaluate_devices(
+                [named, reported],
+                "linux",
+                {"id": "ubuntu", "version_id": "24.04"},
+                {"gfx1250"},
+            )
+
+        self.assertEqual(named["eligible_profiles"], [])
+        self.assertIn("pinned PyTorch", named["reasons"][0])
+        # A runtime-reported gfx1250 is not adopted as the device's target either.
+        self.assertEqual(reported["eligible_profiles"], [])
+        self.assertIsNone(reported["architecture"])
 
 
 class InstallerProfileTests(unittest.TestCase):

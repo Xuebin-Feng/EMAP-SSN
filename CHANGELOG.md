@@ -249,15 +249,21 @@ still change before version 1.0.0.
   attached to the selection, and it drew edges and node outlines in black. It now
   applies the same edge filter as the screen and the configured `EDGE_COLOR` and
   `NODE_BOUNDARY_COLOR`.
-- `reference` resolved its target twice, with different rules. A wildcard target
-  matched a network header but was then looked up literally in the MSA, so
-  `reference WP_01*` left the reference inactive with a message claiming the sequence
-  was absent. When several headers matched, the warning and the success message could
-  name a different sequence from the one the alignment anchored on. The command now
-  resolves the target against the network headers and passes that full header to the
-  alignment, so wildcard targets work and the success message names the sequence the
-  alignment anchored on. A bare `reference` marks an unresolved reference as inactive.
-  An exact header or leading identifier takes priority over substring matches, so
+- The alignment reference was resolved with different rules in different places. A
+  wildcard target matched a network header but was then looked up literally in the
+  MSA, so `reference WP_01*` left the reference inactive with a message claiming the
+  sequence was absent. When several headers matched, the warning and the success
+  message could name a different sequence from the one the alignment anchored on. A
+  reference whose sequence the MSA lacks was anchored on another row whose header
+  contained it or was contained in it, so `reference P12_kinase` could number
+  positions against `P1`. The `reference` command and the `ALIGNMENT_REFERENCE`
+  setting now resolve the target once against the network headers, and the alignment
+  anchors only on that exact header: wildcard targets work, the success message names
+  the sequence the alignment anchored on, and a reference missing from the MSA stays
+  inactive, with the MSA in pure occupancy mode. That mode no longer keeps the columns
+  of the `ALIGNMENT_REFERENCE` sequence after `reference` selects a sequence the MSA
+  lacks. A bare `reference` marks an unresolved reference as inactive. An exact header
+  takes priority, then a leading identifier, then substring matches, so
   `reference WP_0123.1` selects `WP_0123.1_protein_A` instead of the first header
   containing it, such as `WP_0123.10_protein_B`, and wildcards such as `*.1` can
   match that identifier.

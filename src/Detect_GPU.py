@@ -50,9 +50,17 @@ AMD_GFX_PATTERNS = (
 )
 ROCM_714_TARGETS = frozenset(target for target, _patterns in AMD_GFX_PATTERNS)
 
-# Every GFX target the ROCm 7.14 multi-architecture channel publishes an
-# `amd-torch-device-*` package for. Verified against
-# https://repo.amd.com/rocm/whl-multi-arch/ on 2026-09-18.
+# Every GFX target the pinned ROCm PyTorch wheel (ROCM_TORCH_VERSION in
+# Install_Dependencies) declares a `device-<target>` extra for; the extra pulls
+# in that target's `amd-torch-device-*` kernels. Verified against the metadata
+# of the Linux torch 2.12.0+rocm7.14.1 wheel from
+# https://repo.amd.com/rocm/whl-multi-arch/ on 2026-09-29. The Windows wheel
+# declares every AMD_GFX_PATTERNS target.
+#
+# Check the pinned wheel, not the channel's package list: the channel publishes
+# device packages for other torch versions too (`gfx1250` for 2.11.0 only), and
+# uv, like pip, merely warns about an extra the wheel does not declare and then
+# installs torch without kernels for that GPU.
 #
 # The channel also carries `gfx11`, `gfx110x`, `gfx115x` and `gfx12`. Those are
 # multi-architecture bundles, not device identities, so they are excluded: a
@@ -68,7 +76,7 @@ ROCM_CHANNEL_TARGETS = frozenset({
     "gfx1030", "gfx1031", "gfx1032", "gfx1033", "gfx1034", "gfx1035", "gfx1036",
     "gfx1100", "gfx1101", "gfx1102", "gfx1103",
     "gfx1150", "gfx1151", "gfx1152", "gfx1153",
-    "gfx1200", "gfx1201", "gfx1250",
+    "gfx1200", "gfx1201",
 })
 INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152"})
 
@@ -415,9 +423,10 @@ def _linux_rocm_fallback_target(rocm_targets: set[str]) -> str | None:
     Only applied when exactly one supported target is reported. The agent list
     is unordered and carries no PCI address, so with two distinct targets there
     is no reliable way to attribute one to a specific lspci entry; the
-    conservative unmapped result is kept instead of guessing. A target the
-    ROCm 7.14 channel has no device package for is also ignored, because the
-    resulting `torch[device-<target>]` requirement could not be resolved.
+    conservative unmapped result is kept instead of guessing. A target outside
+    ROCM_CHANNEL_TARGETS is also ignored: the pinned torch wheel declares no
+    `device-<target>` extra for it, so the install would only warn and leave
+    out that GPU's kernels.
     """
     supported = {target for target in rocm_targets if target in ROCM_CHANNEL_TARGETS}
     return next(iter(supported)) if len(supported) == 1 else None
@@ -524,9 +533,10 @@ def _evaluate_devices(
                 elif not target_seen:
                     reasons.append(f"ROCm agents do not report the mapped target {target}.")
                 elif target in ROCM_CHANNEL_TARGETS:
-                    # Linux gates on what the ROCm channel actually ships rather
-                    # than on the name-pattern table, because the target here is
-                    # either name-matched or reported by the ROCm runtime.
+                    # Linux gates on the targets the pinned torch wheel ships
+                    # kernels for rather than on the name-pattern table, because
+                    # the target here is either name-matched or reported by the
+                    # ROCm runtime.
                     profiles = ["rocm"]
                     status = "eligible" if rocm_targets else "provisional"
                     device["profile_eligibility"] = {
@@ -537,7 +547,8 @@ def _evaluate_devices(
                     )
                 else:
                     reasons.append(
-                        f"{target} has no device package on the ROCm 7.14 channel."
+                        f"{target} has no device package for the pinned PyTorch "
+                        "on the ROCm 7.14 channel."
                     )
             else:
                 reasons.append("ROCm is not configured for this operating system.")
