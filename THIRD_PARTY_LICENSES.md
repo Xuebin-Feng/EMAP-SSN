@@ -284,9 +284,12 @@ University of Toronto ownership review as the rest of the project.
 [EMAP-SSN-VR](https://github.com/Xuebin-Feng/EMAP-SSN-VR) repository, which
 carries its own Apache-2.0 `LICENSE`. Its contents are not part of this
 repository's source archives, and this inventory does not cover them. That
-repository tracks a prebuilt Unity player, including Unity, Mono, Direct3D,
-SteamVR, and OpenXR binaries, which remain under their vendors' terms. Its
-`THIRD_PARTY_NOTICES.md` inventories them.
+repository tracks no binaries. Its VR client, built with Godot Engine (MIT)
+and licensed Apache-2.0, is a release asset that `install_vr.bat` or the VR
+viewer downloads; each release carries the client's complete source. Its
+`THIRD_PARTY_NOTICES.md`, which also ships inside every client release,
+inventories Godot and the components compiled into it, all under permissive
+licences apart from Mozilla's CA certificate bundle (MPL-2.0).
 
 ---
 
