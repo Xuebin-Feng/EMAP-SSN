@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+
 import numpy as np
 import matplotlib.colors as mcolors
 import EMAPSSN_Config as cfg
@@ -35,7 +37,8 @@ def print_help():
     Attributes:
       1. Color: Name (red, blue) or Hex (#ff0000)
          Valid selection expressions take precedence over colors and other modifiers.
-      2. Scale: Suffix with 'x' (e.g., 2x, 0.5x)
+      2. Scale: Suffix with 'x' (e.g., 2x, 0.5x, 0x). Scales must be finite and
+         non-negative.
          Old x2 scale syntax is removed; x2 now selects residue X at position 2.
       3. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
 
@@ -48,7 +51,9 @@ def print_help():
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@ (Regex extraction)
       5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#, #my_group#)
       6. UI Selection: $sele$     (Explicitly targets selected nodes)
-      7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
+      7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*});
+                       ranges use = (e.g., {Length=300-500}), and negative
+                       range bounds require parentheses (e.g., {GRAVY=(-1)-0})
 
     Logic Operators:
       & (AND), | (OR), ! (NOT), ^ (XOR)
@@ -129,10 +134,22 @@ def run(viewer, args):
         # Scale uses a trailing lowercase x (e.g., 2.5x).
         if arg.endswith('x'):
             try:
-                current_scale = float(arg[:-1])
-                continue
+                scale = float(arg[:-1])
             except ValueError:
                 pass
+            else:
+                # float() also accepts '-2', 'nan', 'inf' and '1e400' (inf).
+                # Nothing has been applied yet, so rejecting here is atomic.
+                if not math.isfinite(scale) or scale < 0:
+                    msg = (
+                        f"Error: Invalid scale '{arg}'. A scale is a finite, "
+                        "non-negative number followed by x, e.g. 2x, 0.5x or 0x."
+                    )
+                    Command_Engine.print_help(viewer, msg)
+                    Command_Engine.command_failed(viewer, msg)
+                    return
+                current_scale = scale
+                continue
                 
         # 2. Check if Shape
         arg_lower = arg.lower()

@@ -36,11 +36,20 @@ still change before version 1.0.0.
   `x<number>` must be rewritten. In `color` and `spectrum`, uppercase `C<number>`
   always selects the cysteine at that position and is never read as a Matplotlib
   `CN` color.
+- **Check saved alignment references.** `ALIGNMENT_REFERENCE` and `reference` now
+  resolve the target against the network headers — an exact header first, then a
+  leading identifier, then a substring or wildcard match — and the alignment anchors
+  only on that header (see Fixed). v0.2.0 anchored on the first MSA row that matched
+  by exact name or by substring in either direction. A saved reference can therefore
+  anchor on a different sequence, or stay inactive when the MSA lacks it, which leaves
+  the alignment in occupancy numbering. Positions in `query`, `logo`, `label`, and
+  residue expressions change with it, and the `logo` axis now names the header the
+  alignment anchored on instead of the text that was typed.
 - **ESM-2 3B and 15B are no longer supported.** `esm2_t36_3b` and `esm2_t48_15b` were
   removed, so `esm2_t33_650m` is now the largest ESM-2 model. Saved Tools settings
-  that name either model must select another one. The Tools window does not keep the
-  removed name: it shows the first model in its list, `ankh_base`, whose weights are
-  licensed for non-commercial use only, so check the selection before running.
+  that name either model must select another one. The Tools window shows the saved
+  name as "Unavailable saved model [name]" and will not run until another model is
+  selected.
   Headless and MCP runs reject the name. Embedding files created with either model
   can no longer be resumed, extended by `Embedding_Injection.py`, or queried with new
   sequences in `Embedding_SSEARCH.py` or `Embedding_PWA.py`, because no plugin can
@@ -67,12 +76,19 @@ still change before version 1.0.0.
   v0.2.0 still open, but the Viewer no longer synthesizes a `Length` column for a
   cache without stored metadata, so such caches open without metadata columns until
   they are regenerated.
-- **Windows ROCm requires Windows 11 25H2.** AMD GPUs on earlier Windows 11 builds,
-  which v0.2.0 served through the retired ROCm 7.2.1 profile, now fall back to the
-  next eligible accelerator or to the CPU.
+- **Windows ROCm requires Windows 11 25H2.** On earlier Windows 11 builds, v0.2.0
+  served `gfx1100`, `gfx1101`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, and
+  `gfx1201` through the retired ROCm 7.2.1 profile, which also required AMD Software
+  26.2.2 or newer. Those GPUs now fall back to the next eligible accelerator or to
+  the CPU.
 - **The managed environment is rebuilt on first launch.** The launchers recreate a
   `.venv` that does not run Python 3.13, so the first launch after upgrading rebuilds
   it with Python 3.13 and reinstalls every dependency, including PyTorch.
+- **Restart Viewers that were running during the upgrade.** The MCP server now asks a
+  Viewer whether it supports alignment snapshots and node projection. A Viewer started
+  before the upgrade does not, so `get_summary` with `include_alignment`,
+  `get_residue_distribution`, and `query_nodes` with `fields` fail with "upgrade and
+  restart the Viewer" until it is restarted.
 
 ### Added
 
@@ -81,7 +97,9 @@ still change before version 1.0.0.
   `Layout_Cache_Generator.py`, and `emapssn_pipeline(action="start_layout_job")`.
   3D caches are stored in separate folders with a `_3D` suffix, record `physics_3d`
   or `umap_3d` as their layout mode, and are validated as `(node_count, 3)`
-  coordinates.
+  coordinates. The desktop Viewer, and Viewer settings validated through MCP, reject
+  a 3D cache with a message that names it as one and points to its 2D cache or
+  `LAYOUT_DIMENSIONS=2`.
 - `LAYOUT_SEED` (a non-negative integer, default `42`) seeds the physics and UMAP
   engines; `null` opts out of seeding. UMAP already used a fixed seed of 42 in v0.2.0,
   and physics layouts are now seeded too. With a fixed seed, UMAP layouts and CPU
@@ -94,6 +112,13 @@ still change before version 1.0.0.
   (Bjellqvist), and `GRAVY`, computed with vectorized residue counting and
   ambiguity-code handling and checked against Biopython's ProtParam in the test
   suite.
+- Negative bounds in metadata ranges, written in parentheses as negative alignment
+  positions are: `{GRAVY=(-1)-0}` or `{GRAVY=(-1.5)-(-0.5)}`. Ranges were split at
+  the first `-`, so none could have a negative lower bound, which the new, usually
+  negative `GRAVY` column needs. An unparenthesised negative bound such as
+  `{GRAVY=-1-0}` is rejected with an explanation instead of "not numeric". A single
+  value may be parenthesised too (`{GRAVY>=(-1)}`), and `{GRAVY>=-1}` works as
+  before.
 - Alignment snapshots for agents. `emapssn_viewer_data(action="get_summary")` with
   `include_alignment=true` freezes the displayed alignment into the snapshot; the new
   `get_residue_distribution` action returns paged per-position residue counts with
@@ -107,9 +132,15 @@ still change before version 1.0.0.
   rule (Ubuntu 25.10 or 26.04). Linux already recognized 130V/140V; the Arrow Lake
   "Arc Pro 130T/140T" name is still not matched there.
 - The optional `opt_vr` Git submodule (EMAP-SSN-VR), a VR viewer for 3D caches for
-  Windows users with a supported NVIDIA or AMD GPU. EMAP-SSN does not need it, and
-  GitHub source archives do not include it; it can be fetched with
-  `git clone --recurse-submodules`.
+  Windows users with a supported NVIDIA or AMD GPU and a VR headset with an OpenXR
+  runtime such as SteamVR. EMAP-SSN does not need it, and GitHub source archives do
+  not include it. Fetch it with `git clone --recurse-submodules`, or with
+  `git submodule update --init opt_vr` in an existing clone. This release records
+  the EMAP-SSN-VR commit that works with it, and `git pull --recurse-submodules`
+  keeps the two in step. The VR client itself is not in git: `opt_vr\install_vr.bat`,
+  or the first **Save & Run** in the VR Configuration window, downloads client 1.0.0,
+  a Godot 4.7.2 build published as a release asset of EMAP-SSN-VR, and checks it
+  against the SHA-256 pinned in `opt_vr/player_release.json`. See `opt_vr/README.md`.
 - `src/esm_runtime_requirements.txt` declaring ESM's runtime dependencies, installed
   after the accelerator-specific PyTorch build. It replaces the generated file that
   lived beside the bundled wheels, and the installer rejects it if it ever names
@@ -117,14 +148,15 @@ still change before version 1.0.0.
 - Linux AMD GPUs whose product name is not in the pinned model-to-GFX snapshot now
   resolve their target from `rocm_agent_enumerator`/`rocminfo` instead of being
   reported as unsupported. This makes AMD Instinct parts (`gfx908`, `gfx90a`,
-  `gfx942`, `gfx950`) and RDNA1/RDNA2 GPUs, including APU graphics
-  (`gfx1010`–`gfx1012`, `gfx1031`–`gfx1036`), eligible on Linux for the first time,
-  and also covers cards of already-supported targets whose `lspci` names the snapshot
-  does not match. The reported target is accepted only when exactly one supported
-  target is present — with several distinct agents there is no reliable way to
-  attribute one to a specific adapter — and only when it is in the project's pinned
-  list of GFX targets from AMD's ROCm 7.14 channel. Windows is unchanged and still
-  relies on the name snapshot, because it has no equivalent runtime source.
+  `gfx942`, `gfx950`), RDNA1/RDNA2 GPUs including APU graphics
+  (`gfx1010`–`gfx1012`, `gfx1031`–`gfx1036`), and `gfx1153` eligible on Linux for
+  the first time, and also covers cards of already-supported targets whose `lspci`
+  names the snapshot does not match. The reported target is accepted only when
+  exactly one supported target is present — with several distinct supported targets
+  there is no reliable way to attribute one to a specific adapter — and only when the
+  pinned PyTorch 2.12.0 ROCm 7.14 wheel declares a `device-<target>` extra for it.
+  Windows target resolution is unchanged and still relies on the name snapshot,
+  because it has no equivalent runtime source.
 
 ### Changed
 
@@ -152,16 +184,16 @@ still change before version 1.0.0.
   launchers. Every probe that decides whether to reuse `.venv` checks the version, so
   an existing `.venv` on another Python version, such as one kept from v0.2.0, is
   recreated instead of reused.
-- `Generate_Embeddings.py` now hides Transformers weight-load reports that contain no
-  MISSING entry. Loading into encoder-only classes leaves pretraining heads unused,
-  such as ProtBERT's `cls.*` tensors and Ankh's `lm_head.weight`, and Transformers 5
-  lists them as UNEXPECTED, which is routine noise; Transformers drops the T5 decoder
-  itself without reporting it. Reports containing a MISSING entry are still shown,
-  because a missing tensor is randomly initialized. ESM-2 loads always show one: the
-  checkpoints have no weights for the `EsmModel` pooler, which is harmless because
-  embeddings come from the last hidden state. A report with a shape mismatch but no
-  MISSING entry is hidden too, but such a load still fails with an error. Other
-  Transformers warnings are unaffected.
+- `Generate_Embeddings.py` now hides Transformers weight-load reports whose only
+  entries are UNEXPECTED. Loading into encoder-only classes leaves pretraining heads
+  unused, such as ProtBERT's `cls.*` tensors and Ankh's `lm_head.weight`, and
+  Transformers 5 lists them as UNEXPECTED, which is routine noise; Transformers drops
+  the T5 decoder itself without reporting it. Reports with a MISSING, MISMATCH, or
+  CONVERSION entry are still shown: a missing tensor is randomly initialized, and for
+  the other two Transformers raises an error that points to the report. ESM-2 no
+  longer builds the `EsmModel` pooler, which its checkpoints lack and its embeddings
+  never used, so its loads no longer print a MISSING report; ESM-2 embeddings are
+  unchanged. Other Transformers warnings are unaffected.
 - Upgraded `numba` to 0.67.0, which raised its ceiling to `numpy<2.6` and unblocked
   `numpy` 2.5.3. Also bumped PySide6 6.11.2, biopython 1.88, matplotlib 3.11.2,
   mcp 2.2.0, pandas 3.0.6, scikit-learn 1.9.1, scipy 1.18.1, sentencepiece 0.2.2,
@@ -176,8 +208,9 @@ still change before version 1.0.0.
   ESMFold2-only `cuequivariance` kernels, so the check always reports those
   deviations: two version findings on every platform, plus two missing-package
   findings on Linux x86_64. A version finding is accepted only when the installed
-  version is exactly the one pinned here, and a missing package only when it is one
-  of the documented omissions; any other finding still fails. An unaccounted-for or
+  version is the one pinned here — for torch, its base version, whatever accelerator
+  suffix such as `+cu132` follows it — and a missing package only when it is one of
+  the documented omissions; any other finding still fails. An unaccounted-for or
   unparseable report fails closed.
 - The ESM import smoke test now exercises `esm.models.esmc` and core Transformers
   classes (`AutoModel`, `AutoTokenizer`, `T5EncoderModel`), rather than the
@@ -211,17 +244,24 @@ still change before version 1.0.0.
   take the trailing-`x` form. Command help, Viewer command metadata, and the agent's
   system prompt describe the new syntax.
 - Initial node metadata is created during layout-cache generation instead of when the
-  Viewer opens a cache; the Viewer only orders what the cache provides. A stored
-  metadata group without `Length` is treated as an intentional column deletion and
-  is not regenerated.
+  Viewer opens a cache; the Viewer only orders what the cache provides. As in v0.2.0,
+  a stored metadata group without `Length` counts as an intentional column deletion.
 - Integral float metadata values display and export without trailing decimals, and
   the `meta show` HUD readout uses the same formatter.
 - Viewer settings no longer reject an MSA that lacks the configured
   `ALIGNMENT_REFERENCE`. The requested reference and offset are preserved, and the
   Viewer falls back to occupancy-based numbering and logs a warning at startup.
-- Headless pipeline and MCP jobs resolve directory defaults from the project's saved
-  `viewer_settings.json`, falling back to the built-in relative defaults only when no
-  override is saved.
+- On a complete network, the Embedding MSA tool's imputed-consensus switch now shows
+  OFF and its tooltip says "Not applicable"; v0.2.0 only disabled the switch in its
+  previous state. The preference chosen for incomplete networks is kept, restored
+  when an incomplete network is selected again, and saved.
+- MCP pipeline jobs submitted with individual `parameters` take an omitted or blank
+  directory from the project's saved Tools directories (`DIRECTORIES` in
+  `tools_settings.json`), falling back to the built-in relative default only when
+  none is saved; v0.2.0 always used the built-in defaults. `settings_document` and
+  `settings_path` submissions still use the built-in defaults. `start_layout_job`
+  reads the saved `SAVED_LAYOUT_DIR` from `viewer_settings.json` on every call;
+  v0.2.0 read it once, when the MCP server first loaded the Viewer configuration.
 - Neighbor lookups for the current selection use a cached CSR adjacency index instead
   of scanning every edge. Out-of-range and duplicate edges are dropped when the index
   is built, self-edges never change the result, and the index is rebuilt only when the
@@ -231,6 +271,12 @@ still change before version 1.0.0.
   moved from `web_ui/meta_backend.py` into `src/Metadata_Core.py`, which does not
   depend on PySide6 and is shared with the VR frontend. `meta_backend` re-exports the
   functions, so existing imports keep working.
+- `load_alignment_smart` returns the loader, or `None` when the file is rejected,
+  instead of a `(loader, is_sparse)` pair. `resolve_selected_cache` returns the cache
+  path instead of a `(cache_path, reference)` pair (see Removed), honours
+  `LAYOUT_DIMENSIONS` by naming the `_3D` folder for a 3D layout, and takes a
+  `layout_dimensions` keyword that overrides the setting. Desktop settings carry no
+  such key, so the desktop Viewer still resolves the 2D folder.
 - The README and `docs/mcp_settings.md` document the three MCP entry points, Viewer
   sessions and actions, the layout-cache workflow, and alignment snapshots.
 - The MCP server reports version `0.11.0` to clients (previously `0.10.0`) to reflect
@@ -283,9 +329,31 @@ still change before version 1.0.0.
 - The Configuration window refreshes the normalization-mode options before applying
   the default even while its signals are blocked, so the list stays in sync with the
   selected score mode and no longer silently rejects `alignment_length`.
-- The Embedding MSA tool remembers the imputed-consensus preference for incomplete
-  networks while a complete network is selected, where the switch is forced off and
-  marked "Not applicable".
+- `label` misread thresholds written as small percentages: `0.5%` counted as 50% and
+  `1%` as 100%, because the percent sign was dropped and only values above 1 were
+  divided by 100. A trailing `%` now always means percent, as in `logo` and `query`;
+  bare values keep their meaning (`0.4` and `40` both mean 40%), and `nan` and `inf`
+  are rejected.
+- The Viewer command catalog (`emapssn_viewer_data(action="get_command_catalog")`)
+  cut off help text written as an f-string: `meta`'s entry stopped at "the metadata
+  directory:", and its syntax list lacked `download`, `delete`, and `help`. Help
+  text is now read whole, with placeholders shown as `<meta_dir>`, and alternative
+  usage lines written `or: …`, such as `label`'s keyword form, are catalogued too.
+- `select <EXPRESSION> save` raised an internal error, because `save` was accepted as
+  a mode after an expression. `save` is only valid as `select save <FILENAME>`, and
+  other placements now fail with a message saying so.
+- `spectrum` treated infinite metadata values as numbers. A single `inf` stretched the
+  color range to infinity, so every other node took the lowest color and the
+  infinite node became transparent. Infinite values are now colored gray and counted
+  as invalid, like NaN.
+- `color` accepted negative, NaN, and infinite scales (in v0.2.0's syntax, `x-2` or
+  `xnan`). Such scales, for example `-2x`, `nanx`, or `1e400x`, are now rejected
+  before any change is applied; `0x` remains valid.
+- `emapssn_pipeline(action="start_layout_job")` silently ignored `parameters` keys
+  that are not layout fields, so a misspelled key such as `SPRNG_K` left the default
+  in place. Such keys are now rejected with the closest valid field name, and keys
+  that belong to other arguments (`node_fasta_file`, `input_hdf5`, `cache_filename`,
+  `directories`) are rejected with a pointer to that argument.
 
 ### Removed
 
@@ -318,11 +386,9 @@ still change before version 1.0.0.
   matrix, so `Alignment_Manager`'s branches for Bio alignments,
   `get_valid_columns_legacy`, `get_ref_anchored_mapping_legacy`, the per-row
   residue-predicate fallback in `Command_Engine`, and the matching fallbacks in
-  `query`, `logo`, and `label` could never run. `load_alignment_smart` now returns
-  the loader, or `None` when the file is rejected, instead of a `(loader, is_sparse)`
-  pair. The
-  `reference` command's second search over MSA rows is gone too: the alignment holds
-  only rows whose headers are network headers.
+  `query`, `logo`, and `label` could never run. The `reference` command's second
+  search over MSA rows is gone too: the alignment holds only rows whose headers are
+  network headers.
 - `Alignment_Manager.calculate_frequencies`, the module-level `calculate_frequencies`
   it wrapped, and `SparseAlignmentLoader.get_frequencies`, which only that function
   called. Nothing in the application computed statistics through them; `label`,
@@ -330,12 +396,10 @@ still change before version 1.0.0.
 - The reference lookup in `resolve_selected_cache`. It searched the MSA file for the
   first header containing `ALIGNMENT_REFERENCE`, a rule the alignment does not use,
   on every call, including each `save`, Mol* session save or load, and agent history
-  lookup, yet nothing read the result. The function now returns the cache path
-  instead of a `(cache_path, reference)` pair; `Alignment_Manager.resolved_ref_full`
-  holds the header the alignment anchored on. It also honours `LAYOUT_DIMENSIONS`,
-  naming the `_3D` folder for a 3D layout, and takes a `layout_dimensions` keyword
-  that overrides the setting. Desktop settings carry no such key, so the desktop
-  Viewer still resolves the 2D folder.
+  lookup. Only the Viewer's startup kept the result, as the header a bare `reference`
+  reported, which could differ from the one the alignment anchored on; every other
+  caller discarded it. `Alignment_Manager.resolved_ref_full` now holds the header
+  the alignment anchored on.
 
 ## [0.2.0] - 2026-09-09
 

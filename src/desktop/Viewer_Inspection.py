@@ -655,7 +655,8 @@ def _command_syntax(help_text, command):
     in_usage = False
     usage_indent = 0
     for line in help_text.splitlines():
-        stripped = line.strip()
+        # An alternative form is written "or: <command> ...".
+        stripped = re.sub(r'^or:\s+', '', line.strip())
         indent = len(line) - len(line.lstrip())
         heading = re.match(r'^Usage\s*:?(?:\s+|$)(.*)$', stripped)
         if heading:
@@ -669,6 +670,37 @@ def _command_syntax(help_text, command):
             if stripped not in signatures:
                 signatures.append(stripped)
     return signatures
+
+
+def _string_literals(function, *, whole_fstrings):
+    """The string literals in `function`, each f-string read whole or not at all.
+
+    The literal parts of an f-string are separate Constant nodes, so reading
+    only constants keeps the part before its first placeholder and loses the
+    rest: `meta`'s help stopped at "the metadata directory:". With
+    `whole_fstrings` an f-string is rendered in full, its placeholders as
+    <expression> because braces mean a metadata predicate here; without it,
+    f-strings - runtime message templates in a `run` - are skipped.
+    """
+    import ast
+    parts_of_fstrings = set()
+    texts = []
+    # ast.walk is breadth-first, so an f-string comes before its parts.
+    for node in ast.walk(function):
+        if isinstance(node, ast.JoinedStr):
+            rendered = []
+            for value in node.values:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    rendered.append(value.value)
+                    parts_of_fstrings.add(id(value))
+                elif isinstance(value, ast.FormattedValue):
+                    rendered.append("<" + ast.unparse(value.value) + ">")
+            if whole_fstrings:
+                texts.append("".join(rendered))
+        elif (isinstance(node, ast.Constant) and isinstance(node.value, str)
+              and id(node) not in parts_of_fstrings):
+            texts.append(node.value)
+    return texts
 
 
 def command_catalog(command=None):
@@ -687,9 +719,9 @@ def command_catalog(command=None):
         help_text = []
         for fn in tree.body:
             if isinstance(fn, ast.FunctionDef) and fn.name in {'print_help', 'run'}:
-                for node in ast.walk(fn):
-                    if isinstance(node, ast.Constant) and isinstance(node.value, str) and ('Usage:' in node.value or 'Usage\n' in node.value):
-                        help_text.append(node.value)
+                for text in _string_literals(fn, whole_fstrings=fn.name == 'print_help'):
+                    if 'Usage:' in text or 'Usage\n' in text:
+                        help_text.append(text)
         help_text = '\n'.join(dict.fromkeys(help_text))
         entries.append({'command': path.stem, **get_command_metadata(path.stem),
             'writes_files': path.stem in {'export','save','print','select','meta','label','logo','run','esmfold'},

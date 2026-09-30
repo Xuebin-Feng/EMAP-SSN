@@ -79,6 +79,45 @@ class _NotSelectionExpression(Exception):
 _METADATA_QUERY_PATTERN = re.compile(
     r'^([a-zA-Z0-9_\-]+)\s*(>=|<=|!=|==|>|<|=)\s*(.*)$'
 )
+# Numeric metadata values. A range is LOW-HIGH; a negative bound must be in
+# parentheses, as a negative alignment position must: {GRAVY=(-1)-0}. Any
+# single value may be too: {GRAVY>=(-1)} reads as {GRAVY>=-1}.
+_UNSIGNED_NUMBER = r'(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+_PARENTHESISED_NUMBER = rf'\(\s*([+-]?{_UNSIGNED_NUMBER})\s*\)'
+_RANGE_BOUND = rf'(?:{_PARENTHESISED_NUMBER}|({_UNSIGNED_NUMBER}))'
+_METADATA_RANGE_PATTERN = re.compile(rf'^{_RANGE_BOUND}\s*-\s*{_RANGE_BOUND}$')
+_PARENTHESISED_VALUE_PATTERN = re.compile(rf'^{_PARENTHESISED_NUMBER}$')
+_BARE_NEGATIVE_RANGE_PATTERN = re.compile(
+    rf'^-?\s*{_UNSIGNED_NUMBER}\s*-\s*-?\s*{_UNSIGNED_NUMBER}$'
+)
+
+
+def parse_metadata_number(value_text):
+    """A numeric comparison value, optionally in parentheses; ValueError if none."""
+    text = value_text.strip()
+    match = _PARENTHESISED_VALUE_PATTERN.match(text)
+    return float(match.group(1) if match else text)
+
+
+def parse_metadata_range(value_text):
+    """(low, high) for a range value such as 300-500 or (-1)-0, else None.
+
+    Raises SelectionExpressionError for a range whose negative bound lacks the
+    parentheses that keep '-1-0' from reading ambiguously.
+    """
+    text = value_text.strip()
+    match = _METADATA_RANGE_PATTERN.match(text)
+    if match:
+        low = match.group(1) or match.group(2)
+        high = match.group(3) or match.group(4)
+        return float(low), float(high)
+    if _BARE_NEGATIVE_RANGE_PATTERN.match(text):
+        raise SelectionExpressionError(
+            f"Negative range bound in '{text}' must be written in parentheses, "
+            "for example '(-1)-0' or '(-1.5)-(-0.5)'. Parentheses are required "
+            "around negative values in a range."
+        )
+    return None
 _AA_PREDICATE_PATTERN = re.compile(
     r'(?<!\w)([a-zA-Z_])(?:\((-\d+(?:\.\d+)?)\)|([\d.]+))(?![\w.])'
 )
@@ -301,17 +340,11 @@ def _validate_metadata_target(metadata, target):
     property_type = metadata[metadata_key].get("type")
     if property_type == "number":
         try:
-            float(value_text)
+            parse_metadata_number(value_text)
             return
         except ValueError:
-            if operator in ('=', '==') and '-' in value_text:
-                range_parts = value_text.split('-', 1)
-                try:
-                    float(range_parts[0].strip())
-                    float(range_parts[1].strip())
-                    return
-                except ValueError:
-                    pass
+            if operator in ('=', '==') and parse_metadata_range(value_text) is not None:
+                return
             raise SelectionExpressionError(
                 f"Value '{value_text}' is not numeric for metadata property "
                 f"'{metadata_key}'."
@@ -638,18 +671,18 @@ def evaluate_metadata_mask(full_headers, metadata, target):
     # --- Numeric Evaluation ---
     if prop_type == "number":
         try:
-            val = float(val_str)
+            val = parse_metadata_number(val_str)
         except ValueError:
-            # Check for range syntax: e.g. 100-200
-            if '-' in val_str and op in ('=', '=='):
+            # Range syntax: 100-200, or (-1)-0 with a negative bound.
+            if op in ('=', '=='):
                 try:
-                    low_str, high_str = val_str.split('-')
-                    low_val = float(low_str.strip())
-                    high_val = float(high_str.strip())
-                    mask = (prop_vals >= low_val) & (prop_vals <= high_val)
+                    bounds = parse_metadata_range(val_str)
+                except SelectionExpressionError as error:
+                    print(f"Warning: {error}")
                     return mask
-                except ValueError:
-                    pass
+                if bounds is not None:
+                    low_val, high_val = bounds
+                    return (prop_vals >= low_val) & (prop_vals <= high_val)
             print(f"Warning: Cannot convert value '{val_str}' to number for property '{meta_key}'.")
             return mask
             

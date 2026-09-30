@@ -88,6 +88,20 @@ class CysteineColorTests(unittest.TestCase):
                 np.testing.assert_array_equal(viewer.current_sizes[1:], [1, 1])
                 self.assertEqual(viewer.current_shapes[0], 'x')
 
+    def test_invalid_scales_are_rejected_before_any_change(self):
+        # float() accepts all of these; none is a usable node size.
+        for token in ['-2x', '-0.5x', 'nanx', 'infx', '-infx', '1e400x']:
+            with self.subTest(token=token):
+                viewer = self.viewer()
+                viewer.selected_indices = [0]
+                with mock.patch.object(color.Command_Engine, 'command_failed') as failed:
+                    color.run(viewer, ['red', token, 'C53', 'blue', '2x'])
+                failed.assert_called_once()
+                self.assertIn(f"Invalid scale '{token}'", failed.call_args.args[1])
+                np.testing.assert_array_equal(viewer.current_sizes, np.ones(3))
+                np.testing.assert_array_equal(viewer.current_colors, np.ones((3, 4)))
+                self.assertEqual(viewer.saved, 0)
+
     def test_old_prefix_is_only_a_residue_selection(self):
         for token in ['x2', 'X2']:
             for available in [False, True]:

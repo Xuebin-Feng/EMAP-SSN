@@ -93,6 +93,60 @@ def _job_info(payload: dict[str, Any]) -> PipelineJobInfo:
     return PipelineJobInfo.model_validate(payload)
 
 
+# Layout fields that start_layout_job's `parameters` must not carry: each has
+# its own argument, or is fixed because a layout job always publishes a new cache.
+_LAYOUT_RESERVED_KEYS = {
+    "NODE_FASTA_FILE": "the node_fasta_file argument",
+    "INPUT_HDF5": "the input_hdf5 argument",
+    "CACHE_FILENAME": "the cache_filename argument",
+    "CACHE_NAME_MODE": "the cache_filename argument",
+    "SAVED_LAYOUT_DIR": "directories={'SAVED_LAYOUT_DIR': ...}",
+    "TARGET_CACHE_PATH": None,
+}
+
+
+def _layout_overrides(parameters: Any) -> dict[str, Any]:
+    """Validate start_layout_job's `parameters` and return them upper-cased.
+
+    Keys match the layout document's fields case-insensitively. Anything else
+    is rejected, with the closest field name as a hint, instead of being
+    silently dropped when the document is encoded.
+    """
+    from difflib import get_close_matches
+    from desktop.Viewer_State import sections
+
+    if not isinstance(parameters, dict):
+        raise ToolError("parameters must be an object of layout fields.")
+    allowed = {key for keys in sections("layout").values() for key in keys}
+    allowed -= set(_LAYOUT_RESERVED_KEYS)
+    overrides: dict[str, Any] = {}
+    problems: list[str] = []
+    for key, value in parameters.items():
+        name = str(key).upper()
+        if name in overrides:
+            problems.append(f"'{key}' is given twice")
+        elif name in _LAYOUT_RESERVED_KEYS:
+            use = _LAYOUT_RESERVED_KEYS[name]
+            problems.append(
+                f"'{key}' is not a layout override; "
+                + (f"use {use}" if use else "a layout job always publishes a new cache")
+            )
+        elif name not in allowed:
+            match = get_close_matches(name, sorted(allowed), n=1, cutoff=0.75)
+            problems.append(
+                f"'{key}' is not a layout setting"
+                + (f" (did you mean {match[0]}?)" if match else "")
+            )
+        else:
+            overrides[name] = value
+    if problems:
+        raise ToolError(
+            "Invalid parameters: " + "; ".join(problems)
+            + ". Accepted keys: " + ", ".join(sorted(allowed)) + "."
+        )
+    return overrides
+
+
 def list_pipeline_tools() -> PipelineCatalog:
     """Choose a pipeline when its ID is unknown. Returns tool_id values,
     descriptions, directory contracts, and queue capacity. These IDs are arguments,
@@ -292,7 +346,8 @@ async def start_layout_job(
     manifest. Coordinates are 2D unless LAYOUT_DIMENSIONS is set to 3 in parameters or the
     settings document; LAYOUT_SEED (default 42, or null for an unseeded run) seeds the layout.
     Supply either individual parameters, settings_document, or settings_path.
-    Missing defaults and directory paths inherit from EMAP-SSN configuration.
+    With individual arguments, omitted settings use built-in defaults, SAVED_LAYOUT_DIR
+    comes from the saved viewer_settings.json, and parameters keys must be layout fields.
     Follow the returned job_id with get_pipeline_job and read_pipeline_log;
     after success inspect the cache before preparing complete Viewer settings.
     This operation does not launch a Viewer.
@@ -365,9 +420,8 @@ async def start_layout_job(
             "LAYOUT_DIMENSIONS": 2,
             "LAYOUT_SEED": 42,
         }
-        if parameters and isinstance(parameters, dict):
-            for k, v in parameters.items():
-                payload[k.upper()] = v
+        if parameters:
+            payload.update(_layout_overrides(parameters))
 
         from desktop.Viewer_State import encode_document
         target_doc = encode_document("layout", {**payload, "SAVED_LAYOUT_DIR": saved_layout_dir, "TARGET_CACHE_PATH": None})

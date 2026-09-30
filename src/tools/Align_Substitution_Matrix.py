@@ -348,8 +348,8 @@ def prepare_blast_fasta(input_fasta, output_fasta):
 #
 # NCBI BLAST parses database paths as a whitespace-delimited list of names, so
 # an absolute path containing a space is truncated at the first space: a project
-# stored under "E:\OneDrive - University of Toronto\..." is looked up as the
-# database "E:\OneDrive". Quoting cannot help because the splitting happens
+# stored under "D:\My Projects\..." is looked up as the database
+# "D:\My". Quoting cannot help because the splitting happens
 # inside BLAST, after the argument has been received intact.
 #
 # Passing relative paths is not sufficient either. makeblastdb re-resolves its

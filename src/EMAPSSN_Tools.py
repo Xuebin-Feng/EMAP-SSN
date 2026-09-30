@@ -2643,6 +2643,14 @@ class ToolsGUI(QMainWindow):
                         )
                     ui_element.setProperty("persistItemData", True)
                     idx = ui_element.findData(str(actual_val))
+                    if idx < 0 and isinstance(actual_val, str) and actual_val.strip():
+                        # Same rule as the device dropdown: a saved model that
+                        # no plugin provides any more stays visible instead of
+                        # silently becoming the first model in the list.
+                        ui_element.addItem(
+                            f"Unavailable saved model [{actual_val}]", actual_val
+                        )
+                        idx = ui_element.count() - 1
                 else:
                     ui_element.addItems(s_def['options'])
                     idx = ui_element.findText(str(actual_val))
@@ -3998,6 +4006,16 @@ class ToolsGUI(QMainWindow):
             and new_settings.get("MANUAL_TAR_SEQ")
         ):
             selected_model = new_settings.get("EMBEDDING_MODEL")
+        if selected_model and selected_model not in get_supported_embedding_models():
+            # A saved model that no plugin provides, shown as "Unavailable
+            # saved model" in its dropdown; the script would reject it anyway.
+            QMessageBox.critical(
+                self,
+                "Unsupported Model",
+                f"'{selected_model}' is no longer supported. "
+                "Choose another model before running.",
+            )
+            return
         if selected_model:
             usage_terms = get_embedding_model_usage_terms().get(selected_model)
             if (

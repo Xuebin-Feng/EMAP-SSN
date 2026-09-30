@@ -278,6 +278,45 @@ class ESMFoldWorkerTests(unittest.TestCase):
         notify_server.assert_called_once_with("node_1", "node_1.pdb", action_url)
 
 
+class LocalModelDataRootTests(unittest.TestCase):
+    """Only ESM3 is redirected; every other model keeps esm's own repositories."""
+
+    def test_esm3_is_local_first_and_other_models_use_the_package_mapping(self):
+        package_calls = []
+
+        def package_data_root(model_type):
+            package_calls.append(model_type)
+            return Path("package") / model_type
+
+        modules = {name: types.ModuleType(name) for name in (
+            "esm", "esm.pretrained", "esm.utils", "esm.utils.constants",
+            "esm.utils.constants.esm3", "esm.models", "esm.models.esm3",
+        )}
+        for name, module in modules.items():
+            if "." in name:
+                parent, child = name.rsplit(".", 1)
+                setattr(modules[parent], child, module)
+        modules["esm.utils.constants.esm3"].data_root = package_data_root
+        loaded = object()
+        esm3_class = mock.Mock()
+        esm3_class.from_pretrained.return_value.to.return_value = loaded
+        modules["esm.models.esm3"].ESM3 = esm3_class
+
+        with mock.patch.dict(sys.modules, modules), mock.patch(
+            "huggingface_hub.snapshot_download", return_value="cached-esm3"
+        ) as download:
+            self.assertIs(esmfold_worker._load_local_model("cpu"), loaded)
+            data_root = modules["esm.pretrained"].data_root
+            self.assertEqual(data_root("esm3"), Path("cached-esm3"))
+            download.assert_called_once_with(
+                repo_id="biohub/esm3-sm-open-v1", local_files_only=True
+            )
+            self.assertEqual(data_root("esmc-300"), Path("package") / "esmc-300")
+            self.assertEqual(package_calls, ["esmc-300"])
+            self.assertEqual(download.call_count, 1)
+        esm3_class.from_pretrained.assert_called_once_with("esm3_sm_open_v1")
+
+
 class WritePredictionScaleTests(unittest.TestCase):
     """pLDDT must reach to_pdb_string() unscaled.
 

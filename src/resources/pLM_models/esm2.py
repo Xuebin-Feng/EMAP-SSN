@@ -67,7 +67,12 @@ def load_model(model_name, device):
     # Transformers 5 defaults to dtype="auto", which adopts whatever type
     # the publisher uploaded, so the compute precision would otherwise be
     # theirs to change rather than ours to declare.
-    model = AutoModel.from_pretrained(hf_id, dtype=torch.float32).to(device)
+    # No pooler: the ESM-2 checkpoints carry no pooler weights, so it would be
+    # randomly initialized (and reported MISSING on every load), and embeddings
+    # come from last_hidden_state, which the pooler does not touch.
+    model = AutoModel.from_pretrained(
+        hf_id, dtype=torch.float32, add_pooling_layer=False
+    ).to(device)
     model.eval()
     return tokenizer, model
 

@@ -326,7 +326,9 @@ def print_help():
       4. NCBI List:    @[NCBI][File]@ (Extracts & matches NCBI IDs from file and headers)
       5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#, #my_group#)
       6. UI Selection: $sele$    (Targets nodes currently selected in viewer)
-      7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
+      7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*});
+                       ranges use = (e.g., {Length=300-500}), and negative
+                       range bounds require parentheses (e.g., {GRAVY=(-1)-0})
 
     Logic Operators:
       & (AND), | (OR), ! (NOT), ^ (XOR)

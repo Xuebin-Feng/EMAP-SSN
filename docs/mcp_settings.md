@@ -9,7 +9,12 @@ Host approval persistence is controlled by the MCP client, not this server.
 
 Call `help` inside each entry point for its action catalog, then `describe` for
 an individual action's argument schema, effects and example. Arguments are strict
-and reject unknown keys. Example MCP tool name: `emapssn_pipeline`; call arguments:
+and reject unknown keys. So do the keys inside `start_layout_job`'s `parameters`
+object: each must be a layout setting, matched case-insensitively, and a
+misspelled key is rejected with the closest setting name as a hint. Inputs,
+the cache name and the output folder have their own arguments (`node_fasta_file`,
+`input_hdf5`, `cache_filename`, `directories`). Example MCP tool name:
+`emapssn_pipeline`; call arguments:
 
 ```json
 {"action": "describe", "arguments": {"action": "start_layout_job"}}
@@ -26,7 +31,6 @@ The cache workflow is pipeline `export_layout_settings` â†’ `start_layout_job` â
 The two export actions do not accept `kind`. Existing action result payloads,
 node limits, file contracts, queue ownership and connection isolation are preserved.
 Viewer-data is read-only; the other entry points can write files or change state.
-Richer viewer analyses and response-size budgets are outside this migration.
 
 Below, notation such as `emapssn_pipeline(action="inspect_file")` identifies the
 tool and selected action. Unless a snippet includes `action`, its JSON is the
@@ -74,8 +78,9 @@ expose `session_alias` alongside the existing `session_id`.
 
 `emapssn_viewer_data(action="list_sessions")` pages compact session identities and
 input paths without allocating snapshots. `get_summary` captures immutable backend
-metadata/memberships and returns compact cache provenance (status, filename,
-manifest ID), not complete generation documents. For full file provenance use
+metadata/memberships and returns the cache's provenance: status, filename,
+manifest ID, the recorded generation parameters and the network compatibility
+record, not a complete generation document. For full file provenance use
 pipeline action `inspect_file` on the known cache path. Provenance checks read no
 numerical datasets and do not establish numerical correctness.
 
@@ -125,8 +130,9 @@ after upgrade; the client checks `snapshots_v1` capability before sending data r
 
 The Qt bridge copies only the required source data. Filtering, aggregation,
 provenance reads and formatting run in HTTP workers, outside the Qt event thread.
-Sequence/edge records, MSA matrices and command-derived analysis are
-outside this stage. Numeric NaN/None/blank values count as missing; infinities and
+Snapshots return no sequence or edge records and no raw MSA matrix; residue
+statistics over a frozen alignment come from alignment snapshots (see "Frozen
+residue inspection" below). Numeric NaN/None/blank values count as missing; infinities and
 unparseable numeric values count as invalid. Non-finite record values are explicitly
 tagged as {"nonfinite":"NaN"}, {"nonfinite":"Infinity"}, or {"nonfinite":"-Infinity"}
 rather than silently converted to null. Unknown annotation sources are not inferred.
@@ -142,7 +148,7 @@ JSON document. `emapssn_pipeline(action="export_tool_settings")(tool_id, output_
 the selected tool and its required directories, inheriting `tools_settings.json`
 and filling missing values from the tool defaults. Empty selectors remain editable.
 
-The settings-export actions accept `output_path` and `settings_path`:
+The two Config export actions accept `output_path` and `settings_path`:
 
 - `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP settings and output
   destination. Visual settings and MSA display settings are excluded.
@@ -167,6 +173,7 @@ with `emapssn_pipeline(action="validate_settings")` or Viewer JSON with `emapssn
 and submit its path to `emapssn_pipeline(action="start_job")`, `emapssn_pipeline(action="start_layout_job")` or
 `emapssn_viewer_control(action="start_session")`. Layout settings are validated on submission and cache/input
 compatibility is rechecked in the worker. Execution does not reapply saved preferences.
+`emapssn_viewer_control(action="get_settings_schema")` returns the Viewer settings contract.
 
 ### Cache naming and Viewer selection
 
@@ -192,9 +199,9 @@ Viewer export selects the most recently modified cache in the unique compatible
 folder; filename ascending breaks modification-time ties. No cache or multiple
 compatible folders is an error. A `TARGET_CACHE_PATH` in the overlay selects a
 specific cache. When opening a newly generated layout, supply the actual path
-returned by its job. Viewer JSON includes `CACHE_FILENAME`, which must match that
-path; older Viewer JSON may omit it. Launch validates and opens exactly that cache,
-without silently generating or selecting a different one.
+returned by its job as `TARGET_CACHE_PATH`; the Viewer document has no separate
+filename field. Launch validates and opens exactly that cache, without silently
+generating or selecting a different one.
 
 MCP Viewer launch runs detached headless Config, which dispatches into Viewer in
 the same process to preserve PID tracking on Windows and Unix. Existing readiness,
@@ -359,10 +366,14 @@ It creates no files or jobs. If valid, send the same arguments to
 `emapssn_pipeline(action="start_job")`. The job snapshots the same normalized document before
 execution. Invalid submissions do not create job files or enter the queue.
 
-Defaults come from the published contracts, never the GUI's last-used settings.
-Relative directories resolve against the server's project root. Omitted, blank,
-or null directories use project defaults. Input filenames retain the individual
-tool's directory semantics; discovery does not assert that input files exist.
+Parameter defaults come from the published contracts, never the GUI's last-used
+settings. Directories differ by input form: with `parameters`, an omitted, blank,
+or null directory takes the project's saved Tools directory (`DIRECTORIES` in
+`tools_settings.json`) and falls back to the built-in project default only when
+none is saved; `settings_document` and `settings_path` use the built-in defaults.
+Relative directories resolve against the server's project root. Input filenames
+retain the individual tool's directory semantics; discovery does not assert that
+input files exist.
 
 Exactly one of `parameters`, `settings_document`, or `settings_path` is required.
 An empty `parameters` object counts as a supplied form. `directories` can only
@@ -445,7 +456,8 @@ After exporting and editing layout JSON, call `emapssn_pipeline(action="start_la
 
 Layout jobs are enqueued into the same unified FIFO queue managed by `PipelineJobManager`
 and share job tracking, status monitoring, log streaming (`emapssn_pipeline(action="read_log")`), and
-cancellation (`emapssn_pipeline(action="cancel_job")`).
+cancellation (`emapssn_pipeline(action="cancel_job")`). `emapssn_pipeline(action="list_jobs")` lists the
+recent pipeline and layout jobs this server owns.
 
 The worker routes through headless Config to `Layout_Cache_Generator.py`. It
 publishes an HDF5 coordinate cache, a compatible-folder manifest and a canonical

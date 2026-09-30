@@ -147,50 +147,30 @@ def _load_nodes(input_json_path):
 
 def _load_local_model(device):
     import esm.pretrained
+    from esm.utils.constants.esm3 import data_root as package_data_root
     from huggingface_hub import snapshot_download
     from pathlib import Path
 
     def custom_data_root(model_type: str):
-        if model_type.startswith("esm3"):
-            try:
-                return Path(
-                    snapshot_download(
-                        repo_id="biohub/esm3-sm-open-v1",
-                        local_files_only=True,
-                    )
+        # Only ESM3 is loaded here. Its weights are looked up in the local cache
+        # first, so a machine that already has them never needs the network;
+        # any other model keeps esm's own repository mapping.
+        if not model_type.startswith("esm3"):
+            return package_data_root(model_type)
+        try:
+            return Path(
+                snapshot_download(
+                    repo_id="biohub/esm3-sm-open-v1",
+                    local_files_only=True,
                 )
-            except Exception:
-                print(
-                    "Model weights not found in local cache. Downloading/resolving "
-                    "MIT-licensed ESM3 1.4B model weights "
-                    "(biohub/esm3-sm-open-v1)..."
-                )
-                return Path(snapshot_download(repo_id="biohub/esm3-sm-open-v1"))
-        if model_type.startswith("esmc-300"):
-            try:
-                return Path(
-                    snapshot_download(
-                        repo_id="EvolutionaryScale/esmc-300m-2024-12",
-                        local_files_only=True,
-                    )
-                )
-            except Exception:
-                return Path(
-                    snapshot_download(repo_id="EvolutionaryScale/esmc-300m-2024-12")
-                )
-        if model_type.startswith("esmc-600"):
-            try:
-                return Path(
-                    snapshot_download(
-                        repo_id="EvolutionaryScale/esmc-600m-2024-12",
-                        local_files_only=True,
-                    )
-                )
-            except Exception:
-                return Path(
-                    snapshot_download(repo_id="EvolutionaryScale/esmc-600m-2024-12")
-                )
-        raise ValueError(f"{model_type=} is an invalid model name.")
+            )
+        except Exception:
+            print(
+                "Model weights not found in local cache. Downloading/resolving "
+                "MIT-licensed ESM3 1.4B model weights "
+                "(biohub/esm3-sm-open-v1)..."
+            )
+            return Path(snapshot_download(repo_id="biohub/esm3-sm-open-v1"))
 
     esm.pretrained.data_root = custom_data_root
     from esm.models.esm3 import ESM3

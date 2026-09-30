@@ -25,6 +25,7 @@ def print_help():
     Usage: select [MODE] <EXPRESSION>
            select <EXPRESSION> [MODE]
            select invert
+           select save <FILENAME>
            select help
 
     Description:
@@ -40,8 +41,13 @@ def print_help():
       subtract / minus / remove   : Removes matches from the current selection.
       filter / keep / intersect   : Keeps ONLY currently selected nodes that match the expression.
       invert                      : Inverts current selection (takes no expression).
-      save [filename]             : Saves selected nodes to Input_Files/Header_Lists/
-                                    (Supports .txt for headers or .fasta for sequences)
+
+    Saving:
+      select save <FILENAME>      : Saves the current selection to the header list
+                                    directory (Input_Files/Header_Lists/ by default).
+                                    Use .txt for headers or .fasta for sequences.
+                                    'save' must come first; to save new matches,
+                                    select them before saving.
 
     Syntax & Targets:
       1. AA Position:  [AA][Pos] (e.g., P106, _100), or ([AA...])[Pos] for
@@ -162,6 +168,17 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, msg)
         return
 
+    # 'save' is only an action on the current selection, never a mode that
+    # follows an expression.
+    if any(arg.lower() == "save" for arg in args[1:]):
+        msg = (
+            "Error: 'save' must come first. Use 'select save <FILENAME>' to save the "
+            "current selection; to save new matches, select them first."
+        )
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg)
+        return
+
     mode = "change"
     expr_args = []
     
@@ -171,7 +188,6 @@ def run(viewer, args):
         "add": "add", "plus": "add", "include": "add",
         "subtract": "subtract", "minus": "subtract", "remove": "subtract",
         "filter": "filter", "keep": "filter", "intersect": "filter",
-        "save": "save",
         "invert": "invert"
     }
 
@@ -277,6 +293,13 @@ def run(viewer, args):
             final_selection = current_selection.intersection(new_indices)
             removed_count = len(current_selection) - len(final_selection)
             msg = f"Filtered selection: Kept {len(final_selection)} nodes, removed {removed_count} nodes."
+
+    else:
+        # Every keyword in mode_map must have a branch above.
+        msg = f"Error: Unsupported selection mode '{mode}'."
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg)
+        return
 
     viewer.selected_indices = list(final_selection)
     viewer.update_selection_visual()

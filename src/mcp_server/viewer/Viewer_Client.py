@@ -110,7 +110,10 @@ class MCPViewerClient:
     def _target(self, session_id):
         target = session_id if session_id is not None else self.connected_session_id
         if target is None:
-            raise MCPViewerError("No Viewer is connected. Call connect_viewer_session or supply session_id.")
+            raise MCPViewerError(
+                "No Viewer is connected. Call emapssn_viewer_control(action='connect_session') "
+                "or supply session_id."
+            )
         return target
 
     async def connect_session(self, session_id=None):
@@ -234,7 +237,8 @@ class MCPViewerClient:
             if isinstance(error, PermissionError) and sys.platform == "win32":
                 error = MCPViewerError(
                     "The Windows host denied an independent Viewer process (its Job Object may forbid breakaway). "
-                    "Open the Viewer through the GUI or CLI, then use connect_viewer_session."
+                    "Open the Viewer through the GUI or CLI, then use "
+                    "emapssn_viewer_control(action='connect_session')."
                 )
             tails = []
             for path in (stdout_path, stderr_path):

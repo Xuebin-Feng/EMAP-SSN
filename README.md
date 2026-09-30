@@ -274,7 +274,7 @@ and the [Viewer Command Reference](docs/list_of_commands.html) for command synta
 *   **Interactive Visualization**: PySide6 and VisPy provide a 2D canvas for panning, zooming, selecting, and formatting nodes and edges. Performance depends on the dataset and rendering hardware.
 *   **Integrated Command Console (HUD)**: Execute analytical commands (such as `zoom`, `select`, `color`, `cluster`, `subcluster`, and `logo`) directly inside the viewer viewport for instant formatting and analysis.
 *   **Integrated Multiple Sequence Alignments (MSA)**: Bridge macroscopic network topology with residue-level conservation. Map conservation scores directly onto nodes and extract consensus sequence details interactively.
-*   **Comprehensive Utilities Suite**: Centralized GUI in `EMAPSSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
+*   **Comprehensive Utilities Suite**: Centralized GUI in `EMAPSSN_Tools.py` supporting sequence sanitization, embedding generation (ESM, ProtBERT, ProstT5, Ankh), network edge filtering, guide-tree MSA generation, and sequence extraction/injection.
 *   **Cross-Platform Hardware Acceleration**: Automatic eligibility checks and runtime validation for supported NVIDIA CUDA, AMD ROCm, Intel XPU, and Apple MPS configurations, with safe fallback to CPU.
 *   **Scriptable Workflows**: Export tool and layout JSON for batch execution, or use the local MCP server for pipeline jobs, Viewer commands, and bounded scientific data inspection.
 
@@ -355,7 +355,7 @@ selected per GFX target:
 | Platform/profile | Eligible GFX targets | Additional requirements |
 | --- | --- | --- |
 | Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
-| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`, `gfx1153`. | A listed Ubuntu release, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. |
+| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`, `gfx1153`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. A card matched by name while no ROCm agent is reported is only provisionally eligible. |
 
 The two platforms differ because of how the GFX target is identified. Windows
 exposes no way to query it, so the target is inferred from the product name
@@ -364,9 +364,9 @@ Linux the installed ROCm stack reports the target directly; when the product
 name is not in the snapshot the reported target is used instead, provided the
 ROCm channel publishes a PyTorch 2.12.0 device package for it. That covers
 AMD Instinct parts and RDNA1/RDNA2 consumer cards whose `lspci` names the
-snapshot never matched. If two or more distinct targets are reported, the
-reported value is not attributed to any single adapter and name matching
-remains the only source.
+snapshot never matched. The reported target is used only when exactly one
+supported target is reported; with several, none can be attributed to a single
+adapter, and name matching remains the only source.
 
 Earlier releases offered four ROCm profiles (Windows 7.14 and 7.2.1, Linux 7.2
 and 6.4). ROCm 7.14 covers every GFX target the retired profiles did, so no
@@ -449,9 +449,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    ```
 
    > [!NOTE]
-   > An optional VR viewer, the `opt_vr` submodule, exists for Windows users with
-   > a supported NVIDIA or AMD GPU. EMAP-SSN does not need it. It can be fetched
-   > with `git clone --recurse-submodules`.
+   > An optional VR viewer is available as the `opt_vr` submodule.
 
 2. **Set up the environment:**
 
@@ -536,8 +534,9 @@ viewer:
 
 The export location follows **Setting Export Directory**, whose default is
 `Cache_Files/Exported_Settings/`. This command generates a cache without starting
-the interactive Viewer. An existing destination cache is rejected rather than
-overwritten.
+the interactive Viewer. With automatic naming the cache takes the next free
+version name; an explicitly named cache that already exists is rejected rather
+than overwritten.
 
 Layout execution JSON uses `schema_version: 2`, `kind: "layout"`, and named
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`
@@ -644,8 +643,7 @@ EMAP-SSN/
 │   ├── Multiple_Alignments/  # Full or sparse multiple-sequence alignments
 │   ├── Networks_EValues/    # Embedding- or BLAST-derived network files (.h5)
 │   ├── Header_Lists/         # Reusable sequence-header cohorts
-│   ├── Meta_Data/            # Imported and exported node metadata
-│   └── Batch Scripts/        # User batch and helper scripts
+│   └── Meta_Data/            # Imported and exported node metadata
 │
 ├── Cache_Files/              # Reusable layouts and intermediate/session artifacts
 │   ├── Saved_Layouts/        # Manifest-bound layout snapshots (.h5)

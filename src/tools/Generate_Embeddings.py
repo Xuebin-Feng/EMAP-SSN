@@ -43,9 +43,9 @@ Settings:
 Precision:
 Every plugin loads its weights as float32 and runs inference in float32, stated explicitly at the call to
 `from_pretrained` rather than inherited from the checkpoint config, so SAVING_MODE is purely a storage choice and
-never a compute one. The local ESMC checkpoints are published in bfloat16 and are upcast at load time (its wrapper
-otherwise forces bfloat16 on every non-CPU device). Upcasting restores float32 arithmetic, not information the
-publisher already rounded away. The exception is `esmc_6b`, whose inference runs on Biohub's servers at a precision
+never a compute one. The local ESMC checkpoints (`biohub/ESMC-300M`, `biohub/ESMC-600M`) are published in float32
+and load as float32 through the bare `EsmcModel`; the deprecated `ESMC` wrapper, which forced bfloat16 on every
+non-CPU device, is no longer used. The exception is `esmc_6b`, whose inference runs on Biohub's servers at a precision
 this project does not control; its response is upcast on arrival.
 
 Algorithm:
@@ -159,7 +159,7 @@ OUTPUT_HDF5 = None
 
 
 class _CleanLoadReportFilter(logging.Filter):
-    """Drop Transformers weight-load reports that contain no MISSING entry.
+    """Drop Transformers weight-load reports whose only entries are UNEXPECTED.
 
     The pLMs loaded through Transformers use encoder-only classes, so pretraining
     heads in the published checkpoints, such as ProtBERT's cls.* tensors and
@@ -167,21 +167,23 @@ class _CleanLoadReportFilter(logging.Filter):
     routine and the report is pure noise. Transformers drops the T5 decoder
     itself without reporting it.
 
-    A MISSING entry is not routine: it means a tensor the model needs was absent
-    from the checkpoint and was randomly initialized, which silently corrupts
-    every embedding produced. Those reports are kept. ESM-2 always shows one for
-    the EsmModel pooler, which its checkpoints lack and its embeddings never use.
-
-    A report with a shape MISMATCH but no MISSING entry is dropped as well;
-    Transformers still raises an error for such a load.
+    Every other entry is kept. A MISSING tensor was absent from the checkpoint
+    and randomly initialized, which silently corrupts every embedding produced.
+    For MISMATCH and CONVERSION entries Transformers logs the report and then
+    raises an error that says to look at the report above, so hiding it would
+    leave that error without its details.
 
     Filtering on the report body rather than silencing the logger keeps all other
     Transformers warnings visible.
     """
 
+    ACTIONABLE = ("MISSING", "MISMATCH", "CONVERSION")
+
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        return not ("LOAD REPORT" in message and "MISSING" not in message)
+        return "LOAD REPORT" not in message or any(
+            tag in message for tag in self.ACTIONABLE
+        )
 
 
 def _quiet_clean_load_reports() -> None:

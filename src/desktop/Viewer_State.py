@@ -288,6 +288,17 @@ def get_viewer_settings_schema():
 def resolve_cache_settings(path):
     from utilities.Cache_Metadata import read_cache_metadata
     metadata = read_cache_metadata(path)
+    # Checked first, and outside the try below: ViewerSettingsError is a
+    # ValueError, which that block would re-wrap as a provenance failure.
+    compatibility = (metadata.get("folder_manifest") or {}).get("compatibility") or {}
+    layout_mode = compatibility.get("layout_mode")
+    if isinstance(layout_mode, str) and layout_mode.endswith("_3d"):
+        raise ViewerSettingsError(
+            f"{os.path.basename(str(path))} is a 3D layout cache (layout_mode "
+            f"'{layout_mode}'). The desktop Viewer opens 2D caches only; 3D caches "
+            "are for the optional VR viewer (opt_vr). Select this network's 2D "
+            "cache, or generate one with LAYOUT_DIMENSIONS=2."
+        )
     if metadata["status"] != "complete":
         raise ViewerSettingsError("Cache provenance: " + "; ".join(metadata["diagnostics"]))
     try:

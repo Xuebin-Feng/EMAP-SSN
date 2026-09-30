@@ -827,7 +827,7 @@
             <ul class="menu-list">
                 <li class="menu-item" data-target="gui-tools"><a href="#gui-tools"><span>3. EMAP-SSN Tools GUI</span> <span class="menu-item-badge badge-ext">Compute</span></a></li>
                 <li class="menu-item" data-target="gui-config"><a href="#gui-config"><span>4. Configuration GUI</span> <span class="menu-item-badge badge-util">Config</span></a></li>
-                <li class="menu-item" data-target="gui-viewer"><a href="#gui-viewer"><span>5. Interactive Viewer GUI</span> <span class="menu-item-badge badge-core">3D UI</span></a></li>
+                <li class="menu-item" data-target="gui-viewer"><a href="#gui-viewer"><span>5. Interactive Viewer GUI</span> <span class="menu-item-badge badge-core">2D UI</span></a></li>
             </ul>
 
             <div class="menu-category">Hands-On Practice</div>
@@ -922,7 +922,7 @@
                     <div class="grid-card">
                         <h4><span>🔬 Native MSA & Structural Integration</span></h4>
                         <p style="font-size: 0.9rem; margin-bottom: 0;">
-                            Directly maps MSA residue conservation onto the 3D network nodes. Commands like <code>color K188 red</code> or <code>logo [180-195]</code> project microscopic chemical features directly into the macroscopic network view in real time, complemented by Mol* 3D views of predicted protein structures.
+                            Directly maps MSA residue conservation onto the network nodes. Commands like <code>color K188 red</code> or <code>logo [180-195]</code> project microscopic chemical features directly into the macroscopic network view in real time, complemented by Mol* 3D views of predicted protein structures.
                         </p>
                     </div>
                 </div>
@@ -1408,7 +1408,7 @@
                             Select your desired model, such as <code>esm2_t33_650m</code> (the largest supported ESM-2 model). Verify that GPU acceleration is enabled. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
-                            <strong>Result:</strong> An HDF5 database (<code>kinase_family_embeddings.h5</code>) is written to <code>Embeddings/</code> containing high-dimensional per-residue embedding vectors.
+                            <strong>Result:</strong> An HDF5 database (<code>kinase_family_sanitized_[esm2_t33_650m]_embeddings.h5</code>) is written to <code>Embeddings/</code> containing high-dimensional per-residue embedding vectors.
                         </div>
                     </div>
                 </div>
@@ -1418,10 +1418,10 @@
                     <div class="step-content">
                         <h4>Step 3: Calculate Pairwise Similarity &amp; Guide-Tree MSA</h4>
                         <p>
-                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Dynamic Programming Embedding Alignment</strong> (<code>Align_Similarity_Matrix.py</code>), or <strong>Substitution Matrix Alignment</strong> (<code>Align_Substitution_Matrix.py</code>) for traditional BLAST. Set Score Mode to <code>global</code> and Normalization to <code>alignment_length</code>. Click <strong style="color: #16a34a;">Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
+                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Dynamic Programming Embedding Alignment</strong> (<code>Align_Similarity_Matrix.py</code>), or <strong>Substitution Matrix Alignment</strong> (<code>Align_Substitution_Matrix.py</code>) for traditional BLAST. Click <strong style="color: #16a34a;">Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
                         </p>
                         <p>
-                            Next, switch to the <em>Embedding MSA</em> tab and run <strong>Embedding Multiple Sequence Alignment</strong> (<code>Embedding_MSA.py</code>). This builds a guide tree from the network's scores and progressively aligns the sequences into a global MSA using their embeddings.
+                            Next, switch to the <em>Embedding MSA</em> tab and run <strong>Embedding Multiple Sequence Alignment</strong> (<code>Embedding_MSA.py</code>) with Score Mode set to <code>global</code> and Normalization Mode to <code>alignment_length</code>. This builds a guide tree from the network's scores and progressively aligns the sequences into a global MSA using their embeddings.
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>Result:</strong> Pairwise network HDF5 in <code>Input_Files/Networks_EValues/</code> and an integrated MSA file in <code>Input_Files/Multiple_Alignments/</code>.

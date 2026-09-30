@@ -276,6 +276,31 @@ class StrictExpressionTests(unittest.TestCase):
             [False, False, False],
         )
 
+    def gravy(self, expression):
+        metadata = dict(self.metadata)
+        metadata["GRAVY"] = {"type": "number", "values": np.array([-1.2, -0.4, 0.3])}
+        return self.evaluate(expression, metadata=metadata)
+
+    def test_metadata_ranges_take_parenthesised_negative_bounds(self):
+        """GRAVY is usually negative, so its ranges need negative bounds."""
+        np.testing.assert_array_equal(self.gravy("{GRAVY=(-1)-0}"), [False, True, False])
+        np.testing.assert_array_equal(self.gravy("{GRAVY=(-1.5)-(-0.5)}"), [True, False, False])
+        np.testing.assert_array_equal(self.gravy("{GRAVY==(-0.5)-1}"), [False, True, True])
+        np.testing.assert_array_equal(self.gravy("{GRAVY=(-1)-0}|#cluster_2#"), [False, True, False])
+        np.testing.assert_array_equal(self.gravy("{Length=150-300}"), [False, True, True])
+        # Single values never needed parentheses, and may have them.
+        np.testing.assert_array_equal(self.gravy("{GRAVY>=-1}"), [False, True, True])
+        np.testing.assert_array_equal(self.gravy("{GRAVY>=(-1)}"), [False, True, True])
+
+    def test_an_unparenthesised_negative_bound_is_explained(self):
+        for expression in ("{GRAVY=-1-0}", "{GRAVY=-1.5--0.5}", "{GRAVY=0--1}"):
+            with self.subTest(expression=expression):
+                with self.assertRaisesRegex(Command_Engine.SelectionExpressionError,
+                                            r"must be written in parentheses.*\(-1\)-0"):
+                    self.gravy(expression)
+        with self.assertRaisesRegex(Command_Engine.SelectionExpressionError, "not numeric"):
+            self.gravy("{GRAVY>(-1)-0}")
+
     def test_missing_file_raises_but_existing_empty_file_is_valid(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir, create=True):

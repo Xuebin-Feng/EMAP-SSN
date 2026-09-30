@@ -21,7 +21,8 @@ def entry(summary, *arguments):
 EXPRESSION = ('Boolean node selection: quoted headers, #LABEL#, @file@, $sele$, '
               'residue positions, or {property comparison}; combine with &, |, !, ^. '
               'No spaces inside selection expressions. Referenced data must exist; '
-              'negative residue positions use parentheses, e.g. K(-1).')
+              'negative residue positions and negative metadata range bounds use '
+              'parentheses, e.g. K(-1) or {GRAVY=(-1)-0}.')
 CLUSTER_MODE = argument('mode', 'Default leiden. Leiden requires graspologic-native; MCL requires markov_clustering, networkx and scipy.',
                         choice('leiden'), choice('mcl'), choice('jaccard'))
 CLUSTER_PARAMETER = argument('parameter', 'Optional number: Leiden resolution defaults to 1.0; MCL inflation to 2.0; Jaccard threshold to 0.2.')
@@ -66,7 +67,7 @@ COMMAND_METADATA = {
         argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments.'),
         argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.')),
     'logo': entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',
-        argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit.'),
+        argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. No spaces inside the brackets; ranges run from lower to higher.'),
         argument('expression', EXPRESSION + ' Defaults to selected nodes, or all nodes if nothing is selected.'),
         argument('filename', 'Optional SVG/PNG basename; default timestamped SVG. With two or more remaining strings the last is the filename; a single remaining string is a filename only if it ends in .svg or .png, otherwise it is the expression.'),
         argument('mode', 'Default bits (information content); pcts displays frequencies.', choice('bits', 'bit'), choice('pcts', 'pct', 'percentage', 'percentages')),

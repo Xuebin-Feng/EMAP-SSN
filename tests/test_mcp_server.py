@@ -402,6 +402,20 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 }})
                 self.assertTrue(bad_job.is_error)
 
+                # 1b. Unknown or reserved `parameters` keys fail before anything is queued
+                for parameters, expected in (
+                    ({"SPRNG_K": 9.0}, "did you mean SPRING_K?"),
+                    ({"saved_layout_dir": str(layouts_dir)}, "use directories="),
+                ):
+                    rejected = await client.call_tool("emapssn_pipeline", {"action": "start_layout_job", "arguments": {
+                        "node_fasta_file": str(fasta),
+                        "input_hdf5": str(network_path),
+                        "similarity_threshold": 0.1,
+                        "parameters": parameters,
+                    }})
+                    self.assertTrue(rejected.is_error)
+                    self.assertIn(expected, rejected.content[0].text)
+
                 # 2. Valid request
                 valid_request = {
                     "node_fasta_file": str(fasta),
@@ -579,6 +593,45 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("secret-token", json.dumps(payload))
         self.assertNotIn("secret-path", json.dumps(payload))
+
+
+class LayoutOverrideTests(unittest.TestCase):
+    """start_layout_job's `parameters` accept only layout fields."""
+
+    def test_known_fields_are_upper_cased_and_kept(self):
+        from mcp_server.pipeline.Pipeline_Operations import _layout_overrides
+
+        self.assertEqual(
+            _layout_overrides({"spring_k": 9.0, "LAYOUT_SEED": None, "layout_dimensions": 3}),
+            {"SPRING_K": 9.0, "LAYOUT_SEED": None, "LAYOUT_DIMENSIONS": 3},
+        )
+
+    def test_unknown_reserved_and_repeated_keys_are_reported_together(self):
+        from mcp.server.mcpserver.exceptions import ToolError
+        from mcp_server.pipeline.Pipeline_Operations import _layout_overrides
+
+        with self.assertRaises(ToolError) as caught:
+            _layout_overrides({"layout_seeds": 7, "TARGET_CACHE_PATH": "x", "cache_filename": "a.h5",
+                               "spring_k": 1.0, "SPRING_K": 2.0, "zzz": 0})
+        message = str(caught.exception)
+        for fragment in (
+            "'layout_seeds' is not a layout setting (did you mean LAYOUT_SEED?)",
+            "'TARGET_CACHE_PATH' is not a layout override; a layout job always publishes a new cache",
+            "'cache_filename' is not a layout override; use the cache_filename argument",
+            "'SPRING_K' is given twice",
+            "'zzz' is not a layout setting",
+            "Accepted keys: ALIGNMENT_SCORE,",
+        ):
+            self.assertIn(fragment, message)
+        self.assertNotIn("'zzz' is not a layout setting (did you mean", message)
+        self.assertNotIn("NODE_FASTA_FILE, ", message.split("Accepted keys:", 1)[1])
+
+    def test_parameters_must_be_an_object(self):
+        from mcp.server.mcpserver.exceptions import ToolError
+        from mcp_server.pipeline.Pipeline_Operations import _layout_overrides
+
+        with self.assertRaises(ToolError):
+            _layout_overrides(["SPRING_K"])
 
 
 if __name__ == "__main__":

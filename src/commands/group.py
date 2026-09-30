@@ -62,7 +62,9 @@ def print_help():
       4. NCBI/PDB:     @[NCBI][File]@ or @[PDB][File]@
       5. Labels:       #[Name]#  (e.g., #cluster_1#, #noise#)
       6. UI Selection: $sele$    (Explicitly targets selected nodes)
-      7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*})
+      7. Metadata:     {Key Op Val} (e.g., {Length>500}, {Organism=*coli*});
+                       ranges use = (e.g., {Length=300-500}), and negative
+                       range bounds require parentheses (e.g., {GRAVY=(-1)-0})
 
     Validation:
       Referenced clusters, groups, alignment positions, metadata properties, and

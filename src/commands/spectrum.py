@@ -287,7 +287,9 @@ def run(viewer, args):
 
     # Extract target values for coloring
     target_vals = values[mask]
-    valid_mask = ~np.isnan(target_vals)
+    # Finite values only: an infinite one would stretch the range to inf,
+    # flattening every other node to one colour and itself to transparent.
+    valid_mask = np.isfinite(target_vals)
     valid_vals = target_vals[valid_mask]
 
     if len(valid_vals) == 0:
@@ -312,11 +314,11 @@ def run(viewer, args):
 
     # Color valid nodes
     full_valid_mask = np.zeros(viewer.n_nodes, dtype=bool)
-    full_valid_mask[mask] = ~np.isnan(values[mask])
+    full_valid_mask[mask] = np.isfinite(values[mask])
     viewer.current_colors[full_valid_mask] = colors_rgba
 
-    # Color nan nodes within mask to neutral light gray
-    nan_mask = mask & np.isnan(values)
+    # Color NaN and infinite nodes within mask to neutral light gray
+    nan_mask = mask & ~np.isfinite(values)
     if np.any(nan_mask):
         viewer.current_colors[nan_mask] = (0.7, 0.7, 0.7, 1.0)
 

@@ -16,6 +16,7 @@
 import Command_Engine
 import os
 import glob
+import math
 import re
 import datetime
 import tempfile
@@ -176,12 +177,23 @@ def print_help():
     """)
 
 def parse_percentage(val_str):
+    """Read a threshold written as a fraction (0.4) or a percentage (40 or 40%).
+
+    A trailing % always means percent, so "0.5%" is 0.005 and "1%" is 0.01;
+    without one, values above 1 are percentages, as in `logo` and `query`.
+    Returns None for anything that is not a finite number.
+    """
+    text = str(val_str).strip()
+    is_percent = text.endswith('%')
     try:
-        clean_str = val_str.replace('%', '')
-        val = float(clean_str)
-        if val > 1.0: return val / 100.0
-        return val
-    except ValueError: return None
+        value = float(text[:-1].strip() if is_percent else text)
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    if is_percent or value > 1.0:
+        value /= 100.0
+    return value
 
 
 def _normalize_output_filename(filename):

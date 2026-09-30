@@ -107,5 +107,32 @@ class LabelTargetModeTests(unittest.TestCase):
         )
 
 
+class LabelThresholdParsingTests(unittest.TestCase):
+    """gmax and cmin accept fractions or percentages, as logo's identity does."""
+
+    def test_a_trailing_percent_sign_always_means_percent(self):
+        for text, expected in (("0.5%", 0.005), ("1%", 0.01), ("40%", 0.40), ("100%", 1.0)):
+            with self.subTest(text=text):
+                self.assertAlmostEqual(label.parse_percentage(text), expected)
+
+    def test_bare_values_keep_their_meaning(self):
+        for text, expected in (("0.4", 0.4), ("1", 1.0), ("40", 0.40), ("98", 0.98)):
+            with self.subTest(text=text):
+                self.assertAlmostEqual(label.parse_percentage(text), expected)
+
+    def test_non_numbers_are_not_thresholds(self):
+        for text in ("report", "nan", "inf", "-inf", "%", "40%.xlsx"):
+            with self.subTest(text=text):
+                self.assertIsNone(label.parse_percentage(text))
+
+    def test_small_percentages_reach_the_analysis(self):
+        keyword = label._parse_label_arguments(["gmax", "0.5%", "cmin", "1%"])
+        self.assertAlmostEqual(keyword["global_max"], 0.005)
+        self.assertAlmostEqual(keyword["cluster_min"], 0.01)
+        positional = label._parse_label_arguments(["0.5%", "1%"])
+        self.assertAlmostEqual(positional["global_max"], 0.005)
+        self.assertAlmostEqual(positional["cluster_min"], 0.01)
+
+
 if __name__ == "__main__":
     unittest.main()

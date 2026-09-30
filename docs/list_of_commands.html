@@ -635,7 +635,7 @@
 
     <aside>
         <div class="sidebar-header">
-            <div class="sidebar-title">SSN Command Reference</div>
+            <div class="sidebar-title">EMAP-SSN Command Reference</div>
             <div class="sidebar-subtitle">Interactive Manual &amp; Setup Guide</div>
         </div>
         <div class="search-container">
@@ -661,33 +661,33 @@
                 <li class="menu-item" data-target="cmd-reset"><a href="#cmd-reset"><span>reset</span></a></li>
                 <li class="menu-item" data-target="cmd-hide"><a href="#cmd-hide"><span>hide</span></a></li>
                 <li class="menu-item" data-target="cmd-undoredo"><a href="#cmd-undoredo"><span>undo &amp; redo</span></a></li>
-                <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span> <span class="menu-item-badge badge-new">new</span></a></li>
+                <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
             </ul>
 
             <div class="menu-category">Alignment</div>
             <ul class="menu-list" id="menu-aln-cmds">
                 <li class="menu-item" data-target="cmd-reference"><a href="#cmd-reference"><span>reference</span></a></li>
-                <li class="menu-item" data-target="cmd-offset"><a href="#cmd-offset"><span>offset</span> <span class="menu-item-badge badge-new">new</span></a></li>
-                <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span> <span class="menu-item-badge badge-new">new</span></a></li>
+                <li class="menu-item" data-target="cmd-offset"><a href="#cmd-offset"><span>offset</span></a></li>
+                <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
             </ul>
 
             <div class="menu-category">Analysis</div>
             <ul class="menu-list" id="menu-analysis-cmds">
                 <li class="menu-item" data-target="cmd-cluster"><a href="#cmd-cluster"><span>cluster</span></a></li>
-                <li class="menu-item" data-target="cmd-subcluster"><a href="#cmd-subcluster"><span>subcluster</span> <span class="menu-item-badge badge-new">new</span></a></li>
+                <li class="menu-item" data-target="cmd-subcluster"><a href="#cmd-subcluster"><span>subcluster</span></a></li>
                 <li class="menu-item" data-target="cmd-color"><a href="#cmd-color"><span>color</span></a></li>
                 <li class="menu-item" data-target="cmd-group"><a href="#cmd-group"><span>group</span></a></li>
                 <li class="menu-item" data-target="cmd-select"><a href="#cmd-select"><span>select</span></a></li>
                 <li class="menu-item" data-target="cmd-label"><a href="#cmd-label"><span>label</span></a></li>
                 <li class="menu-item" data-target="cmd-export"><a href="#cmd-export"><span>export</span></a></li>
-                <li class="menu-item" data-target="cmd-esmfold"><a href="#cmd-esmfold"><span>esmfold</span> <span class="menu-item-badge badge-new">new</span></a></li>
+                <li class="menu-item" data-target="cmd-esmfold"><a href="#cmd-esmfold"><span>esmfold</span></a></li>
             </ul>
 
             <div class="menu-category">Meta Data</div>
             <ul class="menu-list" id="menu-meta-cmds">
-                <li class="menu-item" data-target="cmd-meta"><a href="#cmd-meta"><span>meta</span> <span class="menu-item-badge badge-new">new</span></a></li>
-                <li class="menu-item" data-target="cmd-spectrum"><a href="#cmd-spectrum"><span>spectrum</span> <span class="menu-item-badge badge-new">new</span></a></li>
+                <li class="menu-item" data-target="cmd-meta"><a href="#cmd-meta"><span>meta</span></a></li>
+                <li class="menu-item" data-target="cmd-spectrum"><a href="#cmd-spectrum"><span>spectrum</span></a></li>
             </ul>
 
             <div class="menu-category">Graphics</div>
@@ -698,7 +698,7 @@
 
             <div class="menu-category">LLM Agent</div>
             <ul class="menu-list" id="menu-agent-cmds">
-                <li class="menu-item" data-target="cmd-agent"><a href="#cmd-agent"><span>agent</span> <span class="menu-item-badge badge-new">new</span></a></li>
+                <li class="menu-item" data-target="cmd-agent"><a href="#cmd-agent"><span>agent</span></a></li>
             </ul>
         </div>
         <div class="sidebar-footer">
@@ -720,6 +720,9 @@
                 <div class="subtitle">Command Line Interface (CLI) Manual &amp; Reference Guide</div>
                 <p style="margin-top: 16px; font-size: 1rem; color: var(--text-secondary);">
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
+                </p>
+                <p style="font-size: 1rem; color: var(--text-secondary);">
+                    <code>COMMAND help</code> or <code>COMMAND -h</code> prints a command's own help in the terminal. Most commands also accept <code>--help</code>; <code>export</code> and <code>label</code> accept <code>-?</code> instead, because <code>label --help</code> would be read as a report filename. <code>label help</code> requires a loaded MSA with an active reference.
                 </p>
             </header>
 
@@ -796,8 +799,8 @@
                     <div class="collapsible-content">
                         <p>Allows targeting based on node metadata: the FASTA-derived numeric columns <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> written when the layout cache is generated (caches from v0.2.0 and earlier lack them until regenerated), plus fields uploaded from Excel or CSV tables. Property names inside braces may contain only letters, digits, <code>_</code>, and <code>-</code>.</p>
                         <ul>
-                            <li><strong>Numerical:</strong> <code>{Length>500}</code> targets nodes where sequence length is greater than 500. Numeric properties accept <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>=</code>, <code>==</code>, and <code>!=</code>, plus ranges such as <code>{Length=300-500}</code>.</li>
-                            <li><strong>Text:</strong> <code>{Organism=*coli*}</code> targets nodes where Organism metadata contains "coli". Text properties accept <code>=</code>, <code>==</code>, and <code>!=</code>.</li>
+                            <li><strong>Numerical:</strong> <code>{Length>500}</code> targets nodes where sequence length is greater than 500. Numeric properties accept <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>=</code>, <code>==</code>, and <code>!=</code>, plus inclusive ranges with <code>=</code> such as <code>{Length=300-500}</code>. A negative range bound must be written in parentheses, as a negative alignment position is: <code>{GRAVY=(-1)-0}</code> or <code>{GRAVY=(-1.5)-(-0.5)}</code>. A single negative value needs none: <code>{GRAVY&gt;=-1}</code>.</li>
+                            <li><strong>Text:</strong> <code>{Organism=coli}</code> targets nodes whose Organism value contains "coli", ignoring case, so <code>=</code> and <code>==</code> test containment rather than exact equality; <code>!=</code> selects the nodes that test rejects. With a <code>*</code> or <code>?</code> wildcard the pattern must match the whole value: <code>{Organism=*coli}</code> requires a value ending in "coli".</li>
                         </ul>
                     </div>
                 </div>
@@ -955,7 +958,6 @@
                         <span class="command-card-name">run</span>
                         <span class="command-card-desc-title">&ndash; Execute Command Script</span>
                     </div>
-                    <span class="badge badge-new">New</span>
                     
                 </div>
                 <div class="syntax-box">
@@ -1004,7 +1006,6 @@
                         <span class="command-card-name">offset</span>
                         <span class="command-card-desc-title">&ndash; Alignment Numbering Offset</span>
                     </div>
-                    <span class="badge badge-new">New</span>
                 </div>
                 <div class="syntax-box">
                     <div class="syntax-content">offset [integer]</div>
@@ -1035,7 +1036,6 @@
                         <span class="command-card-name">alignment</span>
                         <span class="command-card-desc-title">&ndash; Switch Active Alignment (MSA)</span>
                     </div>
-                    <span class="badge badge-new">New</span>
                     
                 </div>
                 <div class="syntax-box">
@@ -1181,7 +1181,6 @@
                         <span class="command-card-name">subcluster</span>
                         <span class="command-card-desc-title">&ndash; Cluster Subclustering Tool</span>
                     </div>
-                    <span class="badge badge-new">New</span>
                     
                 </div>
                 <div class="syntax-box">
@@ -1213,7 +1212,7 @@
 
                 <div class="subheading">Important Notes</div>
                 <ul>
-                    <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state; <code>subcluster clear</code> removes generated group labels only.</li>
+                    <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state. <code>subcluster clear</code> removes every group label of the form <code>subcluster_</code> plus two integer fields: the generated labels, and also custom groups with such names, including <code>subcluster_0_2</code> and leading-zero names such as <code>subcluster_001_2</code>. It leaves colors as they are.</li>
                     <li>The terminal statistics report is color-coded using a rich, highly saturated HLS scheme (saturation 0.95, lightness 0.35 - 0.65) to differentiate subclusters from the pastel colors used for main clusters.</li>
                 </ul>
             </section>
@@ -1236,7 +1235,7 @@
                 <div class="subheading">Attributes</div>
                 <ul>
                     <li><strong>Color:</strong> Standard color names (<code>red</code>, <code>blue</code>, <code>green</code>, etc.) or Hex codes (<code>#ff0000</code>).</li>
-                    <li><strong>Scale:</strong> Size multiplier written with a trailing lowercase <code>x</code> (e.g. <code>2x</code> for double size, <code>0.5x</code> for half size), relative to the configured default node size rather than cumulative. <code>0x</code> shrinks nodes to zero size without hiding them; restore them with <code>reset sizes</code>, or use <code>hide</code> to hide nodes. The old prefix form is removed: <code>x2</code> now selects nodes with residue X at position 2.</li>
+                    <li><strong>Scale:</strong> Size multiplier written with a trailing lowercase <code>x</code> (e.g. <code>2x</code> for double size, <code>0.5x</code> for half size), relative to the configured default node size rather than cumulative. A scale must be finite and non-negative, so <code>-2x</code>, <code>nanx</code>, and <code>infx</code> are rejected. <code>0x</code> shrinks nodes to zero size without hiding them; restore them with <code>reset sizes</code>, or use <code>hide</code> to hide nodes. The old prefix form is removed: <code>x2</code> now selects nodes with residue X at position 2.</li>
                     <li><strong>Shape:</strong> circle, square, triangle, star, diamond, cross, x, vbar (vertical bar), and hbar (horizontal bar).</li>
                     <li><strong>Precedence:</strong> A token that forms a complete selection expression is always read as an expression before a color, scale, or shape. <code>C53</code> selects cysteine at position 53 rather than the Matplotlib color <code>C53</code>, and <code>x2</code> selects residue X at position 2.</li>
                 </ul>
@@ -1279,7 +1278,7 @@
                     <li><strong>Allowed Characters:</strong> Group names may contain letters, digits, underscores, hyphens, and periods, but no spaces (for example, <code>active_site</code>).</li>
                     <li><strong>Case-Insensitive:</strong> All group names are converted to lowercase internally to prevent matching errors.</li>
                     <li><strong>Reserved Words:</strong> The exact case-insensitive names <code>noise</code>, <code>reset</code>, <code>remove</code>, <code>delete</code>, <code>list</code>, <code>help</code>, <code>cluster</code>, <code>group</code>, <code>groups</code>, and <code>clusters</code> are prohibited.</li>
-                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical positive-ID <code>subcluster_N_M</code> names remain reserved; <code>subcluster_0_M</code> and leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed as custom groups.</li>
+                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical positive-ID <code>subcluster_N_M</code> names remain reserved; <code>subcluster_0_M</code> and leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed as custom groups, although <code>subcluster clear</code> removes them too.</li>
                 </ul>
 
                 <div class="subheading">Usage Mechanics</div>
@@ -1359,7 +1358,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">label [cluster|clusters|group|groups] [gmax value] [cmin value] [identity] [filename]</div>
+                    <div class="syntax-content">label [cluster|clusters|group|groups] [outside_max] [cluster_min] [identity] [filename]  |  label [cluster|clusters|group|groups] [gmax value] [cmin value] [id value] [filename]</div>
                     <button class="copy-btn" onclick="copyText('label', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
@@ -1447,7 +1446,6 @@
                         <span class="command-card-name">esmfold</span>
                         <span class="command-card-desc-title">&ndash; Local or Biohub ESM3 Structure Prediction</span>
                         <span class="badge badge-ext">external</span>
-                        <span class="badge badge-new">new</span>
                     </div>
                 </div>
                 <div class="syntax-box">
@@ -1468,7 +1466,7 @@
                 <ul>
                     <li><strong>Local Acceleration:</strong> Local inference automatically selects among CUDA/ROCm, Intel XPU, Apple Metal (MPS), and CPU devices supported by the installed runtime.</li>
                     <li><strong>Biohub Mode:</strong> Remote inference bypasses local hardware selection, keeps local and remote PDB files separate, and prompts for a hidden shared API token in the worker terminal on first use.</li>
-                    <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the PyQt viewer.</li>
+                    <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the desktop Viewer.</li>
                     <li><strong>Mol* Interface:</strong> Hosts a web server that loads the predicted structure in a rich interactive 3D viewer.</li>
                 </ul>
 
@@ -1491,7 +1489,6 @@
                         <span class="command-card-name">meta</span>
                         <span class="command-card-desc-title">&ndash; Node Metadata Manager Tool</span>
                     </div>
-                    <span class="badge badge-new">New</span>
                     
                 </div>
                 <div class="syntax-box">
@@ -1530,7 +1527,6 @@
                         <span class="command-card-name">spectrum</span>
                         <span class="command-card-desc-title">&ndash; Spectrum Coloring Tool</span>
                     </div>
-                    <span class="badge badge-new">New</span>
                     
                 </div>
                 <div class="syntax-box">
@@ -1620,7 +1616,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior.</li>
+                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior. Write the list without spaces (<code>[1,2]</code>, not <code>[1, 2]</code>), and each range from lower to higher (<code>[10-25]</code>, not <code>[25-10]</code>).</li>
                     <li><strong>FILENAME:</strong> Output name; <code>.svg</code> is appended unless it ends in <code>.svg</code> or <code>.png</code>, and without a name a timestamped <code>logo_YYYYMMDD_HHMMSS.svg</code> is created. Saved beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Sequence_Logos/</code>). Without an expression, a lone filename must end in <code>.svg</code> or <code>.png</code>; otherwise it is read as an expression, so write <code>logo $sele$ [10-20] my_logo</code> instead.</li>
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
@@ -1648,7 +1644,6 @@
                         <span class="command-card-name">agent</span>
                         <span class="command-card-desc-title">&ndash; LLM Agent CLI Portal</span>
                         <span class="badge badge-core">core</span>
-                        <span class="badge badge-new">new</span>
                     </div>
                 </div>
                 <div class="syntax-box">

@@ -45,6 +45,26 @@ reset hide
         with self.assertRaisesRegex(ValueError, 'Unknown command'):
             command_catalog('missing')
 
+    def test_help_built_with_an_f_string_is_read_whole(self):
+        """meta's help is an f-string; the catalog used to stop at its first placeholder."""
+        meta = command_catalog('meta')['commands'][0]
+        for form in ('meta download <filename>', 'meta show/display <property_name>',
+                     'meta delete/remove/clear <property_name> [property_name ...]'):
+            self.assertIn(form, meta['syntax'])
+        self.assertIn('Deleting every column with "all" is not supported.', meta['help'])
+        # A placeholder reads as <name>: braces would mean a metadata predicate.
+        self.assertIn('the metadata directory: <meta_dir>', meta['help'])
+        # f-strings in run() are runtime message templates, not syntax.
+        self.assertNotIn('meta <first_arg> <property_name> [property_name ...]', meta['syntax'])
+
+    def test_an_alternative_usage_form_is_catalogued(self):
+        self.assertEqual(
+            _command_syntax('Usage: label [A]\n   or: label [B]\nNotes:\n  or: label [C]', 'label'),
+            ['label [A]', 'label [B]'],
+        )
+        self.assertIn('label [TARGET] [key value] [<key 2> <value 2> ...] [NAME]',
+                      command_catalog('label')['commands'][0]['syntax'])
+
 
 class FeedbackTests(unittest.TestCase):
     setUpClass = classmethod(fixtures.PortalTests.setUpClass.__func__)

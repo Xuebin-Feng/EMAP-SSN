@@ -79,6 +79,21 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         self.assertIn("(min: 1.0, max: 3.0)", viewer.console_text.text)
         self.assertEqual(output.getvalue().count("Spectrum coloring applied"), 1)
 
+    def test_infinite_values_are_gray_and_do_not_stretch_the_range(self):
+        viewer = self.make_viewer([350.0, 475.0, 600.0, np.inf, -np.inf])
+
+        self.run_spectrum(viewer, ["{Length}", "viridis"], io.StringIO())
+
+        cmap, _ = spectrum.get_colormap("viridis")
+        for index, position in enumerate((0.0, 0.5, 1.0)):
+            np.testing.assert_allclose(viewer.current_colors[index], cmap(position))
+        np.testing.assert_array_equal(
+            viewer.current_colors[3:], [(0.7, 0.7, 0.7, 1.0)] * 2
+        )
+        self.assertIn("applied to 3 nodes", viewer.console_text.text)
+        self.assertIn("(min: 350.0, max: 600.0)", viewer.console_text.text)
+        self.assertIn("2 nodes with invalid values colored gray", viewer.console_text.text)
+
     def test_constant_range_uses_the_applied_midpoint_color_for_both_labels(self):
         viewer = self.make_viewer([2.0, 2.0])
         output = TTYStringIO()

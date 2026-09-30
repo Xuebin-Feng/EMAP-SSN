@@ -188,7 +188,7 @@ Discover summaries, arguments, choices/aliases and syntax with get_command_catal
 This is read-only and does not require execute_commands or a queued help command.
 General catalog entries have help=null; syntax lists extracted usage signatures
 and may be empty when source help has no extractable signature.
-Submit execute_commands with submission_id; reuse it on retries.
+Submit emapssn_viewer_control(action="execute_commands") with submission_id; reuse it on retries.
 Follow its next_step (tool, action, arguments) to poll the originating session.
 get_command_request and read_command_output accept exactly one nonempty request_id
 or submission_id. IDs are Viewer-local; supply session_id after reconnecting.
