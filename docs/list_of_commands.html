@@ -1192,7 +1192,7 @@
                 <div class="subheading">Arguments</div>
                 <ul>
                     <li><strong>&lt;cluster_name&gt;:</strong> Name of the cluster to subcluster (e.g. <code>cluster_2</code>, <code>cluster_5</code>).</li>
-                    <li><strong>clear:</strong> Clears all subcluster group labels (<code>subcluster_N_M</code>) from the viewer session. It does not restore the colors applied by earlier subclustering.</li>
+                    <li><strong>clear:</strong> Clears the generated subcluster group labels (<code>subcluster_N_M</code>) from the viewer session and keeps custom groups with lookalike names. It does not restore the colors applied by earlier subclustering.</li>
                     <li><strong>[min_size]:</strong> (Optional) Minimum size of subclusters to keep (Default: 10). Smaller groups are treated as Noise.</li>
                 </ul>
 
@@ -1212,7 +1212,7 @@
 
                 <div class="subheading">Important Notes</div>
                 <ul>
-                    <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state. <code>subcluster clear</code> removes every group label of the form <code>subcluster_</code> plus two integer fields: the generated labels, and also custom groups with such names, including <code>subcluster_0_2</code> and leading-zero names such as <code>subcluster_001_2</code>. It leaves colors as they are.</li>
+                    <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state. <code>subcluster clear</code> removes only generated labels, whose N and M are positive integers without leading zeros. Custom groups with lookalike names, such as <code>subcluster_0_2</code>, <code>subcluster_001_2</code>, and <code>subcluster_2_002</code>, are kept, and subclustering <code>cluster_2</code> again replaces only its generated labels. It leaves colors as they are.</li>
                     <li>The terminal statistics report is color-coded using a rich, highly saturated HLS scheme (saturation 0.95, lightness 0.35 - 0.65) to differentiate subclusters from the pastel colors used for main clusters.</li>
                 </ul>
             </section>
@@ -1278,7 +1278,7 @@
                     <li><strong>Allowed Characters:</strong> Group names may contain letters, digits, underscores, hyphens, and periods, but no spaces (for example, <code>active_site</code>).</li>
                     <li><strong>Case-Insensitive:</strong> All group names are converted to lowercase internally to prevent matching errors.</li>
                     <li><strong>Reserved Words:</strong> The exact case-insensitive names <code>noise</code>, <code>reset</code>, <code>remove</code>, <code>delete</code>, <code>list</code>, <code>help</code>, <code>cluster</code>, <code>group</code>, <code>groups</code>, and <code>clusters</code> are prohibited.</li>
-                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical positive-ID <code>subcluster_N_M</code> names remain reserved; <code>subcluster_0_M</code> and leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed as custom groups, although <code>subcluster clear</code> removes them too.</li>
+                    <li><strong>Generated Labels:</strong> A canonical <code>cluster_N</code> group name is rejected when cluster <code>N</code> currently exists, including cluster 0 from an older cache. If that cluster does not exist, the name may be used as a custom group. Leading-zero names such as <code>cluster_001</code> are always interpreted as custom groups rather than cluster 1. Canonical positive-ID <code>subcluster_N_M</code> names remain reserved; <code>subcluster_0_M</code> and leading-zero lookalikes such as <code>subcluster_001_2</code> and <code>subcluster_1_002</code> remain allowed as custom groups, and <code>subcluster clear</code> keeps them.</li>
                 </ul>
 
                 <div class="subheading">Usage Mechanics</div>

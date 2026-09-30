@@ -110,7 +110,7 @@ COMMAND_METADATA = {
         argument('expression', EXPRESSION + ' Defaults to all visible nodes.'),
         argument('color_scheme', 'Optional installed Matplotlib colormap name, default coolwarm; unknown names fall back to coolwarm with a warning. A token that is also a valid selection expression is read as the expression.')),
     'subcluster': entry('Subcluster a topology cluster into custom group labels while retaining original cluster membership.',
-        argument('action', 'clear removes subcluster group labels and leaves colors unchanged.', choice('clear')),
+        argument('action', 'clear removes the generated subcluster_N_M group labels, keeps custom groups with lookalike names such as subcluster_0_2, and leaves colors unchanged.', choice('clear')),
         argument('cluster_name', 'Required existing topology cluster name such as cluster_2 when not clearing.'),
         CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),
     'undo': entry('Restore the previous state; report a no-op if undo history is empty.'),

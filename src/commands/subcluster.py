@@ -21,6 +21,10 @@ from utilities import Network_Kernels as network_clustering
 import sys
 import colorsys
 import math
+try:
+    import commands.group as group_cmd
+except ImportError:
+    import group as group_cmd
 
 if sys.platform == 'win32':
     os.system('')
@@ -71,7 +75,9 @@ def print_help():
 
     Arguments:
       <CLUSTER_NAME>    - Name of the cluster to subcluster (e.g., cluster_2, cluster_5).
-      clear             - Clears all subcluster groups (subcluster_N_M) from the viewer session.
+      clear             - Clears the generated subcluster groups (subcluster_N_M) from the
+                          viewer session. Custom groups with lookalike names, such as
+                          subcluster_0_2 or subcluster_001_2, are kept.
 
     Modes:
       leiden (Default)  - Leiden Community Detection. PARAM_1: Resolution (Default: 1.0)
@@ -105,11 +111,12 @@ def run(viewer, args):
             return
             
         viewer._save_state()
-        
-        pattern = re.compile(r'^subcluster_\d+_\d+$')
+
         total_removed = 0
         for g_set in viewer.group_labels:
-            to_remove = [g for g in g_set if pattern.match(g)]
+            to_remove = [
+                g for g in g_set if group_cmd.is_generated_subcluster_name(g)
+            ]
             for g in to_remove:
                 g_set.remove(g)
                 total_removed += 1
@@ -354,8 +361,9 @@ def run(viewer, args):
     if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
         viewer.group_labels = [set() for _ in range(viewer.n_nodes)]
 
-    # Remove existing groups matching subcluster_N_* for all nodes
-    pattern = re.compile(rf'^subcluster_{cluster_id}_\d+$')
+    # Replace the labels an earlier run generated for this cluster; custom
+    # lookalikes such as subcluster_N_002 or subcluster_N_0 are kept.
+    pattern = re.compile(rf'^subcluster_{cluster_id}_[1-9]\d*$')
     for g_set in viewer.group_labels:
         to_remove = [g for g in g_set if pattern.match(g)]
         for g in to_remove:

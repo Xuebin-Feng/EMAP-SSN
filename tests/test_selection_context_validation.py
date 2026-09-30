@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -25,6 +25,7 @@ from commands import export as export_command
 from commands import group as group_command
 from commands import hide as hide_command
 from commands import select as select_command
+from commands import subcluster as subcluster_command
 from web_ui import meta_backend
 
 
@@ -490,6 +491,69 @@ class AtomicCommandTests(unittest.TestCase):
                 self.assertEqual(viewer.group_labels, [{name}])
                 viewer._save_state.assert_called_once_with()
                 viewer.update_nodes.assert_called_once_with()
+
+    def test_subcluster_clear_keeps_custom_lookalike_groups(self):
+        viewer = self.make_viewer()
+        viewer.group_labels = [
+            {
+                "subcluster_1_1",
+                "subcluster_12_34",
+                "subcluster_0_1",
+                "subcluster_001_2",
+                "subcluster_1_002",
+                "subcluster_1_0",
+                "alpha",
+            }
+        ]
+
+        with mock.patch("builtins.print"):
+            subcluster_command.run(viewer, ["clear"])
+
+        self.assertEqual(
+            viewer.group_labels,
+            [
+                {
+                    "subcluster_0_1",
+                    "subcluster_001_2",
+                    "subcluster_1_002",
+                    "subcluster_1_0",
+                    "alpha",
+                }
+            ],
+        )
+        self.assertIn("removed 2 label instances", viewer.console_text.text)
+        viewer._save_state.assert_called_once_with()
+
+    def test_subclustering_again_replaces_only_that_clusters_generated_labels(self):
+        viewer = self.make_viewer()
+        viewer.n_nodes = 3
+        viewer.full_headers = ["node_a", "node_b", "node_c"]
+        viewer.cluster_labels = np.array([1, 1, 2])
+        viewer.edges = [[0, 1]]
+        viewer.current_colors = np.ones((3, 4))
+        viewer.group_labels = [
+            {"subcluster_1_1", "subcluster_1_002", "subcluster_1_0"},
+            {"subcluster_1_2"},
+            {"subcluster_2_1"},
+        ]
+
+        with mock.patch.dict(
+            sys.modules, {"graspologic_native": ModuleType("graspologic_native")}
+        ), mock.patch.object(
+            subcluster_command.network_clustering,
+            "leiden_partition",
+            return_value=np.array([1, 1]),
+        ), mock.patch("builtins.print"):
+            subcluster_command.run(viewer, ["cluster_1"])
+
+        self.assertEqual(
+            viewer.group_labels,
+            [
+                {"subcluster_1_1", "subcluster_1_002", "subcluster_1_0"},
+                {"subcluster_1_1"},
+                {"subcluster_2_1"},
+            ],
+        )
 
     def test_group_rejects_any_loaded_canonical_cluster_name(self):
         for cluster_id in (0, 27):

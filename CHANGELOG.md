@@ -349,6 +349,11 @@ still change before version 1.0.0.
 - `color` accepted negative, NaN, and infinite scales (in v0.2.0's syntax, `x-2` or
   `xnan`). Such scales, for example `-2x`, `nanx`, or `1e400x`, are now rejected
   before any change is applied; `0x` remains valid.
+- `subcluster clear` removed custom groups whose names only resembled generated ones,
+  such as `subcluster_0_2` or `subcluster_001_2`, although `group` accepts those names,
+  and `subcluster cluster_2` removed custom groups such as `subcluster_2_002` before
+  writing its labels. Both now remove only generated labels, whose two IDs are
+  positive integers without leading zeros: the names `group` reserves.
 - `emapssn_pipeline(action="start_layout_job")` silently ignored `parameters` keys
   that are not layout fields, so a misspelled key such as `SPRNG_K` left the default
   in place. Such keys are now rejected with the closest valid field name, and keys

@@ -36,6 +36,16 @@ _GENERATED_SUBCLUSTER_NAME_RE = re.compile(
 )
 
 
+def is_generated_subcluster_name(name):
+    """Return whether a group name has the form the subcluster command generates.
+
+    Both IDs are positive integers without leading zeros, so custom groups such
+    as subcluster_0_2 or subcluster_001_2 never match. This command reserves
+    exactly these names, and subcluster clear removes only these.
+    """
+    return _GENERATED_SUBCLUSTER_NAME_RE.fullmatch(str(name)) is not None
+
+
 def print_help():
     print("""
     Custom Group Labeling Tool
@@ -236,7 +246,7 @@ def run(viewer, args):
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
-        if _GENERATED_SUBCLUSTER_NAME_RE.fullmatch(name):
+        if is_generated_subcluster_name(name):
             Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
             msg = f"Group name '{raw_name}' is reserved for subclusters. Skipping."
             print(f"Warning: {msg}")
