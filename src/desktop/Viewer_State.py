@@ -521,13 +521,21 @@ def read_viewer_settings(*, settings_document=None, settings_path=None, project_
 # 4. Cache Resolution & Selection
 # =====================================================================
 
-def resolve_selected_cache(settings):
+def resolve_selected_cache(settings, *, layout_dimensions=None):
     """Return the path of the layout cache that ``settings`` selects.
+
+    An explicit TARGET_CACHE_PATH wins. Otherwise the folder is the canonical
+    name of the inputs, and LAYOUT_DIMENSIONS - from ``settings`` unless
+    ``layout_dimensions`` is given - picks the 2D folder or its ``_3D``
+    sibling. Desktop settings carry no LAYOUT_DIMENSIONS, so the desktop
+    viewer always resolves the 2D folder.
 
     The alignment reference plays no part in cache selection, so it is not
     resolved here. The alignment resolves it when it loads; read
     ``Alignment_Manager.resolved_ref_full`` for the header it anchored on.
     """
+    if layout_dimensions is None:
+        layout_dimensions = getattr(settings, "LAYOUT_DIMENSIONS", None) or 2
     saved_layout_dir = getattr(
         settings,
         "SAVED_LAYOUT_DIR",
@@ -558,6 +566,7 @@ def resolve_selected_cache(settings):
         umap_neighbors=getattr(settings, "UMAP_NEIGHBORS", 15),
         top_edge_percent=getattr(settings, "TOP_EDGE_PERCENT", None),
         similarity_threshold=getattr(settings, "SIMILARITY_THRESHOLD", None),
+        layout_dimensions=layout_dimensions,
     )
     target_folder = os.path.join(saved_layout_dir, canonical_name)
 

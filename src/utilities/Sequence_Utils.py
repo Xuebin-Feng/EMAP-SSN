@@ -212,20 +212,20 @@ def header_identifiers(header):
     return prefixes + [header_lower]
 
 
-def pick_reference_header(candidates, target):
-    """Choose the header TARGET names: the whole header, then an identifier, then a pattern.
+def reference_header_matches(candidates, target):
+    """Every header TARGET names at its most exact tier, in CANDIDATES order.
 
-    `E1_RA` names the header `E1_RA` even when `E1_RA_variant`, which has `E1_RA`
-    as its leading identifier, comes first. `WP_0123.1` names `WP_0123.1_protein_A`
-    exactly and is only a substring of `WP_0123.10_protein_B`, so a versioned
-    accession resolves to its own sequence. Wildcards match the whole header or
-    any leading segment, which lets `*.1` select a version suffix. When several
-    headers qualify at the chosen tier, the first in CANDIDATES order is used and
-    a warning names it. Returns None when no header matches.
+    The tiers are the whole header, then a leading identifier, then a substring
+    or a wildcard. `E1_RA` names the header `E1_RA` even when `E1_RA_variant`,
+    which has `E1_RA` as its leading identifier, comes first. `WP_0123.1` names
+    `WP_0123.1_protein_A` exactly and is only a substring of
+    `WP_0123.10_protein_B`, so a versioned accession resolves to its own
+    sequence. Wildcards match the whole header or any leading segment, which
+    lets `*.1` select a version suffix.
     """
     target_lower = str(target).lower()
     identifiers = {header: header_identifiers(header) for header in candidates}
-    matches = (
+    return (
         [header for header in identifiers if header.lower() == target_lower]
         or [header for header, names in identifiers.items() if target_lower in names]
         or [
@@ -235,6 +235,15 @@ def pick_reference_header(candidates, target):
             or any(fnmatch.fnmatchcase(name, target_lower) for name in names)
         ]
     )
+
+
+def pick_reference_header(candidates, target):
+    """Choose the header TARGET names, or None when none does.
+
+    The first of `reference_header_matches` is used; when several headers
+    qualify at that tier, a warning names the one chosen.
+    """
+    matches = reference_header_matches(candidates, target)
     if len(matches) > 1:
         print(f"Warning: Multiple matches found for '{target}'. Using '{matches[0]}'.")
     return matches[0] if matches else None

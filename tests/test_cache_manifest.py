@@ -110,6 +110,21 @@ class CacheSelectionTests(unittest.TestCase):
             legacy_path = resolve_selected_cache(settings)
             self.assertEqual(pathlib.Path(legacy_path).name, "saved_layout.h5")
 
+            # LAYOUT_DIMENSIONS selects the generator's "_3D" folder, and the
+            # keyword overrides it, which is how opt_vr finds the 2D fallback.
+            settings.TARGET_CACHE_FILE = None
+            settings.LAYOUT_DIMENSIONS = 3
+            self.assertEqual(
+                pathlib.Path(resolve_selected_cache(settings)).parent.name,
+                "set_[model]_alignment_length_global_Score0.4_3D",
+            )
+            self.assertEqual(
+                pathlib.Path(
+                    resolve_selected_cache(settings, layout_dimensions=2)
+                ).parent.name,
+                "set_[model]_alignment_length_global_Score0.4",
+            )
+
     def test_explicit_relative_path_resolves_and_rejects_traversal(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = pathlib.Path(temp_dir)

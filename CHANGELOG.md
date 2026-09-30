@@ -266,7 +266,10 @@ still change before version 1.0.0.
   takes priority, then a leading identifier, then substring matches, so
   `reference WP_0123.1` selects `WP_0123.1_protein_A` instead of the first header
   containing it, such as `WP_0123.10_protein_B`, and wildcards such as `*.1` can
-  match that identifier.
+  match that identifier. The Config GUI's consistency check applies the same rules:
+  it names the header the reference resolves to, any headers that tie with it, and
+  whether the MSA lacks it, instead of counting every header that contains the text,
+  and it no longer reports a wildcard as missing.
 - Headless Viewer launches through MCP on Windows opened a stray terminal window.
   The launcher started the venv's `python.exe` redirector without any console, so
   Windows gave the interpreter it starts a new, visible one; when that process ended
@@ -329,7 +332,10 @@ still change before version 1.0.0.
   on every call, including each `save`, Mol* session save or load, and agent history
   lookup, yet nothing read the result. The function now returns the cache path
   instead of a `(cache_path, reference)` pair; `Alignment_Manager.resolved_ref_full`
-  holds the header the alignment anchored on.
+  holds the header the alignment anchored on. It also honours `LAYOUT_DIMENSIONS`,
+  naming the `_3D` folder for a 3D layout, and takes a `layout_dimensions` keyword
+  that overrides the setting. Desktop settings carry no such key, so the desktop
+  Viewer still resolves the 2D folder.
 
 ## [0.2.0] - 2026-09-09
 

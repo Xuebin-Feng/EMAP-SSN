@@ -1425,7 +1425,7 @@ if __name__ == "__main__":
             
         def run_consistency_check(self):
             import h5py
-            from utilities.Sequence_Utils import sanitize_header
+            from utilities.Sequence_Utils import reference_header_matches
             
             # 1. Define the file names by grabbing them from the UI dropdowns
             fasta_file = self.cb_fasta.currentText()
@@ -1474,7 +1474,8 @@ if __name__ == "__main__":
                     msg = f"ERROR: FASTA is NOT a subset of HDF5.\n{msg}\nMissing examples: {', '.join(missing_nodes[:5])}"
                 else:
                     msg = f"SUCCESS: FASTA is a strict subset of HDF5.\n{msg}"
-                
+
+                msa_headers = None
                 if msa_path and os.path.exists(msa_path):
                     msa_headers = set(_load_consistency_msa_headers(msa_path))
 
@@ -1498,18 +1499,37 @@ if __name__ == "__main__":
                     else:
                         msg += f"\n\nSUCCESS: MSA covers all FASTA nodes.\n{msa_msg}"
                 
-                # Check Reference ID if provided
+                # Check Reference ID if provided. Resolve it exactly as the
+                # Viewer will: the same rules over the same candidates, the
+                # network headers kept by the FASTA, in network order.
                 ref_id = self.line_ref.text().strip()
                 if ref_id:
-                    # Proceed with normal matching only (Case-Insensitive)
-                    ref_id_lower = sanitize_header(ref_id)[0].lower()
-                    matched_refs = [h for h in fasta_headers if ref_id_lower in h.lower()]
-                    if matched_refs:
-                        msg += f"\n\nSUCCESS: Reference ID '{ref_id}' matched {len(matched_refs)} header(s) in FASTA."
-                        for h in matched_refs[:5]:
-                            msg += f"\n  - {h}"
+                    fasta_set = set(fasta_headers)
+                    candidates = [header for header in headers if header in fasta_set]
+                    matched_refs = reference_header_matches(candidates, ref_id)
+                    if not matched_refs:
+                        msg += (
+                            f"\n\nWARNING: Reference ID '{ref_id}' matches no network "
+                            "header, so reference numbering will be inactive."
+                        )
                     else:
-                        msg += f"\n\nWARNING: Reference ID '{ref_id}' NOT found in FASTA headers."
+                        resolved = matched_refs[0]
+                        if msa_headers is not None and resolved not in msa_headers:
+                            msg += (
+                                f"\n\nWARNING: Reference ID '{ref_id}' resolves to "
+                                f"{resolved}, which the MSA lacks, so positions will be "
+                                "numbered by occupancy and the offset ignored."
+                            )
+                        else:
+                            msg += f"\n\nSUCCESS: Reference ID '{ref_id}' resolves to {resolved}."
+                        if len(matched_refs) > 1:
+                            others = ", ".join(matched_refs[1:4])
+                            if len(matched_refs) > 4:
+                                others += ", ..."
+                            msg += (
+                                f"\nIt matches {len(matched_refs)} headers equally; the "
+                                f"first in network order is used. Others: {others}"
+                            )
                 
                 self.tip_panel.setText(msg)
             

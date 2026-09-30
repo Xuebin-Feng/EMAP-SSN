@@ -17,6 +17,7 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager  # noqa: E402
 from commands import reference as reference_command  # noqa: E402
+from utilities.Sequence_Utils import reference_header_matches  # noqa: E402
 from tests.test_incomplete_alignment_commands import load_manager, write_fasta  # noqa: E402
 
 
@@ -157,6 +158,20 @@ class ReferenceResolutionTests(unittest.TestCase):
         self.assertEqual(viewer.active_reference, "WP_0123.1_protein_A")
         self.assertEqual(viewer.alignment.resolved_ref_full, "WP_0123.1_protein_A")
         self.assertEqual(messages, ["Reference successfully set: WP_0123.1_protein_A."])
+
+    def test_matches_list_every_tie_at_the_winning_tier(self):
+        # The Config GUI's consistency check reports these, so it can name the
+        # header the Viewer will use and the others that tie with it.
+        headers = [h for h, _ in self.ACCESSION_RECORDS]
+
+        self.assertEqual(
+            reference_header_matches(headers, "WP_0123.1"), ["WP_0123.1_protein_A"]
+        )
+        self.assertEqual(
+            reference_header_matches(headers, "WP_01*"),
+            ["WP_0123.10_protein_B", "WP_0123.1_protein_A"],
+        )
+        self.assertEqual(reference_header_matches(headers, "absent"), [])
 
     def test_wildcard_can_select_a_version_suffix(self):
         records = self.ACCESSION_RECORDS
