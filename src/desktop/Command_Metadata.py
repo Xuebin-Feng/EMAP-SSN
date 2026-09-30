@@ -41,7 +41,7 @@ COMMAND_METADATA = {
         argument('action', 'reset restores configured node colors.', choice('reset')),
         argument('expression', EXPRESSION + ' Omission targets selected nodes; assignments may be chained.'),
         argument('color', 'Optional Matplotlib color name or hex color; at least one visual attribute is needed. A valid selection expression takes precedence, so C53 selects cysteine 53 and x2 selects residue X at position 2.'),
-        argument('scale', 'Optional x-suffixed numeric multiplier, e.g. 2x or 0.5x.'),
+        argument('scale', 'Optional multiplier of the configured node size: a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.'),
         argument('shape', 'Optional VisPy marker token; circle and triangle are explicit parser aliases.',
             choice('disc', 'circle'), choice('arrow'), choice('ring'), choice('clobber'), choice('square'), choice('x'),
             choice('diamond'), choice('vbar'), choice('hbar'), choice('cross'), choice('tailed_arrow'),

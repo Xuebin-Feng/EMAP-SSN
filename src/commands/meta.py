@@ -41,10 +41,10 @@ def print_help(meta_dir):
       meta
           Opens the HTML5 Metadata Spreadsheet in your web browser and registers 
           the "📊 Meta Data" sidebar shortcut button.
-      meta <filename>
-          Uploads and merges the specified metadata file (.xlsx, .xls, .csv) into the 
-          current viewer session. The path can be absolute, relative, or located 
-          inside the metadata directory: {meta_dir}
+      meta [upload|import] <filename> [filename ...]
+          Uploads and merges one or more metadata files (.xlsx, .xls, .csv; the
+          extension may be omitted) into the current viewer session. Each path can
+          be absolute, relative, or located inside the metadata directory: {meta_dir}
       meta download
           Downloads the current session metadata to a generic file (e.g. metadata.csv, 
           or metadata1.csv if already taken) in {meta_dir}.
@@ -67,6 +67,7 @@ def print_help(meta_dir):
     Examples:
       meta
       meta my_data.xlsx
+      meta upload traits.xlsx taxonomy.csv
       meta download
       meta download my_exported_data
       meta show Organism

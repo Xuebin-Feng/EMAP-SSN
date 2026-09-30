@@ -54,8 +54,10 @@ def load_model(model_name, device):
     # Transformers 5 defaults to dtype="auto", which adopts whatever type
     # the publisher uploaded, so the compute precision would otherwise be
     # theirs to change rather than ours to declare.
-    # Rostlab/ProstT5 provides unrounded float32 weights. Point hf_mappings
-    # at "Rostlab/ProstT5_fp16" if you prefer halving checkpoint download size.
+    # Rostlab/ProstT5 provides unrounded float32 weights. Rostlab/ProstT5_fp16
+    # halves the download but gives different embeddings, and an embedding file
+    # records only the model name, so repointing hf_mappings would silently mix
+    # checkpoints under prost_t5; add a separate model entry instead.
     model = T5EncoderModel.from_pretrained(hf_id, dtype=torch.float32).to(device)
     return tokenizer, model
 

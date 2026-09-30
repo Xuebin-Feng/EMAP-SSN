@@ -111,7 +111,10 @@ still change before version 1.0.0.
   or `umap_3d` as their layout mode, and are validated as `(node_count, 3)`
   coordinates. The desktop Viewer, and Viewer settings validated through MCP, reject
   a 3D cache with a message that names it as one and points to its 2D cache or
-  `LAYOUT_DIMENSIONS=2`.
+  `LAYOUT_DIMENSIONS=2`. 3D physics layouts place disconnected components on
+  concentric spherical shells around the largest one instead of packing them into a
+  grid, so `PACKING_GEOMETRY` has no effect there; `PACKING_GRID_SIZE` sets the gap
+  between shells and `PACKING_PADDING` the clearance around each component.
 - `LAYOUT_SEED` (a non-negative integer, default `42`) seeds the physics and UMAP
   engines; `null` opts out of seeding. UMAP already used a fixed seed of 42 in v0.2.0,
   and physics layouts are now seeded too. With a fixed seed, UMAP layouts and CPU
@@ -263,6 +266,10 @@ still change before version 1.0.0.
   a stored metadata group without `Length` counts as an intentional column deletion.
 - Integral float metadata values display and export without trailing decimals, and
   the `meta show` HUD readout uses the same formatter.
+- `Length` is stored and loaded as a floating-point column, like `kDa`, `pI`, and
+  `GRAVY`; v0.2.0 converted it to integers when it generated or loaded the column.
+  The Viewer still displays and exports whole numbers, but MCP `query_nodes` and
+  `read_value` now return values such as `350.0` instead of `350`.
 - Viewer settings no longer reject an MSA that lacks the configured
   `ALIGNMENT_REFERENCE`. The requested reference and offset are preserved, and the
   Viewer falls back to occupancy-based numbering and logs a warning at startup.
@@ -354,6 +361,13 @@ still change before version 1.0.0.
   directory:", and its syntax list lacked `download`, `delete`, and `help`. Help
   text is now read whole, with placeholders shown as `<meta_dir>`, and alternative
   usage lines written `or: …`, such as `label`'s keyword form, are catalogued too.
+- The in-app agent's system prompt misdescribed parts of the Viewer's grammar, so the
+  agent could generate commands that fail. It gave header-list files as `@[FILE]@`,
+  which the parser reads as a file literally named `[FILE]`, instead of `@FILE@`; it
+  told the agent to rely on an `ACTIVE EMAP-SSN VIEWER STATE` block that the agent is
+  never sent, instead of the `ACTIVE VIEWER SNAPSHOT` it receives; and it did not rule
+  out `subcluster #cluster_N#`, which `subcluster` rejects. The prompt now matches
+  the parser.
 - `select <EXPRESSION> save` raised an internal error, because `save` was accepted as
   a mode after an expression. `save` is only valid as `select save <FILENAME>`, and
   other placements now fail with a message saying so.

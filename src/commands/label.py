@@ -133,7 +133,7 @@ def print_help():
       group / groups     : Analyzes ONLY custom groups.
       omitted            : Analyzes all available clusters and custom groups.
 
-    Arguments (Accepts decimals '0.4' or percentages '40%'):
+    Arguments (a fraction '0.4' or a percentage '40' or '40%'; '0.5%' is 0.5%):
       gmax (Outside Max)  : Default 40%. Max frequency a conserved residue can
                             have outside the union of all analyzed subsets where
                             that same residue meets cmin at the same position.

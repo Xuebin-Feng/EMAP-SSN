@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-09-28
+Last reviewed: 2026-09-30
 
 ---
 

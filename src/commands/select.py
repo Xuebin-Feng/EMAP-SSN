@@ -149,7 +149,7 @@ def run(viewer, args):
                 write_fasta_atomic(save_path, headers_to_save, sequences_to_save)
                 msg = f"Saved {len(headers_to_save)} sequences to {save_path}"
                 if missing_count > 0:
-                    msg += f" ({missing_count} missing from source FASTA)"
+                    msg += f" ({missing_count} missing from the loaded sequences)"
             else:
                 with open(save_path, "w", encoding="utf-8", newline="\n") as f:
                     for idx in selected_indices:

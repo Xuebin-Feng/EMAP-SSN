@@ -49,9 +49,10 @@ TRANSFORMERS_VERSION = "5.17.0"
 # esm declares these two NVIDIA CUDA 13 kernel packages on Linux/x86_64, and
 # esm_runtime_requirements.txt omits them on purpose: only the ESMFold2 fused
 # attention and triangle-multiplication paths import them, behind a try/except
-# ImportError that falls back to pure PyTorch. This project uses ESMC
-# embeddings only, so `uv pip check` reports them as missing on every Linux
-# x86_64 install. Drop them from this set if ESMFold2 inference is adopted.
+# ImportError that falls back to pure PyTorch. This project uses esm only for
+# ESMC embeddings and ESM3 structure prediction, neither of which imports
+# them, so `uv pip check` reports them as missing on every Linux x86_64
+# install. Drop them from this set if ESMFold2 inference is adopted.
 ESM_OMITTED_REQUIREMENTS = frozenset({
     "cuequivariance-torch", "cuequivariance-ops-torch-cu13",
 })
