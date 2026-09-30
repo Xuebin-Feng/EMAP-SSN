@@ -1333,8 +1333,8 @@
                 <div class="subheading">Exporting Selections (<code>select save</code>)</div>
                 <p>Simple tools to write output lists to the disk (saves to <code>Input_Files/Header_Lists/</code>):</p>
                 <ul>
-                    <li><strong>Saving Headers (<code>.txt</code>):</strong> If you provide a <code>.txt</code> filename (e.g. <code>select save targets.txt</code>), generates a text file containing the exact, full FASTA headers of selected nodes. Any other extension receives an appended <code>.txt</code>, so <code>hits.csv</code> becomes <code>hits.csv.txt</code>.</li>
-                    <li><strong>Extracting Raw Sequences (<code>.fasta</code>):</strong> If you provide a <code>.fasta</code> filename (e.g. <code>select save targets.fasta</code>), extracts raw amino acid sequences from the source sequence file and writes them to a standalone FASTA file.</li>
+                    <li><strong>Saving Headers (<code>.txt</code>):</strong> If you provide a <code>.txt</code> filename (e.g. <code>select save targets.txt</code>), generates a text file containing the full canonical headers of the selected nodes, as the network and layout cache store them. Any other extension receives an appended <code>.txt</code>, so <code>hits.csv</code> becomes <code>hits.csv.txt</code>.</li>
+                    <li><strong>Saving Sequences (<code>.fasta</code>):</strong> If you provide a <code>.fasta</code> filename (e.g. <code>select save targets.fasta</code>), writes the selected nodes' sanitized sequences under the same headers to a standalone FASTA file. The sequences come from the set the Viewer loaded and checked against the layout cache, not from a new read of the source file.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>

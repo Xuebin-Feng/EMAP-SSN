@@ -522,8 +522,7 @@ class MainViewer:
         self.full_headers = [] # Original headers (for caching/integrity)
 
         
-        self.original_seqs = None       
-        self.last_cluster_params = None 
+        self.last_cluster_params = None
         
         # Alignment Data 
         self.active_reference = cfg.ALIGNMENT_REFERENCE

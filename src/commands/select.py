@@ -120,36 +120,34 @@ def run(viewer, args):
             
         try:
             if is_fasta:
-                from Bio import SeqIO
-                # Lazy load original sequences if not already in memory
-                if getattr(viewer, 'original_seqs', None) is None:
-                    viewer.console_text.text = "Loading original sequences..."
-                    viewer.original_seqs = {}
-                    fasta_to_load = getattr(cfg, 'NODE_FASTA_FILE', getattr(cfg, 'SEQUENCES_FILE', ''))
-                    if os.path.exists(fasta_to_load):
-                        for r in SeqIO.parse(fasta_to_load, "fasta"):
-                            viewer.original_seqs[r.id] = r
-                            viewer.original_seqs[r.description] = r
-                    else:
-                        raise FileNotFoundError(f"Source FASTA not found at {fasta_to_load}")
-                
-                records_to_save = []
+                from commands.export import _get_in_memory_sequence_records
+                from utilities.Sequence_Utils import write_fasta_atomic
+
+                # Use the records the viewer loaded and checked against the
+                # cache, keyed by the canonical headers the cache stores. The
+                # source FASTA itself may never have been sanitized, so a raw
+                # re-read missed every record whose header sanitizing changed.
+                source_records = _get_in_memory_sequence_records(viewer)
+                if not source_records:
+                    raise ValueError(
+                        "no in-memory sequence set is available; use a .txt "
+                        "filename to save the headers instead"
+                    )
+
+                headers_to_save = []
+                sequences_to_save = []
                 missing_count = 0
                 for idx in selected_indices:
-                    full_h = viewer.full_headers[idx]
-                    simple_h = viewer.full_headers[idx]
-                    
-                    s = viewer.original_seqs.get(full_h)
-                    if not s: s = viewer.original_seqs.get(simple_h)
-                    if not s: s = viewer.original_seqs.get(simple_h.split()[0])
-                    
-                    if s:
-                        records_to_save.append(s)
-                    else:
+                    header = viewer.full_headers[idx]
+                    sequence = source_records.get(header)
+                    if sequence is None:
                         missing_count += 1
-                        
-                SeqIO.write(records_to_save, save_path, "fasta")
-                msg = f"Saved {len(records_to_save)} sequences to {save_path}"
+                    else:
+                        headers_to_save.append(header)
+                        sequences_to_save.append(sequence)
+
+                write_fasta_atomic(save_path, headers_to_save, sequences_to_save)
+                msg = f"Saved {len(headers_to_save)} sequences to {save_path}"
                 if missing_count > 0:
                     msg += f" ({missing_count} missing from source FASTA)"
             else:

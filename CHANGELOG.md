@@ -345,6 +345,12 @@ still change before version 1.0.0.
 - `select <EXPRESSION> save` raised an internal error, because `save` was accepted as
   a mode after an expression. `save` is only valid as `select save <FILENAME>`, and
   other placements now fail with a message saying so.
+- `select save <FILENAME>.fasta` re-read `NODE_FASTA_FILE` and looked the selected
+  nodes up by its raw headers, so records whose header sanitizing changes, such as
+  ones with spaces, brackets or a `/`, were reported missing from the source FASTA and
+  left out of the file. It now saves the sanitized sequences the Viewer loaded and
+  checked against the layout cache, under the same canonical headers as
+  `select save <FILENAME>.txt` and `export`, in both the desktop and VR viewers.
 - `spectrum` treated infinite metadata values as numbers. A single `inf` stretched the
   color range to infinity, so every other node took the lowest color and the
   infinite node became transparent. Infinite values are now colored gray and counted
