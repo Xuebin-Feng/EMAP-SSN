@@ -196,6 +196,21 @@ def parse_percentage(val_str):
     return value
 
 
+def _is_non_finite_number(val_str):
+    """Whether val_str reads as NaN or an infinity, with or without a trailing %.
+
+    parse_percentage returns None for these as for words, but they are numbers,
+    so a positional one is rejected rather than taken as the report filename.
+    """
+    text = str(val_str).strip()
+    if text.endswith('%'):
+        text = text[:-1].strip()
+    try:
+        return not math.isfinite(float(text))
+    except ValueError:
+        return False
+
+
 def _normalize_output_filename(filename):
     """Return a safe XLSX basename for the configured label output directory."""
     filename = str(filename).strip()
@@ -274,6 +289,11 @@ def _parse_label_arguments(args):
             positional_args.append((raw_argument, parsed_value))
             index += 1
             continue
+        if _is_non_finite_number(argument):
+            raise ValueError(
+                f"Invalid percentage '{raw_argument}': thresholds must be finite. "
+                "Add .xlsx to use it as the report filename."
+            )
 
         if requested_filename is not None:
             raise ValueError("Provide only one custom output filename.")

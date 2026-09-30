@@ -133,6 +133,19 @@ class LabelThresholdParsingTests(unittest.TestCase):
         self.assertAlmostEqual(positional["global_max"], 0.005)
         self.assertAlmostEqual(positional["cluster_min"], 0.01)
 
+    def test_non_finite_thresholds_are_rejected_in_every_position(self):
+        """A positional nan or inf was once taken as the report filename."""
+        for args in (["nan"], ["0.4", "inf"], ["0.4", "0.9", "-inf"], ["INF%"],
+                     ["1e400"], ["gmax", "nan"], ["cmin", "inf"]):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "Invalid percentage"):
+                    label._parse_label_arguments(args)
+
+    def test_a_non_finite_name_can_still_be_the_report_filename(self):
+        parsed = label._parse_label_arguments(["0.4", "nan.xlsx"])
+        self.assertAlmostEqual(parsed["global_max"], 0.4)
+        self.assertEqual(parsed["requested_filename"], "nan.xlsx")
+
 
 if __name__ == "__main__":
     unittest.main()

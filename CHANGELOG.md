@@ -83,12 +83,24 @@ still change before version 1.0.0.
   the CPU.
 - **The managed environment is rebuilt on first launch.** The launchers recreate a
   `.venv` that does not run Python 3.13, so the first launch after upgrading rebuilds
-  it with Python 3.13 and reinstalls every dependency, including PyTorch.
+  it with Python 3.13 and reinstalls every dependency, including PyTorch. Only the
+  EMAP-SSN and EMAP-SSN Tools launchers do this. The MCP server, the jobs and Viewers
+  it starts, and scripts run directly with the `.venv` Python, such as
+  `src/tools/*.py` or `src/Layout_Cache_Generator.py`, use `.venv` as they find it:
+  until a launcher has rebuilt it, they run the new code on the v0.2.0 Python 3.12
+  environment, where ESMC embedding jobs, for example, fail to import `EsmcModel`.
+  After upgrading, close EMAP-SSN windows and MCP clients (the rebuild replaces the
+  environment they run from), launch EMAP-SSN or EMAP-SSN Tools once, and then
+  restart the MCP clients.
 - **Restart Viewers that were running during the upgrade.** The MCP server now asks a
   Viewer whether it supports alignment snapshots and node projection. A Viewer started
   before the upgrade does not, so `get_summary` with `include_alignment`,
   `get_residue_distribution`, and `query_nodes` with `fields` fail with "upgrade and
-  restart the Viewer" until it is restarted.
+  restart the Viewer" until it is restarted. Plain `get_summary` and `query_nodes`
+  calls fail too, typically with "Extra inputs are not permitted" rather than that
+  message, because the upgraded server sends arguments the old Viewer does not
+  accept. Since `get_summary` creates the snapshots that the other inspection actions
+  read, restart such a Viewer before inspecting it over MCP.
 
 ### Added
 
@@ -243,9 +255,9 @@ still change before version 1.0.0.
   because ESM 3.4 scales them itself. Multiplying by 100 first, as the worker did for
   ESM 3.3.0, would overflow the six-column PDB B-factor field.
 - `color` and `spectrum` prefer a valid selection expression over a color or colormap
-  name, so residue tokens such as `C53` and `X2` select residues, and `color` scales
-  take the trailing-`x` form. Command help, Viewer command metadata, and the agent's
-  system prompt describe the new syntax.
+  name, so residue tokens such as `C53` select residues; `color` scales take the
+  trailing-`x` form, so `x2` selects residues too. Command help, Viewer command
+  metadata, and the agent's system prompt describe the new syntax.
 - Initial node metadata is created during layout-cache generation instead of when the
   Viewer opens a cache; the Viewer only orders what the cache provides. As in v0.2.0,
   a stored metadata group without `Length` counts as an intentional column deletion.
