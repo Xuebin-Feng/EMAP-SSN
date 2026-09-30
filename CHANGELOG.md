@@ -140,7 +140,10 @@ still change before version 1.0.0.
   keeps the two in step. The VR client itself is not in git: `opt_vr\install_vr.bat`,
   or the first **Save & Run** in the VR Configuration window, downloads client 1.0.0,
   a Godot 4.7.2 build published as a release asset of EMAP-SSN-VR, and checks it
-  against the SHA-256 pinned in `opt_vr/player_release.json`. See `opt_vr/README.md`.
+  against the SHA-256 pinned in `opt_vr/player_release.json`. Like the desktop
+  Viewer, the VR viewer opens a cache only with the FASTA and network it was built
+  from, and uses the cache's own edge filter and analysis settings. See
+  `opt_vr/README.md`.
 - `src/esm_runtime_requirements.txt` declaring ESM's runtime dependencies, installed
   after the accelerator-specific PyTorch build. It replaces the generated file that
   lived beside the bundled wheels, and the installer rejects it if it ever names

@@ -285,14 +285,20 @@ def get_viewer_settings_schema():
     }
 
 
-def resolve_cache_settings(path):
+def resolve_cache_settings(path, *, allow_3d=False):
+    """Return the analysis settings the cache at ``path`` was generated with.
+
+    The desktop Viewer opens 2D caches only. The optional VR viewer (opt_vr)
+    passes ``allow_3d=True`` to read the 3D caches it opens, whose layout_mode
+    is ``physics_3d`` or ``umap_3d``.
+    """
     from utilities.Cache_Metadata import read_cache_metadata
     metadata = read_cache_metadata(path)
     # Checked first, and outside the try below: ViewerSettingsError is a
     # ValueError, which that block would re-wrap as a provenance failure.
     compatibility = (metadata.get("folder_manifest") or {}).get("compatibility") or {}
     layout_mode = compatibility.get("layout_mode")
-    if isinstance(layout_mode, str) and layout_mode.endswith("_3d"):
+    if not allow_3d and isinstance(layout_mode, str) and layout_mode.endswith("_3d"):
         raise ViewerSettingsError(
             f"{os.path.basename(str(path))} is a 3D layout cache (layout_mode "
             f"'{layout_mode}'). The desktop Viewer opens 2D caches only; 3D caches "
@@ -305,6 +311,8 @@ def resolve_cache_settings(path):
         compatibility = metadata["folder_manifest"]["compatibility"]
         parameters = metadata["generation_parameters"]
         mode = compatibility["layout_mode"]
+        if allow_3d and isinstance(mode, str) and mode.endswith("_3d"):
+            mode = mode[: -len("_3d")]
         if mode not in {"physics", "umap"}:
             raise ValueError("invalid layout_mode")
         values = {key: parameters[key] for key in ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST", "BOX_SCALE")}

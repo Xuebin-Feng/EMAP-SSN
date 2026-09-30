@@ -16,6 +16,25 @@ from utilities.Viewer_Sessions import ensure_viewer_identity, session_alias, sel
 from tests.test_layout_cache_generator import _write_inputs
 
 
+def _build_settings_cache(root, dimensions):
+    """Publish a minimal cache of `dimensions` for the inputs _write_inputs wrote."""
+    manifest = Cache_Manifest.build_manifest_for_files(
+        str(root / "set.fasta"), str(root / "network.h5"),
+        alignment_score="global", normalization="alignment_length",
+        similarity_threshold=0.1, layout_dimensions=dimensions)
+    folder = root / f"cache_{dimensions}d"
+    Cache_Manifest.write_manifest_atomic(folder, manifest)
+    params = json.dumps({"UMAP_MODE": False, "UMAP_NEIGHBORS": 15, "UMAP_MIN_DIST": 0.1,
+                         "BOX_SCALE": 2.0, "SIMILARITY_THRESHOLD": 0.1},
+                        sort_keys=True, separators=(",", ":"))
+    path = folder / "version_00.h5"
+    with h5py.File(path, "w") as cache:
+        cache.attrs["cache_manifest_id"] = manifest["manifest_id"]
+        cache.attrs["layout_compatibility_json"] = params
+        cache.attrs["layout_compatibility_id"] = hashlib.sha256(params.encode()).hexdigest()
+    return str(path)
+
+
 class MetadataTests(unittest.TestCase):
     def test_attributes_manifest_validation_and_refresh(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -51,34 +70,30 @@ class MetadataTests(unittest.TestCase):
     def test_desktop_viewer_names_a_3d_cache_as_one(self):
         from desktop.Viewer_State import ViewerSettingsError, resolve_cache_settings
 
-        def build(root, dimensions):
-            manifest = Cache_Manifest.build_manifest_for_files(
-                str(root / "set.fasta"), str(root / "network.h5"),
-                alignment_score="global", normalization="alignment_length",
-                similarity_threshold=0.1, layout_dimensions=dimensions)
-            folder = root / f"cache_{dimensions}d"
-            Cache_Manifest.write_manifest_atomic(folder, manifest)
-            params = json.dumps({"UMAP_MODE": False, "UMAP_NEIGHBORS": 15, "UMAP_MIN_DIST": 0.1,
-                                 "BOX_SCALE": 2.0, "SIMILARITY_THRESHOLD": 0.1},
-                                sort_keys=True, separators=(",", ":"))
-            path = folder / "version_00.h5"
-            with h5py.File(path, "w") as cache:
-                cache.attrs["cache_manifest_id"] = manifest["manifest_id"]
-                cache.attrs["layout_compatibility_json"] = params
-                cache.attrs["layout_compatibility_id"] = hashlib.sha256(params.encode()).hexdigest()
-            return str(path)
-
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             _write_inputs(root)
             # The 2D twin resolves, so the fixture itself is a valid cache.
-            self.assertEqual(resolve_cache_settings(build(root, 2))["SIMILARITY_THRESHOLD"], 0.1)
+            self.assertEqual(
+                resolve_cache_settings(_build_settings_cache(root, 2))["SIMILARITY_THRESHOLD"], 0.1)
             with self.assertRaises(ViewerSettingsError) as caught:
-                resolve_cache_settings(build(root, 3))
+                resolve_cache_settings(_build_settings_cache(root, 3))
             message = str(caught.exception)
             self.assertIn("is a 3D layout cache (layout_mode 'physics_3d')", message)
             self.assertIn("LAYOUT_DIMENSIONS=2", message)
             self.assertNotIn("Cache provenance", message)
+
+    def test_the_vr_viewer_reads_a_3d_cache_like_its_2d_twin(self):
+        """allow_3d, which opt_vr passes, accepts the 3D caches the VR viewer opens."""
+        from desktop.Viewer_State import resolve_cache_settings
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _write_inputs(root)
+            self.assertEqual(
+                resolve_cache_settings(_build_settings_cache(root, 3), allow_3d=True),
+                resolve_cache_settings(_build_settings_cache(root, 2)),
+            )
 
     def test_missing_files_and_absent_path(self):
         self.assertEqual(read_cache_metadata(None)["status"], "unavailable")
