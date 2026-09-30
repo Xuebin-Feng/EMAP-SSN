@@ -490,7 +490,7 @@ class MainViewer:
         # ---> Persistent Command History (Per Layout) <---
         self.command_history = []
         try:
-            cache_path, _ = resolve_selected_cache(cfg)
+            cache_path = resolve_selected_cache(cfg)
             cache_dir = os.path.dirname(cache_path)
             self.history_file = os.path.join(cache_dir, "cli_history.txt")
             
@@ -1133,8 +1133,8 @@ class MainViewer:
             if not os.path.exists(cfg.SAVED_LAYOUT_DIR):
                 os.makedirs(cfg.SAVED_LAYOUT_DIR)
                 
-            # --- Resolve Path and Header ---
-            cache_path, self.resolved_ref_full = resolve_selected_cache(cfg)
+            # --- Resolve Path ---
+            cache_path = resolve_selected_cache(cfg)
             print(f"Target Cache File: {cache_path}")
             if not os.path.exists(cache_path):
                 raise RuntimeError(

@@ -176,7 +176,7 @@ class MetadataColumnDeletionTests(unittest.TestCase):
             with mock.patch.object(
                 save_command,
                 "resolve_selected_cache",
-                return_value=(default_path, None),
+                return_value=default_path,
             ), mock.patch.object(
                 save_command.cache_manifest,
                 "read_manifest",

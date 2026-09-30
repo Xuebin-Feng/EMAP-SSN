@@ -31,7 +31,7 @@ def run(viewer, args):
         return
         
     try:
-        default_path, _ = resolve_selected_cache(cfg)
+        default_path = resolve_selected_cache(cfg)
         folder_path = os.path.dirname(default_path)
         
         os.makedirs(folder_path, exist_ok=True)

@@ -90,7 +90,7 @@ class ExecutionV2Tests(unittest.TestCase):
                     viewer.load_and_simulate()
                 original = dict(viewer._cache_provenance)
                 for filename in ("snapshot.h5", "snapshot.h5", Path(source).name):
-                    with mock.patch.object(save_command, "resolve_selected_cache", return_value=(source, None)), \
+                    with mock.patch.object(save_command, "resolve_selected_cache", return_value=source), \
                          mock.patch.object(save_command.cfg, "BOX_SCALE", 999), \
                          mock.patch.object(save_command.Command_Engine, "print_help"), \
                          mock.patch.object(save_command.Command_Engine, "command_failed") as failed:
@@ -125,7 +125,7 @@ class ExecutionV2Tests(unittest.TestCase):
                 else:
                     viewer.cache_manifest_id = "bad"
                     viewer._cache_provenance["cache_manifest_id"] = "bad"
-                with mock.patch.object(save_command, "resolve_selected_cache", return_value=(source, None)), \
+                with mock.patch.object(save_command, "resolve_selected_cache", return_value=source), \
                      mock.patch.object(save_command.Command_Engine, "print_help"), \
                      mock.patch.object(save_command.Command_Engine, "command_failed") as failed:
                     save_command.run(viewer, [destination.name])

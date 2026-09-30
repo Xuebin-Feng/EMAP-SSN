@@ -521,49 +521,13 @@ def read_viewer_settings(*, settings_document=None, settings_path=None, project_
 # 4. Cache Resolution & Selection
 # =====================================================================
 
-def _configured_reference_text(settings):
-    value = getattr(settings, "ALIGNMENT_REFERENCE", None)
-    if value is None:
-        return ""
-    text = str(value).strip()
-    return "" if text.lower() == "none" else text
-
-
-def _resolve_reference_header(settings):
-    reference_text = _configured_reference_text(settings)
-    msa_file = getattr(settings, "MSA_FILE", None)
-    if not reference_text or not msa_file or not os.path.exists(msa_file):
-        return None
-
-    try:
-        reference_lower = reference_text.lower()
-        if os.path.splitext(os.fspath(msa_file))[1].lower() == ".h5":
-            import h5py
-
-            with h5py.File(msa_file, "r") as handle:
-                if "headers" not in handle:
-                    return None
-                for raw_header in handle["headers"][:]:
-                    header = (
-                        raw_header.decode("utf-8")
-                        if isinstance(raw_header, bytes)
-                        else raw_header
-                    )
-                    if reference_lower in header.lower():
-                        return header
-        else:
-            with open(msa_file, "r", encoding="utf-8", errors="ignore") as handle:
-                for line in handle:
-                    if line.startswith(">") and reference_lower in line.lower():
-                        return line.strip()[1:]
-    except Exception as error:
-        print(f"Utils Warning: Could not resolve reference header: {error}")
-    return None
-
-
 def resolve_selected_cache(settings):
-    """Return ``(cache_path, resolved_reference_header)`` for ``settings``."""
-    resolved_reference = _resolve_reference_header(settings)
+    """Return the path of the layout cache that ``settings`` selects.
+
+    The alignment reference plays no part in cache selection, so it is not
+    resolved here. The alignment resolves it when it loads; read
+    ``Alignment_Manager.resolved_ref_full`` for the header it anchored on.
+    """
     saved_layout_dir = getattr(
         settings,
         "SAVED_LAYOUT_DIR",
@@ -573,12 +537,9 @@ def resolve_selected_cache(settings):
     explicit_path = getattr(settings, "TARGET_CACHE_PATH", None)
     if explicit_path:
         if os.path.isabs(explicit_path):
-            return os.path.abspath(explicit_path), resolved_reference
-        return (
-            cache_manifest.resolve_relative_cache_path(
-                saved_layout_dir, explicit_path
-            ),
-            resolved_reference,
+            return os.path.abspath(explicit_path)
+        return cache_manifest.resolve_relative_cache_path(
+            saved_layout_dir, explicit_path
         )
 
     fasta_file = getattr(settings, "NODE_FASTA_FILE", None) or getattr(
@@ -607,9 +568,9 @@ def resolve_selected_cache(settings):
         and selected_cache != "None"
     ):
         cache_manifest.validate_cache_filename(selected_cache)
-        return os.path.join(target_folder, selected_cache), resolved_reference
+        return os.path.join(target_folder, selected_cache)
 
-    return os.path.join(target_folder, "version_00.h5"), resolved_reference
+    return os.path.join(target_folder, "version_00.h5")
 
 
 # =====================================================================

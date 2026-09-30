@@ -324,6 +324,12 @@ still change before version 1.0.0.
   it wrapped, and `SparseAlignmentLoader.get_frequencies`, which only that function
   called. Nothing in the application computed statistics through them; `label`,
   `logo`, `query`, and MCP residue distributions each count residues themselves.
+- The reference lookup in `resolve_selected_cache`. It searched the MSA file for the
+  first header containing `ALIGNMENT_REFERENCE`, a rule the alignment does not use,
+  on every call, including each `save`, Mol* session save or load, and agent history
+  lookup, yet nothing read the result. The function now returns the cache path
+  instead of a `(cache_path, reference)` pair; `Alignment_Manager.resolved_ref_full`
+  holds the header the alignment anchored on.
 
 ## [0.2.0] - 2026-09-09
 

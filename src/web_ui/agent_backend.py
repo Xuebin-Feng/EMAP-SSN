@@ -371,7 +371,7 @@ def get_agent_history_path(viewer):
     try:
         import EMAPSSN_Config as cfg
 
-        cache_path, _ = resolve_selected_cache(cfg)
+        cache_path = resolve_selected_cache(cfg)
         return os.path.join(os.path.dirname(cache_path), "agent_history.json")
     except Exception as e:
         print(f"Warning: Could not resolve agent history path ({e})")

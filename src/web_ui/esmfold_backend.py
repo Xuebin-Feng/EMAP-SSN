@@ -101,7 +101,7 @@ def handle_save_session(viewer, data):
         if session_data is None:
             return
             
-        cache_path, _ = resolve_selected_cache(cfg)
+        cache_path = resolve_selected_cache(cfg)
         layout_dir = os.path.dirname(cache_path)
         os.makedirs(layout_dir, exist_ok=True)
         
@@ -114,10 +114,10 @@ def handle_save_session(viewer, data):
 def handle_load_session(viewer, data):
     """Loads the Mol* JSON session snapshot from the active layout cache folder and broadcasts it."""
     try:
-        cache_path, _ = resolve_selected_cache(cfg)
+        cache_path = resolve_selected_cache(cfg)
         layout_dir = os.path.dirname(cache_path)
         session_file = os.path.join(layout_dir, "molstar_session.json")
-        
+
         if os.path.exists(session_file):
             with open(session_file, "r", encoding="utf-8") as f:
                 session_data = json.load(f)
