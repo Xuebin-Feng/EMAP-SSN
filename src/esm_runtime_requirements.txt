@@ -16,9 +16,10 @@
 #   cuequivariance-ops-torch-cu13>=0.8.1 ; sys_platform == "linux" and platform_machine == "x86_64"
 #
 # Those are NVIDIA CUDA 13 kernel binaries for the ESMFold2 fused attention and
-# triangle-multiplication paths. This project only uses ESMC embeddings, which
-# never import them, and esm/models/esmfold2/layers.py guards the import with
-# try/except ImportError and falls back to pure PyTorch. Including them would
+# triangle-multiplication paths. This project uses esm only for ESMC embeddings
+# and ESM3 structure prediction, neither of which imports them, and
+# esm/models/esmfold2/layers.py guards the import with try/except ImportError
+# and falls back to pure PyTorch. Including them would
 # pull large CUDA binaries onto every Linux install, including AMD and CPU-only
 # machines. Add them back if ESMFold2 inference is ever adopted.
 #
