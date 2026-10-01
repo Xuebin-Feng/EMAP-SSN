@@ -228,14 +228,6 @@ def _run(command: list[str], *, capture: bool = False) -> subprocess.CompletedPr
     return subprocess.run(command, check=False, text=True, capture_output=capture)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _stable_hash(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -250,14 +242,37 @@ def _requirement_name(requirement: str) -> str:
     return match.group(1).lower().replace("_", "-") if match else ""
 
 
+# pip's comment rule: "#" starts a comment at the start of a line or after
+# whitespace, so a URL fragment such as "git+https://host/pkg.git#egg=pkg" is
+# requirement content.
+_REQUIREMENT_COMMENT = re.compile(r"(^|\s+)#.*$")
+
+
+def _requirement_lines(path: Path) -> tuple[str, ...]:
+    """Return the lines pip acts on in a requirements file, in file order.
+
+    Comments, blank lines, surrounding whitespace, a UTF-8 byte-order mark and
+    the line-ending convention are dropped; everything else is kept verbatim.
+    """
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    stripped = (_REQUIREMENT_COMMENT.sub("", line).strip() for line in lines)
+    return tuple(line for line in stripped if line)
+
+
 def _requirements_entries(path: Path) -> tuple[str, ...]:
     if not path.is_file():
         raise FileNotFoundError(f"ESM runtime requirements are missing: {path}")
-    return tuple(
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
+    return _requirement_lines(path)
+
+
+def _requirements_sha256(path: Path) -> str:
+    """Fingerprint what pip installs from a requirements file, not its bytes.
+
+    Editing a comment or a blank line, or checking the file out with other line
+    endings, keeps the fingerprint, so it does not force a reinstall. Any change
+    pip would read differently, including reordered lines, changes it.
+    """
+    return _stable_hash(["requirement-lines-v1", *_requirement_lines(path)])
 
 
 def verify_esm_runtime_requirements(requirements: Path) -> None:
@@ -323,10 +338,10 @@ def _state_profile(
         "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
         "requested_backend": _spec_payloads((requested,))[0],
         "active_backend": _spec_payloads((active,))[0],
-        "requirements_sha256": _sha256(requirements),
+        "requirements_sha256": _requirements_sha256(requirements),
         "esm_version": ESM_VERSION,
         "transformers_version": TRANSFORMERS_VERSION,
-        "esm_runtime_requirements_sha256": _sha256(
+        "esm_runtime_requirements_sha256": _requirements_sha256(
             requirements.parent / "esm_runtime_requirements.txt"
         ),
         "validated_devices": [],
@@ -827,10 +842,10 @@ def _state_mismatches(
         "schema": STATE_SCHEMA,
         "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
         "hardware_fingerprint": fingerprint,
-        "requirements_sha256": _sha256(requirements),
+        "requirements_sha256": _requirements_sha256(requirements),
         "esm_version": ESM_VERSION,
         "transformers_version": TRANSFORMERS_VERSION,
-        "esm_runtime_requirements_sha256": _sha256(
+        "esm_runtime_requirements_sha256": _requirements_sha256(
             requirements.parent / "esm_runtime_requirements.txt"
         ),
     }
@@ -999,10 +1014,10 @@ def install(
         "schema": STATE_SCHEMA,
         "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
         "hardware_fingerprint": fingerprint,
-        "requirements_sha256": _sha256(requirements),
+        "requirements_sha256": _requirements_sha256(requirements),
         "esm_version": ESM_VERSION,
         "transformers_version": TRANSFORMERS_VERSION,
-        "esm_runtime_requirements_sha256": _sha256(runtime_requirements),
+        "esm_runtime_requirements_sha256": _requirements_sha256(runtime_requirements),
         "requested_candidates": _spec_payloads(specs),
         "active_backend": _spec_payloads((active,))[0],
         "validated_devices": active_devices,

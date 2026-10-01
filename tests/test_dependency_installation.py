@@ -624,6 +624,83 @@ class DependencyInstallerTests(unittest.TestCase):
             ],
         )
 
+    def _requirement_fingerprint(self, data):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "requirements.txt"
+            path.write_bytes(data)
+            return Install_Dependencies._requirements_sha256(path)
+
+    def test_requirement_fingerprint_ignores_comments_blank_lines_and_line_endings(self):
+        base = self._requirement_fingerprint(b"# Core\nnumpy==2.5.3\nscipy==1.18.1\n")
+        for variant in (
+            b"# Core, reworded\nnumpy==2.5.3\n\n# More\nscipy==1.18.1\n",
+            b"numpy==2.5.3  # numba ceiling\n  scipy==1.18.1\t\n",
+            b"# Core\r\nnumpy==2.5.3\r\nscipy==1.18.1\r\n",
+            b"\xef\xbb\xbf# Core\nnumpy==2.5.3\nscipy==1.18.1",
+        ):
+            with self.subTest(variant=variant):
+                self.assertEqual(self._requirement_fingerprint(variant), base)
+
+    def test_requirement_fingerprint_changes_with_anything_pip_reads(self):
+        base = self._requirement_fingerprint(b"numpy==2.5.3\nscipy==1.18.1\n")
+        for variant in (
+            b"numpy==2.5.4\nscipy==1.18.1\n",
+            b"numpy==2.5.3\nscipy==1.18.1\npandas==3.0.6\n",
+            b"numpy==2.5.3\n",
+            b"scipy==1.18.1\nnumpy==2.5.3\n",
+            b"numpy==2.5.3 ; sys_platform == 'linux'\nscipy==1.18.1\n",
+            b"--index-url https://example.org/simple\nnumpy==2.5.3\nscipy==1.18.1\n",
+        ):
+            with self.subTest(variant=variant):
+                self.assertNotEqual(self._requirement_fingerprint(variant), base)
+
+    def test_a_url_fragment_is_requirement_content_not_a_comment(self):
+        # pip treats "#" as a comment only at a line start or after whitespace.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "requirements.txt"
+            path.write_text(
+                "pkg @ git+https://example.org/pkg.git#egg=pkg  # pinned fork\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                Install_Dependencies._requirement_lines(path),
+                ("pkg @ git+https://example.org/pkg.git#egg=pkg",),
+            )
+
+    def test_a_comment_or_line_ending_edit_keeps_the_saved_state_current(self):
+        report = self._cpu_report()
+        specs = Install_Dependencies.backend_specs(report)
+        fingerprint = Install_Dependencies.hardware_fingerprint(report)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            requirements = Path(temp_dir) / "requirements.txt"
+            runtime = Path(temp_dir) / "esm_runtime_requirements.txt"
+            requirements.write_text("# Core\nnumpy==2.5.3\n", encoding="utf-8")
+            runtime.write_text("# ESM runtime\neinops\n", encoding="utf-8")
+            state = Install_Dependencies._state_profile(specs[0], requirements)
+            state.update({
+                "hardware_fingerprint": fingerprint,
+                "requested_candidates": Install_Dependencies._spec_payloads(specs),
+            })
+
+            requirements.write_bytes(
+                b"# Core, reworded\r\nnumpy==2.5.3  # numba ceiling\r\n\r\n"
+            )
+            runtime.write_text("# ESM runtime, reworded\n\neinops\n", encoding="utf-8")
+            self.assertEqual(
+                Install_Dependencies._state_mismatches(
+                    state, specs, fingerprint, requirements
+                ),
+                [],
+            )
+
+            requirements.write_text("numpy==2.5.4\n", encoding="utf-8")
+            self.assertEqual(
+                Install_Dependencies._state_mismatches(
+                    state, specs, fingerprint, requirements
+                ),
+                ["requirements_sha256"],
+            )
+
     def test_stale_metadata_reuses_compatible_cuda_without_reinstall(self):
         report = self._cuda_report()
         specs = Install_Dependencies.backend_specs(report)

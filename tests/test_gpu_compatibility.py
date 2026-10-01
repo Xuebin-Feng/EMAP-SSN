@@ -500,10 +500,10 @@ class InstallerProfileTests(unittest.TestCase):
             "schema": Install_Dependencies.STATE_SCHEMA,
             "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
             "hardware_fingerprint": "fingerprint",
-            "requirements_sha256": Install_Dependencies._sha256(requirements),
+            "requirements_sha256": Install_Dependencies._requirements_sha256(requirements),
             "esm_version": Install_Dependencies.ESM_VERSION,
             "transformers_version": Install_Dependencies.TRANSFORMERS_VERSION,
-            "esm_runtime_requirements_sha256": Install_Dependencies._sha256(
+            "esm_runtime_requirements_sha256": Install_Dependencies._requirements_sha256(
                 Install_Dependencies._esm_runtime_requirements_path(ROOT)
             ),
             "requested_candidates": Install_Dependencies._spec_payloads(specs),

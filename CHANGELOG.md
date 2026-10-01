@@ -220,6 +220,11 @@ still change before version 1.0.0.
   bundled-wheel checksum fields are gone and the ROCm profiles are collapsed, so
   schema-5 state is not comparable. The launchers' readiness check rejects it, and a
   v0.2.0 environment is recreated on first launch anyway because it runs Python 3.12.
+  The state's fingerprints of `src/requirements.txt` and
+  `src/esm_runtime_requirements.txt` now hash the requirement lines pip reads instead
+  of the files' bytes, so editing a comment or a blank line, or checking the files
+  out with other line endings, no longer forces a reinstall; any change to a
+  requirement line still does.
 - `validate_package_consistency` now parses `uv pip check` output instead of reading
   only its exit code. ESM is installed with `--no-deps` against a newer torch and
   Transformers than it declares, and its runtime requirements deliberately omit the
