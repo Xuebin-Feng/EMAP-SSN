@@ -28,7 +28,8 @@ This script aligns two sequences using their residue-level language model embedd
 ### 📤 Output
 
 #### Alignment Result and Optional HTML Report
-*   **Console Output**: Always prints the alignment mode and score, input lengths, aligned residue strings, match marks, and any requested reference-to-target position mappings.
+*   **Console Output**: Always prints the alignment mode and score, input lengths, alignment length, percent identity, aligned residue strings, match marks, and any requested reference-to-target position mappings.
+*   **Percent Identity**: Printed as `identical/alignment length (percent)` with its definition: identical standard amino acids divided by the alignment length, which includes internal gaps for local alignments and the full length, end gaps included, for global alignments. A `|` mark shows each counted pair, `.` any other aligned pair, and a blank a gap; X, B, Z, J, U, and O never count as identical.
 *   **Optional File**: When **Generate Report** (`GENERATE_REPORT`) is enabled, writes a timestamped `PWA_Report_*.html` document to the configured report directory with the same alignment and highlighted mappings. No file is written when the toggle is disabled.
 
 <details markdown="1">
@@ -46,9 +47,13 @@ This script aligns two sequences using their residue-level language model embedd
      * **local**: Subtracts 2.0 from the scores and computes Smith-Waterman recurrence matrix with `LOCAL_GAP_P`:
        $$\text{Score}_{\text{local}}(a, b) = \text{Score}(a, b) - 2.0$$
      
-     Traceback yields the alignment string mapping.
+     Traceback follows the move recorded for each cell, so the displayed path is the optimal one. Ties resolve as match, then deletion, then insertion, the same order the `Embedding_SSEARCH.py` kernels use.
 
-4. **Residue Position Mapping**:
+4. **Percent Identity**:
+     Counts the identical standard amino acids $N_{\text{id}}$ on the traced path and divides by its length $L_{\text{aln}}$:
+     $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
+
+5. **Residue Position Mapping**:
      For each 1-indexed reference highlight position $p_{\text{ref}}$, it tracks the aligned index:
      $$p_{\text{ref}} \to p_{\text{aligned}} \to p_{\text{tar}}$$
      
@@ -90,10 +95,11 @@ This script queries a single sequence against an entire database using residue-l
 ### 📤 Output
 
 #### Embedding Search Results
-*   **Text Report**: `Report_<name>.txt`, containing parameters and the full ranked hit table; the console shows at most the first 100 hits.
+*   **Text Report**: `Report_<name>.txt`, containing parameters, the percent-identity definition, and the full ranked hit table; the console shows at most the first 100 hits.
 *   **Excel Workbook**: `Report_<name>.xlsx`, with a metadata-viewer-compatible `Search Results` sheet and a `Search Parameters` sheet. The first sheet follows `docs/metadata_template.xlsx`: row 1 contains property names, row 2 contains data types, and column A contains exact sequence headers for strict node matching.
 *   **Optional FASTA**: When `GENERATE_FASTA` is enabled, `Hits_<name>.fasta` contains the query followed by ranked hit sequences.
-*   **Metadata Columns**: `Node ID`, `Rank`, `Norm_Score`, `Raw_Score`, `Sequence_Length`, and `Alignment_Length`.
+*   **Metadata Columns**: `Node ID`, `Rank`, `Norm_Score`, `Raw_Score`, `Sequence_Length`, `Alignment_Length`, and `Percent_Identity`.
+*   **Percent Identity**: The number of identical standard amino acids on the reported alignment path as a percentage (0–100) of `Alignment_Length`. Local alignments count internal gaps; global alignments count the full length, end gaps included. X, B, Z, J, U, and O never count as identical.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -116,7 +122,12 @@ This script queries a single sequence against an entire database using residue-l
      Applies the length normalization factor based on `NORM_MODE`:
      $$S_{\text{norm}} = \frac{S_{\text{raw}}}{\text{Normalization\_Factor}(L_q, L_j)}$$
 
-5. **Sorting & Filtering**:
+5. **Percent Identity**:
+     The same dynamic-programming pass counts the identical standard amino acids $N_{\text{id}}$ on the selected path, whose length $L_{\text{aln}}$ includes internal gaps for **local** alignments and every column, end gaps included, for **global** alignments:
+     $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
+     Because the path maximizes embedding similarity rather than residue matches, the identity can differ from that of a substitution-matrix alignment of the same pair.
+
+6. **Sorting & Filtering**:
      Collects results, filters by `NORM_THRESHOLD`, sorts in descending order of $S_{\text{norm}}$, and keeps the top $K$ hits.
 
 </details>

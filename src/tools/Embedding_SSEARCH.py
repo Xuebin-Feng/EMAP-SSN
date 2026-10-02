@@ -26,10 +26,11 @@ How it Works:
 3. Inference: The script calculates the structural embedding for your query.
 4. Scanning: Using parallel CPU workers, it scans your query against every sequence in the database using either Local (Smith-Waterman) or Global (Needleman-Wunsch) dynamic programming.
 5. Scoring: The raw alignment scores are normalized (to prevent bias toward excessively long sequences) and ranked.
+6. Identity: Along the same alignment path, identical standard amino acids are counted and divided by the alignment length: internal gaps included for local alignments, and the full length including end gaps for global alignments.
 
 Outputs:
 The script generates report files in the configured report directory:
-- Report_<Query>.txt: A human-readable text file showing the ranked hits, their normalized scores, raw scores, and effective alignment lengths.
+- Report_<Query>.txt: A human-readable text file showing the ranked hits, their normalized scores, raw scores, alignment lengths, and percent identities.
 - Hits_<Query>.fasta: A clean FASTA file containing the sequences of all your top hits, ordered strictly by rank, with your query sequence pinned to the very top. This file is perfectly formatted to be immediately dropped into an MSA tool!
 
 Key Parameters:
@@ -57,7 +58,10 @@ import time
 import math
 from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
 from utilities import Hardware_Acceleration as Hardware_Utils
-from utilities.Network_Kernels import global_score_length, local_score_length
+from utilities.Network_Kernels import (
+    global_score_length_identity,
+    local_score_length_identity,
+)
 from Embedding_Alignment_Engine import (
     BF16ValidationIntegrityError,
     EmbeddingTileStore,
@@ -80,7 +84,12 @@ from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method, get_context
 from tqdm import tqdm
 
-from utilities.Sequence_Utils import sanitize_header, sanitize_sequence
+from utilities.Sequence_Utils import (
+    IDENTITY_RESIDUES,
+    identity_definition,
+    sanitize_header,
+    sanitize_sequence,
+)
 from utilities.HDF5_Storage import (
     dtype_for_saving_mode,
     read_embedding_manifest,
@@ -242,6 +251,26 @@ def prepare_database_embeddings():
 def compute_score_matrix_torch(emb_i, emb_j, device):
     return _shared_score_matrix(emb_i, emb_j, device, precision="float32")
 
+# Residues outside IDENTITY_RESIDUES receive different query and target codes,
+# so X, B, Z, J, U and O never pair as identical in the identity kernels.
+QUERY_UNMATCHED_CODE = 0
+TARGET_UNMATCHED_CODE = 1
+_IDENTITY_RESIDUE_MASK = np.zeros(256, dtype=bool)
+_IDENTITY_RESIDUE_MASK[
+    np.frombuffer(IDENTITY_RESIDUES.encode("ascii"), dtype=np.uint8)
+] = True
+
+
+def encode_identity_residues(sequence, unmatched_code):
+    """Return one residue code per position for the identity kernels."""
+    codes = np.frombuffer(
+        str(sequence).encode("ascii", errors="replace"),
+        dtype=np.uint8,
+    ).copy()
+    codes[~_IDENTITY_RESIDUE_MASK[codes]] = unmatched_code
+    return codes
+
+
 def normalize_score(raw_score, align_len, len_i, len_j, mode):
     if mode == "alignment_length": return raw_score / align_len if align_len > 0 else 0.0
     elif mode == "shorter_sequence": denom = min(len_i, len_j); return raw_score / denom if denom > 0 else 0.0
@@ -260,13 +289,39 @@ def init_worker(h5_path):
 
 
 def finish_search(args):
-    idx, header, len_q, len_t, mode, gap, norm_mode, mat = args
+    (
+        idx,
+        header,
+        len_q,
+        len_t,
+        mode,
+        gap,
+        norm_mode,
+        mat,
+        query_seq,
+        target_seq,
+    ) = args
+    query_codes = encode_identity_residues(query_seq, QUERY_UNMATCHED_CODE)
+    target_codes = encode_identity_residues(target_seq, TARGET_UNMATCHED_CODE)
+    if mat.shape != (len(query_codes), len(target_codes)):
+        raise ValueError(
+            f"Score matrix for '{header}' has shape {mat.shape}, but the query "
+            f"and target sequences have {len(query_codes)} and "
+            f"{len(target_codes)} residues."
+        )
     is_local = (mode == "local")
     if is_local:
-        raw, path_len = local_score_length(mat, gap)
+        raw, path_len, identities = local_score_length_identity(
+            mat, gap, query_codes, target_codes
+        )
     else:
-        raw, path_len = global_score_length(mat, gap)
+        raw, path_len, identities = global_score_length_identity(
+            mat, gap, query_codes, target_codes
+        )
     norm = normalize_score(raw, path_len, len_q, len_t, norm_mode)
+    # Both kernels report the length of the selected path: internal gaps only
+    # for local alignments and every column, end gaps included, for global.
+    identity = 100.0 * int(identities) / path_len if path_len > 0 else 0.0
 
     if norm_mode == "alignment_length":
         eff_len = path_len
@@ -287,11 +342,12 @@ def finish_search(args):
         "length": eff_len,
         "seq_len": len_t,
         "aln_len": path_len,
+        "identity": identity,
     }
 
 
 def search_cpu_worker(args):
-    idx, header, safe_h, q_emb, mode, gap, norm_mode = args
+    idx, header, safe_h, q_emb, mode, gap, norm_mode, q_seq, t_seq = args
     global worker_hf, worker_device
     t_emb = worker_hf["embeddings"][safe_h][:]
     mat = compute_score_matrix_torch(q_emb, t_emb, worker_device)
@@ -305,6 +361,8 @@ def search_cpu_worker(args):
             gap,
             norm_mode,
             mat,
+            q_seq,
+            t_seq,
         )
     )
 
@@ -407,7 +465,19 @@ def _stream_context(device):
 
 
 def _compute_accelerated_search(args):
-    idx, header, q_emb, t_emb, mode, gap, norm_mode, device, precision = args
+    (
+        idx,
+        header,
+        q_emb,
+        t_emb,
+        mode,
+        gap,
+        norm_mode,
+        device,
+        precision,
+        q_seq,
+        t_seq,
+    ) = args
     with torch.inference_mode():
         with _stream_context(device):
             mat = _shared_score_matrix(
@@ -422,6 +492,8 @@ def _compute_accelerated_search(args):
         gap,
         norm_mode,
         mat,
+        q_seq,
+        t_seq,
     )
 
 
@@ -467,7 +539,7 @@ def _run_accelerated_search(
             task = tasks[0]
             def warm_lane():
                 with _stream_context(device):
-                    _warm_search_kernel(task[3], *task[4:], device, precision)
+                    _warm_search_kernel(task, device, precision)
             timing.warm_executor(accelerator_executor, lanes, warm_lane)
             timing.warm_executor(cpu_executor, workers)
             Hardware_Utils.synchronize_device(device)
@@ -500,6 +572,8 @@ def _run_accelerated_search(
                         mode,
                         gap,
                         norm_mode,
+                        q_seq,
+                        t_seq,
                     ) = next(task_iterator)
                 except StopIteration:
                     tasks_exhausted = True
@@ -519,6 +593,8 @@ def _run_accelerated_search(
                             norm_mode,
                             device,
                             precision,
+                            q_seq,
+                            t_seq,
                         ),
                     )
                 )
@@ -560,23 +636,26 @@ def _run_accelerated_search(
 
 
 def _cpu_search_with_handle(task, hf):
-    idx, header, safe_h, query, mode, gap, norm_mode = task
+    idx, header, safe_h, query, mode, gap, norm_mode, q_seq, t_seq = task
     target = hf["embeddings"][safe_h][:]
     matrix = compute_score_matrix_torch(query, target, torch.device("cpu"))
     return finish_search((idx, header, query.shape[0], target.shape[0],
-                          mode, gap, norm_mode, matrix))
+                          mode, gap, norm_mode, matrix, q_seq, t_seq))
 
 
-def _warm_search_kernel(query, mode, gap, norm_mode, device, precision="float32"):
+def _warm_search_kernel(task, device, precision="float32"):
+    _idx, _header, _safe_h, query, mode, gap, norm_mode, q_seq, _t_seq = task
     small = np.asarray(query[:64])
+    residues = q_seq[:len(small)]
     matrix = _shared_score_matrix(small, small, device, precision=precision)
-    finish_search((0, "warmup", len(small), len(small), mode, gap, norm_mode, matrix))
+    finish_search((0, "warmup", len(small), len(small), mode, gap, norm_mode,
+                   matrix, residues, residues))
 
 
 def _init_search_pool(input_h5, warm_task, ready):
     try:
         init_worker(input_h5)
-        _warm_search_kernel(warm_task[3], *warm_task[4:], torch.device("cpu"))
+        _warm_search_kernel(warm_task, torch.device("cpu"))
         ready.put(None)
     except Exception as error:
         ready.put(f"{type(error).__name__}: {error}")
@@ -586,8 +665,7 @@ def _run_serial_search(tasks, input_h5, show_progress=False, timing=None):
     results = []
     with h5py.File(input_h5, "r", libver="latest", swmr=True) as hf:
         if timing is not None:
-            task = tasks[0]
-            _warm_search_kernel(task[3], *task[4:], torch.device("cpu"))
+            _warm_search_kernel(tasks[0], torch.device("cpu"))
             timing.start()
         for task in tqdm(tasks, desc="Search (serial CPU)", disable=not show_progress):
             results.append(_cpu_search_with_handle(task, hf))
@@ -630,7 +708,7 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
 
 
 def _finish_fixed_query(task, query_length, target_length, matrix):
-    idx, header, _safe_h, _query, mode, gap, norm_mode = task
+    idx, header, _safe_h, _query, mode, gap, norm_mode, q_seq, t_seq = task
     return finish_search(
         (
             idx,
@@ -641,6 +719,8 @@ def _finish_fixed_query(task, query_length, target_length, matrix):
             gap,
             norm_mode,
             matrix,
+            q_seq,
+            t_seq,
         )
     )
 
@@ -780,8 +860,7 @@ def _execute_search_plan(
             return _run_serial_search(tasks, input_h5, show_progress, timing)
         return _run_cpu_search(tasks, workers, input_h5, show_progress, timing)
     if timing is not None and variant == "tiled":
-        task = tasks[0]
-        _warm_search_kernel(task[3], *task[4:], candidate.device, precision)
+        _warm_search_kernel(tasks[0], candidate.device, precision)
         Hardware_Utils.synchronize_device(candidate)
     if variant == "tiled":
         progress = tqdm(total=len(tasks), desc="Search (tiled CUDA)") if show_progress else None
@@ -1036,9 +1115,11 @@ METADATA_REPORT_COLUMNS = [
     "Raw_Score",
     "Sequence_Length",
     "Alignment_Length",
+    "Percent_Identity",
 ]
 METADATA_REPORT_TYPES = [
     "Data Type",
+    "number",
     "number",
     "number",
     "number",
@@ -1058,6 +1139,7 @@ def build_metadata_report_dataframe(rows):
             row["Raw_Score"],
             row["Sequence_Length"],
             row["Alignment_Length"],
+            row["Percent_Identity"],
         ]
         for row in rows
     )
@@ -1106,6 +1188,7 @@ def format_metadata_report_sheet(worksheet):
         "D": 16,
         "E": 20,
         "F": 20,
+        "G": 20,
     }
     for column, width in widths.items():
         worksheet.column_dimensions[column].width = width
@@ -1134,6 +1217,7 @@ def format_metadata_report_sheet(worksheet):
         4: "0.0",
         5: "0",
         6: "0",
+        7: "0.0",
     }
     for row_index, row in enumerate(
         worksheet.iter_rows(
@@ -1222,6 +1306,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
     meta_lines.append("-" * 80)
     meta_lines.append(f" Parameters:  Gap Penalty = {gap_p}")
     meta_lines.append(f" Metric:      Raw Score / {norm_mode}")
+    meta_lines.append(f" Identity:    {identity_definition(ALIGNMENT_MODE)}")
     meta_lines.append(f" Filters:     Top_K={TOP_K} | Norm_Threshold={NORM_THRESHOLD}")
     hardware_line = (
         f" Hardware:    {active_search_hardware['device']} | "
@@ -1246,8 +1331,8 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         xlsx_data = []
     else:
         table_hdr = [
-            f" {'RANK':<6} | {'NORM-SCR':<9} | {'RAW':<9} | {'SEQ-LEN':<8} | {col_header:<8} | {'HEADER'}",
-            f"{'-'*7}-+-{'-'*9}-+-{'-'*9}-+-{'-'*8}-+-{'-'*8}-+-{'-'*35}"
+            f" {'RANK':<6} | {'NORM-SCR':<9} | {'RAW':<9} | {'SEQ-LEN':<8} | {col_header:<8} | {'IDENT%':<6} | {'HEADER'}",
+            f"{'-'*7}-+-{'-'*9}-+-{'-'*9}-+-{'-'*8}-+-{'-'*8}-+-{'-'*6}-+-{'-'*35}"
         ]
         report_lines.extend(table_hdr)
         onscreen_lines.extend(table_hdr)
@@ -1262,8 +1347,9 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
             aln_len_val = int(row['aln_len'])
             norm_score = row['norm_score']
             raw_score = row['raw_score']
-            
-            row_line = f" {rank_counter:<6} | {norm_score:<9.3f} | {raw_score:<9.1f} | {seq_len_val:<8} | {aln_len_val:<8} | {head}"
+            identity = float(row['identity'])
+
+            row_line = f" {rank_counter:<6} | {norm_score:<9.3f} | {raw_score:<9.1f} | {seq_len_val:<8} | {aln_len_val:<8} | {identity:<6.1f} | {head}"
             report_lines.append(row_line)
             if printed_hits < 100:
                 onscreen_lines.append(row_line)
@@ -1276,6 +1362,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
                 "Raw_Score": float(raw_score),
                 "Sequence_Length": int(seq_len_val),
                 "Alignment_Length": int(aln_len_val),
+                "Percent_Identity": identity,
             })
             
             rank_counter += 1
@@ -1303,6 +1390,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
         {"Parameter": "Alignment Mode", "Value": ALIGNMENT_MODE},
         {"Parameter": "Gap Penalty", "Value": gap_p},
         {"Parameter": "Normalization Mode", "Value": norm_mode},
+        {"Parameter": "Percent Identity", "Value": identity_definition(ALIGNMENT_MODE)},
         {"Parameter": "Norm Score Cutoff", "Value": NORM_THRESHOLD if NORM_THRESHOLD is not None else "None"},
         {"Parameter": "Top K", "Value": TOP_K if TOP_K is not None else "None"},
         {"Parameter": "Compute Device", "Value": active_search_hardware["device"]},
@@ -1416,7 +1504,10 @@ def main(argv=None):
     tasks = []
     
     for i, header in enumerate(db_headers):
-        tasks.append((i, header, header, query_emb, ALIGNMENT_MODE, gap_p, NORM_MODE))
+        # Sequences travel with each task so the alignment DP can count the
+        # identical residues on the same path that yields its score and length.
+        tasks.append((i, header, header, query_emb, ALIGNMENT_MODE, gap_p,
+                      NORM_MODE, query_seq_str, seq_lookup[header]))
         
     print(
         f"[Search] Scanning {len(tasks)} sequences against "
@@ -1444,7 +1535,7 @@ def main(argv=None):
     )
     
     # Add dummy row for Query (Ensures it appears at the top of the text report)
-    q_row = pd.DataFrame([{"index": -1, "header": f"(Query) {query_name}", "raw_score": 0.0, "norm_score": 99.9, "length": len(query_emb), "seq_len": len(query_emb), "aln_len": len(query_emb)}])
+    q_row = pd.DataFrame([{"index": -1, "header": f"(Query) {query_name}", "raw_score": 0.0, "norm_score": 99.9, "length": len(query_emb), "seq_len": len(query_emb), "aln_len": len(query_emb), "identity": 100.0}])
     df = pd.concat([q_row, df], ignore_index=True)
     
     # Use custom name if provided, otherwise fallback to sanitized query name

@@ -621,9 +621,12 @@ class Bf16PrecisionTests(unittest.TestCase):
                     "alignment_length",
                     torch.device("cpu"),
                     "bf16",
+                    "AC",
+                    "ACD",
                 )
             )
         self.assertEqual(result[:2], (1, "target"))
+        self.assertEqual(result[-2:], ("AC", "ACD"))
         self.assertEqual(score.call_args.kwargs["precision"], "bf16")
 
     def test_align_partial_writer_records_canonical_bf16(self):

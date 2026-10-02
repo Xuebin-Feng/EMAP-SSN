@@ -28,7 +28,8 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
 def make_tasks(count):
     query = np.ones((3, 4), dtype=np.float32)
     return [
-        (index, f"h{index}", f"h{index}", query, "local", -2.0, "longer_sequence")
+        (index, f"h{index}", f"h{index}", query, "local", -2.0, "longer_sequence",
+         "ACD", "ACD")
         for index in range(count)
     ]
 

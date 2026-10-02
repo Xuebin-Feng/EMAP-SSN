@@ -113,21 +113,27 @@ class RealCpuTests(unittest.TestCase):
         rng = np.random.default_rng(412)
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "embeddings.h5")
+            lengths = (8, 12, 17)
             with h5py.File(path, "w") as hf:
                 group = hf.create_group("embeddings")
-                for index, length in enumerate((8, 12, 17)):
+                for index, length in enumerate(lengths):
                     group.create_dataset(f"h{index}", data=rng.normal(size=(length, 8)).astype(np.float32))
             query = rng.normal(size=(10, 8)).astype(np.float32)
+            residues = np.array(list("ACDX"))
+            query_seq = "".join(rng.choice(residues, size=10))
+            target_seqs = ["".join(rng.choice(residues, size=length)) for length in lengths]
             tasks = []
             # Unique result identities for each mode/normalization combination.
             for mode in ("local", "global"):
                 for norm in ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"):
                     for index in range(3):
-                        tasks.append((len(tasks), f"h{index}", f"h{index}", query, mode, -2.0, norm))
+                        tasks.append((len(tasks), f"h{index}", f"h{index}", query, mode, -2.0, norm,
+                                      query_seq, target_seqs[index]))
             serial_timing, pool_timing = SearchTiming(), SearchTiming()
             serial = ssearch._run_serial_search(tasks, path, timing=serial_timing)
             pool = ssearch._run_cpu_search(tasks, 2, path, False, timing=pool_timing)
             self.assertEqual(serial, sorted(pool, key=lambda row: row["index"]))
+            self.assertTrue(all(0.0 <= row["identity"] <= 100.0 for row in serial))
             self.assertGreater(serial_timing.processing, 0)
             self.assertGreater(pool_timing.processing, 0)
             self.assertGreater(pool_timing.setup, 0)

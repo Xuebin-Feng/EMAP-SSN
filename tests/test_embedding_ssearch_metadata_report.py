@@ -36,6 +36,7 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "length": 90,
                     "seq_len": 90,
                     "aln_len": 90,
+                    "identity": 100.0,
                 },
                 {
                     "index": 4,
@@ -45,6 +46,7 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "length": 100,
                     "seq_len": 100,
                     "aln_len": 85,
+                    "identity": 100.0 * 36 / 85,
                 },
                 {
                     "index": 7,
@@ -54,6 +56,7 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "length": 120,
                     "seq_len": 120,
                     "aln_len": 90,
+                    "identity": 25.0,
                 },
             ]
         )
@@ -81,6 +84,19 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
 
             output_path = os.path.join(temp_dir, "Report_metadata_test.xlsx")
             self.assertTrue(os.path.isfile(output_path))
+            with open(
+                os.path.join(temp_dir, "Report_metadata_test.txt"),
+                encoding="utf-8",
+            ) as handle:
+                report_text = handle.read()
+            self.assertIn(
+                " Identity:    Identical standard residues / alignment "
+                "length incl. internal gaps",
+                report_text,
+            )
+            self.assertIn("| ALN-LEN  | IDENT% | HEADER", report_text)
+            self.assertIn("| 85       | 42.4   | node_alpha", report_text)
+            self.assertIn("| 90       | 25.0   | node_beta", report_text)
 
             raw = pd.read_excel(
                 output_path,
@@ -96,11 +112,12 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "Raw_Score",
                     "Sequence_Length",
                     "Alignment_Length",
+                    "Percent_Identity",
                 ],
             )
             self.assertEqual(
                 raw.iloc[1].tolist(),
-                ["Data Type", "number", "number", "number", "number", "number"],
+                ["Data Type"] + ["number"] * 6,
             )
             self.assertEqual(raw.iloc[2, 0], "node_alpha")
             self.assertEqual(raw.iloc[3, 0], "node_beta")
@@ -113,9 +130,20 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
             self.assertEqual(worksheet["A2"].fill.fgColor.rgb, "00D5D8DC")
             self.assertEqual(worksheet.freeze_panes, "A3")
             self.assertEqual(worksheet["C3"].number_format, "0.000")
+            self.assertEqual(worksheet["G3"].number_format, "0.0")
+            self.assertAlmostEqual(worksheet["G3"].value, 100.0 * 36 / 85)
             parameters = workbook["Search Parameters"]
             self.assertEqual(parameters["A1"].fill.fgColor.rgb, "002C3E50")
             self.assertEqual(parameters.column_dimensions["B"].width, 80)
+            parameter_values = {
+                row[0]: row[1]
+                for row in parameters.iter_rows(min_row=2, values_only=True)
+            }
+            self.assertEqual(
+                parameter_values["Percent Identity"],
+                "Identical standard residues / alignment length incl. "
+                "internal gaps",
+            )
             workbook.close()
 
             viewer = SimpleNamespace(
@@ -139,6 +167,7 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                     "Raw_Score",
                     "Sequence_Length",
                     "Alignment_Length",
+                    "Percent_Identity",
                 ],
             )
             self.assertTrue(
@@ -149,7 +178,55 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
                 viewer.metadata["Norm_Score"]["values"],
                 [0.625, 0.5],
             )
+            np.testing.assert_allclose(
+                viewer.metadata["Percent_Identity"]["values"],
+                [100.0 * 36 / 85, 25.0],
+            )
             print_help.assert_called_once()
+
+    def test_global_report_names_its_end_gap_denominator(self):
+        results = pd.DataFrame(
+            [
+                {
+                    "index": 2,
+                    "header": "node_gamma",
+                    "raw_score": 12.0,
+                    "norm_score": 0.1,
+                    "length": 120,
+                    "seq_len": 120,
+                    "aln_len": 120,
+                    "identity": 30.0,
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                mock.patch.object(Embedding_SSEARCH, "REPORT_DIR", temp_dir),
+                mock.patch.object(Embedding_SSEARCH, "ALIGNMENT_MODE", "global"),
+                mock.patch.object(Embedding_SSEARCH, "GENERATE_FASTA", False),
+                redirect_stdout(StringIO()),
+            ):
+                Embedding_SSEARCH.save_results(
+                    results,
+                    ("query_node", 100),
+                    1,
+                    {},
+                    "global_test",
+                    "A" * 100,
+                    "alignment_length",
+                    0.0,
+                )
+            with open(
+                os.path.join(temp_dir, "Report_global_test.txt"),
+                encoding="utf-8",
+            ) as handle:
+                report_text = handle.read()
+        self.assertIn(
+            " Identity:    Identical standard residues / full alignment "
+            "length incl. end gaps",
+            report_text,
+        )
+        self.assertIn("| 120      | 30.0   | node_gamma", report_text)
 
 
 if __name__ == "__main__":

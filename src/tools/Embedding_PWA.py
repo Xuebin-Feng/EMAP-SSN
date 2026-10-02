@@ -28,6 +28,7 @@ Input:
 
 Output:
 - Prints a text-based visual alignment of the two sequences directly to the terminal, highlighting matching vs mismatched residues along with the final similarity score.
+- Reports percent identity: identical standard amino acids divided by the alignment length, with internal gaps included for local alignments and the full length including end gaps for global alignments. The '|' marks show exactly the residues counted.
 """
 # %% Import
 import os
@@ -41,7 +42,12 @@ import numpy as np
 import torch
 import h5py
 from utilities import Hardware_Acceleration as Hardware_Utils
-from utilities.Sequence_Utils import sanitize_header, sanitize_sequence
+from utilities.Sequence_Utils import (
+    IDENTITY_RESIDUES,
+    identity_definition,
+    sanitize_header,
+    sanitize_sequence,
+)
 from utilities.HDF5_Storage import (
     read_embedding_manifest,
     validate_embedding_array,
@@ -265,23 +271,33 @@ def needleman_wunsch_custom(score_matrix, gap_penalty):
     gap_penalty = np.float32(gap_penalty)
     N, M = score_matrix.shape
     dp = np.zeros((N + 1, M + 1), dtype=np.float32)
+    pointer = np.zeros((N + 1, M + 1), dtype=np.int8)
     dp[0, :] = np.arange(M + 1, dtype=np.float32) * gap_penalty
     dp[:, 0] = np.arange(N + 1, dtype=np.float32) * gap_penalty
+    pointer[0, 1:] = 3
+    pointer[1:, 0] = 2
 
     for i in range(1, N + 1):
         for j in range(1, M + 1):
             match = dp[i-1, j-1] + score_matrix[i-1, j-1]
             delete = dp[i-1, j] + gap_penalty
             insert = dp[i, j-1] + gap_penalty
-            dp[i, j] = max(match, delete, insert)
+            # Ties keep the earlier move, as in the shared SSEARCH kernels.
+            score, move = match, 1
+            if delete > score: score, move = delete, 2
+            if insert > score: score, move = insert, 3
+            dp[i, j] = score
+            pointer[i, j] = move
 
+    # Follow the recorded moves; re-deriving them from dp values with a
+    # tolerance can swap near-tied moves once the scores grow large.
     i, j = N, M
     idx_1, idx_2 = [], []
     while i > 0 or j > 0:
-        curr = dp[i, j]
-        if i > 0 and j > 0 and np.isclose(curr, dp[i-1, j-1] + score_matrix[i-1, j-1]):
+        p = pointer[i, j]
+        if p == 1:
             idx_1.append(i - 1); idx_2.append(j - 1); i -= 1; j -= 1
-        elif i > 0 and np.isclose(curr, dp[i-1, j] + gap_penalty):
+        elif p == 2:
             idx_1.append(i - 1); idx_2.append(-1); i -= 1
         else:
             idx_1.append(-1); idx_2.append(j - 1); j -= 1
@@ -348,6 +364,24 @@ def compute_score_matrix_torch(emb_i, emb_j, device):
         dtype=torch.float32,
         device="cpu",
     ).numpy()
+
+def build_alignment_columns(idx_1, idx_2, seq_ref, seq_tar, highlight_set):
+    """Return display columns and the identical standard residues they mark."""
+    columns = []
+    identities = 0
+    for i, j in zip(idx_1, idx_2):
+        c1 = seq_ref[i] if i != -1 else "-"
+        c2 = seq_tar[j] if j != -1 else "-"
+        if i == -1 or j == -1:
+            marker = " "
+        elif c1 == c2 and c1 in IDENTITY_RESIDUES:
+            marker = "|"
+            identities += 1
+        else:
+            marker = "."
+        is_hl = (i != -1 and (i + 1) in highlight_set)
+        columns.append((c1, c2, marker, is_hl))
+    return columns, identities
 
 def run_alignment(
     header_ref,
@@ -509,6 +543,16 @@ def run_alignment(
     len_ref = len(seq_ref)
     len_tar = len(seq_tar)
     align_len = len(idx_1)
+    alignment_data, identities = build_alignment_columns(
+        idx_1, idx_2, seq_ref, seq_tar, highlight_set
+    )
+    # The traceback spans internal gaps only for local alignments and every
+    # column, end gaps included, for global alignments.
+    identity = 100.0 * identities / align_len if align_len else 0.0
+    identity_lines = [
+        f"Identity  : {identities}/{align_len} ({identity:.1f}%)",
+        "            " + identity_definition("global" if mode == "global" else "local"),
+    ]
 
     print("\n" + "="*80)
     print(f"ALIGNMENT RESULT (Mode: {mode.upper()} | Score: {score:.4f})")
@@ -516,6 +560,8 @@ def run_alignment(
     print(f"Reference : {header_ref if not manual_ref_enabled else 'Manual Input'} (Length: {len_ref})")
     print(f"Target    : {header_tar if not manual_tar_enabled else 'Manual Input'} (Length: {len_tar})")
     print(f"Align Len : {align_len}")
+    for line in identity_lines:
+        print(line)
     print("-" * 80)
 
     # Map and print highlight positions
@@ -539,14 +585,6 @@ def run_alignment(
     # Output Parsing with ANSI Colors
     GREEN = "\033[1;32m"
     RESET = "\033[0m"
-
-    alignment_data = []
-    for i, j in zip(idx_1, idx_2):
-        c1 = seq_ref[i] if i != -1 else "-"
-        c2 = seq_tar[j] if j != -1 else "-"
-        marker = "|" if (i != -1 and j != -1 and c1 == c2) else ("." if i!=-1 and j!=-1 else " ")
-        is_hl = (i != -1 and (i + 1) in highlight_set)
-        alignment_data.append((c1, c2, marker, is_hl))
 
     chunk = 80
     for k in range(0, len(alignment_data), chunk):
@@ -593,6 +631,7 @@ def run_alignment(
         html_lines.append(f"Reference : <span class='header'>{header_ref if not manual_ref_enabled else 'Manual Input'}</span> (Length: {len_ref})")
         html_lines.append(f"Target    : <span class='header'>{header_tar if not manual_tar_enabled else 'Manual Input'}</span> (Length: {len_tar})")
         html_lines.append(f"Align Len : {align_len}")
+        html_lines.extend(identity_lines)
         html_lines.append("-" * 80)
         
         if mapped_positions_lines:

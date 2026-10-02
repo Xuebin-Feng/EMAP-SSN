@@ -935,6 +935,24 @@ def print_msa_sanitization_result(
     return True
 
 
+# =====================================================================
+# 4. Pairwise Sequence Identity
+# =====================================================================
+
+# Only identical standard amino acids count toward pairwise identity, as in
+# the logo command's identity weights; X, B, Z, J, U and O never count.
+IDENTITY_RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
+
+
+def identity_definition(mode):
+    """Describe the numerator and the mode's denominator of percent identity."""
+    if mode == "local":
+        denominator = "alignment length incl. internal gaps"
+    else:
+        denominator = "full alignment length incl. end gaps"
+    return f"Identical standard residues / {denominator}"
+
+
 __all__ = [
     "POSITION_MAGNITUDE_PATTERN",
     "NONNEGATIVE_POSITION_PATTERN",
@@ -970,4 +988,6 @@ __all__ = [
     "parse_int_to_aa_mapping",
     "canonicalize_sparse_values",
     "print_msa_sanitization_result",
+    "IDENTITY_RESIDUES",
+    "identity_definition",
 ]

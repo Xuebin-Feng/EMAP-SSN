@@ -48,13 +48,25 @@ else:
 # ---------------------------------------------------------------------------
 
 @njit(nogil=True, fastmath=True, cache=True)
-def global_score_length(score_matrix, gap_penalty):
-    """Return linear-gap global alignment score and selected path length."""
+def global_score_length_identity(
+    score_matrix,
+    gap_penalty,
+    query_codes,
+    target_codes,
+):
+    """
+    Return linear-gap global score, path length and identities on that path.
+
+    The length counts every column of the selected path, end gaps included.
+    Identities count its aligned pairs whose row and column codes are equal.
+    """
     num_rows, num_cols = score_matrix.shape
     previous_scores = np.zeros(num_cols + 1, dtype=np.float32)
     current_scores = np.zeros(num_cols + 1, dtype=np.float32)
     previous_lengths = np.arange(num_cols + 1, dtype=np.uint32)
     current_lengths = np.zeros(num_cols + 1, dtype=np.uint32)
+    previous_identities = np.zeros(num_cols + 1, dtype=np.uint32)
+    current_identities = np.zeros(num_cols + 1, dtype=np.uint32)
 
     for col in range(1, num_cols + 1):
         previous_scores[col] = col * gap_penalty
@@ -62,6 +74,8 @@ def global_score_length(score_matrix, gap_penalty):
     for row in range(1, num_rows + 1):
         current_scores[0] = row * gap_penalty
         current_lengths[0] = row
+        current_identities[0] = 0
+        query_code = query_codes[row - 1]
 
         for col in range(1, num_cols + 1):
             match = (
@@ -73,40 +87,71 @@ def global_score_length(score_matrix, gap_penalty):
 
             best_score = match
             best_length = previous_lengths[col - 1] + 1
+            best_identities = previous_identities[col - 1] + (
+                query_code == target_codes[col - 1]
+            )
             if delete > best_score:
                 best_score = delete
                 best_length = previous_lengths[col] + 1
+                best_identities = previous_identities[col]
             if insert > best_score:
                 best_score = insert
                 best_length = current_lengths[col - 1] + 1
+                best_identities = current_identities[col - 1]
 
             current_scores[col] = best_score
             current_lengths[col] = best_length
+            current_identities[col] = best_identities
 
         previous_scores, current_scores = current_scores, previous_scores
         previous_lengths, current_lengths = (
             current_lengths,
             previous_lengths,
         )
+        previous_identities, current_identities = (
+            current_identities,
+            previous_identities,
+        )
 
-    return previous_scores[num_cols], previous_lengths[num_cols]
+    return (
+        previous_scores[num_cols],
+        previous_lengths[num_cols],
+        previous_identities[num_cols],
+    )
 
 
 @njit(nogil=True, fastmath=True, cache=True)
-def local_score_length(score_matrix, gap_penalty, score_shift=2.0):
-    """Return shifted linear-gap local alignment score and path length."""
+def local_score_length_identity(
+    score_matrix,
+    gap_penalty,
+    query_codes,
+    target_codes,
+    score_shift=2.0,
+):
+    """
+    Return shifted linear-gap local score, path length and path identities.
+
+    With a non-positive gap penalty the path starts and ends on aligned pairs,
+    so its length counts internal gaps only. Identities count its aligned
+    pairs whose row and column codes are equal.
+    """
     num_rows, num_cols = score_matrix.shape
     previous_scores = np.zeros(num_cols + 1, dtype=np.float32)
     current_scores = np.zeros(num_cols + 1, dtype=np.float32)
     previous_lengths = np.zeros(num_cols + 1, dtype=np.uint32)
     current_lengths = np.zeros(num_cols + 1, dtype=np.uint32)
+    previous_identities = np.zeros(num_cols + 1, dtype=np.uint32)
+    current_identities = np.zeros(num_cols + 1, dtype=np.uint32)
 
     max_score = 0.0
     max_length = np.uint32(0)
+    max_identities = np.uint32(0)
 
     for row in range(1, num_rows + 1):
         current_scores[0] = 0.0
         current_lengths[0] = 0
+        current_identities[0] = 0
+        query_code = query_codes[row - 1]
 
         for col in range(1, num_cols + 1):
             shifted_score = np.float32(
@@ -118,30 +163,42 @@ def local_score_length(score_matrix, gap_penalty, score_shift=2.0):
 
             best_score = 0.0
             best_length = np.uint32(0)
+            best_identities = np.uint32(0)
             if match > best_score:
                 best_score = match
                 best_length = previous_lengths[col - 1] + 1
+                best_identities = previous_identities[col - 1] + (
+                    query_code == target_codes[col - 1]
+                )
             if delete > best_score:
                 best_score = delete
                 best_length = previous_lengths[col] + 1
+                best_identities = previous_identities[col]
             if insert > best_score:
                 best_score = insert
                 best_length = current_lengths[col - 1] + 1
+                best_identities = current_identities[col - 1]
 
             current_scores[col] = best_score
             current_lengths[col] = best_length
+            current_identities[col] = best_identities
 
             if best_score > max_score:
                 max_score = best_score
                 max_length = best_length
+                max_identities = best_identities
 
         previous_scores, current_scores = current_scores, previous_scores
         previous_lengths, current_lengths = (
             current_lengths,
             previous_lengths,
         )
+        previous_identities, current_identities = (
+            current_identities,
+            previous_identities,
+        )
 
-    return max_score, max_length
+    return max_score, max_length, max_identities
 
 
 @njit(nogil=True, fastmath=True, cache=True)
