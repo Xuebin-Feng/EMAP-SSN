@@ -1,5 +1,6 @@
 """Authenticated snapshot transport, including Qt/worker ownership boundaries."""
 import asyncio
+import http.client
 import json
 import os
 from pathlib import Path
@@ -89,6 +90,61 @@ class SnapshotHTTPTests(unittest.TestCase):
         self.assertEqual(self.request('create_subset',{'snapshot_id':sid,'scope':'all','expression':'@file@'})['status'],400)
         self.assertEqual(self.request('query_nodes', {'snapshot_id':sid, 'cursor':'malformed'})['status'],400)
         self.assertEqual(sorted(str(p.relative_to(self.directory.name)) for p in Path(self.directory.name).rglob('*')), existing_files)
+    def exchange(self, method, path, headers, body=b'', pause=0.0):
+        """Send the headers, then the body after a pause; return (status, headers, payload)."""
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=10)
+        try:
+            connection.putrequest(method, path)
+            for name, value in headers.items():
+                connection.putheader(name, value)
+            connection.endheaders()
+            time.sleep(pause)
+            connection.send(body)
+            time.sleep(pause)
+            response = connection.getresponse()
+            return response.status, response.headers, json.loads(response.read())
+        finally:
+            connection.close()
+    def test_early_rejections_drain_request_body(self):
+        # Replying before reading the body made the server reset (RST) the
+        # connection once the body arrived, and Windows then dropped the 401:
+        # ConnectionAbortedError [WinError 10053]. Sending the body after a
+        # pause, by which time such a reply has gone out, reproduces it every time.
+        denied = {'error': 'Missing or invalid Viewer inspection token.'}
+        endpoints = [('GET', '/api/mcp/v1/session', 'Bearer'), ('POST', '/api/mcp/v1/data', None),
+                     ('POST', '/api/mcp/v1/commands', None), ('POST', '/api/mcp/v1/shutdown', 'Bearer')]
+        for method, path, challenge in endpoints:
+            for size in (1, 65536):
+                with self.subTest(method=method, path=path, size=size):
+                    status, headers, payload = self.exchange(
+                        method, path, {'Content-Length': str(size)}, b'x' * size, pause=0.05)
+                    self.assertEqual((status, payload, headers['WWW-Authenticate'], headers['Connection']),
+                                     (401, denied, challenge, None))
+        for _ in range(10):  # the urllib request that failed under full-suite load
+            self.assertEqual(self.request('get_summary', {'padding': 'x' * 9000}, token=False)['status'], 401)
+    def test_undrainable_body_replies_close_connection(self):
+        # Chunked, invalid and oversized bodies stay unread, so the reply asks
+        # the client to close. No body bytes are sent here, so every reply
+        # arrives intact, and its status and payload are unchanged.
+        denied = {'error': 'Missing or invalid Viewer inspection token.'}
+        size_error = {'error': 'Inspection request must be 1..65536 bytes'}
+        token = {'Authorization': 'Bearer ' + self.server.inspection_token}
+        cases = [
+            ('/api/mcp/v1/data', {}, {'Content-Length': '65537'}, 401, denied, 'close'),
+            ('/api/mcp/v1/shutdown', {}, {'Content-Length': '-1'}, 401, denied, 'close'),
+            ('/api/mcp/v1/data', token, {'Content-Length': '65537'}, 400, size_error, 'close'),
+            ('/api/mcp/v1/data', token, {'Content-Length': '0'}, 400, size_error, None),
+            ('/api/mcp/v1/commands', token, {'Content-Length': 'abc'}, 400,
+             {'error': "invalid literal for int() with base 10: 'abc'"}, 'close'),
+            ('/api/mcp/v1/commands', token, {'Transfer-Encoding': 'chunked'}, 400,
+             {'error': 'Command request must be 1..65536 bytes'}, 'close'),
+            ('/api/agent/image', {}, {'Content-Length': str(20 * 1024 * 1024 + 1)}, 413,
+             {'error': 'Each image must be nonempty and at most 20 MiB.'}, 'close'),
+        ]
+        for path, auth, framing, status, payload, connection in cases:
+            with self.subTest(path=path, authorized=bool(auth), framing=framing):
+                reply = self.exchange('POST', path, {**auth, **framing})
+                self.assertEqual((reply[0], reply[2], reply[1]['Connection']), (status, payload, connection))
     def test_capture_on_qt_and_aggregation_off_qt(self):
         service=self.viewer.viewer_inspection; events=[]
         capture=service.capture_snapshot; execute=service.snapshots.execute

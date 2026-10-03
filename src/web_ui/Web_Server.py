@@ -306,12 +306,30 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         expected = f"Bearer {self.server.inspection_token}"
         return hmac.compare_digest(supplied, expected)
 
+    def _discard_request_body(self, limit=65536):
+        """Read and drop an unused request body; return extra reply headers.
+
+        Windows resets the connection (RST instead of FIN) when a socket is
+        closed with unread received data, so the client can lose an early
+        reply such as a 401. A body that is chunked, has an invalid length
+        or exceeds ``limit`` stays unread, and the reply gets
+        ``Connection: close`` instead.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        if self.headers.get("Transfer-Encoding") or not 0 <= length <= limit:
+            return {"Connection": "close"}
+        self.rfile.read(length)
+        return {}
+
     def handle_mcp_inspection(self, clean_path, query_string):
         if not self._inspection_authorized():
             self._send_json(
                 401,
                 {"error": "Missing or invalid Viewer inspection token."},
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer", **self._discard_request_body()},
             )
             return
         try:
@@ -405,13 +423,16 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/mcp/v1/commands":
             if not self._inspection_authorized():
-                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."})
+                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."},
+                                headers=self._discard_request_body())
                 return
+            body = None
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 65536:
                     raise ValueError("Command request must be 1..65536 bytes")
-                request = json.loads(self.rfile.read(length).decode("utf-8"))
+                body = self.rfile.read(length)
+                request = json.loads(body.decode("utf-8"))
                 from mcp_server.core.Workflow_Dispatch import REGISTRY
                 action = request['action']
                 workflow = 'emapssn_viewer_control' if action == 'execute_commands' else 'emapssn_viewer_data'
@@ -424,17 +445,21 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             except TimeoutError:
                 self._send_json(503, {'error': 'Viewer response timed out. Retry submission with the SAME submission_id; it may already be queued.'})
             except (ValueError, TypeError, KeyError) as error:
-                self._send_json(400, {'error': str(error)[:1000]})
+                self._send_json(400, {'error': str(error)[:1000]},
+                                headers=self._discard_request_body() if body is None else None)
             return
         if self.path == "/api/mcp/v1/data":
             if not self._inspection_authorized():
-                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."})
+                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."},
+                                headers=self._discard_request_body())
                 return
+            body = None
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 65536:
                     raise ViewerInspectionError("Inspection request must be 1..65536 bytes")
-                request = json.loads(self.rfile.read(length).decode("utf-8"))
+                body = self.rfile.read(length)
+                request = json.loads(body.decode("utf-8"))
                 action = request["action"]
                 from mcp_server.core.Workflow_Dispatch import REGISTRY
                 if action not in {"get_residue_distribution", "get_summary", "describe_fields", "create_subset", "summarize_subset", "query_nodes", "read_value"}:
@@ -449,40 +474,48 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             except TimeoutError:
                 self._send_json(503, {"error": "Viewer snapshot capture timed out; retry when idle."})
             except (ValueError, TypeError, KeyError) as error:
-                self._send_json(400, {"error": str(error)[:1000]})
+                self._send_json(400, {"error": str(error)[:1000]},
+                                headers=self._discard_request_body() if body is None else None)
             return
         if self.path == "/api/mcp/v1/shutdown":
+            # No shutdown reply uses the request body; drain it before any.
+            closing = self._discard_request_body()
             if not self._inspection_authorized():
                 self._send_json(
                     401,
                     {"error": "Missing or invalid Viewer inspection token."},
-                    headers={"WWW-Authenticate": "Bearer"},
+                    headers={"WWW-Authenticate": "Bearer", **closing},
                 )
                 return
             qapp = QtWidgets.QApplication.instance()
             if qapp is None:
-                self._send_json(503, {"error": "Viewer application is unavailable."})
+                self._send_json(503, {"error": "Viewer application is unavailable."}, headers=closing)
                 return
             queued = QtCore.QMetaObject.invokeMethod(
                 qapp, "quit", QtCore.Qt.ConnectionType.QueuedConnection
             )
             if not queued:
-                self._send_json(503, {"error": "Could not queue Viewer shutdown."})
+                self._send_json(503, {"error": "Could not queue Viewer shutdown."}, headers=closing)
                 return
-            self._send_json(202, {"status": "accepted", "message": "Viewer shutdown queued."})
+            self._send_json(202, {"status": "accepted", "message": "Viewer shutdown queued."},
+                            headers=closing)
             return
 
         if self.path == "/api/agent/image":
             from web_ui.agent_images import MAX_IMAGE_BYTES, inspect_source
+            body = None
             try:
                 length = int(self.headers.get('Content-Length', '0'))
                 if length <= 0 or length > MAX_IMAGE_BYTES:
                     self.close_connection = True
-                    self._send_json(413, {'error': 'Each image must be nonempty and at most 20 MiB.'})
+                    self._send_json(413, {'error': 'Each image must be nonempty and at most 20 MiB.'},
+                                    headers=self._discard_request_body(MAX_IMAGE_BYTES))
                     return
-                self._send_json(200, inspect_source(self.rfile.read(length)))
+                body = self.rfile.read(length)
+                self._send_json(200, inspect_source(body))
             except ValueError as error:
-                self._send_json(400, {'error': str(error)})
+                self._send_json(400, {'error': str(error)},
+                                headers=self._discard_request_body(MAX_IMAGE_BYTES) if body is None else None)
             return
 
         if self.path == "/api/action":
