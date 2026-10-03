@@ -207,6 +207,44 @@ class FileInspectionTests(unittest.TestCase):
         self.path.write_text("# Query: q\ns\t0\n")
         self.assertEqual(self.inspect("blast_tabular", parameters={"BLAST_LAYOUT": "outfmt7_fields"})["structural_validity"], "invalid")
 
+    def test_diamond_verbose_header_is_detected_with_its_target_limit(self):
+        def write(options):
+            self.path.write_text(
+                "# DIAMOND v2.1.23. http://github.com/bbuchfink/diamond\n"
+                f"# Invocation: diamond blastp -d db -q q.fasta -o hits.tsv{options} --header verbose\n"
+                "# Fields: Query Seq - id, Subject Seq - id, Expect value\n"
+                "q\ts\t" + "\t".join(["1"] * 10) + "\n")
+        write("")
+        result = self.inspect()
+        self.assertEqual(result["detected_format"], "blast_tabular")
+        self.assertEqual(result["structural_validity"], "valid")
+        self.assertEqual((result["metadata"]["search_program"], result["metadata"]["search_version"]),
+                         ("DIAMOND", "2.1.23"))
+        self.assertIn("-o hits.tsv --header verbose", result["metadata"]["search_invocation"])
+        self.assertTrue(any("--max-target-seqs 25 (its default)" in finding["message"]
+                            for finding in result["findings"]), result["findings"])
+        write(" -k 0")
+        result = self.inspect()
+        self.assertEqual(result["structural_validity"], "valid")
+        self.assertFalse(any("max-target-seqs" in finding["message"] for finding in result["findings"]))
+        write(" --top 5")
+        self.assertTrue(any("--top 5" in finding["message"] for finding in self.inspect()["findings"]))
+
+    def test_network_reports_search_provenance_and_import_warnings(self):
+        self.network()
+        with h5py.File(self.path, "a") as hf:
+            hf.attrs["search_program"] = "DIAMOND"
+            hf.attrs["search_version"] = "2.1.23"
+            hf.attrs["import_warnings"] = json.dumps(["The search appears to be limited."])
+        result = self.inspect()
+        self.assertEqual(result["structural_validity"], "valid")
+        self.assertEqual(result["metadata"]["search_program"], "DIAMOND")
+        self.assertIn(dict(severity="warning", message="Recorded when this network was imported: "
+                           "The search appears to be limited."), result["findings"])
+        with h5py.File(self.path, "a") as hf:
+            hf.attrs["import_warnings"] = "not json"
+        self.assertEqual(self.inspect()["structural_validity"], "invalid")
+
     def test_settings_sections_and_strict_validation(self):
         self.path.write_text(json.dumps({"DIRECTORIES": {}, "Sanitize_Sequences.py": {"INPUT_FASTA": "future.fasta"}}))
         self.assertEqual(self.inspect()["structural_validity"], "valid")

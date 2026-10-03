@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import heapq
 import json
 import math
 import os
+import re
 import sys
 
 import h5py
@@ -37,6 +38,33 @@ SUBJECT_FIELD_NAMES = (
 EVALUE_FIELD_NAMES = ("evalue", "expect value")
 SCORE_TRANSFORM = "-log10(E + 1e-300)"
 
+DIAMOND_PROGRAM = "DIAMOND"
+DIAMOND_DEFAULT_MAX_TARGET_SEQS = 25
+BLAST_DEFAULT_MAX_TARGET_SEQS = 500
+SEARCH_HEADER_SCAN_LINES = 1000
+# A per-query target limit is reported only when at least this many queries
+# sit at the largest target count while more queries than that report them,
+# and they make up at least this fraction of the queries at that count.
+CAP_EVIDENCE_MIN_QUERIES = 3
+CAP_EVIDENCE_MIN_FRACTION = 0.1
+_BLAST_PROGRAM_LINE = re.compile(r"^#\s*((?:T|PSI|RPS|DELTA)?BLAST[A-Z]*)\s+(\d\S*)")
+_DIAMOND_PROGRAM_LINE = re.compile(
+    r"^#\s*DIAMOND\s+v?(\d[0-9A-Za-z.+_-]*?)\.?(?:\s|$)"
+)
+_DIAMOND_COMMANDS = {
+    "makedb", "blastp", "blastx", "cluster", "linclust", "realign", "recluster",
+    "reassign", "view", "merge-daa", "help", "version", "getseq", "dbinfo",
+    "test", "makeidx", "greedy-vertex-cover",
+}
+FIRST_WORD_ADVICE = (
+    "BLAST+ qseqid/sseqid and DIAMOND report only the first word of each FASTA "
+    "header, while the manifest uses complete headers. Remove descriptions from "
+    "the FASTA headers before searching, or report complete titles: BLAST+ "
+    '-outfmt "7 qseqid stitle evalue" with BLAST_LAYOUT outfmt7_fields, or '
+    "DIAMOND --outfmt 6 qtitle stitle evalue with BLAST_LAYOUT custom_columns "
+    "(columns 1, 2 and 3)."
+)
+
 
 class BlastParseError(ValueError):
     """Raised when external BLAST or FASTA input violates the import contract."""
@@ -48,6 +76,31 @@ class HeaderManifest:
     sequences: tuple[str, ...]
     index_by_header: dict[str, int]
     modifications: tuple[tuple[str, str], ...]
+    # Sanitized first word -> complete headers, for headers that contain spaces.
+    first_word_headers: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SearchHeader:
+    """Search provenance declared by a tabular file's leading comment lines."""
+
+    program: str = "Unknown"
+    version: str = "Unknown"
+    invocation: str = "Unknown"
+
+    @property
+    def network_tag(self):
+        """Program tag used in the imported network's filename."""
+        return DIAMOND_PROGRAM if self.program == DIAMOND_PROGRAM else "BLAST"
+
+
+@dataclass(frozen=True)
+class SearchCompleteness:
+    queries_observed: int
+    max_targets_per_query: int
+    queries_at_max_targets: int
+    query_rows_grouped: bool
+    warnings: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -60,6 +113,12 @@ class ParseSummary:
     data_rows: int
     self_rows: int
     unique_edges: int
+    search: SearchHeader = SearchHeader()
+    queries_observed: int = 0
+    max_targets_per_query: int = 0
+    queries_at_max_targets: int = 0
+    query_rows_grouped: bool = True
+    warnings: tuple[str, ...] = ()
 
 
 class HeaderSanitizationTracker:
@@ -92,6 +151,7 @@ class HeaderSanitizationTracker:
             raise BlastParseError(
                 f"BLAST line {line_number}: sanitized header {clean_header!r} "
                 f"(from {raw_header!r}) is not present in the FASTA manifest."
+                + _first_word_hint(self._manifest, clean_header)
             )
 
         self.raw_to_sanitized[raw_header] = clean_header
@@ -103,6 +163,225 @@ class HeaderSanitizationTracker:
     @property
     def distinct_count(self) -> int:
         return len(self.raw_to_sanitized)
+
+
+def _first_word_hint(manifest, clean_header):
+    """Explain an unmatched header that looks like a truncated FASTA header."""
+    matches = manifest.first_word_headers.get(clean_header)
+    if matches:
+        others = f" and {len(matches) - 1} other(s)" if len(matches) > 1 else ""
+        return (
+            f" It matches the first word of the FASTA header {matches[0]!r}"
+            f"{others}. {FIRST_WORD_ADVICE}"
+        )
+    if manifest.first_word_headers:
+        count = sum(len(headers) for headers in manifest.first_word_headers.values())
+        return f" {count} FASTA header(s) contain spaces. {FIRST_WORD_ADVICE}"
+    return ""
+
+
+class QueryHitCounter:
+    """Count distinct targets per query and the queries reporting each target.
+
+    BLAST+ and DIAMOND write each query's rows contiguously, so one set of the
+    current query's targets is enough. A query that reappears after another
+    query marks the rows as ungrouped, and target-limit checks are skipped.
+    The parse loop calls ``start_query`` whenever the row's query differs from
+    ``query`` and adds each target to ``targets``, keeping per-row work to a
+    set insertion.
+    """
+
+    def __init__(self, record_count):
+        self.targets_per_query = [0] * record_count
+        self.queries_per_target = [0] * record_count
+        self.observed = bytearray(record_count)
+        self.grouped = True
+        self.query = None
+        self.targets = set()
+
+    def start_query(self, query):
+        if query == self.query:
+            return
+        self.finish()
+        if self.observed[query]:
+            self.grouped = False
+        self.observed[query] = 1
+        self.query = query
+
+    def finish(self):
+        if self.query is None:
+            return
+        self.targets_per_query[self.query] += len(self.targets)
+        for target in self.targets:
+            self.queries_per_target[target] += 1
+        self.targets.clear()
+        self.query = None
+
+
+def parse_search_comment(line):
+    """Return the search provenance one comment line declares, if any.
+
+    Recognizes BLAST+ program lines (``# BLASTP 2.17.0+``) and the lines that
+    DIAMOND ``--header verbose`` writes (``# DIAMOND v2.1.23.`` and
+    ``# Invocation: ...``).
+    """
+    match = _DIAMOND_PROGRAM_LINE.match(line)
+    if match:
+        return {"program": DIAMOND_PROGRAM, "version": match.group(1)}
+    match = _BLAST_PROGRAM_LINE.match(line)
+    if match:
+        return {"program": match.group(1), "version": match.group(2)}
+    if line.startswith("# Invocation:"):
+        invocation = line.split(":", 1)[1].strip()
+        return {"invocation": invocation} if invocation else {}
+    return {}
+
+
+def read_search_header(blast_path, max_lines=SEARCH_HEADER_SCAN_LINES):
+    """Read the search program, version and command from leading comments.
+
+    Only comments before the first data row are examined: DIAMOND writes its
+    ``--header verbose`` lines there and BLAST+ outfmt 7 starts with its
+    program line. The first declaration of each value wins. A missing or
+    undecodable file yields an unknown header; the parser reports those
+    problems itself.
+    """
+    declared = {}
+    try:
+        with open(blast_path, "rb") as blast_file:
+            for line_number, raw_line in enumerate(blast_file, 1):
+                if line_number > max_lines:
+                    break
+                line = raw_line.decode(
+                    "utf-8-sig" if line_number == 1 else "utf-8"
+                ).rstrip("\r\n")
+                if not line:
+                    continue
+                if not line.startswith("#"):
+                    break
+                for key, value in parse_search_comment(line).items():
+                    declared.setdefault(key, value)
+    except (OSError, UnicodeError):
+        pass
+    return SearchHeader(**declared)
+
+
+def diamond_target_limit(invocation):
+    """Return ``(max_target_seqs, explicit, top)`` from a DIAMOND command line.
+
+    ``max_target_seqs`` is None unless the command is ``blastp`` or ``blastx``
+    (``view`` re-reads an archive whose limits were set earlier); 0 means
+    unlimited. ``top`` is the ``--top`` percentage, which overrides the limit.
+    DIAMOND takes ``-k N``, ``-kN`` and ``-k=N``, and the last value wins.
+    """
+    tokens = str(invocation).split()
+    command = next((token for token in tokens if token in _DIAMOND_COMMANDS), None)
+    if command not in {"blastp", "blastx"}:
+        return None, False, None
+    limit, explicit, top = DIAMOND_DEFAULT_MAX_TARGET_SEQS, False, None
+    for index, token in enumerate(tokens):
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if token == "--top":
+            top = following or "?"
+            continue
+        if token in {"-k", "--max-target-seqs"}:
+            value = following
+        elif token.startswith("-k") and not token.startswith("--"):
+            value = token[2:].lstrip("=")
+        else:
+            continue
+        try:
+            limit, explicit = int(value), True
+        except ValueError:
+            continue
+    return limit, explicit, top
+
+
+def _cap_hint(limit):
+    if limit == DIAMOND_DEFAULT_MAX_TARGET_SEQS:
+        return (
+            " DIAMOND reports at most 25 targets per query unless it is run "
+            "with -k 0."
+        )
+    if limit == BLAST_DEFAULT_MAX_TARGET_SEQS:
+        return (
+            " BLAST+ reports at most 500 targets per query unless "
+            "-max_target_seqs is raised to at least the number of sequences."
+        )
+    return (
+        " Rerun without a per-query target limit (DIAMOND -k 0, or BLAST+ "
+        "-max_target_seqs of at least the number of sequences)."
+    )
+
+
+def assess_search_completeness(counter, headers, self_rows, search):
+    """Summarize query coverage and warn about truncated all-vs-all searches."""
+    record_count = len(headers)
+    observed = [index for index in range(record_count) if counter.observed[index]]
+    counts = [counter.targets_per_query[index] for index in observed]
+    max_targets = max(counts, default=0)
+    at_max = [
+        index for index in observed
+        if max_targets and counter.targets_per_query[index] == max_targets
+    ]
+    warnings = []
+
+    limit, explicit, top = (None, False, None)
+    if search.program == DIAMOND_PROGRAM:
+        limit, explicit, top = diamond_target_limit(search.invocation)
+    if top is not None:
+        warnings.append(
+            f"DIAMOND was run with --top {top}, which keeps only hits within "
+            f"{top}% of each query's best score, so weaker homologs are missing "
+            "from this network. For an all-vs-all network, rerun DIAMOND with "
+            "-k 0 and without --top."
+        )
+    elif limit is not None:
+        reached = sum(1 for count in counts if count == limit) if limit else 0
+        if 0 < limit < record_count and reached:
+            default = "" if explicit else " (its default)"
+            warnings.append(
+                f"DIAMOND was run with --max-target-seqs {limit}{default} on "
+                f"{record_count} sequences, and {reached} queries reached that "
+                f"limit, so hits beyond each of their top {limit} targets are "
+                "missing. Rerun DIAMOND with -k 0 for an all-vs-all network."
+            )
+    elif counter.grouped and at_max:
+        over_reported = sum(
+            1 for index in at_max
+            if counter.queries_per_target[index] > max_targets
+        )
+        if (
+            over_reported >= CAP_EVIDENCE_MIN_QUERIES
+            and over_reported >= CAP_EVIDENCE_MIN_FRACTION * len(at_max)
+        ):
+            warnings.append(
+                f"The search appears to be limited to {max_targets} target "
+                f"sequences per query: {len(at_max)} queries report exactly "
+                f"{max_targets} targets, the most of any query, and "
+                f"{over_reported} of them are themselves reported as a hit by "
+                f"more than {max_targets} queries. Hits beyond each query's top "
+                f"{max_targets} targets are probably missing."
+                + _cap_hint(max_targets)
+            )
+
+    missing = [index for index in range(record_count) if not counter.observed[index]]
+    if self_rows and missing:
+        examples = ", ".join(repr(headers[index]) for index in missing[:3])
+        warnings.append(
+            f"{len(missing)} of {record_count} FASTA records never appear as a "
+            f"query (for example {examples}). Other queries report self hits, so "
+            "the search may not have covered the whole FASTA or may have stopped "
+            "early; very short or low-complexity sequences can also lack a self "
+            "hit."
+        )
+    return SearchCompleteness(
+        queries_observed=len(observed),
+        max_targets_per_query=max_targets,
+        queries_at_max_targets=len(at_max),
+        query_rows_grouped=counter.grouped,
+        warnings=tuple(warnings),
+    )
 
 
 def _console_safe(value) -> str:
@@ -180,6 +459,7 @@ def load_header_manifest(fasta_path) -> HeaderManifest:
     sanitized_seen: dict[str, str] = {}
     sanitized_headers: list[str] = []
     modifications: list[tuple[str, str]] = []
+    first_word_headers: dict[str, list[str]] = {}
     for record_number, (raw_header, sequence) in enumerate(
         zip(headers, sequences), 1
     ):
@@ -210,6 +490,10 @@ def load_header_manifest(fasta_path) -> HeaderManifest:
         sanitized_headers.append(clean_header)
         if modified:
             modifications.append((raw_header, clean_header))
+        words = raw_header.split()
+        if len(words) > 1:
+            first_word, _ = sanitize_header(words[0])
+            first_word_headers.setdefault(first_word, []).append(clean_header)
 
     return HeaderManifest(
         headers=tuple(sanitized_headers),
@@ -218,6 +502,10 @@ def load_header_manifest(fasta_path) -> HeaderManifest:
             header: index for index, header in enumerate(sanitized_headers)
         },
         modifications=tuple(modifications),
+        first_word_headers={
+            word: tuple(full_headers)
+            for word, full_headers in first_word_headers.items()
+        },
     )
 
 
@@ -384,12 +672,46 @@ def _parse_numeric_evalue(raw_value, line_number):
     return value
 
 
+def _check_declared_evalue_column(line, evalue_index, line_number):
+    """Reject an E-value column that a # Fields line declares as another field."""
+    fields = [name.strip() for name in line.split(":", 1)[1].split(",")]
+    if evalue_index >= len(fields):
+        problem = (
+            f"declares only {len(fields)} columns, so E-value column "
+            f"{evalue_index + 1} does not exist"
+        )
+    elif fields[evalue_index].casefold() not in EVALUE_FIELD_NAMES:
+        problem = (
+            f"declares column {evalue_index + 1} as {fields[evalue_index]!r}, "
+            "not an E-value"
+        )
+    else:
+        return
+    raise BlastParseError(
+        f"BLAST line {line_number}: # Fields {problem}. Check BLAST_LAYOUT and "
+        "EVALUE_COLUMN."
+    )
+
+
+def _reject_column_name_row(layout, columns, evalue_index, line_number):
+    """Explain a row whose E-value column holds a column name, not a value."""
+    name = columns[evalue_index].strip()
+    if layout != "outfmt7_fields" and name.casefold() in EVALUE_FIELD_NAMES:
+        raise BlastParseError(
+            f"BLAST line {line_number}: this row names its columns ({name!r} in "
+            "the E-value column) instead of holding data, as DIAMOND "
+            "'--header simple' writes. Rerun DIAMOND with '--header verbose', "
+            "whose comment lines are recorded as provenance, or without --header."
+        ) from None
+
+
 def _parse_blast_to_runs(
     blast_path,
     layout,
     custom_columns,
     manifest,
     tracker,
+    counter,
     runs_group,
     batch_size,
     show_progress,
@@ -413,6 +735,7 @@ def _parse_blast_to_runs(
     query_index, subject_index, evalue_index = custom_columns
     if layout == "standard_outfmt6":
         query_index, subject_index, evalue_index = 0, 1, 10
+    add_target = counter.targets.add
 
     file_size = os.path.getsize(blast_path)
     progress = tqdm(
@@ -432,10 +755,15 @@ def _parse_blast_to_runs(
 
                 if line.startswith("#"):
                     if layout != "outfmt7_fields":
+                        if line.startswith("# Fields:"):
+                            _check_declared_evalue_column(
+                                line, evalue_index, line_number
+                            )
                         continue
                     if line.startswith("# Query:"):
                         raw_query = line.split(":", 1)[1].strip()
                         current_query = tracker.observe(raw_query, line_number)
+                        counter.start_query(manifest.index_by_header[current_query])
                         current_block_has_fields = False
                     elif line.startswith("# Fields:"):
                         fields = tuple(
@@ -508,15 +836,26 @@ def _parse_blast_to_runs(
                     raw_subject = columns[outfmt7_subject_index]
                     evalue_index = outfmt7_evalue_index
 
+                try:
+                    raw_evalue = _parse_numeric_evalue(
+                        columns[evalue_index], line_number
+                    )
+                except BlastParseError:
+                    _reject_column_name_row(
+                        layout, columns, evalue_index, line_number
+                    )
+                    raise
                 query_header = (
                     current_query
                     if layout == "outfmt7_fields"
                     else tracker.observe(raw_query, line_number)
                 )
                 subject_header = tracker.observe(raw_subject, line_number)
-                raw_evalue = _parse_numeric_evalue(columns[evalue_index], line_number)
                 source = manifest.index_by_header[query_header]
                 target = manifest.index_by_header[subject_header]
+                if source != counter.query:
+                    counter.start_query(source)
+                add_target(target)
                 if source == target:
                     self_rows += 1
                     continue
@@ -535,6 +874,7 @@ def _parse_blast_to_runs(
     finally:
         progress.close()
 
+    counter.finish()
     if sources:
         _write_sorted_edge_run(runs_group, run_index, sources, targets, scores)
 
@@ -625,6 +965,13 @@ def validate_final_output(
                 "blast_version",
                 "blast_database",
                 "blast_fields",
+                "search_program",
+                "search_version",
+                "search_invocation",
+                "queries_observed",
+                "max_targets_per_query",
+                "queries_at_max_targets",
+                "import_warnings",
             )
             missing_attributes = [
                 name for name in required_attributes if name not in network.attrs
@@ -646,6 +993,7 @@ def validate_final_output(
             for count_name, total_name in (
                 ("fasta_headers_sanitized", "fasta_header_count"),
                 ("blast_headers_sanitized", "blast_header_count"),
+                ("queries_observed", "fasta_header_count"),
             ):
                 count = int(network.attrs[count_name])
                 total = int(network.attrs[total_name])
@@ -709,7 +1057,12 @@ def build_blast_network(
     batch_size=1000000,
     show_progress=True,
 ):
-    """Build, validate, and atomically publish one external BLAST network."""
+    """Build, validate, and atomically publish one external BLAST network.
+
+    BLAST+ and DIAMOND output are both accepted. Program, version and command
+    are read from the file's leading comment lines when present, and the
+    per-query hit counts are checked for a truncated all-vs-all search.
+    """
     blast_path = os.path.abspath(os.path.normpath(os.fspath(blast_path)))
     fasta_path = os.path.abspath(os.path.normpath(os.fspath(fasta_path)))
     output_path = os.path.abspath(os.path.normpath(os.fspath(output_path)))
@@ -743,6 +1096,7 @@ def build_blast_network(
         if len(set(custom_columns)) != 3:
             raise BlastParseError("Custom BLAST columns must be distinct.")
 
+    search = read_search_header(blast_path)
     manifest = load_header_manifest(fasta_path)
     if len(manifest.headers) > np.iinfo(np.uint32).max:
         raise BlastParseError("The FASTA manifest exceeds uint32 index capacity.")
@@ -750,6 +1104,7 @@ def build_blast_network(
         "FASTA", len(manifest.headers), manifest.modifications
     )
     tracker = HeaderSanitizationTracker(manifest)
+    counter = QueryHitCounter(len(manifest.headers))
 
     output_directory = os.path.dirname(output_path)
     if output_directory:
@@ -806,6 +1161,7 @@ def build_blast_network(
                     custom_columns,
                     manifest,
                     tracker,
+                    counter,
                     runs_group,
                     batch_size,
                     show_progress,
@@ -816,6 +1172,9 @@ def build_blast_network(
                 )
                 blast_summary_printed = True
 
+            completeness = assess_search_completeness(
+                counter, manifest.headers, self_rows, search
+            )
             edge_count = _merge_sorted_runs(runs_group, output, batch_size)
             del output["_sorted_runs"]
             attrs = {
@@ -839,6 +1198,13 @@ def build_blast_network(
                 "unique_edges": edge_count,
                 **resolved_columns,
                 **provenance,
+                "search_program": search.program,
+                "search_version": search.version,
+                "search_invocation": search.invocation,
+                "queries_observed": completeness.queries_observed,
+                "max_targets_per_query": completeness.max_targets_per_query,
+                "queries_at_max_targets": completeness.queries_at_max_targets,
+                "import_warnings": json.dumps(list(completeness.warnings)),
             }
             for name, value in attrs.items():
                 output.attrs[name] = value
@@ -872,4 +1238,10 @@ def build_blast_network(
         data_rows=data_rows,
         self_rows=self_rows,
         unique_edges=edge_count,
+        search=search,
+        queries_observed=completeness.queries_observed,
+        max_targets_per_query=completeness.max_targets_per_query,
+        queries_at_max_targets=completeness.queries_at_max_targets,
+        query_rows_grouped=completeness.query_rows_grouped,
+        warnings=completeness.warnings,
     )

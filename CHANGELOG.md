@@ -21,6 +21,21 @@ still change before version 1.0.0.
   command sources.
 - The ESM3 structure worker (`esmfold_worker.py`) gains `--skip-existing`, which keeps
   structures already on disk so an interrupted run can resume.
+- `Parse_BLAST_Output.py` records DIAMOND provenance. DIAMOND output written with
+  `--header verbose` declares its version and command line; the importer stores them,
+  like a BLAST+ program line, in the network's `search_program`, `search_version` and
+  `search_invocation` attributes and names the network `<name>_[DIAMOND]_EValue.h5`.
+  `model_name` stays `BLAST`, so the Viewer still loads it as an E-value network.
+- The BLAST/DIAMOND importer warns when an all-vs-all search was truncated: when a
+  recorded DIAMOND command's `--max-target-seqs` (25 by default) was reached or
+  `--top` was used, or, for headerless files, when queries share a target count while
+  being reported as hits by more queries than that count. It also warns when FASTA
+  records never appear as a query although others report self hits. Warnings are
+  stored in `import_warnings`, and the diagnostics report queries observed and the
+  largest target count.
+- `inspect_file` detects DIAMOND `--header verbose` files as BLAST tables, reports
+  their program, version and command, and warns when the command lacks `-k 0`. For an
+  imported network, it reports the recorded search program and import warnings.
 
 ### Changed
 
@@ -40,6 +55,11 @@ still change before version 1.0.0.
   `--delete-input`, which the Viewer's `esmfold` command passes. PDB files are written
   atomically, with a warning when a structure is replaced or two headers map to the
   same file name.
+- The BLAST importer's "not present in the FASTA manifest" error says when the
+  header is the first word of a FASTA header that contains spaces, which is all
+  BLAST+ `qseqid`/`sseqid` and DIAMOND report, and how to keep complete titles. A
+  `# Fields:` comment must declare an E-value at the selected E-value column, and a
+  DIAMOND `--header simple` column-name row is rejected with advice.
 
 ### Fixed
 

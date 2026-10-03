@@ -26,6 +26,7 @@ from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     read_settings_document,
     select_settings_path,
 )
+from utilities.BLAST_Tabular import ParseSummary  # noqa: E402
 
 
 EXPECTED_TOOLS = {
@@ -235,12 +236,15 @@ class ToolEntryPointTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            summary = SimpleNamespace(
+            summary = ParseSummary(
+                output_path=str(pathlib.Path(temp_dir) / "output.h5"),
                 fasta_header_count=2,
+                fasta_headers_sanitized=0,
+                blast_header_count=2,
+                blast_headers_sanitized=0,
                 data_rows=1,
                 self_rows=0,
                 unique_edges=1,
-                output_path=str(pathlib.Path(temp_dir) / "output.h5"),
             )
             with mock.patch.object(
                 module, "build_blast_network", return_value=summary

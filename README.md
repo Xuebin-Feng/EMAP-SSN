@@ -238,10 +238,11 @@ network. The desktop workflow is:
    FASTA used by downstream calculations.
 2. **Build a network.** Run `Align_Substitution_Matrix.py` for BLASTP, or generate
    embeddings with `Generate_Embeddings.py` and score pairs with
-   `Align_Similarity_Matrix.py`. `Parse_BLAST_Output.py` imports external BLAST
-   tabular results using a matching FASTA manifest. The BLAST calculation requires
-   separate `blastp` and `makeblastdb` executables; the importer reads saved results
-   without running BLAST.
+   `Align_Similarity_Matrix.py`. `Parse_BLAST_Output.py` imports external BLAST or
+   DIAMOND tabular results using a matching FASTA manifest; run DIAMOND all-vs-all
+   with `-k 0`, since it otherwise keeps only 25 hits per query. The BLAST
+   calculation requires separate `blastp` and `makeblastdb` executables; the
+   importer reads saved results without running BLAST or DIAMOND.
 3. **Add an alignment when needed.** Generate an embedding-guided MSA with
    `Embedding_MSA.py`, or select an existing compatible full or sparse alignment.
    An MSA is optional for network viewing and required for residue-level analysis.

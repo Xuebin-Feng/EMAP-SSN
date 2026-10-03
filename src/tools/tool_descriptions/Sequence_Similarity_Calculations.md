@@ -160,14 +160,14 @@ Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifes
 
 # 🔍 Parse BLAST Output (`Parse_BLAST_Output.py`)
 
-This script parses strict, tab-delimited BLAST output against a required companion FASTA and converts it into a standard HDF5 E-value network. Complete FASTA and selected BLAST headers are sanitized with the viewer's shared header rule, then matched exactly. Reciprocal and repeated hits are collapsed to the strongest undirected edge while FASTA records with no hits remain available as orphan nodes.
+This script parses strict, tab-delimited BLAST+ or DIAMOND output against a required companion FASTA and converts it into a standard HDF5 E-value network. Complete FASTA and selected BLAST headers are sanitized with the viewer's shared header rule, then matched exactly. Reciprocal and repeated hits are collapsed to the strongest undirected edge while FASTA records with no hits remain available as orphan nodes.
 
 ### 📥 Input
 
 #### Tabular BLAST Output File `INPUT_BLAST_TABULAR`
 *   **Format**: UTF-8 tabular BLAST output (`.tabular`, `.txt`, `.tab`, `.tsv`).
-*   **Created By**: Externally run NCBI BLASTP.
-*   **Structure**: Select `standard_outfmt6`, `outfmt7_fields`, or `custom_columns` with `BLAST_LAYOUT`.
+*   **Created By**: Externally run NCBI BLASTP or DIAMOND `blastp`.
+*   **Structure**: Select `standard_outfmt6`, `outfmt7_fields`, or `custom_columns` with `BLAST_LAYOUT`. DIAMOND's default `--outfmt 6` has the 12 standard columns.
 
 #### Companion FASTA File `INPUT_FASTA`
 *   **Format**: UTF-8 FASTA (`.fasta`).
@@ -184,20 +184,48 @@ This script parses strict, tab-delimited BLAST output against a required compani
 
 The imported network records the fixed matrix provenance label `Imported`. Parsing uses a fixed batch size of `1,000,000` rows; neither value is a GUI setting.
 
-For FASTA headers that contain descriptions, the recommended BLAST format is outfmt 7 with subject titles, for example `-outfmt "7 qseqid stitle evalue"`. The query header is taken from `# Query:` and the subject header from `stitle`. Standard `qseqid`/`sseqid` output is accepted only when those values exactly equal the sanitized complete FASTA headers.
+For FASTA headers that contain descriptions, the recommended BLAST format is outfmt 7 with subject titles, for example `-outfmt "7 qseqid stitle evalue"`. The query header is taken from `# Query:` and the subject header from `stitle`. The DIAMOND equivalent is `--outfmt 6 qtitle stitle evalue` imported with `custom_columns` 1, 2 and 3. Standard `qseqid`/`sseqid` output is accepted only when those values exactly equal the sanitized complete FASTA headers: BLAST+ and DIAMOND both report only the first word of each FASTA header there, and an unmatched header that equals such a first word is reported as truncation.
+
+#### Recommended DIAMOND all-vs-all search
+
+```
+diamond makedb --in sequences.fasta -d sequences
+diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-sensitive -k 0 --max-hsps 1 --evalue 1e-5 --header verbose
+```
+
+Import `sequences_diamond.tsv` with `standard_outfmt6` and the same `sequences.fasta`.
+
+*   **`-k 0` is required.** DIAMOND reports at most 25 target sequences per query by default (`--max-target-seqs 25`), so an all-vs-all network imported without `-k 0` silently loses every edge beyond each query's top 25 hits. `--top` truncates hit lists in the same way and should not be used.
+*   **`--header verbose`** writes `# DIAMOND v…` and `# Invocation: …` comment lines. The importer records them as the network's search program, version and command, names the output `<name>_[DIAMOND]_EValue.h5`, and checks the recorded `--max-target-seqs`. Without the header, DIAMOND output still imports, with unknown provenance and the `[BLAST]` name. `--header simple` writes a column-name row, which is rejected.
+*   **Headers**: search a FASTA whose headers contain no spaces, such as one written by `Sanitize_Sequences.py`, so that `qseqid`/`sseqid` carry complete headers, or use the title columns above.
+*   **Sensitivity and cutoff**: `--very-sensitive` or `--ultra-sensitive` finds the remote homologs that SSNs depend on; faster modes miss more distant pairs. `--max-hsps 1`, DIAMOND's default, keeps one alignment per pair. The E-value cutoff sets the weakest edge available to later score thresholds.
+
+Both programs' networks keep `model_name="BLAST"`, so the Viewer loads either as an E-value network.
 
 ### 📤 Output
 
 #### HDF5 Alignment Network
-*   **Format**: HDF5 (`.h5`).
+*   **Format**: HDF5 (`.h5`), named `<blast file name>_[BLAST]_EValue.h5`, or `_[DIAMOND]_EValue.h5` when the file declares DIAMOND in its comment header.
 *   **Structure**:
     - `/i`: Source sequence node indices.
     - `/j`: Target sequence node indices.
     - `/score`: Best parsed $-\log_{10}(E_{\text{value}})$ score for each undirected pair.
     - `/headers`: Sanitized complete FASTA headers in source order.
     - Attributes include `model_name="BLAST"`, matrix and layout metadata, resolved columns, source and manifest hashes, parse counts, sanitization counts, and available outfmt-7 provenance.
+    - `search_program`, `search_version` and `search_invocation` hold the program line (`# BLASTP 2.17.0+` or `# DIAMOND v2.1.23.`) and DIAMOND `# Invocation:` command from the file's leading comments, or `Unknown`.
+    - `queries_observed`, `max_targets_per_query`, `queries_at_max_targets` and `import_warnings` (a JSON list) record the search completeness checks below.
 
 The parser always reports FASTA and BLAST header sanitization separately. Any unmatched header or collision is fatal, and an existing final HDF5 file is preserved if parsing or output validation fails.
+
+#### Search Completeness Checks
+
+After parsing, the diagnostics report how many FASTA records appear as queries and the largest number of distinct targets any query reports. Each check below prints a warning, stored in `import_warnings`, without stopping the import:
+
+*   A DIAMOND command recorded by `--header verbose` used `--top`, or a `--max-target-seqs` limit smaller than the number of sequences that at least one query reached.
+*   Without a recorded command, at least three queries, and at least 10% of those at the largest target count, are themselves reported as a hit by more queries than that count. Weak hits near the E-value cutoff miss their reciprocal hit now and then, but many queries doing so at one shared count is the signature of a per-query limit: DIAMOND's default of 25, BLAST+'s default of 500, or a chosen `-k`. A complete family whose members tie at the largest count is not flagged. The check is skipped when rows for one query are not contiguous.
+*   Some FASTA records never appear as a query although other queries report self hits, which suggests the search did not cover the whole FASTA or stopped early. Very short or low-complexity sequences can also lack a self hit.
+
+`emapssn_pipeline(action="inspect_file")` reports the recorded warnings for an imported network, and the search program, version and limits for a DIAMOND file before it is imported.
 
 <details markdown="1">
 <summary><b>Algorithm Details</b></summary>
@@ -206,11 +234,12 @@ The parser always reports FASTA and BLAST header sanitization separately. Any un
      Reads every FASTA record in source order, validates its structure, and sanitizes the complete header. The sanitized headers form the only canonical viewer identities.
 
 2. **Strict BLAST Layout Resolution**:
-     Resolves columns from the selected explicit layout. Rows with incorrect field counts, inconsistent outfmt-7 declarations, invalid UTF-8, invalid E-values, or unknown headers fail with physical line numbers. No heuristic E-value detection or first-token aliasing is used.
+     Resolves columns from the selected explicit layout. Rows with incorrect field counts, inconsistent outfmt-7 declarations, invalid UTF-8, invalid E-values, or unknown headers fail with physical line numbers. In the other layouts, a `# Fields:` comment must declare an E-value at the selected E-value column, and a column-name row is rejected. No heuristic E-value detection or first-token aliasing is used.
 
 3. **Edge Parsing and Score Conversion**:
      Sanitizes the selected complete BLAST headers, matches them exactly to the manifest, and converts each finite non-negative E-value. Zero maps to the capped score 300:
      $$\text{Score} = -\log_{10}(E_{\text{value}} + 10^{-300})$$
+     Each query's distinct targets, self hit included, and the number of queries reporting each sequence are counted for the search completeness checks.
 
 4. **Bounded Deduplication**:
      Writes sorted runs of at most 1,000,000 parsed rows, externally merges them, and retains only the highest-scoring alignment for each canonical undirected pair. Final pairs are strictly sorted and unique.

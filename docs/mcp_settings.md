@@ -291,6 +291,10 @@ caches are both accepted. Their `metadata` reports `layout_dimensions` and
 `version_XX.h5`. Viewer `export_settings` adds the same `cache_contents` for the
 selected cache and an `other_caches` list (newest first, at most 20) for the rest
 of its folder; select another one with an overlay `TARGET_CACHE_PATH`.
+BLAST+ outfmt 7 files and DIAMOND files written with `--header verbose` are detected
+automatically. Their `metadata` names the `search_program` and `search_version`
+(and a DIAMOND `search_invocation`), and a DIAMOND command without `-k 0`, which
+keeps only 25 hits per query by default, or with `--top` is reported as a warning.
 Ambiguous plain tabular files require an explicit format:
 
 ```json
@@ -322,7 +326,9 @@ The report separates:
 Embedding inspection checks completion flags, required metadata, sanitized
 header/sequence manifests, and each embedding's presence, shape, and dtype. It
 does not read embedding arrays. Network inspection checks type-specific datasets,
-ranks, dtypes, and counts without reading edges or scores. Sparse MSA inspection
+ranks, dtypes, and counts without reading edges or scores. A network imported by
+`parse_blast_output` also reports its recorded search program and version, and each
+warning recorded at import, such as a search truncated per query, as a finding. Sparse MSA inspection
 checks CSR dimensions and mapping metadata without scanning CSR arrays or
 reconstructing the alignment.
 

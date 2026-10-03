@@ -158,6 +158,18 @@ class Inspector:
                                                     observed=edges, expected=expected)
         self.report["metadata"].update(sequence_count=n, edge_count=edges, network_type=metadata.network_type,
                                          model_name=metadata.model_name[:256])
+        for name in ("search_program", "search_version", "search_invocation"):
+            if name in hf.attrs:
+                value = hf.attrs[name]
+                self.require(isinstance(value, (str, bytes)), f"{name} must be a string.")
+                self.report["metadata"][name] = (value.decode("utf-8") if isinstance(value, bytes) else value)[:1024]
+        if "import_warnings" in hf.attrs:
+            value = hf.attrs["import_warnings"]
+            warnings = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
+            self.require(isinstance(warnings, list) and all(isinstance(item, str) for item in warnings),
+                         "import_warnings must be a JSON list of strings.")
+            for warning in warnings:
+                self.finding("warning", f"Recorded when this network was imported: {warning}")
         if "sparsity_keep_count" in hf.attrs:
             import numpy as np
             selected = hf.attrs["sparsity_keep_count"]
@@ -321,14 +333,18 @@ class Inspector:
         self.report["checks_omitted"].append("FASTA has no reliable generation completion marker; raw sequences were not altered.")
 
     def blast(self, parameters):
-        from utilities.BLAST_Tabular import _field_index, SUBJECT_FIELD_NAMES, EVALUE_FIELD_NAMES
+        from utilities.BLAST_Tabular import (_field_index, SUBJECT_FIELD_NAMES, EVALUE_FIELD_NAMES,
+                                             DIAMOND_PROGRAM, diamond_target_limit, parse_search_comment)
         layout = parameters.get("BLAST_LAYOUT", "standard_outfmt6")
         columns = [parameters.get(k, default) - 1 for k, default in (("QUERY_COLUMN", 1), ("SUBJECT_COLUMN", 2), ("EVALUE_COLUMN", 11))]
         width, current_query, fields, previous_fields, rows = None, None, None, None, 0
         subject_index, evalue_index = None, None
+        search = {}
         for number, line in self.lines():
             if not line.strip(): continue
             if line.startswith("#"):
+                if not rows:
+                    for key, value in parse_search_comment(line).items(): search.setdefault(key, value)
                 if line.startswith("# Query:"):
                     current_query = line[len("# Query:"):].strip()
                     fields = None
@@ -356,6 +372,15 @@ class Inspector:
             rows += 1
             self.report["metadata"]["data_rows_checked"] = rows
         self.report["metadata"].update(layout=layout, data_rows=rows)
+        if search:
+            self.report["metadata"].update({f"search_{key}": value[:1024] for key, value in search.items()})
+        if search.get("program") == DIAMOND_PROGRAM and "invocation" in search:
+            limit, explicit, top = diamond_target_limit(search["invocation"])
+            if top is not None:
+                self.finding("warning", f"DIAMOND ran with --top {top}, keeping only hits near each query's best score; all-vs-all networks need -k 0 without --top.")
+            elif limit:
+                self.finding("warning", f"DIAMOND ran with --max-target-seqs {limit}" + ("" if explicit else " (its default)")
+                             + f", so a query with more than {limit} hits is truncated; all-vs-all networks need -k 0.")
         if not rows: self.finding("warning", "No BLAST data rows; this may be a legitimate no-hit result.")
         self.report["checks_performed"].append("BLAST text decoding, comment context, and row widths")
         self.report["checks_omitted"].append("BLAST numeric values and FASTA header matching were not validated.")
@@ -461,7 +486,7 @@ def inspect_local(path, file_type="auto", tool_id=None, parameters=None, project
                 if text.startswith(">"):
                     kind = "alignment_fasta" if tool_id == "sparse_msa_converter" else "fasta"
                 elif text.startswith(("{", "[")): kind = "settings"
-                elif text.startswith("# BLAST"): kind = "blast_tabular"
+                elif text.startswith(("# BLAST", "# DIAMOND")): kind = "blast_tabular"
                 else: raise InspectionLimit("Unrecognized or ambiguous text; specify file_type, especially for plain BLAST tables.")
             report["detected_format"] = kind
             if kind in ("fasta", "alignment_fasta"): inspector.fasta(kind == "alignment_fasta")

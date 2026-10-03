@@ -1140,7 +1140,7 @@ class ToolsGUI(QMainWindow):
                 "INPUT_FASTA": "Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.\nCompresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%."
             },
             "Parse_BLAST_Output.py": {
-                "INPUT_BLAST_TABULAR": "BLAST Results: Tab-delimited BLASTP output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.",
+                "INPUT_BLAST_TABULAR": "BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.\nRun DIAMOND with -k 0 so no query's hits are truncated, and with --header verbose to record its version and command.",
                 "INPUT_FASTA": "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.",
                 "BLAST_LAYOUT": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.",
                 "QUERY_COLUMN": "Query Column: One-based full query-header column used only for Custom Columns.",

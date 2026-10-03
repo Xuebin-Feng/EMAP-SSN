@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Convert strict external BLAST tabular output into a viewer HDF5 network."""
+"""Convert strict external BLAST or DIAMOND tabular output into an HDF5 network."""
 
 import os
 
@@ -22,7 +22,11 @@ try:
 except ModuleNotFoundError:
     import _bootstrap
 
-from utilities.BLAST_Tabular import BlastParseError, build_blast_network
+from utilities.BLAST_Tabular import (
+    BlastParseError,
+    build_blast_network,
+    read_search_header,
+)
 from tools.tool_helpers.Tool_Pipeline import load_tool_settings, project_directory_defaults
 
 
@@ -65,9 +69,12 @@ def configure_runtime_paths():
         INPUT_FASTA, FASTA_DIR, "FASTA manifest"
     )
     base_name = os.path.splitext(os.path.basename(os.fspath(INPUT_BLAST_TABULAR)))[0]
+    # DIAMOND output that declares itself (--header verbose) is named [DIAMOND];
+    # model_name stays BLAST either way, so viewers load it as an E-value network.
+    program_tag = read_search_header(FULL_INPUT_BLAST_TABULAR).network_tag
     OUTPUT_HDF5 = os.path.join(
         NETWORK_DIR,
-        f"{base_name}_[BLAST]_EValue.h5",
+        f"{base_name}_[{program_tag}]_EValue.h5",
     )
 
 
@@ -91,15 +98,38 @@ def main(argv=None):
     except (BlastParseError, OSError, RuntimeError, ValueError) as error:
         raise SystemExit(f"Error: {error}") from error
 
+    search = summary.search
+    if search.program == "Unknown":
+        program = "Unknown (no BLAST or DIAMOND program comment line)"
+    else:
+        program = f"{search.program} {search.version}"
     print("=" * 40)
     print("PARSING DIAGNOSTICS")
     print("=" * 40)
+    print(f"Search Program:       {program}")
+    if search.invocation != "Unknown":
+        print(f"Search Command:       {search.invocation}")
     print(f"FASTA Headers:        {summary.fasta_header_count}")
     print(f"BLAST Data Rows:      {summary.data_rows}")
     print(f"Self Rows Ignored:    {summary.self_rows}")
     print(f"Unique Edges Saved:   {summary.unique_edges}")
+    print(
+        f"Queries Observed:     {summary.queries_observed} of "
+        f"{summary.fasta_header_count}"
+    )
+    print(
+        f"Most Targets/Query:   {summary.max_targets_per_query} "
+        f"({summary.queries_at_max_targets} queries)"
+    )
+    if not summary.query_rows_grouped:
+        print(
+            "Note: rows for some queries are not contiguous, so the inferred "
+            "target-limit check was skipped."
+        )
     print(f"Output:               {summary.output_path}")
     print("=" * 40)
+    for warning in summary.warnings:
+        print(f"WARNING: {warning}")
     print("Conversion complete.")
     return 0
 

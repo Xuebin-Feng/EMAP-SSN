@@ -251,7 +251,7 @@
           "null"
         ],
         "default": null,
-        "description": "BLAST Results: Tab-delimited BLASTP output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout."
+        "description": "BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.\nRun DIAMOND with -k 0 so no query's hits are truncated, and with --header verbose to record its version and command."
       },
       "INPUT_FASTA": {
         "type": [

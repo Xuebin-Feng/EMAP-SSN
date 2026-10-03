@@ -29,7 +29,7 @@ DESCRIPTIONS = {
     "embedding_injection": "Add FASTA sequences to an embedding database.",
     "align_similarity_matrix": "Build a network from embedding alignment scores.",
     "align_substitution_matrix": "Build a BLAST substitution-matrix network.",
-    "parse_blast_output": "Import external BLAST tabular results into a network.",
+    "parse_blast_output": "Import external BLAST or DIAMOND tabular results into a network.",
     "embedding_msa": "Build a multiple alignment from embeddings and a network.",
     "sparse_msa_converter": "Convert aligned FASTA files to sparse MSA storage.",
     "network_injection": "Extend a network using an expanded embedding database.",
