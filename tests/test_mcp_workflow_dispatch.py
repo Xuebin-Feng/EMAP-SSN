@@ -27,11 +27,27 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
         async def read_catalog(ctx, action, arguments, session_id):
             self.assertEqual(action, 'get_command_catalog')
             return command_catalog(**arguments)
-        with mock.patch.object(viewer_ops, '_portal_call', side_effect=read_catalog):
+        connected = SimpleNamespace(connected_session_id='viewer')
+        with mock.patch.object(viewer_ops, '_portal_call', side_effect=read_catalog), \
+                mock.patch.object(viewer_ops, '_viewer', return_value=connected):
             general = await dispatch('emapssn_viewer_data', 'get_command_catalog', {}, None)
             detailed = await dispatch('emapssn_viewer_data', 'get_command_catalog', {'command': 'reset'}, None)
         self.assertTrue(all(c['help'] is None for c in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['commands'][0]['syntax'])
+        self.assertNotIn('source', general)
+        # Without a Viewer the static catalog comes from the command sources.
+        disconnected = SimpleNamespace(connected_session_id=None)
+        with mock.patch.object(viewer_ops, '_portal_call') as portal, \
+                mock.patch.object(viewer_ops, '_viewer', return_value=disconnected):
+            local = await dispatch('emapssn_viewer_data', 'get_command_catalog', {}, None)
+            local_reset = await dispatch('emapssn_viewer_data', 'get_command_catalog', {'command': 'reset'}, None)
+            with self.assertRaisesRegex(ToolError, 'Unknown command'):
+                await dispatch('emapssn_viewer_data', 'get_command_catalog', {'command': 'missing'}, None)
+            routed = await dispatch('emapssn_viewer_data', 'get_command_catalog', {'session_id': 'explicit'}, None)
+        self.assertEqual(portal.call_count, 1)  # Only the explicit session_id reached a Viewer.
+        self.assertIs(routed, portal.return_value)
+        self.assertEqual(local, {**general, 'source': 'installation'})
+        self.assertEqual(local_reset['commands'], detailed['commands'])
         description = await dispatch('emapssn_viewer_data', 'describe', {'action': 'get_command_catalog'}, None)
         self.assertEqual(description['example']['arguments'], {'command': 'reset'})
 
@@ -104,6 +120,34 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
                 result = await dispatch(workflow, action, {"output_path": "out.json", "settings_path": "overlay.json"}, None)
                 self.assertEqual(result, {"exported": True})
                 export.assert_called_with(kind, pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json")
+
+    async def test_viewer_export_reports_saved_state_of_each_cache(self):
+        # Export picks the newest cache, which may lack the clusters a saved
+        # figure cache holds; the result must make that choice visible.
+        import h5py
+        import numpy as np
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            def cache(name, clusters=None):
+                with h5py.File(folder / name, "w") as hf:
+                    hf.create_dataset("headers", data=[b"A", b"B"])
+                    hf.create_dataset("positions", data=np.zeros((2, 2), np.float32))
+                    if clusters is not None:
+                        hf.create_dataset("cluster_labels", data=clusters)
+                        hf.attrs["last_cluster_params"] = json.dumps(["LEIDEN_1.0", 20])
+            cache("Figure_1.h5", [0, -1])
+            cache("version_01.h5")
+            (folder / "copy.fasta").write_text(">A\nAC\n")
+            selected = str(folder / "version_01.h5")
+            with mock.patch("utilities.Headless_Settings.export_config_settings",
+                            return_value={"settings_path": "export.json", "cache_path": selected}):
+                result = await dispatch("emapssn_viewer_control", "export_settings", {}, None)
+        self.assertEqual(result["cache_path"], selected)
+        self.assertEqual(result["cache_contents"]["datasets"], ["headers", "positions"])
+        self.assertIsNone(result["cache_contents"]["cluster_labels"])
+        self.assertEqual([entry["cache_filename"] for entry in result["other_caches"]], ["Figure_1.h5"])
+        self.assertEqual(result["other_caches"][0]["cluster_labels"], {"clusters": 1, "noise_nodes": 1})
+        self.assertEqual(result["other_caches"][0]["last_cluster_params"], ["LEIDEN_1.0", 20])
 
     async def test_models_and_errors_keep_original_payload(self):
         with mock.patch.object(pipeline_ops, "list_pipeline_jobs", new_callable=mock.AsyncMock,

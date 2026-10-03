@@ -64,6 +64,7 @@ _startup_args = None
 if __name__ == "__main__":
     from desktop.Viewer_State import read_viewer_settings, resolve_viewer_document
     _startup_args = _parse_viewer_arguments()
+    print("Validating Viewer settings and inputs...", flush=True)
     _settings_path = _startup_args.settings_file or os.environ.get("SSN_VIEWER_SETTINGS_PATH")
     _document = json.loads(_startup_args.settings_json) if _startup_args.settings_json else None
     _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -275,6 +276,21 @@ def _contiguous_line_positions(positions):
     if not np.isfinite(result).all():
         raise ValueError("Line positions contain NaN or infinite values.")
     return result
+
+
+def _edge_segment_positions(positions, edges):
+    """Return one Line upload holding both endpoints of every edge.
+
+    Rows ``2k`` and ``2k + 1`` are the source and target of edge ``k``, the
+    vertex order of VisPy's ``connect='segments'``. One fancy-indexing gather
+    replaces a per-edge Python loop, which took seconds on multi-million-edge
+    networks during startup.
+    """
+    positions = np.asarray(positions)
+    pairs = np.asarray(edges, dtype=np.intp).reshape(-1, 2)
+    return _contiguous_line_positions(
+        positions[pairs].reshape(-1, positions.shape[1])
+    )
 
 
 def _build_adjacency_index(edges, node_count):
@@ -551,6 +567,7 @@ class MainViewer:
         self.load_global_alignment()
         
         # --- 3. Setup Window & Canvas ---
+        print(f"Building network display: {self.n_nodes} nodes, {len(self.edges)} edges.")
         self.canvas = scene.SceneCanvas(
             keys=None,
             show=False,
@@ -1585,26 +1602,21 @@ class MainViewer:
 
 
     def draw_network(self):
-        edge_coords = []
         if len(self.edges) > 0:
-            for u, v in self.edges:
-                edge_coords.append(self.pos[u])
-                edge_coords.append(self.pos[v])
-            if edge_coords:
-                import matplotlib.colors as mcolors
-                # Fetch custom edge color, fallback to black
-                edge_rgba = list(mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000')))
-                edge_rgba[3] = cfg.EDGE_ALPHA # Apply transparency
+            import matplotlib.colors as mcolors
+            # Fetch custom edge color, fallback to black
+            edge_rgba = list(mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000')))
+            edge_rgba[3] = cfg.EDGE_ALPHA # Apply transparency
 
-                edge_positions = _contiguous_line_positions(edge_coords)
-                self.line_visual = scene.visuals.Line(
-                    pos=edge_positions, connect='segments',
-                    color=tuple(edge_rgba), width=cfg.EDGE_WIDTH,
-                    parent=self.view.scene, name='network_edges',
-                )
-                self.line_visual.set_gl_state('translucent', depth_test=False)
-                if getattr(cfg, 'UMAP_MODE', False):
-                    self.line_visual.visible = False
+            edge_positions = _edge_segment_positions(self.pos, self.edges)
+            self.line_visual = scene.visuals.Line(
+                pos=edge_positions, connect='segments',
+                color=tuple(edge_rgba), width=cfg.EDGE_WIDTH,
+                parent=self.view.scene, name='network_edges',
+            )
+            self.line_visual.set_gl_state('translucent', depth_test=False)
+            if getattr(cfg, 'UMAP_MODE', False):
+                self.line_visual.visible = False
         else:
             self.line_visual = None
         self._uploaded_active_edges = None

@@ -1,4 +1,4 @@
-# MCP settings (server 0.11.0, pipeline settings schema 1)
+# MCP settings (server 0.12.0, pipeline settings schema 1)
 
 ## Three workflow tools (breaking migration)
 
@@ -207,6 +207,11 @@ MCP Viewer launch runs detached headless Config, which dispatches into Viewer in
 the same process to preserve PID tracking on Windows and Unix. Existing readiness,
 private logs, connection and shutdown handling remain in MCP. `normal` opens a
 visible Viewer; `headless` uses offscreen Qt. Neither opens the Config window.
+Qt's offscreen platform provides no OpenGL context on Windows, so a headless
+Viewer there answers data and command requests but cannot render: `capture_view`
+reports the missing context. Launch in `normal` mode when images are needed.
+On Linux the offscreen platform can render through EGL/GLX (verified with Mesa
+on Ubuntu 24.04); macOS has not been checked.
 
 ### CLI equivalents
 
@@ -278,7 +283,14 @@ does not create jobs, fix files, or change submission requirements.
 `layout_cache`, and `settings`. Detection uses contents and HDF5 structure, not the
 extension. Aligned FASTA should be specified explicitly; `tool_id: "sparse_msa_converter"`
 also selects aligned-FASTA checks for auto-detected FASTA. Layout caches can be detected
-automatically or inspected with `file_type: "layout_cache"`.
+automatically or inspected with `file_type: "layout_cache"`; 2D desktop and 3D VR
+caches are both accepted. Their `metadata` reports `layout_dimensions` and
+`contents`: the stored datasets, `cluster_labels` (cluster count and noise nodes),
+`group_labels` (named groups and grouped nodes), `last_cluster_params`, and
+`metadata_columns`, so a saved figure cache can be told apart from a bare
+`version_XX.h5`. Viewer `export_settings` adds the same `cache_contents` for the
+selected cache and an `other_caches` list (newest first, at most 20) for the rest
+of its folder; select another one with an overlay `TARGET_CACHE_PATH`.
 Ambiguous plain tabular files require an explicit format:
 
 ```json
@@ -496,10 +508,32 @@ session information. A disconnected client never automatically reconnects.
 ### Launch with complete JSON
 
 `emapssn_viewer_control(action="start_session")` accepts exactly one of `settings_document` or
-`settings_path`, plus `mode` (`normal` or `headless`). The old standalone
-`cache_path` argument is no longer accepted. A successful launch also connects
-the caller to the new session. Logs are written to the returned `stdout_log` and
-`stderr_log` paths, separately from MCP protocol output.
+`settings_path`, plus `mode` (`normal` or `headless`) and an optional
+`ready_timeout` in seconds (default 45, at most 600). The old standalone
+`cache_path` argument is no longer accepted. A launch that becomes ready within
+`ready_timeout` returns `status: "ready"` and connects the caller to the new
+session. Logs are written to the returned `stdout_log` and `stderr_log` paths,
+separately from MCP protocol output.
+
+Large networks can take longer to load than one call should block (Claude's
+desktop app may end a single tool call after about a minute). When the wait
+ends while the Viewer is still loading, the launch is handed back instead of
+being stopped: the result has `status: "starting"`, the `launch_id`, the
+elapsed time, `phase` (the Viewer's last output line) with its age, the
+launcher's process-tree `cpu_seconds`, the log paths, and a `next_step` calling
+`emapssn_viewer_control(action="wait_session")` with that `launch_id`. `wait_session`
+keeps waiting (same `ready_timeout`) and returns the same `ready` or `starting`
+results; it never starts or stops a Viewer and works after a backend restart.
+A growing `cpu_seconds` or advancing `phase` between calls shows a slow launch
+rather than a stuck one. `emapssn_viewer_control(action="close_session")` with
+`launch_id` stops a launch that has not published a session yet, or closes its
+Viewer once it has. Cancelling the call, including a client-side tool timeout,
+also leaves the Viewer loading. A Viewer that exits before readiness is an
+error carrying the last output line and log tails; any remaining launch
+processes are then stopped. A published Viewer whose first readiness probe
+times out (its Qt thread busy, for example with the first paint) is probed
+again rather than treated as failed. Each launch keeps a small `launch.json`
+record beside its logs.
 
 Normal MCP launches open a visible terminal alongside the Viewer. Both output
 streams are copied to that terminal and retained in the launch logs, including
@@ -645,7 +679,9 @@ errors are shown rather than silently sending text alone.
 structured capture metadata. The current canvas includes visible HUD content and
 is resized to at most 1600 pixels per dimension. Optional `request_id` associates a
 completed request, but the image observes current state, not historical state.
-Camera, colors and visibility are not modified by capture.
+Camera, colors and visibility are not modified by capture. Headless Viewers on
+Windows have no OpenGL context, so capture fails there with an error naming
+normal mode as the remedy.
 
 `get_summary` includes camera rectangle, canvas dimensions, and loaded,
 threshold-qualified, visible-endpoint (after threshold), and rendered edge counts.
@@ -663,6 +699,10 @@ Finite choices contain `value` and `aliases`; an empty choices list denotes an
 open-ended argument such as a filename, expression or number. Descriptions explain
 defaults and prerequisites. This is documentation, not another command parser.
 General `help` stays null; pass `arguments={"command":"reset"}` for source help.
+The catalog needs no running Viewer: with no session connected or supplied, it is
+read from this installation's command sources and marked `source: "installation"`.
+A connected or explicitly identified Viewer answers itself, since the code it runs
+may predate an upgrade.
 
 Both `get_command_request` and `read_command_output` accept exactly one non-null,
 nonempty `request_id` or `submission_id`. Lookup is read-only and limited to the

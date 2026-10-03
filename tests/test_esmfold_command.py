@@ -121,10 +121,13 @@ class ESMFoldCommandTests(unittest.TestCase):
             try:
                 get_device.assert_called_once_with()
                 command = launch.call_args.args[0]
+                # The worker owns and deletes the private input file only
+                # because the Viewer passes --delete-input.
                 self.assertEqual(
-                    command[-3:],
+                    command[-4:],
                     [
                         "cuda",
+                        "--delete-input",
                         "--action-url",
                         "http://127.0.0.1:49123/api/action",
                     ],
@@ -169,8 +172,9 @@ class ESMFoldCommandTests(unittest.TestCase):
                 get_device.assert_not_called()
                 command = launch.call_args.args[0]
                 self.assertEqual(
-                    command[-4:],
+                    command[-5:],
                     [
+                        "--delete-input",
                         "--mode",
                         "large",
                         "--action-url",
@@ -215,8 +219,9 @@ class ESMFoldCommandTests(unittest.TestCase):
                             records = json.load(handle)
                         self.assertEqual([record[0] for record in records], ["node_0", "node_1"])
                         self.assertEqual(
-                            command[-4:],
+                            command[-5:],
                             [
+                                "--delete-input",
                                 "--mode",
                                 "large",
                                 "--action-url",
@@ -272,8 +277,9 @@ class ESMFoldCommandTests(unittest.TestCase):
                 launch.assert_called_once()
                 self.assertFalse(hasattr(esmfold_command, "Biohub_API"))
                 self.assertEqual(
-                    launch.call_args.args[0][-4:],
+                    launch.call_args.args[0][-5:],
                     [
+                        "--delete-input",
                         "--mode",
                         "large",
                         "--action-url",

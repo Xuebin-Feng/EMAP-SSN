@@ -24,7 +24,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from mcp_server.core.App_Context import AppContext, _viewer
-from mcp_server.viewer.Viewer_Client import MCPViewerError
+from mcp_server.viewer.Viewer_Client import DEFAULT_READY_TIMEOUT, MCPViewerError
 from desktop.Viewer_State import (
     get_viewer_settings_schema as viewer_settings_schema,
     read_viewer_settings,
@@ -183,6 +183,7 @@ async def start_viewer_session(
     mode: Literal["normal", "headless"] = "normal",
     settings_path: str | None = None,
     settings_document: dict[str, Any] | None = None,
+    ready_timeout: Annotated[float, Field(gt=0, le=600)] = DEFAULT_READY_TIMEOUT,
 ) -> dict[str, Any]:
     """Open a new Viewer after export_config_settings(kind='viewer') and validation.
     Export first to preserve saved visual and other preferences. Consult
@@ -190,16 +191,40 @@ async def start_viewer_session(
     then call validate_viewer_settings. Do not build minimal JSON from defaults.
     Supply exactly one complete settings_document or settings_path, not a cache
     path alone. normal opens a Viewer and terminal; headless opens neither window.
-    Returns a ready session_id and log paths and connects this transport to it.
-    Next use get_viewer_summary or read_viewer_log. The Viewer runs independently
-    of backend lifetime; use disconnect_viewer_session to leave it running.
+    Waits up to ready_timeout seconds (default 45). status="ready" returns a
+    session_id and log paths and connects this transport. Large networks can take
+    longer: status="starting" means the Viewer is still loading and was left
+    running; follow next_step (wait_viewer_session with its launch_id) rather than
+    launching again, and compare phase/cpu_seconds between calls to tell slow from
+    stuck. A Viewer that exits first is an error with its log tail. Next use
+    get_viewer_summary or read_viewer_log. The Viewer runs independently of backend
+    lifetime; use disconnect_viewer_session to leave it running.
     """
     try:
         return await _viewer(ctx).launch_session(
             mode=mode,
             settings_path=settings_path,
             settings_document=settings_document,
+            timeout=ready_timeout,
         )
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+async def wait_viewer_session(
+    ctx: Context[AppContext],
+    launch_id: str,
+    ready_timeout: Annotated[float, Field(gt=0, le=600)] = DEFAULT_READY_TIMEOUT,
+) -> dict[str, Any]:
+    """Keep waiting for a start_viewer_session launch that returned status="starting".
+    Supply its launch_id. Waits up to ready_timeout seconds (default 45), then
+    returns the same results as start_viewer_session: status="ready" connects this
+    transport; status="starting" means still loading, so call again. Never starts or
+    stops a Viewer; a launch that exited is an error with its log tail. Works after
+    a backend restart. To abandon a launch, use close_viewer_session with launch_id.
+    """
+    try:
+        return await _viewer(ctx).wait_for_launch(launch_id, timeout=ready_timeout)
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 
@@ -207,14 +232,17 @@ async def start_viewer_session(
 async def close_viewer_session(
     ctx: Context[AppContext],
     session_id: str | None = None,
+    launch_id: str | None = None,
 ) -> dict[str, Any]:
     """Terminate a Viewer when the user intends to close it.
     Omit session_id for this transport's selection or supply a live UUID/alias.
+    Alternatively supply the launch_id from start_viewer_session to close that
+    launch's Viewer, including one still loading before it publishes a session.
     Returns closed only after verified process exit and descriptor cleanup.
     To leave the Viewer running, use disconnect_viewer_session instead.
     """
     try:
-        return await _viewer(ctx).close_session(session_id)
+        return await _viewer(ctx).close_session(session_id, launch_id=launch_id)
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 
@@ -324,14 +352,55 @@ async def read_viewer_log(ctx: Context[AppContext], session_id: str | None = Non
         raise ToolError(str(error)) from error
 
 
+def _cache_choices(cache_path, limit=20):
+    """Describe the selected cache and its folder's other caches by saved state."""
+    import h5py
+    from datetime import datetime, timezone
+    from mcp_server.pipeline.Pipeline_File_Inspection import layout_cache_contents
+
+    def describe(path):
+        try:
+            with h5py.File(path, "r") as hf:
+                headers = hf.get("headers")
+                contents, problem = layout_cache_contents(hf, len(headers) if headers is not None else 0)
+        except (OSError, ValueError, TypeError) as error:
+            return {"error": str(error)[:200]}
+        return {**contents, "error": problem} if problem else contents
+
+    selected = Path(cache_path)
+    others = sorted((path for path in selected.parent.iterdir()
+                     if path.is_file() and path.suffix.lower() == ".h5" and path != selected),
+                    key=lambda path: (-path.stat().st_mtime_ns, path.name))
+    summaries = []
+    for path in others[:limit]:
+        contents = describe(path)
+        summaries.append({"cache_filename": path.name,
+                          "modified_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+                          **{key: contents.get(key) for key in
+                             ("cluster_labels", "group_labels", "last_cluster_params", "error") if key in contents}})
+    result = {"cache_contents": describe(selected), "other_caches": summaries}
+    if len(others) > limit:
+        result["other_caches_omitted"] = len(others) - limit
+    return result
+
+
 async def export_viewer_settings(output_path: str | None = None, settings_path: str | None = None) -> dict[str, Any]:
     """Export inherited Viewer settings before validate_viewer_settings and launch.
     Preserve saved preferences by editing the full export. settings_path optionally
     supplies an edited JSON overlay, including an explicit TARGET_CACHE_PATH;
     otherwise the newest compatible cache is selected. output_path must not exist;
     omitted output paths are unique. Export writes settings but does not launch.
+    cache_contents reports the selected cache's saved cluster labels, groups and
+    metadata columns; other_caches lists the folder's other caches (newest first)
+    by the same state, so a saved figure cache can be selected with an overlay.
     """
-    return await export_config_settings("viewer", output_path, settings_path)
+    result = await export_config_settings("viewer", output_path, settings_path)
+    if result.get("cache_path"):
+        try:
+            result.update(await asyncio.to_thread(_cache_choices, result["cache_path"]))
+        except OSError as error:
+            result["cache_contents"] = {"error": str(error)[:200]}
+    return result
 
 
 __all__ = [
@@ -353,6 +422,7 @@ __all__ = [
     "start_viewer_session",
     "summarize_viewer_subset",
     "validate_viewer_settings",
+    "wait_viewer_session",
 ]
 
 
@@ -398,7 +468,16 @@ async def capture_view(ctx: Context[AppContext], session_id: str | None = None,
 
 async def get_command_catalog(ctx: Context[AppContext], command: str | None = None,
         session_id: str | None = None) -> dict[str, Any]:
-    """List existing commands, syntax and effects, or supply command (for example reset) to read detailed source help. Read-only; execute_commands is not required."""
+    """List existing commands, syntax and effects, or supply command (for example reset) to read detailed source help. Read-only; execute_commands is not required. Needs no Viewer: with none selected it reads this installation's command sources (source="installation")."""
+    if session_id is None and _viewer(ctx).connected_session_id is None:
+        # The catalog is parsed from command sources, not live Viewer state; a
+        # selected Viewer still answers, since its running code may differ.
+        from desktop.Viewer_Inspection import command_catalog
+        try:
+            catalog = await asyncio.to_thread(command_catalog, command)
+        except ValueError as error:
+            raise ToolError(str(error)) from error
+        return {**catalog, 'source': 'installation'}
     return await _portal_call(ctx, 'get_command_catalog', dict(command=command), session_id)
 
 

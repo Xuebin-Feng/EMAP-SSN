@@ -4,6 +4,55 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
+## [Unreleased]
+
+### Added
+
+- MCP `emapssn_viewer_control(action="wait_session")` keeps waiting for a Viewer launch
+  and connects when it is ready. `start_session` takes an optional `ready_timeout`
+  (default 45 s, at most 600), and `close_session` accepts the launch's `launch_id`,
+  which also stops a Viewer that is still loading. MCP server version 0.12.0.
+- `emapssn_pipeline(action="inspect_file")` reports a layout cache's saved state —
+  cluster count and noise nodes, groups, the last clustering parameters, and metadata
+  columns — and its layout dimensions. Viewer `export_settings` reports the same state
+  for the selected cache and for the folder's other caches, so a saved figure cache
+  can be chosen deliberately.
+- `get_command_catalog` works without a running Viewer; it then reads the installed
+  command sources.
+- The ESM3 structure worker (`esmfold_worker.py`) gains `--skip-existing`, which keeps
+  structures already on disk so an interrupted run can resume.
+
+### Changed
+
+- **A slow Viewer launch is handed back instead of stopped.** When `start_session`'s
+  wait ends while the Viewer is still loading, it returns `status: "starting"` with the
+  `launch_id`, the Viewer's last output line, its process-tree CPU time and the log
+  paths; the Viewer keeps loading. Cancelling the call, including a client-side tool
+  timeout, also leaves it running. The Viewer now logs when it validates its inputs
+  and when it builds the network display.
+- Faster Viewer startup on large networks: edges are drawn without a per-edge Python
+  loop, and the top-percent cutoff uses a partial sort. On a 12,927-node network with
+  4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the
+  test machine, and edge drawing from 5.9 s to 0.15 s. Layout generation shares the
+  faster network preparation; cutoffs are unchanged.
+- The ESM3 structure worker no longer notifies a Viewer unless `--action-url` is
+  given (it used to post to port 8000), and deletes its input JSON only with the new
+  `--delete-input`, which the Viewer's `esmfold` command passes. PDB files are written
+  atomically, with a warning when a structure is replaced or two headers map to the
+  same file name.
+
+### Fixed
+
+- MCP `start_session` terminated a healthy Viewer after a fixed 30 s. On a
+  12,927-node network loaded from OneDrive, the Viewer was stopped while building its
+  display, seconds from publishing its session. A readiness probe that timed out while
+  the Viewer's Qt thread was busy also stopped the launch; the probe is now retried.
+- MCP pipeline jobs inherited the server's standard input, which carries the MCP
+  protocol; a job that prompted for input could consume protocol messages.
+- `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
+- `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
+  that headless Viewers cannot render on Windows and that normal mode can.
+
 ## [0.3.0] - 2026-10-01
 
 ### Highlights
@@ -509,6 +558,7 @@ still change before version 1.0.0.
 - Distributed as GitHub-generated source archives. Native executables and model
   weights are not included.
 
+[Unreleased]: https://github.com/Xuebin-Feng/EMAP-SSN/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.1.0

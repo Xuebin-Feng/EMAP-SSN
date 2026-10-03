@@ -187,32 +187,158 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     await client.close_session(info["session_id"])
                     self.assertFalse(psutil.pid_exists(info["pid"]))
 
-    async def test_timeout_and_cancellation_cleanup_verbose_child(self):
+    async def test_timeout_and_cancellation_leave_a_loading_viewer_running(self):
+        # A Viewer that is still loading when the wait ends, or when the MCP
+        # call is cancelled (as a client-side tool timeout does), must survive.
+        # On 2026-10-02 a fixed 30 s deadline killed a healthy Foldtype IV
+        # Viewer while it built its display, seconds from publishing a session.
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "src").mkdir()
             (root / "src" / "EMAPSSN_Config.py").write_text(
-                "import time,sys\nprint('x'*1000000,flush=True)\ntime.sleep(60)\n"
+                "import time,sys\nprint('x'*1000000,flush=True)\nprint('Loading phase two',flush=True)\ntime.sleep(60)\n"
             )
             with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}), mock.patch(
                 "mcp_server.viewer.Viewer_Client.validate_viewer_document", return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}
             ):
                 client = MCPViewerClient(root)
-                with self.assertRaisesRegex(MCPViewerError, "Timed out"):
-                    await client.launch_session(settings_document={}, mode="headless", timeout=0.3)
+                started = await client.launch_session(settings_document={}, mode="headless", timeout=0.3)
+                self.assertEqual(started["status"], "starting")
+                self.assertEqual(started["next_step"], {"tool": "emapssn_viewer_control", "action": "wait_session",
+                                                        "arguments": {"launch_id": started["launch_id"]}})
+                self.assertIsNone(client.connected_session_id)
+                launcher = psutil.Process(started["launcher_pid"])
+                self.assertTrue(launcher.is_running())
+                deadline = asyncio.get_running_loop().time() + 10
+                while (await client.wait_for_launch(started["launch_id"], timeout=0.1))["phase"] != "Loading phase two":
+                    self.assertLess(asyncio.get_running_loop().time(), deadline)
+                self.assertTrue(launcher.is_running())
+                closed = await client.close_session(launch_id=started["launch_id"])
+                self.assertEqual((closed["closed"], closed["session_id"], closed["launch_id"]),
+                                 (True, None, started["launch_id"]))
+                self.assertFalse(launcher.is_running())
+                with self.assertRaisesRegex(MCPViewerError, "exited before readiness.*Loading phase two"):
+                    await client.wait_for_launch(started["launch_id"], timeout=1)
+
                 task = asyncio.create_task(client.launch_session(settings_document={}, mode="headless"))
                 deadline = asyncio.get_running_loop().time() + 10
-                while not any(p.stat().st_size >= 1000000 for p in (root / "sessions").rglob("stdout.log")):
+                while not any(p.stat().st_size >= 1000000 for p in (root / "sessions").rglob("stdout.log")
+                              if p.parent.name != started["launch_id"]):
                     if task.done() or asyncio.get_running_loop().time() >= deadline:
                         break
                     await asyncio.sleep(0.1)
                 task.cancel()
                 with self.assertRaises(asyncio.CancelledError):
                     await task
-            for path in (root / "sessions").rglob("process.json"):
-                identity = json.loads(path.read_text())
+                cancelled = next(p for p in (root / "sessions" / "launches").iterdir() if p.name != started["launch_id"])
+                identity = json.loads((cancelled / "process.json").read_text())
+                self.assertTrue(psutil.pid_exists(identity["pid"]))
+                await client.close_session(launch_id=cancelled.name)
                 self.assertFalse(psutil.pid_exists(identity["pid"]))
-            self.assertTrue(any(p.stat().st_size >= 1000000 for p in (root / "sessions").rglob("stdout.log")))
+
+    async def test_exit_before_readiness_reports_phase_and_stops_the_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "src").mkdir()
+            # Outlive the launch broker so the exit is observed while waiting.
+            (root / "src" / "EMAPSSN_Config.py").write_text(
+                "import sys,time\nprint('Reading the network',flush=True)\ntime.sleep(1.5)\nsys.exit(3)\n"
+            )
+            with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}), mock.patch(
+                "mcp_server.viewer.Viewer_Client.validate_viewer_document", return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}
+            ):
+                with self.assertRaisesRegex(MCPViewerError, "exited before readiness.*'Reading the network'.*terminated"):
+                    await MCPViewerClient(root).launch_session(settings_document={}, mode="headless", timeout=30)
+            directory = next((root / "sessions" / "launches").iterdir())
+            self.assertFalse((directory / "settings.json").exists())
+
+    async def test_readiness_probe_failures_are_retried_until_ready_or_handed_off(self):
+        # A published Viewer whose Qt thread is still busy (first paint, startup
+        # commands) answers the probe with 503; that is not a failed launch.
+        from types import SimpleNamespace
+        import time
+        session = SimpleNamespace(session_id="s", launch_id="abc", pid=1, base_url="http://127.0.0.1:9",
+                                  started_at="now", token="t", process_created_at=None)
+        launch = {"launch_id": "abc", "mode": "headless", "cache_path": "cache.h5", "started_epoch": time.time()}
+        with tempfile.TemporaryDirectory() as temporary:
+            for outcomes, expected in (([MCPViewerError("busy"), MCPViewerError("busy"), {}], "ready"),
+                                       ([MCPViewerError("busy")] * 1000, "starting")):
+                with self.subTest(expected=expected):
+                    client = MCPViewerClient(temporary)
+                    remaining = list(outcomes)
+                    def probe(*_arguments):
+                        outcome = remaining.pop(0)
+                        if isinstance(outcome, Exception):
+                            raise outcome
+                        return outcome
+                    with mock.patch("mcp_server.viewer.Viewer_Client.discover_viewer_sessions", return_value=[session]), \
+                            mock.patch.object(client, "_request", side_effect=probe), \
+                            mock.patch.object(client, "_remember_session"):
+                        result = await client._await_launch(Path(temporary), launch, lambda: True, 1.0)
+                    self.assertEqual(result["status"], expected)
+                    if expected == "ready":
+                        self.assertEqual(client.connected_session_id, "s")
+                    else:
+                        self.assertEqual(result["readiness_probe_error"], "busy")
+
+    async def test_wait_and_close_reject_unknown_or_malformed_launch_ids(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": temporary}):
+            client = MCPViewerClient(temporary)
+            for launch_id in ("../launches", "not-a-uuid", ""):
+                with self.subTest(launch_id=launch_id), self.assertRaisesRegex(MCPViewerError, "launch_id"):
+                    await client.wait_for_launch(launch_id)
+            unknown = "0" * 32
+            with self.assertRaisesRegex(MCPViewerError, "No MCP launch"):
+                await client.wait_for_launch(unknown)
+            damaged = Path(temporary) / "launches" / ("1" * 32)
+            damaged.mkdir(parents=True)
+            (damaged / "launch.json").write_text(json.dumps({"launch_id": damaged.name, "mode": "headless"}))
+            with self.assertRaisesRegex(MCPViewerError, "Invalid launch record"):
+                await client.wait_for_launch(damaged.name)
+            with self.assertRaisesRegex(MCPViewerError, "No MCP launch"):
+                await client.close_session(launch_id=unknown)
+            with self.assertRaisesRegex(MCPViewerError, "not both"):
+                await client.close_session("session", launch_id=unknown)
+
+    async def test_slow_launch_hands_off_to_wait_session_over_mcp(self):
+        fixture = SettingsTests(); fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        launch_id = None
+        with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(fixture.root / "sessions"),
+                                         "PYTHONIOENCODING": "utf-8"}), \
+                mock.patch.object(tempfile, "tempdir", str(fixture.root)):
+            async with Client(mcp) as client:
+                try:
+                    described = await client.call_tool("emapssn_viewer_control", {
+                        "action": "describe", "arguments": {"action": "start_session"}})
+                    timeout_schema = described.structured_content["arguments_schema"]["properties"]["ready_timeout"]
+                    self.assertEqual((timeout_schema["default"], timeout_schema["maximum"]), (45.0, 600))
+                    started = await client.call_tool("emapssn_viewer_control", {"action": "start_session", "arguments": {
+                        "mode": "headless", "settings_document": fixture.document, "ready_timeout": 0.01}})
+                    self.assertFalse(started.is_error, str(started))
+                    self.assertEqual(started.structured_content["status"], "starting")
+                    launch_id = started.structured_content["launch_id"]
+                    self.assertTrue((await client.call_tool("emapssn_viewer_data", {
+                        "action": "get_summary", "arguments": {}})).is_error)
+                    ready = await client.call_tool("emapssn_viewer_control", {"action": "wait_session", "arguments": {
+                        "launch_id": launch_id, "ready_timeout": 120}})
+                    self.assertFalse(ready.is_error, str(ready))
+                    self.assertEqual(ready.structured_content["status"], "ready")
+                    self.assertEqual(ready.structured_content["launch_id"], launch_id)
+                    summary = await client.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})
+                    self.assertFalse(summary.is_error, str(summary))
+                    self.assertEqual(summary.structured_content["node_count"], 2)
+                    output = await client.call_tool("emapssn_viewer_data", {"action": "read_log", "arguments": {}})
+                    self.assertIn("Building network display: 2 nodes", output.structured_content["text"])
+                    closed = await client.call_tool("emapssn_viewer_control", {"action": "close_session", "arguments": {
+                        "launch_id": launch_id}})
+                    self.assertFalse(closed.is_error, str(closed))
+                    self.assertFalse(psutil.pid_exists(ready.structured_content["pid"]))
+                    launch_id = None
+                finally:
+                    if launch_id is not None:
+                        await MCPViewerClient(fixtures.ROOT).close_session(launch_id=launch_id)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows console creation flags")
     async def test_windows_launch_keeps_headless_viewers_off_screen(self):

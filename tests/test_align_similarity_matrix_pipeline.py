@@ -1792,7 +1792,12 @@ class AlignmentPipelineTests(unittest.TestCase):
             reason="within reserved-VRAM boundary",
         )
 
+        # The simulated CUDA device must count as NVIDIA on any host; the real
+        # check reads the installed PyTorch build (CPU, ROCm and MPS say no).
         with mock.patch.object(
+            similarity_matrix, "is_nvidia_cuda",
+            side_effect=lambda device: device.type == "cuda",
+        ), mock.patch.object(
             similarity_matrix, "ACCELERATOR_CONFIRM_PAIRS", 3
         ), mock.patch.object(
             similarity_matrix.Hardware_Utils,
@@ -1878,6 +1883,9 @@ class AlignmentPipelineTests(unittest.TestCase):
         memory_plan = mock.Mock(free_bytes=12 << 30, total_bytes=16 << 30)
         clock = iter([0.0, 1.0, 1.0, 1.4])
         with mock.patch.object(
+            similarity_matrix, "is_nvidia_cuda",
+            side_effect=lambda device: device.type == "cuda",
+        ), mock.patch.object(
             similarity_matrix, "EXECUTION_MODE", "scalar"
         ), mock.patch.object(
             similarity_matrix.Hardware_Utils,
@@ -2104,7 +2112,13 @@ class AlignmentPipelineTests(unittest.TestCase):
         sink.checkpoint.return_value = 0
         memory_plan = mock.Mock(matrix_bytes=256 * 1024 * 1024)
 
+        # Only the hardware gate is simulated, as in the XPU twins below; the
+        # real CUDA backend still classifies the OOM and empties the cache.
         with mock.patch.object(
+            similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock CUDA support"),
+        ), mock.patch.object(
             similarity_matrix,
             "run_tiled_accelerator_pipeline",
             side_effect=torch.cuda.OutOfMemoryError("simulated"),
@@ -2147,6 +2161,10 @@ class AlignmentPipelineTests(unittest.TestCase):
         memory_plan = mock.Mock(matrix_bytes=256 * 1024 * 1024)
 
         with mock.patch.object(
+            similarity_matrix,
+            "tiled_accelerator_support",
+            return_value=(True, "mock CUDA support"),
+        ), mock.patch.object(
             similarity_matrix,
             "run_tiled_accelerator_pipeline",
             side_effect=torch.cuda.OutOfMemoryError("simulated"),

@@ -30,6 +30,103 @@ class MCPViewerError(RuntimeError):
     """Viewer configuration, connection or lifecycle failure."""
 
 
+# One start_session or wait_session call waits this long before handing a
+# still-loading Viewer back to the caller; Claude's desktop app may end a single
+# MCP tool call after about a minute.
+DEFAULT_READY_TIMEOUT = 45.0
+
+
+def _launch_key(launch_id):
+    """Return the canonical form of a launch ID, which also names its directory."""
+    try:
+        return uuid.UUID(str(launch_id)).hex
+    except ValueError:
+        raise MCPViewerError(
+            f"launch_id: expected the ID returned by start_session, not {launch_id!r}."
+        ) from None
+
+
+def _read_launch(directory):
+    try:
+        launch = json.loads((directory / "launch.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise MCPViewerError(
+            f"No MCP launch {directory.name} exists. For running Viewers use "
+            "emapssn_viewer_data(action='list_sessions')."
+        ) from None
+    except (OSError, ValueError) as error:
+        raise MCPViewerError(f"Cannot read launch record {directory}: {error}") from error
+    if (not isinstance(launch, dict) or launch.get("launch_id") != directory.name
+            or launch.get("mode") not in {"normal", "headless"}
+            or isinstance(launch.get("started_epoch"), bool)
+            or not isinstance(launch.get("started_epoch"), (int, float))
+            or not isinstance(launch.get("cache_path"), str)):
+        raise MCPViewerError(f"Invalid launch record at {directory}.")
+    return launch
+
+
+def _recorded_process(path):
+    """Return the process an identity file records while it still runs, else None."""
+    try:
+        recorded = json.loads(path.read_text(encoding="utf-8"))
+        process = _identity(int(recorded["pid"]))
+        if process is not None and process.create_time() == recorded["created"] and _alive(process):
+            return process
+    except (OSError, ValueError, KeyError, TypeError, psutil.Error):
+        pass
+    return None
+
+
+def _terminal_alive(directory):
+    """A normal launch lives until its terminal wrapper's recorded process exits."""
+    path = directory / "terminal-process.json"
+    return not path.exists() or _recorded_process(path) is not None
+
+
+def _launch_progress(directory):
+    """Return the last line a launch printed and its age in seconds."""
+    path = directory / "stdout.log"
+    try:
+        status = path.stat()
+        with path.open("rb") as handle:
+            handle.seek(max(0, status.st_size - 4096))
+            lines = [line.strip() for line in handle.read().decode("utf-8", errors="replace").splitlines()]
+    except OSError:
+        return None, None
+    lines = [line for line in lines if line]
+    if not lines:
+        return None, None
+    return lines[-1][:300], round(max(0.0, time.time() - status.st_mtime), 1)
+
+
+def _tree_cpu_seconds(process):
+    """CPU time used by a launch's process tree; growth between calls means work."""
+    if process is None:
+        return None
+    total = 0.0
+    try:
+        targets = [process, *process.children(recursive=True)]
+    except psutil.Error:
+        return None
+    for target in targets:
+        try:
+            times = target.cpu_times()
+        except psutil.Error:
+            continue
+        total += times.user + times.system
+    return round(total, 1)
+
+
+def _log_tails(directory):
+    tails = []
+    for path in (directory / "stdout.log", directory / "stderr.log"):
+        if path.exists():
+            with path.open("rb") as handle:
+                handle.seek(max(0, path.stat().st_size - 4096))
+                tails.append(handle.read().decode("utf-8", errors="replace"))
+    return "\n".join(tails)
+
+
 def _identity(pid):
     try:
         return psutil.Process(pid)
@@ -137,7 +234,8 @@ class MCPViewerClient:
             await asyncio.gather(task, return_exceptions=True)
         return {"disconnected": True, "session_id": previous}
 
-    async def launch_session(self, *, settings_document=None, settings_path=None, mode="normal", timeout=30.0):
+    async def launch_session(self, *, settings_document=None, settings_path=None, mode="normal",
+                             timeout=DEFAULT_READY_TIMEOUT):
         if mode not in {"normal", "headless"}:
             raise MCPViewerError("mode: expected normal or headless.")
         try:
@@ -151,6 +249,11 @@ class MCPViewerClient:
         directory.mkdir(parents=True, mode=0o700)
         snapshot = directory / "settings.json"
         snapshot.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        # The record lets wait_session and close_session reach a launch that
+        # outlives this call, including from a restarted backend.
+        launch = {"launch_id": launch_id, "mode": mode, "started_epoch": time.time(),
+                  "cache_path": settings["inputs"]["TARGET_CACHE_PATH"]}
+        (directory / "launch.json").write_text(json.dumps(launch), encoding="utf-8")
         stdout_path, stderr_path = directory / "stdout.log", directory / "stderr.log"
         script = Path(self.project_root) / "src" / "EMAPSSN_Config.py"
         command = [sys.executable, "-u", str(script), "--headless", "launch-viewer",
@@ -177,8 +280,8 @@ class MCPViewerClient:
                    if sys.platform == "win32" else {"start_new_session": True})
         proc = None
         root_process = None
-        session = None
         ready = False
+        keep_running = False
         try:
             # Windows MCP transports terminate their subprocess trees on disconnect.
             # A short-lived broker exits before readiness, severing that ownership
@@ -209,29 +312,28 @@ class MCPViewerClient:
                 identity = json.loads(identity_path.read_text())
                 root_process = _identity(identity["pid"])
                 if root_process is None or root_process.create_time() != identity["created"]:
-                    raise MCPViewerError("Independent Viewer launcher exited before readiness.")
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
-                session = next((item for item in sessions if item.launch_id == launch_id), None)
-                if session is not None:
-                    await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
-                    async with self._selection_lock:
-                        self.connected_session_id = session.session_id
-                    self._remember_session(session)
-                    ready = True
-                    # A daemon reaps the launcher without owning the independent Viewer lifetime.
-                    threading.Thread(target=proc.wait, daemon=True, name="viewer-launcher-reaper").start()
-                    return {"status": "ready", "session_id": session.session_id, "pid": session.pid,
-                            "session_alias": session_alias(session.session_id),
-                            "base_url": session.base_url, "started_at": session.started_at, "mode": mode,
-                            "cache_path": settings["inputs"]["TARGET_CACHE_PATH"],
-                            "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)}
-                if (sys.platform == "win32" or mode == "headless") and not await asyncio.to_thread(_alive, root_process):
-                    raise MCPViewerError(f"Viewer exited before readiness (code {proc.returncode}).")
-                await asyncio.sleep(0.1)
-            raise MCPViewerError(f"Timed out after {timeout} seconds waiting for Viewer readiness.")
+                    raise MCPViewerError("Independent Viewer launcher exited before readiness; "
+                                         f"last output: {_launch_progress(directory)[0]!r}.")
+            elif mode == "headless" and root_process is not None:
+                identity_path.write_text(json.dumps({"pid": proc.pid, "created": root_process.create_time()}))
+            if sys.platform == "win32" or mode == "headless":
+                owner = root_process
+                def alive():
+                    return _alive(root_process)
+            else:
+                owner = None  # root_process is the terminal emulator, not the Viewer.
+                def alive():
+                    return _terminal_alive(directory)
+            # Only a POSIX headless Popen is the Viewer itself; on Windows it is the broker.
+            child = proc if mode == "headless" and sys.platform != "win32" else None
+            result = await self._await_launch(directory, launch, alive, timeout, owner=owner, child=child)
+            ready = result["status"] == "ready"
+            keep_running = not ready
+            return result
         except asyncio.CancelledError:
+            # A cancelled call, including an MCP client's own tool timeout, leaves a
+            # spawned Viewer loading; wait_session or close_session can still reach it.
+            keep_running = proc is not None
             raise
         except Exception as error:
             if isinstance(error, PermissionError) and sys.platform == "win32":
@@ -240,41 +342,123 @@ class MCPViewerClient:
                     "Open the Viewer through the GUI or CLI, then use "
                     "emapssn_viewer_control(action='connect_session')."
                 )
-            tails = []
-            for path in (stdout_path, stderr_path):
-                if path.exists():
-                    with path.open("rb") as handle:
-                        handle.seek(max(0, path.stat().st_size - 4096))
-                        tails.append(handle.read().decode("utf-8", errors="replace"))
-            raise MCPViewerError(f"{error} Logs: {directory}\n" + "\n".join(tails)) from error
+            note = " Remaining launch processes were terminated." if proc is not None else ""
+            raise MCPViewerError(f"{error}{note} Logs: {directory}\n" + _log_tails(directory)) from error
         finally:
-            if not ready:
+            if ready or keep_running:
+                if proc is not None and proc.returncode is None:
+                    # A daemon reaps the launcher without owning the independent Viewer lifetime.
+                    threading.Thread(target=proc.wait, daemon=True, name="viewer-launcher-reaper").start()
+            else:
                 try:
-                    terminal_identity = directory / "terminal-process.json"
-                    if terminal_identity.exists():
-                        recorded = json.loads(terminal_identity.read_text())
-                        terminal = _identity(recorded["pid"])
-                        if terminal is not None and terminal.create_time() == recorded["created"]:
-                            await asyncio.shield(asyncio.to_thread(_terminate_tree, terminal))
-                    if sys.platform == "win32" and identity_path.exists():
-                        recorded = json.loads(identity_path.read_text())
-                        independent = _identity(recorded["pid"])
-                        if independent is not None and independent.create_time() == recorded["created"]:
-                            await asyncio.shield(asyncio.to_thread(_terminate_tree, independent))
-                    if root_process is not None:
-                        await asyncio.shield(asyncio.to_thread(_terminate_tree, root_process))
-                    if session is not None:
-                        actual = _identity(session.pid)
-                        if actual is not None and actual.create_time() == session.process_created_at:
-                            await asyncio.shield(asyncio.to_thread(_terminate_tree, actual))
-                        remove_viewer_session(session)
+                    await self._terminate_launch(directory, launch_id, extra=root_process)
                     if proc is not None:
                         await asyncio.to_thread(proc.wait, timeout=5)
-                    snapshot.unlink(missing_ok=True)
                 except Exception as error:
                     raise MCPViewerError(f"Launch cleanup failed; retained diagnostics at {directory}: {error}") from error
 
-    async def close_session(self, session_id=None, timeout=5.0):
+    async def _await_launch(self, directory, launch, alive, timeout, *, owner=None, child=None):
+        """Wait until a launch answers, exits, or ``timeout`` passes; never stop it."""
+        launch_id = launch["launch_id"]
+        deadline = time.monotonic() + timeout
+        probe_error = None
+        while True:
+            sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
+            session = next((item for item in sessions if item.launch_id == launch_id), None)
+            if session is not None:
+                try:
+                    await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
+                except MCPViewerError as error:
+                    # Published, but its Qt thread has not answered yet (for example
+                    # during the first paint); keep polling a live Viewer.
+                    probe_error = str(error)
+                else:
+                    async with self._selection_lock:
+                        self.connected_session_id = session.session_id
+                    self._remember_session(session)
+                    return {"status": "ready", "session_id": session.session_id, "pid": session.pid,
+                            "session_alias": session_alias(session.session_id),
+                            "base_url": session.base_url, "started_at": session.started_at,
+                            "mode": launch["mode"], "cache_path": launch["cache_path"], "launch_id": launch_id,
+                            "stdout_log": str(directory / "stdout.log"),
+                            "stderr_log": str(directory / "stderr.log")}
+            elif not await asyncio.to_thread(alive):
+                code = child.poll() if child is not None else None
+                phase, _ = _launch_progress(directory)
+                raise MCPViewerError(
+                    "Viewer exited before readiness"
+                    + (f" (code {code})" if code is not None else "")
+                    + f" after {time.time() - launch['started_epoch']:.1f} s; last output: {phase!r}."
+                )
+            if time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(0.1)
+        if owner is None:
+            owner = await asyncio.to_thread(_recorded_process, directory / "terminal-process.json")
+        phase, age = _launch_progress(directory)
+        result = {
+            "status": "starting", "launch_id": launch_id, "mode": launch["mode"],
+            "elapsed_seconds": round(time.time() - launch["started_epoch"], 1), "ready_timeout": timeout,
+            "phase": phase, "last_output_age_seconds": age,
+            "launcher_pid": owner.pid if owner is not None else None,
+            "cpu_seconds": await asyncio.to_thread(_tree_cpu_seconds, owner),
+            "cache_path": launch["cache_path"],
+            "stdout_log": str(directory / "stdout.log"), "stderr_log": str(directory / "stderr.log"),
+            "message": ("The Viewer is still loading and was left running. Continue with wait_session and "
+                        "this launch_id instead of starting another Viewer; close_session with launch_id "
+                        "stops it."),
+            "next_step": {"tool": "emapssn_viewer_control", "action": "wait_session",
+                          "arguments": {"launch_id": launch_id}},
+        }
+        if probe_error is not None:
+            result["readiness_probe_error"] = probe_error
+        return result
+
+    async def _terminate_launch(self, directory, launch_id, *, extra=None):
+        """Stop the processes a launch recorded and any session it published."""
+        stopped = []
+        for name in ("terminal-process.json", "process.json"):
+            process = await asyncio.to_thread(_recorded_process, directory / name)
+            if process is not None:
+                await asyncio.shield(asyncio.to_thread(_terminate_tree, process))
+                stopped.append(process.pid)
+        if extra is not None and await asyncio.to_thread(_alive, extra):
+            await asyncio.shield(asyncio.to_thread(_terminate_tree, extra))
+            stopped.append(extra.pid)
+        for session in await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout):
+            if session.launch_id == launch_id:
+                actual = _identity(session.pid)
+                if actual is not None and actual.create_time() == session.process_created_at:
+                    await asyncio.shield(asyncio.to_thread(_terminate_tree, actual))
+                    stopped.append(actual.pid)
+                remove_viewer_session(session)
+        (directory / "settings.json").unlink(missing_ok=True)
+        return stopped
+
+    async def wait_for_launch(self, launch_id, timeout=DEFAULT_READY_TIMEOUT):
+        """Keep waiting for a handed-off launch; connect when ready, never stop it."""
+        directory = Path(session_directory()) / "launches" / _launch_key(launch_id)
+        launch = _read_launch(directory)
+        owner = None
+        if sys.platform == "win32" or launch["mode"] == "headless":
+            owner = await asyncio.to_thread(_recorded_process, directory / "process.json")
+            def alive():
+                return owner is not None and _alive(owner)
+        else:
+            def alive():
+                return _terminal_alive(directory)
+        # An already-ready Viewer is found by its launch_id even after the launcher exits.
+        try:
+            return await self._await_launch(directory, launch, alive, timeout, owner=owner)
+        except MCPViewerError as error:
+            (directory / "settings.json").unlink(missing_ok=True)
+            raise MCPViewerError(f"{error} Logs: {directory}\n" + _log_tails(directory)) from error
+
+    async def close_session(self, session_id=None, timeout=5.0, *, launch_id=None):
+        if launch_id is not None:
+            if session_id is not None:
+                raise MCPViewerError("Supply session_id or launch_id, not both.")
+            return await self._close_launch(launch_id, timeout)
         target = self._target(session_id)
         try:
             session = await asyncio.to_thread(select_viewer_session, target, timeout=self.discovery_timeout)
@@ -310,6 +494,22 @@ class MCPViewerClient:
             return {"closed": True, "session_id": session.session_id, "pid": session.pid}
         except (LookupError, psutil.Error, OSError) as error:
             raise MCPViewerError(f"Could not close Viewer {target}: {error}") from error
+
+    async def _close_launch(self, launch_id, timeout):
+        """Close a launch's Viewer, or stop it when it has not published a session yet."""
+        directory = Path(session_directory()) / "launches" / _launch_key(launch_id)
+        launch = _read_launch(directory)
+        sessions = await asyncio.to_thread(discover_viewer_sessions, timeout=self.discovery_timeout)
+        session = next((item for item in sessions if item.launch_id == launch["launch_id"]), None)
+        if session is not None:
+            return {**await self.close_session(session.session_id, timeout), "launch_id": launch["launch_id"]}
+        try:
+            stopped = await self._terminate_launch(directory, launch["launch_id"])
+        except (psutil.Error, OSError) as error:
+            raise MCPViewerError(f"Could not stop launch {launch['launch_id']}: {error}") from error
+        if not stopped:
+            raise MCPViewerError(f"No running Viewer belongs to launch {launch['launch_id']}.")
+        return {"closed": True, "session_id": None, "pid": stopped[0], "launch_id": launch["launch_id"]}
 
     async def list_sessions(self, offset=0, limit=25, max_bytes=16384):
         from desktop.Viewer_Inspection import encoded

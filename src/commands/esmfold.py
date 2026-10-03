@@ -234,6 +234,7 @@ def run(viewer, args):
             abs_worker_script,
             tmp_path,
             abs_structures_dir,
+            "--delete-input",
             "--mode",
             "large",
             "--action-url",
@@ -248,6 +249,7 @@ def run(viewer, args):
             tmp_path,
             abs_structures_dir,
             device_str,
+            "--delete-input",
             "--action-url",
             action_url,
         ]

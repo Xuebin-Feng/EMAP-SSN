@@ -44,6 +44,8 @@ import time
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     settings = json.load(handle)["Sanitize_Sequences.py"]
 time.sleep(float(settings.get("DELAY", 0)))
+if settings.get("READ_STDIN"):
+    print(repr(sys.stdin.read()), flush=True)
 print(settings.get("STDOUT", ""), flush=True)
 print(settings.get("STDERR", ""), file=sys.stderr, flush=True)
 raise SystemExit(int(settings.get("EXIT_CODE", 0)))
@@ -144,6 +146,24 @@ raise SystemExit(int(settings.get("EXIT_CODE", 0)))
             limit=1024,
         )
         self.assertEqual(second_log["text"].strip(), "second")
+
+    async def test_jobs_cannot_read_the_server_protocol_stream(self):
+        # The server's stdin carries MCP JSON-RPC. A job that prompts (getpass
+        # falls back to stdin without a TTY) must read EOF, not protocol bytes.
+        real_exec = asyncio.create_subprocess_exec
+        calls = []
+
+        async def spy(*args, **kwargs):
+            calls.append(kwargs)
+            return await real_exec(*args, **kwargs)
+
+        with mock.patch("mcp_server.pipeline.Pipeline_Jobs.asyncio.create_subprocess_exec", side_effect=spy):
+            submitted = await self.manager.submit("sanitize_sequences", self._document(READ_STDIN=True))
+            finished = await asyncio.wait_for(self.manager.wait_for_terminal(submitted["job_id"]), 20)
+        self.assertEqual(finished["status"], "succeeded")
+        self.assertIs(calls[0]["stdin"], asyncio.subprocess.DEVNULL)
+        log = await self.manager.read_log(submitted["job_id"], "stdout", limit=1024)
+        self.assertEqual(log["text"].strip(), "''")
 
     async def test_failure_and_bounded_log_paging(self):
         submitted = await self.manager.submit(

@@ -711,7 +711,15 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
     index_map = np.zeros(total_nodes, dtype=np.int32)
     index_map[kept_indices] = np.arange(len(kept_indices))
 
-    valid_edges_mask = kept_mask[sources] & kept_mask[targets]
+    if kept_mask.all():
+        # Every pair is valid, so skip the pair mask and its full-length
+        # copies (seconds on networks with tens of millions of pairs). The
+        # mask's indexing was also the bounds check, so keep that explicitly.
+        if len(sources) and max(int(sources.max()), int(targets.max())) >= total_nodes:
+            raise IndexError("Network pair indices exceed the header count.")
+        valid_edges_mask = slice(None)
+    else:
+        valid_edges_mask = kept_mask[sources] & kept_mask[targets]
     valid_sources = sources[valid_edges_mask]
     valid_targets = targets[valid_edges_mask]
     if settings.INPUT_IS_EVALUE:
@@ -719,11 +727,15 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
     else:
         valid_raw_scores = alignment_scores[valid_edges_mask]
         valid_alignment_lengths = alignment_lengths[valid_edges_mask]
+        source_lengths = target_lengths = None
+        if settings.NORM_MODE in {"shorter_sequence", "longer_sequence", "average_sequence"}:
+            source_lengths = sequence_lengths[valid_sources]
+            target_lengths = sequence_lengths[valid_targets]
         valid_scores = _normalize_score(
             valid_raw_scores,
             valid_alignment_lengths,
-            sequence_lengths[valid_sources],
-            sequence_lengths[valid_targets],
+            source_lengths,
+            target_lengths,
             settings.NORM_MODE,
         )
 
@@ -736,7 +748,11 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
             calculated_cutoff = 0.0
         else:
             edge_count = max(1, min(edge_count, len(valid_scores)))
-            calculated_cutoff = float(np.sort(valid_scores)[::-1][edge_count - 1])
+            # The edge_count-th largest score in linear time. np.partition
+            # shares np.sort's ordering (NaN last), so this is exactly
+            # np.sort(valid_scores)[::-1][edge_count - 1], without the sort.
+            kth = len(valid_scores) - edge_count
+            calculated_cutoff = float(np.partition(valid_scores, kth)[kth])
 
         mode_label = "E-Value" if settings.INPUT_IS_EVALUE else "Similarity"
         print(

@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 
 import torch
@@ -33,14 +34,24 @@ if SRC_DIR not in sys.path:
 from resources import Biohub_API
 
 
-DEFAULT_ACTION_URL = "http://127.0.0.1:8000/api/action"
+# A Viewer that is busy or gone must not stall folding.
+NOTIFY_TIMEOUT_SECONDS = 5.0
 
 
 def sanitize_filename(name):
     return re.sub(r"[^a-zA-Z0-9_\-\.]", "_", name)
 
 
-def notify_server(node_id, pdb_filename, action_url=DEFAULT_ACTION_URL):
+def prediction_filename(rec_id, model_suffix=None):
+    """Return the PDB filename a record is written to."""
+    suffix = f"_{sanitize_filename(model_suffix)}" if model_suffix else ""
+    return f"{sanitize_filename(rec_id)}{suffix}.pdb"
+
+
+def notify_server(node_id, pdb_filename, action_url=None):
+    """Tell the Viewer at ``action_url`` about a new structure; no URL, no request."""
+    if not action_url:
+        return
     payload = {
         "action": "structure_folded",
         "node_id": node_id,
@@ -53,7 +64,7 @@ def notify_server(node_id, pdb_filename, action_url=DEFAULT_ACTION_URL):
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request):
+        with urllib.request.urlopen(request, timeout=NOTIFY_TIMEOUT_SECONDS):
             pass
     except Exception as error:
         print(f"Warning: Could not notify main visualizer server: {error}")
@@ -105,11 +116,22 @@ def parse_arguments(argv=None):
     )
     parser.add_argument(
         "--action-url",
-        default=DEFAULT_ACTION_URL,
-        help="Viewer instance endpoint that receives structure-folded notifications",
+        default=None,
+        help="Viewer instance endpoint that receives structure-folded notifications; "
+        "when omitted, no Viewer is notified",
     )
     parser.add_argument("--portal-status", default=None)
     parser.add_argument("--noninteractive", action="store_true")
+    parser.add_argument(
+        "--delete-input",
+        action="store_true",
+        help="delete input_json_path after reading it (for a private temporary file)",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="keep an existing PDB for a record instead of predicting it again",
+    )
     return parser.parse_args(argv)
 
 
@@ -131,15 +153,18 @@ def _terminal_token_prompt(replacement=False):
         return None
 
 
-def _load_nodes(input_json_path):
+def _load_nodes(input_json_path, delete=False):
     try:
         with open(input_json_path, "r", encoding="utf-8") as handle:
             nodes_to_fold = json.load(handle)
     finally:
-        try:
-            os.remove(input_json_path)
-        except OSError:
-            pass
+        # Only a caller that hands over a private file (the Viewer's esmfold
+        # command passes --delete-input) gives up ownership of it.
+        if delete:
+            try:
+                os.remove(input_json_path)
+            except OSError:
+                pass
     if not isinstance(nodes_to_fold, list):
         raise ValueError("The ESMFold input JSON must contain a list of node records.")
     return nodes_to_fold
@@ -230,9 +255,7 @@ def _generate_remote_structure(model, protein, generation_config, auth_state):
 
 
 def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None):
-    clean_identifier = sanitize_filename(rec_id)
-    suffix = f"_{sanitize_filename(model_suffix)}" if model_suffix else ""
-    pdb_filename = f"{clean_identifier}{suffix}.pdb"
+    pdb_filename = prediction_filename(rec_id, model_suffix)
     pdb_path = os.path.join(structures_dir, pdb_filename)
 
     # ESMProtein.plddt is on a 0-1 scale and to_pdb_string() already applies
@@ -240,8 +263,25 @@ def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None)
     # pre-scale here: a second factor of 100 overflows the 6-column PDB
     # temperature-factor field and biotite rejects the structure.
     pdb_content = output_protein.to_pdb_string()
-    with open(pdb_path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(pdb_content)
+    # Publish whole files only, so an interrupted run never leaves a truncated
+    # PDB that a later --skip-existing run would keep.
+    partial_path = f"{pdb_path}.{os.getpid()}.partial"
+    try:
+        with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(pdb_content)
+        for attempt in range(10):
+            try:
+                os.replace(partial_path, pdb_path)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file another process (such as
+                # the Viewer's web server) has open; it is released quickly.
+                if attempt == 9:
+                    raise
+                time.sleep(0.2)
+    finally:
+        if os.path.exists(partial_path):
+            os.remove(partial_path)
     return pdb_filename, pdb_path
 
 
@@ -253,7 +293,13 @@ def run_predictions(
     target_device=None,
     token_prompt=None,
     notifier=notify_server,
+    skip_existing=False,
 ):
+    """Fold each [rec_id, sequence]; return (completed, errors_occurred).
+
+    Records kept because their PDB already exists (``skip_existing``) count
+    as completed but are not passed to ``notifier``.
+    """
     from esm.sdk.api import ESMProtein, ESMProteinError, GenerationConfig
 
     os.makedirs(structures_dir, exist_ok=True)
@@ -279,8 +325,10 @@ def run_predictions(
         model = _load_local_model(device)
 
     folded_count = 0
+    skipped_count = 0
     errors_occurred = False
     total = len(nodes_to_fold)
+    claimed_names = {}
     try:
         for index, node_record in enumerate(nodes_to_fold, 1):
             try:
@@ -288,6 +336,18 @@ def run_predictions(
             except (TypeError, ValueError):
                 print(f"Error: Invalid node record at position {index}: {node_record!r}")
                 errors_occurred = True
+                continue
+
+            model_suffix = auth_state["settings"]["ESM3_MODEL"] if mode == "large" else None
+            pdb_filename = prediction_filename(rec_id, model_suffix)
+            pdb_path = os.path.join(structures_dir, pdb_filename)
+            first_claim = claimed_names.setdefault(pdb_filename, rec_id)
+            if first_claim != rec_id:
+                print(f"Warning: {rec_id!r} and {first_claim!r} both map to {pdb_filename}; "
+                      "only one structure can be kept under that name.")
+            if skip_existing and os.path.exists(pdb_path):
+                print(f"\n[{index}/{total}] Keeping existing structure for {rec_id}: {pdb_path}")
+                skipped_count += 1
                 continue
 
             print(f"\n[{index}/{total}] Folding sequence: {rec_id} ({len(sequence)} aa)...")
@@ -301,13 +361,13 @@ def run_predictions(
                         generation_config,
                         auth_state,
                     )
-                    model_suffix = auth_state["settings"]["ESM3_MODEL"]
                 else:
                     output_protein = model.generate(protein, generation_config)
                     if isinstance(output_protein, ESMProteinError):
                         raise RuntimeError(_api_error_message(output_protein, "generation"))
-                    model_suffix = None
 
+                if os.path.exists(pdb_path):
+                    print(f"Warning: replacing existing structure {pdb_path}")
                 pdb_filename, pdb_path = _write_prediction(
                     output_protein,
                     rec_id,
@@ -320,6 +380,8 @@ def run_predictions(
             except Exception as error:
                 print(f"Error folding sequence {rec_id}: {error}")
                 errors_occurred = True
+        if skipped_count:
+            print(f"\nKept {skipped_count} existing structure(s) without predicting them again.")
     finally:
         if close_model and model is not None:
             try:
@@ -327,7 +389,7 @@ def run_predictions(
             except Exception as error:
                 print(f"Warning: Could not close the Biohub API client cleanly: {error}")
 
-    return folded_count, errors_occurred
+    return folded_count + skipped_count, errors_occurred
 
 
 def main(argv=None):
@@ -354,7 +416,7 @@ def main(argv=None):
     os.makedirs(arguments.structures_dir, exist_ok=True)
 
     try:
-        nodes_to_fold = _load_nodes(arguments.input_json_path)
+        nodes_to_fold = _load_nodes(arguments.input_json_path, delete=arguments.delete_input)
     except Exception as error:
         print(f"Error reading input JSON {arguments.input_json_path}: {error}")
         portal_event("failed", str(error))
@@ -380,6 +442,7 @@ def main(argv=None):
             mode=arguments.mode,
             target_device=arguments.device,
             notifier=notifier,
+            skip_existing=arguments.skip_existing,
         )
     except Exception as error:
         print(f"Error initializing ESM3 prediction: {error}")

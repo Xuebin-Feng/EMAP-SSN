@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -36,13 +37,27 @@ class ApplicationWindowActivationTests(unittest.TestCase):
 
         open_url.assert_called_once()
 
-    def test_file_manager_uses_windows_shell_when_qt_declines(self):
-        with mock.patch(
-            "PySide6.QtGui.QDesktopServices.openUrl", return_value=False
-        ), mock.patch.object(Application_Windows.os, "startfile") as startfile:
-            self.assertTrue(Application_Windows.open_in_file_manager("output"))
-
-        startfile.assert_called_once_with(os.path.abspath("output"))
+    def test_file_manager_uses_the_platform_shell_when_qt_declines(self):
+        # Each platform's fallback runs on any host: the module sees a
+        # stand-in os, because os.startfile exists only on Windows.
+        target = os.path.abspath("output")
+        for os_name, platform, expected in (
+            ("nt", "win32", ("startfile", target)),
+            ("posix", "darwin", ("Popen", ["open", target])),
+            ("posix", "linux", ("Popen", ["xdg-open", target])),
+        ):
+            startfile = mock.Mock()
+            stand_in_os = SimpleNamespace(name=os_name, path=os.path, startfile=startfile)
+            with self.subTest(platform=platform), mock.patch(
+                "PySide6.QtGui.QDesktopServices.openUrl", return_value=False
+            ), mock.patch.object(Application_Windows, "os", stand_in_os), mock.patch.object(
+                Application_Windows.sys, "platform", platform
+            ), mock.patch("subprocess.Popen") as popen:
+                self.assertTrue(Application_Windows.open_in_file_manager("output"))
+                called = startfile if expected[0] == "startfile" else popen
+                unused = popen if called is startfile else startfile
+                called.assert_called_once_with(expected[1])
+                unused.assert_not_called()
 
     def test_show_schedules_repeated_foreground_requests(self):
         window = self._window()

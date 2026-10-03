@@ -21,6 +21,7 @@ from EMAPSSN_Viewer import (
     MainViewer,
     _configure_linux_vispy_platform,
     _contiguous_line_positions,
+    _edge_segment_positions,
 )
 from commands import meta as meta_command
 
@@ -376,6 +377,22 @@ class DisplayScalingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "NaN or infinite"):
             _contiguous_line_positions([[0.0, float("nan")]])
+
+    def test_edge_segments_match_per_edge_endpoint_order(self):
+        rng = np.random.default_rng(7)
+        for columns in (2, 3):
+            positions = rng.normal(size=(50, columns)).astype(np.float32)
+            edges = rng.integers(0, 50, size=(200, 2)).astype(np.int32)
+            reference = []
+            for source, target in edges:  # The former draw_network loop.
+                reference.append(positions[source])
+                reference.append(positions[target])
+            result = _edge_segment_positions(positions, edges)
+            self.assertEqual(result.dtype, np.float32)
+            self.assertTrue(result.flags.c_contiguous)
+            np.testing.assert_array_equal(result, np.asarray(reference))
+        empty = _edge_segment_positions(positions, np.empty((0, 2), dtype=np.int32))
+        self.assertEqual(empty.shape, (0, 3))
 
 
 if __name__ == "__main__":

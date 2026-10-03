@@ -19,7 +19,13 @@ if str(UTILITIES_DIR) not in sys.path:
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-import Align_Substitution_Matrix as substitution_matrix
+# Import with no settings file, as test_align_similarity_matrix_pipeline does:
+# the project-root tools_settings.json holds a developer's own selections.
+with mock.patch.dict(os.environ, {
+    "SSN_TOOL_SETTINGS_SCRIPT": "Align_Substitution_Matrix.py",
+    "SSN_TOOL_SETTINGS_FILE": str(PROJECT_ROOT / "tests" / "nonexistent-settings.json"),
+}), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+    import Align_Substitution_Matrix as substitution_matrix
 
 
 class SubstitutionMatrixPipelineTests(unittest.TestCase):
@@ -75,15 +81,25 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 )
 
     def test_temporary_workspace_is_derived_inside_network_directory(self):
-        self.assertEqual(
-            os.path.normcase(os.path.dirname(substitution_matrix.SAFE_TEMP_DIR)),
-            os.path.normcase(os.path.normpath(substitution_matrix.NETWORK_DIR)),
-        )
-        self.assertTrue(
-            os.path.basename(substitution_matrix.SAFE_TEMP_DIR).endswith(
-                "_[BLAST]_EValue_temp"
+        # Derive from an explicit selection. The module-level values exist only
+        # when tools_settings.json selects a FASTA, which a fresh clone lacks.
+        derived = ("SEQUENCE_SET", "FULL_INPUT_FASTA", "OUTPUT_HDF5", "SAFE_TEMP_DIR",
+                   "CHUNKS_DIR", "RESULTS_DIR", "BATCH_DIR", "CONFIG_FILE")
+        with tempfile.TemporaryDirectory() as network_dir, mock.patch.multiple(
+            substitution_matrix,
+            INPUT_FASTA="proteins.fasta",
+            NETWORK_DIR=network_dir,
+            **{name: getattr(substitution_matrix, name) for name in derived},
+        ):
+            substitution_matrix.configure_runtime_paths()
+            workspace = substitution_matrix.SAFE_TEMP_DIR
+            self.assertEqual(
+                os.path.normcase(os.path.dirname(workspace)),
+                os.path.normcase(os.path.normpath(network_dir)),
             )
-        )
+            self.assertEqual(os.path.basename(workspace), "proteins_[BLAST]_EValue_temp")
+            for name in ("CHUNKS_DIR", "RESULTS_DIR", "BATCH_DIR", "CONFIG_FILE"):
+                self.assertEqual(os.path.dirname(getattr(substitution_matrix, name)), workspace)
 
     def test_tools_panel_keeps_fasta_input_but_not_temp_directory_control(self):
         tools_source = (PROJECT_ROOT / "src" / "EMAPSSN_Tools.py").read_text(

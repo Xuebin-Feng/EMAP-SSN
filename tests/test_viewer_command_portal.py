@@ -182,6 +182,24 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(result['height'], 80)
         np.testing.assert_array_equal(colors, self.viewer.current_colors)
 
+    def test_headless_capture_failure_names_the_missing_opengl_context(self):
+        # Qt's offscreen platform has no OpenGL context on Windows; say so and
+        # name the remedy, but leave unrelated capture failures unchanged.
+        def failing(message):
+            def render():
+                raise RuntimeError(message)
+            return SimpleNamespace(render=render)
+        no_context = 'Using glBindFramebuffer with no OpenGL context.'
+        for platform, message, hinted in (('offscreen', no_context, True), ('offscreen', 'disk full', False),
+                                          ('windows', no_context, False)):
+            with self.subTest(platform=platform, message=message), \
+                    mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': platform}):
+                self.viewer.canvas = failing(message)
+                with self.assertRaises(ValueError) as caught:
+                    capture_view(self.viewer)
+                self.assertTrue(str(caught.exception).startswith(f'Viewer canvas capture failed: {message}'))
+                self.assertEqual('relaunch it in normal mode' in str(caught.exception), hinted)
+
     def test_visible_dialog_reports_waiting_then_cancelled(self):
         def choose(*args):
             self.assertEqual(self.portal.get(request_id)['status'], 'awaiting_user_input')

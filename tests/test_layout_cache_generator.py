@@ -167,6 +167,69 @@ class NetworkPreparationTests(unittest.TestCase):
             np.testing.assert_array_equal(edges, [[0, 2]])
             np.testing.assert_allclose(scores, [3.0])
 
+    def test_top_percent_cutoff_matches_descending_sort(self):
+        # The cutoff selects the edge_count-th largest score without sorting;
+        # it must equal the former np.sort(scores)[::-1][edge_count - 1],
+        # including ties and NaN scores, with every node kept or a subset.
+        rng = np.random.default_rng(3)
+        node_count = 40
+        pairs = np.array([(i, j) for i in range(node_count) for j in range(i + 1, node_count)])
+        headers = [f"N{index}".encode() for index in range(node_count)]
+        for trial in range(16):
+            if trial % 4 == 3:  # Distinct scores expose an off-by-one rank.
+                raw = rng.permutation(len(pairs)).astype(np.float32)
+            else:
+                raw = rng.integers(0, 7, len(pairs)).astype(np.float32)
+            if trial % 3 == 0:
+                raw[rng.integers(0, len(raw), 25)] = np.nan
+            selected = None if trial % 2 else [f"N{index}" for index in range(0, node_count, 3)]
+            percent = float(rng.choice([0.5, 5.0, 37.5, 100.0]))
+            with self.subTest(trial=trial), tempfile.TemporaryDirectory() as temp_dir:
+                network_path = pathlib.Path(temp_dir) / "alignment.h5"
+                with h5py.File(network_path, "w") as network:
+                    network.attrs["model_name"] = "model"
+                    network.create_dataset("headers", data=headers)
+                    network.create_dataset("i", data=pairs[:, 0].astype(np.uint16))
+                    network.create_dataset("j", data=pairs[:, 1].astype(np.uint16))
+                    network.create_dataset("seq_lens", data=np.full(node_count, 9, np.uint16))
+                    for name in ("g_score", "l_score"):
+                        network.create_dataset(name, data=raw)
+                    for name in ("g_len", "l_len"):
+                        network.create_dataset(name, data=np.full(len(pairs), 2, np.uint16))
+                settings = _preparation_settings(TOP_EDGE_PERCENT=percent)
+                with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
+                    prepare_network(network, settings=settings, selected_fasta_headers=selected)
+                kept = np.arange(node_count) if selected is None else np.arange(0, node_count, 3)
+                in_subset = np.isin(pairs[:, 0], kept) & np.isin(pairs[:, 1], kept)
+                normalized = raw[in_subset] / np.float32(2)
+                edge_count = int(len(kept) * (len(kept) - 1) / 2.0 * (percent / 100.0))
+                edge_count = max(1, min(edge_count, len(normalized)))
+                expected = float(np.sort(normalized)[::-1][edge_count - 1])
+                if np.isnan(expected):
+                    self.assertTrue(np.isnan(settings.SIMILARITY_THRESHOLD))
+                else:
+                    self.assertEqual(settings.SIMILARITY_THRESHOLD, expected)
+
+    def test_pair_indices_beyond_headers_still_fail_when_every_node_is_kept(self):
+        # The out-of-range pair scores below the threshold, so only an
+        # up-front bounds check can reject it; filtering would drop it silently.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "alignment.h5"
+            with h5py.File(network_path, "w") as network:
+                network.attrs["model_name"] = "model"
+                network.create_dataset("headers", data=[b"A", b"B"])
+                network.create_dataset("i", data=[0, 0])
+                network.create_dataset("j", data=[1, 2])
+                network.create_dataset("seq_lens", data=[2, 2])
+                for name in ("g_score", "l_score"):
+                    network.create_dataset(name, data=[8.0, 2.0])
+                for name in ("g_len", "l_len"):
+                    network.create_dataset(name, data=[2, 2])
+            settings = _preparation_settings(SIMILARITY_THRESHOLD=3.0)
+            with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
+                with self.assertRaises(IndexError):
+                    prepare_network(network, settings=settings, selected_fasta_headers=None)
+
     def test_empty_blast_network_returns_empty_connectivity(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             network_path = pathlib.Path(temp_dir) / "blast.h5"

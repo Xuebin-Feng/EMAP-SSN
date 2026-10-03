@@ -478,9 +478,13 @@ class PipelineJobManager:
                     "ab",
                     buffering=0,
                 ) as stderr_handle:
+                    # stdin is the server's JSON-RPC stream: a job that prompts
+                    # (getpass falls back to stdin without a TTY) must read EOF
+                    # and fail, not consume protocol bytes.
                     process = await asyncio.create_subprocess_exec(
                         *job.invocation.argv,
                         cwd=job.invocation.cwd,
+                        stdin=asyncio.subprocess.DEVNULL,
                         stdout=stdout_handle,
                         stderr=stderr_handle,
                         **self._process_group_options(),

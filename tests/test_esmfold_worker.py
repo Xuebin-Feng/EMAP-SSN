@@ -1,10 +1,12 @@
 """Mocked tests for local/remote ESMFold worker behavior."""
 
+import io
 import os
 import sys
 import tempfile
 import types
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -89,7 +91,10 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         self.assertEqual(local.mode, "local")
         self.assertEqual(local.device, "cuda")
-        self.assertEqual(local.action_url, esmfold_worker.DEFAULT_ACTION_URL)
+        # Standalone runs notify nobody and keep their input unless asked.
+        self.assertIsNone(local.action_url)
+        self.assertFalse(local.delete_input)
+        self.assertFalse(local.skip_existing)
         self.assertEqual(large.mode, "large")
         self.assertIsNone(large.device)
 
@@ -117,6 +122,27 @@ class ESMFoldWorkerTests(unittest.TestCase):
             request.get_header("Content-type"),
             "application/json",
         )
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], esmfold_worker.NOTIFY_TIMEOUT_SECONDS)
+
+    def test_notify_server_without_url_sends_nothing(self):
+        # Formerly an omitted URL posted to 127.0.0.1:8000, which may belong
+        # to an unrelated Viewer.
+        with mock.patch.object(esmfold_worker.urllib.request, "urlopen") as urlopen:
+            esmfold_worker.notify_server("node_1", "node_1.pdb")
+            esmfold_worker.notify_server("node_1", "node_1.pdb", None)
+        urlopen.assert_not_called()
+
+    def test_input_json_is_deleted_only_when_requested(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "records.json")
+            for delete in (False, True):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write('[["node_1", "ACDE"]]')
+                self.assertEqual(esmfold_worker._load_nodes(path, delete=delete), [["node_1", "ACDE"]])
+                self.assertEqual(os.path.exists(path), not delete)
+            self.assertEqual(
+                esmfold_worker.parse_arguments(["records.json", "--delete-input"]).delete_input, True
+            )
 
     def test_large_client_uses_hidden_worker_terminal_prompt(self):
         settings = {
@@ -276,6 +302,79 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         notify_server.assert_called_once_with("node_1", "node_1.pdb", action_url)
+
+    def _run_local(self, records, structures_dir, **options):
+        model = mock.Mock()
+        model.generate.side_effect = lambda protein, config: FakeOutput(pdb=f"NEW {protein.sequence}\n")
+        notifier = mock.Mock()
+        output = io.StringIO()
+        with (
+            mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "_load_local_model", return_value=model),
+            redirect_stdout(output),
+        ):
+            result = esmfold_worker.run_predictions(
+                records, structures_dir, mode="local", target_device="cpu", notifier=notifier, **options
+            )
+        return result, model, notifier, output.getvalue()
+
+    def test_skip_existing_keeps_structures_and_counts_them_completed(self):
+        with tempfile.TemporaryDirectory() as structures_dir:
+            existing = os.path.join(structures_dir, "node_a.pdb")
+            with open(existing, "w", encoding="utf-8") as handle:
+                handle.write("OLD\n")
+            result, model, notifier, output = self._run_local(
+                [["node_a", "AC"], ["node_b", "DE"]], structures_dir, skip_existing=True
+            )
+            self.assertEqual(result, (2, False))
+            with open(existing, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "OLD\n")
+            with open(os.path.join(structures_dir, "node_b.pdb"), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "NEW DE\n")
+            self.assertEqual(model.generate.call_count, 1)
+            notifier.assert_called_once_with("node_b", "node_b.pdb")
+            self.assertIn("Keeping existing structure for node_a", output)
+
+    def test_replacements_and_shared_filenames_are_reported(self):
+        with tempfile.TemporaryDirectory() as structures_dir:
+            with open(os.path.join(structures_dir, "a_b.pdb"), "w", encoding="utf-8") as handle:
+                handle.write("OLD\n")
+            result, _, _, output = self._run_local([["a/b", "AC"], ["a_b", "DE"]], structures_dir)
+            self.assertEqual(result, (2, False))
+            self.assertIn(f"replacing existing structure {os.path.join(structures_dir, 'a_b.pdb')}", output)
+            self.assertIn("'a_b' and 'a/b' both map to a_b.pdb", output)
+            with open(os.path.join(structures_dir, "a_b.pdb"), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "NEW DE\n")
+
+    def test_failed_write_keeps_the_previous_structure_and_no_partial_file(self):
+        with tempfile.TemporaryDirectory() as structures_dir:
+            target = os.path.join(structures_dir, "node.pdb")
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write("OLD\n")
+            with mock.patch.object(esmfold_worker.os, "replace", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    esmfold_worker._write_prediction(FakeOutput("NEW\n"), "node", structures_dir)
+            with open(target, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "OLD\n")
+            self.assertEqual(os.listdir(structures_dir), ["node.pdb"])
+
+    def test_write_retries_while_windows_holds_the_target_open(self):
+        real_replace = os.replace
+        attempts = []
+
+        def replace(source, target):
+            attempts.append(target)
+            if len(attempts) < 3:
+                raise PermissionError("in use")
+            real_replace(source, target)
+
+        with tempfile.TemporaryDirectory() as structures_dir:
+            with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
+                    mock.patch.object(esmfold_worker.time, "sleep"):
+                esmfold_worker._write_prediction(FakeOutput("NEW\n"), "node", structures_dir)
+            with open(os.path.join(structures_dir, "node.pdb"), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "NEW\n")
+        self.assertEqual(len(attempts), 3)
 
 
 class LocalModelDataRootTests(unittest.TestCase):

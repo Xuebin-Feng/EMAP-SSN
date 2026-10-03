@@ -58,6 +58,38 @@ class FileInspectionTests(unittest.TestCase):
             for key, value in {"header_map": {"a": 0, "b": 1}, "aa_map": {"A": 1}, "int_to_aa": {"1": "A"}}.items():
                 hf.create_dataset(key, data=json.dumps(value))
 
+    def layout(self, columns=2, saved_state=False):
+        with h5py.File(self.path, "w") as hf:
+            hf.attrs.update(cache_manifest_id="m" * 64, layout_compatibility_id="c", layout_compatibility_json="{}")
+            hf.create_dataset("headers", data=[b"A", b"B", b"C"])
+            hf.create_dataset("positions", data=np.zeros((3, columns), dtype=np.float32))
+            hf.create_group("metadata").create_dataset("Length", data=[1.0, 2.0, 3.0])
+            if saved_state:
+                hf.create_dataset("cluster_labels", data=[0, 1, -1])
+                hf.create_dataset("group_labels", data=json.dumps([["kinase"], [], ["kinase", "x"]]))
+                hf.attrs["last_cluster_params"] = json.dumps(["LEIDEN_1.0", 20])
+
+    def test_layout_cache_reports_saved_state_and_accepts_3d(self):
+        # Agents choose between version_XX.h5 and saved Figure_*.h5 caches by
+        # the cluster/group state they carry; formerly only h5py could tell.
+        self.layout()
+        bare = self.inspect()
+        self.assertEqual((bare["detected_format"], bare["structural_validity"]), ("layout_cache", "valid"))
+        self.assertEqual(bare["metadata"]["layout_dimensions"], 2)
+        self.assertEqual(bare["metadata"]["contents"], {
+            "datasets": ["headers", "positions"], "cluster_labels": None, "group_labels": None,
+            "last_cluster_params": None, "metadata_columns": ["Length"]})
+        self.layout(saved_state=True)
+        contents = self.inspect()["metadata"]["contents"]
+        self.assertEqual(contents["cluster_labels"], {"clusters": 2, "noise_nodes": 1})
+        self.assertEqual(contents["group_labels"], {"groups": 2, "grouped_nodes": 2})
+        self.assertEqual(contents["last_cluster_params"], ["LEIDEN_1.0", 20])
+        self.layout(columns=3)
+        result = self.inspect()
+        self.assertEqual((result["structural_validity"], result["metadata"]["layout_dimensions"]), ("valid", 3))
+        self.layout(columns=4)
+        self.assertEqual(self.inspect()["structural_validity"], "invalid")
+
     def test_embedding_completion_and_contradictions(self):
         self.embedding()
         result = self.inspect()

@@ -224,7 +224,9 @@ class Inspector:
         headers = self.dataset(hf, "headers")
         positions = hf.get("positions")
         self.require(positions is not None and isinstance(positions, h5py.Dataset), "Missing positions dataset.")
-        self.require(positions.ndim == 2 and positions.shape[1] == 2, "positions must be a two-dimensional Nx2 dataset.")
+        # Nx3 is a 3D cache for the optional VR viewer (validate_cache_hdf5 accepts both).
+        self.require(positions.ndim == 2 and positions.shape[1] in (2, 3),
+                     "positions must be an Nx2 (desktop) or Nx3 (VR) dataset.")
         self.require(positions.dtype.kind in "f", "positions must have float dtype.")
         count = len(headers)
         self.require(count == positions.shape[0], "Headers count and positions row count disagree.")
@@ -239,8 +241,10 @@ class Inspector:
 
         self.report["metadata"].update(
             node_count=count,
+            layout_dimensions=int(positions.shape[1]),
             cache_manifest_id=str(manifest_id),
             layout_compatibility_id=str(compat_id),
+            contents=self.layout_cache_contents(hf, count),
         )
         self.report["checks_performed"].append("Layout cache datasets (headers, positions) and compatibility attributes")
 
@@ -265,6 +269,12 @@ class Inspector:
                 evidence=f"Layout cache contains {count} nodes and valid compatibility metadata."
             )
         self.report["checks_omitted"].append("Positions coordinates were not checked for node overlap or canvas bounds.")
+
+    def layout_cache_contents(self, hf, count):
+        contents, problem = layout_cache_contents(hf, count)
+        if problem:
+            self.finding("warning", f"Could not summarize saved cluster/group/metadata state: {problem}")
+        return contents
 
     def lines(self):
         with open(self.path, "rb") as handle:
@@ -369,6 +379,52 @@ class Inspector:
         else:
             self.report["checks_performed"].append("Settings outer document structure and recognized sections")
             self.report["checks_omitted"].append("No intended tool supplied; individual parameter validity and job readiness are not established.")
+
+
+def layout_cache_contents(hf, count):
+    """Summarize the saved Viewer state an open layout cache carries.
+
+    Returns ``(contents, problem)``; ``problem`` describes state that could not
+    be summarized. Clusters exclude the noise label -1, and group_labels holds
+    one membership list per node, as the Viewer saves them.
+    """
+    import h5py
+    import numpy as np
+
+    contents = {
+        "datasets": sorted(name for name, item in hf.items() if isinstance(item, h5py.Dataset)),
+        "cluster_labels": None, "group_labels": None, "last_cluster_params": None,
+        "metadata_columns": [],
+    }
+    try:
+        labels = hf.get("cluster_labels")
+        if isinstance(labels, h5py.Dataset) and labels.shape == (count,):
+            values = np.asarray(labels[:])
+            contents["cluster_labels"] = {"clusters": int(len(np.unique(values[values >= 0]))),
+                                          "noise_nodes": int(np.count_nonzero(values == -1))}
+        groups = hf.get("group_labels")
+        if isinstance(groups, h5py.Dataset) and groups.shape == ():
+            raw = groups[()]
+            decoded = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+            if isinstance(decoded, list) and len(decoded) == count:
+                names = {str(name) for entry in decoded if isinstance(entry, list) for name in entry}
+                contents["group_labels"] = {"groups": len(names),
+                                            "grouped_nodes": sum(1 for entry in decoded if entry)}
+        params = hf.attrs.get("last_cluster_params")
+        if params is not None:
+            params = params.decode("utf-8") if isinstance(params, bytes) else params
+            if isinstance(params, str) and params.startswith("["):
+                params = json.loads(params)
+            contents["last_cluster_params"] = params.tolist() if hasattr(params, "tolist") else params
+        metadata = hf.get("metadata")
+        if isinstance(metadata, h5py.Group):
+            names = sorted(metadata.keys())
+            contents["metadata_columns"] = names[:100]
+            if len(names) > 100:
+                contents["metadata_columns_omitted"] = len(names) - 100
+    except (OSError, ValueError, TypeError, UnicodeError) as error:
+        return contents, str(error)
+    return contents, None
 
 
 def inspect_local(path, file_type="auto", tool_id=None, parameters=None, project_root=None, budget=18):

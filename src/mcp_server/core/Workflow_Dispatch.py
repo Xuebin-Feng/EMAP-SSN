@@ -22,7 +22,7 @@ PipelineAction = Literal[
 ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
 ViewerControlAction = Literal[
     "help", "describe", "get_settings_schema", "export_settings", "validate_settings",
-    "start_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
+    "start_session", "wait_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
 ]
 
 
@@ -98,10 +98,11 @@ _SPECS = {
         "get_settings_schema": (viewer_ops, "get_viewer_settings_schema", "Read the Viewer settings contract.", {}),
         "export_settings": (viewer_ops, "export_viewer_settings", "Create a full Viewer settings file inheriting saved Config preferences.", {}),
         "validate_settings": (viewer_ops, "validate_viewer_settings", "Read and validate Viewer inputs/cache identity without launching.", {"settings_path": "viewer.json"}),
-        "start_session": (viewer_ops, "start_viewer_session", "Launch an independent Viewer and connect this transport to it.", {"settings_path": "viewer.json"}),
+        "start_session": (viewer_ops, "start_viewer_session", "Launch an independent Viewer and connect this transport to it; a slow launch returns status starting and keeps loading.", {"settings_path": "viewer.json"}),
+        "wait_session": (viewer_ops, "wait_viewer_session", "Keep waiting for a starting launch and connect when ready; never starts or stops a Viewer.", {"launch_id": "launch-id"}),
         "connect_session": (viewer_ops, "connect_viewer_session", "Change this transport's selected Viewer; does not launch one.", {}),
         "disconnect_session": (viewer_ops, "disconnect_viewer_session", "Clear this transport's selection, leaving the Viewer running.", {}),
-        "close_session": (viewer_ops, "close_viewer_session", "Terminate the selected or explicitly identified Viewer.", {}),
+        "close_session": (viewer_ops, "close_viewer_session", "Terminate the selected, explicitly identified, or still-loading (launch_id) Viewer.", {}),
     },
 }
 

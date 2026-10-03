@@ -124,8 +124,9 @@ inconsistent provenance is an error, not permission to invent defaults. Report
 cache-derived settings from inspection provenance separately from Viewer JSON.
 
 Use the default `normal` mode for a visible Viewer and terminal. Choose `headless`
-only when a desktop window is not wanted. Successful launch returns a ready
-session and connects this transport to it.
+only when a desktop window is not wanted. A ready launch connects this transport;
+status="starting" means still loading: call `emapssn_viewer_control(action="wait_session")`
+with its launch_id, never relaunch.
 
 Inspect summary-first through `emapssn_viewer_data`: get_summary captures an
 immutable metadata/membership snapshot. Reuse its snapshot_id with describe_fields,
@@ -212,7 +213,7 @@ remain in the denominator and unmapped nodes are excluded. Fractions are 0..1;
 zero denominators produce null fractions. Group membership can overlap.
 Positions are explicit displayed labels, including negatives and insertions, not ranges.
 On alignment snapshots, create_subset accepts residue predicates with the existing
-Boolean grammar. No live selection changes are needed. File predicates remain unsupported.
+Boolean grammar. No live selection changes are needed.
 For compact node pages, query_nodes(fields=["node_id"]) returns only node IDs.
 Omitting fields preserves existing rows; columns/visual_fields select container contents.
 read_command_output captures MCP-submitted commands even in attached Viewers.

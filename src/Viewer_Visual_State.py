@@ -4,6 +4,7 @@
 import base64
 from datetime import datetime, timezone
 import io
+import os
 import uuid
 import numpy as np
 
@@ -62,7 +63,14 @@ def capture_view(viewer, request_id=None):
         out = io.BytesIO()
         result.save(out, format='PNG')
     except Exception as error:
-        raise ValueError(f'Viewer canvas capture failed: {error}') from error
+        hint = ''
+        if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' and 'OpenGL context' in str(error):
+            # Qt's offscreen platform has no OpenGL context on Windows (Linux
+            # builds may provide one through EGL/GLX), so headless Viewers
+            # there cannot render; other capture failures keep their own text.
+            hint = (' This headless Viewer has no OpenGL context to render with;'
+                    ' relaunch it in normal mode to capture the view.')
+        raise ValueError(f'Viewer canvas capture failed: {error}{hint}') from error
     return {'capture_id': uuid.uuid4().hex, 'captured_at': datetime.now(timezone.utc).isoformat(),
             'session_id': getattr(viewer, 'inspection_session_id', None), 'request_id': request_id,
             'observation': 'Current canvas; manual changes may postdate command completion.',

@@ -21,7 +21,7 @@ from desktop.Desktop_App import PRODUCT_NAME
 from mcp_server.core.App_Context import AppContext, app_lifespan
 from mcp_server.core.Workflow_Dispatch import dispatch, PipelineAction, ViewerDataAction, ViewerControlAction
 
-MCP_SERVER_VERSION = "0.11.0"
+MCP_SERVER_VERSION = "0.12.0"
 
 def _load_agent_instructions():
     path = Path(__file__).resolve().parent / "mcp_server" / "Agent_Instructions.md"

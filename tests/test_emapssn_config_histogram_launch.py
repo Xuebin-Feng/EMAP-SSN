@@ -236,7 +236,11 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             import runpy
             import sys
             import tempfile
+            import time
             from unittest import mock
+
+            import h5py
+            import numpy as np
 
             os.environ["QT_QPA_PLATFORM"] = "offscreen"
             root = pathlib.Path({str(PROJECT_ROOT)!r})
@@ -258,14 +262,47 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             window = namespace["window"]
             dialog_type = namespace["ScoreHistogramDialog"]
 
+            def settle_cache_discovery():
+                # Background input hashing must finish first, or its late
+                # result would replace the cache state set by hand below.
+                deadline = time.monotonic() + 60
+                while window._cache_hash_pending_keys is not None:
+                    assert time.monotonic() < deadline, "cache discovery did not finish"
+                    app.processEvents()
+                    time.sleep(0.01)
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 saved_layout_dir = pathlib.Path(temp_dir)
                 cache_folder = saved_layout_dir / "compatible-layout"
                 cache_folder.mkdir()
+                # Own inputs instead of whatever viewer_settings.json selects; a
+                # fresh clone selects none and layout settings need both paths.
+                inputs = saved_layout_dir / "inputs"
+                inputs.mkdir()
+                fasta_path = inputs / "set.fasta"
+                fasta_path.write_text(">a\\nAAAA\\n>b\\nAAAT\\n", encoding="utf-8")
+                network_path = inputs / "network.h5"
+                with h5py.File(network_path, "w") as hf:
+                    hf.attrs["model_name"] = "test_model"
+                    hf.create_dataset("headers", data=[b"a", b"b"])
+                    hf.create_dataset("seq_lens", data=np.asarray([4, 4], dtype=np.uint16))
+                    for name, values in (("i", [0]), ("j", [1]), ("g_len", [4]), ("l_len", [4])):
+                        hf.create_dataset(name, data=np.asarray(values, dtype=np.uint16))
+                    for name in ("g_score", "l_score"):
+                        hf.create_dataset(name, data=np.asarray([3.0], dtype=np.float32))
                 window.inputs["SAVED_LAYOUT_DIR"].setText(str(saved_layout_dir))
+                window.inputs["FASTA_DIR"].setText(str(inputs))
+                window.inputs["HDF5_DIR"].setText(str(inputs))
+                window.cb_fasta.clear()
+                window.cb_fasta.addItem(fasta_path.name)
+                window.cb_hdf5.clear()
+                window.cb_hdf5.addItem(network_path.name)
+                # Toggling UMAP re-resolves the cache folder, so the manual
+                # cache state must come after the toggle and the discovery.
+                window.check_umap.setChecked(True)
+                settle_cache_discovery()
                 window.current_cache_folder = str(cache_folder)
                 window._cache_launch_allowed = True
-                window.check_umap.setChecked(True)
                 window.cb_cache_file.clear()
                 window.cb_cache_file.addItem("(New Layout Cache)", None)
                 window.line_new_cache.setText("launch-test")
@@ -274,8 +311,13 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 generator_handoff = mock.Mock(return_value=object())
                 with mock.patch.object(window, "save_settings", return_value=True), mock.patch.dict(
                     method_globals, {{"_handoff_to_layout_generator": generator_handoff}}
-                ), mock.patch.object(window, "close") as close:
+                ), mock.patch.object(window, "close") as close, mock.patch.object(
+                    QMessageBox, "critical"
+                ) as critical:
                     window.save_and_run()
+                    # Offscreen, a real modal error box would block until the
+                    # subprocess timeout; report its text instead.
+                    assert not critical.called, critical.call_args
                     close.assert_not_called()
                     generator_handoff.assert_called_once()
                     launch_env = generator_handoff.call_args.args[2]
