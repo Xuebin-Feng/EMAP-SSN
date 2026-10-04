@@ -43,6 +43,10 @@ import numpy as np
 import pandas as pd
 
 import Command_Engine
+from utilities.Output_Names import validate_output_basename
+
+# Spreadsheet formats `meta download` writes, matched in any case.
+METADATA_DOWNLOAD_EXTENSIONS = (".csv", ".xlsx")
 
 
 class MetadataColumnDeleteError(ValueError):
@@ -378,6 +382,36 @@ def upload_metadata(viewer, file_paths):
     if successful_files and not failed_files:
         Command_Engine.command_succeeded(viewer, msg)
 
+def metadata_download_path(meta_dir, filename=""):
+    """Return the file `meta download [filename]` writes in ``meta_dir``.
+
+    A requested name must be a plain file name ending in .csv or .xlsx, in any
+    case; a name without an extension gets .csv. Without a name, the next free
+    metadata.csv, metadata1.csv, ... is chosen. A refused name raises
+    ValueError before anything is written.
+    """
+    if filename:
+        filename = validate_output_basename(filename)
+        _, ext = os.path.splitext(filename)
+        if not ext:
+            filename += ".csv"
+        elif ext.lower() not in METADATA_DOWNLOAD_EXTENSIONS:
+            raise ValueError(
+                f"Metadata can only be downloaded as .csv or .xlsx, not '{ext}'."
+            )
+        return os.path.join(meta_dir, filename)
+
+    base_name = "metadata"
+    ext = ".csv"
+    candidate = f"{base_name}{ext}"
+    filepath = os.path.join(meta_dir, candidate)
+    counter = 1
+    while os.path.exists(filepath):
+        candidate = f"{base_name}{counter}{ext}"
+        filepath = os.path.join(meta_dir, candidate)
+        counter += 1
+    return os.path.abspath(filepath)
+
 def download_metadata(viewer, filepath, expr=None):
     """Downloads network metadata to a file, applying optional logic filters."""
     if not getattr(viewer, 'metadata', None):
@@ -450,6 +484,12 @@ def download_metadata(viewer, filepath, expr=None):
         _, ext = os.path.splitext(filepath)
         if ext.lower() == ".csv":
             df.to_csv(filepath, header=False, index=False)
+        elif ext.lower() == ".xlsx":
+            # pandas checks a path's extension case-sensitively and refuses
+            # ".XLSX"; a file handle has none to check and gets the same
+            # default writer as ".xlsx".
+            with open(filepath, "wb") as handle:
+                df.to_excel(handle, header=False, index=False)
         else:
             df.to_excel(filepath, header=False, index=False)
 

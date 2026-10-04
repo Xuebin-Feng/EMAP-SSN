@@ -1,16 +1,18 @@
 """Mocked tests for local/remote ESMFold worker behavior."""
 
 import io
+import json
 import os
 import sys
 import tempfile
 import types
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 import numpy
+import psutil
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -434,6 +436,162 @@ class WritePredictionScaleTests(unittest.TestCase):
 
         numpy.testing.assert_allclose(output.plddt_at_write, confidence)
         numpy.testing.assert_allclose(output.plddt, confidence)
+
+
+class PortalStatusTests(unittest.TestCase):
+    """Writing the Viewer Command Portal status file must not change what the
+    worker reports about its structures.
+
+    On Windows, os.replace raises PermissionError (WinError 5) while another
+    process has the status file open: the Viewer's WorkerTracker reads it every
+    250 ms, and external monitors may read it too.
+    """
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        self.status_path = os.path.join(self.directory, "status.json")
+        # main() rebinds these globals; stopping the patch restores them, so
+        # other tests still see a standalone worker.
+        portal = mock.patch.multiple(
+            esmfold_worker,
+            _portal_path=self.status_path,
+            _portal_noninteractive=True,
+            _portal_state={"artifacts": []},
+        )
+        portal.start()
+        self.addCleanup(portal.stop)
+
+    def read_status(self):
+        with open(self.status_path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_status_write_retries_while_the_file_is_held_open(self):
+        real_replace = os.replace
+        attempts = []
+
+        def replace(source, target):
+            attempts.append(target)
+            if len(attempts) <= 3:
+                raise PermissionError(13, "Access is denied", target)
+            real_replace(source, target)
+
+        esmfold_worker._portal_state["artifacts"].append("node_1.pdb")
+        with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
+                mock.patch.object(esmfold_worker.time, "sleep") as sleep:
+            esmfold_worker.portal_event("running", "Folded node_1", succeeded=1, total=2)
+
+        self.assertEqual(attempts, [self.status_path] * 4)
+        self.assertEqual(sleep.call_count, 3)
+        self.assertEqual(
+            self.read_status(),
+            {
+                "artifacts": ["node_1.pdb"],
+                "pid": os.getpid(),
+                "created": psutil.Process().create_time(),
+                "status": "running",
+                "message": "Folded node_1",
+                "result": {"succeeded": 1, "total": 2},
+            },
+        )
+        self.assertEqual(os.listdir(self.directory), ["status.json"])
+
+    def test_status_write_waits_for_a_reader_to_close_the_file(self):
+        esmfold_worker.portal_event("running", "Worker started")
+        # Hold the file open as WorkerTracker.poll() does while reading it; the
+        # retry's pause is where the reader lets go.
+        reader = open(self.status_path, "rb")
+        self.addCleanup(reader.close)
+        with mock.patch.object(
+            esmfold_worker.time, "sleep", side_effect=lambda seconds: reader.close()
+        ) as sleep:
+            esmfold_worker.portal_event("running", "Folded node_1", succeeded=1, total=1)
+
+        self.assertEqual(self.read_status()["message"], "Folded node_1")
+        if os.name == "nt":
+            # Windows refused the replacement while the reader had the file open.
+            self.assertGreaterEqual(sleep.call_count, 1)
+
+    def test_unwritable_status_warns_and_final_statuses_wait_longer(self):
+        attempts = []
+
+        def replace(source, target):
+            attempts.append(target)
+            raise PermissionError(13, "Access is denied", target)
+
+        output = io.StringIO()
+        with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
+                mock.patch.object(esmfold_worker.time, "sleep"), redirect_stdout(output):
+            esmfold_worker.portal_event("running", "Folded node_1", succeeded=1, total=2)
+            progress_attempts = len(attempts)
+            esmfold_worker.portal_event("succeeded", "Structure prediction completed", succeeded=2, total=2)
+        final_attempts = len(attempts) - progress_attempts
+
+        self.assertEqual(progress_attempts, esmfold_worker.PORTAL_PROGRESS_ATTEMPTS)
+        self.assertEqual(final_attempts, esmfold_worker.PORTAL_FINAL_ATTEMPTS)
+        self.assertGreater(final_attempts, progress_attempts)
+        self.assertEqual(output.getvalue().count("Warning: Could not update the worker status file"), 2)
+        # Neither a status file nor a stale .partial is left behind.
+        self.assertEqual(os.listdir(self.directory), [])
+
+    def test_unwritable_progress_update_does_not_fail_a_saved_structure(self):
+        # A monitor holds the status file open for the whole run and lets go
+        # before the final status. In the field report, an ESM3-large run saved
+        # every structure but reported one as a WinError 5 failure.
+        real_replace = os.replace
+        real_run_predictions = esmfold_worker.run_predictions
+        held = []
+
+        def replace(source, target):
+            if held and target == self.status_path:
+                raise PermissionError(13, "Access is denied", target)
+            real_replace(source, target)
+
+        def run_while_held(*args, **kwargs):
+            held.append(True)
+            try:
+                return real_run_predictions(*args, **kwargs)
+            finally:
+                held.clear()
+
+        records = os.path.join(self.directory, "records.json")
+        with open(records, "w", encoding="utf-8") as handle:
+            json.dump([["node_a", "AC"], ["node_b", "DE"]], handle)
+        structures_dir = os.path.join(self.directory, "structures")
+        model = mock.Mock()
+        model.generate.side_effect = lambda protein, config: FakeOutput()
+        output = io.StringIO()
+        with (
+            mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "_load_local_model", return_value=model),
+            mock.patch.object(esmfold_worker, "run_predictions", side_effect=run_while_held),
+            mock.patch.object(esmfold_worker.os, "replace", side_effect=replace),
+            mock.patch.object(esmfold_worker.time, "sleep"),
+            # main() wraps sys.stdout and sys.stderr; these restore them.
+            redirect_stdout(output),
+            redirect_stderr(io.StringIO()),
+        ):
+            result = esmfold_worker.main(
+                [records, structures_dir, "cpu", "--portal-status", self.status_path, "--noninteractive"]
+            )
+
+        self.assertEqual(result, 0)
+        status = self.read_status()
+        self.assertEqual(status["status"], "succeeded")
+        self.assertEqual(status["result"], {"succeeded": 2, "total": 2})
+        self.assertEqual(
+            [os.path.basename(path) for path in status["artifacts"]],
+            ["node_a.pdb", "node_b.pdb"],
+        )
+        self.assertEqual(sorted(os.listdir(structures_dir)), ["node_a.pdb", "node_b.pdb"])
+        self.assertNotIn("Error folding", output.getvalue())
+        # The warnings reach the log the Viewer forwards as the worker's output.
+        with open(self.status_path + ".stdout", encoding="utf-8") as handle:
+            self.assertEqual(
+                handle.read().count("Warning: Could not update the worker status file (running)"),
+                2,
+            )
 
 
 if __name__ == "__main__":

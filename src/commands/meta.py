@@ -30,6 +30,7 @@ from web_ui.meta_backend import (
     format_metadata_value,
     register,
     upload_metadata,
+    metadata_download_path,
     download_metadata,
 )
 
@@ -49,8 +50,10 @@ def print_help(meta_dir):
           Downloads the current session metadata to a generic file (e.g. metadata.csv, 
           or metadata1.csv if already taken) in {meta_dir}.
       meta download <filename>
-          Downloads the metadata using the specified filename (defaults to .csv if 
-          no extension is provided). Overwrites the file if it already exists.
+          Downloads the metadata to a file of that name in {meta_dir}. The
+          name must be a plain file name, not a path, ending in .csv or .xlsx
+          (.csv is added when no extension is given). Overwrites the file if
+          it already exists.
       meta show/display <property_name>
           Displays the selected property above the bottom-right status indicators
           whenever a node is clicked.
@@ -216,26 +219,12 @@ def run(viewer, args):
 
     # 6. Download Check
     if first_arg in ['download', 'retrieve', 'export']:
-        filename = ""
-        if len(args) >= 2:
-            filename = " ".join(args[1:]).strip()
-
-        if filename:
-            _, ext = os.path.splitext(filename)
-            if not ext:
-                filename += ".csv"
-            filepath = os.path.join(meta_dir, filename)
-        else:
-            base_name = "metadata"
-            ext = ".csv"
-            candidate = f"{base_name}{ext}"
-            filepath = os.path.join(meta_dir, candidate)
-            counter = 1
-            while os.path.exists(filepath):
-                candidate = f"{base_name}{counter}{ext}"
-                filepath = os.path.join(meta_dir, candidate)
-                counter += 1
-            filepath = os.path.abspath(filepath)
+        try:
+            filepath = metadata_download_path(meta_dir, " ".join(args[1:]).strip())
+        except ValueError as error:
+            Command_Engine.print_help(viewer, f"Error: {error}")
+            Command_Engine.command_failed(viewer, f"Error: {error}")
+            return
 
         download_metadata(viewer, filepath)
         return

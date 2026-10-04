@@ -30,11 +30,6 @@ def load_print_command():
     config.SEQUENCE_SET = "test_sequences"
     config.resolve_directory_path = lambda value: value
 
-    utilities = types.ModuleType("utilities")
-    utilities.__path__ = []
-    application_windows = types.ModuleType("utilities.Application_Windows")
-    application_windows.open_in_file_manager = mock.Mock()
-
     spec = importlib.util.spec_from_file_location(
         "print_command_under_test", os.path.join(SRC_DIR, "commands", "print.py")
     )
@@ -44,8 +39,6 @@ def load_print_command():
         {
             "Command_Engine": command_engine,
             "EMAPSSN_Config": config,
-            "utilities": utilities,
-            "utilities.Application_Windows": application_windows,
         },
     ):
         spec.loader.exec_module(module)
@@ -261,6 +254,54 @@ class PrintMarginTrimTests(unittest.TestCase):
 
         export_svg.assert_called_once()
         trim.assert_not_called()
+
+
+class PrintOutputNameTests(unittest.TestCase):
+    def run_print(self, save_dir, arguments):
+        viewer = PrintMarginTrimTests.make_viewer()
+        failed = print_command.Command_Engine.command_failed
+        failed.reset_mock()
+        with mock.patch.object(
+            print_command, "PRINT_DIRECTORY", save_dir
+        ), mock.patch.object(
+            print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)
+        ) as capture, mock.patch.object(
+            print_command, "_export_svg"
+        ) as export_svg, mock.patch.object(
+            print_command.mpimg, "imsave"
+        ) as save, mock.patch.object(
+            print_command, "open_in_file_manager"
+        ), mock.patch.object(
+            print_command.app, "process_events"
+        ), redirect_stdout(io.StringIO()):
+            print_command.run(viewer, arguments)
+        return viewer, failed, capture, export_svg, save
+
+    def test_a_path_is_refused_before_anything_is_rendered(self):
+        # os.path.join(save_dir, name) used to drop save_dir for an absolute
+        # name, and "..\" climbed out of it.
+        with tempfile.TemporaryDirectory() as root:
+            save_dir = os.path.join(root, "Saved_Images")
+            outside = os.path.join(root, "outside", "escaped")
+            for arguments in ([r"..\escaped"], ["../escaped", "transparent"],
+                              [outside], [outside, "svg"]):
+                with self.subTest(arguments=arguments):
+                    viewer, failed, capture, export_svg, save = self.run_print(
+                        save_dir, arguments
+                    )
+                    capture.assert_not_called()
+                    export_svg.assert_not_called()
+                    save.assert_not_called()
+                    self.assertIn("path separators", failed.call_args.args[1])
+                    self.assertTrue(viewer.instr_text.visible)
+            self.assertEqual(os.listdir(root), ["Saved_Images"])
+            self.assertEqual(os.listdir(save_dir), [])
+
+    def test_plain_names_are_joined_into_the_save_directory(self):
+        with tempfile.TemporaryDirectory() as save_dir:
+            _, failed, _, _, save = self.run_print(save_dir, ["my", "network"])
+        failed.assert_not_called()
+        self.assertEqual(save.call_args.args[0], os.path.join(save_dir, "my_network.png"))
 
 
 if __name__ == "__main__":

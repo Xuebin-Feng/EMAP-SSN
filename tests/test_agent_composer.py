@@ -22,7 +22,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEngineScript
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from http.server import ThreadingHTTPServer
-from web_ui.Web_Server import WebServerHandler
+from web_ui.Web_Server import MIME_TYPES, WebServerHandler
 from tests.test_agent_images import image_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,12 +41,9 @@ class FixtureHandler(WebServerHandler):
         else:
             self.send_error(404)
             return
-        data = file.read_bytes()
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html' if file.suffix == '.html' else 'text/javascript')
-        self.send_header('Content-Length', str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        # serve_file sends the page's Content-Security-Policy, so every test
+        # here also runs under the real policy.
+        self.serve_file(str(file), MIME_TYPES[file.suffix])
 
 
 class ComposerTests(unittest.TestCase):
@@ -213,6 +210,68 @@ class ComposerTests(unittest.TestCase):
             self.js("var input = document.getElementById('chat-input-field'); input.value = 'First line\\nSecond line\\nThird line\\nFourth line'; input.dispatchEvent(new Event('input'))")
             self.assertTrue(self.js("['capture-viewer-btn','chat-send-btn'].every(id => Math.abs(document.getElementById(id).getBoundingClientRect().height - document.getElementById('chat-input-field').getBoundingClientRect().height) < 1)"))
             self.assertEqual(self.js("document.querySelectorAll('#capture-viewer-btn br').length"), 1)
+
+    def test_explanation_markup_is_inert(self):
+        explanation = '\n\n'.join([
+            'Raw <img src="missing.png" onerror="window.pwned = 1"> stays text.',
+            '<div onmouseover="window.pwned = 2">Block HTML</div>',
+            '[script](javascript:window.pwned=3) [entity](javascript&#58;window.pwned=4) '
+            '[case](JaVaScRiPt:window.pwned=5) <javascript:window.pwned=6> '
+            '[data](data:text/html,hi) [vb](vbscript:msgbox(1))',
+            '![bad image](javascript:window.pwned=7) ![svg image](data:image/svg+xml,%3Csvg/%3E)',
+            '[docs](https://example.org/docs) [local](help/page.html)',
+            '```python\nprint("<b>")\n```',
+            '| a | b |\n|---|:-:|\n| 1 | 2 |',
+        ])
+        # runJavaScript only converts primitive results, so the report is JSON.
+        report = """(() => {
+            const elements = Array.from(document.querySelectorAll('#chat-log *'));
+            const message = document.querySelector('#chat-log .msg-agent');
+            return JSON.stringify({
+                handlers: elements.flatMap(el => el.getAttributeNames().filter(name => name.startsWith('on'))),
+                schemes: elements.flatMap(el => ['href', 'src'].filter(name => el.hasAttribute(name))
+                    .map(name => new URL(el.getAttribute(name), document.baseURI).protocol)),
+                links: Array.from(message.querySelectorAll('a')).map(a => a.getAttribute('href')),
+                images: message.querySelectorAll('img').length,
+                code: message.querySelector('pre code.language-python')?.textContent,
+                centered: Array.from(message.querySelectorAll('[align=center]')).map(cell => cell.textContent),
+                text: message.textContent,
+                pwned: window.pwned ?? null,
+            });
+        })()"""
+        deliveries = {
+            'response': "handleServerEvent({type:'agent_response',explanation:%s})",
+            'history': "handleServerEvent({type:'init',data:{llm_loaded:true,llm_model_name:'Test vision model',"
+                       "llm_history:[{role:'assistant',explanation:%s}]}})",
+        }
+        for path, event in deliveries.items():
+            with self.subTest(path=path):
+                self.js("document.getElementById('chat-log').replaceChildren(); window.pwned = undefined")
+                self.js(event % json.dumps(explanation))
+                QTest.qWait(300)  # A rendered <img onerror> would fire once its load fails.
+                result = json.loads(self.js(report))
+                self.assertEqual(result['handlers'], [])
+                self.assertLessEqual(set(result['schemes']), {'http:', 'https:'})
+                self.assertEqual(result['links'], ['https://example.org/docs', 'help/page.html'])
+                self.assertEqual(result['images'], 0)
+                self.assertIsNone(result['pwned'])
+                for shown in ('<img src="missing.png" onerror="window.pwned = 1">',
+                              '<div onmouseover="window.pwned = 2">Block HTML</div>',
+                              'script entity case javascript:window.pwned=6 data vb',
+                              'bad image svg image'):
+                    self.assertIn(shown, result['text'])
+                self.assertEqual(result['code'], 'print("<b>")\n')
+                self.assertEqual(result['centered'], ['b', '2'])
+
+    def test_content_security_policy_blocks_injected_markup(self):
+        # Markup that bypassed the renderer still cannot run script: the page's
+        # inline <script> is allowed by hash, injected handlers and URLs are not.
+        self.js("window.violations = []; document.addEventListener('securitypolicyviolation', e => violations.push(e.effectiveDirective));"
+                "document.body.insertAdjacentHTML('beforeend', '<img src=\"missing.png\" onerror=\"window.pwned = 1\"><a id=\"bad\" href=\"javascript:window.pwned = 2\">x</a>');"
+                "document.getElementById('bad').click()")
+        self.wait_for('violations.length >= 2')
+        self.assertFalse(self.js("'pwned' in window"))
+        self.assertTrue(self.js("violations.every(directive => directive.startsWith('script-src'))"))
 
 
 if __name__ == '__main__':

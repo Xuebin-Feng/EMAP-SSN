@@ -39,6 +39,7 @@ from Metadata_Core import (
     _resolve_metadata_column_names,
     delete_metadata_columns,
     upload_metadata,
+    metadata_download_path,
     download_metadata,
 )
 

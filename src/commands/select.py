@@ -17,6 +17,7 @@ import os
 import numpy as np
 import EMAPSSN_Config as cfg
 import Command_Engine
+from utilities.Output_Names import validate_output_basename
 
 def print_help():
     print("""
@@ -45,6 +46,7 @@ def print_help():
     Saving:
       select save <FILENAME>      : Saves the current selection to the header list
                                     directory (Input_Files/Header_Lists/ by default).
+                                    FILENAME is a plain file name, not a path.
                                     Use .txt for headers or .fasta for sequences.
                                     'save' must come first; to save new matches,
                                     select them before saving.
@@ -95,7 +97,15 @@ def run(viewer, args):
             Command_Engine.print_help(viewer, msg)
             return
             
-        filename = args[1]
+        # A plain name keeps the file in the header list directory; the web
+        # agent and MCP clients name files too, not only the console.
+        try:
+            filename = validate_output_basename(args[1])
+        except ValueError as error:
+            msg = f"Error: {error}"
+            Command_Engine.command_failed(viewer, msg)
+            Command_Engine.print_help(viewer, msg)
+            return
         is_fasta = False
         
         if filename.lower().endswith('.fasta'):

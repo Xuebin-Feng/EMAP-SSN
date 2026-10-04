@@ -46,6 +46,28 @@ class SelectSaveTests(unittest.TestCase):
             Path(self.header_dir, "picked.txt").read_text(encoding="utf-8"), "one\nthree\n"
         )
 
+    def test_save_refuses_a_path_and_writes_nothing(self):
+        # os.path.join(HEADER_LIST_DIR, name) used to drop the directory for an
+        # absolute name, and "..\" climbed out of it.
+        root = Path(self.header_dir)
+        header_dir = root / "Header_Lists"
+        outside = root / "outside"
+        outside.mkdir()
+        names = (str(outside / "escaped.txt"), r"..\escaped.txt", "../escaped.fasta",
+                 r"sub\picked.txt", "picked.txt:hidden")
+        with mock.patch.object(select.cfg, "HEADER_LIST_DIR", str(header_dir), create=True):
+            for name in names:
+                with self.subTest(name=name):
+                    viewer = Viewer(self.header_dir)
+                    viewer.selected_indices = [0]
+                    with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+                        select.run(viewer, ['save', name])
+                    failed.assert_called_once()
+                    self.assertRegex(failed.call_args.args[1],
+                                     "path separators|unsupported characters")
+        self.assertEqual(os.listdir(outside), [])
+        self.assertEqual(os.listdir(root), ["outside"])
+
     def test_fasta_save_writes_the_canonical_records_the_viewer_holds(self):
         # Used to re-read NODE_FASTA_FILE with SeqIO and look nodes up by its
         # raw headers, so every record whose header sanitizing changed was

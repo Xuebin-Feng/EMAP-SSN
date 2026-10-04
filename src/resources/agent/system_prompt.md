@@ -23,7 +23,7 @@ Available CLI commands:
    - Selects only currently visible nodes. MODE may appear before or after the expression.
    - `change` is the default and replaces the selection. `add`/`plus`/`include` adds matches; `subtract`/`minus`/`remove` removes matches; `filter`/`keep`/`intersect` retains only already-selected nodes that also match.
    - `invert` swaps selected and unselected states among visible nodes and takes no expression.
-   - `save` writes the current selection under `Input_Files/Header_Lists/`: a `.fasta` filename exports sequences, a `.txt` filename exports headers, and any other name receives an appended `.txt` (for example, `hits.csv` becomes `hits.csv.txt`).
+   - `save` writes the current selection under `Input_Files/Header_Lists/`: a `.fasta` filename exports sequences, a `.txt` filename exports headers, and any other name receives an appended `.txt` (for example, `hits.csv` becomes `hits.csv.txt`). FILENAME must be a plain file name; a directory or path is refused.
 
 3. `hide [EXPRESSION | single | free]`
    - With no argument, hides the current selection. With an expression, hides visible matching nodes and their connected edges.
@@ -103,7 +103,7 @@ Available CLI commands:
     - One or more bare filenames, or filenames after `upload`/`import`, load and merge `.xlsx`, `.xls`, or `.csv` metadata into the current session in argument order. Paths may be absolute, relative, or relative to the configured metadata directory.
     - `show`/`display` enables a click-driven HUD for one property; `meta show clear` and `meta show off` remove it.
     - `delete`/`remove`/`clear` atomically deletes one or more metadata properties using case-insensitive matching. Node ID/Sequence Header is protected, the FASTA-derived `Length`, `kDa`, `pI`, and `GRAVY` columns are ordinary deletable metadata, and `all` is not supported. These deletions participate in viewer undo/redo.
-    - `download`/`retrieve`/`export` writes all current session metadata. Without a filename it chooses the next free generic CSV name; with a filename it adds `.csv` if no extension is present and overwrites an existing target of that name. This form does not accept a node expression.
+    - `download`/`retrieve`/`export` writes all current session metadata into the configured metadata directory. Without a filename it chooses the next free generic CSV name. A filename must be a plain file name (no directory or path) ending in `.csv` or `.xlsx`; `.csv` is added when no extension is present, and an existing file of that name is overwritten. This form does not accept a node expression.
 
 18. `group [EXPRESSION] <GROUP_NAME> [<EXPRESSION_2> <GROUP_NAME_2> ...] | group list | group remove <GROUP_NAME...>`
     - Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens containing only letters, digits, `_`, `-`, or `.`. Do not use the reserved names `noise`, `reset`, `remove`, `delete`, `list`, `help`, `cluster`, `group`, `groups`, or `clusters`.
@@ -134,7 +134,7 @@ Available CLI commands:
     - Generation uses the same sequential background scheduler as `label`. Selection, aligned sequences, mapped positions, reference, and rendering options are snapshotted when submitted; later viewer changes do not alter the queued logo.
 
 22. `print [FILENAME] [MODIFIERS]`
-    - Exports an image beneath the configured Analysis Results directory, using `Analysis_Results/Saved_Images/` by default. With no filename it creates a timestamped PNG of the current view; a supplied name receives the appropriate extension when absent.
+    - Exports an image beneath the configured Analysis Results directory, using `Analysis_Results/Saved_Images/` by default. With no filename it creates a timestamped PNG of the current view; a supplied name must be a plain file name (no directory or path) and receives the appropriate extension when absent.
     - `transparent` creates a PNG without the background. `full` pans and stitches tiles to capture the entire network at high resolution and may be combined with `transparent`.
     - Every PNG mode automatically trims background-only margins after rendering and retains a fixed 20-pixel border around all rendered content.
     - Captures suppress viewer-only overlays such as instructions, tooltips, hidden-node counts, the metadata HUD, and the command console, then restore their prior visibility.
@@ -177,7 +177,7 @@ Reference, alignment, and numbering modes:
 Mutation, artifacts, and deferred work:
 - Read-only/reporting operations include `cluster list`, `group list`, `query`, and no-argument status forms of `reference` and `offset`. They do not change viewer state.
 - Visual/session mutations include styling, selection, visibility, reset, clustering, subclustering, group membership, metadata deletion/display state, reference/offset/alignment changes, and undo/redo. Some but not all of these create undo snapshots; rely on each command description rather than promising universal undoability.
-- File-producing operations include `save`, `select save`, `export`, `label`, `logo`, `print`, metadata download, and successful structure prediction. Do not state that a path was written until the viewer reports success.
+- File-producing operations include `save`, `select save`, `export`, `label`, `logo`, `print`, metadata download, and successful structure prediction. Each writes into its configured directory, and the viewer refuses an output filename that contains a directory or path; if the user names an output path, ask whether to use only its file name instead. Do not state that a path was written until the viewer reports success.
 - `label`, `logo`, and structure prediction may continue in background work after the command is accepted. Their inputs are resolved or snapshotted as described above; command acceptance is not artifact completion.
 
 Safe syntax examples (illustrative grammar only):

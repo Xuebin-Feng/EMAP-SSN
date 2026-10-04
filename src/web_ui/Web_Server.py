@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import http.server
 import errno
+import hashlib
 import hmac
 import socket
 import threading
@@ -39,6 +41,20 @@ from utilities.Viewer_Sessions import (
 
 
 LOOPBACK_HOST = "127.0.0.1"
+# Spellings a browser or a local tool may legitimately use to reach this
+# server. A request naming anything else was pointed here by a DNS record
+# the Viewer does not control, which is how a rebound name reads loopback
+# data that is otherwise unreachable from the web.
+LOOPBACK_HOST_NAMES = ("127.0.0.1", "localhost")
+# /api/action reads its whole body into memory before parsing it, so it needs
+# a bound -- but not the inspection endpoints' 64 KiB. The bundled pages post
+# far more through here: agent.html sends base64 PNG attachments, and
+# esmfold.html re-posts the entire Mol* session after every folded structure.
+# The ceiling belongs to agent_images.validate_attachments, which accepts
+# MAX_ATTACHMENTS data URLs of MAX_IMAGE_BYTES * 4 // 3 + 100 bytes each; a
+# transport cap under that would reject messages the agent layer would then
+# have accepted. tests/test_viewer_web_origin.py fails if the two drift apart.
+MAX_ACTION_BYTES = 300 * 1024 * 1024
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -216,6 +232,49 @@ MIME_TYPES = {
     ".ttf": "font/ttf"
 }
 
+# Content-Security-Policy sent with every HTML page. Inline <script> blocks
+# run only by their SHA-256 hashes, computed from the file being served, so
+# markup injected into a page (event-handler attributes, javascript: URLs)
+# cannot run script. Chat attachments and Mol* snapshots are data:/blob:
+# images; images from other hosts, such as one named in a model's reply, are
+# not loaded.
+PAGE_POLICY = {
+    "default-src": "'self'",
+    "script-src": "'self'",
+    "style-src": "'self' 'unsafe-inline'",
+    "img-src": "'self' data: blob:",
+    "connect-src": "'self'",
+    "object-src": "'none'",
+    "base-uri": "'none'",
+    "form-action": "'none'",
+    "frame-ancestors": "'none'",
+}
+# Mol* compiles code while it loads: its MP4 encoder is built with embind,
+# which calls new Function, and compiles WebAssembly (also allowed by
+# 'unsafe-eval') fetched from a data: URL. Mol* also contacts public servers:
+# it lists remote states on load and downloads structures, maps and saved
+# states on request.
+PAGE_POLICY_ADDITIONS = {
+    "esmfold.html": {"script-src": "'unsafe-eval'", "connect-src": "https: data:"},
+}
+INLINE_SCRIPT = re.compile(
+    rb"<script\b(?![^>]*\ssrc\s*=)[^>]*>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL
+)
+
+
+def content_security_policy(page_name, body):
+    """Return the Content-Security-Policy for the HTML page ``body``."""
+    directives = dict(PAGE_POLICY)
+    for name, sources in PAGE_POLICY_ADDITIONS.get(page_name, {}).items():
+        directives[name] += " " + sources
+    for script in INLINE_SCRIPT.findall(body):
+        # Browsers hash a script's text after the HTML parser has turned CRLF
+        # and CR into LF.
+        text = script.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        digest = base64.b64encode(hashlib.sha256(text).digest()).decode("ascii")
+        directives["script-src"] += f" 'sha256-{digest}'"
+    return "; ".join(f"{name} {sources}" for name, sources in directives.items())
+
 
 def event_client_from_path(path):
     """Return a bounded client label from an SSE request URL, if present."""
@@ -233,6 +292,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self._reject_foreign_request():
+            return
         parsed_path = urlsplit(self.path)
         clean_path = parsed_path.path
         if clean_path.startswith("/api/mcp/v1/"):
@@ -305,6 +366,46 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         supplied = self.headers.get("Authorization", "")
         expected = f"Bearer {self.server.inspection_token}"
         return hmac.compare_digest(supplied, expected)
+
+    def _local_addresses(self):
+        """Return the ``host:port`` and origin spellings naming this server."""
+        port = self.server.server_address[1]
+        hosts = {f"{name}:{port}" for name in LOOPBACK_HOST_NAMES}
+        return hosts, {f"http://{host}" for host in hosts}
+
+    def _foreign_request(self):
+        """Return why this request is not from a page this Viewer served.
+
+        A browser sends a cross-origin POST carrying a ``text/plain`` body
+        without asking the server first, so without this check any page the
+        user visits could drive ``/api/action`` blind. ``Origin`` and
+        ``Sec-Fetch-Site`` are set by the browser and cannot be forged by a
+        page's scripts, while local callers such as the ESMFold worker send
+        neither, so an absent header stays allowed. ``Host`` is always
+        present, so it can be required to match: that is what stops a
+        rebound DNS name from reading ``/api/events`` or the bundled pages.
+        """
+        hosts, origins = self._local_addresses()
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in origins:
+            return "Cross-origin requests are not accepted."
+        site = self.headers.get("Sec-Fetch-Site")
+        if site is not None and site not in {"same-origin", "none"}:
+            return "Cross-site requests are not accepted."
+        if self.headers.get("Host") not in hosts:
+            return "Requests must address this Viewer as 127.0.0.1 or localhost."
+        return None
+
+    def _reject_foreign_request(self):
+        """Answer 403 and return whether the request was rejected."""
+        reason = self._foreign_request()
+        if reason is None:
+            return False
+        # Nothing has read the body at this point, so drain it before
+        # replying; Windows resets the connection otherwise and the client
+        # loses this 403 (see _discard_request_body).
+        self._send_json(403, {"error": reason}, headers=self._discard_request_body())
+        return True
 
     def _discard_request_body(self, limit=65536):
         """Read and drop an unused request body; return extra reply headers.
@@ -383,12 +484,18 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         if not os.path.exists(filepath):
             self.send_error(404, f"File {filepath} Not Found")
             return
+        with open(filepath, "rb") as f:
+            body = f.read()
         self.send_response(200)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
+        if content_type == "text/html":
+            self.send_header(
+                "Content-Security-Policy",
+                content_security_policy(os.path.basename(filepath), body),
+            )
         self.end_headers()
-        with open(filepath, "rb") as f:
-            self.wfile.write(f.read())
+        self.wfile.write(body)
 
     def handle_sse(self, client_id=None):
         self.send_response(200)
@@ -421,6 +528,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.server.unregister_event_queue(q, client_id)
 
     def do_POST(self):
+        if self._reject_foreign_request():
+            return
         if self.path == "/api/mcp/v1/commands":
             if not self._inspection_authorized():
                 self._send_json(401, {"error": "Missing or invalid Viewer inspection token."},
@@ -519,20 +628,36 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/action":
-            content_length = int(self.headers['Content-Length'])
-            body = self.rfile.read(content_length)
+            body = None
             try:
-                data = json.loads(body.decode('utf-8'))
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= MAX_ACTION_BYTES:
+                    raise ValueError(f"Action request must be 1..{MAX_ACTION_BYTES} bytes")
+                # A cross-origin caller cannot set this content type without a
+                # CORS preflight, which this server never answers. That makes it
+                # a barrier independent of Origin and Sec-Fetch-Site, built from
+                # a request this server deliberately does not handle.
+                media_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+                if media_type != "application/json":
+                    raise ValueError("Action requests must use Content-Type: application/json")
+                body = self.rfile.read(length)
+                data = json.loads(body.decode("utf-8"))
                 self.server.viewer.communicator.handle_action(data)
-                
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok"}, cls=NumpyEncoder).encode('utf-8'))
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(str(e).encode('utf-8'))
+                self._send_json(200, {"status": "ok"})
+            except ValueError as error:
+                # Drain only a small body: the point is to stop Windows
+                # resetting the connection before a short reply lands. Draining
+                # up to MAX_ACTION_BYTES would instead read hundreds of
+                # megabytes to answer a 400, so anything larger gets
+                # Connection: close and the client hangs up.
+                self._send_json(
+                    400,
+                    {"error": str(error)[:1000]},
+                    headers=self._discard_request_body() if body is None else None,
+                )
+            except Exception as error:
+                self._send_json(500, {"error": str(error)[:1000]})
+            return
 
 def _address_unavailable(error):
     return (

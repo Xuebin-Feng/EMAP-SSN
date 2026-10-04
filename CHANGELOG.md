@@ -60,6 +60,13 @@ still change before version 1.0.0.
   BLAST+ `qseqid`/`sseqid` and DIAMOND report, and how to keep complete titles. A
   `# Fields:` comment must declare an E-value at the selected E-value column, and a
   DIAMOND `--header simple` column-name row is rejected with advice.
+- **Output names stay in their folders.** `select save`, `meta download` and `print`
+  take a plain file name and write only into their configured folders, as `save`,
+  `logo` and `label` already did. A name with a directory, `..`, a drive (`C:`), a
+  network share (`\\host\share`) or a `:` stream suffix is refused. The web agent and
+  MCP clients issue these commands too, and on Windows a network-share name makes the
+  system offer the user's credentials to that host. `meta download` writes `.csv` and
+  `.xlsx` only; other extensions are refused before anything is written.
 
 ### Fixed
 
@@ -72,6 +79,21 @@ still change before version 1.0.0.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
   that headless Viewers cannot render on Windows and that normal mode can.
+- On Windows, an ESM3 structure run started through MCP or the web agent could report
+  a saved structure as failed (`[WinError 5] Access is denied`) when it updated its
+  status file while the Viewer, or another program, was reading it. When this hit the
+  final status, the Viewer reported that the worker exited before reporting a result.
+  Status updates now wait for the reader, and one that still fails prints a warning
+  without failing the structure.
+- `meta download` and the metadata spreadsheet's Excel export failed for a file name
+  ending in upper-case `.XLSX` ("No engine for filetype: 'XLSX'").
+- The agent panel inserted HTML from model replies, including chat history reloaded
+  from a layout's `agent_history.json`, as live markup, so a reply could run script in
+  the Viewer's web pages, which can send Viewer actions and read the saved model cards
+  with their API keys. Raw HTML in a reply is now shown as text, and links and images
+  keep only http(s) and relative URLs. The bundled pages are also served with a
+  Content-Security-Policy that runs only their own scripts; images from other hosts in
+  a reply are no longer loaded.
 
 ## [0.3.0] - 2026-10-01
 

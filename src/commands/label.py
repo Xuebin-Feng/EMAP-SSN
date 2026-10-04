@@ -35,6 +35,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
+from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
     format_alignment_offset_display,
     sort_alignment_labels,
@@ -213,13 +214,7 @@ def _is_non_finite_number(val_str):
 
 def _normalize_output_filename(filename):
     """Return a safe XLSX basename for the configured label output directory."""
-    filename = str(filename).strip()
-    if not filename:
-        raise ValueError("Filename cannot be empty.")
-    if filename in {".", ".."} or "/" in filename or "\\" in filename:
-        raise ValueError("Filename must not include a directory or path separators.")
-    if re.search(r'[<>:"|?*\x00-\x1f]', filename):
-        raise ValueError(f"Filename contains unsupported characters: '{filename}'.")
+    filename = validate_output_basename(filename)
     if not filename.lower().endswith(".xlsx"):
         filename += ".xlsx"
     return filename

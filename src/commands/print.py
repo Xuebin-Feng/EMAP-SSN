@@ -25,6 +25,7 @@ from matplotlib.collections import LineCollection
 from vispy import app
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import open_in_file_manager
+from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
@@ -42,7 +43,8 @@ def print_help():
     Description:
       Exports a high-resolution snapshot of the current viewer state.
       Images are saved beneath the configured Analysis Results directory
-      (default: 'Analysis_Results/Saved_Images/').
+      (default: 'Analysis_Results/Saved_Images/'). FILENAME is a plain file
+      name, not a path; .png (or .svg) is added when it is missing.
       PNG exports automatically trim empty margins while retaining a 20-pixel
       border around all rendered content. SVG view-box padding is unchanged.
 
@@ -373,7 +375,15 @@ def run(viewer, args):
     ext = ".svg" if is_svg else ".png"
     
     if len(args) > 0:
-        filename = "_".join(args)
+        try:
+            filename = validate_output_basename("_".join(args))
+        except ValueError as error:
+            msg = f"Error: {error}"
+            Command_Engine.command_failed(viewer, msg)
+            print(f"\n{msg}")
+            viewer.console_text.text = msg
+            if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
+            return
     else:
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"{cfg.SEQUENCE_SET}_{timestamp}"

@@ -148,13 +148,28 @@ class FeedbackTests(unittest.TestCase):
     def test_metadata_file_summary_and_artifact(self):
         self.viewer.metadata = {'Example': {'type': 'number', 'values': np.arange(3)}}
         target = Path(self.directory.name) / 'metadata.csv'
-        record = self.execute(f'meta download {target}')
-        self.assertIn(str(target), self.success_text(record))
-        self.assertEqual(record['artifacts'], [str(target)])
-        self.assertTrue(target.is_file())
-        self.viewer.metadata = {}
-        record = self.execute(f'meta download {target}', 'failed')
+        with mock.patch('EMAPSSN_Config.METADATA_DIR', self.directory.name, create=True):
+            record = self.execute('meta download metadata.csv')
+            self.assertIn(str(target), self.success_text(record))
+            self.assertEqual(record['artifacts'], [str(target)])
+            self.assertTrue(target.is_file())
+            self.viewer.metadata = {}
+            record = self.execute('meta download metadata.csv', 'failed')
         self.assertFalse(any(m['status'] == 'succeeded' for m in record['messages']))
+
+    def test_metadata_download_refuses_a_path(self):
+        """A portal command (web agent, MCP) cannot write outside the metadata directory."""
+        self.viewer.metadata = {'Example': {'type': 'number', 'values': np.arange(3)}}
+        target = Path(self.directory.name) / 'escaped.csv'
+        meta_dir = Path(self.directory.name) / 'Meta_Data'
+        with mock.patch('EMAPSSN_Config.METADATA_DIR', str(meta_dir), create=True):
+            for name in (str(target), r'..\escaped.csv'):
+                with self.subTest(name=name):
+                    record = self.execute(f'meta download {name}', 'failed')
+                    self.assertEqual(record['artifacts'], [])
+                    self.assertIn('path separators', record['messages'][-1]['text'])
+        self.assertFalse(target.exists())
+        self.assertEqual(list(meta_dir.iterdir()), [])
 
     def test_summary_promotion_keeps_artifacts_and_bounds(self):
         record = self.portal.new_command('test')

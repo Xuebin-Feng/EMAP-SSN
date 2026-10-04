@@ -805,6 +805,15 @@
 
         if (window.marked && typeof window.marked.setOptions === "function") {
             window.marked.setOptions({ gfm: true, breaks: true });
+            // Explanations are untrusted (model output, or history reloaded from
+            // the layout's agent_history.json), so raw HTML in them is shown as text.
+            window.marked.use({
+                renderer: {
+                    html: ({ text, block }) => block
+                        ? `<p>${escapeHtml(text.trim()).replace(/\n/g, "<br>")}</p>\n`
+                        : escapeHtml(text)
+                }
+            });
         }
 
         // ─── Init ─────────────────────────────────────────────────────────────────
@@ -1380,6 +1389,44 @@
             return wrapper;
         }
 
+        // Attributes the marked renderer emits; any other attribute, including
+        // event handlers, is dropped from rendered explanations.
+        const MARKDOWN_ATTRIBUTES = new Set(["href", "src", "alt", "title", "class", "align", "start", "type", "checked", "disabled"]);
+
+        function isSafeUrl(value) {
+            // Relative URLs resolve to this page's http origin; javascript:,
+            // data:, vbscript: and every other scheme are refused.
+            try {
+                return ["http:", "https:"].includes(new URL(value, document.baseURI).protocol);
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // Second line of defence behind the html renderer: the markup is parsed
+        // in an inert <template>, where nothing loads or runs, and checked as the
+        // browser will read it (entities decoded) before it joins the page.
+        function renderExplanation(explanation) {
+            let html = null;
+            if (window.marked && typeof window.marked.parse === "function") {
+                try { html = window.marked.parse(explanation); } catch (e) { html = null; }
+            }
+            if (typeof html !== "string") html = escapeHtml(explanation).replace(/\n/g, "<br>");
+            const template = document.createElement("template");
+            template.innerHTML = html;
+            template.content.querySelectorAll("*").forEach(element => {
+                for (const { name, value } of Array.from(element.attributes)) {
+                    if (!MARKDOWN_ATTRIBUTES.has(name) || ((name === "href" || name === "src") && !isSafeUrl(value))) {
+                        element.removeAttribute(name);
+                    }
+                }
+                // A link or image whose URL was refused is shown as its text.
+                if (element.localName === "a" && !element.hasAttribute("href")) element.replaceWith(...element.childNodes);
+                if (element.localName === "img" && !element.hasAttribute("src")) element.replaceWith(element.getAttribute("alt") || "");
+            });
+            return template.content;
+        }
+
         function appendAgentMsg(explanation, commands, tokens, terminalOutput, reasoning) {
             const thinking = document.getElementById("thinking-bubble");
             if (thinking) thinking.remove();
@@ -1419,13 +1466,7 @@
 
             const msgDiv = document.createElement("div");
             msgDiv.className = "msg msg-agent";
-            let html = "";
-            if (window.marked && typeof window.marked.parse === "function") {
-                try { html = window.marked.parse(explanation); } catch (e) { html = escapeHtml(explanation).replace(/\n/g, "<br>"); }
-            } else {
-                html = escapeHtml(explanation).replace(/\n/g, "<br>");
-            }
-            msgDiv.innerHTML = html;
+            msgDiv.appendChild(renderExplanation(explanation));
             wrapper.appendChild(msgDiv);
 
             if (commands) {

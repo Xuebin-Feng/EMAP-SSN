@@ -70,9 +70,34 @@ def notify_server(node_id, pdb_filename, action_url=None):
         print(f"Warning: Could not notify main visualizer server: {error}")
 
 
+def _replace_file(source, target, attempts=10):
+    """Move ``source`` over ``target``, waiting for readers to let go of it.
+
+    Windows refuses to replace a file while another process has it open
+    without delete sharing, which Python's ``open`` never grants. The readers
+    here (the Viewer's web server serving a PDB, its WorkerTracker or an
+    external monitor polling the status file) release it quickly.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2)
+
+
 _portal_path = None
 _portal_noninteractive = False
 _portal_state = {}
+
+# The Viewer's WorkerTracker reports the job's result only once it reads one of
+# these, so they wait longer for readers to close the status file (about 10 s)
+# than a progress update (about 2 s), which the next update repeats anyway.
+PORTAL_FINAL_STATUSES = frozenset({'succeeded', 'failed', 'cancelled'})
+PORTAL_PROGRESS_ATTEMPTS = 10
+PORTAL_FINAL_ATTEMPTS = 50
 
 
 def portal_event(status, message=None, **result):
@@ -87,9 +112,20 @@ def portal_event(status, message=None, **result):
     if result:
         _portal_state.setdefault('result', {}).update(result)
     temporary = _portal_path + '.partial'
-    with open(temporary, 'w', encoding='utf-8') as handle:
-        json.dump(_portal_state, handle)
-    os.replace(temporary, _portal_path)
+    attempts = PORTAL_FINAL_ATTEMPTS if status in PORTAL_FINAL_STATUSES else PORTAL_PROGRESS_ATTEMPTS
+    try:
+        with open(temporary, 'w', encoding='utf-8') as handle:
+            json.dump(_portal_state, handle)
+        _replace_file(temporary, _portal_path, attempts)
+    except OSError as error:
+        # The status file only reports on the run: failing to write it must not
+        # fail a structure that is already saved. _portal_state is cumulative,
+        # so the next event's write also carries this one.
+        print(f"Warning: Could not update the worker status file ({status}): {error}")
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
 
 
 def portal_pause(message):
@@ -269,16 +305,7 @@ def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None)
     try:
         with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(pdb_content)
-        for attempt in range(10):
-            try:
-                os.replace(partial_path, pdb_path)
-                break
-            except PermissionError:
-                # Windows refuses to replace a file another process (such as
-                # the Viewer's web server) has open; it is released quickly.
-                if attempt == 9:
-                    raise
-                time.sleep(0.2)
+        _replace_file(partial_path, pdb_path)
     finally:
         if os.path.exists(partial_path):
             os.remove(partial_path)

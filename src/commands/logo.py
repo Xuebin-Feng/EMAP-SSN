@@ -20,6 +20,7 @@ import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import EMAPSSN_Config as cfg
 import Command_Engine
+from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
     normalize_displayed_position_atom,
@@ -537,13 +538,7 @@ def _generate_logo_artifact(payload):
 
 def _normalize_logo_filename(filename):
     """Return a safe SVG/PNG basename for the configured logo directory."""
-    filename = str(filename).strip()
-    if not filename:
-        raise ValueError("Filename cannot be empty.")
-    if filename in {".", ".."} or "/" in filename or "\\" in filename:
-        raise ValueError("Filename must not include a directory or path separators.")
-    if re.search(r'[<>:"|?*\x00-\x1f]', filename):
-        raise ValueError(f"Filename contains unsupported characters: '{filename}'.")
+    filename = validate_output_basename(filename)
     if not filename.lower().endswith((".png", ".svg")):
         filename += ".svg"
     return filename
