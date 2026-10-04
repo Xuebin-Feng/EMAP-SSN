@@ -51,7 +51,7 @@ COMMAND_METADATA = {
         argument('options', 'Omit with no selection to open the structure viewer. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large uses Biohub. large and multi may be combined in either order; duplicates are invalid.',
             choice('large'), choice('multi'), choice('--register-only'))),
     'export': entry('Export in-memory sequences as FASTA subsets beneath Analysis Results.',
-        argument('target', 'Default clusters, excluding noise; groups exports all custom groups. Requires corresponding memberships and in-memory sequences. Do not mix these modes with explicit labels.', choice('clusters'), choice('groups', 'group')),
+        argument('target', 'Default clusters, excluding noise; groups exports all custom groups. Requires corresponding memberships and in-memory sequences. Do not mix these modes with explicit labels. Group labels name the files and clustering parameters the cluster folder; one that is not a plain filename (only a hand-edited layout cache can carry one) is refused before anything is written.', choice('clusters'), choice('groups', 'group')),
         argument('labels', 'One or more #LABEL# tokens for existing clusters, groups, or noise; repeated labels are deduplicated. Legacy group: prefixes are rejected.')),
     'group': entry('Assign overlapping custom group labels or manage existing groups.',
         argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups, reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),

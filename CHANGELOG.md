@@ -94,6 +94,14 @@ still change before version 1.0.0.
   keep only http(s) and relative URLs. The bundled pages are also served with a
   Content-Security-Policy that runs only their own scripts; images from other hosts in
   a reply are no longer loaded.
+- A hand-edited layout cache could make `export` write outside its folder, in both the
+  desktop and VR viewers. The viewers restore a cache's group labels and last clustering
+  parameters unchecked, and `export` names files after the labels and the cluster folder
+  after the parameters, so `..\`, an absolute path or a `\\host\share` network path in
+  either wrote FASTA files and created folders elsewhere. `export` now refuses such a
+  label or such parameters, names what it refused, and writes nothing. Names the `group`
+  and `cluster` commands produce are unaffected; a group named `..` still exports as
+  `...fasta`.
 
 ## [0.3.0] - 2026-10-01
 

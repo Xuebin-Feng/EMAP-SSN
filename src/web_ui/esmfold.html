@@ -114,7 +114,7 @@
             async function processPendingStructures() {
                 for (const struct of pendingStructures) {
                     showStatus(`Processing queued structure: ${struct.node_id}...`, 0);
-                    await loadAndAlignStructure(struct.pdb_url, struct.node_id);
+                    await enqueueStructure(struct.pdb_url, struct.node_id);
                 }
                 pendingStructures = [];
             }
@@ -142,7 +142,7 @@
                             pendingStructures.push({ pdb_url, node_id });
                         } else {
                             showStatus(`New structure received: ${node_id}. Loading...`, 0);
-                            await loadAndAlignStructure(pdb_url, node_id);
+                            await enqueueStructure(pdb_url, node_id);
                         }
                     }
                 } catch (e) {
@@ -158,6 +158,296 @@
                 console.error("SSE Connection Error:", err);
                 showStatus("Lost connection to EMAP-SSN Viewer. Retrying...");
             };
+        }
+
+        // Mol* 5.10.1 keeps its Superposition panel's algorithms private, so the
+        // page superposes structures itself: a BLOSUM62 sequence alignment pairs
+        // the CA atoms, a least-squares fit superposes them, and the matrix is
+        // applied with the public TransformStructureConformation transform, the
+        // same state node the panel creates, so saved sessions keep the pose.
+        const AMINO_ACIDS = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+                             'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'];
+        // BLOSUM62 scores, rows and columns in AMINO_ACIDS order
+        const BLOSUM62 = [
+        //   A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V
+             4, -1, -2, -2,  0, -1, -1,  0, -2, -1, -1, -1, -1, -2, -1,  1,  0, -3, -2,  0, // A
+            -1,  5,  0, -2, -3,  1,  0, -2,  0, -3, -2,  2, -1, -3, -2, -1, -1, -3, -2, -3, // R
+            -2,  0,  6,  1, -3,  0,  0,  0,  1, -3, -3,  0, -2, -3, -2,  1,  0, -4, -2, -3, // N
+            -2, -2,  1,  6, -3,  0,  2, -1, -1, -3, -4, -1, -3, -3, -1,  0, -1, -4, -3, -3, // D
+             0, -3, -3, -3,  9, -3, -4, -3, -3, -1, -1, -3, -1, -2, -3, -1, -1, -2, -2, -1, // C
+            -1,  1,  0,  0, -3,  5,  2, -2,  0, -3, -2,  1,  0, -3, -1,  0, -1, -2, -1, -2, // Q
+            -1,  0,  0,  2, -4,  2,  5, -2,  0, -3, -3,  1, -2, -3, -1,  0, -1, -3, -2, -2, // E
+             0, -2,  0, -1, -3, -2, -2,  6, -2, -4, -4, -2, -3, -3, -2,  0, -2, -2, -3, -3, // G
+            -2,  0,  1, -1, -3,  0,  0, -2,  8, -3, -3, -1, -2, -1, -2, -1, -2, -2,  2, -3, // H
+            -1, -3, -3, -3, -1, -3, -3, -4, -3,  4,  2, -3,  1,  0, -3, -2, -1, -3, -1,  3, // I
+            -1, -2, -3, -4, -1, -2, -3, -4, -3,  2,  4, -2,  2,  0, -3, -2, -1, -2, -1,  1, // L
+            -1,  2,  0, -1, -3,  1,  1, -2, -1, -3, -2,  5, -1, -3, -1,  0, -1, -3, -2, -2, // K
+            -1, -1, -2, -3, -1,  0, -2, -3, -2,  1,  2, -1,  5,  0, -2, -1, -1, -1, -1,  1, // M
+            -2, -3, -3, -3, -2, -3, -3, -3, -1,  0,  0, -3,  0,  6, -4, -2, -2,  1,  3, -1, // F
+            -1, -2, -2, -1, -3, -1, -1, -2, -2, -3, -3, -1, -2, -4,  7, -1, -1, -4, -3, -2, // P
+             1, -1,  1,  0, -1,  0,  0,  0, -1, -2, -2,  0, -1, -2, -1,  4,  1, -3, -2, -2, // S
+             0, -1,  0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1,  1,  5, -2, -2,  0, // T
+            -3, -3, -4, -4, -2, -2, -3, -2, -2, -3, -2, -3, -1,  1, -4, -3, -2, 11,  2, -3, // W
+            -2, -2, -2, -3, -2, -1, -2, -3,  2, -1, -1, -2, -1,  3, -3, -2, -2,  2,  7, -1, // Y
+             0, -3, -3, -3, -1, -2, -2, -3, -3,  3,  1, -2,  1, -1, -2, -2,  0, -3, -1,  4  // V
+        ];
+
+        // CA atoms of standard amino acids in chain order: residue codes
+        // (indices into AMINO_ACIDS) and coordinates.
+        function readCaTrace(structure) {
+            const { StructureElement, StructureProperties, Unit } = molstar.lib.structure;
+            const { atom, residue } = StructureProperties;
+            const location = StructureElement.Location.create(structure);
+            const codes = [];
+            const coords = [];
+            for (const unit of structure.units) {
+                if (!Unit.isAtomic(unit)) continue;
+                location.unit = unit;
+                let lastResidue = -1;
+                for (const element of unit.elements) {
+                    location.element = element;
+                    if (atom.label_atom_id(location) !== 'CA') continue;
+                    const code = AMINO_ACIDS.indexOf(atom.label_comp_id(location));
+                    const residueIndex = residue.key(location);
+                    // Alternate locations repeat a residue's CA; keep the first.
+                    if (code < 0 || residueIndex === lastResidue) continue;
+                    lastResidue = residueIndex;
+                    codes.push(code);
+                    coords.push([atom.x(location), atom.y(location), atom.z(location)]);
+                }
+            }
+            return { codes, coords };
+        }
+
+        // Global alignment (Gotoh) scored with BLOSUM62 and the gap scores of
+        // Mol*'s own sequence alignment (open -11, extend -1). End gaps are free,
+        // so different termini do not shift the core. Returns aligned index pairs.
+        function alignSequences(a, b) {
+            const OPEN = -11, EXTEND = -1, NONE = -1e9;
+            const n = a.length, m = b.length, width = m + 1;
+            // Per cell: bits 0-1 hold the best move into it (0 pair, 1 gap in b,
+            // 2 gap in a); bits 2 and 3 mark a gap in b or in a being extended.
+            const trace = new Uint8Array((n + 1) * width);
+            let previous = new Float64Array(width);
+            let current = new Float64Array(width);
+            const gapInB = new Float64Array(width).fill(NONE);
+            let best = -Infinity, bestI = 0, bestJ = 0;
+            for (let i = 1; i <= n; i++) {
+                const row = a[i - 1] * AMINO_ACIDS.length;
+                let gapInA = NONE;
+                current[0] = 0;
+                for (let j = 1; j <= m; j++) {
+                    let move = 0;
+                    if (gapInB[j] + EXTEND > previous[j] + OPEN) {
+                        gapInB[j] += EXTEND;
+                        move |= 4;
+                    } else {
+                        gapInB[j] = previous[j] + OPEN;
+                    }
+                    if (gapInA + EXTEND > current[j - 1] + OPEN) {
+                        gapInA += EXTEND;
+                        move |= 8;
+                    } else {
+                        gapInA = current[j - 1] + OPEN;
+                    }
+                    let score = previous[j - 1] + BLOSUM62[row + b[j - 1]];
+                    if (gapInB[j] > score) {
+                        score = gapInB[j];
+                        move |= 1;
+                    }
+                    if (gapInA > score) {
+                        score = gapInA;
+                        move = (move & 12) | 2;
+                    }
+                    current[j] = score;
+                    trace[i * width + j] = move;
+                }
+                if (current[m] > best) {
+                    best = current[m];
+                    bestI = i;
+                    bestJ = m;
+                }
+                [previous, current] = [current, previous];
+            }
+            for (let j = 0; j <= m; j++) {
+                if (previous[j] > best) {
+                    best = previous[j];
+                    bestI = n;
+                    bestJ = j;
+                }
+            }
+            const pairs = [];
+            let i = bestI, j = bestJ, state = 0;
+            while (i > 0 && j > 0) {
+                const move = trace[i * width + j];
+                if (state === 0) {
+                    state = move & 3;
+                    if (state === 0) pairs.push([--i, --j]);
+                } else if (state === 1) {
+                    state = move & 4 ? 1 : 0;
+                    i--;
+                } else {
+                    state = move & 8 ? 2 : 0;
+                    j--;
+                }
+            }
+            return pairs.reverse();
+        }
+
+        // Eigenvectors (as columns) of a symmetric matrix by cyclic Jacobi
+        // rotations; `a` is diagonalized in place, leaving the eigenvalues.
+        function jacobiEigenvectors(a) {
+            const n = a.length;
+            const v = a.map((row, i) => row.map((_, j) => (i === j ? 1 : 0)));
+            const scale = a.flat().reduce((sum, value) => sum + value * value, 0);
+            for (let sweep = 0; sweep < 50; sweep++) {
+                let off = 0;
+                for (let p = 0; p < n; p++) {
+                    for (let q = p + 1; q < n; q++) off += a[p][q] * a[p][q];
+                }
+                if (off <= 1e-24 * scale) break;
+                for (let p = 0; p < n - 1; p++) {
+                    for (let q = p + 1; q < n; q++) {
+                        if (a[p][q] === 0) continue;
+                        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+                        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+                        const c = 1 / Math.sqrt(t * t + 1);
+                        const s = t * c;
+                        for (const matrix of [a, v]) {
+                            for (let k = 0; k < n; k++) {
+                                const kp = matrix[k][p], kq = matrix[k][q];
+                                matrix[k][p] = c * kp - s * kq;
+                                matrix[k][q] = s * kp + c * kq;
+                            }
+                        }
+                        for (let k = 0; k < n; k++) {
+                            const pk = a[p][k], qk = a[q][k];
+                            a[p][k] = c * pk - s * qk;
+                            a[q][k] = s * pk + c * qk;
+                        }
+                    }
+                }
+            }
+            return v;
+        }
+
+        function squaredDistance({ rotation, translation }, point, target) {
+            let sum = 0;
+            for (let r = 0; r < 3; r++) {
+                const d = rotation[r][0] * point[0] + rotation[r][1] * point[1]
+                    + rotation[r][2] * point[2] + translation[r] - target[r];
+                sum += d * d;
+            }
+            return sum;
+        }
+
+        // Least-squares rotation and translation taking `moving` onto `fixed`
+        // (Horn's unit-quaternion method), with the RMSD of the fit.
+        function fitPairs(fixed, moving) {
+            const n = fixed.length;
+            const fixedCenter = [0, 0, 0], movingCenter = [0, 0, 0];
+            for (let k = 0; k < n; k++) {
+                for (let d = 0; d < 3; d++) {
+                    fixedCenter[d] += fixed[k][d] / n;
+                    movingCenter[d] += moving[k][d] / n;
+                }
+            }
+            // S[r][c]: sum over pairs of centered moving[r] * centered fixed[c]
+            const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+            for (let k = 0; k < n; k++) {
+                for (let r = 0; r < 3; r++) {
+                    const m = moving[k][r] - movingCenter[r];
+                    for (let c = 0; c < 3; c++) S[r][c] += m * (fixed[k][c] - fixedCenter[c]);
+                }
+            }
+            const [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = S;
+            const N = [
+                [xx + yy + zz, yz - zy, zx - xz, xy - yx],
+                [yz - zy, xx - yy - zz, xy + yx, zx + xz],
+                [zx - xz, xy + yx, yy - xx - zz, yz + zy],
+                [xy - yx, zx + xz, yz + zy, zz - xx - yy]
+            ];
+            const vectors = jacobiEigenvectors(N);
+            let top = 0;
+            for (let k = 1; k < 4; k++) {
+                if (N[k][k] > N[top][top]) top = k;
+            }
+            const [w, x, y, z] = vectors.map(row => row[top]);
+            const rotation = [
+                [w * w + x * x - y * y - z * z, 2 * (x * y - w * z), 2 * (x * z + w * y)],
+                [2 * (x * y + w * z), w * w - x * x + y * y - z * z, 2 * (y * z - w * x)],
+                [2 * (x * z - w * y), 2 * (y * z + w * x), w * w - x * x - y * y + z * z]
+            ];
+            const translation = fixedCenter.map((center, r) => center
+                - rotation[r][0] * movingCenter[0] - rotation[r][1] * movingCenter[1]
+                - rotation[r][2] * movingCenter[2]);
+            const fit = { rotation, translation };
+            let sum = 0;
+            for (let k = 0; k < n; k++) sum += squaredDistance(fit, moving[k], fixed[k]);
+            fit.rmsd = Math.sqrt(sum / n);
+            return fit;
+        }
+
+        // Fits the CA pairs, then, like PyMOL's align, refits up to five times
+        // without pairs deviating by more than twice the RMSD, so that floppy
+        // termini and loops do not pull the conserved core apart. Pairs within
+        // 0.5 A are always kept, so coordinate noise is never rejected.
+        function superposePairs(fixed, moving) {
+            let kept = fixed.map((_, k) => k);
+            let fit = fitPairs(fixed, moving);
+            for (let cycle = 0; cycle < 5; cycle++) {
+                const limit = Math.max(4 * fit.rmsd * fit.rmsd, 0.25);
+                const next = kept.filter(k => squaredDistance(fit, moving[k], fixed[k]) <= limit);
+                if (next.length === kept.length || next.length < 3) break;
+                kept = next;
+                fit = fitPairs(kept.map(k => fixed[k]), kept.map(k => moving[k]));
+            }
+            fit.used = kept.length;
+            return fit;
+        }
+
+        // Moves `structure` (a hierarchy StructureRef) by inserting a Transform
+        // Conformation node above its components, or updating the one it has.
+        async function applyStructureTransform(structure, matrix) {
+            const transformer = molstar.lib.plugin.StateTransforms.Model.TransformStructureConformation;
+            const state = plugin.state.data;
+            const params = { transform: { name: 'matrix', params: { data: matrix, transpose: false } } };
+            const existing = state.selectQ(q => q.byRef(structure.cell.transform.ref).subtree().withTransformer(transformer))[0];
+            const update = existing
+                ? state.build().to(existing).update(params)
+                : state.build().to(structure.cell).insert(transformer, params, { tags: 'SuperpositionTransform' });
+            await plugin.runTask(state.updateTree(update));
+        }
+
+        // Superposes the target structure onto the pivot as currently displayed.
+        async function superposeOnto(pivot, target) {
+            const fixedStructure = (pivot.transform || pivot).cell.obj?.data;
+            const movingStructure = target.cell.obj?.data;
+            if (!fixedStructure || !movingStructure) throw new Error('structure data is not loaded');
+            const a = readCaTrace(fixedStructure);
+            const b = readCaTrace(movingStructure);
+            const pairs = alignSequences(a.codes, b.codes);
+            if (pairs.length < 3) throw new Error(`only ${pairs.length} CA atoms could be paired`);
+            const fit = superposePairs(pairs.map(([i]) => a.coords[i]), pairs.map(([, j]) => b.coords[j]));
+            const { Mat4 } = molstar.lib.math.LinearAlgebra;
+            const matrix = Mat4.identity();
+            fit.rotation.forEach((row, r) => {
+                row.forEach((value, c) => Mat4.setValue(matrix, r, c, value));
+                Mat4.setValue(matrix, r, 3, fit.translation[r]);
+            });
+            await applyStructureTransform(target, matrix);
+            const identical = pairs.filter(([i, j]) => a.codes[i] === b.codes[j]).length;
+            return { rmsd: fit.rmsd, used: fit.used, aligned: pairs.length, identity: identical / pairs.length };
+        }
+
+        // Structures load one at a time, so each load aligns the structure it
+        // added (the newest) even when fold events arrive back to back.
+        let structureQueue = Promise.resolve();
+        function enqueueStructure(url, label) {
+            structureQueue = structureQueue
+                .then(() => loadAndAlignStructure(url, label))
+                .catch(err => console.error("Error loading structure:", err));
+            return structureQueue;
         }
 
         // Load structure, apply cartoon/pLDDT coloring, align to pivot, and auto-save
@@ -191,13 +481,12 @@
                     showStatus(`Aligning ${label} to pivot structure...`, 0);
                     plugin.log.info(`Aligning ${label} to pivot structure...`);
                     const pivot = structures[0];
-                    const target = [structures[structures.length - 1]];
-                    
-                    // Call the built-in structural superposition/alignment manager if supported
+                    const target = structures[structures.length - 1];
+
                     try {
-                        await plugin.managers.structure.orientation.align(target, { pivot: pivot });
+                        const fit = await superposeOnto(pivot, target);
                         showStatus(`Loaded and aligned ${label}.`);
-                        plugin.log.info(`Successfully loaded and aligned ${label}.`);
+                        plugin.log.info(`Successfully loaded and aligned ${label}: RMSD ${fit.rmsd.toFixed(2)} \u00C5 over ${fit.used} of ${fit.aligned} aligned CA pairs (${Math.round(100 * fit.identity)}% sequence identity).`);
                     } catch (alignErr) {
                         console.warn("Structural alignment skipped/failed: ", alignErr);
                         plugin.log.warn(`Structural alignment skipped/failed: ${alignErr.message}`);

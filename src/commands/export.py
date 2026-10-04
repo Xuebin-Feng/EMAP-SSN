@@ -19,6 +19,7 @@ import re
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Desktop_App import open_in_file_manager
+from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import write_fasta_atomic
 
 SEQUENCE_EXPORT_DIRECTORY = os.path.join(
@@ -44,6 +45,26 @@ def _get_in_memory_sequence_records(viewer):
         if header in sequence_map
     }
 
+
+def _refused_output_name(viewer, name, source):
+    """Report `source` and return True unless `name` is a plain file name.
+
+    Group labels and clustering parameters become export file and folder
+    names. The group and cluster commands never produce a path, but a layout
+    cache restores whatever labels and parameters it carries, and os.path.join
+    drops the export folder for an absolute name or climbs out of it through
+    '..'. The name checked is the one written, so a group named '..' still
+    exports as '...fasta'.
+    """
+    try:
+        validate_output_basename(name)
+    except ValueError as error:
+        msg = f"Error: Export refused {source}: {error}"
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
+        return True
+    return False
+
 def print_help():
     print("""
     FASTA Export Tool
@@ -55,6 +76,9 @@ def print_help():
       Extracts sanitized sequence subsets from the currently active viewer state and
       saves them as standalone .fasta files. Files are automatically routed to strictly
       organized subdirectories beneath the configured Analysis Results directory.
+      Group labels become file names and clustering parameters a folder name; if one
+      would be a path (as a hand-edited layout cache can carry), the export is
+      refused and nothing is written.
       
     [TARGET] Arguments (Default: clusters):
       clusters : Exports sequences based on their assigned topology cluster ID. 
@@ -224,6 +248,11 @@ def run(viewer, args):
                 lvl2_name = f"{lvl2_name_base}_{c_mode_param}_Min{c_min_param}"
             else:
                 lvl2_name = f"{c_mode_param}_Min{c_min_param}"
+            if _refused_output_name(
+                viewer, lvl2_name,
+                f"clustering parameters ({c_mode_param}, {c_min_param})",
+            ):
+                return
         else:
             lvl2_name = lvl2_name_base
     else:
@@ -266,7 +295,10 @@ def run(viewer, args):
             if i >= len(viewer.group_labels): continue
             for g_name in viewer.group_labels[i]:
                 file_name = f"{g_name}.fasta"
-                if file_name not in file_map: file_map[file_name] = []
+                if file_name not in file_map:
+                    if _refused_output_name(viewer, file_name, f"group label '{g_name}'"):
+                        return
+                    file_map[file_name] = []
                 file_map[file_name].append(record)
                 
     if target_mode == "specific":
@@ -278,6 +310,8 @@ def run(viewer, args):
                 filename = "Noise.fasta"
             else:
                 filename = f"{target.name}.fasta"
+                if _refused_output_name(viewer, filename, f"group label '{target.name}'"):
+                    return
             target_mask = Command_Engine.evaluate_label_mask(
                 viewer.full_headers,
                 getattr(viewer, 'cluster_labels', None),

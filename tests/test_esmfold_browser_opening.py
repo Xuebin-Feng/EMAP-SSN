@@ -20,6 +20,13 @@ plugin_manager_stub.ensure_registry = mock.Mock()
 cache_selection_stub = types.ModuleType("desktop.Viewer_State")
 cache_selection_stub.resolve_selected_cache = mock.Mock()
 
+# Preload the backend's real dependencies before restoring sys.modules around
+# the stubs. Otherwise a web_ui package imported earlier keeps the removed
+# Browser_Page as an attribute, and `from web_ui import Browser_Page` returns
+# a copy whose webbrowser module mock.patch("webbrowser.open") cannot reach.
+import json  # noqa: E402,F401
+import web_ui.Browser_Page  # noqa: E402,F401
+
 spec = importlib.util.spec_from_file_location("esmfold_backend_under_test", BACKEND_PATH)
 esmfold_backend = importlib.util.module_from_spec(spec)
 with mock.patch.dict(

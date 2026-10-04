@@ -1423,6 +1423,7 @@
                     <li><strong>groups / group:</strong> Run as <code>export groups</code>. Generates a separate <code>.fasta</code> file for every custom group label currently defined in the session.</li>
                     <li><strong>#LABEL#:</strong> Exports one specific custom group, topology cluster, or noise subset. Repeat and mix label targets as needed (for example, <code>export #kinase# #cluster_1# #noise#</code>); repeated labels are deduplicated.</li>
                     <li><strong>Validation:</strong> All labels are resolved before any output is created. All-target modes cannot be mixed with specific labels, ambiguous cluster/group names are rejected, and the former <code>group:NAME</code> syntax is no longer accepted.</li>
+                    <li><strong>Output Names:</strong> Group labels name the files and the clustering parameters name the cluster folder. If one would be a path or contains a character Windows does not allow in file names, which only a hand-edited layout cache can carry, the export is refused with that label or those parameters named, and nothing is written.</li>
                 </ul>
 
                 <div class="subheading">Fidelity &amp; Routing</div>
