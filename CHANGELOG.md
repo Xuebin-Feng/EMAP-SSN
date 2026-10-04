@@ -50,6 +50,13 @@ still change before version 1.0.0.
   4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the
   test machine, and edge drawing from 5.9 s to 0.15 s. Layout generation shares the
   faster network preparation; cutoffs are unchanged.
+- Less memory while the Viewer, the VR viewer and layout generation read a network.
+  Only the columns the settings use are read: the alignment-length column only for
+  `alignment_length` normalization. Scores are also normalized without a second
+  full-size copy. On the same network (83.5 million pairs), peak memory during loading
+  fell from 1,519 to 1,201 MiB with global scores and alignment-length normalization,
+  and from 1,998 to 1,520 MiB with local scores normalized by the shorter sequence.
+  Scores, cutoffs and edges are unchanged.
 - The ESM3 structure worker no longer notifies a Viewer unless `--action-url` is
   given (it used to post to port 8000), and deletes its input JSON only with the new
   `--delete-input`, which the Viewer's `esmfold` command passes. PDB files are written
@@ -76,6 +83,14 @@ still change before version 1.0.0.
   the Viewer's Qt thread was busy also stopped the launch; the probe is now retried.
 - MCP pipeline jobs inherited the server's standard input, which carries the MCP
   protocol; a job that prompted for input could consume protocol messages.
+- On Linux and macOS, a normal-mode MCP `start_session` ran its terminal program on the
+  server's own standard streams: it inherited the MCP protocol's input and output, and
+  its errors (an emulator's "cannot open display", or macOS refusing control of
+  Terminal) never reached the launch logs. A terminal that could not start the Viewer
+  therefore surfaced only as a timeout. The terminal program now gets no input and
+  writes to the launch's `stderr.log`. A launch fails, with that output, as soon as its
+  terminal exits with an error, or 60 s after it started when its terminal exited
+  cleanly without starting the Viewer.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
   that headless Viewers cannot render on Windows and that normal mode can.

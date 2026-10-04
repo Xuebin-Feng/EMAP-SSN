@@ -303,6 +303,27 @@ class TerminalPolicyTests(unittest.TestCase):
             ["/mock/terminal"], cwd=str(PROJECT_ROOT), env=environment
         )
 
+    def test_launch_forwards_supplied_standard_streams(self):
+        log = object()
+        with mock.patch.object(
+            launcher, "_build_linux_argv", return_value=["/mock/terminal"]
+        ), mock.patch.object(launcher.subprocess, "Popen") as popen:
+            launcher.launch_in_terminal(
+                ["python", "worker.py"],
+                cwd=PROJECT_ROOT,
+                platform_name="linux",
+                stdin=launcher.subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+            )
+        popen.assert_called_once_with(
+            ["/mock/terminal"],
+            cwd=str(PROJECT_ROOT),
+            stdin=launcher.subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
+        )
+
 
 class CallerIntegrationTests(unittest.TestCase):
     def test_python_callers_use_shared_helper_without_terminal_lists(self):

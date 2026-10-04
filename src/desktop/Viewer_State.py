@@ -605,6 +605,11 @@ def resolve_selected_cache(settings, *, layout_dimensions=None):
 # 5. Network Preparation (Filtering, Thresholding, UMAP)
 # =====================================================================
 
+_SEQUENCE_LENGTH_NORMALIZATIONS = frozenset(
+    {"shorter_sequence", "longer_sequence", "average_sequence"}
+)
+
+
 def _normalize_score(raw_score, align_len, len_i, len_j, mode):
     if mode == "alignment_length":
         denominator = align_len
@@ -617,7 +622,49 @@ def _normalize_score(raw_score, align_len, len_i, len_j, mode):
     else:
         denominator = align_len
 
-    return np.where(denominator > 0, raw_score / denominator, 0.0)
+    # Divide only where the denominator is positive and zero the rest, as
+    # np.where(denominator > 0, raw_score / denominator, 0.0) did, without
+    # holding its full quotient and its result at once (one score-sized
+    # array per pair, ~320 MiB at 83 million pairs). The explicit out=None
+    # tells NumPy the skipped pairs are filled below, which it otherwise
+    # warns about.
+    positive = denominator > 0
+    scores = np.divide(raw_score, denominator, out=None, where=positive)
+    skipped = np.logical_not(positive, out=positive)  # reuses the mask's memory
+    scores[skipped] = 0.0
+    return scores
+
+
+def _read_pair_scores(data, settings, pair_mask, valid_sources, valid_targets):
+    """Return the normalized score of each pair that ``pair_mask`` keeps.
+
+    Reads only the per-pair columns the settings use: the alignment-length
+    column only when the normalization divides by it, and never the other
+    score type's pair. Its own frame releases the full-length columns before
+    the caller ranks and thresholds the scores.
+    """
+    if settings.INPUT_IS_EVALUE:
+        return data["score"][:][pair_mask]
+
+    if settings.ALIGNMENT_SCORE == "global":
+        score_name, length_name = "g_score", "g_len"
+    else:
+        score_name, length_name = "l_score", "l_len"
+    raw_scores = data[score_name][:][pair_mask]
+    alignment_lengths = source_lengths = target_lengths = None
+    if settings.NORM_MODE in _SEQUENCE_LENGTH_NORMALIZATIONS:
+        sequence_lengths = data["seq_lens"][:]
+        source_lengths = sequence_lengths[valid_sources]
+        target_lengths = sequence_lengths[valid_targets]
+    else:
+        alignment_lengths = data[length_name][:][pair_mask]
+    return _normalize_score(
+        raw_scores,
+        alignment_lengths,
+        source_lengths,
+        target_lengths,
+        settings.NORM_MODE,
+    )
 
 
 def prepare_network(data, *, settings, selected_fasta_headers=None):
@@ -634,16 +681,6 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
 
     sources = data["i"][:]
     targets = data["j"][:]
-    if settings.INPUT_IS_EVALUE:
-        scores = data["score"][:]
-    else:
-        sequence_lengths = data["seq_lens"][:]
-        if settings.ALIGNMENT_SCORE == "global":
-            alignment_scores = data["g_score"][:]
-            alignment_lengths = data["g_len"][:]
-        else:
-            alignment_scores = data["l_score"][:]
-            alignment_lengths = data["l_len"][:]
 
     print(f"Raw Data: {total_nodes} sequences.")
     if not settings.INPUT_IS_EVALUE:
@@ -722,22 +759,9 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
         valid_edges_mask = kept_mask[sources] & kept_mask[targets]
     valid_sources = sources[valid_edges_mask]
     valid_targets = targets[valid_edges_mask]
-    if settings.INPUT_IS_EVALUE:
-        valid_scores = scores[valid_edges_mask]
-    else:
-        valid_raw_scores = alignment_scores[valid_edges_mask]
-        valid_alignment_lengths = alignment_lengths[valid_edges_mask]
-        source_lengths = target_lengths = None
-        if settings.NORM_MODE in {"shorter_sequence", "longer_sequence", "average_sequence"}:
-            source_lengths = sequence_lengths[valid_sources]
-            target_lengths = sequence_lengths[valid_targets]
-        valid_scores = _normalize_score(
-            valid_raw_scores,
-            valid_alignment_lengths,
-            source_lengths,
-            target_lengths,
-            settings.NORM_MODE,
-        )
+    valid_scores = _read_pair_scores(
+        data, settings, valid_edges_mask, valid_sources, valid_targets
+    )
 
     top_percent = getattr(settings, "TOP_EDGE_PERCENT", None)
     if top_percent is not None and not getattr(settings, "UMAP_MODE", False):

@@ -77,10 +77,48 @@ def _recorded_process(path):
     return None
 
 
-def _terminal_alive(directory):
-    """A normal launch lives until its terminal wrapper's recorded process exits."""
-    path = directory / "terminal-process.json"
-    return not path.exists() or _recorded_process(path) is not None
+# Viewer_Terminal.py records itself before anything else, so a normal POSIX
+# launch whose terminal command has exited and still has not run it this long
+# after the launch started never will.
+TERMINAL_START_GRACE = 60.0
+
+
+def _terminal_alive(directory, started_epoch, terminal=None):
+    """Whether a normal POSIX launch can still become ready.
+
+    Once the terminal wrapper records itself, the launch lives until that
+    process exits. Before then the terminal command (``terminal``, when this
+    process started it, else the process ``process.json`` records) may still
+    start the wrapper; macOS's osascript waits there while the user is asked to
+    allow control of Terminal. A command that failed, as an emulator without a
+    display or osascript refused that control does, raises MCPViewerError. One
+    that exited cleanly, as emulators handing their window to a running server
+    do, leaves TERMINAL_START_GRACE seconds from the launch's start.
+    """
+    if terminal is not None:
+        code = terminal.poll()
+    else:
+        code = None if _recorded_process(directory / "process.json") is not None else 0
+    # Checked after the command, so a wrapper that recorded itself as the
+    # command exited is not mistaken for one that never started.
+    identity = directory / "terminal-process.json"
+    if identity.exists():
+        return _recorded_process(identity) is not None
+    if code is None:
+        return True
+    if code != 0:
+        raise MCPViewerError(
+            f"The terminal command exited with code {code} before starting the Viewer. "
+            "Normal mode needs a desktop session (on macOS, permission to control "
+            "Terminal); use headless mode without one."
+        )
+    if time.time() - started_epoch < TERMINAL_START_GRACE:
+        return True
+    raise MCPViewerError(
+        f"No terminal started the Viewer within {TERMINAL_START_GRACE:.0f} s of the launch. "
+        "Normal mode needs a desktop session with a working terminal emulator; "
+        "use headless mode without one."
+    )
 
 
 def _launch_progress(directory):
@@ -300,7 +338,12 @@ class MCPViewerClient:
             with stdout_path.open("ab", buffering=0) as out, stderr_path.open("ab", buffering=0) as err:
                 if mode == "normal" and sys.platform != "win32":
                     from utilities.Terminal_Launcher import launch_in_terminal
-                    proc = launch_in_terminal(command, cwd=self.project_root, env=env)
+                    # The terminal command's own output, such as an emulator's
+                    # "cannot open display" or osascript refused control of
+                    # Terminal, belongs in the launch log. This server's stdin and
+                    # stdout carry the MCP protocol, so the command gets neither.
+                    proc = launch_in_terminal(command, cwd=self.project_root, env=env,
+                                              stdin=subprocess.DEVNULL, stdout=err, stderr=err)
                 else:
                     proc = subprocess.Popen(command, cwd=self.project_root, env=env, stdin=subprocess.DEVNULL,
                                             stdout=out, stderr=err, **options)
@@ -314,7 +357,9 @@ class MCPViewerClient:
                 if root_process is None or root_process.create_time() != identity["created"]:
                     raise MCPViewerError("Independent Viewer launcher exited before readiness; "
                                          f"last output: {_launch_progress(directory)[0]!r}.")
-            elif mode == "headless" and root_process is not None:
+            elif root_process is not None:
+                # The headless Viewer launcher, or the terminal command that starts
+                # a normal one; wait_session and close_session reach it through this.
                 identity_path.write_text(json.dumps({"pid": proc.pid, "created": root_process.create_time()}))
             if sys.platform == "win32" or mode == "headless":
                 owner = root_process
@@ -323,7 +368,7 @@ class MCPViewerClient:
             else:
                 owner = None  # root_process is the terminal emulator, not the Viewer.
                 def alive():
-                    return _terminal_alive(directory)
+                    return _terminal_alive(directory, launch["started_epoch"], terminal=proc)
             # Only a POSIX headless Popen is the Viewer itself; on Windows it is the broker.
             child = proc if mode == "headless" and sys.platform != "win32" else None
             result = await self._await_launch(directory, launch, alive, timeout, owner=owner, child=child)
@@ -446,7 +491,7 @@ class MCPViewerClient:
                 return owner is not None and _alive(owner)
         else:
             def alive():
-                return _terminal_alive(directory)
+                return _terminal_alive(directory, launch["started_epoch"])
         # An already-ready Viewer is found by its launch_id even after the launcher exits.
         try:
             return await self._await_launch(directory, launch, alive, timeout, owner=owner)

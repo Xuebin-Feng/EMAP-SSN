@@ -367,6 +367,81 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(f"creationflags=subprocess.{child_flag}", broker_code)
                 self.assertNotIn("DETACHED_PROCESS", broker_code)
 
+    def _use_posix_terminal(self, script):
+        """Route normal launches through the Linux/macOS terminal path to ``script``.
+
+        The stand-in terminal command runs ``script`` and never the Viewer, as an
+        emulator without a display or osascript refused control of Terminal does.
+        Returns the client and its session root.
+        """
+        from types import SimpleNamespace
+        from mcp_server.viewer import Viewer_Client
+
+        terminals = []
+
+        def launch_in_terminal(command, *, cwd, env, **streams):
+            terminals.append(subprocess.Popen([sys.executable, "-c", script], cwd=cwd, env=env, **streams))
+            return terminals[-1]
+
+        def stop_terminals():
+            for terminal in terminals:
+                if terminal.poll() is None:
+                    terminal.kill()
+                terminal.wait(timeout=10)
+
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.addCleanup(stop_terminals)  # before the directory is removed
+        self.enterContext(mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}))
+        self.enterContext(mock.patch.object(Viewer_Client, "validate_viewer_document",
+                                            return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}))
+        # A stand-in sys selects the POSIX branch on every host, leaving the real one alone.
+        self.enterContext(mock.patch.object(Viewer_Client, "sys",
+                                            SimpleNamespace(platform="linux", executable=sys.executable)))
+        self.enterContext(mock.patch("utilities.Terminal_Launcher.launch_in_terminal", launch_in_terminal))
+        return MCPViewerClient(root), root
+
+    async def test_posix_terminal_that_fails_is_an_error_with_its_output(self):
+        # Until 2026-10-04 such a launch was handed off as "starting", and every
+        # wait_session said the same, although nothing was running.
+        client, root = self._use_posix_terminal(
+            "import sys,time; print('cannot open display', file=sys.stderr, flush=True); "
+            "time.sleep(0.5); sys.exit(1)"
+        )
+        with self.assertRaisesRegex(MCPViewerError,
+                                    r"(?s)exited with code 1 before starting the Viewer.*cannot open display"):
+            await client.launch_session(settings_document={}, mode="normal", timeout=10)
+        directory = next((root / "sessions" / "launches").iterdir())
+        self.assertFalse((directory / "settings.json").exists())
+
+    async def test_posix_terminal_that_exits_cleanly_without_the_viewer_times_out(self):
+        # Emulators that hand their window to a running server exit 0 at once,
+        # so only the wrapper's identity file can show the Viewer started.
+        from mcp_server.viewer import Viewer_Client
+
+        client, _root = self._use_posix_terminal("pass")
+        started = await client.launch_session(settings_document={}, mode="normal", timeout=0.3)
+        self.assertEqual(started["status"], "starting")
+        with mock.patch.object(Viewer_Client, "TERMINAL_START_GRACE", 0), \
+                self.assertRaisesRegex(MCPViewerError, "No terminal started the Viewer within 0 s"):
+            await client.wait_for_launch(started["launch_id"], timeout=10)
+
+    async def test_posix_terminal_still_running_keeps_the_launch_until_closed(self):
+        # macOS's osascript waits while the user is asked to allow control of
+        # Terminal; that wait is not a failure, and close_session must stop it.
+        from mcp_server.viewer import Viewer_Client
+
+        client, root = self._use_posix_terminal("import time; time.sleep(60)")
+        with mock.patch.object(Viewer_Client, "TERMINAL_START_GRACE", 0):
+            started = await client.launch_session(settings_document={}, mode="normal", timeout=0.5)
+            self.assertEqual(started["status"], "starting")
+            waited = await client.wait_for_launch(started["launch_id"], timeout=0.5)
+            self.assertEqual(waited["status"], "starting")
+        directory = root / "sessions" / "launches" / started["launch_id"]
+        terminal = json.loads((directory / "process.json").read_text())
+        closed = await client.close_session(launch_id=started["launch_id"])
+        self.assertEqual((closed["closed"], closed["pid"]), (True, terminal["pid"]))
+        self.assertFalse(psutil.pid_exists(terminal["pid"]))
+
     async def test_stdio_survival_connection_isolation_and_verified_close(self):
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)

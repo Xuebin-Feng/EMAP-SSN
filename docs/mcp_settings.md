@@ -544,7 +544,13 @@ record beside its logs.
 Normal MCP launches open a visible terminal alongside the Viewer. Both output
 streams are copied to that terminal and retained in the launch logs, including
 native-library output and partial progress lines. Headless launches retain the
-same logs without opening a terminal. `emapssn_viewer_data(action="read_log")` pages either stream using
+same logs without opening a terminal. On Linux and macOS the terminal program's
+own messages go to `stderr_log`, and a terminal that cannot start the Viewer is
+an error: at once when it exits with an error (no display, or on macOS no
+permission to control Terminal), or 60 s after the launch when it exits cleanly
+without starting it. A terminal still running, such as macOS's prompt for that
+permission, keeps the launch `starting`. Use `headless` without a desktop session.
+`emapssn_viewer_data(action="read_log")` pages either stream using
 byte offsets (`stream`, `offset`, and `limit`); use the full session ID to read
 retained output after disconnecting or closing within the same MCP transport.
 

@@ -304,8 +304,17 @@ def launch_in_terminal(
     hold: HoldMode = HoldMode.NEVER,
     title: str | None = None,
     platform_name: str | None = None,
+    stdin=None,
+    stdout=None,
+    stderr=None,
 ) -> subprocess.Popen:
-    """Launch ``command`` in a new terminal without flattening its arguments."""
+    """Launch ``command`` in a new terminal without flattening its arguments.
+
+    ``stdin``, ``stdout`` and ``stderr`` go to ``subprocess.Popen``. On Linux
+    and macOS they are the terminal program's own streams (its diagnostics),
+    while ``command`` runs on the new terminal's own console. On Windows the
+    command inherits them in place of the new console.
+    """
 
     normalized = _normalize_command(command)
     hold = HoldMode(hold)
@@ -315,6 +324,9 @@ def launch_in_terminal(
     popen_kwargs: dict[str, object] = {"cwd": cwd_text}
     if env is not None:
         popen_kwargs["env"] = dict(env)
+    for name, stream in (("stdin", stdin), ("stdout", stdout), ("stderr", stderr)):
+        if stream is not None:
+            popen_kwargs[name] = stream
 
     if platform_name == "win32":
         argv = _build_windows_argv(normalized, hold, title)
