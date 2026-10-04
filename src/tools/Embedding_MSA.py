@@ -199,7 +199,7 @@ import re
 
 
 class MSAConfigurationError(ValueError):
-    """Raised when the MSA utility cannot resolve its configured inputs."""
+    """Raised when the MSA utility cannot resolve its configured inputs or settings."""
 
 
 def _embedding_sequence_set(input_embed):
@@ -213,6 +213,20 @@ def _embedding_sequence_set(input_embed):
     if stem.lower().endswith("_embeddings"):
         stem = stem[:-len("_embeddings")]
     return stem
+
+
+def validate_score_normalization(alignment_score, normalization_mode):
+    """Reject normalizing local scores by their own alignment length.
+
+    The Tools window, the Viewer and layout generation forbid this pairing too:
+    dividing a local score by its own path length rewards short local matches
+    however little of either sequence they cover.
+    """
+    if alignment_score == "local" and normalization_mode == "alignment_length":
+        raise MSAConfigurationError(
+            "NORMALIZATION_MODE alignment_length is unavailable for local alignment "
+            "scores; choose shorter_sequence, longer_sequence, or average_sequence."
+        )
 
 
 def resolve_msa_configuration(
@@ -1152,6 +1166,7 @@ def run_msa_builder():
     except RuntimeError: pass
 
     try:
+        validate_score_normalization(ALIGNMENT_SCORE, NORMALIZATION_MODE)
         resolved = resolve_msa_configuration(
             FASTA_DIR,
             EMBED_DIR,

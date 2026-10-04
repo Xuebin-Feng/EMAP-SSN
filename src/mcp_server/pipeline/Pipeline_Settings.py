@@ -86,6 +86,10 @@ def _parameter_schema(tool_id, project_root, *, execution=True):
     rules = [_required_fields(*contract["required"])] if contract["required"] else []
     if tool_id == "embedding_msa":
         rules.append(_when("USE_SEQUENCE_FILTER", True, "INPUT_FASTA"))
+        # As in the Tools window, local scores cannot be normalized by their own alignment length.
+        rules.append({"if": {"properties": {"ALIGNMENT_SCORE": {"const": "local"}}, "required": ["ALIGNMENT_SCORE"]},
+                      "then": {"properties": {"NORMALIZATION_MODE": {
+                          "enum": ["shorter_sequence", "longer_sequence", "average_sequence"]}}}})
     elif tool_id == "sparse_msa_converter":
         rules.append(_when("CONVERT_ALL", False, "INPUT_FASTA"))
     elif tool_id == "embedding_pwa":
@@ -125,6 +129,7 @@ def get_pipeline_schema(tool_id, project_root):
             "validation_notes": ["Defaults are applied before conditional requirements.",
                 "Enabled minimum/maximum length bounds must be ordered; custom BLAST columns must be distinct.",
                 "Tiled execution cannot select CPU; explicit TF32 cannot select a non-CUDA device.",
+                "Local alignment scores cannot use alignment_length normalization.",
                 "Configuration validation does not check file existence, credentials, or hardware readiness.",
                 "Relative directories resolve against the project root; input filenames retain each tool's directory semantics."],
             "example": {"tool_id": tool_id, "parameters": example}}

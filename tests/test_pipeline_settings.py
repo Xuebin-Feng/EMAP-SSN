@@ -130,6 +130,7 @@ class PipelineSettingsTests(unittest.TestCase):
     def test_conditional_requirements_and_combinations(self):
         cases = [
             ("embedding_msa", {"USE_SEQUENCE_FILTER": True}),
+            ("embedding_msa", {"ALIGNMENT_SCORE": "local"}),
             ("embedding_pwa", {"MANUAL_REF_SEQ": False}),
             ("embedding_pwa", {"REF_SEQUENCE": "---"}),
             ("embedding_ssearch", {"MANUAL_QUERY_SEQ": True, "QUERY_SEQUENCE": ""}),
@@ -148,6 +149,13 @@ class PipelineSettingsTests(unittest.TestCase):
                                                 "MIN_SEQ_LENGTH": 10, "MAX_SEQ_LENGTH": 0})["valid"])
         # PWA deliberately defaults blank stored headers to database entries.
         self.assertTrue(self.preview("embedding_pwa", parameters={"INPUT_EMBED": "x.h5"})["valid"])
+        # Local MSA scores need a sequence-length normalization; the default
+        # alignment_length is reported against NORMALIZATION_MODE.
+        msa = get_pipeline_schema("embedding_msa", ROOT)["example"]["parameters"]
+        rejected = self.preview("embedding_msa", parameters={**msa, "ALIGNMENT_SCORE": "local"})
+        self.assertEqual([e["field"] for e in rejected["errors"]], ["parameters.NORMALIZATION_MODE"])
+        self.assertTrue(self.preview("embedding_msa", parameters={
+            **msa, "ALIGNMENT_SCORE": "local", "NORMALIZATION_MODE": "longer_sequence"})["valid"])
 
     def test_exports_preserve_strings_and_plots_and_allow_incomplete_inputs(self):
         values = {"BATCH_SIZE": "500000", "HOST_CACHE_GB": "2.5"}

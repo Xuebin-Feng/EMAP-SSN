@@ -228,6 +228,137 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
         )
         self.assertIn("SHARED_STATUS_TOOLTIP_OK", completed.stdout)
 
+    def test_statistics_read_the_length_column_only_to_divide_by_it(self):
+        # The project root arrives as argv[1], so the script needs no f-string escaping.
+        script = textwrap.dedent(
+            """
+            import os
+            import pathlib
+            import runpy
+            import sys
+            import tempfile
+            from unittest import mock
+
+            import h5py
+            import numpy as np
+
+            os.environ["QT_QPA_PLATFORM"] = "offscreen"
+            src = pathlib.Path(sys.argv[1]) / "src"
+            sys.path.insert(0, str(src))
+
+            from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
+            from PySide6.QtWidgets import QApplication
+            test_app = QApplication.instance() or QApplication([])
+
+            with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
+                sys, "exit", return_value=None
+            ):
+                namespace = runpy.run_path(str(src / "EMAPSSN_Config.py"), run_name="__main__")
+
+            app = namespace["app"]
+            window = namespace["window"]
+            real_file = h5py.File
+            indexed = set()
+
+            class RecordingFile:
+                # An open network that records which datasets the window reads.
+                def __init__(self, *args, **kwargs):
+                    self._file = real_file(*args, **kwargs)
+                    self.attrs = self._file.attrs
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc_info):
+                    self._file.close()
+
+                def __contains__(self, name):
+                    return name in self._file
+
+                def __getitem__(self, name):
+                    indexed.add(name)
+                    return self._file[name]
+
+            class FakeHistogramDialog:
+                def __init__(self, figure, _parent):
+                    self.figure = figure
+
+                def exec(self):
+                    return 0
+
+                def release_figure(self):
+                    self.figure.clear()
+
+                def deleteLater(self):
+                    pass
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                work = pathlib.Path(temp_dir)
+                fasta_path = work / "subset.fasta"
+                network_path = work / "network.h5"
+                fasta_path.write_text(">a\\nAAAA\\n>b\\nAAAT\\n>c\\nAATT\\n", encoding="utf-8")
+                with h5py.File(network_path, "w") as hf:
+                    hf.attrs["model_name"] = "E1_RA"
+                    hf.create_dataset("headers", data=[b"a", b"b", b"c"])
+                    hf.create_dataset("seq_lens", data=np.asarray([4, 4, 4], dtype=np.uint16))
+                    hf.create_dataset("i", data=np.asarray([0, 0, 1], dtype=np.uint16))
+                    hf.create_dataset("j", data=np.asarray([1, 2, 2], dtype=np.uint16))
+                    for name in ("g_score", "l_score"):
+                        hf.create_dataset(name, data=np.asarray([8.0, 6.0, 4.0], dtype=np.float32))
+                    for name in ("g_len", "l_len"):
+                        hf.create_dataset(name, data=np.asarray([4, 4, 4], dtype=np.uint16))
+
+                window.inputs["FASTA_DIR"].setText(str(work))
+                window.inputs["HDF5_DIR"].setText(str(work))
+                window.cb_fasta.clear()
+                window.cb_fasta.addItem(fasta_path.name)
+                window.cb_hdf5.clear()
+                window.cb_hdf5.addItem(network_path.name)
+                method_globals = window.run_histogram.__globals__
+
+                # global/alignment_length is the positive control for the recorder.
+                expected = {
+                    ("local", "longer_sequence"): set(),
+                    ("global", "shorter_sequence"): set(),
+                    ("global", "alignment_length"): {"g_len"},
+                }
+                for (score, normalization), lengths in expected.items():
+                    window.cb_score_mode.setCurrentText(score)
+                    window.cb_norm_mode.setCurrentText(normalization)
+                    assert window.cb_norm_mode.currentText() == normalization, normalization
+                    for run in (window.run_statistics, window.run_histogram):
+                        indexed.clear()
+                        with mock.patch("h5py.File", RecordingFile), mock.patch.dict(
+                            method_globals, {"ScoreHistogramDialog": FakeHistogramDialog}
+                        ):
+                            run()
+                        context = (score, normalization, run.__name__)
+                        assert "successfully" in window.tip_panel.text(), (context, window.tip_panel.text())
+                        assert indexed & {"g_len", "l_len"} == lengths, (context, sorted(indexed))
+
+            window.close()
+            app.processEvents()
+            print("LENGTH_COLUMNS_OK")
+            """
+        )
+        env = os.environ.copy()
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(PROJECT_ROOT)],
+            cwd=PROJECT_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+        )
+        self.assertIn("LENGTH_COLUMNS_OK", completed.stdout)
+
     def test_dialog_and_save_run_lifecycle(self):
         script = textwrap.dedent(
             f"""

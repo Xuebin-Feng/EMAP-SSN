@@ -140,6 +140,40 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
                         input_network=input_network,
                     )
 
+    def test_local_scores_reject_alignment_length_normalization(self):
+        with self.assertRaisesRegex(
+            Embedding_MSA.MSAConfigurationError,
+            "alignment_length is unavailable for local",
+        ):
+            Embedding_MSA.validate_score_normalization("local", "alignment_length")
+        for score, normalization in (
+            ("global", "alignment_length"),
+            ("global", "shorter_sequence"),
+            ("local", "shorter_sequence"),
+            ("local", "longer_sequence"),
+            ("local", "average_sequence"),
+        ):
+            with self.subTest(score=score, normalization=normalization):
+                Embedding_MSA.validate_score_normalization(score, normalization)
+
+    def test_builder_rejects_local_alignment_length_before_opening_files(self):
+        # set_start_method is patched because the builder switches the whole
+        # process to spawn, which would leak into later tests on Linux.
+        with mock.patch.multiple(
+            Embedding_MSA,
+            ALIGNMENT_SCORE="local",
+            NORMALIZATION_MODE="alignment_length",
+            INPUT_EMBED=self.input_embed,
+            INPUT_NETWORK=self.input_network,
+        ), mock.patch.object(Embedding_MSA.mp, "set_start_method"), mock.patch.object(
+            Embedding_MSA.h5py, "File"
+        ) as open_file:
+            with self.assertRaises(SystemExit) as raised:
+                Embedding_MSA.run_msa_builder()
+
+        self.assertIn("alignment_length is unavailable for local", str(raised.exception.code))
+        open_file.assert_not_called()
+
     def test_noncanonical_embedding_name_uses_stem_fallback(self):
         resolved = self.resolve(input_embed="custom_embeddings.h5")
         self.assertEqual(resolved["sequence_set"], "custom")

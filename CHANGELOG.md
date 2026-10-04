@@ -56,7 +56,8 @@ still change before version 1.0.0.
   full-size copy. On the same network (83.5 million pairs), peak memory during loading
   fell from 1,519 to 1,201 MiB with global scores and alignment-length normalization,
   and from 1,998 to 1,520 MiB with local scores normalized by the shorter sequence.
-  Scores, cutoffs and edges are unchanged.
+  Scores, cutoffs and edges are unchanged. The Config window's network statistics and
+  score histogram also skip the alignment-length column when they don't divide by it.
 - The ESM3 structure worker no longer notifies a Viewer unless `--action-url` is
   given (it used to post to port 8000), and deletes its input JSON only with the new
   `--delete-input`, which the Viewer's `esmfold` command passes. PDB files are written
@@ -83,6 +84,12 @@ still change before version 1.0.0.
   the Viewer's Qt thread was busy also stopped the launch; the probe is now retried.
 - MCP pipeline jobs inherited the server's standard input, which carries the MCP
   protocol; a job that prompted for input could consume protocol messages.
+- Embedding MSA run through MCP or a settings file accepted local scores with
+  `alignment_length` normalization, dividing each local score by its own alignment
+  length; the Tools window, the Viewer and layout generation already refuse that
+  pairing. The tool now stops with a configuration error before opening any file, and
+  the MCP `embedding_msa` schema requires `shorter_sequence`, `longer_sequence` or
+  `average_sequence` with local scores.
 - On Linux and macOS, a normal-mode MCP `start_session` ran its terminal program on the
   server's own standard streams: it inherited the MCP protocol's input and output, and
   its errors (an emulator's "cannot open display", or macOS refusing control of
