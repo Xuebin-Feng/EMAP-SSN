@@ -23,7 +23,11 @@ from tools.Embedding_PWA import (
     sanitize_alignment_header,
 )
 import tools.Embedding_PWA as embedding_pwa
-from tools.Embedding_SSEARCH import resolve_manual_query_sequence
+import tools.Embedding_SSEARCH as embedding_ssearch
+from tools.Embedding_SSEARCH import (
+    resolve_manual_query_sequence,
+    validate_score_normalization,
+)
 
 
 class ManualSequenceControlTests(unittest.TestCase):
@@ -138,6 +142,27 @@ class ManualSequenceControlTests(unittest.TestCase):
     def test_database_search_ignores_saved_text_while_switch_is_off(self):
         self.assertEqual(resolve_manual_query_sequence(False, " SAVED "), "")
         self.assertEqual(resolve_manual_query_sequence(True, " QUERY "), "QUERY")
+
+    def test_database_search_rejects_local_alignment_length_normalization(self):
+        with self.assertRaisesRegex(ValueError, "alignment_length is unavailable for local"):
+            validate_score_normalization("local", "alignment_length")
+        for mode, normalization in (
+            ("global", "alignment_length"),
+            ("global", "longer_sequence"),
+            ("local", "shorter_sequence"),
+            ("local", "longer_sequence"),
+            ("local", "average_sequence"),
+        ):
+            with self.subTest(mode=mode, normalization=normalization):
+                validate_score_normalization(mode, normalization)
+
+    def test_database_search_rejects_local_alignment_length_before_loading(self):
+        with mock.patch.object(embedding_ssearch, "load_tool_settings"), mock.patch.multiple(
+            embedding_ssearch, ALIGNMENT_MODE="local", NORM_MODE="alignment_length"
+        ), mock.patch.object(embedding_ssearch, "prepare_database_embeddings") as prepare:
+            with self.assertRaisesRegex(ValueError, "alignment_length is unavailable for local"):
+                embedding_ssearch.main([])
+        prepare.assert_not_called()
 
 
 if __name__ == "__main__":

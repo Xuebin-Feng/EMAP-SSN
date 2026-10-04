@@ -205,6 +205,20 @@ def resolve_manual_query_sequence(enabled, sequence):
     return cleaned_sequence
 
 
+def validate_score_normalization(alignment_mode, norm_mode):
+    """Reject normalizing local search scores by their own alignment length.
+
+    The Tools window removes this option for local searches: dividing a local
+    score by its own path length rewards short local matches however little of
+    either sequence they cover.
+    """
+    if alignment_mode == "local" and norm_mode == "alignment_length":
+        raise ValueError(
+            "NORM_MODE alignment_length is unavailable for local alignments; "
+            "choose shorter_sequence, longer_sequence, or average_sequence."
+        )
+
+
 def filter_ranked_hits(df, query_name, manual_query_enabled, top_k):
     """Apply self-hit removal and hit limits using the explicit query source."""
     query_from_database = not bool(manual_query_enabled)
@@ -1439,6 +1453,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
 def main(argv=None):
     global FULL_INPUT_EMBED
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
+    validate_score_normalization(ALIGNMENT_MODE, NORM_MODE)
     FULL_INPUT_EMBED = os.path.join(EMBED_DIR, INPUT_EMBED) if EMBED_DIR else ""
     database = prepare_database_embeddings()
     db_headers = database.headers

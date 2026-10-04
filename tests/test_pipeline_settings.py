@@ -156,6 +156,12 @@ class PipelineSettingsTests(unittest.TestCase):
         self.assertEqual([e["field"] for e in rejected["errors"]], ["parameters.NORMALIZATION_MODE"])
         self.assertTrue(self.preview("embedding_msa", parameters={
             **msa, "ALIGNMENT_SCORE": "local", "NORMALIZATION_MODE": "longer_sequence"})["valid"])
+        # The same rule applies to SSEARCH, whose defaults are local + longer_sequence.
+        search = get_pipeline_schema("embedding_ssearch", ROOT)["example"]["parameters"]
+        rejected = self.preview("embedding_ssearch", parameters={**search, "NORM_MODE": "alignment_length"})
+        self.assertEqual([e["field"] for e in rejected["errors"]], ["parameters.NORM_MODE"])
+        self.assertTrue(self.preview("embedding_ssearch", parameters={
+            **search, "ALIGNMENT_MODE": "global", "NORM_MODE": "alignment_length"})["valid"])
 
     def test_exports_preserve_strings_and_plots_and_allow_incomplete_inputs(self):
         values = {"BATCH_SIZE": "500000", "HOST_CACHE_GB": "2.5"}

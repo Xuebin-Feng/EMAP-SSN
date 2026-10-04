@@ -86,7 +86,7 @@ This script queries a single sequence against an entire database using residue-l
 | Alignment Mode **`ALIGNMENT_MODE`** | The search alignment mode (either 'global' or 'local'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
-| Score Normalization Mode **`NORM_MODE`** | The score normalization method (e.g., alignment_length, shorter_sequence, longer_sequence, average_sequence). |
+| Score Normalization Mode **`NORM_MODE`** | The score normalization method (e.g., alignment_length, shorter_sequence, longer_sequence, average_sequence). `alignment_length` is unavailable for local alignments. |
 | CPU Worker Threads **`WORKERS`** | The number of CPU threads allocated for parallel alignment calculations. |
 | Device **`DEVICE_SELECTION`** | Selects automatic hardware benchmarking or a concrete CPU/accelerator device. |
 | Accelerator Precision **`ACCELERATOR_PRECISION`** | `automatic_32bit` uses IEEE FP32 for small searches and considers validated TF32 only from 4,096 targets. Explicit `bf16` uses BF16 matmul operands with FP32 normalization and postprocessing and requires a capable CUDA/ROCm, XPU, or MPS accelerator. It prints a low-precision warning and reports FP32-relative selected-mode length and raw-score statistics on a separate length-stratified sample of up to 2,048 targets for each device/execution variant. Finite numerical differences are informational and never reject BF16. The legacy alias `auto` remains accepted. Forced TF32 requires NVIDIA CUDA. |

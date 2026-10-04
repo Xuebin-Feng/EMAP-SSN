@@ -68,6 +68,13 @@ def _when(key, value, *required):
             "then": _required_fields(*required)}
 
 
+def _local_scores_need_sequence_length(score_key, norm_key):
+    # As in the Tools window, local scores cannot be normalized by their own alignment length.
+    return {"if": {"properties": {score_key: {"const": "local"}}, "required": [score_key]},
+            "then": {"properties": {norm_key: {
+                "enum": ["shorter_sequence", "longer_sequence", "average_sequence"]}}}}
+
+
 def _parameter_schema(tool_id, project_root, *, execution=True):
     spec = get_tool_spec(tool_id)
     contract = deepcopy(_CONTRACTS[spec.script_name])
@@ -85,11 +92,8 @@ def _parameter_schema(tool_id, project_root, *, execution=True):
         return schema
     rules = [_required_fields(*contract["required"])] if contract["required"] else []
     if tool_id == "embedding_msa":
-        rules.append(_when("USE_SEQUENCE_FILTER", True, "INPUT_FASTA"))
-        # As in the Tools window, local scores cannot be normalized by their own alignment length.
-        rules.append({"if": {"properties": {"ALIGNMENT_SCORE": {"const": "local"}}, "required": ["ALIGNMENT_SCORE"]},
-                      "then": {"properties": {"NORMALIZATION_MODE": {
-                          "enum": ["shorter_sequence", "longer_sequence", "average_sequence"]}}}})
+        rules.extend([_when("USE_SEQUENCE_FILTER", True, "INPUT_FASTA"),
+                      _local_scores_need_sequence_length("ALIGNMENT_SCORE", "NORMALIZATION_MODE")])
     elif tool_id == "sparse_msa_converter":
         rules.append(_when("CONVERT_ALL", False, "INPUT_FASTA"))
     elif tool_id == "embedding_pwa":
@@ -101,7 +105,8 @@ def _parameter_schema(tool_id, project_root, *, execution=True):
                       "then": _required_fields("EMBEDDING_MODEL")})
     elif tool_id == "embedding_ssearch":
         rules.extend([_when("MANUAL_QUERY_SEQ", True, "QUERY_SEQUENCE"),
-                      _when("MANUAL_QUERY_SEQ", False, "QUERY_HEADER")])
+                      _when("MANUAL_QUERY_SEQ", False, "QUERY_HEADER"),
+                      _local_scores_need_sequence_length("ALIGNMENT_MODE", "NORM_MODE")])
     if rules:
         schema["allOf"] = rules
     return schema

@@ -2631,18 +2631,18 @@ if __name__ == "__main__":
                             kept_mask = np.zeros(len(headers), dtype=bool)
                             kept_mask[valid_indices] = True
                     
+                    # The indices keep the file's 16- or 32-bit type; they only
+                    # index masks and sequence lengths.
+                    sources = hf['i'][:]
+                    targets = hf['j'][:]
                     if is_blast:
                         raw_scores = hf['score'][:]
-                        sources = hf['i'][:]
-                        targets = hf['j'][:]
                     else:
-                        sources = hf['i'][:].astype(np.int64)
-                        targets = hf['j'][:].astype(np.int64)
                         if score_mode == "local":
-                            raw_scores = hf['l_score'][:].astype(np.float32)
+                            raw_scores = hf['l_score'][:].astype(np.float32, copy=False)
                             length_name = 'l_len'
                         else:
-                            raw_scores = hf['g_score'][:].astype(np.float32)
+                            raw_scores = hf['g_score'][:].astype(np.float32, copy=False)
                             length_name = 'g_len'
                         # Only alignment-length normalization divides by the
                         # alignment-length column, so other modes never read it.
@@ -2653,7 +2653,7 @@ if __name__ == "__main__":
                         if 'seq_lens' in hf:
                             seq_lens = hf['seq_lens'][:]
                         else:
-                            seq_lens = np.ones(np.max([np.max(sources), np.max(targets)]) + 1)
+                            seq_lens = np.ones(int(max(sources.max(), targets.max())) + 1)
                         
                     if kept_mask is not None:
                         valid_edges_mask = kept_mask[sources] & kept_mask[targets]
@@ -2790,18 +2790,18 @@ if __name__ == "__main__":
                             kept_mask = np.zeros(len(headers), dtype=bool)
                             kept_mask[valid_indices] = True
                     
+                    # The indices keep the file's 16- or 32-bit type; they only
+                    # index masks and sequence lengths.
+                    sources = hf['i'][:]
+                    targets = hf['j'][:]
                     if is_blast:
                         raw_scores = hf['score'][:]
-                        sources = hf['i'][:]
-                        targets = hf['j'][:]
                     else:
-                        sources = hf['i'][:].astype(np.int64)
-                        targets = hf['j'][:].astype(np.int64)
                         if score_mode == "local":
-                            raw_scores = hf['l_score'][:].astype(np.float32)
+                            raw_scores = hf['l_score'][:].astype(np.float32, copy=False)
                             length_name = 'l_len'
                         else:
-                            raw_scores = hf['g_score'][:].astype(np.float32)
+                            raw_scores = hf['g_score'][:].astype(np.float32, copy=False)
                             length_name = 'g_len'
                         # Only alignment-length normalization divides by the
                         # alignment-length column, so other modes never read it.
@@ -2812,7 +2812,7 @@ if __name__ == "__main__":
                         if 'seq_lens' in hf:
                             seq_lens = hf['seq_lens'][:]
                         else:
-                            seq_lens = np.ones(np.max([np.max(sources), np.max(targets)]) + 1)
+                            seq_lens = np.ones(int(max(sources.max(), targets.max())) + 1)
                         
                     if kept_mask is not None:
                         valid_edges_mask = kept_mask[sources] & kept_mask[targets]
