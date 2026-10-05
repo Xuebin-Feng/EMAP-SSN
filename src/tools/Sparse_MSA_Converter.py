@@ -275,16 +275,21 @@ def main(argv=None):
         
         if not fasta_files:
             print(f"⚠️ No FASTA files found in {MSA_DIR} to convert.")
-        else:
-            print(f"🚀 Starting batch conversion of {len(fasta_files)} alignments...")
-            for f in fasta_files:
-                build_sparse_alignment(f)
-                print("-" * 40)
-            print("✅ Batch conversion complete.")
-    else:
-        # Standard single-file execution
-        build_sparse_alignment(FULL_INPUT_FASTA)
-    return 0
+            # Nothing was converted (wrong MSA_DIR, or the upstream alignment
+            # was never written), so job runners must not report success.
+            return 1
+
+        print(f"🚀 Starting batch conversion of {len(fasta_files)} alignments...")
+        failures = 0
+        for f in fasta_files:
+            if not build_sparse_alignment(f):
+                failures += 1
+            print("-" * 40)
+        print("✅ Batch conversion complete.")
+        return 1 if failures else 0
+
+    # Standard single-file execution
+    return 0 if build_sparse_alignment(FULL_INPUT_FASTA) else 1
 
 
 if __name__ == "__main__":

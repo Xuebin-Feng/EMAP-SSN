@@ -281,6 +281,10 @@ class EmbeddingFileError(RuntimeError):
     """Raised when an embedding HDF5 file is incomplete or incompatible."""
 
 
+class NetworkCompilationError(RuntimeError):
+    """Raised when batch files cannot be merged into a complete network."""
+
+
 def load_embedding_metadata(file_path):
     """
     Validate an embedding database using Embedding_HDF5.read_embedding_manifest
@@ -2409,15 +2413,60 @@ def compile_final_output(
                 compiled_mask[unique_j, unique_i] = True
                 total_edges += len(unique_i)
         except Exception as e:
-            print(f"Warning: Error reading {bf} during counting: {e}")
-            
+            raise NetworkCompilationError(
+                f"Error reading {bf} during counting: {e}"
+            ) from e
+
     print(f"Saving Combined Scores to {FINAL_OUTPUT_NET} (Total unique edges: {total_edges})...")
     os.makedirs(os.path.dirname(FINAL_OUTPUT_NET), exist_ok=True)
     
     # Reset compiled_mask for the actual write pass
     compiled_mask.fill(False)
     
-    with h5py.File(FINAL_OUTPUT_NET, "w") as hf_out:
+    # Publish only a fully merged network: the job skips work whenever the
+    # final file exists, so a partial one would be reused as complete.
+    partial_output = FINAL_OUTPUT_NET + ".partial"
+    try:
+        _merge_batches_into(
+            partial_output,
+            batch_files,
+            headers,
+            seq_lens,
+            required_mask,
+            compiled_mask,
+            total_edges,
+            idx_dtype,
+            current_checksum,
+            model_name,
+            gap_penalties,
+            matmul_precision,
+        )
+        os.replace(partial_output, FINAL_OUTPUT_NET)
+    except BaseException:
+        try:
+            os.remove(partial_output)
+        except OSError:
+            pass
+        raise
+
+    print("✅ Compilation complete!")
+
+
+def _merge_batches_into(
+    output_path,
+    batch_files,
+    headers,
+    seq_lens,
+    required_mask,
+    compiled_mask,
+    total_edges,
+    idx_dtype,
+    current_checksum,
+    model_name,
+    gap_penalties,
+    matmul_precision,
+):
+    with h5py.File(output_path, "w") as hf_out:
         if current_checksum is not None:
             hf_out.attrs["embedding_checksum"] = current_checksum
         hf_out.attrs["model_name"] = model_name
@@ -2467,14 +2516,20 @@ def compile_final_output(
                     
                     curr_idx = end_idx
             except Exception as e:
-                print(f"Warning: Error merging batch {bf}: {e}")
-                
-    print("✅ Compilation complete!")
+                raise NetworkCompilationError(
+                    f"Error merging batch {bf}: {e}"
+                ) from e
+
+        if curr_idx != total_edges:
+            raise RuntimeError(
+                f"Merged {curr_idx} edges, but {total_edges} were counted."
+            )
 
 # %% =======================================
 # MAIN
 # ==========================================
 def run_job_distributor():
+    """Run or resume the job; return 1 if it cannot run, None otherwise."""
     global active_matmul_precision, active_embedding_store
     global active_sequence_lengths
     try:
@@ -2483,7 +2538,7 @@ def run_job_distributor():
         configure_runtime_paths()
     except ValueError as error:
         print(f"\n❌ Cannot start alignment:\n{error}")
-        return
+        return 1
 
     if os.path.exists(FINAL_OUTPUT_NET):
         try:
@@ -2493,7 +2548,7 @@ def run_job_distributor():
                 )
         except Exception as error:
             print(f"❌ Cannot inspect completed output precision: {error}")
-            return
+            return 1
         allowed = _allowed_result_precisions(precision_setting)
         if completed_precision not in allowed:
             print(
@@ -2501,14 +2556,14 @@ def run_job_distributor():
                 f"found '{completed_precision}', but '{precision_setting}' "
                 f"accepts only {sorted(allowed)}. The output was not changed."
             )
-            return
+            return 1
         print("✅ Job already done."); return
 
     try: set_start_method('spawn')
     except RuntimeError: pass
 
     print(f"Loading Metadata from {FULL_INPUT_HDF5}...")
-    if not os.path.exists(FULL_INPUT_HDF5): print("Embeddings file not found."); return
+    if not os.path.exists(FULL_INPUT_HDF5): print("Embeddings file not found."); return 1
 
     print("Validating embedding metadata and sequence lengths...")
     try:
@@ -2517,7 +2572,7 @@ def run_job_distributor():
         )
     except EmbeddingFileError as error:
         print(f"\n❌ Cannot start alignment:\n{error}")
-        return
+        return 1
 
     current_model_name = manifest.model_name
     current_saving_mode = manifest.saving_mode
@@ -2675,7 +2730,7 @@ def run_job_distributor():
             )
         except ValueError as error:
             print(f"\n❌ Invalid adaptive alignment configuration:\n{error}")
-            return
+            return 1
         active_sequence_lengths = list(seq_lens)
         cache_mode = (
             f"packed host cache ({active_embedding_store.cached_bytes / (1024 ** 3):.2f} GiB)"
@@ -2694,7 +2749,7 @@ def run_job_distributor():
             )
         except ValueError as error:
             print(f"\n❌ Invalid precision configuration:\n{error}")
-            return
+            return 1
         pending_iterator = _iter_pending_pairs(safe_headers, computed_mask, required_mask)
         first_batch = list(islice(pending_iterator, int(BATCH_SIZE)))
         ranked_plans = _benchmark_processing_plans(
@@ -2770,8 +2825,17 @@ def run_job_distributor():
 
 def main(argv=None):
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
-    run_job_distributor()
-    return 0
+    try:
+        exit_code = run_job_distributor()
+    except NetworkCompilationError as error:
+        print(
+            f"\n❌ Cannot compile the final network:\n{error}\n"
+            "No network file was written. Delete that batch file and run "
+            "the job again to recompute its pairs."
+        )
+        return 1
+    # The MCP job runner reports exit code 0 as a successful job.
+    return exit_code or 0
 
 
 if __name__ == "__main__":

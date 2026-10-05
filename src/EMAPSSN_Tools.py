@@ -1131,7 +1131,7 @@ class ToolsGUI(QMainWindow):
                 "NOISE_SCALE": "Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).\nApplies additive noise across all observed and regression-imputed distances, clamped to valid bounds.",
                 "GAP_OPEN": "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions.",
                 "GAP_EXTEND": "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths.",
-                "WORKERS": "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems.",
+                "WORKERS": "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences).",
                 "DEVICE_SELECTION": "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.",
                 "SAFE_TEMP_DIR": "Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.\nEnsures large guide tree and distance matrix calculations do not exceed system RAM."
             },

@@ -6,7 +6,7 @@ import threading
 import unittest
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from unittest import mock
 
 import h5py
@@ -2105,6 +2105,142 @@ class AlignmentPipelineTests(unittest.TestCase):
                 np.testing.assert_array_equal(hf["i"][:], [0, 0])
                 np.testing.assert_array_equal(hf["j"][:], [1, 2])
 
+    COMPILE_BATCHES = {
+        "batch_00000.h5": [(0, 1), (0, 2), (0, 3)],
+        "batch_00001.h5": [(1, 2), (1, 3), (2, 3)],
+        "batch_00002.h5": [(3, 4), (4, 5)],
+    }
+
+    def _write_compile_batches(self, results_dir, corrupt=None, corruption=None):
+        os.makedirs(results_dir)
+        for name, pairs in self.COMPILE_BATCHES.items():
+            path = os.path.join(results_dir, name)
+            if name == corrupt and corruption == "not_hdf5":
+                with open(path, "wb") as handle:
+                    handle.write(b"truncated batch")
+                continue
+            arr_i = np.array([pair[0] for pair in pairs], dtype=np.uint16)
+            arr_j = np.array([pair[1] for pair in pairs], dtype=np.uint16)
+            columns = {
+                "i": arr_i,
+                "j": arr_j,
+                "l_score": (arr_i * 10 + arr_j + 0.5).astype(np.float32),
+                "l_len": (arr_i + arr_j + 1).astype(np.uint16),
+                "g_score": (arr_i * 10 + arr_j + 0.25).astype(np.float32),
+                "g_len": (arr_i + arr_j + 2).astype(np.uint16),
+            }
+            if name == corrupt and corruption == "missing_l_score":
+                del columns["l_score"]
+            with h5py.File(path, "w") as hf:
+                for column, data in columns.items():
+                    hf.create_dataset(column, data=data)
+
+    def _compile_batches(self, temp_dir):
+        output = os.path.join(temp_dir, "network", "set_[model]_network.h5")
+        stdout = io.StringIO()
+        with mock.patch.object(
+            similarity_matrix,
+            "RESULTS_DIR",
+            os.path.join(temp_dir, "batches"),
+        ), mock.patch.object(
+            similarity_matrix,
+            "FINAL_OUTPUT_NET",
+            output,
+        ), redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+            similarity_matrix.compile_final_output(
+                [f"s{index}" for index in range(6)],
+                [5] * 6,
+                None,
+                6,
+                "checksum",
+                "model",
+                "float32",
+                [-2.0, 0.0],
+                "ieee_fp32",
+            )
+        return output, stdout.getvalue()
+
+    def test_compile_publishes_complete_network_atomically(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_compile_batches(os.path.join(temp_dir, "batches"))
+            output, stdout = self._compile_batches(temp_dir)
+
+            self.assertEqual(
+                os.listdir(os.path.dirname(output)),
+                [os.path.basename(output)],
+            )
+            self.assertIn("✅ Compilation complete!", stdout)
+            pairs = [
+                pair
+                for batch in self.COMPILE_BATCHES.values()
+                for pair in batch
+            ]
+            with h5py.File(output, "r") as hf:
+                np.testing.assert_array_equal(hf["i"][:], [p[0] for p in pairs])
+                np.testing.assert_array_equal(hf["j"][:], [p[1] for p in pairs])
+                np.testing.assert_array_equal(
+                    hf["l_score"][:],
+                    [p[0] * 10 + p[1] + 0.5 for p in pairs],
+                )
+                np.testing.assert_array_equal(
+                    hf["g_len"][:],
+                    [p[0] + p[1] + 2 for p in pairs],
+                )
+
+    def test_corrupt_batch_fails_compilation_without_a_network_file(self):
+        # A batch missing a score column used to leave its i/j rows (or zero
+        # fill) behind zero scores, and an unreadable one silently dropped its
+        # edges; both then printed "Compilation complete".
+        cases = (
+            ("batch_00001.h5", "not_hdf5", "Error reading .*batch_00001.h5 during counting"),
+            ("batch_00001.h5", "missing_l_score", "Error merging batch .*batch_00001.h5"),
+            ("batch_00002.h5", "missing_l_score", "Error merging batch .*batch_00002.h5"),
+        )
+        for corrupt, corruption, message in cases:
+            with self.subTest(batch=corrupt, corruption=corruption):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    self._write_compile_batches(
+                        os.path.join(temp_dir, "batches"),
+                        corrupt,
+                        corruption,
+                    )
+                    output = os.path.join(
+                        temp_dir, "network", "set_[model]_network.h5"
+                    )
+                    with self.assertRaisesRegex(
+                        similarity_matrix.NetworkCompilationError,
+                        message,
+                    ):
+                        self._compile_batches(temp_dir)
+
+                    self.assertFalse(os.path.exists(output))
+                    self.assertFalse(os.path.exists(output + ".partial"))
+
+    def test_main_exits_nonzero_when_a_batch_cannot_be_merged(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_compile_batches(
+                os.path.join(temp_dir, "batches"),
+                "batch_00001.h5",
+                "missing_l_score",
+            )
+            stdout = io.StringIO()
+            with mock.patch.object(
+                similarity_matrix,
+                "load_tool_settings",
+            ), mock.patch.object(
+                similarity_matrix,
+                "run_job_distributor",
+                side_effect=lambda: self._compile_batches(temp_dir),
+            ), redirect_stdout(stdout):
+                exit_code = similarity_matrix.main([])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("❌ Cannot compile the final network", stdout.getvalue())
+            self.assertIn("batch_00001.h5", stdout.getvalue())
+            self.assertFalse(
+                os.path.exists(os.path.join(temp_dir, "network", "set_[model]_network.h5"))
+            )
+
     def test_tiled_cuda_oom_retries_then_uses_scalar_without_committed_duplicates(self):
         tasks = [(0, 1, "a", "b")]
         expected = [(0, 1, 1.0, 1, 2.0, 1)]
@@ -2376,6 +2512,158 @@ class AlignmentPipelineTests(unittest.TestCase):
             with h5py.File(output, "r") as hf:
                 self.assertEqual(len(hf["i"]), len(tasks))
                 self.assertEqual(hf.attrs["matmul_precision"], "ieee_fp32")
+
+    def _run_main(self, temp_dir, **patches):
+        """Run main() on temporary paths with settings loading and compile stubbed."""
+        values = {
+            "INPUT_HDF5": os.path.join(temp_dir, "set_[model]_embeddings.h5"),
+            "NETWORK_DIR": os.path.join(temp_dir, "network"),
+            "EXECUTION_MODE": "auto",
+            "ACCELERATOR_PRECISION": "automatic_32bit",
+            "EDGE_PREFILTERING": False,
+            **patches,
+        }
+        # The job assigns these globals; patching them restores the originals.
+        assigned = (
+            "MODEL_NAME",
+            "SEQUENCE_SET",
+            "FULL_INPUT_HDF5",
+            "RESULTS_DIR",
+            "FINAL_OUTPUT_NET",
+            "active_matmul_precision",
+            "active_embedding_store",
+            "active_sequence_lengths",
+        )
+        stdout = io.StringIO()
+        with ExitStack() as stack:
+            for name in assigned:
+                stack.enter_context(mock.patch.object(
+                    similarity_matrix, name, getattr(similarity_matrix, name)
+                ))
+            for name, value in values.items():
+                stack.enter_context(mock.patch.object(similarity_matrix, name, value))
+            stack.enter_context(mock.patch.object(similarity_matrix, "load_tool_settings"))
+            stack.enter_context(mock.patch.object(similarity_matrix, "set_start_method"))
+            compile_output = stack.enter_context(
+                mock.patch.object(similarity_matrix, "compile_final_output")
+            )
+            stack.enter_context(redirect_stdout(stdout))
+            stack.enter_context(redirect_stderr(io.StringIO()))
+            exit_code = similarity_matrix.main([])
+        return exit_code, stdout.getvalue(), compile_output
+
+    def test_main_exits_nonzero_when_the_job_cannot_start(self):
+        # The MCP job runner reports exit code 0 as "succeeded", so these used
+        # to reach agents as successful jobs that wrote nothing.
+        cases = (
+            ("no input", {"INPUT_HDF5": None}, None,
+             "❌ Cannot start alignment:\nNo embeddings file has been selected."),
+            ("bad precision", {"ACCELERATOR_PRECISION": "fp8"}, None,
+             "❌ Cannot start alignment:\nACCELERATOR_PRECISION must be"),
+            ("missing input", {}, None, "Embeddings file not found."),
+            ("invalid input", {}, b"not an embeddings file",
+             "❌ Cannot start alignment:\nEmbedding file '"),
+        )
+        for label, patches, input_bytes, message in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir:
+                if input_bytes is not None:
+                    with open(
+                        os.path.join(temp_dir, "set_[model]_embeddings.h5"), "wb"
+                    ) as handle:
+                        handle.write(input_bytes)
+
+                exit_code, stdout, compile_output = self._run_main(
+                    temp_dir, **patches
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertIn(message, stdout)
+                compile_output.assert_not_called()
+
+    def test_main_exit_code_reflects_the_existing_network_check(self):
+        cases = (
+            ("done", "ieee_fp32", "automatic_32bit", 0, "✅ Job already done."),
+            ("bf16 vs auto", "bf16", "automatic_32bit", 1,
+             "❌ Completed output precision conflict: found 'bf16'"),
+            ("tf32 vs float32", "tf32", "float32", 1,
+             "❌ Completed output precision conflict: found 'tf32'"),
+            ("unreadable", None, "automatic_32bit", 1,
+             "❌ Cannot inspect completed output precision"),
+        )
+        for label, stored, requested, expected_code, message in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir:
+                network = os.path.join(temp_dir, "network", "set_[model]_network.h5")
+                os.makedirs(os.path.dirname(network))
+                if stored is None:
+                    with open(network, "wb") as handle:
+                        handle.write(b"truncated network")
+                else:
+                    with h5py.File(network, "w") as hf:
+                        hf.attrs["matmul_precision"] = stored
+                with open(network, "rb") as handle:
+                    original = handle.read()
+
+                exit_code, stdout, compile_output = self._run_main(
+                    temp_dir, ACCELERATOR_PRECISION=requested
+                )
+
+                self.assertEqual(exit_code, expected_code)
+                self.assertIn(message, stdout)
+                compile_output.assert_not_called()
+                with open(network, "rb") as handle:
+                    self.assertEqual(handle.read(), original)
+
+    def test_main_exits_nonzero_when_adaptive_setup_is_rejected(self):
+        manifest = mock.Mock(model_name="model", saving_mode="float32")
+        cases = (
+            ("host cache", {
+                "EmbeddingTileStore": mock.Mock(
+                    side_effect=ValueError("HOST_CACHE_GB is invalid.")
+                ),
+            }, 1, "❌ Invalid adaptive alignment configuration:\nHOST_CACHE_GB"),
+            ("precision", {
+                "_resolve_active_matmul_precision": mock.Mock(
+                    side_effect=ValueError("bf16 failed validation.")
+                ),
+            }, 1, "❌ Invalid precision configuration:\nbf16 failed"),
+            ("control", {}, 0, "Pairs queued for calculation: 1"),
+        )
+        for label, failure, expected_code, message in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir:
+                with open(
+                    os.path.join(temp_dir, "set_[model]_embeddings.h5"), "wb"
+                ) as handle:
+                    handle.write(b"metadata is mocked")
+                run_batch = mock.Mock(return_value=0)
+                patches = {
+                    "load_embedding_metadata": mock.Mock(return_value=(
+                        ["a", "b"], ["a", "b"], [2, 2], manifest,
+                    )),
+                    "scan_existing_batches": mock.Mock(return_value=None),
+                    "Hardware_Utils": mock.Mock(**{
+                        "resolve_device_selection.return_value":
+                            mock.Mock(is_cpu=True),
+                    }),
+                    "EmbeddingTileStore": mock.Mock(return_value=mock.Mock(
+                        fully_cached=False, cached_bytes=0,
+                    )),
+                    "_resolve_active_matmul_precision": mock.Mock(
+                        return_value="ieee_fp32"
+                    ),
+                    "_benchmark_processing_plans": mock.Mock(return_value=[]),
+                    "_run_batch_with_ranked_plans": run_batch,
+                    "tqdm": mock.MagicMock(),
+                    **failure,
+                }
+
+                exit_code, stdout, compile_output = self._run_main(
+                    temp_dir, **patches
+                )
+
+                self.assertEqual(exit_code, expected_code)
+                self.assertIn(message, stdout)
+                self.assertEqual(run_batch.call_count, 1 - expected_code)
+                self.assertEqual(compile_output.call_count, 1 - expected_code)
 
 
 if __name__ == "__main__":

@@ -127,6 +127,55 @@ still change before version 1.0.0.
   label or such parameters, names what it refused, and writes nothing. Names the `group`
   and `cluster` commands produce are unaffected; a group named `..` still exports as
   `...fasta`.
+- `Align_Similarity_Matrix.py` printed "✅ Compilation complete!" and exited with
+  code 0 when a batch file could not be read or merged into the final network, so MCP
+  reported the job as succeeded. The network then lacked that batch's edges or held rows
+  with zero scores: the batch's own pairs, or `(0, 0)` pairs. Because the file existed,
+  running the job again only reported "Job already done". A batch that cannot be read or
+  merged now stops the job with exit code 1 and names the file, and the network is
+  written to a `.partial` file that replaces the final one only after every batch has
+  merged. Successful runs write identical networks.
+- `Align_Similarity_Matrix.py` also exited with code 0 when it stopped before
+  aligning, so MCP reported jobs that wrote nothing as succeeded. That happened when
+  no embeddings file was selected or it was missing or invalid, when
+  `ACCELERATOR_PRECISION` or `EXECUTION_MODE` could not be used (an unknown value,
+  failed BF16 validation, TF32 without a CUDA device, or tiled mode without a
+  compatible accelerator), and when an existing network could not be read or was
+  computed at a precision the settings exclude. These now exit with code 1; "Job
+  already done" still exits with code 0.
+- Embedding MSA ran out of memory on large complete networks. Filtering stored every
+  edge as a Python tuple (about 130 bytes each), so a 44,127-sequence network with
+  973.6 million edges needed about 150 GB and stopped with `MemoryError` on a 96 GB
+  PC. Edges are now filtered as whole arrays, and arrays are freed once used. Bootstrap
+  workers pass SciPy a float64 matrix directly instead of a float32 one it must
+  convert, and tree distances are summed in place. That run should now peak at about
+  51 GB with `WORKERS` 3, about 16 GB per worker; guide trees are unchanged bit for
+  bit.
+- `Sparse_MSA_Converter.py` exited with code 0 when it converted nothing: when its
+  input FASTA was missing, validation rejected the alignment, or the HDF5 save failed.
+  An MCP job therefore reported `succeeded` (seen when step 4 failed and the queued
+  converter found no alignment). It now exits with code 1. With `CONVERT_ALL`, it
+  exits with code 1 when any alignment fails, after converting the rest, or when
+  `MSA_DIR` holds no `.fasta` files.
+- `Network_Injection.py` stopped every run with `TypeError` before aligning anything
+  (v0.2.0 and v0.3.0): it checked the precision of an existing output network before
+  setting that network's path. Past that check, CPU runs failed too, because the
+  worker processes never received the gap penalties read from the input network.
+  Both are fixed, so runs complete.
+- `Network_Injection.py`'s final compile step skipped a batch file it could not read,
+  printing only a warning, and skipped one lacking `i` or `j` without one. That batch's
+  pairs stayed in the network with zero scores and lengths, which look like real edges,
+  and the job exited with code 0. Such a batch now stops the job with exit code 1 and
+  names the file. The network is written to a `.partial` file that replaces the final
+  one only once complete, so a failed write no longer leaves a truncated network or
+  replaces an earlier one. Networks are byte-identical to the old code's output with
+  both failures above bypassed.
+- `Network_Injection.py` also exited with code 0 when it stopped with "Cannot start
+  Network Injection", so MCP reported jobs that wrote nothing as succeeded. That
+  happened when no existing network or new embeddings file was selected, when
+  `EXECUTION_MODE` was unknown or forced tiled mode without a compatible accelerator,
+  and when the new embeddings file was incomplete or could not be read. These now exit
+  with code 1 and print the same message.
 
 ## [0.3.0] - 2026-10-01
 

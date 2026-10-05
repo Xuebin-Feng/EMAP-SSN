@@ -1,5 +1,6 @@
 """Regression coverage for secure, position-preserving MSA loading."""
 
+import importlib.util
 import io
 import json
 import os
@@ -8,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -323,6 +325,133 @@ class SparseMSAConverterTests(unittest.TestCase):
             self.assertFalse(succeeded)
             self.assertTrue(os.path.exists(path))
             self.assertFalse(os.path.exists(output_path))
+
+
+class SparseMSAConverterExitCodeTests(unittest.TestCase):
+    """main() must report failure so MCP jobs and terminals see non-zero."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = temporary.name
+        self.msa_dir = os.path.join(self.root, "msa")
+        os.makedirs(self.msa_dir)
+        # Point the import-time loader at a missing file so the developer's
+        # tools_settings.json cannot leak into the fresh module, and restore
+        # the SSN_TOOL_SETTINGS_* variables that main() exports.
+        environment = mock.patch.dict(
+            os.environ,
+            {
+                "SSN_TOOL_SETTINGS_SCRIPT": "Sparse_MSA_Converter.py",
+                "SSN_TOOL_SETTINGS_FILE": os.path.join(self.root, "absent.json"),
+            },
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+        module_path = os.path.join(SRC_DIR, "tools", "Sparse_MSA_Converter.py")
+        spec = importlib.util.spec_from_file_location(
+            "exit_code_sparse_converter", module_path
+        )
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+
+    def run_main(self, *, convert_all, input_fasta=""):
+        settings_path = os.path.join(self.root, "converter.json")
+        with open(settings_path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "DIRECTORIES": {"MSA_DIR": self.msa_dir},
+                    "Sparse_MSA_Converter.py": {
+                        "CONVERT_ALL": convert_all,
+                        "INPUT_FASTA": input_fasta,
+                    },
+                },
+                handle,
+            )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exit_code = self.module.main([settings_path])
+        return exit_code, output.getvalue()
+
+    def msa_path(self, name):
+        return os.path.join(self.msa_dir, name)
+
+    def sparse_path(self, name):
+        return os.path.splitext(self.msa_path(name))[0] + "_sparse.h5"
+
+    def test_single_file_success_returns_zero(self):
+        write_fasta(self.msa_path("good.fasta"), [("one", "AC-"), ("two", "A-D")])
+
+        exit_code, text = self.run_main(convert_all=False, input_fasta="good.fasta")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("🎉 Success! Sparse alignment saved to:", text)
+        self.assertTrue(os.path.exists(self.sparse_path("good.fasta")))
+
+    def test_missing_single_input_returns_nonzero(self):
+        name = "Foldtype_IV_ATAs_44000_[ankh_base]_alignment.fasta"
+
+        exit_code, text = self.run_main(convert_all=False, input_fasta=name)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(f"❌ Error: File not found: {self.msa_path(name)}", text)
+        self.assertEqual(os.listdir(self.msa_dir), [])
+
+    def test_rejected_single_input_returns_nonzero_and_keeps_input(self):
+        write_fasta(self.msa_path("ragged.fasta"), [("one", "AC"), ("two", "A")])
+
+        exit_code, text = self.run_main(convert_all=False, input_fasta="ragged.fasta")
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("❌ MSA rejected:", text)
+        self.assertTrue(os.path.exists(self.msa_path("ragged.fasta")))
+        self.assertFalse(os.path.exists(self.sparse_path("ragged.fasta")))
+
+    def test_hdf5_save_failure_returns_nonzero_and_leaves_no_partial_output(self):
+        write_fasta(self.msa_path("good.fasta"), [("one", "AC-"), ("two", "A-D")])
+
+        with mock.patch.object(
+            self.module.h5py, "File", side_effect=OSError("disk full")
+        ):
+            exit_code, text = self.run_main(
+                convert_all=False, input_fasta="good.fasta"
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("❌ Error during HDF5 save or file transfer: disk full", text)
+        self.assertEqual(os.listdir(self.msa_dir), ["good.fasta"])
+
+    def test_batch_with_every_file_converted_returns_zero(self):
+        write_fasta(self.msa_path("first.fasta"), [("one", "AC-"), ("two", "A-D")])
+        write_fasta(self.msa_path("second.fasta"), [("three", "MK"), ("four", "M-")])
+
+        exit_code, text = self.run_main(convert_all=True)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("🚀 Starting batch conversion of 2 alignments...", text)
+        self.assertIn("✅ Batch conversion complete.", text)
+        for name in ("first.fasta", "second.fasta"):
+            self.assertTrue(os.path.exists(self.sparse_path(name)))
+
+    def test_batch_with_one_failed_file_returns_nonzero_after_converting_rest(self):
+        write_fasta(self.msa_path("good.fasta"), [("one", "AC-"), ("two", "A-D")])
+        write_fasta(self.msa_path("ragged.fasta"), [("three", "AC"), ("four", "A")])
+
+        exit_code, text = self.run_main(convert_all=True)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("❌ MSA rejected:", text)
+        self.assertIn("✅ Batch conversion complete.", text)
+        self.assertTrue(os.path.exists(self.sparse_path("good.fasta")))
+        self.assertTrue(os.path.exists(self.msa_path("ragged.fasta")))
+        self.assertFalse(os.path.exists(self.sparse_path("ragged.fasta")))
+
+    def test_empty_batch_returns_nonzero(self):
+        exit_code, text = self.run_main(convert_all=True)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(f"⚠️ No FASTA files found in {self.msa_dir} to convert.", text)
+        self.assertNotIn("Batch conversion complete", text)
 
 
 if __name__ == "__main__":

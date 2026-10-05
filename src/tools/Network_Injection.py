@@ -269,6 +269,10 @@ class EmbeddingFileError(RuntimeError):
     """Raised when an embedding HDF5 file is incomplete or incompatible."""
 
 
+class NetworkCompilationError(RuntimeError):
+    """Raised when batch files cannot be merged into a complete network."""
+
+
 def load_embedding_metadata(file_path):
     """
     Validate an embedding database using Embedding_HDF5.read_embedding_manifest
@@ -306,10 +310,13 @@ def compute_score_matrix_torch(emb_i, emb_j, device):
 worker_hf = None
 worker_device = None
 
-def init_worker(h5_path):
-    global worker_hf, worker_device
+def init_worker(h5_path, gap_penalties):
+    global worker_hf, worker_device, LOCAL_GAP_P, GLOBAL_GAP_P
     worker_hf = h5py.File(h5_path, "r", libver='latest', swmr=True)
     worker_device = torch.device("cpu")
+    # Spawned workers re-import this module, so they never see the gap
+    # penalties run_injection inherits from the input network.
+    LOCAL_GAP_P, GLOBAL_GAP_P = gap_penalties
 
 
 # %% =======================================
@@ -737,7 +744,7 @@ def process_cpu_tasks(
     with Pool(
         processes=workers,
         initializer=init_worker,
-        initargs=(input_h5,),
+        initargs=(input_h5, (LOCAL_GAP_P, GLOBAL_GAP_P)),
     ) as pool:
         progress = tqdm(
             total=len(tasks),
@@ -1517,8 +1524,6 @@ def compile_final_output(
     for bf in tqdm(batch_files, desc="Filtering computed batches"):
         try:
             with h5py.File(bf, "r") as hf:
-                if "i" not in hf or "j" not in hf:
-                    continue
                 arr_i = hf["i"][:]
                 arr_j = hf["j"][:]
                 arr_l_score = hf["l_score"][:]
@@ -1537,40 +1542,56 @@ def compile_final_output(
                         final_g_score[idx] = arr_g_score[k]
                         final_g_len[idx] = arr_g_len[k]
         except Exception as e:
-            print(f"Warning: Error reading {bf} during compilation: {e}")
-            
+            # Skipping the batch would publish its pairs with zero scores.
+            raise NetworkCompilationError(
+                f"Error reading {bf} during compilation: {e}"
+            ) from e
+
     print(f"Saving Combined Scores to {FINAL_OUTPUT_NET}...")
     os.makedirs(os.path.dirname(FINAL_OUTPUT_NET), exist_ok=True)
-    with h5py.File(FINAL_OUTPUT_NET, "w") as hf_out:
-        if current_checksum is not None:
-            hf_out.attrs["embedding_checksum"] = current_checksum
-        hf_out.attrs["model_name"] = model_name
-        if saving_mode is not None:
-            hf_out.attrs["saving_mode"] = saving_mode
-        if gap_penalties is not None:
-            hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
-        hf_out.attrs["matmul_precision"] = matmul_precision
 
-        dt_str = h5py.string_dtype(encoding='utf-8')
-        hf_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
-        hf_out.create_dataset("seq_lens", data=np.array(seq_lens, dtype=np.uint16))
-        
-        hf_out.create_dataset("i", data=final_i)
-        hf_out.create_dataset("j", data=final_j)
-        hf_out.create_dataset("l_score", data=final_l_score)
-        hf_out.create_dataset("l_len", data=final_l_len)
-        hf_out.create_dataset("g_score", data=final_g_score)
-        hf_out.create_dataset("g_len", data=final_g_len)
-            
+    # Publish only a fully written network; a failed write must not leave a
+    # truncated file at the path the Viewer and later jobs load.
+    partial_output = FINAL_OUTPUT_NET + ".partial"
+    try:
+        with h5py.File(partial_output, "w") as hf_out:
+            if current_checksum is not None:
+                hf_out.attrs["embedding_checksum"] = current_checksum
+            hf_out.attrs["model_name"] = model_name
+            if saving_mode is not None:
+                hf_out.attrs["saving_mode"] = saving_mode
+            if gap_penalties is not None:
+                hf_out.attrs["gap_penalties"] = np.array(gap_penalties, dtype=np.float32)
+            hf_out.attrs["matmul_precision"] = matmul_precision
+
+            dt_str = h5py.string_dtype(encoding='utf-8')
+            hf_out.create_dataset("headers", data=np.array(new_headers, dtype=object), dtype=dt_str)
+            hf_out.create_dataset("seq_lens", data=np.array(seq_lens, dtype=np.uint16))
+
+            hf_out.create_dataset("i", data=final_i)
+            hf_out.create_dataset("j", data=final_j)
+            hf_out.create_dataset("l_score", data=final_l_score)
+            hf_out.create_dataset("l_len", data=final_l_len)
+            hf_out.create_dataset("g_score", data=final_g_score)
+            hf_out.create_dataset("g_len", data=final_g_len)
+        os.replace(partial_output, FINAL_OUTPUT_NET)
+    except BaseException:
+        try:
+            os.remove(partial_output)
+        except OSError:
+            pass
+        raise
+
     print("✅ Compilation complete!")
 
 def run_injection():
+    """Run or resume the injection; return 1 if it cannot start, None otherwise."""
     try:
         _validate_execution_mode_hardware()
         configure_input_paths()
     except ValueError as error:
         print(f"\n❌ Cannot start Network Injection:\n{error}")
-        return
+        return 1
 
     try: set_start_method('spawn')
     except RuntimeError: pass
@@ -1585,7 +1606,7 @@ def run_injection():
         )
     except EmbeddingFileError as error:
         print(f"\n❌ Cannot start Network Injection:\n{error}")
-        return
+        return 1
 
     current_model_name = manifest.model_name
     current_saving_mode = manifest.saving_mode
@@ -1663,6 +1684,7 @@ def run_injection():
             )
     print(f"  > Inherited matmul precision: {inherited_precision}")
 
+    configure_output_paths(old_network_metadata.model_name)
     if os.path.exists(FINAL_OUTPUT_NET):
         try:
             with h5py.File(FINAL_OUTPUT_NET, "r") as hf_existing:
@@ -1689,7 +1711,6 @@ def run_injection():
     current_checksum = calculate_file_hash(NEW_EMBEDDINGS)
     print(f"  > Checksum: {current_checksum}")
 
-    configure_output_paths(old_network_metadata.model_name)
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     theoretical_old_total = (old_N * (old_N - 1)) // 2
@@ -1984,8 +2005,17 @@ def run_injection():
 
 def main(argv=None):
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
-    run_injection()
-    return 0
+    try:
+        exit_code = run_injection()
+    except NetworkCompilationError as error:
+        print(
+            f"\n❌ Cannot compile the final network:\n{error}\n"
+            "No network file was written. Delete that batch file and run "
+            "the job again to recompute its pairs."
+        )
+        return 1
+    # The MCP job runner reports exit code 0 as a successful job.
+    return exit_code or 0
 
 
 if __name__ == "__main__":

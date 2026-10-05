@@ -230,6 +230,47 @@ raise SystemExit(int(settings.get("EXIT_CODE", 0)))
             self.assertEqual(result["status"], "cancelled")
 
 
+class RealToolJobExitCodeTests(unittest.IsolatedAsyncioTestCase):
+    # Unlike PipelineJobManagerTests' fake script, this runs the real tool, so
+    # a failure the tool handles itself must still surface as a failed job.
+    async def asyncSetUp(self):
+        self.temporary = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.temporary_path = pathlib.Path(self.temporary.name)
+        self.manager = PipelineJobManager(
+            PROJECT_ROOT,
+            termination_grace=0.5,
+            temporary_parent=self.temporary_path,
+        )
+        await self.manager.start()
+
+    async def asyncTearDown(self):
+        await self.manager.close()
+        self.temporary.cleanup()
+
+    async def test_sparse_converter_missing_input_fails_the_job(self):
+        msa_directory = self.temporary_path / "msa"
+        msa_directory.mkdir()
+        submitted = await self.manager.submit(
+            "sparse_msa_converter",
+            {
+                "DIRECTORIES": {"MSA_DIR": str(msa_directory)},
+                "Sparse_MSA_Converter.py": {
+                    "CONVERT_ALL": False,
+                    "INPUT_FASTA": "Foldtype_IV_ATAs_44000_[ankh_base]_alignment.fasta",
+                },
+            },
+        )
+        finished = await self.manager.wait_for_terminal(submitted["job_id"], timeout=120)
+        log = await self.manager.read_log(submitted["job_id"], "stdout", limit=65536)
+
+        self.assertEqual(finished["status"], "failed", log["text"])
+        self.assertEqual(finished["exit_code"], 1)
+        self.assertEqual(
+            finished["failure_message"], "The pipeline process exited with code 1."
+        )
+        self.assertIn("❌ Error: File not found:", log["text"])
+
+
 class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # Isolate server-owned directories from stale or inaccessible host temp

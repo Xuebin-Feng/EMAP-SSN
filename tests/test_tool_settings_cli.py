@@ -279,7 +279,7 @@ class ToolEntryPointTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch.dict(os.environ, {}, clear=False), mock.patch.object(
-                module, "run_job_distributor"
+                module, "run_job_distributor", return_value=None
             ) as worker:
                 result = module.main([str(settings_path)])
 

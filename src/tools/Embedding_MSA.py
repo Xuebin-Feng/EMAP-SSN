@@ -335,23 +335,33 @@ def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noi
     # Allocate only the replicate matrix in worker RAM. Generate additive
     # noise in chunks so a dense imputed baseline does not require another
     # full-size temporary noise array.
-    D_perturbed_cond = np.empty(condensed_size, dtype=np.float32)
+    # SciPy's linkage converts its input to float64 and then works on its own
+    # copy, so a float32 replicate would only sit beside that conversion. For
+    # UPGMA the replicate is therefore stored as float64 from the start. Noise
+    # and clipping stay in float32 chunks, and widening float32 to float64 is
+    # exact, so the tree is unchanged. Neighbor-joining keeps float32, which
+    # halves the square matrix it builds.
+    neighbor_joining = tree_method == "Neighbor-joining (Slow)"
+    D_perturbed_cond = np.empty(
+        condensed_size,
+        dtype=np.float32 if neighbor_joining else np.float64,
+    )
     rng = np.random.default_rng(seed)
     sigma = float(noise_scale) * float(max_dist)
     noise_chunk_size = 1_000_000
 
-    if sigma == 0.0:
-        D_perturbed_cond[:] = baseline_dist[:]
-    else:
-        for start in range(0, condensed_size, noise_chunk_size):
-            end = min(start + noise_chunk_size, condensed_size)
+    for start in range(0, condensed_size, noise_chunk_size):
+        end = min(start + noise_chunk_size, condensed_size)
+        if sigma == 0.0:
+            chunk = np.array(baseline_dist[start:end])
+        else:
             noise = rng.normal(0.0, sigma, size=end - start).astype(np.float32)
-            D_perturbed_cond[start:end] = baseline_dist[start:end] + noise
+            chunk = baseline_dist[start:end] + noise
+        np.clip(chunk, 0.0, max_dist, out=chunk)
+        D_perturbed_cond[start:end] = chunk
 
-    np.clip(D_perturbed_cond, 0.0, max_dist, out=D_perturbed_cond)
-    
     # Run Linkage or Neighbor-joining
-    if tree_method == "Neighbor-joining (Slow)":
+    if neighbor_joining:
         Z = neighbor_joining_condensed(D_perturbed_cond, num_seqs)
     else:
         Z = sch.linkage(D_perturbed_cond, method='average')
@@ -705,6 +715,23 @@ def compute_score_matrix_with_fallback(
         + "; ".join(failures)
     )
 
+def map_network_indices(indices, net_old_to_new):
+    """Map network sequence indices to intersection indices as int32.
+
+    ``net_old_to_new`` holds -1 for network sequences outside the
+    intersection, and -1 in the result marks an endpoint whose edge is
+    dropped. Indices outside the header table drop too, rather than raising
+    (too large) or wrapping around (negative).
+    """
+    if indices.size == 0 or (
+        indices.min() >= 0 and indices.max() < len(net_old_to_new)
+    ):
+        return net_old_to_new[indices]
+    in_range = (indices >= 0) & (indices < len(net_old_to_new))
+    mapped = np.full(indices.shape, -1, dtype=np.int32)
+    mapped[in_range] = net_old_to_new[indices[in_range]]
+    return mapped
+
 @jit(nopython=True, fastmath=True)
 def populate_condensed_matrix(D_condensed, num_seqs, edge_i, edge_j, edge_dists):
     """Blazing fast population of the 1D condensed array from sparse data."""
@@ -761,12 +788,14 @@ def compute_sparse_cophenetic(Z, num_seqs, edge_i, edge_j):
 
 
 @jit(nopython=True, fastmath=True)
-def compute_full_cophenetic(Z, num_seqs):
-    """Return float32 cophenetic distances for every condensed sequence pair."""
-    condensed_size = int(num_seqs * (num_seqs - 1) / 2)
-    coph_dists = np.zeros(condensed_size, dtype=np.float32)
+def accumulate_full_cophenetic(Z, num_seqs, coph_accumulator):
+    """Add float32 cophenetic distances for every condensed pair in place.
+
+    Adding into the caller's condensed accumulator avoids allocating a
+    condensed-size array for every bootstrap tree.
+    """
     if num_seqs <= 1:
-        return coph_dists
+        return
 
     total_nodes = 2 * num_seqs - 1
     head = np.full(total_nodes, -1, dtype=np.int32)
@@ -778,7 +807,7 @@ def compute_full_cophenetic(Z, num_seqs):
         tail[leaf] = leaf
 
     # At each linkage merge, every cross-child leaf pair meets for the first
-    # time at this node. Across the complete tree, each pair is written once.
+    # time at this node. Across the complete tree, each pair is updated once.
     for step in range(num_seqs - 1):
         child_a = int(Z[step, 0])
         child_b = int(Z[step, 1])
@@ -798,15 +827,13 @@ def compute_full_cophenetic(Z, num_seqs):
                 condensed_idx = (
                     num_seqs * i - i * (i + 1) // 2 + j - i - 1
                 )
-                coph_dists[condensed_idx] = merge_height
+                coph_accumulator[condensed_idx] += merge_height
                 leaf_b = next_leaf[leaf_b]
             leaf_a = next_leaf[leaf_a]
 
         head[parent] = head[child_a]
         tail[parent] = tail[child_b]
         next_leaf[tail[child_a]] = head[child_b]
-
-    return coph_dists
 
 
 def use_full_cophenetic_consensus(is_sparse, include_imputed_pairs):
@@ -1289,52 +1316,47 @@ def run_msa_builder():
     # 5. BUILD MAPPINGS & FILTER NETWORK EDGES
     print("--- Filtering Network Edges ---")
     
-    # Map: Network_Index -> New_Index
-    net_old_to_new = {}
+    # Map: Network_Index -> New_Index (-1 for sequences outside the intersection)
+    net_old_to_new = np.full(len(net_headers), -1, dtype=np.int32)
     for i, h in enumerate(net_headers):
-        if h in header_to_new_idx:
-            net_old_to_new[i] = header_to_new_idx[h]
+        new_index = header_to_new_idx.get(h)
+        if new_index is not None:
+            net_old_to_new[i] = new_index
 
-    processed_edges = []
+    # Filter with whole-array operations. A Python tuple per edge costs about
+    # 130 bytes, so a complete 44k-sequence network (~974M edges) would need
+    # ~125 GB. Each network index array is freed as soon as its int32 mapping
+    # exists. Edge order is kept, so duplicate pairs resolve as before.
+    edge_i = map_network_indices(arr_i, net_old_to_new)
+    del arr_i
+    edge_j = map_network_indices(arr_j, net_old_to_new)
+    del arr_j
+    if edge_i.size and (edge_i.min() < 0 or edge_j.min() < 0):
+        keep = (edge_i >= 0) & (edge_j >= 0)
+        edge_i = edge_i[keep]
+        edge_j = edge_j[keep]
+        target_score = target_score[keep]
+        target_len = target_len[keep]
+        del keep
+    raw_scores = target_score.astype(np.float32, copy=False)
+    align_lens = target_len.astype(np.float32, copy=False)
+    del target_score, target_len
+    num_edges = len(edge_i)
 
-    for k in range(len(arr_i)):
-        u_old, v_old = int(arr_i[k]), int(arr_j[k])
-        
-        if u_old in net_old_to_new and v_old in net_old_to_new:
-            u_new = net_old_to_new[u_old]
-            v_new = net_old_to_new[v_old]
-            processed_edges.append((u_new, v_new, target_score[k], target_len[k]))
-
-    print(f"Retained {len(processed_edges)} edges valid for the intersection.")
+    print(f"Retained {num_edges} edges valid for the intersection.")
 
     import scipy.sparse as sp
 
     # 7. PREPARE SPARSE DATA ARRAYS
     print(f"Preparing sparse distance metrics...")
-    
-    num_edges = len(processed_edges)
-    
-    # Pre-allocate exactly sized arrays for Numba
-    edge_i = np.zeros(num_edges, dtype=np.int32)
-    edge_j = np.zeros(num_edges, dtype=np.int32)
-    raw_scores = np.zeros(num_edges, dtype=np.float32)
-    align_lens = np.zeros(num_edges, dtype=np.float32)
-    
-    # 7a. Fast Data Unpacking (Moving memory, no math)
-    print("Unpacking edges into memory arrays...")
-    for k, e in enumerate(tqdm(processed_edges, desc="Unpacking Edges")):
-        edge_i[k] = e[0]
-        edge_j[k] = e[1]
-        raw_scores[k] = e[2]
-        align_lens[k] = e[3]
-        
-    # 7b. Pre-compute Sequence Lengths into a C-compatible array
+
+    # 7a. Pre-compute Sequence Lengths into a C-compatible array
     num_seqs = len(valid_headers)
     seq_lens_array = np.zeros(num_seqs, dtype=np.int32)
     for idx, h in enumerate(valid_headers):
         seq_lens_array[idx] = len(seq_dict[h])
 
-    # 7c. Map the string mode to an integer for the Numba kernel
+    # 7b. Map the string mode to an integer for the Numba kernel
     mode_map = {
         "alignment_length": 0,
         "shorter_sequence": 1,
@@ -1347,26 +1369,37 @@ def run_msa_builder():
     
     mode_int = mode_map.get(NORMALIZATION_MODE, 0)
 
-    # 7d. Execute C-Speed Kernel
+    # 7c. Execute C-Speed Kernel
     print("Executing Numba Math Kernel...")
     norm_scores, max_norm_score = calculate_normalized_scores_kernel(
-        edge_i=edge_i, 
-        edge_j=edge_j, 
-        raw_scores=raw_scores, 
-        align_lens=align_lens, 
-        seq_lens=seq_lens_array, 
-        is_evalue=is_evalue, 
+        edge_i=edge_i,
+        edge_j=edge_j,
+        raw_scores=raw_scores,
+        align_lens=align_lens,
+        seq_lens=seq_lens_array,
+        is_evalue=is_evalue,
         mode_int=mode_int
     )
+    del raw_scores, align_lens
 
-    MAX_DISTANCE = max_norm_score + 0.1 
-
-    # Invert scores to distances
-    edge_dists = np.maximum(0.0, max_norm_score - norm_scores).astype(np.float32)
+    MAX_DISTANCE = max_norm_score + 0.1
 
     is_sparse = num_edges < int(num_seqs * (num_seqs - 1) / 2)
     iso_reg = None
     cos_sim_mat = None
+
+    # Invert scores to distances
+    if is_sparse:
+        # The regression below still reads the normalized scores.
+        edge_dists = np.maximum(0.0, max_norm_score - norm_scores).astype(np.float32)
+    else:
+        # Nothing reads the normalized scores again, so invert them in place.
+        # Deleting edge_dists before bootstrapping then frees them as well.
+        # max_norm_score is a Python float, so NumPy still computes in float32.
+        edge_dists = norm_scores
+        del norm_scores
+        np.subtract(max_norm_score, edge_dists, out=edge_dists)
+        np.maximum(0.0, edge_dists, out=edge_dists)
 
     if is_sparse:
         print(f"Network is sparse ({num_edges} / {int(num_seqs * (num_seqs - 1) / 2)} edges). Activating hybrid cosine-alignment transformation...")
@@ -1564,9 +1597,7 @@ def run_msa_builder():
             iterator = pool.imap_unordered(worker_func, seeds)
             for Z in tqdm(iterator, total=NUM_TREES, desc="Bootstrapping Trees"):
                 if full_consensus:
-                    full_coph = compute_full_cophenetic(Z, num_seqs)
-                    D_final_cond += full_coph
-                    del full_coph
+                    accumulate_full_cophenetic(Z, num_seqs, D_final_cond)
                 else:
                     sparse_coph = compute_sparse_cophenetic(
                         Z,
@@ -1609,6 +1640,10 @@ def run_msa_builder():
     if TREE_METHOD == "Neighbor-joining (Slow)":
         linkage_matrix = neighbor_joining_condensed(D_final_cond, num_seqs)
     else:
+        # SciPy converts to float64 and then copies its input. Converting
+        # first lets the float32 matrix go before that copy is made; the
+        # widening is exact, so the tree is unchanged.
+        D_final_cond = D_final_cond.astype(np.float64)
         linkage_matrix = sch.linkage(D_final_cond, method='average')
     
     # --- CLEANUP ---
