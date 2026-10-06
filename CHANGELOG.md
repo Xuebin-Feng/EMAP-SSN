@@ -78,6 +78,20 @@ still change before version 1.0.0.
   MCP clients issue these commands too, and on Windows a network-share name makes the
   system offer the user's credentials to that host. `meta download` writes `.csv` and
   `.xlsx` only; other extensions are refused before anything is written.
+- **CPU layout generation uses several cores.** The SSN physics kernel computes
+  repulsion in parallel on all but two logical CPUs, as the `logo` command already
+  did (set `NUMBA_NUM_THREADS` to choose the count). It also visits only pairs within
+  a component and no longer allocates temporaries for every node on every step. On
+  the test machine (20 logical CPUs, so 18 threads), a step took 15 ms instead of
+  105 ms on a 10,000-node component, and 0.074 ms instead of 1.8 ms on a batch of 100
+  small components. Coordinates are bit-identical to the serial kernel on any thread
+  count. UMAP layouts with a `LAYOUT_SEED` still run on one core, because umap-learn
+  makes seeded runs serial to keep them reproducible.
+- Neighbor-joining guide trees in `Embedding_MSA.py` and the edge filter of the
+  `jaccard` mode of `cluster` and `subcluster` also run in parallel on all but two
+  logical CPUs; neighbor-joining bootstrap workers split those threads between them.
+  A 3,000-sequence neighbor-joining tree took 0.74 s instead of 5.9 s, and filtering
+  3 million edges 0.26 s instead of 3.7 s, with identical trees and filters.
 
 ### Fixed
 

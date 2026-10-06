@@ -18,10 +18,16 @@ import math
 from collections import deque
 
 try:
-    from numba import jit
+    from numba import jit, prange
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
+    prange = range
+
+try:
+    from utilities import Numba_Threads
+except ImportError:
+    import Numba_Threads
 
 try:
     import torch
@@ -42,46 +48,75 @@ except Exception as e:
 
 # --- 1. Physics Kernels ---
 
-def _compile_physics_kernel(kernel):
+def _compile_physics_kernel(kernel, parallel=False, fastmath=True):
     """JIT-compile a kernel when numba is present, else return the closure."""
     if NUMBA_AVAILABLE:
-        return jit(nopython=True, fastmath=True)(kernel)
+        return jit(nopython=True, fastmath=fastmath, parallel=parallel)(kernel)
     return kernel
 
 
+# Every fastmath flag except 'contract'. The Euler update was once written as
+# slice arithmetic (acc[i] -= damping * vel[i]), whose float64 temporaries
+# rounded each product before it was added. Without 'contract' the per-axis
+# update keeps those two roundings instead of fusing them into one FMA.
+_UNFUSED_FASTMATH = {'nnan', 'ninf', 'nsz', 'arcp', 'afn', 'reassoc'}
+
+
+def _group_by_component(comp_labels, active_nodes):
+    """Group active nodes by component, keeping their order within each one.
+
+    Returns the regrouped nodes and, for each position in that order, the
+    bounds of its component's run. A node that walks its run in order meets
+    the same partners in the same order as the historical all-pairs loop,
+    which skipped every cross-component pair.
+    """
+    n_active = active_nodes.shape[0]
+    order = np.argsort(comp_labels[active_nodes], kind='mergesort')
+    members = active_nodes[order]
+    run_starts = np.empty(n_active, dtype=np.int64)
+    run_ends = np.empty(n_active, dtype=np.int64)
+    run_start = 0
+    while run_start < n_active:
+        label = comp_labels[members[run_start]]
+        run_end = run_start + 1
+        while run_end < n_active and comp_labels[members[run_end]] == label:
+            run_end += 1
+        for position in range(run_start, run_end):
+            run_starts[position] = run_start
+            run_ends[position] = run_end
+        run_start = run_end
+    return members, run_starts, run_ends
+
+
+_group_active_nodes = _compile_physics_kernel(_group_by_component)
+
+
 def _build_physics_kernel_2d():
-    def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
-        n_balls = pos.shape[0]
-        acc = np.zeros_like(pos)
-        repulsion = np.zeros_like(pos)
-        
+    def _accumulate_repulsion(pos, acc, repulsion, comp_labels, active_nodes, k_coul, max_f, max_total_repulsion, cutoff_dist):
         # Calculate squared cutoff for efficient distance comparison
-        cutoff_sq = cutoff_dist * cutoff_dist 
+        cutoff_sq = cutoff_dist * cutoff_dist
         taper_start = cutoff_dist * 0.8
         taper_width = max(cutoff_dist * 0.2, 1e-9)
-        
-        # --- SPRINGS (Attraction) ---
-        for i in range(springs.shape[0]):
-            idx_a, idx_b = springs[i, 0], springs[i, 1]
-            if not active_mask[idx_a] or not active_mask[idx_b]:
-                continue
-            dx, dy = pos[idx_a, 0] - pos[idx_b, 0], pos[idx_a, 1] - pos[idx_b, 1]
-            dist = math.sqrt(dx*dx + dy*dy) + 1e-9
-            
-            f = -k_spr * dist
-            
-            acc[idx_a, 0] += f * (dx/dist); acc[idx_a, 1] += f * (dy/dist)
-            acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist)
-            
-        # --- REPULSION (Coulomb Only) ---
-        for active_i in range(active_nodes.shape[0]):
-            i = active_nodes[active_i]
-            for active_j in range(active_i + 1, active_nodes.shape[0]):
-                j = active_nodes[active_j]
-                if comp_labels[i] != comp_labels[j]:
+
+        # Each node sums its own pairs, so the threads never write the same
+        # row. Summing in run order keeps every float rounding of the serial
+        # pair loop, and the result does not depend on the thread count.
+        members, run_starts, run_ends = _group_active_nodes(comp_labels, active_nodes)
+        # A contiguous copy in run order keeps the inner loop off the
+        # members[] indirection.
+        run_pos = np.empty((members.shape[0], 2), dtype=pos.dtype)
+        for position in range(members.shape[0]):
+            run_pos[position, 0] = pos[members[position], 0]
+            run_pos[position, 1] = pos[members[position], 1]
+
+        for position in prange(members.shape[0]):
+            node = members[position]
+            for other_position in range(run_starts[position], run_ends[position]):
+                if other_position == position:
                     continue
 
-                dx, dy = pos[i, 0] - pos[j, 0], pos[i, 1] - pos[j, 1]
+                dx = run_pos[position, 0] - run_pos[other_position, 0]
+                dy = run_pos[position, 1] - run_pos[other_position, 1]
                 dist_sq = dx*dx + dy*dy
 
                 if dist_sq > cutoff_sq: continue
@@ -97,24 +132,62 @@ def _build_physics_kernel_2d():
                 if dist > taper_start:
                     f *= max(0.0, (cutoff_dist - dist) / taper_width)
 
-                repulsion[i, 0] += f*(dx/dist); repulsion[i, 1] += f*(dy/dist)
-                repulsion[j, 0] -= f*(dx/dist); repulsion[j, 1] -= f*(dy/dist)
+                repulsion[node, 0] += f*(dx/dist); repulsion[node, 1] += f*(dy/dist)
 
-        # MAX_FORCE_LIMIT caps each pair. This second cap limits the norm of the
-        # accumulated repulsive force on a node before it is combined with springs.
-        for active_idx in range(active_nodes.shape[0]):
-            i = active_nodes[active_idx]
+            # MAX_FORCE_LIMIT caps each pair. This second cap limits the norm of the
+            # accumulated repulsive force on a node before it is combined with springs.
             rep_norm = math.sqrt(
-                repulsion[i, 0] * repulsion[i, 0]
-                + repulsion[i, 1] * repulsion[i, 1]
+                repulsion[node, 0] * repulsion[node, 0]
+                + repulsion[node, 1] * repulsion[node, 1]
             )
             if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
                 rep_scale = max_total_repulsion / rep_norm
-                repulsion[i, 0] *= rep_scale
-                repulsion[i, 1] *= rep_scale
-            acc[i, 0] += repulsion[i, 0]
-            acc[i, 1] += repulsion[i, 1]
-                    
+                repulsion[node, 0] *= rep_scale
+                repulsion[node, 1] *= rep_scale
+            acc[node, 0] += repulsion[node, 0]
+            acc[node, 1] += repulsion[node, 1]
+
+    # Only the O(N^2) repulsion runs in parallel. Springs scatter into shared
+    # rows and are O(E), so they stay serial with the O(N) integration.
+    accumulate_repulsion = _compile_physics_kernel(
+        _accumulate_repulsion, parallel=True
+    )
+
+    def _euler_update(pos, vel, acc, i, dt, damping):
+        acc[i, 0] -= damping * vel[i, 0]; acc[i, 1] -= damping * vel[i, 1]
+        vel[i, 0] += acc[i, 0] * dt; vel[i, 1] += acc[i, 1] * dt
+        pos[i, 0] += vel[i, 0] * dt; pos[i, 1] += vel[i, 1] * dt
+
+    # Per-axis scalars avoid allocating slice temporaries for every node on
+    # every step, which used to dominate batches of small components.
+    euler_update = _compile_physics_kernel(
+        _euler_update, fastmath=_UNFUSED_FASTMATH
+    )
+
+    def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
+        n_balls = pos.shape[0]
+        acc = np.zeros_like(pos)
+        repulsion = np.zeros_like(pos)
+
+        # --- SPRINGS (Attraction) ---
+        for i in range(springs.shape[0]):
+            idx_a, idx_b = springs[i, 0], springs[i, 1]
+            if not active_mask[idx_a] or not active_mask[idx_b]:
+                continue
+            dx, dy = pos[idx_a, 0] - pos[idx_b, 0], pos[idx_a, 1] - pos[idx_b, 1]
+            dist = math.sqrt(dx*dx + dy*dy) + 1e-9
+            
+            f = -k_spr * dist
+            
+            acc[idx_a, 0] += f * (dx/dist); acc[idx_a, 1] += f * (dy/dist)
+            acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist)
+
+        # --- REPULSION (Coulomb Only) ---
+        accumulate_repulsion(
+            pos, acc, repulsion, comp_labels, active_nodes,
+            k_coul, max_f, max_total_repulsion, cutoff_dist,
+        )
+
         # --- INTEGRATION (Euler) ---
         rmsd = 0.0
         n_active = active_nodes.shape[0]
@@ -122,19 +195,17 @@ def _build_physics_kernel_2d():
             if not active_mask[i]:
                 continue
             box_limit = box_limits[i]
-            acc[i] -= damping * vel[i]
-            vel[i] += acc[i] * dt
-            old_p = pos[i].copy()
-            pos[i] += vel[i] * dt
-            
+            old_x, old_y = pos[i, 0], pos[i, 1]
+            euler_update(pos, vel, acc, i, dt, damping)
+
             if pos[i,0] > box_limit: pos[i,0]=box_limit; vel[i,0]*=-0.5
             elif pos[i,0] < -box_limit: pos[i,0]=-box_limit; vel[i,0]*=-0.5
             if pos[i,1] > box_limit: pos[i,1]=box_limit; vel[i,1]*=-0.5
             elif pos[i,1] < -box_limit: pos[i,1]=-box_limit; vel[i,1]*=-0.5
-            
-            diff = pos[i] - old_p
-            rmsd += diff[0]**2 + diff[1]**2
-            
+
+            diff_x, diff_y = pos[i, 0] - old_x, pos[i, 1] - old_y
+            rmsd += diff_x**2 + diff_y**2
+
         if n_active == 0:
             return 0.0
         return math.sqrt(rmsd / n_active)
@@ -150,15 +221,78 @@ def _build_physics_kernel_3d():
     produces for the 2D path. Every formula, clamp and ordering below matches
     _build_physics_kernel_2d exactly; only the z terms are added.
     """
-    def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
-        n_balls = pos.shape[0]
-        acc = np.zeros_like(pos)
-        repulsion = np.zeros_like(pos)
-
+    def _accumulate_repulsion(pos, acc, repulsion, comp_labels, active_nodes, k_coul, max_f, max_total_repulsion, cutoff_dist):
         # Calculate squared cutoff for efficient distance comparison
         cutoff_sq = cutoff_dist * cutoff_dist
         taper_start = cutoff_dist * 0.8
         taper_width = max(cutoff_dist * 0.2, 1e-9)
+
+        members, run_starts, run_ends = _group_active_nodes(comp_labels, active_nodes)
+        run_pos = np.empty((members.shape[0], 3), dtype=pos.dtype)
+        for position in range(members.shape[0]):
+            run_pos[position, 0] = pos[members[position], 0]
+            run_pos[position, 1] = pos[members[position], 1]
+            run_pos[position, 2] = pos[members[position], 2]
+
+        for position in prange(members.shape[0]):
+            node = members[position]
+            for other_position in range(run_starts[position], run_ends[position]):
+                if other_position == position:
+                    continue
+
+                dx = run_pos[position, 0] - run_pos[other_position, 0]
+                dy = run_pos[position, 1] - run_pos[other_position, 1]
+                dz = run_pos[position, 2] - run_pos[other_position, 2]
+                dist_sq = dx*dx + dy*dy + dz*dz
+
+                if dist_sq > cutoff_sq: continue
+                if dist_sq == 0.0: continue
+
+                dist = math.sqrt(dist_sq)
+                safe_dist = max(dist, 0.5)
+
+                f = k_coul / (safe_dist**2)
+
+                if max_f > 0.0 and f > max_f:
+                    f = max_f
+                if dist > taper_start:
+                    f *= max(0.0, (cutoff_dist - dist) / taper_width)
+
+                repulsion[node, 0] += f*(dx/dist); repulsion[node, 1] += f*(dy/dist); repulsion[node, 2] += f*(dz/dist)
+
+            # MAX_FORCE_LIMIT caps each pair. This second cap limits the norm of the
+            # accumulated repulsive force on a node before it is combined with springs.
+            rep_norm = math.sqrt(
+                repulsion[node, 0] * repulsion[node, 0]
+                + repulsion[node, 1] * repulsion[node, 1]
+                + repulsion[node, 2] * repulsion[node, 2]
+            )
+            if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
+                rep_scale = max_total_repulsion / rep_norm
+                repulsion[node, 0] *= rep_scale
+                repulsion[node, 1] *= rep_scale
+                repulsion[node, 2] *= rep_scale
+            acc[node, 0] += repulsion[node, 0]
+            acc[node, 1] += repulsion[node, 1]
+            acc[node, 2] += repulsion[node, 2]
+
+    accumulate_repulsion = _compile_physics_kernel(
+        _accumulate_repulsion, parallel=True
+    )
+
+    def _euler_update(pos, vel, acc, i, dt, damping):
+        acc[i, 0] -= damping * vel[i, 0]; acc[i, 1] -= damping * vel[i, 1]; acc[i, 2] -= damping * vel[i, 2]
+        vel[i, 0] += acc[i, 0] * dt; vel[i, 1] += acc[i, 1] * dt; vel[i, 2] += acc[i, 2] * dt
+        pos[i, 0] += vel[i, 0] * dt; pos[i, 1] += vel[i, 1] * dt; pos[i, 2] += vel[i, 2] * dt
+
+    euler_update = _compile_physics_kernel(
+        _euler_update, fastmath=_UNFUSED_FASTMATH
+    )
+
+    def _run_physics_kernel(pos, vel, springs, comp_labels, active_mask, active_nodes, box_limits, dt, damping, k_spr, k_coul, max_f, max_total_repulsion, cutoff_dist):
+        n_balls = pos.shape[0]
+        acc = np.zeros_like(pos)
+        repulsion = np.zeros_like(pos)
 
         # --- SPRINGS (Attraction) ---
         for i in range(springs.shape[0]):
@@ -176,51 +310,10 @@ def _build_physics_kernel_3d():
             acc[idx_b, 0] -= f * (dx/dist); acc[idx_b, 1] -= f * (dy/dist); acc[idx_b, 2] -= f * (dz/dist)
 
         # --- REPULSION (Coulomb Only) ---
-        for active_i in range(active_nodes.shape[0]):
-            i = active_nodes[active_i]
-            for active_j in range(active_i + 1, active_nodes.shape[0]):
-                j = active_nodes[active_j]
-                if comp_labels[i] != comp_labels[j]:
-                    continue
-
-                dx = pos[i, 0] - pos[j, 0]
-                dy = pos[i, 1] - pos[j, 1]
-                dz = pos[i, 2] - pos[j, 2]
-                dist_sq = dx*dx + dy*dy + dz*dz
-
-                if dist_sq > cutoff_sq: continue
-                if dist_sq == 0.0: continue
-
-                dist = math.sqrt(dist_sq)
-                safe_dist = max(dist, 0.5)
-
-                f = k_coul / (safe_dist**2)
-
-                if max_f > 0.0 and f > max_f:
-                    f = max_f
-                if dist > taper_start:
-                    f *= max(0.0, (cutoff_dist - dist) / taper_width)
-
-                repulsion[i, 0] += f*(dx/dist); repulsion[i, 1] += f*(dy/dist); repulsion[i, 2] += f*(dz/dist)
-                repulsion[j, 0] -= f*(dx/dist); repulsion[j, 1] -= f*(dy/dist); repulsion[j, 2] -= f*(dz/dist)
-
-        # MAX_FORCE_LIMIT caps each pair. This second cap limits the norm of the
-        # accumulated repulsive force on a node before it is combined with springs.
-        for active_idx in range(active_nodes.shape[0]):
-            i = active_nodes[active_idx]
-            rep_norm = math.sqrt(
-                repulsion[i, 0] * repulsion[i, 0]
-                + repulsion[i, 1] * repulsion[i, 1]
-                + repulsion[i, 2] * repulsion[i, 2]
-            )
-            if max_total_repulsion > 0.0 and rep_norm > max_total_repulsion:
-                rep_scale = max_total_repulsion / rep_norm
-                repulsion[i, 0] *= rep_scale
-                repulsion[i, 1] *= rep_scale
-                repulsion[i, 2] *= rep_scale
-            acc[i, 0] += repulsion[i, 0]
-            acc[i, 1] += repulsion[i, 1]
-            acc[i, 2] += repulsion[i, 2]
+        accumulate_repulsion(
+            pos, acc, repulsion, comp_labels, active_nodes,
+            k_coul, max_f, max_total_repulsion, cutoff_dist,
+        )
 
         # --- INTEGRATION (Euler) ---
         rmsd = 0.0
@@ -229,10 +322,8 @@ def _build_physics_kernel_3d():
             if not active_mask[i]:
                 continue
             box_limit = box_limits[i]
-            acc[i] -= damping * vel[i]
-            vel[i] += acc[i] * dt
-            old_p = pos[i].copy()
-            pos[i] += vel[i] * dt
+            old_x, old_y, old_z = pos[i, 0], pos[i, 1], pos[i, 2]
+            euler_update(pos, vel, acc, i, dt, damping)
 
             if pos[i,0] > box_limit: pos[i,0]=box_limit; vel[i,0]*=-0.5
             elif pos[i,0] < -box_limit: pos[i,0]=-box_limit; vel[i,0]*=-0.5
@@ -241,8 +332,8 @@ def _build_physics_kernel_3d():
             if pos[i,2] > box_limit: pos[i,2]=box_limit; vel[i,2]*=-0.5
             elif pos[i,2] < -box_limit: pos[i,2]=-box_limit; vel[i,2]*=-0.5
 
-            diff = pos[i] - old_p
-            rmsd += diff[0]**2 + diff[1]**2 + diff[2]**2
+            diff_x, diff_y, diff_z = pos[i, 0] - old_x, pos[i, 1] - old_y, pos[i, 2] - old_z
+            rmsd += diff_x**2 + diff_y**2 + diff_z**2
 
         if n_active == 0:
             return 0.0
@@ -314,19 +405,21 @@ class SSNSimulationCPU:
         # simulation-object protocol is unchanged for 2D callers.
         self.dimensions = int(self.pos.shape[1])
         self._kernel = _get_physics_kernel(self.dimensions)
+        self.threads = Numba_Threads.default_thread_count()
 
     def step(self, current_step):
-        return self._kernel(
-            self.pos, self.vel, self.springs, self.comp_labels,
-            self.active_mask, self.active_nodes, self.box_limits,
-            self.params.get('DT', 0.1), 
-            self.params.get('DAMPING', 0.5), 
-            self.params.get('SPRING_K', 0.1), 
-            self.params.get('COULOMB_K', 50.0), 
-            self.params.get('MAX_FORCE_LIMIT', 20.0),
-            self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0),
-            self.cutoff
-        )
+        with Numba_Threads.limited_threads(self.threads):
+            return self._kernel(
+                self.pos, self.vel, self.springs, self.comp_labels,
+                self.active_mask, self.active_nodes, self.box_limits,
+                self.params.get('DT', 0.1),
+                self.params.get('DAMPING', 0.5),
+                self.params.get('SPRING_K', 0.1),
+                self.params.get('COULOMB_K', 50.0),
+                self.params.get('MAX_FORCE_LIMIT', 20.0),
+                self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0),
+                self.cutoff
+            )
         
     def get_pos(self): return self.pos
 
@@ -1067,7 +1160,13 @@ def calculate_layout(connectivity, n_nodes, params):
             )
             for size_class, prepared in representative_batches.items()
         }
-    
+
+    if any(plans[0].candidate.is_cpu for plans in device_rankings.values()):
+        print(
+            f"CPU layout physics: {Numba_Threads.default_thread_count()} "
+            f"threads on {Numba_Threads.usable_cpu_count()} logical CPUs."
+        )
+
     # 3. Simulate jobs sequentially
     for job_idx, batch_comps in enumerate(jobs):
         job_rng = _job_generator(layout_seed, job_idx)

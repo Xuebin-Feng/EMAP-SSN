@@ -75,10 +75,11 @@ import scipy.cluster.hierarchy as sch
 from scipy.spatial.distance import squareform
 import multiprocessing as mp
 from functools import partial
-from numba import jit
+from numba import jit, prange
 from tqdm import tqdm
 import sys
 from utilities import Hardware_Acceleration as Hardware_Utils
+from utilities import Numba_Threads
 from sklearn.isotonic import IsotonicRegression
 from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
@@ -322,8 +323,12 @@ class MSACluster:
 # ==========================================
 # HELPER: FASTA LOADER & WORKER
 # ==========================================
-def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noise_scale, tree_method):
-    """Build one replicate tree from the complete shared distance baseline."""
+def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noise_scale, tree_method, kernel_threads=None):
+    """Build one replicate tree from the complete shared distance baseline.
+
+    ``kernel_threads`` is this worker's share of the Numba thread budget, so
+    concurrent neighbor-joining workers do not oversubscribe the CPUs.
+    """
     condensed_size = int(num_seqs * (num_seqs - 1) / 2)
     baseline_dist = np.memmap(
         baseline_dist_path,
@@ -362,7 +367,9 @@ def compute_single_tree_worker(seed, num_seqs, baseline_dist_path, max_dist, noi
 
     # Run Linkage or Neighbor-joining
     if neighbor_joining:
-        Z = neighbor_joining_condensed(D_perturbed_cond, num_seqs)
+        Z = neighbor_joining_condensed(
+            D_perturbed_cond, num_seqs, threads=kernel_threads
+        )
     else:
         Z = sch.linkage(D_perturbed_cond, method='average')
     
@@ -866,10 +873,40 @@ def finalize_cophenetic_consensus(
         )
     return distance_matrix
 
+@jit(nopython=True, fastmath=True, parallel=True)
+def neighbor_joining_row_minima(D, active_list, r_list, k, row_min, row_arg):
+    """Store each active row's first minimum Q over the pairs j > i.
+
+    Rows are independent, so threads never share a write. Row i has
+    k - 1 - i pairs; pairing row t with row k - 1 - t gives every parallel
+    iteration about k cells.
+    """
+    for t in prange((k + 1) // 2):
+        # The prange index is unsigned; mixing it with signed k would
+        # promote the row index to float64.
+        first = np.int64(t)
+        for side in range(2):
+            i = first if side == 0 else k - 1 - first
+            if side == 1 and i == first:
+                break
+            u = active_list[i]
+            r_u = r_list[i]
+            best_q = 1e15
+            best_j = -1
+            for j in range(i + 1, k):
+                v = active_list[j]
+                q = D[u, v] - (r_u + r_list[j])
+                if q < best_q:
+                    best_q = q
+                    best_j = j
+            row_min[i] = best_q
+            row_arg[i] = best_j
+
+
 @jit(nopython=True, fastmath=True)
 def neighbor_joining_kernel(D, N):
     Z = np.zeros((N - 1, 4), dtype=np.float64)
-    
+
     # Track active node indices contiguous in memory (sorted)
     active_list = np.arange(N, dtype=np.int32)
     k = N
@@ -887,28 +924,28 @@ def neighbor_joining_kernel(D, N):
     
     # Pre-allocate r_list array for reuse
     r_list = np.zeros(2 * N - 1, dtype=np.float64)
-    
+    row_min = np.empty(N, dtype=np.float64)
+    row_arg = np.empty(N, dtype=np.int64)
+
     for step in range(N - 1):
         if k > 2:
             inv_k_minus_2 = 1.0 / (k - 2)
             min_Q = 1e15
             idx_u = -1
             idx_v = -1
-            
+
             # Precompute normalized divergence values for active nodes
             for i in range(k):
                 r_list[i] = R[active_list[i]] * inv_k_minus_2
-                
+
+            # Taking rows in order with a strict < keeps the serial scan's
+            # choice: the first minimum in row-major order.
+            neighbor_joining_row_minima(D, active_list, r_list, k, row_min, row_arg)
             for i in range(k):
-                u = active_list[i]
-                r_u = r_list[i]
-                for j in range(i + 1, k):
-                    v = active_list[j]
-                    q = D[u, v] - (r_u + r_list[j])
-                    if q < min_Q:
-                        min_Q = q
-                        idx_u = i
-                        idx_v = j
+                if row_min[i] < min_Q:
+                    min_Q = row_min[i]
+                    idx_u = i
+                    idx_v = row_arg[i]
         else:
             idx_u = 0
             idx_v = 1
@@ -958,11 +995,14 @@ def neighbor_joining_kernel(D, N):
         
     return Z
 
-def neighbor_joining_condensed(D_condensed, num_seqs):
+def neighbor_joining_condensed(D_condensed, num_seqs, threads=None):
     D_square = squareform(D_condensed)
     D_allocated = np.zeros((2 * num_seqs - 1, 2 * num_seqs - 1), dtype=np.float64)
     D_allocated[:num_seqs, :num_seqs] = D_square
-    return neighbor_joining_kernel(D_allocated, num_seqs)
+    if threads is None:
+        threads = Numba_Threads.default_thread_count()
+    with Numba_Threads.limited_threads(threads):
+        return neighbor_joining_kernel(D_allocated, num_seqs)
 
 @jit(nopython=True, fastmath=True)
 def calculate_normalized_scores_kernel(edge_i, edge_j, raw_scores, align_lens, seq_lens, is_evalue, mode_int):
@@ -1585,13 +1625,20 @@ def run_msa_builder():
             C_accum_sparse = np.zeros(num_edges, dtype=np.float32)
 
         seeds = generate_bootstrap_seeds(NUM_TREES)
-        
-        worker_func = partial(compute_single_tree_worker, 
-                              num_seqs=num_seqs, 
+        # Neighbor-joining workers share the CPU budget; UPGMA ignores it.
+        worker_threads = max(
+            1, Numba_Threads.default_thread_count() // max(1, int(WORKERS))
+        )
+        if TREE_METHOD == "Neighbor-joining (Slow)":
+            print(f"Neighbor-joining uses {worker_threads} threads per worker.")
+
+        worker_func = partial(compute_single_tree_worker,
+                              num_seqs=num_seqs,
                               baseline_dist_path=baseline_dist_path,
-                              max_dist=MAX_DISTANCE, 
+                              max_dist=MAX_DISTANCE,
                               noise_scale=NOISE_SCALE,
-                              tree_method=TREE_METHOD)
+                              tree_method=TREE_METHOD,
+                              kernel_threads=worker_threads)
         
         with mp.Pool(processes=WORKERS) as pool:
             iterator = pool.imap_unordered(worker_func, seeds)

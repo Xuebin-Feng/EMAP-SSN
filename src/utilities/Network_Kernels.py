@@ -19,10 +19,11 @@ import sys
 import numpy as np
 
 try:
-    from numba import jit, njit
+    from numba import jit, njit, prange
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
+    prange = range
 
     def njit(*args, **kwargs):
         def decorator(func):
@@ -33,6 +34,12 @@ except ImportError:
         def decorator(func):
             return func
         return decorator
+
+
+try:
+    from utilities import Numba_Threads
+except ImportError:
+    import Numba_Threads
 
 
 # Module aliasing to prevent duplicate JIT caches in long-running processes
@@ -461,11 +468,17 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
 
 if NUMBA_AVAILABLE:
 
-    @jit(nopython=True)
     def fast_jaccard_filter(edges, indptr, indices, threshold):
+        """Keep edges whose endpoint neighbourhoods meet the Jaccard threshold."""
+        with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+            return _jaccard_keep_mask(edges, indptr, indices, threshold)
+
+    # Every edge writes only its own mask entry, so edges run in parallel.
+    @jit(nopython=True, parallel=True)
+    def _jaccard_keep_mask(edges, indptr, indices, threshold):
         n_edges = edges.shape[0]
         keep_mask = np.zeros(n_edges, dtype=np.bool_)
-        for edge_index in range(n_edges):
+        for edge_index in prange(n_edges):
             u, v = edges[edge_index, 0], edges[edge_index, 1]
             start_u, end_u = indptr[u], indptr[u + 1]
             start_v, end_v = indptr[v], indptr[v + 1]
