@@ -295,30 +295,76 @@ def _normalize_residue_embeddings(embedding):
     return normalized
 
 
+# Alignments hold one ASCII code per residue; this is the gap.
+GAP_CODE = ord("-")
+
+
+class NonAsciiSequenceError(ValueError):
+    """Raised when a sequence cannot be stored as one byte per residue."""
+
+
+def encode_leaf_alignments(seq_dict, valid_headers):
+    """Return each sequence as a one-sequence alignment of shape (length, 1).
+
+    Sanitized FASTA files and embedding manifests hold only ASCII residue
+    codes. Checking before the guide tree is built rejects anything else in
+    seconds instead of after hours of tree building.
+    """
+    rejected = [header for header in valid_headers if not seq_dict[header].isascii()]
+    if rejected:
+        shown = ", ".join(rejected[:5])
+        more = f" and {len(rejected) - 5} more" if len(rejected) > 5 else ""
+        raise NonAsciiSequenceError(
+            f"{len(rejected)} sequence(s) contain non-ASCII characters, which an "
+            f"alignment cannot store: {shown}{more}."
+        )
+    return [
+        np.frombuffer(seq_dict[header].encode("ascii"), dtype=np.uint8).reshape(-1, 1)
+        for header in valid_headers
+    ]
+
+
+def fit_leaf_to_embedding(aligned, length):
+    """Trim or gap-pad a leaf alignment to its embedding's row count."""
+    width = aligned.shape[0]
+    if width > length:
+        return aligned[:length]
+    if width < length:
+        padding = np.full((length - width, aligned.shape[1]), GAP_CODE, dtype=np.uint8)
+        return np.concatenate((aligned, padding))
+    return aligned
+
+
 class MSACluster:
-    def __init__(self, idx, sequences, ids, embedding=None):
+    def __init__(self, idx, aligned, ids, embedding=None):
         self.idx = idx
-        self.sequences = sequences   
-        self.ids = ids               
+        # One alignment column per row: shape (width, len(ids)), uint8 ASCII
+        # codes. A merge then places each column with one contiguous copy.
+        # Building strings one character at a time took minutes per merge
+        # once clusters held tens of thousands of sequences.
+        self.aligned = aligned
+        self.ids = ids
         # For merged nodes, each row is the average of unit residue vectors
         # across every sequence in the cluster. Gaps contribute zero, so the
         # row norm retains both column occupancy and residue agreement.
         self.embedding = embedding
         self.is_leaf = embedding is None
 
-    def get_embedding(self, h5_path, valid_headers):
-        """Return profile vectors, lazily initializing leaf residue vectors."""
+    def get_embedding(self, embeddings_group, valid_headers):
+        """Return profile vectors, lazily initializing leaf residue vectors.
+
+        Leaves are read through the builder's open embeddings group instead of
+        reopening the file once per sequence.
+        """
         if self.embedding is not None:
             return self.embedding
-        
-        # If leaf, open the file, fetch the single array, and close the file
-        with h5py.File(h5_path, "r") as f:
-            header = valid_headers[self.ids[0]]
-            safe_h = header.replace("/", "_").replace("\\", "_")
-            # Leaves enter the profile as unit residue vectors. Subsequent
-            # weighted averages then have norms in [0, 1], where a smaller
-            # norm represents gaps and/or disagreement within the column.
-            return _normalize_residue_embeddings(f["embeddings"][safe_h][:])
+
+        header = valid_headers[self.ids[0]]
+        safe_h = header.replace("/", "_").replace("\\", "_")
+        # Leaves enter the profile as unit residue vectors. Subsequent
+        # weighted averages then have norms in [0, 1], where a smaller
+        # norm represents gaps and/or disagreement within the column.
+        return _normalize_residue_embeddings(embeddings_group[safe_h][:])
 
 # ==========================================
 # HELPER: FASTA LOADER & WORKER
@@ -1150,47 +1196,53 @@ def run_global_traceback(score_matrix, gap_open, gap_extend):
     return path_buffer[:k]
 
 def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
-    path = path[::-1]
-    new_seqs_a = ["" for _ in cluster_a.sequences]
-    new_seqs_b = ["" for _ in cluster_b.sequences]
-    merged_vecs = []
-    
-    idx_a, idx_b = 0, 0
-    
+    # The traceback lists moves from the last column to the first. Match (1)
+    # and delete (2) take the next column of A, match and insert (3) of B.
+    moves = path[::-1]
+    take_a = (moves == 1) | (moves == 2)
+    take_b = (moves == 1) | (moves == 3)
+    used_a = int(take_a.sum())
+    used_b = int(take_b.sum())
+    if not (used_a == cluster_a.aligned.shape[0] == emb_a.shape[0]
+            and used_b == cluster_b.aligned.shape[0] == emb_b.shape[0]):
+        # Masked assignment would otherwise broadcast a one-column cluster
+        # into the wrong number of columns without complaint.
+        raise ValueError(
+            "Alignment path does not place every column: cluster A has "
+            f"{cluster_a.aligned.shape[0]} columns and {emb_a.shape[0]} profile "
+            f"rows, the path takes {used_a}; cluster B has "
+            f"{cluster_b.aligned.shape[0]} columns and {emb_b.shape[0]} profile "
+            f"rows, the path takes {used_b}."
+        )
+
+    width = moves.shape[0]
+    n_a = cluster_a.aligned.shape[1]
+    aligned = np.full(
+        (width, n_a + cluster_b.aligned.shape[1]), GAP_CODE, dtype=np.uint8
+    )
+    aligned[take_a, :n_a] = cluster_a.aligned
+    aligned[take_b, n_a:] = cluster_b.aligned
+
     w_a = float(len(cluster_a.ids))
     w_b = float(len(cluster_b.ids))
     total_w = w_a + w_b
-
-    for move in path:
-        if move == 1: 
-            for i, s in enumerate(cluster_a.sequences): new_seqs_a[i] += s[idx_a]
-            for i, s in enumerate(cluster_b.sequences): new_seqs_b[i] += s[idx_b]
-            # These are cluster-wide averages of unit residue vectors. The
-            # weighted mean preserves occupancy and directional agreement.
-            vec = (emb_a[idx_a].astype(np.float32) * w_a + emb_b[idx_b].astype(np.float32) * w_b) / total_w
-            merged_vecs.append(vec)
-            idx_a += 1; idx_b += 1
-            
-        elif move == 2: 
-            for i, s in enumerate(cluster_a.sequences): new_seqs_a[i] += s[idx_a]
-            for i, s in enumerate(cluster_b.sequences): new_seqs_b[i] += "-"
-            vec = (emb_a[idx_a].astype(np.float32) * w_a) / total_w
-            merged_vecs.append(vec)
-            idx_a += 1
-            
-        elif move == 3: 
-            for i, s in enumerate(cluster_a.sequences): new_seqs_a[i] += "-"
-            for i, s in enumerate(cluster_b.sequences): new_seqs_b[i] += s[idx_b]
-            vec = (emb_b[idx_b].astype(np.float32) * w_b) / total_w
-            merged_vecs.append(vec)
-            idx_b += 1
+    # These are cluster-wide averages of unit residue vectors. The weighted
+    # mean preserves occupancy and directional agreement. Each column is
+    # computed as (a * w_a + b * w_b) / total_w in float32, in the same
+    # order as the former column-by-column loop. Rows start at -0.0, the one
+    # value that leaves every addend unchanged (+0.0 + -0.0 is +0.0), so
+    # B-only columns keep their exact bits and the profile is bit-identical.
+    merged = np.full((width, emb_a.shape[1]), -0.0, dtype=np.float32)
+    merged[take_a] = emb_a.astype(np.float32) * w_a
+    merged[take_b] += emb_b.astype(np.float32) * w_b
+    merged /= total_w
 
     new_cluster = MSACluster(
         idx=-1,
-        sequences=new_seqs_a + new_seqs_b,
+        aligned=aligned,
         # Values remain bounded because they are averages of unit vectors.
         # Downcast to float16 to save RAM for the remaining iterations.
-        embedding=np.stack(merged_vecs, axis=0).astype(np.float16),
+        embedding=merged.astype(np.float16),
         ids=cluster_a.ids + cluster_b.ids
     )
     new_cluster.is_leaf = False
@@ -1352,6 +1404,11 @@ def run_msa_builder():
             )
         except SequenceEmbeddingMismatchError as e:
             sys.exit(f"❌ Error: {e}")
+
+    try:
+        leaf_alignments = encode_leaf_alignments(seq_dict, valid_headers)
+    except NonAsciiSequenceError as e:
+        sys.exit(f"❌ Error: {e}")
 
     # 5. BUILD MAPPINGS & FILTER NETWORK EDGES
     print("--- Filtering Network Edges ---")
@@ -1709,37 +1766,30 @@ def run_msa_builder():
     print("Initializing clusters...")
     clusters = {}
     for i in range(num_seqs):
-        header = valid_headers[i]
-        seq = seq_dict[header]
-        
-        # Initialize leaves purely with string/ID metadata
-        c = MSACluster(idx=i, sequences=[seq], ids=[i], embedding=None)
+        # Initialize leaves purely with alignment/ID metadata
+        c = MSACluster(idx=i, aligned=leaf_alignments[i], ids=[i], embedding=None)
         clusters[i] = c
 
     # 10. PROGRESSIVE ALIGNMENT
     print(f"Aligning {num_seqs} sequences...")
     cluster_merging_started = time.perf_counter()
+    embeddings_group = f_emb["embeddings"]
     for iteration, link in enumerate(tqdm(linkage_matrix, desc="Merging Clusters")):
         idx_a = int(link[0])
         idx_b = int(link[1])
-        
+
         cluster_a = clusters.pop(idx_a)
         cluster_b = clusters.pop(idx_b)
-        
+
         # --- LAZY LOAD: Fetch embeddings from disk (or RAM if already merged) ---
-        emb_a = cluster_a.get_embedding(FULL_INPUT_EMBED, valid_headers)
-        emb_b = cluster_b.get_embedding(FULL_INPUT_EMBED, valid_headers)
+        emb_a = cluster_a.get_embedding(embeddings_group, valid_headers)
+        emb_b = cluster_b.get_embedding(embeddings_group, valid_headers)
 
         # Handle sequence padding for raw leaf nodes just before alignment
-        if cluster_a.is_leaf and len(cluster_a.sequences[0]) != emb_a.shape[0]:
-            seq = cluster_a.sequences[0]
-            if len(seq) > emb_a.shape[0]: cluster_a.sequences[0] = seq[:emb_a.shape[0]]
-            else: cluster_a.sequences[0] = seq.ljust(emb_a.shape[0], "-")
-            
-        if cluster_b.is_leaf and len(cluster_b.sequences[0]) != emb_b.shape[0]:
-            seq = cluster_b.sequences[0]
-            if len(seq) > emb_b.shape[0]: cluster_b.sequences[0] = seq[:emb_b.shape[0]]
-            else: cluster_b.sequences[0] = seq.ljust(emb_b.shape[0], "-")
+        if cluster_a.is_leaf:
+            cluster_a.aligned = fit_leaf_to_embedding(cluster_a.aligned, emb_a.shape[0])
+        if cluster_b.is_leaf:
+            cluster_b.aligned = fit_leaf_to_embedding(cluster_b.aligned, emb_b.shape[0])
 
         # --- ALIGNMENT ---
         score_mat = compute_score_matrix_with_fallback(
@@ -1767,11 +1817,13 @@ def run_msa_builder():
     # 11. SAVE
     final_cluster = clusters[num_seqs + len(linkage_matrix) - 1]
     print(f"Saving Consensus MSA to {OUTPUT_FASTA}...")
+    # One transpose gives each aligned sequence as a contiguous row.
+    aligned_rows = np.ascontiguousarray(final_cluster.aligned.T)
     with open(OUTPUT_FASTA, "w", encoding="utf-8", newline="\n") as f:
-        for i, seq_str in enumerate(final_cluster.sequences):
+        for i, row in enumerate(aligned_rows):
             original_idx = final_cluster.ids[i]
             header = valid_headers[original_idx]
-            f.write(f">{header}\n{seq_str}\n")
+            f.write(f">{header}\n{row.tobytes().decode('ascii')}\n")
     print("Done!")
     total_processing_seconds = time.perf_counter() - total_processing_started
     report_processing_times(

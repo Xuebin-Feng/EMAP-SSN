@@ -274,11 +274,8 @@ class HeldMemoryPool(InProcessPool):
         raise GuideTreeBuilt
 
 
-def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **settings):
-    """Run run_msa_builder on the fixture and report what the tree stage saw.
-
-    Recording copies the edge arrays, so memory measurements turn it off.
-    """
+def builder_settings(fixture, **settings):
+    """Return the module globals that point run_msa_builder at the fixture."""
     values = {
         "USE_SEQUENCE_FILTER": False,
         "INPUT_FASTA": "",
@@ -311,6 +308,15 @@ def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **se
         "_model_name": Embedding_MSA._model_name,
     }
     values.update(settings)
+    return values
+
+
+def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **settings):
+    """Run run_msa_builder on the fixture and report what the tree stage saw.
+
+    Recording copies the edge arrays, so memory measurements turn it off.
+    """
+    values = builder_settings(fixture, **settings)
     seen = {"populate": [], "linkage_dtypes": []}
     real_populate = Embedding_MSA.populate_condensed_matrix
     real_linkage = sch.linkage

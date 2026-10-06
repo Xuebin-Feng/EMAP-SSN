@@ -92,6 +92,16 @@ still change before version 1.0.0.
   logical CPUs; neighbor-joining bootstrap workers split those threads between them.
   A 3,000-sequence neighbor-joining tree took 0.74 s instead of 5.9 s, and filtering
   3 million edges 0.26 s instead of 3.7 s, with identical trees and filters.
+- **Embedding MSA merges large clusters in seconds, not minutes.** Each merge rebuilt
+  every aligned sequence one character at a time, at a cost that grew with the
+  number of sequences times the square of the alignment width. On a 44,127-sequence
+  network the merge stage took 6 h 23 min of a 7 h 47 min run, and each of its last
+  merges took 1.5 to 3.3 minutes. Alignments are now byte matrices that a merge
+  fills a whole column at a time. On the test machine, merging 44,126 sequences with
+  one more into 9,684 columns took 0.15 s instead of 212 s. Leaf embeddings are read
+  through the open embeddings file instead of reopening it for every sequence.
+  Aligned FASTA files and merged profiles are unchanged bit for bit. A sequence that
+  contains non-ASCII characters is now rejected before the guide tree is built.
 
 ### Fixed
 
