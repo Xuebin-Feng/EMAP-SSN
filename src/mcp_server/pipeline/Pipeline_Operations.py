@@ -412,7 +412,7 @@ async def start_layout_job(
             "RMSD_WINDOW": 50,
             "ENABLE_PROGRESSIVE_SIMULATION": False,
             "PACKING_GEOMETRY": "Square",
-            "PACKING_GRID_SIZE": 20.0,
+            "PACKING_GRID_SIZE": 10.0,
             "BOX_SCALE": 2.0,
             "PACKING_PADDING": 10.0,
             "MAX_FORCE_LIMIT": 20.0,

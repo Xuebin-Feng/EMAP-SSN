@@ -1216,7 +1216,12 @@
                             <tr>
                                 <td><code>Cluster Packing Geometry</code></td>
                                 <td>Square</td>
-                                <td>Spatial packing geometry (<code>Square</code> or <code>Circle</code>) used to organize disconnected components on the outer canvas perimeter.</td>
+                                <td>Shape the packed layout grows into (<code>Square</code> or <code>Circle</code>): disconnected components are placed around the largest one, nearest the centre first.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Packing Grid Size</code></td>
+                                <td>10.0</td>
+                                <td>Cell size of the grid on which disconnected components are fitted together. Smaller cells pack them more tightly but take longer; drawings of different components always stay at least half of the hidden <code>PACKING_PADDING</code> setting (10 by default) apart.</td>
                             </tr>
                         </tbody>
                     </table>

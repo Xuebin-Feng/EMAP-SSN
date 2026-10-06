@@ -133,7 +133,7 @@ LOW_RESOURCE_MODE = False
 NODE_BOUNDARY_COLOR = '#000000'
 
 # --- Grid Packing Settings ---
-PACKING_GRID_SIZE = 20.0  # The base size of one grid square
+PACKING_GRID_SIZE = 10.0  # The base size of one grid square
 PACKING_PADDING = 10.0     # Extra padding applied to the bounding box of each cluster
 
 # --- Simulation & Physics Settings ---
@@ -1604,7 +1604,7 @@ if __name__ == "__main__":
                 "RMSD_WINDOW": "Number of simulation steps over which moving-average RMSD is calculated for plateau detection.\nSmoothes transient velocity spikes to ensure early termination triggers only on true convergence.",
                 "ENABLE_PROGRESSIVE_SIMULATION": "Progressively lowers the similarity threshold in stages for massive connected components.\nHelps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.",
                 "PACKING_GEOMETRY": "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window.",
-                "PACKING_GRID_SIZE": "Base grid square unit size used for macro-grid component packing.\nControls spacing and separation between packed independent clusters in the final layout.",
+                "PACKING_GRID_SIZE": "Cell size of the grid on which disconnected components are packed around the largest one.\nSmaller cells pack components more tightly but take longer; the clearance kept between components does not change.",
                 "UMAP_MODE": "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.",
                 "UMAP_NEIGHBORS": "Maximum number of other nodes in each UMAP neighborhood (K excludes self).\nK=15 supplies up to 15 neighbors plus self to UMAP.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships.",
                 "UMAP_MIN_DIST": "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly.",
@@ -3387,9 +3387,9 @@ if __name__ == "__main__":
             pgs_widget.setMinimumHeight(box_pgs.minimumHeight())
             
             import math
-            val_pgs = globals().get("PACKING_GRID_SIZE", 20.0)
+            val_pgs = globals().get("PACKING_GRID_SIZE", 10.0)
             try: val_pgs = float(val_pgs)
-            except: val_pgs = 20.0
+            except: val_pgs = 10.0
             
             box_pgs.setValue(val_pgs)
             pct = math.log(max(1.0, min(val_pgs, 200.0))) / math.log(200.0)

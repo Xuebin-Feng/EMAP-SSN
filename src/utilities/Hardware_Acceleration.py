@@ -327,9 +327,9 @@ def get_optimal_device():
 
 @dataclass
 class PreparedLayoutBatch:
-    global_nodes: list[int]
-    edges: list[tuple[int, int]]
-    scores: list[float]
+    global_nodes: np.ndarray
+    edges: np.ndarray
+    scores: np.ndarray
     positions: np.ndarray
     component_labels: np.ndarray
     box_limits: np.ndarray
@@ -349,48 +349,83 @@ def benchmark_step_count(size_class: str) -> int:
     return {"small": 20, "medium": 5, "massive": 1}[size_class]
 
 
+def _edge_pairs(edges: Any) -> np.ndarray:
+    """Edges as an (m, 2) integer array, without copying integer input."""
+    pairs = np.asarray(edges)
+    if pairs.size == 0:
+        return np.zeros((0, 2), dtype=np.int64)
+    if not np.issubdtype(pairs.dtype, np.integer):
+        pairs = pairs.astype(np.int64)
+    return pairs.reshape(-1, 2)
+
+
+def _batch_index_lookup(global_nodes: np.ndarray, component_edges: Iterable) -> np.ndarray:
+    """Map global node ids to batch positions; -1 marks ids outside the batch."""
+    span = int(global_nodes.max()) + 1 if len(global_nodes) else 0
+    for edges in component_edges:
+        if len(edges):
+            if int(np.min(edges)) < 0:
+                raise KeyError("An edge endpoint is not a node of its component.")
+            span = max(span, int(np.max(edges)) + 1)
+    lookup = np.full(span, -1, dtype=np.int32)
+    lookup[global_nodes] = np.arange(len(global_nodes), dtype=np.int32)
+    return lookup
+
+
 def prepare_layout_batch(
-    batch_components: list[list[int]],
-    node_to_component: dict[int, int],
-    component_edges: dict[int, list[tuple[int, int]]],
-    component_scores: dict[int, list[float]],
+    batch_components: list[np.ndarray],
+    node_to_component: Any,
+    component_edges: dict[int, np.ndarray],
+    component_scores: dict[int, np.ndarray],
     params: dict[str, Any],
     *,
     add_noise: bool = True,
     verbose: bool = True,
     rng: np.random.Generator | None = None,
 ) -> PreparedLayoutBatch:
-    """Build one vectorized physics batch without mutating source inputs."""
+    """Build one vectorized physics batch without mutating source inputs.
+
+    Components are node-index sequences, ``node_to_component`` maps a node to
+    its key in ``component_edges``/``component_scores`` (a dict or an array),
+    and each component's edges are (m, 2) global node indices with one score
+    per edge. Lists of tuples work too.
+    """
     dimensions = int(params.get("LAYOUT_DIMENSIONS", 2) or 2)
     if dimensions not in (2, 3):
         raise ValueError(
             f"LAYOUT_DIMENSIONS must be 2 or 3, got {dimensions!r}."
         )
-    node_count = sum(len(component) for component in batch_components)
+    component_nodes = [
+        np.asarray(component, dtype=np.int64).reshape(-1)
+        for component in batch_components
+    ]
+    node_count = sum(len(nodes) for nodes in component_nodes)
     is_large_job = len(batch_components) == 1 and node_count >= 500
-    global_nodes = [node for component in batch_components for node in component]
-    global_to_batch = {
-        global_id: local_id for local_id, global_id in enumerate(global_nodes)
-    }
+    global_nodes = (
+        np.concatenate(component_nodes)
+        if component_nodes else np.zeros(0, dtype=np.int64)
+    )
+    component_keys = [node_to_component[nodes[0]] for nodes in component_nodes]
+    component_edge_arrays = [_edge_pairs(component_edges[key]) for key in component_keys]
+    batch_lookup = _batch_index_lookup(global_nodes, component_edge_arrays)
 
-    batch_edges: list[tuple[int, int]] = []
-    batch_scores: list[float] = []
+    edge_blocks = []
+    score_blocks = []
     position_blocks = []
     label_blocks = []
     box_limit_blocks = []
+    offset = 0
 
-    for batch_component_index, component in enumerate(batch_components):
-        component_node_count = len(component)
-        component_index = node_to_component[component[0]]
-        edges = component_edges[component_index]
-        scores = component_scores[component_index]
-        global_to_local = {
-            global_id: local_id for local_id, global_id in enumerate(component)
-        }
-        local_edges = [
-            (global_to_local[source], global_to_local[target])
-            for source, target in edges
-        ]
+    for batch_component_index, nodes in enumerate(component_nodes):
+        component_node_count = len(nodes)
+        scores = np.asarray(component_scores[component_keys[batch_component_index]]).reshape(-1)
+        # Positions within this component; every endpoint must belong to it.
+        local_edges = batch_lookup[component_edge_arrays[batch_component_index]] - offset
+        if len(local_edges) and (
+            int(local_edges.min()) < 0
+            or int(local_edges.max()) >= component_node_count
+        ):
+            raise KeyError("An edge endpoint is not a node of its component.")
 
         box_limit = (
             np.sqrt(component_node_count) * 2.5 + 5.0
@@ -409,13 +444,9 @@ def prepare_layout_batch(
                 from scipy.sparse.csgraph import laplacian
                 from scipy.sparse.linalg import eigsh
 
-                row = [edge[0] for edge in local_edges] + [
-                    edge[1] for edge in local_edges
-                ]
-                col = [edge[1] for edge in local_edges] + [
-                    edge[0] for edge in local_edges
-                ]
-                data = list(scores) + list(scores)
+                row = np.concatenate((local_edges[:, 0], local_edges[:, 1]))
+                col = np.concatenate((local_edges[:, 1], local_edges[:, 0]))
+                data = np.concatenate((scores, scores))
                 adjacency = sp.coo_matrix(
                     (data, (row, col)),
                     shape=(component_node_count, component_node_count),
@@ -480,11 +511,9 @@ def prepare_layout_batch(
             np.full(component_node_count, box_limit, dtype=np.float32)
         )
 
-        for (source, target), score in zip(edges, scores):
-            batch_edges.append(
-                (global_to_batch[source], global_to_batch[target])
-            )
-            batch_scores.append(float(score))
+        edge_blocks.append(local_edges + offset)
+        score_blocks.append(scores.astype(np.float64))
+        offset += component_node_count
 
     positions = np.vstack(position_blocks).astype(np.float32)
     if add_noise:
@@ -496,8 +525,8 @@ def prepare_layout_batch(
 
     return PreparedLayoutBatch(
         global_nodes=global_nodes,
-        edges=batch_edges,
-        scores=batch_scores,
+        edges=np.concatenate(edge_blocks).astype(np.int32, copy=False),
+        scores=np.concatenate(score_blocks),
         positions=positions,
         component_labels=np.concatenate(label_blocks),
         box_limits=np.concatenate(box_limit_blocks),
@@ -507,9 +536,9 @@ def prepare_layout_batch(
 
 
 def representative_job_indices(
-    jobs: list[list[list[int]]],
-    node_to_component: dict[int, int],
-    component_edges: dict[int, list[tuple[int, int]]],
+    jobs: list[list[np.ndarray]],
+    node_to_component: Any,
+    component_edges: dict[int, np.ndarray],
 ) -> dict[str, int]:
     """Choose the median estimated-cost job in each populated size class."""
     grouped: dict[str, list[tuple[float, int]]] = {}
@@ -646,16 +675,11 @@ def benchmark_layout_devices(
         ]
     candidates = available
     threshold = float(params.get("SIMILARITY_THRESHOLD", 0.0))
-    final_edges = np.asarray(
-        [
-            edge
-            for edge, score in zip(prepared.edges, prepared.scores)
-            if score >= threshold
-        ],
+    prepared_scores = np.asarray(prepared.scores, dtype=np.float64).reshape(-1)
+    final_edges = np.ascontiguousarray(
+        _edge_pairs(prepared.edges)[prepared_scores >= threshold],
         dtype=np.int32,
     )
-    if final_edges.size == 0:
-        final_edges = np.zeros((0, 2), dtype=np.int32)
     active_mask = _active_mask(prepared.node_count, final_edges)
     steps = benchmark_step_count(size_class)
     results = []
@@ -748,11 +772,11 @@ def benchmark_layout_devices(
 
 
 def prepare_representative_batches(
-    jobs: list[list[list[int]]],
+    jobs: list[list[np.ndarray]],
     representative_indices: dict[str, int],
-    node_to_component: dict[int, int],
-    component_edges: dict[int, list[tuple[int, int]]],
-    component_scores: dict[int, list[float]],
+    node_to_component: Any,
+    component_edges: dict[int, np.ndarray],
+    component_scores: dict[int, np.ndarray],
     params: dict[str, Any],
 ) -> dict[str, PreparedLayoutBatch]:
     """Prepare benchmark copies while leaving NumPy/Torch random state intact."""

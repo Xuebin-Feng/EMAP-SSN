@@ -102,6 +102,14 @@ still change before version 1.0.0.
   through the open embeddings file instead of reopening it for every sequence.
   Aligned FASTA files and merged profiles are unchanged bit for bit. A sequence that
   contains non-ASCII characters is now rejected before the guide tree is built.
+- **Packed 2D layouts are tighter.** A component's clearance box that ends exactly on
+  a packing-grid cell border no longer claims the next cell, and `PACKING_GRID_SIZE`
+  defaults to 10 instead of 20, also in the VR Config, where it sets the gap between
+  shells. The grid size now only sets how finely components are fitted together:
+  drawings of different components always stay at least half of `PACKING_PADDING`
+  apart. A 12,927-node BLAST network that packed 440 units across at grid size 20
+  packs 240 across at the new default and 165 at 2.5. Packed positions differ from
+  earlier versions; saved caches keep theirs.
 
 ### Fixed
 
@@ -200,6 +208,24 @@ still change before version 1.0.0.
   `EXECUTION_MODE` was unknown or forced tiled mode without a compatible accelerator,
   and when the new embeddings file was incomplete or could not be read. These now exit
   with code 1 and print the same message.
+- Layout generation ran out of memory while packing components. To find the grid
+  cells a component needs, packing stored a point every quarter cell along every edge,
+  about 128 bytes each, so memory grew with the drawn length of all edges. A
+  44,127-sequence layout whose largest component (40.5 million edges) the simulation
+  had left scattered across its box reached 82 GB before it was stopped. A
+  component's cells are now marked directly from its nodes and edges, and the
+  component search and placement run in compiled code. On the test machine, a
+  network with a scattered 12,289-node component (4.2 million edges averaging 590
+  units) packed in 1.7 s using about 140 MB. Edges are also grouped by component as
+  arrays rather than one Python tuple each: generating a 12,927-node layout with 4.18
+  million edges peaked at 1.3 GiB instead of 2.6 GiB, with simulated coordinates
+  unchanged bit for bit.
+- `PACKING_GEOMETRY` `Circle` let packed components overlap. Footprints worked out on
+  square cells were placed on a hexagonal lattice whose rows are 13% closer together,
+  so on a 12,927-node network nodes of different components came as close as 0.09
+  units, against a clearance of 5. Circle now uses the same square cells as Square,
+  filled in order of distance from the centre, so the packed layout still grows as a
+  disc.
 
 ## [0.3.0] - 2026-10-01
 

@@ -554,38 +554,129 @@ if HAS_TORCH:
 
 # --- 2. Components & Packing Logic ---
 
+def _compile_serial_helper(function):
+    """JIT-compile a serial helper when numba is present, else keep it in Python."""
+    if NUMBA_AVAILABLE:
+        return jit(nopython=True, cache=True)(function)
+    return function
+
+
+def _edge_array(edges, n_nodes):
+    """Return edges as an (m, 2) integer array of valid node indices."""
+    edges = np.asarray(edges)
+    if edges.size == 0:
+        return np.zeros((0, 2), dtype=np.int32)
+    if not np.issubdtype(edges.dtype, np.integer):
+        edges = edges.astype(np.int64)
+    edges = edges.reshape(-1, 2)
+    if edges.min() < 0 or edges.max() >= n_nodes:
+        raise IndexError("Edge endpoints must be node indices below n_nodes.")
+    return edges
+
+
+@_compile_serial_helper
+def _adjacency_lists(n_nodes, sources, targets):
+    """CSR neighbour lists, each in the order the edge list reaches the node.
+
+    Edge (u, v) appends v to u's list, then u to v's, as the original
+    dict-of-lists adjacency did.
+    """
+    indptr = np.zeros(n_nodes + 1, dtype=np.int64)
+    for edge in range(sources.shape[0]):
+        indptr[sources[edge] + 1] += 1
+        indptr[targets[edge] + 1] += 1
+    for node in range(n_nodes):
+        indptr[node + 1] += indptr[node]
+    fill = indptr[:-1].copy()
+    neighbours = np.empty(indptr[n_nodes], dtype=np.int32)
+    for edge in range(sources.shape[0]):
+        u = sources[edge]
+        v = targets[edge]
+        neighbours[fill[u]] = v
+        fill[u] += 1
+        neighbours[fill[v]] = u
+        fill[v] += 1
+    return indptr, neighbours
+
+
+@_compile_serial_helper
+def _breadth_first_order(n_nodes, indptr, neighbours):
+    """Visit every component breadth-first from its smallest node.
+
+    Returns the visit order and the offset at which each component starts.
+    """
+    visited = np.zeros(n_nodes, dtype=np.bool_)
+    order = np.empty(n_nodes, dtype=np.int64)
+    starts = np.empty(n_nodes + 1, dtype=np.int64)
+    count = 0
+    tail = 0
+    for root in range(n_nodes):
+        if visited[root]:
+            continue
+        starts[count] = tail
+        count += 1
+        visited[root] = True
+        order[tail] = root
+        tail += 1
+        head = starts[count - 1]
+        while head < tail:
+            node = order[head]
+            head += 1
+            for slot in range(indptr[node], indptr[node + 1]):
+                neighbour = neighbours[slot]
+                if not visited[neighbour]:
+                    visited[neighbour] = True
+                    order[tail] = neighbour
+                    tail += 1
+    starts[count] = tail
+    return order, starts[:count + 1]
+
+
+@_compile_serial_helper
+def _stable_group_order(labels, n_groups):
+    """Counting sort of positions by label; negative labels are dropped.
+
+    The positions labelled g are order[bounds[g]:bounds[g + 1]], in their
+    original order.
+    """
+    bounds = np.zeros(n_groups + 1, dtype=np.int64)
+    for position in range(labels.shape[0]):
+        label = labels[position]
+        if label >= 0:
+            bounds[label + 1] += 1
+    for group in range(n_groups):
+        bounds[group + 1] += bounds[group]
+    fill = bounds[:-1].copy()
+    order = np.empty(bounds[n_groups], dtype=np.int64)
+    for position in range(labels.shape[0]):
+        label = labels[position]
+        if label >= 0:
+            order[fill[label]] = position
+            fill[label] += 1
+    return order, bounds
+
+
 def find_connected_components(n_nodes, edges):
-    """Finds all independent subgraphs using Breadth-First Search."""
-    adj = {i: [] for i in range(n_nodes)}
-    for u, v in edges:
-        adj[u].append(v)
-        adj[v].append(u)
-    
-    visited = np.zeros(n_nodes, dtype=bool)
-    components = []
-    
-    for i in range(n_nodes):
-        if not visited[i]:
-            comp = []
-            q = [i]
-            visited[i] = True
-            while q:
-                curr = q.pop(0)
-                comp.append(curr)
-                for neighbor in adj[curr]:
-                    if not visited[neighbor]:
-                        visited[neighbor] = True
-                        q.append(neighbor)
-            components.append(comp)
-    return components
+    """Return every connected component as an array of node indices.
+
+    Components come in order of their smallest node, and the nodes of each in
+    breadth-first order from it, taking neighbours in edge-list order. That is
+    the order the original per-edge Python search produced, and seeded layouts
+    depend on it: a batch lays its nodes out in this order.
+    """
+    n_nodes = int(n_nodes)
+    if n_nodes <= 0:
+        return []
+    edges = _edge_array(edges, n_nodes)
+    indptr, neighbours = _adjacency_lists(n_nodes, edges[:, 0], edges[:, 1])
+    order, starts = _breadth_first_order(n_nodes, indptr, neighbours)
+    return [order[starts[k]:starts[k + 1]] for k in range(len(starts) - 1)]
 
 def get_component_labels(n_nodes, edges):
     """Maps each node to its connected component ID for isolated physics."""
-    components = find_connected_components(n_nodes, edges)
     labels = np.zeros(n_nodes, dtype=np.int32)
-    for c_id, comp in enumerate(components):
-        for node in comp:
-            labels[node] = c_id
+    for c_id, comp in enumerate(find_connected_components(n_nodes, edges)):
+        labels[comp] = c_id
     return labels
 
 def _resolve_seed(params):
@@ -738,205 +829,287 @@ def pack_components_to_shells(pos, edges, n_nodes, spacing, padding):
     return new_pos.astype(np.float32), new_box_limit
 
 
+@_compile_serial_helper
+def _first_cell(x):
+    """Index of the raster cell holding x, clamped to the first cell."""
+    return int(x) if x > 0.0 else 0
+
+
+@_compile_serial_helper
+def _last_cell(x, first):
+    """Last cell reached by an interval that ends just before x, never before `first`.
+
+    Leaving x itself out keeps a reach that stops exactly on a cell border
+    from claiming the next cell.
+    """
+    last = int(math.ceil(x)) - 1
+    return last if last > first else first
+
+
+@_compile_serial_helper
+def _mark_footprint(u, v, edges, reach, mask):
+    """Mark the cells within `reach` of every node and edge of one component.
+
+    Coordinates are in cell units from the component's top-left corner, u to
+    the right and v downward, and `reach` is a half-width in the same units.
+    A node claims the cells under its reach box. An edge claims, row by row,
+    the cells within reach of the stretch of the segment near that row, so
+    the cost follows the cells an edge covers rather than its drawn length.
+    """
+    rows = mask.shape[0]
+    cols = mask.shape[1]
+    for node in range(u.shape[0]):
+        c0 = _first_cell(u[node] - reach)
+        c1 = min(_last_cell(u[node] + reach, c0), cols - 1)
+        r0 = _first_cell(v[node] - reach)
+        r1 = min(_last_cell(v[node] + reach, r0), rows - 1)
+        for r in range(r0, r1 + 1):
+            for c in range(c0, c1 + 1):
+                mask[r, c] = True
+    for edge in range(edges.shape[0]):
+        a = edges[edge, 0]
+        b = edges[edge, 1]
+        u1 = u[a]
+        v1 = v[a]
+        du = u[b] - u1
+        dv = v[b] - v1
+        r0 = _first_cell(min(v1, v[b]) - reach)
+        r1 = min(_last_cell(max(v1, v[b]) + reach, r0), rows - 1)
+        for r in range(r0, r1 + 1):
+            t0 = 0.0
+            t1 = 1.0
+            if dv != 0.0:
+                # The part of the segment whose reach overlaps row r.
+                t0 = (r - reach - v1) / dv
+                t1 = (r + 1.0 + reach - v1) / dv
+                if t0 > t1:
+                    t0, t1 = t1, t0
+                t0 = max(t0, 0.0)
+                t1 = min(t1, 1.0)
+                if t0 > t1:
+                    continue
+            ua = u1 + t0 * du
+            ub = u1 + t1 * du
+            if ua > ub:
+                ua, ub = ub, ua
+            c0 = _first_cell(ua - reach)
+            c1 = min(_last_cell(ub + reach, c0), cols - 1)
+            for c in range(c0, c1 + 1):
+                mask[r, c] = True
+
+
+def _component_footprint(shifted_pos, local_edges, cell, reach):
+    """Boolean raster of the cells one component claims (see _mark_footprint).
+
+    shifted_pos has its top-left corner at the origin (x >= 0, y <= 0).
+    """
+    u = shifted_pos[:, 0].astype(np.float64) / cell
+    v = -shifted_pos[:, 1].astype(np.float64) / cell
+    u_max = float(u.max())
+    v_max = float(v.max())
+    cols = _last_cell(u_max + reach, _first_cell(u_max)) + 1
+    rows = _last_cell(v_max + reach, _first_cell(v_max)) + 1
+    mask = np.zeros((rows, cols), dtype=np.bool_)
+    _mark_footprint(u, v, local_edges, reach, mask)
+    return mask
+
+
+@_compile_serial_helper
+def _first_fit(grid, spiral_rows, spiral_cols, start, cell_rows, cell_cols, height, width):
+    """Place a footprint at the first spiral position, from `start`, where it fits.
+
+    Each spiral entry is a target cell for the footprint's centre. Returns
+    the spiral index used and the top-left corner, or -1 when nothing fits.
+    The cell that blocked the previous position is tested first, because it
+    usually blocks the next one too.
+    """
+    size = grid.shape[0]
+    blocker = 0
+    for index in range(start, spiral_rows.shape[0]):
+        top = spiral_rows[index] - height // 2
+        left = spiral_cols[index] - width // 2
+        if top < 0 or left < 0 or top + height > size or left + width > size:
+            continue
+        if grid[top + cell_rows[blocker], left + cell_cols[blocker]]:
+            continue
+        fits = True
+        for cell in range(cell_rows.shape[0]):
+            if grid[top + cell_rows[cell], left + cell_cols[cell]]:
+                blocker = cell
+                fits = False
+                break
+        if fits:
+            for cell in range(cell_rows.shape[0]):
+                grid[top + cell_rows[cell], left + cell_cols[cell]] = True
+            return index, top, left
+    return -1, 0, 0
+
+
+def _spiral_order(size, round_envelope):
+    """Every grid cell, ordered by distance from the centre.
+
+    Square packing orders by Chebyshev distance (ties by Euclidean), so the
+    packed area grows as a square; Circle orders by Euclidean distance, so it
+    grows as a disc. Both use the same square cells as the footprints.
+    """
+    rows, cols = np.divmod(np.arange(size * size, dtype=np.int64), size)
+    centre = size // 2
+    d_rows = rows - centre
+    d_cols = cols - centre
+    euclidean = d_rows * d_rows + d_cols * d_cols
+    if round_envelope:
+        order = np.argsort(euclidean, kind='stable')
+    else:
+        chebyshev = np.maximum(np.abs(d_rows), np.abs(d_cols))
+        order = np.lexsort((euclidean, chebyshev))
+    return rows[order], cols[order]
+
+
+def _place_footprints(footprints, size, round_envelope):
+    """First-fit every footprint on a size x size grid; None if one does not fit."""
+    grid = np.zeros((size, size), dtype=np.bool_)
+    spiral_rows, spiral_cols = _spiral_order(size, round_envelope)
+    # The grid only fills up, so every position before an identical
+    # footprint's last placement is still blocked: its next copy resumes there.
+    resume = {}
+    corners = []
+    for footprint in footprints:
+        key = footprint['shape_key']
+        index, top, left = _first_fit(
+            grid, spiral_rows, spiral_cols, resume.get(key, 0),
+            footprint['cell_rows'], footprint['cell_cols'],
+            footprint['rows'], footprint['cols'],
+        )
+        if index < 0:
+            return None
+        resume[key] = index + 1
+        corners.append((top, left))
+    return corners
+
+
 def pack_components_to_grid(pos, edges, n_nodes, grid_size, padding, packing_geometry="Square"):
-    """Packs independent network components into a strict master grid layout."""
-    print("Packing independent components using macro-grid boolean packing...")
+    """Pack independent components onto a shared raster, largest first.
+
+    A component claims every cell, `grid_size` units wide, within padding / 2
+    of its nodes and edges, so components interlock without their drawings
+    touching. Each is placed at the first position along a spiral from the
+    centre where its cells are free: a square spiral for "Square", a round one
+    for "Circle". Smaller cells pack more tightly.
+    """
+    print("Packing independent components onto the packing grid...")
     components = find_connected_components(n_nodes, edges)
-    
+
     if not components:
         return pos, 100.0
+    if not np.isfinite(pos).all():
+        raise ValueError("Layout positions must be finite before packing.")
 
-    # --- 1. Map edges to components for fast lookup ---
-    node_to_comp = {}
+    cell = float(grid_size)
+    reach = float(padding) / 2.0 / cell
+    edges = _edge_array(edges, n_nodes)
+    labels = np.empty(n_nodes, dtype=np.int64)
+    local_index = np.empty(n_nodes, dtype=np.int64)
     for c_id, comp in enumerate(components):
-        for node in comp:
-            node_to_comp[node] = c_id
-            
-    comp_edges = {c_id: [] for c_id in range(len(components))}
-    for u, v in edges:
-        c_id = node_to_comp.get(u)
-        if c_id is not None:
-            comp_edges[c_id].append((u, v))
+        labels[comp] = c_id
+        local_index[comp] = np.arange(len(comp))
+    edge_order, edge_bounds = _stable_group_order(labels[edges[:, 0]], len(components))
 
-    comp_info = []
-    for c_id, comp in enumerate(components):
-        idx = np.array(comp)
+    footprints = []
+    for c_id, idx in enumerate(components):
         comp_pos = pos[idx]
-        
-        # Use a top-left origin approach so Y goes downwards into grid rows
+        # Use a top-left origin so that x runs along columns and -y down rows.
         min_x = np.min(comp_pos[:, 0])
-        max_y = np.max(comp_pos[:, 1]) 
-        
-        shifted_pos = comp_pos - [min_x, max_y] # X is >= 0, Y is <= 0
-        
-        global_to_local = {g: l for l, g in enumerate(comp)}
-        points = list(shifted_pos)
-        
-        # Rasterize edges so we don't accidentally place a dot on a connecting line
-        for u, v in comp_edges[c_id]:
-            p1 = shifted_pos[global_to_local[u]]
-            p2 = shifted_pos[global_to_local[v]]
-            dist = np.hypot(p2[0]-p1[0], p2[1]-p1[1])
-            
-            # Sample points along the edge line
-            steps = int(dist / (grid_size / 4)) + 1
-            for i in range(1, steps):
-                t = i / steps
-                px = p1[0] + t * (p2[0] - p1[0])
-                py = p1[1] + t * (p2[1] - p1[1])
-                points.append([px, py])
-                
-        # --- Determine Grid Footprint ---
-        max_c, max_r = 0, 0
-        pad = padding / 2.0
-        
-        # First pass: find the maximum grid cells required
-        for px, py in points:
-            pos_y = -py # Invert Y so positive goes down into rows
-            c_max = int((px + pad) / grid_size)
-            r_max = int((pos_y + pad) / grid_size)
-            max_c = max(max_c, c_max)
-            max_r = max(max_r, r_max)
-            
-        cols = max_c + 1
-        rows = max_r + 1
-        mask = np.zeros((rows, cols), dtype=bool)
-        
-        # Second pass: mark cells as occupied
-        for px, py in points:
-            pos_y = -py
-            c_min = int(max(0, px - pad) / grid_size)
-            c_max = int((px + pad) / grid_size)
-            r_min = int(max(0, pos_y - pad) / grid_size)
-            r_max = int((pos_y + pad) / grid_size)
-            mask[r_min:r_max+1, c_min:c_max+1] = True
-            
-        comp_info.append({
+        max_y = np.max(comp_pos[:, 1])
+        shifted_pos = comp_pos - [min_x, max_y]
+        members = edge_order[edge_bounds[c_id]:edge_bounds[c_id + 1]]
+        mask = _component_footprint(
+            shifted_pos, local_index[edges[members]], cell, reach
+        )
+        cell_rows, cell_cols = np.nonzero(mask)
+        footprints.append({
             'indices': idx,
             'shifted_pos': shifted_pos,
-            'mask': mask,
-            'cols': cols,
-            'rows': rows,
-            'area': np.sum(mask),
-            'num_nodes': len(idx)
+            'rows': mask.shape[0],
+            'cols': mask.shape[1],
+            'cell_rows': cell_rows,
+            'cell_cols': cell_cols,
+            'shape_key': (mask.shape, mask.tobytes()),
+            'area': len(cell_rows),
+            'num_nodes': len(idx),
         })
-        
-    # --- 2. Sort components: Largest area first, then tie-break by node count ---
-    comp_info.sort(key=lambda x: (x['area'], x['num_nodes']), reverse=True)
-    
-    # --- 3. Prepare the Master Global Grid and Run Spiral Placement ---
-    total_area = sum(c['area'] for c in comp_info)
-    max_cols = max(c['cols'] for c in comp_info)
-    max_rows = max(c['rows'] for c in comp_info)
-    
-    is_circle = (packing_geometry.lower() == "circle")
-    multiplier = 2.0 if is_circle else 1.5
-    
-    # Start with a grid size S estimated from total area, scaled to prevent border clipping
-    S = max(int(math.ceil(math.sqrt(total_area) * multiplier)), max_cols, max_rows)
-    
+    del edge_order, labels, local_index
+
+    # Largest area first, then most nodes; ties keep component order.
+    footprints.sort(key=lambda footprint: (footprint['area'], footprint['num_nodes']), reverse=True)
+
+    round_envelope = str(packing_geometry).lower() == "circle"
+    total_area = sum(footprint['area'] for footprint in footprints)
+    size = max(
+        int(math.ceil(math.sqrt(total_area) * (2.0 if round_envelope else 1.5))),
+        max(footprint['cols'] for footprint in footprints),
+        max(footprint['rows'] for footprint in footprints),
+    )
+    corners = _place_footprints(footprints, size, round_envelope)
+    while corners is None:
+        size = int(size * 1.1) + 2
+        corners = _place_footprints(footprints, size, round_envelope)
+
     new_pos = np.zeros((n_nodes, 2), dtype=np.float32)
-    # Fill unconnected nodes first
     new_pos[:] = pos[:]
-    
-    # Center nodes aesthetically within their grid squares
-    center_x_offset = grid_size / 2.0  
-    center_y_offset = -grid_size / 2.0
-    
-    while True:
-        grid_map = np.zeros((S, S), dtype=bool)
-        center_r = S // 2
-        center_c = S // 2
-        
-        # Calculate physical center coordinate
-        if is_circle:
-            center_x_phys = center_c + 0.5 * (center_r % 2)
-            center_y_phys = -center_r * (math.sqrt(3.0) / 2.0)
-        else:
-            center_x_phys = center_c
-            center_y_phys = -center_r
-            
-        # Generate all coordinates in the grid map
-        coords = []
-        for r in range(S):
-            for c in range(S):
-                if is_circle:
-                    x_phys = c + 0.5 * (r % 2)
-                    y_phys = -r * (math.sqrt(3.0) / 2.0)
-                    dist = (x_phys - center_x_phys)**2 + (y_phys - center_y_phys)**2
-                else:
-                    dist_l_inf = max(abs(r - center_r), abs(c - center_c))
-                    dist_l_2 = (r - center_r)**2 + (c - center_c)**2
-                    dist = (dist_l_inf, dist_l_2)
-                coords.append((r, c, dist))
-                
-        # Sort coords by distance from center (ascending)
-        coords.sort(key=lambda x: x[2])
-        
-        success = True
-        placed_offsets = []
-        
-        for comp in comp_info:
-            mask = comp['mask']
-            h, w = comp['rows'], comp['cols']
-            placed = False
-            
-            for r_center, c_center, _ in coords:
-                # Target top-left row/col so that component center aligns close to r_center, c_center
-                r = r_center - h // 2
-                c = c_center - w // 2
-                
-                if r >= 0 and r + h <= S and c >= 0 and c + w <= S:
-                    if not np.any(grid_map[r:r+h, c:c+w] & mask):
-                        grid_map[r:r+h, c:c+w] |= mask
-                        placed_offsets.append((r, c))
-                        placed = True
-                        break
-                        
-            if not placed:
-                success = False
-                break
-                
-        if success:
-            # Apply offsets
-            for comp, (r, c) in zip(comp_info, placed_offsets):
-                if is_circle:
-                    # Hexagonal physical coordinates
-                    x_offset = (c + 0.5 * (r % 2)) * grid_size
-                    y_offset = -r * grid_size * (math.sqrt(3.0) / 2.0)
-                else:
-                    # Square grid physical coordinates
-                    x_offset = c * grid_size
-                    y_offset = -r * grid_size
-                    
-                new_pos[comp['indices'], 0] = comp['shifted_pos'][:, 0] + x_offset + center_x_offset
-                new_pos[comp['indices'], 1] = comp['shifted_pos'][:, 1] + y_offset + center_y_offset
-            break
-        else:
-            # Increase grid size and retry
-            S = int(S * 1.1) + 2
-            
-    # --- 5. Center the final visualization ---
+    for footprint, (top, left) in zip(footprints, corners):
+        new_pos[footprint['indices'], 0] = footprint['shifted_pos'][:, 0] + left * cell
+        new_pos[footprint['indices'], 1] = footprint['shifted_pos'][:, 1] - top * cell
+
+    # --- Center the final visualization ---
     global_min = np.min(new_pos, axis=0)
     global_max = np.max(new_pos, axis=0)
     center = (global_max + global_min) / 2.0
     new_pos -= center
-    
+
     new_box_limit = max(global_max[0] - global_min[0], global_max[1] - global_min[1]) / 2.0 * 1.1
-    
-    print(f"Packed {len(components)} objects into a uniform grid. Ready for display.")
+
+    print(
+        f"Packed {len(components)} components on a {size} x {size} grid "
+        f"of {cell:g}-unit cells. Ready for display."
+    )
     return new_pos, new_box_limit
 
 # --- 3. Main Layout Algorithm ---
+
+@_compile_serial_helper
+def _accumulate_stage_anchors(
+    edges, weights, scaled_weights, newly_active, previous_active,
+    reference_pos, weighted_sum, weight_sum,
+):
+    """Sum each newly active node's already relaxed neighbours, in edge order.
+
+    Matches the original per-edge NumPy loop bit for bit: a neighbour's
+    position is scaled in the position dtype (NumPy converts the float weight
+    to it first), then added in float64.
+    """
+    dimensions = reference_pos.shape[1]
+    for edge in range(edges.shape[0]):
+        u = edges[edge, 0]
+        v = edges[edge, 1]
+        if newly_active[u] and previous_active[v]:
+            for axis in range(dimensions):
+                weighted_sum[u, axis] += reference_pos[v, axis] * scaled_weights[edge]
+            weight_sum[u] += weights[edge]
+        if newly_active[v] and previous_active[u]:
+            for axis in range(dimensions):
+                weighted_sum[v, axis] += reference_pos[u, axis] * scaled_weights[edge]
+            weight_sum[v] += weights[edge]
+
 
 def _prepare_progressive_stage(
     pos, stage_edges, stage_scores, previous_active, rng=None
 ):
     """Activate stage nodes and place newly introduced nodes near active neighbors."""
+    stage_edges = _edge_array(stage_edges, len(pos))
+    previous_active = np.asarray(previous_active, dtype=np.bool_)
     active_mask = np.zeros(len(pos), dtype=np.bool_)
-    for u, v in stage_edges:
-        active_mask[u] = True
-        active_mask[v] = True
+    active_mask[stage_edges[:, 0]] = True
+    active_mask[stage_edges[:, 1]] = True
 
     newly_active = active_mask & (~previous_active)
     if not np.any(newly_active) or not np.any(previous_active):
@@ -947,14 +1120,15 @@ def _prepare_progressive_stage(
     weight_sum = np.zeros(len(pos), dtype=np.float64)
 
     # Prefer neighbors that were already relaxed in the preceding stage.
-    for (u, v), score in zip(stage_edges, stage_scores):
-        weight = max(float(score), 1e-9)
-        if newly_active[u] and previous_active[v]:
-            weighted_sum[u] += reference_pos[v] * weight
-            weight_sum[u] += weight
-        if newly_active[v] and previous_active[u]:
-            weighted_sum[v] += reference_pos[u] * weight
-            weight_sum[v] += weight
+    weights = np.maximum(
+        np.asarray(stage_scores, dtype=np.float64).reshape(-1), 1e-9
+    )
+    if len(weights) != len(stage_edges):
+        raise ValueError("stage_scores must hold one score per stage edge.")
+    _accumulate_stage_anchors(
+        stage_edges, weights, weights.astype(reference_pos.dtype),
+        newly_active, previous_active, reference_pos, weighted_sum, weight_sum,
+    )
 
     # If a newly activated group has no older anchor, retain its spectral/grid
     # initialization rather than forcing several new nodes onto one coordinate.
@@ -1115,20 +1289,22 @@ def calculate_layout(connectivity, n_nodes, params):
     
     final_pos = np.copy(initial_pos)
     
-    # Pre-map edges and scores to components for O(1) extraction
-    node_to_comp_idx = {}
+    # Group edges and scores by component once, keeping edge-list order. A
+    # node outside every active component (a singleton) maps to -1, so its
+    # self-loops are dropped.
+    node_to_comp_idx = np.full(n_nodes, -1, dtype=np.int64)
     for c_idx, comp in enumerate(active_comps):
-        for node in comp:
-            node_to_comp_idx[node] = c_idx
-            
-    comp_edges = {c_idx: [] for c_idx in range(len(active_comps))}
-    comp_scores = {c_idx: [] for c_idx in range(len(active_comps))}
-    
-    for i, (u, v) in enumerate(edges):
-        if u in node_to_comp_idx: 
-            c_idx = node_to_comp_idx[u]
-            comp_edges[c_idx].append((u, v))
-            comp_scores[c_idx].append(edge_scores[i])
+        node_to_comp_idx[comp] = c_idx
+    edge_order, edge_bounds = _stable_group_order(
+        node_to_comp_idx[edges[:, 0]], len(active_comps)
+    )
+    comp_edges = {}
+    comp_scores = {}
+    for c_idx in range(len(active_comps)):
+        members = edge_order[edge_bounds[c_idx]:edge_bounds[c_idx + 1]]
+        comp_edges[c_idx] = edges[members]
+        comp_scores[c_idx] = edge_scores[members]
+    del edge_order
 
     device_rankings = Layout_Hardware.manual_layout_rankings(
         jobs, device_selection
@@ -1181,8 +1357,8 @@ def calculate_layout(connectivity, n_nodes, params):
         n_batch_nodes = prepared_batch.node_count
         is_large_job = prepared_batch.is_large_job
         batch_global_nodes = prepared_batch.global_nodes
-        batch_edges_list = prepared_batch.edges
-        batch_scores_list = prepared_batch.scores
+        batch_edges = np.asarray(prepared_batch.edges).reshape(-1, 2)
+        batch_scores = np.asarray(prepared_batch.scores, dtype=np.float64)
         batch_pos = prepared_batch.positions
         batch_comp_labels = prepared_batch.component_labels
         batch_box_limits = prepared_batch.box_limits
@@ -1195,8 +1371,8 @@ def calculate_layout(connectivity, n_nodes, params):
              print(f"\nSimulating Batch {job_idx+1}/{len(jobs)} ({len(batch_comps)} components, {n_batch_nodes} nodes)...")
 
         cutoffs = [params.get('SIMILARITY_THRESHOLD', 0.0)]
-        if is_large_job and params.get('ENABLE_PROGRESSIVE_SIMULATION', True) and n_batch_nodes > 2000 and len(batch_scores_list) > 10:
-            sorted_local = np.sort(batch_scores_list)[::-1] 
+        if is_large_job and params.get('ENABLE_PROGRESSIVE_SIMULATION', True) and n_batch_nodes > 2000 and len(batch_scores) > 10:
+            sorted_local = np.sort(batch_scores)[::-1]
             n_edges = len(sorted_local)
             fractions = [0.2, 0.4, 0.6, 0.8]
             indices = [max(0, min(int(n_edges * f) - 1, n_edges - 1)) for f in fractions]
@@ -1217,18 +1393,14 @@ def calculate_layout(connectivity, n_nodes, params):
         previous_active = np.zeros(n_batch_nodes, dtype=np.bool_)
 
         for stage, cutoff in enumerate(cutoffs):
+            in_stage = batch_scores >= cutoff
             if len(cutoffs) > 1:
-                stage_edge_count = sum(1 for s in batch_scores_list if s >= cutoff)
+                stage_edge_count = int(np.count_nonzero(in_stage))
                 print(f"  > Stage {stage+1}/{len(cutoffs)}: Cutoff = {cutoff:.3f} | Active Edges: {stage_edge_count}")
 
-            stage_edges = [
-                edge for edge, score in zip(batch_edges_list, batch_scores_list)
-                if score >= cutoff
-            ]
-            stage_scores = [
-                score for score in batch_scores_list
-                if score >= cutoff
-            ]
+            stage_edges = batch_edges[in_stage]
+            stage_scores = batch_scores[in_stage]
+            del in_stage
             stage_active_mask = _prepare_progressive_stage(
                 batch_pos,
                 stage_edges,
@@ -1238,11 +1410,9 @@ def calculate_layout(connectivity, n_nodes, params):
             )
             previous_active = stage_active_mask.copy()
 
-            if len(stage_edges) > 0:
-                local_edges = np.array(stage_edges, dtype=np.int32)
-            else:
-                local_edges = np.zeros((0, 2), dtype=np.int32)
-                
+            local_edges = stage_edges.astype(np.int32)
+            del stage_edges, stage_scores
+
             stage_input = batch_pos.copy()
             failures = []
             for ranked_plan in ranked_plans:
@@ -1284,14 +1454,14 @@ def calculate_layout(connectivity, n_nodes, params):
     if dimensions == 3:
         final_pos, final_box_limit = pack_components_to_shells(
             final_pos, edges, n_nodes,
-            params.get('PACKING_GRID_SIZE', 200.0),
+            params.get('PACKING_GRID_SIZE', 10.0),
             params.get('PACKING_PADDING', 50.0),
         )
         return final_pos, final_box_limit
 
     final_pos, final_box_limit = pack_components_to_grid(
         final_pos, edges, n_nodes, 
-        params.get('PACKING_GRID_SIZE', 200.0), 
+        params.get('PACKING_GRID_SIZE', 10.0), 
         params.get('PACKING_PADDING', 50.0),
         params.get('PACKING_GEOMETRY', 'Square')
     )
