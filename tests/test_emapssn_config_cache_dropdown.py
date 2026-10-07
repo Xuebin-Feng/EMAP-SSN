@@ -187,6 +187,51 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.assertEqual(collected["LAYOUT_DEVICE_SELECTION"], "auto")
         self.assertTrue(collected["ENABLE_PROGRESSIVE_SIMULATION"])
 
+    def test_auto_step_size_button_greys_out_the_step_size_field(self):
+        if hasattr(self.window, "check_umap"):
+            self.window.check_umap.setChecked(False)
+        physics_selector = self.window.profile_selectors["simulation_physics"]
+        physics_selector.setCurrentText("(new)")
+        button = self.window.inputs["AUTO_DT"]
+        field = self.window.inputs["DT"]
+        self.addCleanup(physics_selector.setCurrentText, "(custom)")
+        self.addCleanup(button.setChecked, False)
+
+        # The button ends the Step Size label's cell, right against the field.
+        cell_layout = button.parentWidget().layout()
+        self.assertIs(cell_layout.itemAt(cell_layout.count() - 1).widget(), button)
+        self.assertIs(cell_layout.itemAt(0).widget(), self.window.labels["DT"])
+
+        button.setChecked(False)
+        self.app.processEvents()
+        self.assertEqual(button.text(), "Auto OFF")
+        self.assertTrue(field.isEnabled())
+        self.assertIs(self.window.collect_data()["AUTO_DT"], False)
+
+        button.setChecked(True)
+        self.app.processEvents()
+        self.assertEqual(button.text(), "Auto ON")
+        self.assertFalse(field.isEnabled())
+        self.assertTrue(self.window.labels["DT"].isEnabled())
+        self.assertIs(self.window.collect_data()["AUTO_DT"], True)
+        self.assertIs(
+            self.window._collect_tab_profile_data("simulation_physics")["AUTO_DT"], True
+        )
+
+        # The read-only built-in profile turns Auto off and locks the button.
+        physics_selector.setCurrentText("(default)")
+        self.app.processEvents()
+        self.assertFalse(button.isChecked())
+        self.assertFalse(button.isEnabled())
+        self.assertIn(
+            self.namespace["PROFILE_DISABLED_TOGGLE_STYLESHEET"], button.styleSheet()
+        )
+
+        physics_selector.setCurrentText("(new)")
+        button.setChecked(False)
+        self.app.processEvents()
+        self.assertTrue(field.isEnabled())
+
     def test_low_resource_mode_row_has_extra_top_clearance(self):
         low_resource_row = self.window.findChild(
             self.namespace["QWidget"], "lowResourceModeRow"

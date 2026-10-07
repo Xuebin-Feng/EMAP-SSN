@@ -109,7 +109,7 @@ from Embedding_Alignment_Engine import (
     run_tiled_cuda_pipeline,
     tiled_accelerator_support,
 )
-from utilities.Network_Kernels import global_local_scores
+from utilities.Network_Kernels import align_microbatch, global_local_scores
 from utilities.HDF5_Storage import read_embedding_manifest
 
 # ==========================================
@@ -454,6 +454,24 @@ def calculate_alignment_data(args):
     )
 
     return (idx_i, idx_j, l_raw, l_len, g_raw, g_len)
+
+
+def calculate_alignment_batch(args):
+    """
+    Run the dynamic programming for one padded accelerator microbatch.
+
+    One CPU task aligns every pair of the microbatch, so the thread pool
+    handles one future per microbatch instead of one per pair.
+    """
+    idx_i, target_indices, target_lengths, matrices = args
+    return align_microbatch(
+        matrices,
+        idx_i,
+        target_indices,
+        target_lengths,
+        GLOBAL_GAP_P,
+        LOCAL_GAP_P,
+    )
 
 
 def calculate_cpu_pair(args):
@@ -1001,6 +1019,7 @@ def process_accelerated_tasks(
                         workers=workers,
                         lanes=accelerator_workers,
                         alignment_callback=calculate_alignment_data,
+                        batch_alignment_callback=calculate_alignment_batch,
                         precision=matmul_precision,
                         progress=progress,
                         matrix_budget_override=matrix_budget,
@@ -1435,6 +1454,7 @@ def _resolve_active_matmul_precision(
                             workers=workers,
                             lanes=1,
                             alignment_callback=calculate_alignment_data,
+                            batch_alignment_callback=calculate_alignment_batch,
                             precision="bf16",
                         )
                     report = compare_bf16_precision_results(
@@ -1553,6 +1573,7 @@ def _resolve_active_matmul_precision(
             workers=workers,
             lanes=1,
             alignment_callback=calculate_alignment_data,
+            batch_alignment_callback=calculate_alignment_batch,
             precision=precision,
         )
 
@@ -1695,6 +1716,7 @@ def _benchmark_processing_plans(
                 workers=workers,
                 lanes=lanes,
                 alignment_callback=calculate_alignment_data,
+                batch_alignment_callback=calculate_alignment_batch,
                 precision=matmul_precision,
                 benchmark_trial=trial,
                 memory_plan_override=memory_plan,

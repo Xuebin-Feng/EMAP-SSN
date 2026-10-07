@@ -81,7 +81,7 @@ from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Hardware_Acceleration as Hardware_Utils
-from utilities.Network_Kernels import global_local_scores
+from utilities.Network_Kernels import align_microbatch, global_local_scores
 from Embedding_Alignment_Engine import (
     BenchmarkPhaseTimer,
     BenchmarkTrial,
@@ -331,6 +331,24 @@ def calculate_alignment_data(args):
     )
 
     return (idx_i, idx_j, l_raw, l_len, g_raw, g_len)
+
+
+def calculate_alignment_batch(args):
+    """
+    Run the dynamic programming for one padded accelerator microbatch.
+
+    One CPU task aligns every pair of the microbatch, so the thread pool
+    handles one future per microbatch instead of one per pair.
+    """
+    idx_i, target_indices, target_lengths, matrices = args
+    return align_microbatch(
+        matrices,
+        idx_i,
+        target_indices,
+        target_lengths,
+        GLOBAL_GAP_P,
+        LOCAL_GAP_P,
+    )
 
 
 def calculate_cpu_pair(args):
@@ -858,6 +876,7 @@ def _execute_injection_plan(
             workers=workers,
             lanes=lanes,
             alignment_callback=calculate_alignment_data,
+            batch_alignment_callback=calculate_alignment_batch,
             precision=matmul_precision,
             warmup_task_count=warmup_task_count,
             benchmark_timer=benchmark_timer,
@@ -1253,6 +1272,7 @@ def process_batch(
                         workers=workers,
                         lanes=lanes,
                         alignment_callback=calculate_alignment_data,
+                        batch_alignment_callback=calculate_alignment_batch,
                         precision=matmul_precision,
                         result_callback=writer,
                         matrix_budget_override=budget,

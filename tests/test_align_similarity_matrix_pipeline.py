@@ -6,7 +6,8 @@ import threading
 import unittest
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, nullcontext, redirect_stderr, redirect_stdout
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -2665,6 +2666,280 @@ class AlignmentPipelineTests(unittest.TestCase):
                 self.assertEqual(run_batch.call_count, 1 - expected_code)
                 self.assertEqual(compile_output.call_count, 1 - expected_code)
 
+
+
+class FakeStreamBackend:
+    """Stream-capable backend stand-in that runs the tiled math on the CPU."""
+
+    device_type = "cuda"
+
+    def __init__(self, log):
+        self.log = log
+
+    def supports_tiled(self, require_memory=True):
+        return True, "fake streams"
+
+    def create_stream(self):
+        return object()
+
+    def stream_context(self, stream):
+        return nullcontext()
+
+    def create_event(self):
+        return SimpleNamespace(
+            record=lambda stream: None,
+            query=lambda: True,
+            synchronize=lambda: None,
+        )
+
+    def empty_cache(self):
+        self.log.append("empty-cache")
+
+
+def write_random_embeddings(path, lengths, features, seed):
+    rng = np.random.default_rng(seed)
+    headers = [f"seq{index}" for index in range(len(lengths))]
+    with h5py.File(path, "w") as hf:
+        for header, length in zip(headers, lengths):
+            hf.create_dataset(
+                "embeddings/" + header,
+                data=rng.normal(size=(length, features)).astype(np.float32),
+            )
+    return headers
+
+
+def small_tile_plan(features, lanes):
+    """About a dozen embedding rows per block, so tiles change often."""
+    return alignment_engine.CudaMemoryPlan(
+        free_bytes=1 << 30,
+        total_bytes=1 << 30,
+        usable_bytes=1 << 30,
+        tile_cache_bytes=2 * 12 * features * 4,
+        matrix_pool_bytes=1 << 22,
+        matrix_bytes=1 << 20,
+        reserve_bytes=0,
+        lanes=lanes,
+        inflight_slots=max(2, 2 * lanes),
+    )
+
+
+class TiledProducerTests(unittest.TestCase):
+    LENGTHS = [5, 3, 8, 2, 6, 7, 4, 9, 1, 5]
+    FEATURES = 6
+
+    def run_pipeline(
+        self, path, headers, device, lanes, batch, log=None, matrix_budget=None
+    ):
+        store = alignment_engine.EmbeddingTileStore(path, headers, 0)
+        tasks = [
+            (row, column, headers[row], headers[column])
+            for row in range(len(headers))
+            for column in range(row + 1, len(headers))
+        ]
+        loads = []
+        original_load = store.load_indices
+
+        def counted_load(*args):
+            loads.append(1)
+            return original_load(*args)
+
+        def per_pair(args):
+            if log is not None:
+                log.append("align")
+            return similarity_matrix.calculate_alignment_data(args)
+
+        with mock.patch.object(similarity_matrix, "GLOBAL_GAP_P", 0.0), \
+                mock.patch.object(similarity_matrix, "LOCAL_GAP_P", -2.0), \
+                mock.patch.object(store, "load_indices", side_effect=counted_load):
+            results = alignment_engine.run_tiled_accelerator_pipeline(
+                tasks,
+                store=store,
+                lengths=self.LENGTHS,
+                device=device,
+                workers=2,
+                lanes=lanes,
+                alignment_callback=per_pair,
+                batch_alignment_callback=(
+                    similarity_matrix.calculate_alignment_batch if batch else None
+                ),
+                memory_plan_override=small_tile_plan(self.FEATURES, lanes),
+                matrix_budget_override=matrix_budget,
+            )
+        return sorted(results), len(loads)
+
+    def test_gathered_targets_match_per_target_padding(self):
+        rng = np.random.default_rng(20261007)
+        lengths = [4, 9, 6, 1, 7]
+        embeddings = [
+            torch.nn.functional.normalize(
+                torch.as_tensor(rng.normal(size=(length, 5)).astype(np.float32)),
+                dim=-1,
+            )
+            for length in lengths
+        ]
+        starts = [int(value) for value in np.cumsum([0] + lengths[:-1])]
+        pad_row = sum(lengths)
+        packed = torch.zeros((pad_row + 1, 5))
+        for start, tensor in zip(starts, embeddings):
+            packed[start:start + len(tensor)] = tensor
+        chosen = [1, 3, 4, 2]
+        chosen_lengths = [lengths[index] for index in chosen]
+
+        gathered = alignment_engine._gather_padded_targets(
+            packed, [starts[index] for index in chosen], chosen_lengths, pad_row
+        )
+        expected = torch.zeros((len(chosen), max(chosen_lengths), 5))
+        for slot, index in enumerate(chosen):
+            expected[slot, :lengths[index]] = embeddings[index]
+        self.assertTrue(torch.equal(gathered, expected))
+
+        legacy = alignment_engine._batched_score_matrices(
+            embeddings[0], [embeddings[index] for index in chosen], chosen_lengths
+        )
+        from_gather = alignment_engine._batched_score_matrices(
+            embeddings[0], gathered, chosen_lengths
+        )
+        self.assertTrue(
+            torch.equal(legacy.view(torch.int32), from_gather.view(torch.int32))
+        )
+
+    def test_batch_callback_matches_per_pair_callback_across_tiles(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(
+                path, self.LENGTHS, self.FEATURES, seed=11
+            )
+            with mock.patch.object(
+                alignment_engine,
+                "get_accelerator_backend",
+                return_value=FakeStreamBackend([]),
+            ):
+                per_pair, per_pair_tiles = self.run_pipeline(
+                    path, headers, torch.device("cpu"), lanes=2, batch=False
+                )
+                batched, batched_tiles = self.run_pipeline(
+                    path, headers, torch.device("cpu"), lanes=2, batch=True
+                )
+
+        self.assertEqual(len(per_pair), 45)
+        self.assertGreaterEqual(per_pair_tiles, 3)
+        self.assertEqual(batched_tiles, per_pair_tiles)
+        self.assertEqual(batched, per_pair)
+
+    def test_each_pair_matches_direct_scoring_of_its_embeddings(self):
+        # A one-byte budget puts every target in its own microbatch, so each
+        # result must equal scoring that pair's two embeddings directly.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(
+                path, self.LENGTHS, self.FEATURES, seed=19
+            )
+            with mock.patch.object(
+                alignment_engine,
+                "get_accelerator_backend",
+                return_value=FakeStreamBackend([]),
+            ):
+                results, tiles = self.run_pipeline(
+                    path, headers, torch.device("cpu"), lanes=2, batch=True,
+                    matrix_budget=1,
+                )
+            with h5py.File(path, "r") as hf:
+                embeddings = [
+                    alignment_engine._to_normalized_accelerator(
+                        hf["embeddings"][header][:], torch.device("cpu"), "float32"
+                    )
+                    for header in headers
+                ]
+
+        self.assertGreaterEqual(tiles, 3)
+        expected = []
+        with mock.patch.object(similarity_matrix, "GLOBAL_GAP_P", 0.0),                 mock.patch.object(similarity_matrix, "LOCAL_GAP_P", -2.0):
+            for row, column, *_scores in results:
+                matrix = alignment_engine._batched_score_matrices(
+                    embeddings[row], [embeddings[column]], [self.LENGTHS[column]]
+                ).numpy()[0]
+                expected.append(
+                    similarity_matrix.calculate_alignment_data((row, column, matrix))
+                )
+        self.assertEqual(len(results), 45)
+        self.assertEqual(results, sorted(expected))
+
+    def test_cached_memory_is_released_after_the_last_alignment(self):
+        # Callers re-check free memory with mem_get_info before every batch;
+        # blocks left in PyTorch's cache would read as used memory there.
+        log = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(
+                path, self.LENGTHS, self.FEATURES, seed=13
+            )
+            with mock.patch.object(
+                alignment_engine,
+                "get_accelerator_backend",
+                return_value=FakeStreamBackend(log),
+            ):
+                self.run_pipeline(
+                    path, headers, torch.device("cpu"), lanes=1, batch=False,
+                    log=log,
+                )
+
+        self.assertEqual(log.count("align"), 45)
+        self.assertEqual(log[-1], "empty-cache")
+
+    def test_cached_memory_is_released_when_a_batch_fails(self):
+        # A failed batch must not leave the cache reserved either: auto mode
+        # then retries on the next plan, whose support check reads free memory.
+        log = []
+
+        def failing_alignment(args):
+            raise RuntimeError("alignment failed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(
+                path, self.LENGTHS, self.FEATURES, seed=23
+            )
+            store = alignment_engine.EmbeddingTileStore(path, headers, 0)
+            tasks = [(0, column, headers[0], headers[column]) for column in (1, 2)]
+            with mock.patch.object(
+                alignment_engine,
+                "get_accelerator_backend",
+                return_value=FakeStreamBackend(log),
+            ), self.assertRaisesRegex(RuntimeError, "alignment failed"):
+                alignment_engine.run_tiled_accelerator_pipeline(
+                    tasks,
+                    store=store,
+                    lengths=self.LENGTHS,
+                    device=torch.device("cpu"),
+                    workers=1,
+                    lanes=1,
+                    alignment_callback=failing_alignment,
+                    memory_plan_override=small_tile_plan(self.FEATURES, 1),
+                )
+
+        self.assertEqual(log, ["empty-cache"])
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and alignment_engine.is_nvidia_cuda(),
+        "requires an NVIDIA CUDA device",
+    )
+    def test_cuda_lanes_and_tile_reuse_do_not_change_results(self):
+        # Several lanes read the reused packed tile while the next tile is
+        # queued; any missing stream ordering would change the scores.
+        device = torch.device("cuda:0")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "embeddings.h5")
+            headers = write_random_embeddings(
+                path, self.LENGTHS, self.FEATURES, seed=17
+            )
+            single_lane, tiles = self.run_pipeline(
+                path, headers, device, lanes=1, batch=False
+            )
+            many_lanes, _tiles = self.run_pipeline(
+                path, headers, device, lanes=4, batch=True
+            )
+        self.assertGreaterEqual(tiles, 3)
+        self.assertEqual(many_lanes, single_lane)
 
 if __name__ == "__main__":
     unittest.main()

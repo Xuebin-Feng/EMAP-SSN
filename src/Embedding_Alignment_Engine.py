@@ -1198,28 +1198,69 @@ def _length_microbatches(
         yield current
 
 
-def _batched_score_matrices(row_tensor, target_tensors, target_lengths):
-    """Compute padded score matrices while excluding padding from statistics."""
-    batch_size = len(target_tensors)
+def _int64_to_device(values, device):
+    """Copy small integer metadata to ``device`` without a stream sync.
+
+    A pageable host-to-device copy makes the host wait until the current
+    stream is idle, which serialized the tiled producer once per microbatch.
+    Pinned memory makes the copy asynchronous on CUDA and XPU.
+    """
+    host = torch.as_tensor(values, dtype=torch.int64)
+    device = torch.device(device)
+    if device.type in {"cuda", "xpu"}:
+        try:
+            host = host.pin_memory()
+        except RuntimeError:
+            return host.to(device)
+        return host.to(device, non_blocking=True)
+    return host.to(device)
+
+
+def _gather_padded_targets(packed, target_starts, target_lengths, pad_row):
+    """Gather zero-padded ``(batch, max_length, features)`` targets in one
+    operation from a packed tile whose row ``pad_row`` is all zeros."""
+    batch = len(target_lengths)
     max_length = max(int(length) for length in target_lengths)
-    feature_dimension = int(row_tensor.shape[1])
-    targets = torch.zeros(
-        (batch_size, max_length, feature_dimension),
-        dtype=row_tensor.dtype,
-        device=row_tensor.device,
+    metadata = _int64_to_device([target_starts, target_lengths], packed.device)
+    positions = torch.arange(max_length, device=packed.device)
+    valid = positions.unsqueeze(0) < metadata[1].unsqueeze(1)
+    rows = torch.where(
+        valid, metadata[0].unsqueeze(1) + positions.unsqueeze(0), pad_row
     )
-    for index, (target, length) in enumerate(zip(target_tensors, target_lengths)):
-        targets[index, :int(length)].copy_(target)
+    return packed.index_select(0, rows.reshape(-1)).view(
+        batch, max_length, packed.shape[1]
+    )
+
+
+def _batched_score_matrices(row_tensor, target_tensors, target_lengths):
+    """Compute padded score matrices while excluding padding from statistics.
+
+    ``target_tensors`` is either a list of per-target embeddings, padded here
+    one copy per target, or an already padded ``(batch, max_length,
+    features)`` tensor such as ``_gather_padded_targets`` returns.
+    """
+    if torch.is_tensor(target_tensors):
+        targets = target_tensors
+        max_length = int(targets.shape[1])
+    else:
+        batch_size = len(target_tensors)
+        max_length = max(int(length) for length in target_lengths)
+        feature_dimension = int(row_tensor.shape[1])
+        targets = torch.zeros(
+            (batch_size, max_length, feature_dimension),
+            dtype=row_tensor.dtype,
+            device=row_tensor.device,
+        )
+        for index, (target, length) in enumerate(
+            zip(target_tensors, target_lengths)
+        ):
+            targets[index, :int(length)].copy_(target)
 
     cosine = torch.matmul(
         row_tensor.unsqueeze(0), targets.transpose(1, 2)
     ).to(torch.float32)
     similarity = torch.exp(-(1.0 - cosine.clamp_(-1.0, 1.0)))
-    lengths_tensor = torch.as_tensor(
-        target_lengths,
-        dtype=torch.int64,
-        device=row_tensor.device,
-    )
+    lengths_tensor = _int64_to_device(target_lengths, row_tensor.device)
     mask = torch.arange(max_length, device=row_tensor.device).unsqueeze(0) < lengths_tensor.unsqueeze(1)
     mask3 = mask.unsqueeze(1)
     divisor = lengths_tensor.to(torch.float32).view(-1, 1, 1)
@@ -1689,6 +1730,30 @@ def _run_synchronous_tiled_pipeline(
     return results
 
 
+def _stream_wait(stream, event):
+    """Order ``stream`` after ``event`` on the device; wait on the host when the
+    stream object cannot express a device-side dependency."""
+    wait_event = getattr(stream, "wait_event", None)
+    if callable(wait_event):
+        wait_event(event)
+    else:
+        event.synchronize()
+
+
+def _tile_layout(tile_tasks, lengths):
+    """Return sorted tile indices, their packed start rows, and total rows."""
+    indices = sorted(
+        {int(task[0]) for task in tile_tasks}
+        | {int(task[1]) for task in tile_tasks}
+    )
+    starts = {}
+    rows = 0
+    for index in indices:
+        starts[index] = rows
+        rows += int(lengths[index])
+    return indices, starts, rows
+
+
 def run_tiled_accelerator_pipeline(
     tasks,
     *,
@@ -1707,8 +1772,18 @@ def run_tiled_accelerator_pipeline(
     warmup_task_count=0,
     benchmark_timer=None,
     benchmark_trial=None,
+    batch_alignment_callback=None,
 ):
-    """Run the Aug 22 tiled producer and completion-driven CPU consumers."""
+    """Run the tiled producer and completion-driven CPU consumers.
+
+    Each tile's embeddings are uploaded once into a packed device buffer, and
+    every microbatch gathers its zero-padded targets from it in one
+    operation. With ``batch_alignment_callback`` one CPU task aligns a whole
+    microbatch, ``(row, targets, target_lengths, matrices) -> [result, ...]``;
+    otherwise ``alignment_callback`` runs once per pair. Tile changes are
+    ordered on the device with events, so the host never drains the queue
+    between tiles.
+    """
     backend = get_accelerator_backend(device)
     supported, reason = backend.supports_tiled(require_memory=True)
     if not supported:
@@ -1757,21 +1832,40 @@ def run_tiled_accelerator_pipeline(
             benchmark_trial=benchmark_trial,
         )
     block_ids = store.block_ids(per_block, element_bytes=element_bytes)
+    feature_dimension = int(store.feature_dimension)
+    all_tiles = [list(tile) for tile in _partition_tiles(tasks, block_ids)]
+    all_layouts = [_tile_layout(tile, lengths) for tile in all_tiles]
+    # Any subset of the tasks (benchmark warm-up) yields tiles whose index
+    # sets are subsets of these, so one buffer of this size serves them all.
+    pad_row = max(layout[2] for layout in all_layouts)
+    packed = None
+
     results = []
     active_trial = None
     cpu_pending = set()
     inflight = deque()
     max_inflight = max(2, int(lanes) * 2)
+    batch_pending_limit = max(1, int(workers)) + max(1, int(lanes))
     streams = [backend.create_stream() for _ in range(max(1, int(lanes)))]
     stream_cursor = 0
 
     def collect_cpu(block=False):
-        completed_count = _drain_completed_alignment_futures(
-            cpu_pending,
-            results,
-            progress=progress,
-            block=block,
-        )
+        if block and cpu_pending:
+            completed, _ = wait(cpu_pending, return_when=FIRST_COMPLETED)
+        else:
+            completed = {future for future in cpu_pending if future.done()}
+        completed_count = 0
+        for future in completed:
+            cpu_pending.remove(future)
+            if batch_alignment_callback is None:
+                results.append(future.result())
+                completed_count += 1
+            else:
+                batch_results = future.result()
+                results.extend(batch_results)
+                completed_count += len(batch_results)
+        if progress is not None and completed_count:
+            progress.update(completed_count)
         if active_trial is not None:
             active_trial.completed += completed_count
         if result_callback is not None and len(results) >= int(result_chunk_size):
@@ -1781,14 +1875,28 @@ def run_tiled_accelerator_pipeline(
     def submit_oldest(block):
         if not inflight:
             return
-        event, host_tensor, metadata = inflight[0]
+        event, host_tensor, idx_i, target_indices, target_lengths, _row = inflight[0]
         if not block and not event.query():
             return
         if block:
             event.synchronize()
+        # Dropping the entry also releases its row tensor, which is safe now
+        # that the event (and every earlier entry's) has completed.
         inflight.popleft()
         matrix_array = host_tensor.numpy()
-        for offset, (idx_i, idx_j, length) in enumerate(metadata):
+        if batch_alignment_callback is not None:
+            cpu_pending.add(
+                cpu_executor.submit(
+                    batch_alignment_callback,
+                    (idx_i, target_indices, target_lengths, matrix_array),
+                )
+            )
+            while len(cpu_pending) >= batch_pending_limit:
+                collect_cpu(block=True)
+            return
+        for offset, (idx_j, length) in enumerate(
+            zip(target_indices, target_lengths)
+        ):
             matrix = matrix_array[offset, :, :int(length)]
             if not np.isfinite(matrix).all():
                 raise FloatingPointError(
@@ -1803,109 +1911,154 @@ def run_tiled_accelerator_pipeline(
         while len(cpu_pending) >= max(1, int(workers)) * 2:
             collect_cpu(block=True)
 
-    with cuda_matmul_precision(precision), torch.inference_mode(), \
-            h5py.File(store.path, "r", libver="latest", swmr=True) as hf, \
-            ThreadPoolExecutor(
-                max_workers=max(1, int(workers)),
-                thread_name_prefix="alignment-cpu",
-            ) as cpu_executor:
-        group = hf["embeddings"]
+    def upload_tile(layout, group):
+        nonlocal packed
+        indices, starts, _rows = layout
+        host_embeddings = store.load_indices(indices, group)
+        preload_stream = streams[0]
+        # The packed buffer is reused: overwrite it only after every lane's
+        # queued work on the previous tile, without blocking the host.
+        for stream in streams[1:]:
+            queued = backend.create_event()
+            queued.record(stream)
+            _stream_wait(preload_stream, queued)
+        with backend.stream_context(preload_stream):
+            for index in indices:
+                normalized = _to_normalized_accelerator(
+                    host_embeddings[index], device, precision
+                )
+                if packed is None:
+                    # Allocated like the embeddings themselves; the extra
+                    # last row stays zero and pads every gathered batch.
+                    packed = normalized.new_zeros(
+                        (pad_row + 1, feature_dimension)
+                    )
+                start = starts[index]
+                packed[start:start + normalized.shape[0]].copy_(normalized)
+            uploaded = backend.create_event()
+            uploaded.record(preload_stream)
+        del host_embeddings
+        for stream in streams:
+            _stream_wait(stream, uploaded)
+        return starts
 
-        def run_phase(phase_tasks):
-            nonlocal stream_cursor
-            for tile_tasks in _partition_tiles(phase_tasks, block_ids):
-                if active_trial is not None:
-                    if not active_trial.can_submit():
-                        break
-                    active_trial.tiles += 1
-                tile_indices = {int(task[0]) for task in tile_tasks}
-                tile_indices.update(int(task[1]) for task in tile_tasks)
-                host_embeddings = store.load_indices(tile_indices, group)
-                preload_stream = streams[stream_cursor % len(streams)]
-                with backend.stream_context(preload_stream):
-                    gpu_embeddings = {
-                        index: _to_normalized_accelerator(
-                            array, device, precision
-                        )
-                        for index, array in host_embeddings.items()
-                    }
-                    preload_event = backend.create_event()
-                    preload_event.record(preload_stream)
-                preload_event.synchronize()
-                del host_embeddings
+    try:
+        with cuda_matmul_precision(precision), torch.inference_mode(), \
+                h5py.File(store.path, "r", libver="latest", swmr=True) as hf, \
+                ThreadPoolExecutor(
+                    max_workers=max(1, int(workers)),
+                    thread_name_prefix="alignment-cpu",
+                ) as cpu_executor:
+            group = hf["embeddings"]
 
-                rows = OrderedDict()
-                for task in tile_tasks:
-                    rows.setdefault(int(task[0]), []).append(task)
-                for idx_i, row_tasks in rows.items():
-                    if active_trial is not None and not active_trial.can_submit():
-                        break
-                    for microbatch in _length_microbatches(
-                        row_tasks,
-                        lengths,
-                        lengths[idx_i],
-                        matrix_budget,
-                        store.feature_dimension,
-                        element_bytes,
-                    ):
-                        if active_trial is not None:
-                            if not active_trial.can_submit():
-                                break
-                            active_trial.submitted += len(microbatch)
-                            active_trial.microbatches += 1
-                        stream = streams[stream_cursor % len(streams)]
-                        stream_cursor += 1
-                        target_lengths = [
-                            int(lengths[int(task[1])]) for task in microbatch
-                        ]
-                        targets = [
-                            gpu_embeddings[int(task[1])] for task in microbatch
-                        ]
-                        with backend.stream_context(stream):
-                            matrices = _batched_score_matrices(
-                                gpu_embeddings[idx_i],
-                                targets,
+            def run_phase(phase_tasks):
+                nonlocal stream_cursor
+                if phase_tasks is tasks:
+                    phase_tiles, phase_layouts = all_tiles, all_layouts
+                else:
+                    phase_tiles = [
+                        list(tile) for tile in _partition_tiles(phase_tasks, block_ids)
+                    ]
+                    phase_layouts = [_tile_layout(tile, lengths) for tile in phase_tiles]
+                for tile_tasks, layout in zip(phase_tiles, phase_layouts):
+                    if active_trial is not None:
+                        if not active_trial.can_submit():
+                            break
+                        active_trial.tiles += 1
+                    starts = upload_tile(layout, group)
+                    row_tensor = None
+                    row_index = None
+                    rows = OrderedDict()
+                    for task in tile_tasks:
+                        rows.setdefault(int(task[0]), []).append(task)
+                    for idx_i, row_tasks in rows.items():
+                        if active_trial is not None and not active_trial.can_submit():
+                            break
+                        for microbatch in _length_microbatches(
+                            row_tasks,
+                            lengths,
+                            lengths[idx_i],
+                            matrix_budget,
+                            feature_dimension,
+                            element_bytes,
+                        ):
+                            if active_trial is not None:
+                                if not active_trial.can_submit():
+                                    break
+                                active_trial.submitted += len(microbatch)
+                                active_trial.microbatches += 1
+                            stream = streams[stream_cursor % len(streams)]
+                            stream_cursor += 1
+                            target_indices = [int(task[1]) for task in microbatch]
+                            target_lengths = [
+                                int(lengths[index]) for index in target_indices
+                            ]
+                            with backend.stream_context(stream):
+                                if row_index != idx_i:
+                                    # A fresh tensor, like the per-sequence
+                                    # embeddings of earlier versions.
+                                    start = starts[idx_i]
+                                    row_tensor = packed[
+                                        start:start + int(lengths[idx_i])
+                                    ].clone()
+                                    row_index = idx_i
+                                targets = _gather_padded_targets(
+                                    packed,
+                                    [starts[index] for index in target_indices],
+                                    target_lengths,
+                                    pad_row,
+                                )
+                                matrices = _batched_score_matrices(
+                                    row_tensor, targets, target_lengths
+                                )
+                                host_tensor = _host_output_buffer(matrices)
+                                host_tensor.copy_(
+                                    matrices, non_blocking=host_tensor.is_pinned()
+                                )
+                                event = backend.create_event()
+                                event.record(stream)
+                            # The entry keeps the shared row tensor alive until
+                            # this microbatch has finished on its stream.
+                            inflight.append((
+                                event,
+                                host_tensor,
+                                int(idx_i),
+                                target_indices,
                                 target_lengths,
-                            )
-                            host_tensor = _host_output_buffer(matrices)
-                            host_tensor.copy_(
-                                matrices, non_blocking=host_tensor.is_pinned()
-                            )
-                            event = backend.create_event()
-                            event.record(stream)
-                        metadata = [
-                            (int(task[0]), int(task[1]), length)
-                            for task, length in zip(microbatch, target_lengths)
-                        ]
-                        inflight.append((event, host_tensor, metadata))
-                        while len(inflight) >= max_inflight:
-                            submit_oldest(block=True)
-                        submit_oldest(block=False)
-                        collect_cpu(block=False)
+                                row_tensor,
+                            ))
+                            while len(inflight) >= max_inflight:
+                                submit_oldest(block=True)
+                            submit_oldest(block=False)
+                            collect_cpu(block=False)
 
                 while inflight:
                     submit_oldest(block=True)
-                del gpu_embeddings
-                backend.empty_cache()
+                while cpu_pending:
+                    collect_cpu(block=True)
 
-            while cpu_pending:
-                collect_cpu(block=True)
-
-        if benchmark_trial is not None:
-            run_phase(tasks[:benchmark_trial.warmup_count(tasks, workers, plan.lanes)])
-            results.clear()
-            active_trial = benchmark_trial
-            benchmark_trial.start()
-            run_phase(tasks)
-            benchmark_trial.stop(len(tasks))
-        elif benchmark_timer is None:
-            run_phase(tasks)
-        else:
-            if warmup_task_count:
-                run_phase(tasks[:warmup_task_count])
-            benchmark_timer.start()
-            run_phase(tasks[warmup_task_count:])
-            benchmark_timer.stop()
+            if benchmark_trial is not None:
+                run_phase(tasks[:benchmark_trial.warmup_count(tasks, workers, plan.lanes)])
+                results.clear()
+                active_trial = benchmark_trial
+                benchmark_trial.start()
+                run_phase(tasks)
+                benchmark_trial.stop(len(tasks))
+            elif benchmark_timer is None:
+                run_phase(tasks)
+            else:
+                if warmup_task_count:
+                    run_phase(tasks[:warmup_task_count])
+                benchmark_timer.start()
+                run_phase(tasks[warmup_task_count:])
+                benchmark_timer.stop()
+    finally:
+        # Hand the cached blocks back to the driver, also after a failure:
+        # callers check mem_get_info before the next batch or plan, and the
+        # caching allocator's reserve would otherwise read as used memory.
+        inflight.clear()
+        packed = None
+        backend.empty_cache()
 
     if result_callback is not None and results:
         result_callback(results)

@@ -1146,6 +1146,150 @@ def _prepare_progressive_stage(
     return active_mask
 
 
+# A stage may use at most this fraction of the largest stable DT that its
+# spring degree bound allows. The bound is never below the largest eigenvalue
+# of the springs' Laplacian and, on SSN clusters, about twice it, so a lowered
+# DT lands at 0.60 to 0.85 of the stage's true stability limit.
+_DT_GUARD_FRACTION = 0.85
+
+
+@_compile_serial_helper
+def _spring_degree_bound(n_nodes, edges):
+    """Largest d_u + d_v over the springs, d being a node's spring count.
+
+    No eigenvalue of the springs' graph Laplacian exceeds it (Anderson and
+    Morley). Self-loops are skipped because they exert no force.
+    """
+    degree = np.zeros(n_nodes, dtype=np.int64)
+    for edge in range(edges.shape[0]):
+        u = edges[edge, 0]
+        v = edges[edge, 1]
+        if u != v:
+            degree[u] += 1
+            degree[v] += 1
+    bound = 0
+    for edge in range(edges.shape[0]):
+        u = edges[edge, 0]
+        v = edges[edge, 1]
+        if u != v and degree[u] + degree[v] > bound:
+            bound = degree[u] + degree[v]
+    return bound
+
+
+def _euler_dt_limit(stiffness, damping):
+    """Largest DT at which the damped semi-implicit Euler update keeps a
+    spring mode of this stiffness from growing.
+
+    The update is stable while stiffness * DT**2 < 4 - 2 * damping * DT.
+    """
+    return (math.sqrt(damping * damping + 4.0 * stiffness) - damping) / stiffness
+
+
+# AUTO_DT runs each stage at this fraction of the limit for its springs plus
+# one maximally stiff repulsive contact. Measured on the production kernel:
+# paths, rings, trees, grids, stars, complete bipartite graphs, cliques of up
+# to 60 nodes and pairs and triangles all settle at 0.5, while some jitter at
+# 0.6 or above. Larger near-cliques may jitter slightly at any fraction above
+# about 0.35.
+_AUTO_DT_FRACTION = 0.5
+
+
+def _steepest_repulsion(params):
+    """Largest radial stiffness of one repulsive pair, reached where the force
+    cap starts (or at the kernels' 0.5 distance floor without a cap)."""
+    k_coul = float(params.get('COULOMB_K', 50.0))
+    if k_coul <= 0.0:
+        return 0.0
+    max_f = float(params.get('MAX_FORCE_LIMIT', 20.0))
+    steepest_distance = 0.5
+    if max_f > 0.0:
+        steepest_distance = max(steepest_distance, math.sqrt(k_coul / max_f))
+    return 2.0 * k_coul / steepest_distance ** 3
+
+
+def _three_figures(dt):
+    """Round a chosen DT to three significant figures, so the log shows the
+    exact DT that runs."""
+    return float(f"{dt:.3g}")
+
+
+def _stage_params(n_nodes, edges, params):
+    """Return the parameters for one stage, choosing or capping its DT.
+
+    With AUTO_DT, the stage runs at _AUTO_DT_FRACTION of the stability limit
+    for its springs plus one maximally stiff repulsive contact, and the
+    step-based stopping rules apply as configured.
+
+    Otherwise the configured DT runs unless it would let the springs blow up:
+    past their stability limit, zero-rest-length springs make every step
+    overshoot, and nodes end up bouncing between the walls of the box. A
+    stage that is safe at the configured DT gets `params` itself, so its
+    layout stays bit-identical. Otherwise DT is lowered, and the step-based
+    stopping rules are scaled so that the stage keeps its simulated time and
+    the speed it treats as converged.
+    """
+    spring_stiffness = float(params.get('SPRING_K', 0.1)) * _spring_degree_bound(
+        n_nodes, edges
+    )
+    damping = float(params.get('DAMPING', 0.5))
+    if params.get('AUTO_DT', False):
+        stiffness = spring_stiffness + 2.0 * _steepest_repulsion(params)
+        if stiffness <= 0.0:
+            return params
+        stage = dict(params)
+        stage['DT'] = _three_figures(
+            _AUTO_DT_FRACTION * _euler_dt_limit(stiffness, damping)
+        )
+        print(f"  > Auto DT {stage['DT']:g} for this stage")
+        return stage
+
+    user_dt = float(params.get('DT', 0.1))
+    if spring_stiffness <= 0.0:
+        return params
+    limit = _euler_dt_limit(spring_stiffness, damping)
+    stage_dt = _three_figures(_DT_GUARD_FRACTION * limit)
+    if stage_dt >= user_dt:
+        return params
+
+    scale = user_dt / stage_dt
+    stage = dict(params)
+    stage['DT'] = stage_dt
+    stage['MAX_STEPS'] = int(math.ceil(params.get('MAX_STEPS', 2000) * scale))
+    stage['RMSD_WINDOW'] = int(math.ceil(params.get('RMSD_WINDOW', 50) * scale))
+    stage['RMSD_THRESHOLD'] = params.get('RMSD_THRESHOLD', 0.005) / scale
+    print(
+        f"  > DT {user_dt:g} -> {stage_dt:g} for this stage so its springs stay "
+        f"stable (MAX_STEPS {stage['MAX_STEPS']}, RMSD_WINDOW "
+        f"{stage['RMSD_WINDOW']} and RMSD_THRESHOLD "
+        f"{stage['RMSD_THRESHOLD']:.3g} keep its simulated time and speed)"
+    )
+    return stage
+
+
+def _report_boundary_contact(positions, box_limits, active_mask):
+    """Warn when active nodes ended a stage on the wall of their box.
+
+    A relaxed component sits well inside its box. Nodes end on a wall when
+    the stage diverged, or when a long, sparse component needs more room.
+    """
+    positions = np.asarray(positions)
+    limits = _normalize_box_limits(box_limits, len(positions))
+    active = _normalize_active_mask(active_mask, len(positions))
+    on_wall = active & (np.abs(positions) >= limits[:, None]).any(axis=1)
+    count = int(np.count_nonzero(on_wall))
+    if count:
+        print(
+            f"    - WARNING: {count} of {int(np.count_nonzero(active))} active "
+            "nodes ended on the layout boundary. The stage diverged (lower DT) "
+            "or the component needs more room (raise BOX_SCALE)."
+        )
+
+
+# A windowed RMSD that rises by more than this percentage is growing. Smaller
+# rises are noise around a plateau: healthy stages have stopped on 0.1%.
+_RISING_RMSD_PERCENT = 1.0
+
+
 def _run_layout_stage(
     candidate,
     positions,
@@ -1174,6 +1318,7 @@ def _run_layout_stage(
         max_steps = params.get('MAX_STEPS', 2000)
         rmsd_buffer = deque(maxlen=rmsd_window)
         average_history = []
+        average_rmsd = None
 
         for step in range(max_steps):
             rmsd = simulation.step(step)
@@ -1215,6 +1360,13 @@ def _run_layout_stage(
                         percentage_drop = (
                             (old_trend - current_trend) / old_trend
                         ) * 100.0
+                        if percentage_drop < -_RISING_RMSD_PERCENT:
+                            print(
+                                f"    - Not settling at Step {step}: RMSD rose "
+                                f"{-percentage_drop:.3f}% over the last "
+                                f"{rmsd_window} steps (RMSD: {average_rmsd:.5f})"
+                            )
+                            break
                         if percentage_drop < percentage_threshold:
                             print(
                                 f"    - Plateau Reached at Step {step} "
@@ -1222,8 +1374,16 @@ def _run_layout_stage(
                                 f"{percentage_threshold}%)"
                             )
                             break
+        else:
+            if average_rmsd is not None:
+                print(
+                    f"    - Step limit reached after {max_steps} steps "
+                    f"(RMSD: {average_rmsd:.5f})"
+                )
 
-        return simulation.get_pos()
+        final_positions = simulation.get_pos()
+        _report_boundary_contact(final_positions, box_limits, active_mask)
+        return final_positions
     finally:
         del simulation
         Hardware_Utils.release_device_cache(candidate)
@@ -1412,6 +1572,7 @@ def calculate_layout(connectivity, n_nodes, params):
 
             local_edges = stage_edges.astype(np.int32)
             del stage_edges, stage_scores
+            stage_params = _stage_params(n_batch_nodes, local_edges, params)
 
             stage_input = batch_pos.copy()
             failures = []
@@ -1424,7 +1585,7 @@ def calculate_layout(connectivity, n_nodes, params):
                         local_edges,
                         batch_comp_labels,
                         batch_box_limits,
-                        params,
+                        stage_params,
                         stage_active_mask,
                     )
                     break

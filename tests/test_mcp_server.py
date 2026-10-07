@@ -687,6 +687,11 @@ class LayoutOverrideTests(unittest.TestCase):
         self.assertNotIn("'zzz' is not a layout setting (did you mean", message)
         self.assertNotIn("NODE_FASTA_FILE, ", message.split("Accepted keys:", 1)[1])
 
+    def test_auto_dt_is_a_layout_override(self):
+        from mcp_server.pipeline.Pipeline_Operations import _layout_overrides
+
+        self.assertEqual(_layout_overrides({"auto_dt": True}), {"AUTO_DT": True})
+
     def test_parameters_must_be_an_object(self):
         from mcp.server.mcpserver.exceptions import ToolError
         from mcp_server.pipeline.Pipeline_Operations import _layout_overrides

@@ -406,6 +406,7 @@ async def start_layout_job(
             "COULOMB_CUTOFF": 30.0,
             "DAMPING": 0.9,
             "DT": 0.005,
+            "AUTO_DT": False,
             "MAX_STEPS": 10000,
             "RMSD_THRESHOLD": 0.005,
             "PERCENTAGE_DROP_THRESHOLD": 0.1,

@@ -592,9 +592,10 @@ Layout exports require `kind: "layout"`, `schema_version: 2`, and sections:
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`.
 Inputs are FASTA/network paths; network holds score interpretation and edge filters;
 layout holds UMAP mode/parameters, `LAYOUT_DIMENSIONS`, and `LAYOUT_SEED`;
-simulation holds device, timestep, convergence,
-and step limits; physics holds forces/damping; packing holds geometry and box
-settings; output holds the directory, cache path, filename, and naming mode.
+simulation holds device, timestep (with `AUTO_DT` true, each stage picks its own
+and `DT` is ignored), convergence, and step limits; physics holds forces/damping;
+packing holds geometry and box settings; output holds the directory, cache path,
+filename, and naming mode.
 Layout exports exclude visualization and MSA display settings.
 
 Viewer JSON never contains generation settings or a `cache_fallback` section.

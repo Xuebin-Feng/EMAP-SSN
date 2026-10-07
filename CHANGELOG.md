@@ -36,6 +36,17 @@ still change before version 1.0.0.
 - `inspect_file` detects DIAMOND `--header verbose` files as BLAST tables, reports
   their program, version and command, and warns when the command lacks `-k 0`. For an
   imported network, it reports the recorded search program and import warnings.
+- **Automatic layout step size.** An Auto button to the left of the Step Size field
+  (setting `AUTO_DT`, off by default) lets each simulation stage use the largest step
+  that keeps it stable, and greys out the field. The step is half the stability limit
+  for the stage's springs, bounded through their largest `d_u + d_v`, plus one
+  repulsive contact at its stiffest (`COULOMB_K` and `MAX_FORCE_LIMIT`). Without the
+  contact term, pairs and triangles sized for their springs alone kept passing
+  through each other's repulsive cores. `MAX_STEPS`, `RMSD_THRESHOLD` and
+  `RMSD_WINDOW` still count steps. On the 4,033-sequence test network the stages ran
+  at 0.0097 to 0.0148 and the batch of small components at 0.083, with the same run
+  time and edge lengths as `DT` 0.01. Layout documents without `AUTO_DT` load with it
+  off. The VR Config has no Auto button yet, so VR layouts keep using Step Size.
 
 ### Changed
 
@@ -110,6 +121,24 @@ still change before version 1.0.0.
   apart. A 12,927-node BLAST network that packed 440 units across at grid size 20
   packs 240 across at the new default and 165 at 2.5. Packed positions differ from
   earlier versions; saved caches keep theirs.
+- **Tiled embedding alignment is about 1.8 times faster.** `Align_Similarity_Matrix`
+  and `Network_Injection` built every padded GPU batch with one copy per target and
+  sent the target lengths from unpinned memory, which made the CPU wait for the GPU on
+  every batch and left the GPU half idle. Each tile's embeddings are now uploaded once
+  into a packed GPU buffer that every batch gathers from in one step, lengths travel
+  through pinned memory, one CPU task aligns a whole batch instead of one task per
+  pair, and tiles no longer wait for the GPU queue to empty when they change. On the
+  test machine (RTX 4070, i5-13600K), an MCP job on 12,927 sequences took 31.4 s per
+  500,000-pair batch instead of 56.9 s. The old code's speed also varied with CPU load
+  (up to 88 s per batch in another session); the new code is limited by the GPU.
+  Scores and alignment lengths are unchanged bit for bit for a given execution plan.
+- **Faster alignment scoring when the CPU sets the pace.** A float32
+  dynamic-programming kernel aligns pairs about 2.2 times faster per core when float32
+  is provably exact: a global gap penalty of 0 with a local gap penalty of 0 or a
+  negative power of two, which includes the defaults (0 and -2). Other gap penalties
+  use the previous kernel. With 2 CPU workers, the first batch ran at 7,255 instead of
+  3,326 pairs per second, with identical scores. This matters with GPUs much faster
+  than the test machine's, where the CPU alignments limit throughput.
 
 ### Fixed
 
@@ -226,6 +255,27 @@ still change before version 1.0.0.
   units, against a clearance of 5. Circle now uses the same square cells as Square,
   filled in order of distance from the centre, so the packed layout still grows as a
   disc.
+- Layout generation could blow up a dense component instead of relaxing it, and
+  logged the stage as finished. The force simulation is stable only while
+  `SPRING_K` × λ × `DT`² < 4 − 2 × `DAMPING` × `DT`, where λ, the largest eigenvalue of
+  the graph Laplacian of the stage's springs, is close to the busiest node's spring
+  count. With `DT` 0.01, the largest component of the 44,127-sequence layout passed
+  that limit in progressive stages 4 and 5 (λ 8,802 and 10,929). Its nodes ended up
+  bouncing between the walls of the layout box, and the log reported "Plateau
+  Reached". Each stage now lowers `DT` when needed, to 0.85 of the limit for the
+  largest `d_u + d_v` over its springs (an upper bound on λ), and scales `MAX_STEPS`,
+  `RMSD_WINDOW` and `RMSD_THRESHOLD` so that the stage keeps its simulated time and
+  convergence speed. The log says when it does. Stages that were already safe keep
+  `DT`, and their layouts are unchanged bit for bit; at `DT` 0.01 that covers every
+  stage of the 4,033- and 12,927-sequence test networks. At `DT` 0.05, which crosses
+  the limit in every stage of the 4,033-sequence network, its edges had a median
+  length of 397 units before and 1.5 after (1.3 at `DT` 0.01).
+- The layout log called a stage whose RMSD was growing "Plateau Reached", and said
+  nothing when a stage used up `MAX_STEPS`. An RMSD that rose by more than 1% over
+  the last window is now reported as "Not settling", and running out of steps as
+  "Step limit reached". The log also warns when active nodes end a stage on the
+  layout boundary, where a diverged simulation leaves them. Stages stop at the same
+  step as before.
 
 ## [0.3.0] - 2026-10-01
 

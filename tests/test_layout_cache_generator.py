@@ -313,6 +313,26 @@ class LayoutSettingsTests(unittest.TestCase):
                     with self.assertRaises(LayoutGenerationError):
                         LayoutGenerationSettings.from_document(document)
 
+    def test_auto_dt_is_an_optional_json_boolean(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            document = _settings_document(temp_path)
+            # Documents exported before AUTO_DT existed leave it out.
+            del document["simulation"]["AUTO_DT"]
+            settings = LayoutGenerationSettings.from_document(document)
+            self.assertIs(settings.AUTO_DT, False)
+            self.assertIs(settings.engine_params()["AUTO_DT"], False)
+
+            document = _settings_document(temp_path)
+            document["simulation"]["AUTO_DT"] = True
+            settings = LayoutGenerationSettings.from_document(document)
+            self.assertIs(settings.engine_params()["AUTO_DT"], True)
+            self.assertIs(settings.to_document()["simulation"]["AUTO_DT"], True)
+
+            document["simulation"]["AUTO_DT"] = "true"
+            with self.assertRaisesRegex(LayoutGenerationError, "AUTO_DT must be a JSON boolean"):
+                LayoutGenerationSettings.from_document(document)
+
     def test_missing_unsafe_and_wrong_typed_settings_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = pathlib.Path(temp_dir)

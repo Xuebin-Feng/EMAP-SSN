@@ -156,6 +156,8 @@ class LayoutGenerationSettings:
     PACKING_GRID_SIZE: float
     LAYOUT_DIMENSIONS: int = 2
     LAYOUT_SEED: int | None = 42
+    # Each simulated stage picks its own fastest stable DT; DT is then unused.
+    AUTO_DT: bool = False
 
     # Coordinate-affecting values which are currently hidden in EMAP-SSN Configuration.
     BOX_SCALE: float = 2.0
@@ -266,6 +268,7 @@ class LayoutGenerationSettings:
             "COULOMB_CUTOFF": 30.0,
             "DAMPING": 0.9,
             "DT": 0.005,
+            "AUTO_DT": False,
             "MAX_STEPS": 10000,
             "RMSD_THRESHOLD": 0.005,
             "PERCENTAGE_DROP_THRESHOLD": 0.1,
@@ -327,6 +330,8 @@ class LayoutGenerationSettings:
             raise LayoutGenerationError(
                 "ENABLE_PROGRESSIVE_SIMULATION must be a JSON boolean."
             )
+        if not isinstance(self.AUTO_DT, bool):
+            raise LayoutGenerationError("AUTO_DT must be a JSON boolean.")
         if self.ALIGNMENT_SCORE not in {None, "global", "local"}:
             raise LayoutGenerationError("ALIGNMENT_SCORE must be global, local, or null.")
         if self.NORM_MODE not in {

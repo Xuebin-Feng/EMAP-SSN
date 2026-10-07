@@ -364,50 +364,370 @@ def global_local_scores(
     )
 
 
-class GlobalLocalScratch:
-    """Grow-only scratch owned by one CPU alignment worker thread."""
+@njit(nogil=True, fastmath=True, cache=True)
+def global_local_scores_batch(
+    matrices,
+    column_lengths,
+    global_gap_penalty,
+    local_gap_penalty,
+    global_scores,
+    global_lengths,
+    local_scores,
+    local_lengths,
+    local_score_shift=2.0,
+):
+    """
+    Score every pair of one padded microbatch with the per-pair kernel.
 
-    def __init__(self):
-        self.capacity = 0
-        self.growths = 0
-        self.arrays = None
-
-    def _ensure(self, columns):
-        required = max(1, int(columns) + 1)
-        if required <= self.capacity:
-            return False
-        # Geometric growth avoids repeatedly reallocating for gradually
-        # increasing sequence lengths while keeping each worker bounded.
-        self.capacity = max(required, max(64, self.capacity * 2))
-        self.arrays = (
-            np.empty(self.capacity, dtype=np.float32),
-            np.empty(self.capacity, dtype=np.float32),
-            np.empty(self.capacity, dtype=np.uint32),
-            np.empty(self.capacity, dtype=np.uint32),
-            np.empty(self.capacity, dtype=np.float32),
-            np.empty(self.capacity, dtype=np.float32),
-            np.empty(self.capacity, dtype=np.uint32),
-            np.empty(self.capacity, dtype=np.uint32),
+    ``matrices`` is ``(batch, rows, padded_columns)``; pair ``b`` uses its
+    first ``column_lengths[b]`` columns. Results equal ``global_local_scores``
+    on each unpadded matrix, and the scratch is allocated once per batch.
+    """
+    batch = matrices.shape[0]
+    max_columns = matrices.shape[2]
+    global_previous_scores = np.empty(max_columns + 1, dtype=np.float32)
+    global_current_scores = np.empty(max_columns + 1, dtype=np.float32)
+    global_previous_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    global_current_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    local_previous_scores = np.empty(max_columns + 1, dtype=np.float32)
+    local_current_scores = np.empty(max_columns + 1, dtype=np.float32)
+    local_previous_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    local_current_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    for index in range(batch):
+        global_score, global_length, local_score, local_length = (
+            global_local_scores_reuse(
+                matrices[index, :, :column_lengths[index]],
+                global_gap_penalty,
+                local_gap_penalty,
+                global_previous_scores,
+                global_current_scores,
+                global_previous_lengths,
+                global_current_lengths,
+                local_previous_scores,
+                local_current_scores,
+                local_previous_lengths,
+                local_current_lengths,
+                local_score_shift,
+            )
         )
-        self.growths += 1
-        return True
+        global_scores[index] = global_score
+        global_lengths[index] = global_length
+        local_scores[index] = local_score
+        local_lengths[index] = local_length
 
-    def score(
-        self,
-        score_matrix,
-        global_gap_penalty,
-        local_gap_penalty,
-        local_score_shift=2.0,
-    ):
-        grew = self._ensure(score_matrix.shape[1])
-        result = global_local_scores_reuse(
-            score_matrix,
+
+# Without 'nsz', LLVM may not exchange +0.0 and -0.0 when it turns the
+# strict-greater selections into max instructions.
+@njit(nogil=True, fastmath={"nnan", "ninf"}, cache=True)
+def _float32_global_local_scores(
+    score_matrix,
+    global_gap,
+    local_gap,
+    local_score_shift,
+    previous_global_scores,
+    current_global_scores,
+    previous_global_lengths,
+    current_global_lengths,
+    previous_local_scores,
+    current_local_scores,
+    previous_local_lengths,
+    current_local_lengths,
+):
+    """
+    Float32 ``global_local_scores_reuse`` for gaps accepted by
+    ``float32_exact_local_bound``.
+
+    Each cell evaluates the same candidates in the same order with the same
+    strict ``>`` ties. Neighbours stay in registers and the selections are
+    branch-free, which removes the float32/float64 conversion chain that
+    limits the reference kernel.
+    """
+    num_rows, num_cols = score_matrix.shape
+    zero = np.float32(0.0)
+    for col in range(num_cols + 1):
+        previous_global_scores[col] = np.float32(col) * global_gap
+        previous_global_lengths[col] = col
+        previous_local_scores[col] = zero
+        previous_local_lengths[col] = 0
+
+    max_local_score = zero
+    max_local_length = np.int64(0)
+    for row in range(1, num_rows + 1):
+        left_global = np.float32(row) * global_gap
+        left_global_length = np.int64(row)
+        left_local = zero
+        left_local_length = np.int64(0)
+        current_global_scores[0] = left_global
+        current_global_lengths[0] = row
+        current_local_scores[0] = zero
+        current_local_lengths[0] = 0
+        diagonal_global = previous_global_scores[0]
+        diagonal_global_length = np.int64(previous_global_lengths[0])
+        diagonal_local = previous_local_scores[0]
+        diagonal_local_length = np.int64(previous_local_lengths[0])
+
+        for col in range(1, num_cols + 1):
+            cell = score_matrix[row - 1, col - 1]
+            up_global = previous_global_scores[col]
+            up_global_length = np.int64(previous_global_lengths[col])
+            up_local = previous_local_scores[col]
+            up_local_length = np.int64(previous_local_lengths[col])
+
+            global_delete = up_global + global_gap
+            global_insert = left_global + global_gap
+            best_global = diagonal_global + cell
+            best_global_length = diagonal_global_length + 1
+            take = global_delete > best_global
+            best_global = global_delete if take else best_global
+            best_global_length = (
+                up_global_length + 1 if take else best_global_length
+            )
+            take = global_insert > best_global
+            best_global = global_insert if take else best_global
+            best_global_length = (
+                left_global_length + 1 if take else best_global_length
+            )
+            current_global_scores[col] = best_global
+            current_global_lengths[col] = best_global_length
+
+            local_match = diagonal_local + (cell - local_score_shift)
+            local_delete = up_local + local_gap
+            local_insert = left_local + local_gap
+            take = local_match > zero
+            best_local = local_match if take else zero
+            best_local_length = diagonal_local_length + 1 if take else 0
+            take = local_delete > best_local
+            best_local = local_delete if take else best_local
+            best_local_length = (
+                up_local_length + 1 if take else best_local_length
+            )
+            take = local_insert > best_local
+            best_local = local_insert if take else best_local
+            best_local_length = (
+                left_local_length + 1 if take else best_local_length
+            )
+            current_local_scores[col] = best_local
+            current_local_lengths[col] = best_local_length
+
+            take = best_local > max_local_score
+            max_local_score = best_local if take else max_local_score
+            max_local_length = best_local_length if take else max_local_length
+
+            diagonal_global = up_global
+            diagonal_global_length = up_global_length
+            diagonal_local = up_local
+            diagonal_local_length = up_local_length
+            left_global = best_global
+            left_global_length = best_global_length
+            left_local = best_local
+            left_local_length = best_local_length
+
+        previous_global_scores, current_global_scores = (
+            current_global_scores,
+            previous_global_scores,
+        )
+        previous_global_lengths, current_global_lengths = (
+            current_global_lengths,
+            previous_global_lengths,
+        )
+        previous_local_scores, current_local_scores = (
+            current_local_scores,
+            previous_local_scores,
+        )
+        previous_local_lengths, current_local_lengths = (
+            current_local_lengths,
+            previous_local_lengths,
+        )
+
+    return (
+        previous_global_scores[num_cols],
+        previous_global_lengths[num_cols],
+        max_local_score,
+        max_local_length,
+    )
+
+
+@njit(nogil=True, cache=True)
+def _float32_global_local_scores_batch(
+    matrices,
+    column_lengths,
+    global_gap,
+    local_gap,
+    local_bound,
+    reference_global_gap,
+    reference_local_gap,
+    global_scores,
+    global_lengths,
+    local_scores,
+    local_lengths,
+):
+    batch = matrices.shape[0]
+    max_columns = matrices.shape[2]
+    previous_global_scores = np.empty(max_columns + 1, dtype=np.float32)
+    current_global_scores = np.empty(max_columns + 1, dtype=np.float32)
+    previous_global_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    current_global_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    previous_local_scores = np.empty(max_columns + 1, dtype=np.float32)
+    current_local_scores = np.empty(max_columns + 1, dtype=np.float32)
+    previous_local_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    current_local_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    local_score_shift = np.float32(2.0)
+    for index in range(batch):
+        matrix = matrices[index, :, :column_lengths[index]]
+        global_score, global_length, local_score, local_length = (
+            _float32_global_local_scores(
+                matrix,
+                global_gap,
+                local_gap,
+                local_score_shift,
+                previous_global_scores,
+                current_global_scores,
+                previous_global_lengths,
+                current_global_lengths,
+                previous_local_scores,
+                current_local_scores,
+                previous_local_lengths,
+                current_local_lengths,
+            )
+        )
+        if local_score >= local_bound:
+            # Outside the range where float32 is proven exact.
+            global_score, global_length, reference_score, local_length = (
+                global_local_scores_reuse(
+                    matrix,
+                    reference_global_gap,
+                    reference_local_gap,
+                    previous_global_scores,
+                    current_global_scores,
+                    previous_global_lengths,
+                    current_global_lengths,
+                    previous_local_scores,
+                    current_local_scores,
+                    previous_local_lengths,
+                    current_local_lengths,
+                    2.0,
+                )
+            )
+            local_scores[index] = reference_score
+        else:
+            local_scores[index] = local_score
+        global_scores[index] = global_score
+        global_lengths[index] = global_length
+        local_lengths[index] = local_length
+
+
+def float32_exact_local_bound(global_gap_penalty, local_gap_penalty):
+    """
+    Return the local score below which float32 reproduces the reference DP,
+    or ``None`` when these gaps need the reference kernel.
+
+    The reference kernel adds float gap penalties in float64. With a zero
+    global gap, every compared global value is already a float32. Local
+    values are never negative; with a zero local gap, or a gap of -2**k,
+    ``value + gap`` is exact in float32 whenever it is >= 0 (Sterbenz below
+    2**(k+1), ulp multiples above, up to 2**(k+23)). An inexact sum is
+    negative and loses to the zero floor in both precisions.
+    """
+    global_gap = float(global_gap_penalty)
+    local_gap = float(local_gap_penalty)
+    if global_gap != 0.0 or local_gap > 0.0:
+        return None
+    if local_gap == 0.0:
+        return float(np.finfo(np.float32).max)
+    mantissa, exponent = np.frexp(-local_gap)
+    if mantissa != 0.5:
+        return None
+    # -local_gap == 2**(exponent - 1); keep a factor-two margin.
+    return float(2.0 ** (exponent - 1 + 22))
+
+
+def alignment_batch_scores(
+    matrices,
+    column_lengths,
+    global_gap_penalty,
+    local_gap_penalty,
+):
+    """
+    Return global and local scores and lengths for one padded microbatch.
+
+    The arrays are ``global_score`` (float32), ``global_length`` (uint32),
+    ``local_score`` (float64) and ``local_length`` (uint32), equal to
+    ``global_local_scores`` on each pair. Gaps that make float32 exact use the
+    faster float32 kernel.
+    """
+    column_lengths = np.asarray(column_lengths, dtype=np.int64)
+    batch = len(column_lengths)
+    global_scores = np.empty(batch, dtype=np.float32)
+    global_lengths = np.empty(batch, dtype=np.uint32)
+    local_scores = np.empty(batch, dtype=np.float64)
+    local_lengths = np.empty(batch, dtype=np.uint32)
+    bound = float32_exact_local_bound(global_gap_penalty, local_gap_penalty)
+    if bound is None:
+        global_local_scores_batch(
+            matrices,
+            column_lengths,
             global_gap_penalty,
             local_gap_penalty,
-            *self.arrays,
-            local_score_shift,
+            global_scores,
+            global_lengths,
+            local_scores,
+            local_lengths,
         )
-        return result, grew
+    else:
+        _float32_global_local_scores_batch(
+            matrices,
+            column_lengths,
+            np.float32(global_gap_penalty),
+            np.float32(local_gap_penalty),
+            np.float32(bound),
+            global_gap_penalty,
+            local_gap_penalty,
+            global_scores,
+            global_lengths,
+            local_scores,
+            local_lengths,
+        )
+    return global_scores, global_lengths, local_scores, local_lengths
+
+
+def align_microbatch(
+    matrices,
+    row_index,
+    target_indices,
+    target_lengths,
+    global_gap_penalty,
+    local_gap_penalty,
+):
+    """
+    Align one padded accelerator microbatch on the calling CPU thread.
+
+    Returns ``(row, target, local_score, local_length, global_score,
+    global_length)`` per pair, the tuple produced by the tools' per-pair
+    alignment callbacks.
+    """
+    if not np.isfinite(matrices).all():
+        raise FloatingPointError(
+            "Batched accelerator scoring produced non-finite values."
+        )
+    global_scores, global_lengths, local_scores, local_lengths = (
+        alignment_batch_scores(
+            matrices,
+            target_lengths,
+            global_gap_penalty,
+            local_gap_penalty,
+        )
+    )
+    row_index = int(row_index)
+    return list(
+        zip(
+            [row_index] * len(global_scores),
+            [int(index) for index in target_indices],
+            local_scores.tolist(),
+            local_lengths.tolist(),
+            global_scores.tolist(),
+            global_lengths.tolist(),
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -520,11 +840,14 @@ else:
 
 __all__ = [
     "NUMBA_AVAILABLE",
-    "global_score_length",
-    "local_score_length",
+    "global_score_length_identity",
+    "local_score_length_identity",
     "global_local_scores_reuse",
     "global_local_scores",
-    "GlobalLocalScratch",
+    "global_local_scores_batch",
+    "float32_exact_local_bound",
+    "alignment_batch_scores",
+    "align_microbatch",
     "leiden_partition",
     "fast_jaccard_filter",
 ]

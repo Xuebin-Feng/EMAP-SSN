@@ -146,6 +146,7 @@ MAX_FORCE_LIMIT = 20.0
 MAX_TOTAL_REPULSION_FORCE = 0.0
 
 DT = 0.005
+AUTO_DT = False
 BOX_SCALE = 2.0
 MAX_STEPS = 10000           
 RMSD_THRESHOLD = 0.005 
@@ -1598,6 +1599,7 @@ if __name__ == "__main__":
                 "COULOMB_CUTOFF": "Maximum spatial distance threshold beyond which node repulsive forces drop to zero.\nLower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.",
                 "DAMPING": "Frictional resistance coefficient applied to node velocities during layout simulation.\nHigher values dissipate kinetic energy and suppress oscillatory motion more quickly.",
                 "DT": "Timestep size for each numerical integration step of the physics simulation.\nSmaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter.",
+                "AUTO_DT": "When ON, each simulation stage uses the largest step size that keeps it stable, worked out from its springs and repulsion, and the Step Size field is ignored.\nMax Steps, RMSD Threshold and RMSD Window still count steps of whatever size each stage uses.",
                 "MAX_STEPS": "Maximum number of physics iterations the simulation engine will run before terminating.\nEnsure this is large enough to allow node positions to settle into a stable configuration.",
                 "RMSD_THRESHOLD": "Root-Mean-Square Deviation convergence threshold for early simulation termination.\nIf average node displacement between consecutive steps falls below this value, layout halts as converged.",
                 "PERCENTAGE_DROP_THRESHOLD": "Early termination threshold based on the rate of RMSD change over the moving window.\nTerminates simulation when layout change plateaus (set to 0 to disable).",
@@ -3244,12 +3246,42 @@ if __name__ == "__main__":
             self.inputs["DT"] = le_dt
             self.labels["DT"] = lbl_dt
 
+            # Auto lets each simulation stage pick its own fastest stable step,
+            # so the Step Size field is greyed out while it is on.
+            btn_auto_dt = QPushButton()
+            btn_auto_dt.setCheckable(True)
+            btn_auto_dt.setFixedSize(84, 28)
+            self.inputs["AUTO_DT"] = btn_auto_dt
+
+            def switch_toggle_style_auto_dt(checked, btn=btn_auto_dt, field=le_dt):
+                field.setEnabled(not checked)
+                if checked:
+                    btn.setText("Auto ON")
+                    btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; font-weight: bold; border: 1px solid #388E3C; }")
+                else:
+                    btn.setText("Auto OFF")
+                    btn.setStyleSheet("QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }")
+
+            btn_auto_dt.toggled.connect(switch_toggle_style_auto_dt)
+            auto_dt_state = bool(globals().get("AUTO_DT", False))
+            btn_auto_dt.setChecked(auto_dt_state)
+            switch_toggle_style_auto_dt(auto_dt_state)
+
+            # The button sits at the end of the label column, against the field,
+            # so the Step Size field keeps the width of the fields below it.
+            dt_label_cell = QWidget()
+            dt_label_layout = QHBoxLayout(dt_label_cell)
+            dt_label_layout.setContentsMargins(0, 0, 0, 0)
+            dt_label_layout.addWidget(lbl_dt)
+            dt_label_layout.addStretch()
+            dt_label_layout.addWidget(btn_auto_dt)
+
             lbl_steps = QLabel("Max Steps:")
             le_steps = QLineEdit(str(globals().get("MAX_STEPS", 10000)))
             self.inputs["MAX_STEPS"] = le_steps
             self.labels["MAX_STEPS"] = lbl_steps
 
-            convergence_grid.addWidget(lbl_dt, 0, 0)
+            convergence_grid.addWidget(dt_label_cell, 0, 0)
             convergence_grid.addWidget(le_dt, 0, 2)
             convergence_grid.addWidget(lbl_steps, 0, 4)
             convergence_grid.addWidget(le_steps, 0, 6)
@@ -3439,7 +3471,7 @@ if __name__ == "__main__":
                 packing_controls_grid, "packing", trailing=True
             ))
 
-            paired_left_labels = (lbl_dt, lbl_rmsd)
+            paired_left_labels = (dt_label_cell, lbl_rmsd)
             paired_right_labels = (
                 physics_slider_controls["COULOMB_K"][0],
                 physics_slider_controls["DAMPING"][0],

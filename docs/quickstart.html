@@ -1206,7 +1206,12 @@
                             <tr>
                                 <td><code>Time Step (DT)</code></td>
                                 <td>0.005</td>
-                                <td>Integration step size for Verlet/Euler velocity updates. Lower values increase numerical stability; higher values speed up convergence.</td>
+                                <td>Integration step size of the Euler velocity and position updates. Lower values increase numerical stability; higher values speed up convergence. A stage whose springs would be unstable at this value runs with a smaller one, with its step limits scaled to match, and the log says so. Ignored while Auto is ON.</td>
+                            </tr>
+                            <tr>
+                                <td><code>Auto (Step Size)</code></td>
+                                <td>OFF</td>
+                                <td>Button to the left of the Step Size field. When ON, each simulation stage uses the largest step size that keeps it stable, worked out from its springs and repulsion, and the Step Size field is greyed out. Max Steps, RMSD Threshold and RMSD Window still count steps, so stages stop by the same rules whatever step they use.</td>
                             </tr>
                             <tr>
                                 <td><code>RMSD Threshold</code></td>
