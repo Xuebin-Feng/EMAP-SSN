@@ -1,4 +1,14 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
+"""Hardware_Acceleration's runtime device policy (enumeration, installer
+filtering, selection, benchmark ranking) and how the embedding, alignment and
+layout workloads use it."""
+
+import json
 import pathlib
+from pathlib import Path
 import sys
 import tempfile
 import types
@@ -20,8 +30,6 @@ for path in (str(SRC), str(UTILITIES), str(TOOLS)):
 
 import Generate_Embeddings
 from utilities import Hardware_Acceleration as Hardware_Utils
-from utilities import Hardware_Acceleration as Layout_Hardware
-from tools.tool_helpers import Model_Plugins as PLM_Plugin_Utils
 import Align_Similarity_Matrix as Alignment
 
 
@@ -83,6 +91,25 @@ class HardwareUtilityTests(unittest.TestCase):
             Hardware_Utils.normalize_device_selection("Old GPU [directml:0]"),
             "auto",
         )
+
+    def test_selections_and_display_labels_normalize_to_persisted_specs(self):
+        cases = {
+            None: "auto",
+            "": "auto",
+            "Auto Benchmark": "auto",
+            "AUTO": "auto",
+            "CUDA": "cuda:0",
+            "xpu": "xpu:0",
+            "cuda:3": "cuda:3",
+            "MPS": "mps",
+            "RTX 4090 (CUDA) [cuda:1]": "cuda:1",
+            "CPU [cpu]": "cpu",
+        }
+        for selection, expected in cases.items():
+            with self.subTest(selection=selection):
+                self.assertEqual(
+                    Hardware_Utils.normalize_device_selection(selection), expected
+                )
 
     def test_tie_margin_prefers_cpu_then_fewer_lanes(self):
         cpu = Hardware_Utils.DeviceCandidate(
@@ -192,36 +219,6 @@ class HardwareUtilityTests(unittest.TestCase):
             Hardware_Utils.synchronize_device(xpu)
         cuda_sync.assert_called_once_with(cuda.device)
         xpu_sync.assert_called_once_with(xpu.device)
-
-
-class PluginContractTests(unittest.TestCase):
-    def test_every_installed_plugin_has_complete_static_declaration(self):
-        modes = PLM_Plugin_Utils.discover_model_execution_modes(
-            SRC / "resources" / "pLM_models"
-        )
-        self.assertEqual(modes["esmc_6b"], "remote_api")
-        self.assertEqual(modes["esmc_300m"], "local")
-        self.assertIn("esm2_t33_650m", modes)
-
-    def test_missing_and_unknown_modes_are_rejected(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            missing = pathlib.Path(temp_dir) / "missing.py"
-            missing.write_text(
-                'SUPPORTED_MODELS = ["local_model"]\n'
-                'MODEL_EXECUTION_MODES = {}\n',
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(ValueError, "exactly cover"):
-                PLM_Plugin_Utils.read_plugin_metadata(missing)
-
-            unknown = pathlib.Path(temp_dir) / "unknown.py"
-            unknown.write_text(
-                'SUPPORTED_MODELS = ["future_model"]\n'
-                'MODEL_EXECUTION_MODES = {"future_model": "cloud"}\n',
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(ValueError, "Unknown"):
-                PLM_Plugin_Utils.read_plugin_metadata(unknown)
 
 
 class EmbeddingHardwareTests(unittest.TestCase):
@@ -381,7 +378,6 @@ class AlignmentHardwareTests(unittest.TestCase):
         )
 
     def test_accelerator_lanes_are_always_benchmarked_automatically(self):
-        Alignment.accelerator_lane_cache.clear()
         device = types.SimpleNamespace(type="cuda")
         tasks = [(0, 1), (0, 2), (1, 2), (0, 3)]
 
@@ -391,7 +387,8 @@ class AlignmentHardwareTests(unittest.TestCase):
             timer.started_at = 0.0
             timer.stopped_at = 1.0
 
-        with mock.patch.object(
+        # Start from an empty lane cache and leave no "Test GPU" entry behind.
+        with mock.patch.dict(Alignment.accelerator_lane_cache, clear=True), mock.patch.object(
             Alignment,
             "_accelerator_lane_candidates",
             return_value=[1, 2],
@@ -421,13 +418,13 @@ class AlignmentHardwareTests(unittest.TestCase):
 
 class LayoutHardwareTests(unittest.TestCase):
     def test_size_class_boundaries(self):
-        self.assertEqual(Layout_Hardware.layout_size_class(499), "small")
-        self.assertEqual(Layout_Hardware.layout_size_class(500), "medium")
-        self.assertEqual(Layout_Hardware.layout_size_class(2000), "medium")
-        self.assertEqual(Layout_Hardware.layout_size_class(2001), "massive")
-        self.assertEqual(Layout_Hardware.benchmark_step_count("small"), 20)
-        self.assertEqual(Layout_Hardware.benchmark_step_count("medium"), 5)
-        self.assertEqual(Layout_Hardware.benchmark_step_count("massive"), 1)
+        self.assertEqual(Hardware_Utils.layout_size_class(499), "small")
+        self.assertEqual(Hardware_Utils.layout_size_class(500), "medium")
+        self.assertEqual(Hardware_Utils.layout_size_class(2000), "medium")
+        self.assertEqual(Hardware_Utils.layout_size_class(2001), "massive")
+        self.assertEqual(Hardware_Utils.benchmark_step_count("small"), 20)
+        self.assertEqual(Hardware_Utils.benchmark_step_count("medium"), 5)
+        self.assertEqual(Hardware_Utils.benchmark_step_count("massive"), 1)
 
     def test_representative_is_median_cost_in_each_populated_class(self):
         sizes = [100, 300, 500, 1000, 2000, 2001, 3000]
@@ -443,7 +440,7 @@ class LayoutHardwareTests(unittest.TestCase):
                 node_to_component[node] = component_index
             component_edges[component_index] = [(component[0], component[1])]
         jobs = [[component] for component in components]
-        selected = Layout_Hardware.representative_job_indices(
+        selected = Hardware_Utils.representative_job_indices(
             jobs,
             node_to_component,
             component_edges,
@@ -453,15 +450,20 @@ class LayoutHardwareTests(unittest.TestCase):
     def test_representative_preparation_preserves_numpy_random_state(self):
         jobs = [[[0, 1]]]
         before = np.random.get_state()
-        # Use keyword order explicitly to make the contract easy to audit.
-        prepared = Layout_Hardware.prepare_representative_batches(
-            jobs=jobs,
-            representative_indices={"small": 0},
-            node_to_component={0: 0, 1: 0},
-            component_edges={0: [(0, 1)]},
-            component_scores={0: [1.0]},
-            params={"BOX_SCALE": 1.0},
-        )
+        # Hide the accelerators: snapshotting their RNG state would otherwise
+        # create a CUDA/XPU context on the developer's GPU.
+        with mock.patch.object(torch.cuda, "is_available", return_value=False), \
+                mock.patch.object(torch.xpu, "is_available", return_value=False), \
+                mock.patch.object(torch.backends.mps, "is_available", return_value=False):
+            # Use keyword order explicitly to make the contract easy to audit.
+            prepared = Hardware_Utils.prepare_representative_batches(
+                jobs=jobs,
+                representative_indices={"small": 0},
+                node_to_component={0: 0, 1: 0},
+                component_edges={0: [(0, 1)]},
+                component_scores={0: [1.0]},
+                params={"BOX_SCALE": 1.0},
+            )
         after = np.random.get_state()
         self.assertEqual(before[0], after[0])
         np.testing.assert_array_equal(before[1], after[1])
@@ -493,7 +495,12 @@ class LayoutHardwareTests(unittest.TestCase):
             "PACKING_PADDING": 5.0,
             "PACKING_GEOMETRY": "Square",
         }
+        cpu = Hardware_Utils.DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")
+        # The real enumeration would read the developer's installer state and
+        # initialise CUDA; the manual CPU selection needs only the CPU entry.
         with mock.patch.object(
+            ssn_layout.Layout_Hardware, "get_available_devices", return_value=[cpu]
+        ), mock.patch.object(
             ssn_layout.Layout_Hardware,
             "benchmark_layout_devices",
             side_effect=AssertionError("manual layout benchmark ran"),
@@ -562,15 +569,124 @@ class GuiContractTests(unittest.TestCase):
         self.assertIn("widget.currentData()", config_source)
         self.assertIn('"LAYOUT_DEVICE_SELECTION"', generator_source)
 
-    def test_align_similarity_matrix_has_batch_size_control(self):
-        tools_source = (SRC / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
-        calculation_tools = tools_source.split(
-            '"Sequence_Similarity_Calculations": {', 1
-        )[1]
-        align_controls = calculation_tools.split(
-            '"Align_Similarity_Matrix.py": [', 1
-        )[1].split('"Align_Substitution_Matrix.py": [', 1)[0]
-        self.assertIn('"var_name": "BATCH_SIZE"', align_controls)
+
+class RuntimeFilteringTests(unittest.TestCase):
+    def test_validated_state_is_read_from_environment(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "ssn_backend.json").write_text(
+                json.dumps({"schema": 3, "validated_devices": [{"spec": "cuda:1", "success": True}]}),
+                encoding="utf-8",
+            )
+            with mock.patch.object(Hardware_Utils.sys, "prefix", folder):
+                self.assertEqual(Hardware_Utils._validated_device_specs(), {"cuda:1"})
+
+    def test_unvalidated_visible_gpu_is_filtered(self):
+        fake_cuda = types.SimpleNamespace(
+            is_available=lambda: True,
+            device_count=lambda: 2,
+            get_device_name=lambda index: f"GPU {index}",
+        )
+        fake_mps = types.SimpleNamespace(is_available=lambda: False)
+        fake_torch = types.SimpleNamespace(
+            cuda=fake_cuda,
+            version=types.SimpleNamespace(hip=None),
+            backends=types.SimpleNamespace(mps=fake_mps),
+            device=lambda value: value,
+        )
+        with mock.patch.object(Hardware_Utils, "torch", fake_torch), mock.patch.object(
+            Hardware_Utils, "_validated_device_specs", return_value={"cuda:1"}
+        ):
+            candidates = Hardware_Utils.get_available_devices()
+        self.assertEqual([candidate.spec for candidate in candidates], ["cpu", "cuda:1"])
+
+    def _approved_specs(self, state):
+        """Read an installer state file (None: no file) from a temporary prefix."""
+        with tempfile.TemporaryDirectory() as folder:
+            if state is not None:
+                Path(folder, "ssn_backend.json").write_text(
+                    json.dumps(state), encoding="utf-8"
+                )
+            with mock.patch.object(Hardware_Utils.sys, "prefix", folder):
+                return Hardware_Utils._validated_device_specs()
+
+    def test_installer_state_decides_which_devices_are_approved(self):
+        passed = {"spec": "cuda:0", "success": True}
+        failed = {"spec": "cuda:1", "success": False}
+        # None means unmanaged: every visible device is offered.
+        self.assertIsNone(self._approved_specs(None))
+        self.assertIsNone(self._approved_specs({"schema": 2, "validated_devices": [passed]}))
+        self.assertIsNone(self._approved_specs({"schema": 6}))
+        # A managed environment that validated no device approves none.
+        self.assertEqual(self._approved_specs({"schema": 6, "validated_devices": []}), set())
+        self.assertEqual(
+            self._approved_specs(
+                {"schema": 6, "validated_devices": [passed, failed, {"success": True}]}
+            ),
+            {"cuda:0"},
+        )
+
+    def test_corrupt_schema_is_unvalidated_state(self):
+        # A hand-edited "schema" leaves the environment unmanaged, like an
+        # unreadable state file, instead of crashing every device enumeration.
+        passed = [{"spec": "cuda:0", "success": True}]
+        for schema in (None, [6], "abc", float("nan"), float("inf")):
+            with self.subTest(schema=schema):
+                self.assertIsNone(
+                    self._approved_specs({"schema": schema, "validated_devices": passed})
+                )
+        fake_torch = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(
+                is_available=lambda: True,
+                device_count=lambda: 2,
+                get_device_name=lambda index: f"GPU {index}",
+            ),
+            version=types.SimpleNamespace(hip=None),
+            backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: False)),
+            device=lambda value: value,
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "ssn_backend.json").write_text(
+                json.dumps({"schema": None, "validated_devices": passed}), encoding="utf-8"
+            )
+            with mock.patch.object(Hardware_Utils.sys, "prefix", folder), \
+                    mock.patch.object(Hardware_Utils, "torch", fake_torch):
+                candidates = Hardware_Utils.get_available_devices()
+        self.assertEqual([candidate.spec for candidate in candidates], ["cpu", "cuda:0", "cuda:1"])
+
+    def test_optimal_device_prefers_cuda_then_xpu_then_mps_among_approved(self):
+        def runtime(name):
+            return types.SimpleNamespace(
+                is_available=lambda: True,
+                device_count=lambda: 1,
+                get_device_name=lambda index: f"{name} {index}",
+            )
+
+        fake_torch = types.SimpleNamespace(
+            cuda=runtime("GPU"),
+            xpu=runtime("Arc"),
+            version=types.SimpleNamespace(hip=None),
+            backends=types.SimpleNamespace(
+                mps=types.SimpleNamespace(is_available=lambda: True, get_name=lambda: "Apple")
+            ),
+            device=lambda value: value,
+        )
+        cases = (
+            (None, ["cpu", "cuda:0", "xpu:0", "mps"], "cuda:0"),
+            ({"xpu:0", "mps"}, ["cpu", "xpu:0", "mps"], "xpu:0"),
+            ({"mps"}, ["cpu", "mps"], "mps"),
+            (set(), ["cpu"], "cpu"),
+        )
+        for approved, specs, optimal in cases:
+            with self.subTest(approved=approved), mock.patch.object(
+                Hardware_Utils, "torch", fake_torch
+            ), mock.patch.object(
+                Hardware_Utils, "_validated_device_specs", return_value=approved
+            ):
+                self.assertEqual(
+                    [candidate.spec for candidate in Hardware_Utils.get_available_devices()],
+                    specs,
+                )
+                self.assertEqual(Hardware_Utils.get_optimal_device(), optimal)
 
 
 if __name__ == "__main__":

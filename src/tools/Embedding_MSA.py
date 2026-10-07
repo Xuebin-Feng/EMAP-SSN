@@ -217,13 +217,22 @@ def _embedding_sequence_set(input_embed):
     return stem
 
 
+NORMALIZATION_MODES = ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence")
+
+
 def validate_score_normalization(alignment_score, normalization_mode):
-    """Reject normalizing local scores by their own alignment length.
+    """Reject unknown modes, and normalizing local scores by their own
+    alignment length.
 
     The Tools window, the Viewer and layout generation forbid this pairing too:
     dividing a local score by its own path length rewards short local matches
     however little of either sequence they cover.
     """
+    if normalization_mode not in NORMALIZATION_MODES:
+        raise MSAConfigurationError(
+            f"Unknown NORMALIZATION_MODE {normalization_mode!r}; choose "
+            "alignment_length, shorter_sequence, longer_sequence, or average_sequence."
+        )
     if alignment_score == "local" and normalization_mode == "alignment_length":
         raise MSAConfigurationError(
             "NORMALIZATION_MODE alignment_length is unavailable for local alignment "
@@ -440,26 +449,6 @@ def generate_bootstrap_seeds(num_trees):
     """Generate the reproducible per-replicate seeds used by bootstrap workers."""
     rng = np.random.default_rng(RANDOM_SEED)
     return rng.integers(0, int(1e9), size=num_trees)
-
-def load_fasta_map(filepath):
-    print(f"Loading sequences from {filepath}...")
-    seq_dict = {}
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            header = None
-            seq_accum = []
-            for line in f:
-                line = line.strip()
-                if not line: continue
-                if line.startswith(">"):
-                    if header: seq_dict[header] = "".join(seq_accum)
-                    header = line[1:]
-                    seq_accum = []
-                else: seq_accum.append(line)
-            if header: seq_dict[header] = "".join(seq_accum)
-    except FileNotFoundError:
-        sys.exit(f"❌ Error: FASTA file not found at {filepath}")
-    return seq_dict
 
 
 class SequenceEmbeddingMismatchError(ValueError):

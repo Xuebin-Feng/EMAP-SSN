@@ -15,9 +15,7 @@
 
 import Command_Engine
 import os
-import glob
 import math
-import re
 import datetime
 import tempfile
 import numpy as np
@@ -29,8 +27,7 @@ matplotlib.use('Agg')
 
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
-from Bio import AlignIO
-from Bio.Align import MultipleSeqAlignment 
+from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
@@ -415,20 +412,13 @@ def _get_amino_acid_counts(aln, col_idx, weights=None, gap_chars=None):
                     aa_counts[aa] = aa_counts.get(aa, 0.0) + float(weights[row_idx])
         return aa_counts
 
-    if hasattr(aln, 'matrix'):
-        counts = Counter(aln.matrix[:, col_idx].data)
-        aa_counts = {}
-        for aa_int, count in counts.items():
-            aa = aln.int_to_aa.get(aa_int, 'X')
-            if aa not in gap_chars:
-                aa_counts[aa] = aa_counts.get(aa, 0) + count
-    else:
-        raw_counts = Counter(record.seq[col_idx].upper() for record in aln)
-        aa_counts = {
-            aa: count
-            for aa, count in raw_counts.items()
-            if aa not in gap_chars
-        }
+    # Unweighted counts always come from the frozen sparse global alignment.
+    counts = Counter(aln.matrix[:, col_idx].data)
+    aa_counts = {}
+    for aa_int, count in counts.items():
+        aa = aln.int_to_aa.get(aa_int, 'X')
+        if aa not in gap_chars:
+            aa_counts[aa] = aa_counts.get(aa, 0) + count
 
     return {
         str(aa).upper(): int(count)
@@ -436,40 +426,8 @@ def _get_amino_acid_counts(aln, col_idx, weights=None, gap_chars=None):
     }
 
 
-def _get_amino_acid_frequencies(
-    aln, col_idx, weights=None, gap_chars=None
-):
-    """Return occupancy-diluted, non-gap amino-acid frequencies for one column."""
-    denominator = (
-        float(np.asarray(weights, dtype=float).sum())
-        if weights is not None
-        else float(len(aln))
-    )
-    if denominator <= 0.0:
-        return {}
-    return {
-        aa: count / denominator
-        for aa, count in _get_amino_acid_counts(
-            aln,
-            col_idx,
-            weights=weights,
-            gap_chars=gap_chars,
-        ).items()
-    }
-
-
-def _format_global_amino_acid_profile(
-    aln, col_idx, frequencies=None, weights=None, gap_chars=None
-):
+def _format_global_amino_acid_profile(frequencies):
     """Format a non-gap column profile using query.py's reporting semantics."""
-    if frequencies is None:
-        frequencies = _get_amino_acid_frequencies(
-            aln,
-            col_idx,
-            weights=weights,
-            gap_chars=gap_chars,
-        )
-
     profile = []
     for aa, frequency in frequencies.items():
         percentage = frequency * 100.0
@@ -494,10 +452,7 @@ def _calculate_weighted_frequencies(aln, mapping, weights, gap_chars=None):
     if total_weight <= 0.0:
         return stats, counts_by_label
 
-    try:
-        alignment_length = aln.get_alignment_length()
-    except AttributeError:
-        alignment_length = aln.matrix.shape[1]
+    alignment_length = aln.get_alignment_length()
 
     for col_idx, label in mapping.items():
         if col_idx < 0 or col_idx >= alignment_length:
@@ -548,27 +503,17 @@ def _get_indexed_amino_acid_count(
         selected_weights = weights[row_indices]
 
     target = str(amino_acid).upper()
-    if hasattr(aln, "matrix"):
-        encoded = aln.matrix[row_indices].getcol(col_idx).toarray().ravel()
-        matching_codes = {
-            int(code)
-            for code, residue in aln.int_to_aa.items()
-            if str(residue).upper() == target
-        }
-        matches = np.fromiter(
-            (int(value) in matching_codes for value in encoded),
-            dtype=bool,
-            count=row_indices.size,
-        )
-    else:
-        matches = np.fromiter(
-            (
-                str(aln[int(row_idx)].seq[col_idx]).upper() == target
-                for row_idx in row_indices
-            ),
-            dtype=bool,
-            count=row_indices.size,
-        )
+    encoded = aln.matrix[row_indices].getcol(col_idx).toarray().ravel()
+    matching_codes = {
+        int(code)
+        for code, residue in aln.int_to_aa.items()
+        if str(residue).upper() == target
+    }
+    matches = np.fromiter(
+        (int(value) in matching_codes for value in encoded),
+        dtype=bool,
+        count=row_indices.size,
+    )
     return float(selected_weights[matches].sum())
 
 
@@ -590,35 +535,6 @@ def _calculate_outside_frequency(
         return None
     outside_count = max(0.0, outside_count)
     return outside_count / outside_size
-
-
-def _is_subset_specific_residue(
-    subset_aa,
-    subset_frequency,
-    subset_size,
-    global_counts,
-    global_size,
-    cluster_min,
-    global_max,
-    subset_count=None,
-):
-    """Apply cmin and preserve the historical single-subset gmax calculation."""
-    if subset_frequency < cluster_min:
-        return False
-
-    if subset_count is None:
-        # Preserve the historical integer-count reconstruction when weighting is off.
-        subset_count = int(round(subset_frequency * subset_size))
-    else:
-        subset_count = float(subset_count)
-    outside_frequency = _calculate_outside_frequency(
-        subset_aa,
-        global_counts,
-        global_size,
-        subset_count,
-        subset_size,
-    )
-    return outside_frequency is not None and outside_frequency < global_max
 
 
 def _format_statistics_summary(
@@ -678,7 +594,6 @@ def _run_label_artifact(viewer, args):
             viewer.console_text.text = "Error: Global Alignment not loaded."
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: Global Alignment not loaded.")
-            Command_Engine.command_failed(viewer, 'Error: Global Alignment not loaded.')
             return
 
         if len(alignment.aln) == 0:
@@ -711,21 +626,18 @@ def _run_label_artifact(viewer, args):
         cluster_min = parameters["cluster_min"]
         identity_threshold = parameters["identity_threshold"]
         forced_target = parameters["forced_target"]
-        requested_filename = parameters["requested_filename"]
 
         # --- Validations ---
         if forced_target == "clusters" and viewer.cluster_labels is None:
             viewer.console_text.text = "Error: Run 'cluster' first."
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: Run 'cluster' first to use cluster mode.")
-            Command_Engine.command_failed(viewer, "Error: Run 'cluster' first to use cluster mode.")
             return
             
         if forced_target == "groups" and getattr(viewer, 'group_labels', None) is None:
             viewer.console_text.text = "Error: No groups defined."
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: No groups defined. Use the 'group' command first.")
-            Command_Engine.command_failed(viewer, "Error: No groups defined. Use the 'group' command first.")
             return
 
         if (
@@ -736,7 +648,6 @@ def _run_label_artifact(viewer, args):
             viewer.console_text.text = "Error: No clusters or groups defined."
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
-            Command_Engine.command_failed(viewer, "Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
             return
 
         # --- 1. Global Statistics ---
@@ -817,53 +728,12 @@ def _run_label_artifact(viewer, args):
                 } if total_global_effective_n > 0.0 else {}
             return global_frequency_cache[label]
 
-        # --- 2. Resolve Base Directories ---
-        fasta_file = _setting(viewer, 'NODE_FASTA_FILE', None)
-        fasta_base = os.path.splitext(os.path.basename(fasta_file))[0] if fasta_file else _setting(viewer, 'SEQUENCE_SET', 'Network')
-        metadata = getattr(viewer, "_label_network_metadata", None)
-        if metadata is None:
-            metadata = cache_manifest.validate_network_schema(
-                _setting(viewer, 'INPUT_HDF5')
-            )
-        model_label = re.sub(
-            r'[<>:"/\\|?*]', "_", metadata.model_name
-        )
-        lvl1_name = f"{fasta_base}_[{model_label}]"
-        is_blast = metadata.network_type == "blast"
-        if not is_blast:
-            norm_m = _setting(viewer, 'NORM_MODE', None)
-            if norm_m: lvl1_name += f"_{norm_m}"
-            score_m = _setting(viewer, 'ALIGNMENT_SCORE', None)
-            if score_m: lvl1_name += f"_{score_m}"
-            
-        lvl2_name_base = ""
-        top_val = _setting(viewer, 'TOP_EDGE_PERCENT', None)
-        if top_val is not None and str(top_val).strip() != "None":
-            try: lvl2_name_base += f"Top{float(top_val)}Pct"
-            except: pass
-        else:
-            thresh = _setting(viewer, 'SIMILARITY_THRESHOLD', 0.0)
-            try: lvl2_name_base += f"Score{float(thresh)}"
-            except: pass
-            
-        if forced_target in {"all", "clusters"}:
-            if getattr(viewer, 'last_cluster_params', None):
-                c_mode_param, c_min_param = viewer.last_cluster_params
-                if lvl2_name_base:
-                    lvl2_name = f"{lvl2_name_base}_{c_mode_param}_Min{c_min_param}"
-                else:
-                    lvl2_name = f"{c_mode_param}_Min{c_min_param}"
-            else:
-                lvl2_name = lvl2_name_base
-        else:
-            lvl2_name = lvl2_name_base
-
-        # --- 3. Prepare Tasks ---
+        # --- 2. Prepare Tasks ---
         print(f"Splitting Global Alignment for {forced_target.upper()}...")
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         tasks = _build_label_tasks(viewer, forced_target, viewer_to_aln)
 
-        # --- 4. Process Tasks ---
+        # --- 3. Process Tasks ---
         master_labels = set()
         cluster_results = []
         candidate_pools = {}
@@ -1017,7 +887,7 @@ def _run_label_artifact(viewer, args):
                     "occ": result["occ_data"].get(lbl, 0.0),
                 }
 
-        # --- 5. Export XLSX ---
+        # --- 4. Export XLSX ---
         out_path = os.path.abspath(viewer._label_output_path)
         out_dir = os.path.dirname(out_path)
         out_filename = os.path.basename(out_path)
@@ -1085,7 +955,6 @@ def _run_label_artifact(viewer, args):
             viewer.console_text.text = "Error: 'openpyxl' is required for XLSX export. Run: pip install openpyxl"
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("Error: openpyxl not installed.")
-            Command_Engine.command_failed(viewer, 'Error: openpyxl not installed.')
             return
 
         try:
@@ -1217,13 +1086,9 @@ def _run_label_artifact(viewer, args):
             for col in sorted_cols:
                 if col in g_stats:
                     _, _, g_occ = g_stats[col]
-                    col_idx = viewer.alignment.label_to_col[col]
                     global_freq_row1.append(
                         _format_global_amino_acid_profile(
-                            viewer.alignment.aln,
-                            col_idx,
-                            frequencies=get_global_frequencies(col),
-                            gap_chars=gap_chars,
+                            get_global_frequencies(col)
                         )
                     )
                     g_occ_dict1[col] = g_occ
@@ -1495,18 +1360,6 @@ def _run_label_artifact(viewer, args):
         raise
 
 
-def _available_automatic_output(scheduler, directory, filename):
-    stem, suffix = os.path.splitext(filename)
-    candidate = filename
-    index = 2
-    while True:
-        path = os.path.abspath(os.path.join(directory, candidate))
-        if not os.path.exists(path) and not scheduler.is_output_path_reserved(path):
-            return candidate, path
-        candidate = f"{stem}_{index}{suffix}"
-        index += 1
-
-
 def _execute_label_envelope(envelope):
     result = _run_label_artifact(
         envelope.viewer_snapshot,
@@ -1519,7 +1372,6 @@ def _execute_label_envelope(envelope):
 
 
 def _report_label_error(viewer, error):
-    Command_Engine.command_failed(viewer, str(error))
     message = f"Error: {error}"
     Command_Engine.command_failed(viewer, message)
     if hasattr(viewer, "console_text"):
@@ -1598,7 +1450,7 @@ def run(viewer, args):
             + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             + ".xlsx"
         )
-        output_filename, output_path = _available_automatic_output(
+        output_filename, output_path = logo_cmd._available_automatic_filename(
             scheduler,
             output_directory,
             generated,
@@ -1616,7 +1468,7 @@ def run(viewer, args):
             return
 
     try:
-        network_metadata = cache_manifest.validate_network_schema(cfg.INPUT_HDF5)
+        cache_manifest.validate_network_schema(cfg.INPUT_HDF5)
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         frozen_alignment = _FrozenAlignmentManager(alignment, viewer_to_aln)
     except Exception as error:
@@ -1640,10 +1492,6 @@ def run(viewer, args):
             ("SEQUENCE_SET", "Network"),
             ("INPUT_HDF5", None),
             ("MSA_FILE", None),
-            ("NORM_MODE", None),
-            ("ALIGNMENT_SCORE", None),
-            ("TOP_EDGE_PERCENT", None),
-            ("SIMILARITY_THRESHOLD", 0.0),
             ("GAP_CHARS", ("-", ".")),
         )
     }
@@ -1662,7 +1510,6 @@ def run(viewer, args):
         ),
         console_text=SimpleNamespace(text=""),
         _label_settings=settings,
-        _label_network_metadata=network_metadata,
         _label_offset_display=format_alignment_offset_display(
             getattr(viewer, "alignment", None),
             getattr(

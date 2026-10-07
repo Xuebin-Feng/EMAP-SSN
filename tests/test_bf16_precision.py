@@ -1,3 +1,9 @@
+"""BF16/TF32/FP32 precision handling across the alignment tools: setting
+aliases and tool defaults, the BF16 capability probe, BF16 score matrices,
+VRAM estimates, the informational BF16 validation report and how
+Align_Similarity_Matrix, Network_Injection and Embedding_SSEARCH apply it.
+"""
+import ast
 import io
 import os
 import sys
@@ -18,23 +24,41 @@ for path in (SRC_ROOT, TOOLS_ROOT):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-os.environ["SSN_TOOL_SETTINGS_SCRIPT"] = "Align_Similarity_Matrix.py"
-os.environ["SSN_TOOL_SETTINGS_FILE"] = os.path.join(
-    PROJECT_ROOT, "tests", "nonexistent-settings.json"
-)
-
+# The tests package points tool imports at a missing settings file.
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as align
     import Embedding_SSEARCH as ssearch
     import Network_Injection as injection
     import Embedding_Alignment_Engine as engine
-    from utilities.HDF5_Storage import _normalized_precision
 
-align.ACCELERATOR_PRECISION = "automatic_32bit"
-ssearch.ACCELERATOR_PRECISION = "automatic_32bit"
+
+def _source_default(script, name):
+    """Return the literal a tool script assigns to ``name`` at module level."""
+    with open(os.path.join(TOOLS_ROOT, script), encoding="utf-8") as handle:
+        tree = ast.parse(handle.read())
+    values = [
+        ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+    ]
+    if len(values) != 1:
+        raise AssertionError(f"{script} assigns {name} {len(values)} times")
+    return values[0]
 
 
 class Bf16PrecisionTests(unittest.TestCase):
+    def setUp(self):
+        # Probes and BF16 validations record their outcome in module state;
+        # give each test empty copies so no fake capability outlives it.
+        for target, name, value in (
+            (engine, "bf16_support_cache", {}),
+            (align, "bf16_validated_plan_keys", set()),
+        ):
+            patcher = mock.patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_precision_configuration_aliases_are_canonical(self):
         expected = {
             "auto": "automatic_32bit",
@@ -55,8 +79,12 @@ class Bf16PrecisionTests(unittest.TestCase):
             engine.normalize_precision_setting("float16")
 
     def test_tool_defaults_export_automatic_32bit(self):
-        self.assertEqual(align.ACCELERATOR_PRECISION, "automatic_32bit")
-        self.assertEqual(ssearch.ACCELERATOR_PRECISION, "automatic_32bit")
+        for script in ("Align_Similarity_Matrix.py", "Embedding_SSEARCH.py"):
+            with self.subTest(script=script):
+                self.assertEqual(
+                    _source_default(script, "ACCELERATOR_PRECISION"),
+                    "automatic_32bit",
+                )
         self.assertEqual(
             align._allowed_result_precisions("auto"),
             {"ieee_fp32", "tf32"},
@@ -556,8 +584,6 @@ class Bf16PrecisionTests(unittest.TestCase):
         ), mock.patch.object(
             injection, "_lane_candidates", return_value=[1]
         ), mock.patch.object(
-            injection, "_benchmark_half_sizes", return_value=(4096, 256)
-        ), mock.patch.object(
             injection, "cuda_memory_plan", return_value=memory
         ), mock.patch.object(
             injection, "estimate_cuda_working_set", return_value=estimate
@@ -582,10 +608,6 @@ class Bf16PrecisionTests(unittest.TestCase):
             "device=Test GPU [cuda:0]; backend=cuda; variant=scalar",
             output.getvalue(),
         )
-
-    def test_hdf5_precision_normalization_recognizes_bf16(self):
-        self.assertEqual(_normalized_precision("bf16"), "bf16")
-        self.assertEqual(_normalized_precision("bfloat16"), "bfloat16")
 
     def test_network_injection_forwards_inherited_bf16(self):
         matrix = np.zeros((2, 3), dtype=np.float32)

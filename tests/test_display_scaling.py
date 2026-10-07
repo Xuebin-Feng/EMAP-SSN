@@ -1,3 +1,7 @@
+"""Viewer display handling (EMAPSSN_Viewer): screen and DPI change tracking,
+HUD placement and text scaling, display diagnostics, and the headless and
+Linux Qt platform choices made before Qt is imported."""
+
 import os
 import sys
 import unittest
@@ -19,9 +23,8 @@ import EMAPSSN_Config as cfg
 from EMAPSSN_Viewer import (
     HUDDisplay,
     MainViewer,
+    _configure_headless_platform,
     _configure_linux_vispy_platform,
-    _contiguous_line_positions,
-    _edge_segment_positions,
 )
 from commands import meta as meta_command
 
@@ -349,6 +352,36 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertIn("DPR=2", print_mock.call_args_list[1].args[0])
         self.assertIn("Qt platform=", print_mock.call_args_list[0].args[0])
 
+
+class ViewerPlatformSelectionTests(unittest.TestCase):
+    """Qt platform choices EMAPSSN_Viewer makes before Qt/OpenGL is imported."""
+
+    def test_headless_flag_or_environment_selects_offscreen_platform(self):
+        cases = (
+            (["EMAPSSN_Viewer.py", "--headless"], {}),
+            (["EMAPSSN_Viewer.py", "--headless"], {"QT_QPA_PLATFORM": "xcb"}),
+            (["EMAPSSN_Viewer.py"], {"SSN_VIEWER_HEADLESS": "Yes"}),
+            (["EMAPSSN_Viewer.py"], {"SSN_VIEWER_HEADLESS": "true"}),
+            (["EMAPSSN_Viewer.py"], {"SSN_VIEWER_HEADLESS": "1"}),
+        )
+        for argv, environment in cases:
+            with self.subTest(argv=argv, environment=dict(environment)):
+                self.assertTrue(_configure_headless_platform(argv, environment))
+                self.assertEqual(environment["QT_QPA_PLATFORM"], "offscreen")
+
+    def test_windowed_launch_leaves_the_environment_unchanged(self):
+        for environment in (
+            {},
+            {"SSN_VIEWER_HEADLESS": "0"},
+            {"SSN_VIEWER_HEADLESS": "no", "QT_QPA_PLATFORM": "xcb"},
+        ):
+            original = dict(environment)
+            with self.subTest(environment=original):
+                self.assertFalse(
+                    _configure_headless_platform(["EMAPSSN_Viewer.py"], environment)
+                )
+                self.assertEqual(environment, original)
+
     def test_native_wayland_is_replaced_before_vispy_import(self):
         automatic = {"XDG_SESSION_TYPE": "wayland"}
         explicit = {
@@ -366,33 +399,6 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertEqual(automatic["QT_QPA_PLATFORM"], "xcb")
         self.assertEqual(explicit["QT_QPA_PLATFORM"], "xcb")
         self.assertEqual(headless["QT_QPA_PLATFORM"], "offscreen")
-
-    def test_line_positions_are_finite_contiguous_float32(self):
-        source = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)[:, ::-1]
-        result = _contiguous_line_positions(source)
-
-        self.assertEqual(result.dtype, np.float32)
-        self.assertTrue(result.flags.c_contiguous)
-        np.testing.assert_array_equal(result, [[2.0, 1.0], [4.0, 3.0]])
-
-        with self.assertRaisesRegex(ValueError, "NaN or infinite"):
-            _contiguous_line_positions([[0.0, float("nan")]])
-
-    def test_edge_segments_match_per_edge_endpoint_order(self):
-        rng = np.random.default_rng(7)
-        for columns in (2, 3):
-            positions = rng.normal(size=(50, columns)).astype(np.float32)
-            edges = rng.integers(0, 50, size=(200, 2)).astype(np.int32)
-            reference = []
-            for source, target in edges:  # The former draw_network loop.
-                reference.append(positions[source])
-                reference.append(positions[target])
-            result = _edge_segment_positions(positions, edges)
-            self.assertEqual(result.dtype, np.float32)
-            self.assertTrue(result.flags.c_contiguous)
-            np.testing.assert_array_equal(result, np.asarray(reference))
-        empty = _edge_segment_positions(positions, np.empty((0, 2), dtype=np.int32))
-        self.assertEqual(empty.shape, (0, 3))
 
 
 if __name__ == "__main__":

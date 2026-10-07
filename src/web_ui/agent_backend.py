@@ -102,7 +102,7 @@ def activate_agent_from_card(viewer, card, quiet=False):
     """Activates the LLM agent using a model card dict."""
     deactivate_agent(viewer, quiet=True)
 
-    url         = (card.get("url") or "").strip()
+    url         = (card.get("url") or "").strip().rstrip("/")
     model       = (card.get("model") or "").strip() or "default"
     api_key     = card.get("api_key") or None
     temperature = float(card.get("temperature") or 0.0)
@@ -112,6 +112,12 @@ def activate_agent_from_card(viewer, card, quiet=False):
     if not url:
         Command_Engine.print_help(viewer, f"Error: Model card '{name}' has no URL configured. Open ⚙ Models to edit it.")
         return False
+
+    # A card may name the chat endpoint itself. Strip it before the /models
+    # probe, which belongs on the API base (…/v1/models, not
+    # …/v1/chat/completions/models); call_api appends the endpoint again.
+    if url.endswith("/chat/completions"):
+        url = url[: -len("/chat/completions")]
 
     # Attempt to resolve the real model name if set to "default"
     if model == "default" and url:
@@ -132,9 +138,6 @@ def activate_agent_from_card(viewer, card, quiet=False):
                             model = detected
         except Exception:
             pass
-
-    if url.endswith("/chat/completions"):
-        url = url[: -len("/chat/completions")]
 
     viewer.llm_backend     = "server"
     viewer.llm_url         = url

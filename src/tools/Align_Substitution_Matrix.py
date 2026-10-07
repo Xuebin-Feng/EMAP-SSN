@@ -1181,7 +1181,7 @@ def run_workflow():
         configure_runtime_paths()
     except ValueError as error:
         print(f"❌ Error: {error}")
-        return
+        return 1
 
     # Linux defaults to fork, which is unsafe here: the pool below is created
     # after HDF5 handles are open and each worker spawns a BLAST subprocess.
@@ -1377,8 +1377,9 @@ def run_workflow():
 
 def main(argv=None):
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)
-    run_workflow()
-    return 0
+    exit_code = run_workflow()
+    # The MCP job runner reports exit code 0 as a successful job.
+    return exit_code or 0
 
 
 if __name__ == "__main__":

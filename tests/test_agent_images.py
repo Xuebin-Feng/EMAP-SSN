@@ -11,16 +11,9 @@ from unittest import mock
 import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from PIL import Image
+from tests.agent_fixtures import image_bytes
 from web_ui import agent_backend as agent
 from web_ui.agent_images import inspect_source, validate_attachments, message_content, history_messages
-
-
-def image_bytes(fmt='PNG', animated=False, size=(20, 10)):
-    out = io.BytesIO()
-    kwargs = {'save_all': True, 'append_images': [Image.new('RGB', size, 'blue')], 'duration': 100} if animated else {}
-    Image.new('RGB', size, 'red').save(out, format=fmt, **kwargs)
-    return out.getvalue()
 
 
 def attachment():

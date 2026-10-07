@@ -1,3 +1,7 @@
+"""Viewer console overlay (EMAPSSN_Viewer): visual wrapping of the logical
+console line, the rounded background box and its safe geometry updates, the
+background-job status line below it, and DPI-independent overlay geometry."""
+
 import os
 import sys
 import unittest
@@ -38,13 +42,12 @@ class FixedWidthFont:
 class StrictRoundedRectangle:
     """Mirror VisPy's property-by-property mutation and radius validation."""
 
-    def __init__(self, width, height, radius, center=(0.0, 0.0), validate=True):
+    def __init__(self, width, height, radius, center=(0.0, 0.0)):
         self._width = width
         self._height = height
         self._radius = radius
         self._center = center
-        if validate:
-            self._validate()
+        self._validate()
 
     def _validate(self):
         if self._radius > min(self._width, self._height) / 2.0:
@@ -408,26 +411,6 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         )
         self.assertEqual(rectangle_mock.call_count, 1)
 
-    def test_safe_geometry_recovers_vispy_partial_mutation(self):
-        rectangle = StrictRoundedRectangle(
-            width=150.0,
-            height=20.0,
-            radius=12.0,
-            validate=False,
-        )
-
-        applied = _apply_safe_rectangle_geometry(
-            rectangle,
-            center=(85.0, 35.0),
-            width=150.0,
-            height=20.0,
-            radius=6.0,
-        )
-
-        self.assertEqual(applied, (150.0, 20.0, 6.0))
-        self.assertEqual(rectangle.center, (85.0, 35.0))
-        self.assertEqual(rectangle.radius, 6.0)
-
     def test_safe_geometry_recovers_real_vispy_rectangle(self):
         rectangle = RectangleVisual(
             center=(160.0, 35.0),
@@ -438,7 +421,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Radius of curvature"):
             rectangle.height = 20.0
 
-        _apply_safe_rectangle_geometry(
+        applied = _apply_safe_rectangle_geometry(
             rectangle,
             center=(85.0, 35.0),
             width=150.0,
@@ -446,6 +429,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
             radius=6.0,
         )
 
+        self.assertEqual(applied, (150.0, 20.0, 6.0))
         self.assertEqual(rectangle.width, 150.0)
         self.assertEqual(rectangle.height, 20.0)
         self.assertEqual(rectangle.radius, 6.0)

@@ -1,3 +1,11 @@
+"""Tool settings: loading, saving and exporting the settings documents tools run from.
+
+Covers tools.tool_helpers.Tool_Pipeline (settings-file selection, validation,
+application to a tool's globals, the hand-off to spawned workers, the shared
+tools_settings.json and its directory defaults), the tool entry points, and the
+portable directory form of exported settings (utilities.Headless_Settings).
+"""
+import ast
 import importlib.util
 import json
 import ntpath
@@ -6,7 +14,6 @@ import pathlib
 import posixpath
 import tempfile
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 
@@ -21,12 +28,14 @@ from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     DEFAULT_DIRECTORY_PATHS,
     TOOL_DIRECTORY_KEYS,
     apply_settings_document,
+    fill_missing_directory_defaults,
     inherited_settings_path,
     load_tool_settings,
+    project_directory_defaults,
     read_settings_document,
+    save_shared_tool_settings,
     select_settings_path,
 )
-from utilities.BLAST_Tabular import ParseSummary  # noqa: E402
 
 
 EXPECTED_TOOLS = {
@@ -104,8 +113,6 @@ class ToolSettingsLoaderTests(unittest.TestCase):
 
     def test_explicit_path_is_resolved_from_working_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with mock.patch("os.getcwd", return_value=temp_dir):
-                old_cwd = os.getcwd()
             current = pathlib.Path.cwd()
             try:
                 os.chdir(temp_dir)
@@ -115,7 +122,7 @@ class ToolSettingsLoaderTests(unittest.TestCase):
             finally:
                 os.chdir(current)
             self.assertTrue(explicit)
-            self.assertEqual(path, os.path.join(old_cwd, "profile.json"))
+            self.assertEqual(path, os.path.join(temp_dir, "profile.json"))
 
     def test_no_argument_falls_back_to_shared_settings(self):
         path, explicit = select_settings_path("Example.py", str(PROJECT_ROOT), [])
@@ -206,59 +213,20 @@ class ToolEntryPointTests(unittest.TestCase):
         self.assertIn('"display": "EValue Column:"', panel)
         self.assertNotIn('"var_name": "MATRIX"', panel)
         self.assertNotIn('"var_name": "BATCH_SIZE"', panel)
-        self.assertIn(
-            '("QUERY_COLUMN", "SUBJECT_COLUMN", "EVALUE_COLUMN")', source
-        )
         self.assertIn("bind_custom_blast_column_controls(inputs, row_widgets)", source)
-
-    def test_parse_blast_uses_fixed_import_metadata_and_batch_size(self):
-        module_path = SRC_DIR / "tools" / "Parse_BLAST_Output.py"
-        spec = importlib.util.spec_from_file_location("fixed_blast_parser", module_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            settings_path = pathlib.Path(temp_dir) / "parser.json"
-            settings_path.write_text(
-                json.dumps(
-                    {
-                        "DIRECTORIES": {
-                            "FASTA_DIR": temp_dir,
-                            "NETWORK_DIR": temp_dir,
-                        },
-                        "Parse_BLAST_Output.py": {
-                            "INPUT_BLAST_TABULAR": "input.tabular",
-                            "INPUT_FASTA": "input.fasta",
-                            "MATRIX": "BLOSUM62",
-                            "BATCH_SIZE": 7,
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            summary = ParseSummary(
-                output_path=str(pathlib.Path(temp_dir) / "output.h5"),
-                fasta_header_count=2,
-                fasta_headers_sanitized=0,
-                blast_header_count=2,
-                blast_headers_sanitized=0,
-                data_rows=1,
-                self_rows=0,
-                unique_edges=1,
-            )
-            with mock.patch.object(
-                module, "build_blast_network", return_value=summary
-            ) as builder:
-                self.assertEqual(module.main([str(settings_path)]), 0)
-
-        self.assertEqual(builder.call_args.kwargs["matrix"], "Imported")
-        self.assertEqual(builder.call_args.kwargs["batch_size"], 1000000)
 
     def test_representative_main_receives_explicit_export_before_worker(self):
         module_path = SRC_DIR / "tools" / "Align_Similarity_Matrix.py"
         spec = importlib.util.spec_from_file_location("cli_alignment_tool", module_path)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ,
+            {
+                "SSN_TOOL_SETTINGS_SCRIPT": "Align_Similarity_Matrix.py",
+                "SSN_TOOL_SETTINGS_FILE": os.path.join(temp_dir, "missing.json"),
+            },
+        ):
+            spec.loader.exec_module(module)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = pathlib.Path(temp_dir) / "alignment.json"
@@ -294,81 +262,222 @@ class ToolEntryPointTests(unittest.TestCase):
         )
 
 
-class ToolExportGuiTests(unittest.TestCase):
-    def test_numeric_text_export_is_typed_without_changing_execution_collection(self):
-        from PySide6.QtWidgets import QLineEdit, QMessageBox, QInputDialog
-        from mcp_server.pipeline.Pipeline_Settings import normalize_pipeline_settings
+class ToolDirectoryDefaultTests(unittest.TestCase):
+    def test_alignment_reports_default_to_analysis_results(self):
+        self.assertEqual(
+            DEFAULT_DIRECTORY_PATHS["REPORT_DIR"],
+            os.path.join("Analysis_Results", "Alignment_Report"),
+        )
 
-        script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            fields = {"INPUT_HDF5": QLineEdit("example.h5"), "BATCH_SIZE": QLineEdit("12345")}
-            window = SimpleNamespace(
-                dir_inputs={"SETTING_EXPORT_DIR": QLineEdit(temp_dir)},
-                script_data={script_path: {
-                    "inputs": {key: {"widget": widget, "type": "text"} for key, widget in fields.items()},
-                    "settings": [{"name": key} for key in fields],
-                }},
+    def test_empty_settings_receive_all_gui_defaults(self):
+        settings = {}
+
+        result = fill_missing_directory_defaults(settings)
+
+        self.assertIs(result, settings)
+        self.assertEqual(settings["DIRECTORIES"], DEFAULT_DIRECTORY_PATHS)
+
+    def test_blank_values_are_filled_without_replacing_custom_paths(self):
+        settings = {
+            "DIRECTORIES": {
+                "FASTA_DIR": "/custom/fasta",
+                "MSA_DIR": "  ",
+                "BLASTP_DIR": "/custom/blast/bin",
+            }
+        }
+
+        fill_missing_directory_defaults(settings)
+
+        self.assertEqual(settings["DIRECTORIES"]["FASTA_DIR"], "/custom/fasta")
+        self.assertEqual(
+            settings["DIRECTORIES"]["MSA_DIR"],
+            DEFAULT_DIRECTORY_PATHS["MSA_DIR"],
+        )
+        self.assertEqual(
+            settings["DIRECTORIES"]["BLASTP_DIR"], "/custom/blast/bin"
+        )
+
+    def test_project_defaults_are_absolute_and_project_anchored(self):
+        defaults = project_directory_defaults(PROJECT_ROOT)
+
+        for key, relative_path in DEFAULT_DIRECTORY_PATHS.items():
+            self.assertTrue(os.path.isabs(defaults[key]))
+            self.assertEqual(
+                defaults[key],
+                os.path.normpath(os.path.join(PROJECT_ROOT, relative_path)),
             )
-            window._normalized_export_filename = self.tools_gui_class._normalized_export_filename
-            window._portable_export_directory_path = self.tools_gui_class._portable_export_directory_path
-            window._current_directory_settings = lambda: self.tools_gui_class._current_directory_settings(window)
-            window._collect_tool_settings = lambda path: self.tools_gui_class._collect_tool_settings(window, path)
-            before = window._collect_tool_settings(script_path)
-            with mock.patch.object(QInputDialog, "getText", return_value=("typed", True)), \
-                    mock.patch.object(QMessageBox, "information"), \
-                    mock.patch.object(QMessageBox, "critical") as critical:
-                self.tools_gui_class.export_settings(window, script_path)
-                critical.assert_not_called()
-            exported_path = pathlib.Path(temp_dir) / "typed.json"
-            document = json.loads(exported_path.read_text())
-            self.assertEqual(document["Align_Similarity_Matrix.py"]["BATCH_SIZE"], 12345)
-            self.assertTrue(normalize_pipeline_settings(
-                "align_similarity_matrix", PROJECT_ROOT, settings_document=document
-            )["valid"])
-            self.assertEqual(window._collect_tool_settings(script_path), before)
-            self.assertEqual(before["BATCH_SIZE"], "12345")
-            fields["BATCH_SIZE"].setText("not a number")
-            with mock.patch.object(QInputDialog, "getText", return_value=("invalid", True)), \
-                    mock.patch.object(QMessageBox, "critical") as critical:
-                self.tools_gui_class.export_settings(window, script_path)
-                critical.assert_called_once()
-                self.assertIn("BATCH_SIZE", critical.call_args.args[-1])
-            self.assertFalse((pathlib.Path(temp_dir) / "invalid.json").exists())
 
-    @classmethod
-    def setUpClass(cls):
-        from PySide6.QtWidgets import QApplication
-        from EMAPSSN_Tools import (
-            HostCacheControl,
-            ToolsGUI,
-            _selection_supports_bf16,
-            _selection_supports_tf32,
-            _sync_alignment_tiled_option,
-            _sync_tf32_precision_option,
+    def test_shared_execution_populates_missing_global_directories(self):
+        gui_source = (PROJECT_ROOT / "src" / "EMAPSSN_Tools.py").read_text(
+            encoding="utf-8"
         )
+        gui_tree = ast.parse(gui_source)
+        save_and_run = next(
+            node
+            for node in ast.walk(gui_tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "save_and_run"
+        )
+        gui_calls = {
+            node.func.id
+            for node in ast.walk(save_and_run)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("load_shared_settings", gui_calls)
+        self.assertIn("save_shared_tool_settings", gui_calls)
 
-        cls.app = QApplication.instance() or QApplication([])
-        cls.host_cache_control_class = HostCacheControl
-        cls.tools_gui_class = ToolsGUI
-        cls.selection_supports_tf32 = staticmethod(_selection_supports_tf32)
-        cls.selection_supports_bf16 = staticmethod(_selection_supports_bf16)
-        cls.sync_alignment_tiled_option = staticmethod(
-            _sync_alignment_tiled_option
+        service_source = (
+            PROJECT_ROOT / "src" / "tools" / "tool_helpers" / "Tool_Pipeline.py"
+        ).read_text(encoding="utf-8")
+        service_tree = ast.parse(service_source)
+        shared_functions = {
+            node.name: node
+            for node in ast.walk(service_tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"load_shared_settings", "save_shared_tool_settings"}
+        }
+        self.assertEqual(
+            set(shared_functions),
+            {"load_shared_settings", "save_shared_tool_settings"},
         )
-        cls.sync_tf32_precision_option = staticmethod(
-            _sync_tf32_precision_option
-        )
+        for function in shared_functions.values():
+            calls = {
+                node.func.id
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            self.assertIn("fill_missing_directory_defaults", calls)
 
-    def test_export_filename_validation(self):
-        normalize = self.tools_gui_class._normalized_export_filename
-        self.assertEqual(normalize("analysis"), "analysis.json")
-        self.assertEqual(normalize("analysis.JSON"), "analysis.JSON")
-        for invalid in ("", "../escape", "bad:name", "CON", "CON.txt", "trailing."):
-            with self.subTest(name=invalid), self.assertRaises(ValueError):
-                normalize(invalid)
+    def test_every_tool_uses_the_shared_project_anchored_fallbacks(self):
+        tools_dir = PROJECT_ROOT / "src" / "tools"
+        for filename, expected_directories in TOOL_DIRECTORY_KEYS.items():
+            with self.subTest(tool=filename):
+                source = (tools_dir / filename).read_text(encoding="utf-8")
+                tree = ast.parse(source)
+                assignments = {}
+
+                for node in tree.body:
+                    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                        continue
+                    target = node.targets[0]
+                    if not isinstance(target, ast.Name):
+                        continue
+                    value = node.value
+                    if (
+                        isinstance(value, ast.Subscript)
+                        and isinstance(value.value, ast.Name)
+                        and value.value.id == "_DEFAULT_DIRECTORIES"
+                        and isinstance(value.slice, ast.Constant)
+                    ):
+                        assignments[target.id] = value.slice.value
+
+                for directory_name in expected_directories:
+                    self.assertEqual(assignments.get(directory_name), directory_name)
+
+
+class ToolSettingsHandOffTests(unittest.TestCase):
+    """load_tool_settings names the file it used for the workers its tool spawns."""
+
+    def test_explicit_file_is_handed_to_workers_of_the_same_tool_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(os.environ):
+            pathlib.Path(temp_dir, "export.json").write_text(
+                json.dumps({"DIRECTORIES": {}, "Example.py": {"COUNT": "3"}}),
+                encoding="utf-8",
+            )
+            namespace = {"COUNT": 1}
+            current = pathlib.Path.cwd()
+            try:
+                os.chdir(temp_dir)
+                returned = load_tool_settings(
+                    namespace, "/x/tools/Example.py", str(PROJECT_ROOT), ["export.json"]
+                )
+            finally:
+                os.chdir(current)
+
+            expected = os.path.join(temp_dir, "export.json")
+            self.assertEqual(returned, expected)
+            self.assertEqual(namespace["COUNT"], 3)
+            self.assertEqual(os.environ["SSN_TOOL_SETTINGS_FILE"], expected)
+            self.assertEqual(os.environ["SSN_TOOL_SETTINGS_SCRIPT"], "Example.py")
+            self.assertEqual(inherited_settings_path("/x/Example.py"), expected)
+            self.assertIsNone(inherited_settings_path("/x/Other.py"))
+
+    def test_without_an_argument_the_shared_file_is_handed_on(self):
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ):
+            returned = load_tool_settings({}, "/x/tools/Example.py", root, [])
+
+            expected = os.path.join(root, "tools_settings.json")
+            self.assertEqual(returned, expected)
+            self.assertEqual(os.environ["SSN_TOOL_SETTINGS_FILE"], expected)
+            self.assertEqual(os.environ["SSN_TOOL_SETTINGS_SCRIPT"], "Example.py")
+            self.assertEqual(inherited_settings_path("/elsewhere/Example.py"), expected)
+
+
+class SharedToolSettingsTests(unittest.TestCase):
+    """save_shared_tool_settings rewrites one tool's section of tools_settings.json."""
+
+    @staticmethod
+    def write_shared(root, text):
+        path = pathlib.Path(root) / "tools_settings.json"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_saving_replaces_one_section_keeps_the_others_and_fills_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = self.write_shared(root, json.dumps({
+                "DIRECTORIES": {"FASTA_DIR": "custom", "MSA_DIR": "  "},
+                "Sanitize_Sequences.py": {"STALE": 1, "INPUT_FASTA": "old.fasta"},
+                "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m", "BATCH_SIZE": 4},
+            }))
+
+            returned = save_shared_tool_settings(
+                root, "sanitize_sequences", {"INPUT_FASTA": "new.fasta", "OVER_WRITE": True}
+            )
+            document = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(returned, str(path))
+        self.assertEqual(document, {
+            "DIRECTORIES": {**DEFAULT_DIRECTORY_PATHS, "FASTA_DIR": "custom"},
+            "Sanitize_Sequences.py": {"INPUT_FASTA": "new.fasta", "OVER_WRITE": True},
+            "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m", "BATCH_SIZE": 4},
+        })
+
+    def test_unparsable_file_is_replaced_and_a_non_object_root_is_refused(self):
+        # Current behaviour: unparsable JSON counts as an empty document, so the
+        # rewrite keeps only default directories and the saved section; a JSON
+        # root that is not an object raises before anything is written.
+        with tempfile.TemporaryDirectory() as root:
+            path = self.write_shared(
+                root, '{"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},'
+            )
+            save_shared_tool_settings(root, "sanitize_sequences", {"INPUT_FASTA": "new.fasta"})
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {
+                "DIRECTORIES": DEFAULT_DIRECTORY_PATHS,
+                "Sanitize_Sequences.py": {"INPUT_FASTA": "new.fasta"},
+            })
+
+            self.write_shared(root, "[1, 2]")
+            with self.assertRaisesRegex(TypeError, "mutable mapping"):
+                save_shared_tool_settings(
+                    root, "sanitize_sequences", {"INPUT_FASTA": "new.fasta"}
+                )
+            self.assertEqual(path.read_text(encoding="utf-8"), "[1, 2]")
+
+
+class PortableExportDirectoryTests(unittest.TestCase):
+    """Exported settings keep the GUI's portable form of each directory."""
 
     def test_exported_relative_directories_use_portable_separators(self):
-        portable = self.tools_gui_class._portable_export_directory_path
+        from utilities.Headless_Settings import build_pipeline_export
+
+        def portable(directory):
+            document = build_pipeline_export(
+                "sanitize_sequences",
+                {"FASTA_DIR": directory},
+                {},
+                str(PROJECT_ROOT),
+                absolute=False,
+            )
+            return document["DIRECTORIES"]["FASTA_DIR"]
 
         exported = portable(r"Input_Files\Sequence Sets")
         self.assertEqual(exported, "Input_Files/Sequence Sets")
@@ -386,911 +495,6 @@ class ToolExportGuiTests(unittest.TestCase):
         )
         self.assertEqual(portable(r"C:\SSN Data\Sequences"), r"C:\SSN Data\Sequences")
         self.assertEqual(portable("/srv/ssn/sequences"), "/srv/ssn/sequences")
-
-    def test_execution_mode_gui_contract_and_export_round_trip(self):
-        from PySide6.QtWidgets import QComboBox, QInputDialog, QLineEdit, QMessageBox
-
-        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
-        self.assertGreaterEqual(source.count('"var_name": "EXECUTION_MODE"'), 2)
-        self.assertGreaterEqual(
-            source.count('"options": ["auto", "scalar", "tiled"]'), 2
-        )
-
-        script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            mode = QComboBox()
-            mode.addItems(["auto", "scalar", "tiled"])
-            mode.setCurrentText("tiled")
-            fake_window = SimpleNamespace()
-            fake_window.dir_inputs = {
-                "EMBED_DIR": QLineEdit("Embeddings"),
-                "NETWORK_DIR": QLineEdit(r"Input_Files\Networks_EValues"),
-                "SETTING_EXPORT_DIR": QLineEdit(temp_dir),
-            }
-            fake_window.script_data = {
-                script_path: {
-                    "inputs": {
-                        "EXECUTION_MODE": {
-                            "widget": mode,
-                            "type": "dropdown",
-                        }
-                    },
-                    "settings": [{"name": "EXECUTION_MODE"}],
-                }
-            }
-            fake_window._normalized_export_filename = (
-                self.tools_gui_class._normalized_export_filename
-            )
-            fake_window._current_directory_settings = lambda: (
-                self.tools_gui_class._current_directory_settings(fake_window)
-            )
-            fake_window._portable_export_directory_path = (
-                self.tools_gui_class._portable_export_directory_path
-            )
-            fake_window._collect_tool_settings = lambda path: (
-                self.tools_gui_class._collect_tool_settings(fake_window, path)
-            )
-
-            with mock.patch.object(
-                QInputDialog, "getText", return_value=("alignment-mode", True)
-            ), mock.patch.object(QMessageBox, "information"), mock.patch.object(
-                QMessageBox, "critical"
-            ) as critical:
-                self.tools_gui_class.export_settings(fake_window, script_path)
-
-            payload = json.loads(
-                (pathlib.Path(temp_dir) / "alignment-mode.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(
-                payload["Align_Similarity_Matrix.py"]["EXECUTION_MODE"],
-                "tiled",
-            )
-            critical.assert_not_called()
-
-    def test_tf32_precision_option_tracks_detected_and_selected_hardware(self):
-        from PySide6.QtWidgets import QComboBox
-        from utilities import Hardware_Acceleration as Hardware_Utils
-        import torch
-
-        cpu = Hardware_Utils.DeviceCandidate(
-            "cpu", "CPU", torch.device("cpu"), "cpu"
-        )
-        cuda = Hardware_Utils.DeviceCandidate(
-            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
-        )
-        device = QComboBox()
-        device.addItem("Auto", "auto")
-        device.addItem("CPU", "cpu")
-        device.addItem("CUDA", "cuda:0")
-        precision = QComboBox()
-        precision.addItem("auto", "auto")
-        precision.addItem("float32", "float32")
-        precision.addItem("TF32 (Nvidia GPU Only)", "tf32")
-        precision.setCurrentIndex(precision.findData("tf32"))
-
-        with mock.patch(
-            "EMAPSSN_Tools.is_nvidia_cuda",
-            side_effect=lambda selected: selected.type == "cuda",
-        ):
-            self.assertFalse(
-                self.sync_tf32_precision_option(device, precision, [cpu])
-            )
-            self.assertEqual(precision.currentText(), "auto")
-            self.assertEqual(precision.findData("tf32"), -1)
-            self.assertFalse(precision.property("tf32Available"))
-
-            self.assertTrue(
-                self.sync_tf32_precision_option(
-                    device,
-                    precision,
-                    [cpu, cuda],
-                )
-            )
-            self.assertGreaterEqual(precision.findData("tf32"), 0)
-            self.assertEqual(
-                precision.itemText(precision.findData("tf32")),
-                "TF32 (Nvidia GPU Only)",
-            )
-
-            precision.setCurrentIndex(precision.findData("tf32"))
-            device.setCurrentIndex(device.findData("cpu"))
-            self.assertFalse(
-                self.sync_tf32_precision_option(
-                    device,
-                    precision,
-                    [cpu, cuda],
-                )
-            )
-            self.assertEqual(precision.currentText(), "auto")
-            self.assertEqual(precision.findData("tf32"), -1)
-
-            device.setCurrentIndex(device.findData("cuda:0"))
-            self.assertTrue(
-                self.sync_tf32_precision_option(
-                    device,
-                    precision,
-                    [cpu, cuda],
-                )
-            )
-            self.assertGreaterEqual(precision.findData("tf32"), 0)
-
-    def test_bf16_precision_option_tracks_runtime_capability(self):
-        from PySide6.QtWidgets import QComboBox
-        from utilities import Hardware_Acceleration as Hardware_Utils
-        import torch
-
-        cpu = Hardware_Utils.DeviceCandidate(
-            "cpu", "CPU", torch.device("cpu"), "cpu"
-        )
-        cuda = Hardware_Utils.DeviceCandidate(
-            "cuda:0", "CUDA", torch.device("cuda:0"), "cuda"
-        )
-        device = QComboBox()
-        device.addItem("Auto", "auto")
-        device.addItem("CPU", "cpu")
-        device.addItem("CUDA", "cuda:0")
-        precision = QComboBox()
-        precision.addItem("Automatic 32-bit", "automatic_32bit")
-        precision.addItem("float32", "float32")
-        precision.addItem("BF16 (Low Precision)", "bf16")
-
-        with mock.patch(
-            "EMAPSSN_Tools.bf16_accelerator_support",
-            side_effect=lambda selected: (
-                selected.type == "cuda",
-                "mock capability",
-            ),
-        ), mock.patch(
-            "EMAPSSN_Tools.is_nvidia_cuda",
-            side_effect=lambda selected: selected.type == "cuda",
-        ):
-            self.sync_tf32_precision_option(device, precision, [cpu])
-            self.assertEqual(precision.findData("bf16"), -1)
-            self.assertFalse(precision.property("bf16Available"))
-
-            self.sync_tf32_precision_option(device, precision, [cpu, cuda])
-            self.assertGreaterEqual(precision.findData("bf16"), 0)
-            self.assertTrue(precision.property("bf16Available"))
-
-            device.setCurrentIndex(device.findData("cpu"))
-            self.sync_tf32_precision_option(device, precision, [cpu, cuda])
-            self.assertEqual(precision.findData("bf16"), -1)
-            self.assertFalse(precision.property("bf16Available"))
-
-    def test_alignment_tiled_option_hides_for_mps_and_restores_for_xpu(self):
-        from PySide6.QtWidgets import QComboBox
-        from utilities import Hardware_Acceleration as Hardware_Utils
-        import torch
-
-        cpu = Hardware_Utils.DeviceCandidate(
-            "cpu", "CPU", torch.device("cpu"), "cpu"
-        )
-        mps = Hardware_Utils.DeviceCandidate(
-            "mps", "MPS", torch.device("mps"), "mps"
-        )
-        xpu = Hardware_Utils.DeviceCandidate(
-            "xpu:0", "XPU", torch.device("xpu:0"), "xpu"
-        )
-        device = QComboBox()
-        device.addItem("Auto", "auto")
-        device.addItem("MPS", "mps")
-        device.addItem("XPU", "xpu:0")
-        execution = QComboBox()
-        execution.addItems(["auto", "scalar", "tiled"])
-
-        with mock.patch(
-            "EMAPSSN_Tools.tiled_accelerator_support",
-            return_value=(True, "mock support"),
-        ):
-            execution.setCurrentText("tiled")
-            self.assertFalse(
-                self.sync_alignment_tiled_option(
-                    device, execution, [cpu, mps]
-                )
-            )
-            self.assertEqual(execution.currentText(), "auto")
-            self.assertEqual(execution.findText("tiled"), -1)
-            self.assertFalse(execution.property("tiledAvailable"))
-
-            self.assertTrue(
-                self.sync_alignment_tiled_option(
-                    device, execution, [cpu, mps, xpu]
-                )
-            )
-            self.assertGreaterEqual(execution.findText("tiled"), 0)
-
-            device.setCurrentIndex(device.findData("mps"))
-            self.assertFalse(
-                self.sync_alignment_tiled_option(
-                    device, execution, [cpu, mps, xpu]
-                )
-            )
-            self.assertEqual(execution.findText("tiled"), -1)
-
-            device.setCurrentIndex(device.findData("xpu:0"))
-            self.assertTrue(
-                self.sync_alignment_tiled_option(
-                    device,
-                    execution,
-                    [cpu, mps, xpu],
-                    allow_mps=True,
-                )
-            )
-            self.assertGreaterEqual(execution.findText("tiled"), 0)
-
-            device.setCurrentIndex(device.findData("mps"))
-            self.assertTrue(
-                self.sync_alignment_tiled_option(
-                    device,
-                    execution,
-                    [cpu, mps, xpu],
-                    allow_mps=True,
-                )
-            )
-            self.assertGreaterEqual(execution.findText("tiled"), 0)
-
-    def test_host_cache_control_uses_auto_or_linear_manual_gib(self):
-        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
-        self.assertEqual(source.count('"type": "host_cache"'), 2)
-
-        control = self.host_cache_control_class("auto")
-        script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
-        fake_window = SimpleNamespace(
-            script_data={
-                script_path: {
-                    "inputs": {
-                        "HOST_CACHE_GB": {
-                            "widget": control,
-                            "type": "host_cache",
-                        }
-                    },
-                    "settings": [{"name": "HOST_CACHE_GB"}],
-                }
-            }
-        )
-
-        try:
-            self.assertTrue(control.auto_button.isChecked())
-            self.assertFalse(control.slider.isEnabled())
-            self.assertFalse(control.spinbox.isEnabled())
-            self.assertEqual(control.slider.styleSheet(), "")
-            self.assertEqual(
-                self.tools_gui_class._collect_tool_settings(
-                    fake_window, script_path
-                )["HOST_CACHE_GB"],
-                "auto",
-            )
-
-            control.auto_button.click()
-            self.app.processEvents()
-            self.assertFalse(control.auto_button.isChecked())
-            self.assertTrue(control.slider.isEnabled())
-            self.assertTrue(control.spinbox.isEnabled())
-
-            control.spinbox.setValue(64.0)
-            self.assertEqual(control.slider.value(), 640)
-            self.assertEqual(
-                self.tools_gui_class._collect_tool_settings(
-                    fake_window, script_path
-                )["HOST_CACHE_GB"],
-                64,
-            )
-
-            control.slider.setValue(0)
-            self.assertEqual(control.spinbox.value(), 0.0)
-            self.assertEqual(control.setting_value(), 0)
-        finally:
-            control.close()
-
-    def test_host_cache_slider_is_linear_across_the_full_range(self):
-        control_class = self.host_cache_control_class
-        minimum = control_class.gb_for_slider_position(0)
-        midpoint = control_class.gb_for_slider_position(640)
-        maximum = control_class.gb_for_slider_position(1280)
-
-        self.assertAlmostEqual(minimum, 0.0)
-        self.assertAlmostEqual(midpoint, 64.0)
-        self.assertAlmostEqual(maximum, 128.0)
-        self.assertEqual(control_class.slider_position_for_gb(64.0), 640)
-
-        manual_control = control_class(32)
-        try:
-            self.assertFalse(manual_control.auto_button.isChecked())
-            self.assertTrue(manual_control.slider.isEnabled())
-            self.assertEqual(manual_control.setting_value(), 32)
-        finally:
-            manual_control.close()
-
-    def test_alignment_and_injection_hardware_rows_follow_requested_order(self):
-        from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QWidget
-
-        source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
-        manual_start = source.index("self.MANUAL_SETTINGS =")
-        align_start = source.index('"Align_Similarity_Matrix.py": [', manual_start)
-        align_end = source.index('"Align_Substitution_Matrix.py": [', align_start)
-        align_source = source[align_start:align_end]
-        self.assertLess(
-            align_source.index('"var_name": "ACCELERATOR_PRECISION"'),
-            align_source.index('"var_name": "EXECUTION_MODE"'),
-        )
-        self.assertLess(
-            align_source.index('"var_name": "EXECUTION_MODE"'),
-            align_source.index('"var_name": "HOST_CACHE_GB"'),
-        )
-
-        injection_start = source.index('"Network_Injection.py": [', manual_start)
-        injection_end = source.index('"Network_Extraction.py": [', injection_start)
-        injection_source = source[injection_start:injection_end]
-        self.assertLess(
-            injection_source.index('"var_name": "EXECUTION_MODE"'),
-            injection_source.index('"var_name": "HOST_CACHE_GB"'),
-        )
-
-        cases = (
-            (
-                "Align_Similarity_Matrix.py",
-                (
-                    ("DEVICE_SELECTION", "Device:"),
-                    ("ACCELERATOR_PRECISION", "Precision:"),
-                    ("EXECUTION_MODE", "Execution Mode:"),
-                    ("HOST_CACHE_GB", "Host Cache (GiB):"),
-                ),
-                "compactRow_ACCELERATOR_PRECISION_EXECUTION_MODE",
-                ["Precision:", "Execution Mode:"],
-            ),
-            (
-                "Network_Injection.py",
-                (
-                    ("DEVICE_SELECTION", "Device:"),
-                    ("EXECUTION_MODE", "Execution Mode:"),
-                    ("HOST_CACHE_GB", "Host Cache (GiB):"),
-                ),
-                "compactRow_EXECUTION_MODE_DEVICE_SELECTION",
-                ["Execution Mode:", "Device:"],
-            ),
-        )
-        for script_name, definitions, compact_name, compact_labels in cases:
-            with self.subTest(script=script_name):
-                form_parent = QWidget()
-                layout = QFormLayout(form_parent)
-                row_widgets = {}
-                for var_name, label_text in definitions:
-                    label = QLabel(label_text)
-                    field = QLineEdit()
-                    layout.addRow(label, field)
-                    row_widgets[var_name] = (label, field)
-
-                self.tools_gui_class._merge_compact_rows(
-                    layout,
-                    script_name,
-                    row_widgets,
-                )
-                compact = form_parent.findChild(QWidget, compact_name)
-                self.assertIsNotNone(compact)
-                self.assertEqual(
-                    [label.text() for label in compact.findChildren(QLabel)],
-                    compact_labels,
-                )
-                compact_row = layout.getWidgetPosition(compact)[0]
-                host_row = layout.getWidgetPosition(
-                    row_widgets["HOST_CACHE_GB"][0]
-                )[0]
-                self.assertEqual(host_row, layout.rowCount() - 1)
-                self.assertEqual(compact_row, host_row - 1)
-                form_parent.close()
-
-    def test_embedding_row_widens_model_name_at_the_cost_of_saving_mode(self):
-        from PySide6.QtWidgets import (
-            QComboBox,
-            QFormLayout,
-            QLabel,
-            QSizePolicy,
-            QWidget,
-        )
-
-        def build_row():
-            form_parent = QWidget()
-            layout = QFormLayout(form_parent)
-            layout.setHorizontalSpacing(30)
-            row_widgets = {}
-            definitions = (
-                ("MODEL_NAME", "Model Name:",
-                 ["ankh_large [non-commercial]", "esm2_t33_650M_UR50D"]),
-                ("SAVING_MODE", "Saving Mode:", ["float32", "float16"]),
-                ("DEVICE_SELECTION", "Device:", ["Auto Benchmark", "CPU"]),
-            )
-            for var_name, label_text, options in definitions:
-                label = QLabel(label_text)
-                field = QComboBox()
-                field.addItems(options)
-                field.setMinimumContentsLength(12)
-                field.setSizeAdjustPolicy(
-                    QComboBox.SizeAdjustPolicy
-                    .AdjustToMinimumContentsLengthWithIcon
-                )
-                field.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-                )
-                layout.addRow(label, field)
-                row_widgets[var_name] = (label, field)
-
-            self.tools_gui_class._merge_compact_rows(
-                layout, "Generate_Embeddings.py", row_widgets
-            )
-            # The leading label shares the form's label column width.
-            row_widgets["MODEL_NAME"][0].setFixedWidth(
-                QLabel("Sequence Set (.fasta):").sizeHint().width()
-            )
-            form_parent.show()
-            self.app.processEvents()
-            return form_parent, layout, row_widgets
-
-        def field_widths(width):
-            form_parent, layout, row_widgets = build_row()
-            form_parent.resize(width, form_parent.sizeHint().height())
-            layout.activate()
-            self.app.processEvents()
-            compact = form_parent.findChild(
-                QWidget, "compactRow_MODEL_NAME_SAVING_MODE_DEVICE_SELECTION"
-            )
-            self.assertIsNotNone(compact)
-            self.assertFalse(compact.property("stacked"))
-            widths = {
-                name: field.width() for name, (_, field) in row_widgets.items()
-            }
-            form_parent.close()
-            return widths
-
-        form_parent = build_row()[0]
-        compact = form_parent.findChild(
-            QWidget, "compactRow_MODEL_NAME_SAVING_MODE_DEVICE_SELECTION"
-        )
-        self.assertEqual(compact.property("compactColumnRatio"), "5:3:4")
-        form_parent.close()
-
-        widths = field_widths(1700)
-        self.assertGreater(widths["MODEL_NAME"], widths["SAVING_MODE"])
-        # Saving mode only ever shows "float32"/"float16"; it keeps a legible
-        # dropdown while the surrendered space goes to the model names.
-        self.assertGreaterEqual(
-            widths["SAVING_MODE"],
-            QComboBox().fontMetrics().horizontalAdvance("float32") * 2,
-        )
-        # The device column keeps the third of the row it had before.
-        self.assertLess(
-            abs(widths["DEVICE_SELECTION"] - widths["MODEL_NAME"]), 100
-        )
-
-    def test_tab_pages_release_shared_content_width_without_resizing_tab_labels(self):
-        from PySide6.QtWidgets import QScrollArea, QTabWidget, QWidget
-
-        tabs = QTabWidget()
-        original_content_widths = (400, 750, 550)
-        for title, content_width in zip(
-            ("Short", "Longest Tool Category", "Medium Tab"),
-            original_content_widths,
-        ):
-            content = QWidget()
-            content.setMinimumWidth(content_width)
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setWidget(content)
-            tabs.addTab(scroll, title)
-
-        original_tab_widths = {
-            tabs.tabBar().tabSizeHint(index).width()
-            for index in range(tabs.count())
-        }
-        fake_window = SimpleNamespace(
-            tabs=tabs,
-            COMMON_TAB_VIEWPORT_MINIMUM_WIDTH=600,
-        )
-        common_width = self.tools_gui_class._harmonize_tab_page_widths(
-            fake_window
-        )
-
-        self.assertIsNone(common_width)
-        self.assertEqual(
-            tabs.property("commonContentMinimumWidth"),
-            common_width,
-        )
-        self.assertEqual(tabs.property("commonViewportMinimumWidth"), 600)
-        self.assertGreater(len(original_tab_widths), 1)
-        self.assertEqual(
-            {
-                tabs.tabBar().tabSizeHint(index).width()
-                for index in range(tabs.count())
-            },
-            original_tab_widths,
-        )
-        for index in range(tabs.count()):
-            scroll_page = tabs.widget(index)
-            content_page = scroll_page.widget()
-            self.assertEqual(scroll_page.minimumWidth(), 600)
-            self.assertEqual(
-                scroll_page.property("commonViewportMinimumWidth"),
-                600,
-            )
-            self.assertEqual(content_page.minimumWidth(), 0)
-            self.assertEqual(
-                content_page.property("commonContentMinimumWidth"),
-                common_width,
-            )
-
-    def test_tool_headers_align_with_shared_field_start(self):
-        from PySide6.QtCore import QPoint
-        from PySide6.QtWidgets import (
-            QBoxLayout,
-            QFormLayout,
-            QFrame,
-            QLabel,
-            QLineEdit,
-            QPushButton,
-        )
-
-        fake_window = SimpleNamespace(
-            tool_titles={},
-            save_and_run=lambda script_path: None,
-            export_settings=lambda script_path: None,
-        )
-        cards = []
-        layouts = []
-        fields = []
-        headers = []
-        for label_text in (
-            "Short:",
-            "Normalized Noise Scale (0 to 0.1):",
-        ):
-            card = QFrame()
-            layout = QFormLayout(card)
-            layout.setHorizontalSpacing(30)
-            header = self.tools_gui_class._create_tool_header(
-                fake_window,
-                "Sanitize_Sequences.py",
-                str(SRC_DIR / "tools" / "Sanitize_Sequences.py"),
-            )
-            field = QLineEdit()
-            layout.addRow(header)
-            layout.addRow(QLabel(label_text), field)
-            cards.append(card)
-            layouts.append(layout)
-            fields.append(field)
-            headers.append(header)
-
-        shared_label_width = self.tools_gui_class._align_form_label_columns(layouts)
-        title_start_x = self.tools_gui_class._align_tool_card_headers(
-            layouts,
-            shared_label_width,
-        )
-
-        try:
-            for card in cards:
-                card.resize(1000, 100)
-                card.show()
-            self.app.processEvents()
-
-            field_positions = {
-                field.mapTo(card, QPoint(0, 0)).x()
-                for card, field in zip(cards, fields)
-            }
-            title_positions = {
-                header.findChild(QLabel, "toolTitle")
-                .mapTo(card, QPoint(0, 0))
-                .x()
-                for card, header in zip(cards, headers)
-            }
-            self.assertEqual(len(field_positions), 1)
-            self.assertEqual(title_positions, field_positions)
-
-            for header in headers:
-                buttons = {
-                    button.objectName(): button
-                    for button in header.findChildren(QPushButton)
-                }
-                run_button = buttons["saveRunButton"]
-                export_button = buttons["exportSettingButton"]
-                button_row = run_button.parentWidget()
-                self.assertEqual(run_button.height(), export_button.height())
-                self.assertEqual(run_button.height(), button_row.height())
-                self.assertEqual(button_row.width(), title_start_x)
-                self.assertEqual(button_row.layout().spacing(), 10)
-                self.assertEqual(
-                    button_row.layout().direction(),
-                    QBoxLayout.Direction.LeftToRight,
-                )
-                full_button_width = (
-                    button_row.width() - button_row.layout().spacing()
-                ) // 2
-                self.assertEqual(
-                    run_button.width(),
-                    full_button_width,
-                )
-                self.assertEqual(
-                    export_button.width(),
-                    round(full_button_width * 0.6),
-                )
-                self.assertEqual(
-                    run_button.width()
-                    + export_button.width()
-                    + button_row.layout().spacing()
-                    + button_row.layout().contentsMargins().right(),
-                    button_row.width(),
-                )
-                self.assertGreater(
-                    button_row.layout().contentsMargins().right(),
-                    0,
-                )
-                self.assertEqual(export_button.text(), "Export\nSetting")
-                self.assertEqual(
-                    export_button.accessibleName(),
-                    "Export Settings",
-                )
-                self.assertIn("shared settings file", run_button.toolTip())
-                self.assertIn("standalone JSON file", export_button.toolTip())
-                self.assertNotIn("\n", run_button.text())
-                export_lines = export_button.text().splitlines()
-                self.assertEqual(export_lines, ["Export", "Setting"])
-                self.assertLessEqual(
-                    max(
-                        export_button.fontMetrics().horizontalAdvance(line)
-                        for line in export_lines
-                    )
-                    + 16,
-                    export_button.width(),
-                )
-                self.assertLessEqual(
-                    (export_button.fontMetrics().height() * len(export_lines))
-                    + 2,
-                    export_button.height(),
-                )
-        finally:
-            for card in cards:
-                card.close()
-
-    def test_directory_save_button_is_one_and_a_half_times_wide_and_left_aligned(self):
-        from PySide6.QtCore import QPoint, Qt
-        from PySide6.QtWidgets import (
-            QFormLayout,
-            QFrame,
-            QHBoxLayout,
-            QLabel,
-            QLineEdit,
-            QPushButton,
-            QWidget,
-        )
-
-        card = QFrame()
-        layout = QFormLayout(card)
-        layout.setHorizontalSpacing(30)
-
-        header = QWidget()
-        header.setObjectName("toolHeader")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(0)
-
-        actions = QWidget()
-        actions.setObjectName("directoryActionButtons")
-        actions.setProperty("originalSingleButtonHeight", 40)
-        action_layout = QHBoxLayout(actions)
-        action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.setSpacing(0)
-
-        save_button = QPushButton("Save Directories")
-        save_button.setObjectName("saveDirectoriesButton")
-        save_button.setStyleSheet("font-weight: bold; padding: 10px 16px;")
-        action_layout.addWidget(save_button)
-        action_layout.addStretch()
-
-        title = QLabel("Global Directory Settings")
-        title.setObjectName("toolTitle")
-        header_layout.addWidget(
-            actions,
-            0,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-        )
-        header_layout.addWidget(title, 1)
-        field = QLineEdit()
-        layout.addRow(header)
-        layout.addRow(QLabel("Alignment Report Directory:"), field)
-
-        shared_label_width = self.tools_gui_class._align_form_label_columns([layout])
-        title_start_x = self.tools_gui_class._align_tool_card_headers(
-            [layout],
-            shared_label_width,
-        )
-        former_width = max(1, (title_start_x - 10) // 2)
-
-        try:
-            card.resize(1000, 100)
-            card.show()
-            self.app.processEvents()
-
-            self.assertEqual(save_button.width(), round(former_width * 1.5))
-            self.assertEqual(
-                save_button.mapTo(card, QPoint(0, 0)).x(),
-                actions.mapTo(card, QPoint(0, 0)).x(),
-            )
-            self.assertEqual(
-                title.mapTo(card, QPoint(0, 0)).x(),
-                field.mapTo(card, QPoint(0, 0)).x(),
-            )
-            self.assertGreaterEqual(
-                save_button.width(),
-                save_button.fontMetrics().horizontalAdvance(save_button.text()) + 32,
-            )
-        finally:
-            card.close()
-
-    def test_legacy_path_directory_does_not_restore_a_directory_row(self):
-        from PySide6.QtWidgets import QLabel, QTabWidget, QWidget
-
-        fake_window = QWidget()
-        fake_window.save_directories = lambda: None
-        fake_window.tip_db = {}
-        fake_window._tool_form_layouts = []
-        fake_window.tabs = QTabWidget()
-        fake_window.tab_paths = []
-        legacy_settings = {
-            "DIRECTORIES": {
-                "FASTA_DIR": "custom_sequences",
-                "PATH_DIR": "legacy_paths",
-            }
-        }
-
-        with mock.patch("os.path.exists", return_value=True), mock.patch(
-            "builtins.open",
-            mock.mock_open(read_data=json.dumps(legacy_settings)),
-        ):
-            self.tools_gui_class.create_directories_tab(fake_window)
-
-        try:
-            labels = {
-                label.text()
-                for label in fake_window.tabs.findChildren(QLabel)
-            }
-            self.assertNotIn("PATH_DIR", fake_window.dir_inputs)
-            self.assertNotIn("Alignment Path Directory:", labels)
-            self.assertEqual(
-                fake_window.dir_inputs["FASTA_DIR"].text(),
-                "custom_sequences",
-            )
-        finally:
-            fake_window.close()
-
-    def test_directory_open_buttons_precede_browse_and_open_selected_folder(self):
-        from PySide6.QtWidgets import QTabWidget, QWidget
-
-        fake_window = QWidget()
-        fake_window.save_directories = lambda: None
-        fake_window.tip_db = {}
-        fake_window._tool_form_layouts = []
-        fake_window.tabs = QTabWidget()
-        fake_window.tab_paths = []
-        self.tools_gui_class.create_directories_tab(fake_window)
-
-        try:
-            self.assertEqual(
-                set(fake_window.directory_open_buttons),
-                set(DEFAULT_DIRECTORY_PATHS),
-            )
-            for key, button in fake_window.directory_open_buttons.items():
-                with self.subTest(key=key):
-                    row_layout = button.parentWidget().layout()
-                    widgets = [
-                        row_layout.itemAt(index).widget()
-                        for index in range(row_layout.count())
-                    ]
-                    button_index = widgets.index(button)
-                    self.assertIs(widgets[button_index - 1], fake_window.dir_inputs[key])
-                    self.assertEqual(widgets[button_index + 1].text(), "Browse...")
-
-            with tempfile.TemporaryDirectory() as temp_dir:
-                selected_folder = pathlib.Path(temp_dir, "selected", "embeddings")
-                fake_window.dir_inputs["EMBED_DIR"].setText(str(selected_folder))
-                with mock.patch(
-                    "PySide6.QtGui.QDesktopServices.openUrl", return_value=True
-                ) as open_url:
-                    fake_window.directory_open_buttons["EMBED_DIR"].click()
-
-                self.assertTrue(selected_folder.is_dir())
-                self.assertEqual(
-                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
-                    selected_folder.resolve(),
-                )
-        finally:
-            fake_window.close()
-
-    def test_export_writes_current_values_and_only_required_directories(self):
-        from PySide6.QtWidgets import QCheckBox, QLineEdit, QMessageBox, QInputDialog
-
-        script_path = str(SRC_DIR / "tools" / "Sanitize_Sequences.py")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            shared_settings = pathlib.Path(temp_dir) / "shared.json"
-            shared_settings.write_text('{"sentinel": true}', encoding="utf-8")
-
-            input_line = QLineEdit("current.fasta")
-            overwrite = QCheckBox()
-            overwrite.setChecked(True)
-            fake_window = SimpleNamespace()
-            fake_window.dir_inputs = {
-                "FASTA_DIR": QLineEdit(r"current_sequences\nested"),
-                "EMBED_DIR": QLineEdit("should_not_export"),
-                "SETTING_EXPORT_DIR": QLineEdit(temp_dir),
-            }
-            fake_window.script_data = {
-                script_path: {
-                    "inputs": {
-                        "INPUT_FASTA": {"widget": input_line, "type": "text"},
-                        "OVER_WRITE": {"widget": overwrite, "type": "switch"},
-                    },
-                    "settings": [
-                        {"name": "INPUT_FASTA"},
-                        {"name": "OVER_WRITE"},
-                    ],
-                }
-            }
-            fake_window._normalized_export_filename = (
-                self.tools_gui_class._normalized_export_filename
-            )
-            fake_window._current_directory_settings = lambda: (
-                self.tools_gui_class._current_directory_settings(fake_window)
-            )
-            fake_window._portable_export_directory_path = (
-                self.tools_gui_class._portable_export_directory_path
-            )
-            fake_window._collect_tool_settings = lambda path: (
-                self.tools_gui_class._collect_tool_settings(fake_window, path)
-            )
-
-            with mock.patch.object(
-                QInputDialog, "getText", return_value=("portable", True)
-            ), mock.patch.object(QMessageBox, "information") as information, mock.patch.object(
-                QMessageBox, "critical"
-            ) as critical:
-                self.tools_gui_class.export_settings(fake_window, script_path)
-
-            payload = json.loads(
-                (pathlib.Path(temp_dir) / "portable.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                payload["DIRECTORIES"],
-                {"FASTA_DIR": "current_sequences/nested"},
-            )
-            self.assertEqual(
-                payload["Sanitize_Sequences.py"],
-                {"INPUT_FASTA": "current.fasta", "OVER_WRITE": True},
-            )
-            self.assertEqual(
-                shared_settings.read_text(encoding="utf-8"), '{"sentinel": true}'
-            )
-            information.assert_called_once()
-            critical.assert_not_called()
-            self.assertEqual(list(pathlib.Path(temp_dir).glob("*.partial")), [])
-
-            exported_path = pathlib.Path(temp_dir) / "portable.json"
-            original_export = exported_path.read_text(encoding="utf-8")
-            input_line.setText("changed.fasta")
-            with mock.patch.object(
-                QInputDialog, "getText", return_value=("portable", True)
-            ), mock.patch.object(
-                QMessageBox,
-                "question",
-                return_value=QMessageBox.StandardButton.No,
-            ) as question:
-                self.tools_gui_class.export_settings(fake_window, script_path)
-            question.assert_called_once()
-            self.assertEqual(
-                exported_path.read_text(encoding="utf-8"), original_export
-            )
-
-            with mock.patch.object(
-                QInputDialog, "getText", return_value=("cancelled", False)
-            ):
-                self.tools_gui_class.export_settings(fake_window, script_path)
-            self.assertFalse((pathlib.Path(temp_dir) / "cancelled.json").exists())
 
 
 if __name__ == "__main__":

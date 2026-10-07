@@ -108,17 +108,19 @@ def run(viewer, args):
             Command_Engine.report_selection_error(viewer, expr, e, "Hide")
             return
 
-        previous_visible = viewer.visible_mask.copy()
-        viewer._save_state()
-        viewer.visible_mask[mask] = False
-        num_hidden = np.sum(previous_visible & ~viewer.visible_mask)
-        
+        newly_hidden = mask & viewer.visible_mask
+        num_hidden = int(np.sum(newly_hidden))
+
+        # Nothing to hide is not an error, but it must not add an undo step.
         if num_hidden == 0:
             msg = f"No visible nodes matched '{expr}' to hide."
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
-            
+
+        viewer._save_state()
+        viewer.visible_mask[newly_hidden] = False
+
         # Clean up selection if any selected nodes were hidden
         if hasattr(viewer, 'selected_indices'):
             viewer.selected_indices = [i for i in viewer.selected_indices if viewer.visible_mask[i]]

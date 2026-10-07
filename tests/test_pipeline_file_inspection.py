@@ -123,18 +123,8 @@ class FileInspectionTests(unittest.TestCase):
         self.assertFalse(result["network_pair_coverage"]["unique_pairs_verified"])
         self.assertEqual(result["generation_completion"]["status"], "unknown")
         self.network(1, True)
-        with h5py.File(self.path, "r+") as hf: hf.attrs["sparsity_keep_count"] = 2
         self.assertEqual(self.inspect()["generation_completion"]["status"], "unknown")
         self.assertEqual(self.inspect()["structural_validity"], "valid")
-        with h5py.File(self.path, "r+") as hf:
-            hf.attrs["complete"] = True
-            hf.create_group("_resume")
-        result = self.inspect()
-        self.assertEqual(result["structural_validity"], "invalid")
-        self.assertNotEqual(result["generation_completion"]["status"], "complete")
-        self.network(1, True)
-        with h5py.File(self.path, "r+") as hf: hf.create_group("_resume")
-        self.assertEqual(self.inspect()["generation_completion"]["status"], "incomplete")
 
     def test_network_bad_shapes_missing_objects_and_counts(self):
         for change in ("missing", "rank", "count", "dtype"):

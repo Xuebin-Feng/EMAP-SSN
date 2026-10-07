@@ -1,9 +1,15 @@
+"""Tests of Network_Injection: input/output paths and embedding metadata,
+execution-variant filtering, first-batch benchmark trials, CPU and accelerator
+batch production, resume scans, network compilation (including the mapping of
+reused old edges onto a reordered sequence set) and main() exit codes.
+"""
 import io
 import os
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -19,104 +25,12 @@ for path in (SRC_DIR, UTILITIES_DIR, TOOLS_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-with mock.patch.dict(os.environ, {
-    "SSN_TOOL_SETTINGS_SCRIPT": "Network_Injection.py",
-    "SSN_TOOL_SETTINGS_FILE": os.path.join(PROJECT_ROOT, "tests", "nonexistent-settings.json"),
-}), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-    import Embedding_Injection as embedding_injection
+# The tests package points tool imports at a missing settings file.
+with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     from utilities import HDF5_Storage as Embedding_HDF5
     import Network_Injection as network_injection
 
-
-class EmbeddingInjectionPluginTests(unittest.TestCase):
-    EXPECTED_PLUGINS = {
-        "ankh_base": "ankh",
-        "ankh_large": "ankh",
-        "esm2_t6_8m": "esm2",
-        "esm2_t12_35m": "esm2",
-        "esm2_t30_150m": "esm2",
-        "esm2_t33_650m": "esm2",
-        "esmc_300m": "esmc",
-        "esmc_600m": "esmc",
-        "esmc_6b": "esmc_6b_api",
-        "prost_t5": "prost_t5",
-        "prot_bert": "prot_bert",
-    }
-
-    def test_every_declared_model_resolves_to_the_expected_plugin(self):
-        for model_name, expected_module in self.EXPECTED_PLUGINS.items():
-            with self.subTest(model_name=model_name):
-                plugin = embedding_injection.find_model_plugin(model_name)
-
-                self.assertIsNotNone(plugin)
-                self.assertEqual(plugin.__name__, expected_module)
-                self.assertTrue(callable(plugin.load_model))
-                self.assertTrue(callable(plugin.get_embedding))
-
-    def test_esmc_6b_selects_remote_api_plugin(self):
-        plugin = embedding_injection.find_model_plugin("esmc_6b")
-
-        self.assertEqual(plugin.__name__, "esmc_6b_api")
-        self.assertIn("API_MODEL_MAPPINGS", vars(plugin))
-
-    def test_load_model_delegates_to_selected_plugin(self):
-        plugin = mock.Mock()
-        plugin.__name__ = "test_plugin"
-        plugin.load_model.return_value = mock.sentinel.model
-        plugin.get_embedding = mock.Mock()
-
-        with mock.patch.object(
-            embedding_injection,
-            "find_model_plugin",
-            return_value=plugin,
-        ), mock.patch.object(
-            embedding_injection.Hardware_Utils,
-            "get_optimal_device",
-            return_value=mock.sentinel.device,
-        ):
-            model_obj, device, selected_plugin = embedding_injection.load_model(
-                "test_model"
-            )
-
-        plugin.load_model.assert_called_once_with(
-            "test_model",
-            mock.sentinel.device,
-        )
-        self.assertIs(model_obj, mock.sentinel.model)
-        self.assertIs(device, mock.sentinel.device)
-        self.assertIs(selected_plugin, plugin)
-
-    def test_get_embedding_delegates_sequence_processing_to_plugin(self):
-        expected = np.ones((3, 5), dtype=np.float16)
-        plugin = mock.Mock()
-        plugin.get_embedding.return_value = expected
-
-        actual = embedding_injection.get_embedding(
-            "AB-CD",
-            mock.sentinel.model,
-            mock.sentinel.device,
-            plugin,
-            np.float16,
-        )
-
-        plugin.get_embedding.assert_called_once_with(
-            "AB-CD",
-            mock.sentinel.model,
-            mock.sentinel.device,
-            np.float16,
-        )
-        self.assertIs(actual, expected)
-
-    def test_unknown_model_reports_unsupported_plugin(self):
-        with mock.patch.object(
-            embedding_injection,
-            "find_model_plugin",
-            return_value=None,
-        ), self.assertRaisesRegex(
-            ValueError,
-            "not supported by any available plugin",
-        ):
-            embedding_injection.load_model("not_a_model")
+from tests.alignment_fixtures import BatchResumeScanFixture, RecordingTrial  # noqa: E402
 
 
 class NetworkInjectionPipelineTests(unittest.TestCase):
@@ -202,10 +116,6 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
 
         with mock.patch.object(
             network_injection, "DEVICE_SELECTION", "auto"
-        ), mock.patch.object(
-            network_injection, "ACCELERATOR_TUNE_PAIRS", 2
-        ), mock.patch.object(
-            network_injection, "ACCELERATOR_CONFIRM_PAIRS", 3
         ), mock.patch.object(
             network_injection.Hardware_Utils,
             "get_available_devices",
@@ -348,6 +258,8 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 )
 
             output = io.StringIO()
+            # set_start_method would switch this whole test process to spawn
+            # on Linux; the run also assigns the sequence-set names.
             with mock.patch.object(
                 network_injection,
                 "NEW_EMBEDDINGS",
@@ -355,7 +267,12 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
             ), mock.patch.object(network_injection, "OLD_NETWORK", "unused.h5"), mock.patch.object(
                 network_injection,
                 "calculate_file_hash",
-            ) as calculate_hash, redirect_stdout(output):
+            ) as calculate_hash, mock.patch.multiple(
+                network_injection,
+                set_start_method=mock.DEFAULT,
+                _old_seq_set=network_injection._old_seq_set,
+                _new_seq_set=network_injection._new_seq_set,
+            ), redirect_stdout(output):
                 exit_code = network_injection.run_injection()
 
         self.assertEqual(exit_code, 1)
@@ -399,19 +316,15 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 events.append("pool-close")
                 return False
 
-            def imap_unordered(self, function, tasks, chunksize):
-                for task in tasks:
-                    events.append(f"pair-{task[1]}")
-                    yield function(task)
+            def map_async(self, function, chunk, chunksize):
+                def get():
+                    events.extend(f"pair-{task[1]}" for task in chunk)
+                    return [function(task) for task in chunk]
 
-        class Timer:
-            def start(self):
-                events.append("timer-start")
-
-            def stop(self):
-                events.append("timer-stop")
+                return SimpleNamespace(get=get)
 
         tasks = [(0, column, "a", f"h{column}") for column in range(1, 5)]
+        trial = RecordingTrial(events)
         with mock.patch.object(
             network_injection, "Pool", FakePool
         ), mock.patch.object(
@@ -425,63 +338,118 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 input_h5="unused.h5",
                 batch_id=-1,
                 show_progress=False,
-                warmup_task_count=2,
-                benchmark_timer=Timer(),
+                benchmark_trial=trial,
             )
 
+        # Four pairs are fewer than the warm-up minimum, so the warm-up runs all
+        # of them and the timed phase starts again from the first pair.
+        pairs = [f"pair-{column}" for column in range(1, 5)]
         self.assertEqual(FakePool.instances, 1)
-        self.assertEqual(len(results), 4)
         self.assertEqual(
             events,
-            [
-                "pool-open",
-                "pair-1",
-                "pair-2",
-                "timer-start",
-                "pair-3",
-                "pair-4",
-                "timer-stop",
-                "pool-close",
-            ],
+            ["pool-open", *pairs, "trial-start", *pairs, "trial-stop", "pool-close"],
         )
+        # Only the timed phase's results are returned.
+        self.assertEqual(
+            sorted(results),
+            [(0, column, 1.0, 1, 2.0, 1) for column in range(1, 5)],
+        )
+        self.assertEqual((trial.submitted, trial.completed), (4, 4))
 
-    def test_process_batch_never_writes_paths_dataset(self):
-        expected = [(0, 1, 1.0, 1, 2.0, 1)]
-        tasks = [(0, 1, "a", "b")]
+    def test_process_batch_streams_benchmarked_plans_into_one_batch_file(self):
+        # run_injection always passes the embedding store, the plan's lanes,
+        # variant and the inherited precision; both accelerator variants must
+        # stream their results into the atomic batch writer.
+        tasks = [(0, 2, "a", "c"), (1, 2, "b", "c")]
+        expected = [(0, 2, 1.5, 3, 2.5, 4), (1, 2, 3.5, 5, 4.5, 6)]
+        store = mock.Mock()
+        plan = mock.Mock(matrix_bytes=64 << 20)
 
-        with tempfile.TemporaryDirectory() as temp_dir, \
-                mock.patch.object(
-                    network_injection,
-                    "RESULTS_DIR",
-                    temp_dir,
-                ), mock.patch.object(
-                    network_injection.Hardware_Utils,
-                    "get_optimal_device",
-                    return_value=torch.device("cuda"),
-                ), mock.patch.object(
-                    network_injection,
-                    "process_accelerated_tasks",
-                    return_value=expected,
-                ), mock.patch.object(
-                    network_injection,
-                    "process_cpu_tasks",
-                ):
-            network_injection.process_batch(
-                tasks,
-                batch_id=5,
-                workers=4,
-                new_emb_path="unused.h5",
-                embedding_checksum="checksum",
-                model_name="test-model",
-                saving_mode="float32",
-                gap_penalties=[-2.0, 0.0],
-            )
+        def stream_results(*_args, **kwargs):
+            kwargs["result_callback"](list(expected))
+            return []
 
-            output_path = os.path.join(temp_dir, "batch_00005.h5")
-            with h5py.File(output_path, "r") as hf:
-                self.assertNotIn("paths", hf)
-                self.assertEqual(hf.attrs["embedding_checksum"], "checksum")
-                self.assertEqual(hf.attrs["matmul_precision"], "ieee_fp32")
+        for variant in ("scalar", "tiled"):
+            with self.subTest(variant=variant), \
+                    tempfile.TemporaryDirectory() as temp_dir, \
+                    mock.patch.object(
+                        network_injection, "RESULTS_DIR", temp_dir
+                    ), mock.patch.object(
+                        network_injection,
+                        "get_accelerator_backend",
+                        return_value=mock.Mock(device_type="cuda"),
+                    ), mock.patch.object(
+                        network_injection, "cuda_memory_plan", return_value=plan
+                    ) as memory_plan, mock.patch.object(
+                        network_injection,
+                        "_run_accelerated_pipeline",
+                        side_effect=stream_results,
+                    ) as scalar, mock.patch.object(
+                        network_injection,
+                        "run_tiled_accelerator_pipeline",
+                        side_effect=stream_results,
+                    ) as tiled, mock.patch.object(
+                        network_injection, "process_cpu_tasks"
+                    ) as cpu:
+                network_injection.process_batch(
+                    tasks,
+                    batch_id=5,
+                    workers=4,
+                    new_emb_path="unused.h5",
+                    embedding_checksum="checksum",
+                    model_name="test-model",
+                    saving_mode="float16",
+                    gap_penalties=[-2.0, 0.0],
+                    device=torch.device("cuda:0"),
+                    accelerator_workers=2,
+                    execution_variant=variant,
+                    matmul_precision="tf32",
+                    embedding_store=store,
+                    sequence_lengths=[3, 5, 7],
+                )
+
+                cpu.assert_not_called()
+                if variant == "scalar":
+                    tiled.assert_not_called()
+                    scalar.assert_called_once()
+                    self.assertEqual(
+                        scalar.call_args.args,
+                        (tasks, 4, "unused.h5", torch.device("cuda:0"), 5, 2, True),
+                    )
+                    self.assertEqual(scalar.call_args.kwargs["matmul_precision"], "tf32")
+                    writer = scalar.call_args.kwargs["result_callback"]
+                else:
+                    scalar.assert_not_called()
+                    tiled.assert_called_once()
+                    memory_plan.assert_called_once_with(torch.device("cuda:0"), lanes=2)
+                    kwargs = tiled.call_args.kwargs
+                    self.assertIs(kwargs["store"], store)
+                    self.assertEqual(kwargs["lengths"], [3, 5, 7])
+                    self.assertEqual(kwargs["lanes"], 2)
+                    self.assertEqual(kwargs["precision"], "tf32")
+                    self.assertEqual(kwargs["matrix_budget_override"], 64 << 20)
+                    self.assertIs(
+                        kwargs["alignment_callback"],
+                        network_injection.calculate_alignment_data,
+                    )
+                    self.assertIs(
+                        kwargs["batch_alignment_callback"],
+                        network_injection.calculate_alignment_batch,
+                    )
+                    writer = kwargs["result_callback"]
+                self.assertIsInstance(writer, network_injection._PartialBatchWriter)
+
+                output_path = os.path.join(temp_dir, "batch_00005.h5")
+                self.assertEqual(os.listdir(temp_dir), ["batch_00005.h5"])
+                with h5py.File(output_path, "r") as hf:
+                    self.assertEqual(hf.attrs["embedding_checksum"], "checksum")
+                    self.assertEqual(hf.attrs["model_name"], "test-model")
+                    self.assertEqual(hf.attrs["saving_mode"], "float16")
+                    self.assertEqual(hf.attrs["matmul_precision"], "tf32")
+                    np.testing.assert_array_equal(hf["i"][:], [0, 1])
+                    np.testing.assert_array_equal(hf["j"][:], [2, 2])
+                    np.testing.assert_array_equal(hf["l_score"][:], [1.5, 3.5])
+                    np.testing.assert_array_equal(hf["g_len"][:], [4, 6])
 
     def test_partial_writer_records_tf32_and_publishes_atomically(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -800,6 +768,7 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
                 _new_seq_set="UnknownNew",
                 _model_name="unknown",
                 calculate_file_hash=mock.DEFAULT,
+                set_start_method=mock.DEFAULT,
             ) as patched, redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(
                     network_injection.EmbeddingFileError,
@@ -967,6 +936,243 @@ class NetworkInjectionPipelineTests(unittest.TestCase):
         self.assertNotIn("❌", stdout)
         self.assertIn("Pairs queued for calculation: 2", stdout)
         compile_output.assert_called_once()
+
+    # Old network A, B, C; its rows are stored out of canonical pair order.
+    REORDER_OLD_EDGES = {
+        ("B", "C"): (21.5, 21, 22.5, 22),
+        ("A", "B"): (11.5, 11, 12.5, 12),
+        ("A", "C"): (31.5, 31, 32.5, 32),
+    }
+    # Scores the stubbed CPU workers return for the pairs with the new D.
+    REORDER_NEW_EDGES = {
+        ("C", "D"): (41.5, 41, 42.5, 42),
+        ("A", "D"): (51.5, 51, 52.5, 52),
+        ("B", "D"): (61.5, 61, 62.5, 62),
+    }
+
+    def test_reordered_sequence_set_keeps_each_old_edge_on_its_own_pair(self):
+        # The new FASTA lists C, A, B, D: every reused old edge changes index
+        # and two of them reverse their orientation (C now precedes A and B).
+        # A wrong old-to-new index map would give an edge another pair's scores.
+        old_sequences = {"A": "ACDE", "B": "ACDFG", "C": "ACDFGH"}
+        new_sequences = {"C": "ACDFGH", "A": "ACDE", "B": "ACDFG", "D": "KLMNPQR"}
+        old_index = {header: index for index, header in enumerate(old_sequences)}
+        rng = np.random.default_rng(5)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            embed_dir = os.path.join(temp_dir, "embed")
+            network_dir = os.path.join(temp_dir, "network")
+            os.makedirs(embed_dir)
+            os.makedirs(network_dir)
+            with h5py.File(
+                os.path.join(embed_dir, "newset_[esm2_t6_8m]_embeddings.h5"), "w"
+            ) as hf:
+                group = Embedding_HDF5.create_metadata_first_file(
+                    hf,
+                    list(new_sequences),
+                    list(new_sequences.values()),
+                    "esm2_t6_8m",
+                    "float32",
+                )
+                for header, sequence in new_sequences.items():
+                    group.create_dataset(
+                        header,
+                        data=rng.standard_normal((len(sequence), 4)).astype(np.float32),
+                    )
+                Embedding_HDF5.mark_generation_complete(hf)
+            with h5py.File(
+                os.path.join(network_dir, "oldset_[esm2_t6_8m]_network.h5"), "w"
+            ) as hf:
+                hf.attrs["model_name"] = "esm2_t6_8m"
+                hf.attrs["saving_mode"] = "float32"
+                hf.attrs["gap_penalties"] = np.asarray([-2.0, 0.0], np.float32)
+                hf.attrs["matmul_precision"] = "ieee_fp32"
+                hf.create_dataset(
+                    "headers",
+                    data=np.array(list(old_sequences), dtype=object),
+                    dtype=h5py.string_dtype(encoding="utf-8"),
+                )
+                hf.create_dataset(
+                    "seq_lens",
+                    data=np.asarray([len(s) for s in old_sequences.values()], np.uint16),
+                )
+                edges = list(self.REORDER_OLD_EDGES.items())
+                columns = list(zip(*(values for _pair, values in edges)))
+                for name, data, dtype in (
+                    ("i", [old_index[u] for (u, _v), _ in edges], np.uint16),
+                    ("j", [old_index[v] for (_u, v), _ in edges], np.uint16),
+                    ("l_score", columns[0], np.float32),
+                    ("l_len", columns[1], np.uint16),
+                    ("g_score", columns[2], np.float32),
+                    ("g_len", columns[3], np.uint16),
+                ):
+                    hf.create_dataset(name, data=np.asarray(data, dtype))
+
+            plan = mock.Mock(variant="scalar", lanes=1)
+            plan.candidate.is_cpu = True
+            plan.candidate.device = torch.device("cpu")
+
+            def compute_new_pairs(tasks, *_args, **_kwargs):
+                return [
+                    (i, j, *self.REORDER_NEW_EDGES[(h_i, h_j)])
+                    for i, j, h_i, h_j in tasks
+                ]
+
+            cpu_tasks = mock.Mock(side_effect=compute_new_pairs)
+            # The job assigns these globals; patching them restores the originals.
+            assigned = (
+                "_old_seq_set", "_new_seq_set", "_model_name", "RESULTS_DIR",
+                "FINAL_OUTPUT_NET", "CONFIG_FILE", "LOCAL_GAP_P", "GLOBAL_GAP_P",
+            )
+            with mock.patch.multiple(
+                network_injection,
+                **{name: getattr(network_injection, name) for name in assigned},
+                OLD_NETWORK="oldset_[esm2_t6_8m]_network.h5",
+                NEW_EMBEDDINGS="newset_[esm2_t6_8m]_embeddings.h5",
+                EMBED_DIR=embed_dir,
+                NETWORK_DIR=network_dir,
+                EXECUTION_MODE="auto",
+                DEVICE_SELECTION="auto",
+                set_start_method=mock.DEFAULT,
+                _benchmark_injection_plans=mock.Mock(return_value=[plan]),
+                process_cpu_tasks=cpu_tasks,
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = network_injection.run_injection()
+
+            self.assertIsNone(exit_code)
+            # Only the pairs with the new sequence D are calculated.
+            cpu_tasks.assert_called_once()
+            self.assertEqual(
+                cpu_tasks.call_args.args[0],
+                [(0, 3, "C", "D"), (1, 3, "A", "D"), (2, 3, "B", "D")],
+            )
+            new_headers = list(new_sequences)
+            expected = [
+                (i, j, *(
+                    self.REORDER_NEW_EDGES.get((new_headers[i], new_headers[j]))
+                    or self.REORDER_OLD_EDGES[tuple(sorted((new_headers[i], new_headers[j])))]
+                ))
+                for i in range(4)
+                for j in range(i + 1, 4)
+            ]
+            output = os.path.join(network_dir, "newset_[esm2_t6_8m]_network.h5")
+            with h5py.File(output, "r") as hf:
+                self.assertEqual(
+                    [header.decode() for header in hf["headers"][:]], new_headers
+                )
+                actual = list(zip(*(
+                    hf[name][:].tolist()
+                    for name in ("i", "j", "l_score", "l_len", "g_score", "g_len")
+                )))
+        # (0, 1) is C-A, so it carries A-C's old scores; (0, 2) carries B-C's
+        # and (1, 2) A-B's.
+        self.assertEqual(actual, expected)
+        self.assertEqual(
+            actual[:2],
+            [(0, 1, 31.5, 31, 32.5, 32), (0, 2, 21.5, 21, 22.5, 22)],
+        )
+
+
+class InjectionResumeScanTests(BatchResumeScanFixture, unittest.TestCase):
+    """scan_existing_batches resumes only batches written for this run.
+
+    Any other batch sends the whole folder to <RESULTS_DIR>_BackUp with a
+    report, and no pair is reused.
+    """
+
+    MATCHING_ATTRS = {
+        "embedding_checksum": "checksum",
+        "model_name": "test-model",
+        "saving_mode": "float32",
+        "gap_penalties": np.array([-2.0, 0.0], np.float32),
+        "matmul_precision": "ieee_fp32",
+    }
+
+    def scan(self, results_dir):
+        stdout = io.StringIO()
+        with mock.patch.object(
+            network_injection, "RESULTS_DIR", results_dir
+        ), redirect_stdout(stdout):
+            computed = network_injection.scan_existing_batches(
+                2, "checksum", "test-model", "float32", [-2.0, 0.0], "ieee_fp32"
+            )
+        return computed, stdout.getvalue()
+
+    def test_matching_batch_resumes_its_pair(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            results_dir = os.path.join(temp_dir, "batches")
+            self.write_batch(results_dir)
+            computed, _output = self.scan(results_dir)
+            self.assertEqual(os.listdir(temp_dir), ["batches"])
+            self.assertEqual(os.listdir(results_dir), ["batch_00000.h5"])
+        # Pair (0, 1) of a 2-sequence set is key 0 * 2 + 1.
+        self.assertEqual(computed, {1})
+
+    def test_each_identity_mismatch_backs_up_the_folder(self):
+        cached_gaps = list(np.array([-3.0, 0.0], np.float32))
+        cases = {
+            "checksum": (
+                {"embedding_checksum": "other"},
+                "Checksum mismatch in 'batch_00000.h5' ('other' vs current 'checksum')",
+            ),
+            "model_name": (
+                {"model_name": "other-model"},
+                "Model name mismatch in 'batch_00000.h5' ('other-model' vs current 'test-model')",
+            ),
+            "saving_mode": (
+                {"saving_mode": "float16"},
+                "Saving mode mismatch in 'batch_00000.h5' ('float16' vs current 'float32')",
+            ),
+            "gap_penalties": (
+                {"gap_penalties": np.array([-3.0, 0.0], np.float32)},
+                f"Gap penalties mismatch in 'batch_00000.h5' ({cached_gaps} vs current [-2.0, 0.0])",
+            ),
+            "matmul_precision": (
+                {"matmul_precision": "tf32"},
+                "Matmul precision mismatch in 'batch_00000.h5' ('tf32' vs 'ieee_fp32')",
+            ),
+            "missing l_len": (
+                {"omit": ("l_len",)},
+                "Missing required datasets in batch file 'batch_00000.h5'",
+            ),
+            "i/j length": (
+                {"j": (1, 1)},
+                "Dataset length mismatch in batch file 'batch_00000.h5'",
+            ),
+        }
+        for label, (batch, reason) in cases.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir:
+                results_dir = os.path.join(temp_dir, "batches")
+                self.write_batch(results_dir, **batch)
+                computed, output = self.scan(results_dir)
+                reasons = self.assert_backed_up(results_dir, results_dir + "_BackUp")
+                self.assertEqual(computed, set())
+                self.assertEqual(reasons, [reason])
+                self.assertIn(f"  > Mismatch reason: {reason}\n", output)
+
+    def test_repeat_backup_takes_the_next_free_suffix(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            results_dir = os.path.join(temp_dir, "batches")
+            self.write_batch(results_dir, saving_mode="float16")
+            self.scan(results_dir)
+            self.write_batch(results_dir, saving_mode="bfloat16")
+            computed, output = self.scan(results_dir)
+            reasons = self.assert_backed_up(results_dir, results_dir + "_BackUp_1")
+            self.assertEqual(
+                sorted(os.listdir(temp_dir)),
+                ["batches", "batches_BackUp", "batches_BackUp_1"],
+            )
+            first_batch = os.path.join(results_dir + "_BackUp", "batch_00000.h5")
+            with h5py.File(first_batch, "r") as hf:
+                self.assertEqual(hf.attrs["saving_mode"], "float16")
+        self.assertEqual(computed, set())
+        self.assertEqual(
+            reasons,
+            ["Saving mode mismatch in 'batch_00000.h5' ('bfloat16' vs current 'float32')"],
+        )
+        self.assertIn(
+            f"  > Renaming existing batch folder to: '{results_dir}_BackUp_1'\n",
+            output,
+        )
 
 
 if __name__ == "__main__":

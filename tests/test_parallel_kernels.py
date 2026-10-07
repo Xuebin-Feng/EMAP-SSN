@@ -36,14 +36,12 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     from utilities import Network_Kernels
     from utilities import Numba_Threads
 
-try:
-    import numba
-    from numba import jit
-except ImportError:
-    numba = None
+# Numba is a pinned requirement, and Embedding_MSA above imports it
+# unconditionally, so these tests never run without it.
+import numba  # noqa: E402
+from numba import jit  # noqa: E402
 
-POOL_SIZE = numba.config.NUMBA_NUM_THREADS if numba is not None else 1
-needs_numba = unittest.skipUnless(numba is not None, "Numba is unavailable")
+POOL_SIZE = numba.config.NUMBA_NUM_THREADS
 needs_threads = unittest.skipUnless(
     POOL_SIZE >= 2, "Numba has fewer than two threads"
 )
@@ -322,7 +320,6 @@ class ThreadBudgetTests(unittest.TestCase):
             20,
         )
 
-    @needs_numba
     def test_default_follows_numba_num_threads_only_when_set(self):
         with mock.patch.dict(os.environ, {"NUMBA_NUM_THREADS": str(POOL_SIZE)}):
             self.assertEqual(Numba_Threads.default_thread_count(), POOL_SIZE)
@@ -334,7 +331,6 @@ class ThreadBudgetTests(unittest.TestCase):
                 Numba_Threads.default_thread_count(), min(POOL_SIZE, 18)
             )
 
-    @needs_numba
     @needs_threads
     def test_limited_threads_restores_the_previous_count(self):
         previous = numba.get_num_threads()
@@ -346,7 +342,6 @@ class ThreadBudgetTests(unittest.TestCase):
         self.assertEqual(numba.get_num_threads(), previous)
 
 
-@needs_numba
 class ParallelLayoutKernelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -446,7 +441,6 @@ class ParallelLayoutKernelTests(unittest.TestCase):
         self.assertEqual(numba.get_num_threads(), previous)
 
 
-@needs_numba
 class ParallelNeighborJoiningTests(unittest.TestCase):
     def test_ties_keep_the_first_minimum_in_row_major_order(self):
         # Q(0,1), Q(0,2), Q(1,3) and Q(2,3) are all exactly -4.5. The serial
@@ -501,7 +495,6 @@ class ParallelNeighborJoiningTests(unittest.TestCase):
         self.assertEqual(neighbor_joining.call_args.kwargs["threads"], 3)
 
 
-@needs_numba
 class ParallelJaccardFilterTests(unittest.TestCase):
     def test_matches_neighbourhood_set_definition_on_any_thread_count(self):
         rng = np.random.default_rng(9)

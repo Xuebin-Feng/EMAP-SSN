@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QTextBrowser, QWidget
 from EMAPSSN_Tools import ToolsGUI, ResponsiveFieldLayout, configure_qt_application_fonts
+from tests.tools_gui_fixtures import isolated_tools_project
 
 
 class ResponsiveToolsTests(unittest.TestCase):
@@ -23,6 +24,8 @@ class ResponsiveToolsTests(unittest.TestCase):
         configure_qt_application_fonts(cls.app)
 
     def setUp(self):
+        # Saved values and directories come from a temporary tools_settings.json.
+        isolated_tools_project(self)
         # The independent Chromium description panel is not part of form geometry.
         with patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
             self.window = ToolsGUI()

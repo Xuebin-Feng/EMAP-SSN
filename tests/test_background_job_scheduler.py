@@ -1,3 +1,7 @@
+"""Background job scheduler (Background_Job_Scheduler): FIFO non-overlapping
+jobs, status updates on the GUI thread, prompt shutdown, and output-path
+reservations."""
+
 import os
 import sys
 import tempfile
@@ -31,7 +35,15 @@ class ViewerStub:
         self.update_threads.append(threading.get_ident())
 
 
-def wait_for(predicate, timeout=3.0):
+# Generous deadlines: waits return as soon as their condition holds, and the
+# "does not block" checks compare against jobs that stay blocked for
+# BLOCKED_JOB_SECONDS, so a loaded CPU cannot turn a pass into a failure.
+STARTUP_TIMEOUT = 10.0
+BLOCKED_JOB_SECONDS = 10.0
+NON_BLOCKING_LIMIT = 5.0
+
+
+def wait_for(predicate, timeout=STARTUP_TIMEOUT):
     deadline = time.monotonic() + timeout
     application = QtCore.QCoreApplication.instance()
     while time.monotonic() < deadline:
@@ -46,6 +58,9 @@ def wait_for(predicate, timeout=3.0):
 class BackgroundJobSchedulerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Reuse an application another test module created and leave it alive;
+        # only an application created here is shut down in tearDownClass.
+        cls._owns_application = QtCore.QCoreApplication.instance() is None
         cls.application = (
             QtCore.QCoreApplication.instance()
             or QtCore.QCoreApplication([])
@@ -54,14 +69,15 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         application = cls.application
-        application.quit()
-        application.deleteLater()
-        application.processEvents()
-        QtCore.QCoreApplication.sendPostedEvents(
-            None,
-            QtCore.QEvent.Type.DeferredDelete,
-        )
         cls.application = None
+        if cls._owns_application:
+            application.quit()
+            application.deleteLater()
+            application.processEvents()
+            QtCore.QCoreApplication.sendPostedEvents(
+                None,
+                QtCore.QEvent.Type.DeferredDelete,
+            )
         del application
         gc.collect()
 
@@ -94,7 +110,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             try:
                 if payload == "label":
                     first_started.set()
-                    release_first.wait(2.0)
+                    release_first.wait(BLOCKED_JOB_SECONDS)
                 if payload == "broken":
                     raise RuntimeError("expected failure")
                 result = {"message": f"finished {payload}", "save_path": payload}
@@ -114,7 +130,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
                 "label", "label test", "label", worker,
                 os.path.join(directory, "one.xlsx"),
             )
-            self.assertTrue(first_started.wait(1.0))
+            self.assertTrue(first_started.wait(STARTUP_TIMEOUT))
             enqueue_started = time.monotonic()
             scheduler.enqueue(
                 "logo", "failure test", "broken", worker,
@@ -124,7 +140,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
                 "logo", "logo test", "logo", worker,
                 os.path.join(directory, "three.svg"),
             )
-            self.assertLess(time.monotonic() - enqueue_started, 0.2)
+            self.assertLess(time.monotonic() - enqueue_started, NON_BLOCKING_LIMIT)
             release_first.set()
             self.assertTrue(
                 wait_for(lambda: successes == [1, 3] and failures == [2])
@@ -158,7 +174,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
         def blocking_worker(payload):
             executed.append(payload)
             started.set()
-            release.wait(2.0)
+            release.wait(BLOCKED_JOB_SECONDS)
             return {"message": "finished", "save_path": payload}
 
         with tempfile.TemporaryDirectory() as directory:
@@ -167,13 +183,13 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             scheduler.enqueue(
                 "logo", "active", "active", blocking_worker, active_path
             )
-            self.assertTrue(started.wait(1.0))
+            self.assertTrue(started.wait(STARTUP_TIMEOUT))
             scheduler.enqueue(
                 "label", "queued", "queued", blocking_worker, queued_path
             )
             shutdown_started = time.monotonic()
             scheduler.shutdown()
-            self.assertLess(time.monotonic() - shutdown_started, 0.2)
+            self.assertLess(time.monotonic() - shutdown_started, NON_BLOCKING_LIMIT)
             self.assertFalse(scheduler.is_output_path_reserved(queued_path))
             release.set()
             self.assertTrue(wait_for(lambda: scheduler.queue_depth == 0))
@@ -186,7 +202,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
         release = threading.Event()
 
         def worker(_payload):
-            release.wait(1.0)
+            release.wait(BLOCKED_JOB_SECONDS)
             return {"message": "done", "save_path": "ignored"}
 
         with tempfile.TemporaryDirectory() as directory:
@@ -210,7 +226,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
         release = threading.Event()
 
         def worker(_payload):
-            release.wait(1.0)
+            release.wait(BLOCKED_JOB_SECONDS)
             return {"message": "done", "save_path": "ignored"}
 
         with tempfile.TemporaryDirectory() as directory:

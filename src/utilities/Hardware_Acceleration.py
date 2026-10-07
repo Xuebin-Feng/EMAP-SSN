@@ -79,7 +79,15 @@ def _validated_device_specs() -> Optional[set[str]]:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    if not isinstance(state, dict) or int(state.get("schema", 0)) < 3:
+    if not isinstance(state, dict):
+        return None
+    try:
+        schema = int(state.get("schema", 0))
+    except (TypeError, ValueError, OverflowError):
+        # A hand-edited schema (null, a list, "abc", NaN, Infinity) is
+        # unvalidated state, as Install_Dependencies.read_state treats it.
+        return None
+    if schema < 3:
         return None
     devices = state.get("validated_devices")
     if not isinstance(devices, list):

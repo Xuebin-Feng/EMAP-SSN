@@ -170,19 +170,6 @@ class Inspector:
                          "import_warnings must be a JSON list of strings.")
             for warning in warnings:
                 self.finding("warning", f"Recorded when this network was imported: {warning}")
-        if "sparsity_keep_count" in hf.attrs:
-            import numpy as np
-            selected = hf.attrs["sparsity_keep_count"]
-            self.require(isinstance(selected, (int, np.integer)) and not isinstance(selected, (bool, np.bool_)), "sparsity_keep_count must be an integer.")
-            selected = int(selected)
-            self.require(selected >= 0, "Negative selected-edge count.")
-            self.report["metadata"]["selected_edge_count"] = selected
-            self.report["metadata"]["selected_count_matches"] = edges == selected
-            if edges != selected:
-                self.finding("warning", "Selected-edge count differs from stored edges. Extraction can inherit this attribute from the source network; it does not establish interrupted generation.")
-        if "_resume" in hf:
-            self.require(self.report["generation_completion"]["status"] != "complete", "Complete flag contradicts retained resume state.")
-            self.report["generation_completion"] = dict(status="incomplete", evidence="Alignment writer retains _resume state until finalization.")
         self.report["checks_performed"].append("Network type, required datasets, ranks, dtypes, counts, and available completion metadata")
         self.report["checks_omitted"].append("Edge indices, ordering, uniqueness, scores, and finite values were not read or validated.")
 

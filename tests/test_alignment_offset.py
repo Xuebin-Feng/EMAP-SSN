@@ -63,11 +63,15 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
             with open(msa_path, "w", encoding="utf-8") as handle:
                 handle.write(">reference_sequence\nA-C\n>other_sequence\nATC\n")
 
-            manager = Alignment_Manager.Alignment_Manager(
-                msa_path,
-                active_reference="reference",
-                alignment_offset=10,
-            )
+            # Column 1 is 50% occupied, so it keeps its insertion label "1.1"
+            # only while the occupancy filter is at most 50%.
+            with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
+                    redirect_stdout(io.StringIO()):
+                manager = Alignment_Manager.Alignment_Manager(
+                    msa_path,
+                    active_reference="reference",
+                    alignment_offset=10,
+                )
 
         self.assertTrue(manager.has_reference)
         self.assertEqual(manager.offset, 10)
@@ -82,11 +86,12 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
             with open(msa_path, "w", encoding="utf-8") as handle:
                 handle.write(">reference_sequence\nAC\n>other_sequence\nAT\n")
 
-            manager = Alignment_Manager.Alignment_Manager(
-                msa_path,
-                active_reference="missing",
-                alignment_offset=10,
-            )
+            with redirect_stdout(io.StringIO()):
+                manager = Alignment_Manager.Alignment_Manager(
+                    msa_path,
+                    active_reference="missing",
+                    alignment_offset=10,
+                )
 
         self.assertFalse(manager.has_reference)
         self.assertIsNotNone(manager.aln)

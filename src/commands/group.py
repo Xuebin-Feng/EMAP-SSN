@@ -88,7 +88,8 @@ def print_help():
 
     Commands:
       list          - Prints current group statistics to the console.
-      remove/delete - Deletes the specified group(s) entirely.
+      remove/delete - Deletes the specified group(s) entirely. If any named
+                      group does not exist, nothing is removed.
 
     Examples:
       group active_site                        (Assigns to currently selected nodes)
@@ -163,30 +164,36 @@ def run(viewer, args):
             Command_Engine.print_help(viewer, msg)
             return
             
-        if getattr(viewer, 'group_labels', None) is None:
-            msg = "No groups are currently defined."
+        group_labels = getattr(viewer, 'group_labels', None)
+        existing_groups = set().union(*group_labels) if group_labels is not None else set()
+        groups_to_remove = list(dict.fromkeys(g.lower() for g in args[1:]))
+
+        # Like group assignment, removal is all-or-nothing: one missing name
+        # (usually a typo) aborts the command before any undo state is saved.
+        missing = [g for g in groups_to_remove if g not in existing_groups]
+        if missing:
+            if existing_groups:
+                msg = (f"Error: Group(s) not found: {', '.join(missing)}. Nothing was removed.\n"
+                       f"Existing groups: {', '.join(sorted(existing_groups))}.")
+            else:
+                msg = f"Error: Group(s) not found: {', '.join(missing)}. No groups are currently defined."
+            Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer, msg)
             return
 
-        groups_to_remove = [g.lower() for g in args[1:]]
         total_removed = 0
-        
+
         # Save state before deleting so the user can Undo
         viewer._save_state()
-        
+
         for g_set in viewer.group_labels:
             for g_target in groups_to_remove:
                 if g_target in g_set:
                     g_set.remove(g_target)
                     total_removed += 1
-                    
-        if total_removed > 0:
-            viewer.update_nodes()
-            msg = f"Removed {len(groups_to_remove)} group(s) from {total_removed} total node instances."
-        else:
-            msg = f"None of the specified groups were found."
-            
+
+        viewer.update_nodes()
+        msg = f"Removed {len(groups_to_remove)} group(s) from {total_removed} total node instances."
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return

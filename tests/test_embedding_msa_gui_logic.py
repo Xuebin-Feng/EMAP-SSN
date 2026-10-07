@@ -16,6 +16,7 @@ from EMAPSSN_Tools import (
     imputed_consensus_switch_state,
     isotonic_regression_switch_state,
 )
+from tests.tools_gui_fixtures import isolated_tools_project
 
 
 class TestEmbeddingMsaGuiLogic(unittest.TestCase):
@@ -24,6 +25,8 @@ class TestEmbeddingMsaGuiLogic(unittest.TestCase):
         from EMAPSSN_Tools import ToolsGUI
 
         app = QApplication.instance() or QApplication([])
+        # No saved network or directories from the developer's tools_settings.json.
+        isolated_tools_project(self)
         incomplete = NetworkCompletenessInfo(
             status="incomplete", sequence_count=10, edge_count=20,
             expected_edge_count=45,

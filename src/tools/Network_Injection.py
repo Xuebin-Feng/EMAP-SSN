@@ -83,7 +83,6 @@ from tqdm import tqdm
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Network_Kernels import align_microbatch, global_local_scores
 from Embedding_Alignment_Engine import (
-    BenchmarkPhaseTimer,
     BenchmarkTrial,
     BENCHMARK_TRIAL_SECONDS,
     run_bounded_cpu_trial,
@@ -120,7 +119,6 @@ WORKERS = 12
 DEVICE_SELECTION = "auto"
 EXECUTION_MODE = "auto"
 HOST_CACHE_GB = "auto"
-ACCELERATOR_LANES = "auto"
 ACCELERATOR_BENCHMARK_HALF_PAIRS = 4096
 CPU_BENCHMARK_HALF_PAIRS = 256
 ACCELERATOR_TUNE_PAIRS = None
@@ -362,7 +360,6 @@ def calculate_cpu_pair(args):
 
 
 accelerator_thread_state = threading.local()
-accelerator_lane_cache = {}
 
 
 def _benchmark_half_sizes():
@@ -387,10 +384,6 @@ def _uses_accelerator(device):
     return _device_type(device) != "cpu"
 
 
-def _supports_explicit_streams(device):
-    return _device_type(device) in {"cuda", "xpu"}
-
-
 def _lane_candidates(device, cpu_workers):
     device_type = _device_type(device)
     max_lanes = max(1, int(cpu_workers))
@@ -406,44 +399,6 @@ def _lane_candidates(device, cpu_workers):
     if limit not in candidates:
         candidates.append(limit)
     return sorted(set(candidates))
-
-
-def _configured_lanes(device, cpu_workers):
-    configured = ACCELERATOR_LANES
-    if isinstance(configured, str):
-        normalized = configured.strip().lower()
-        if normalized in {"", "auto"}:
-            return None
-        try:
-            configured = int(normalized)
-        except ValueError:
-            print(
-                f"⚠️ Invalid ACCELERATOR_LANES={configured!r}; using auto."
-            )
-            return None
-    try:
-        configured = int(configured)
-    except (TypeError, ValueError):
-        return None
-    if configured < 1:
-        return None
-    if not _supports_explicit_streams(device):
-        return 1
-    return min(configured, max(1, int(cpu_workers)))
-
-
-def _accelerator_name(device):
-    device_type = _device_type(device)
-    try:
-        if device_type == "cuda":
-            return torch.cuda.get_device_name(device)
-        if device_type == "xpu":
-            return torch.xpu.get_device_name(device)
-        if device_type == "mps" and hasattr(torch.backends.mps, "get_name"):
-            return torch.backends.mps.get_name()
-    except (AttributeError, RuntimeError):
-        pass
-    return str(device)
 
 
 class _DeviceStreamContext:
@@ -511,16 +466,9 @@ def _run_accelerated_pipeline(
     show_progress,
     matmul_precision="float32",
     result_callback=None,
-    warmup_task_count=0,
-    benchmark_timer=None,
     benchmark_trial=None,
 ):
     tasks = list(tasks)
-    warmup_task_count = int(warmup_task_count)
-    if benchmark_timer is not None and (
-        warmup_task_count < 0 or warmup_task_count >= len(tasks)
-    ):
-        raise ValueError("Benchmark warm-up count must leave a timed task.")
     results = []
     ready_limit = max(lanes, min(workers, 8))
     cached_row_header = None
@@ -639,106 +587,13 @@ def _run_accelerated_pipeline(
             benchmark_trial.start()
             run_phase(tasks, benchmark_trial)
             benchmark_trial.stop(len(tasks))
-        elif benchmark_timer is None:
-            run_phase(tasks)
         else:
-            if warmup_task_count:
-                run_phase(tasks[:warmup_task_count])
-            benchmark_timer.start()
-            run_phase(tasks[warmup_task_count:])
-            benchmark_timer.stop()
+            run_phase(tasks)
 
     if result_callback is not None and results:
         result_callback(results)
         results.clear()
     return results
-
-
-def _select_lanes(
-    tasks,
-    workers,
-    input_h5,
-    device,
-    batch_id,
-):
-    manual = _configured_lanes(device, workers)
-    if manual is not None:
-        return manual
-    candidates = _lane_candidates(device, workers)
-    if len(candidates) == 1 or len(tasks) < 2:
-        return 1
-
-    cache_key = (_device_type(device), _accelerator_name(device), int(workers))
-    if cache_key in accelerator_lane_cache:
-        return accelerator_lane_cache[cache_key]
-
-    print(
-        f"  > Auto-tuning accelerator lanes on {cache_key[1]} "
-        f"using the first batch ({len(tasks)} pairs), {BENCHMARK_TRIAL_SECONDS:g} seconds per configuration..."
-    )
-
-    rates = {}
-    for lanes in candidates:
-        trial = BenchmarkTrial()
-        try:
-            _run_accelerated_pipeline(
-                tasks,
-                workers,
-                input_h5,
-                device,
-                batch_id,
-                lanes,
-                False,
-                benchmark_trial=trial,
-            )
-        except (RuntimeError, NotImplementedError) as error:
-            if lanes == 1:
-                raise
-            print(f"    {lanes} lanes unavailable: {error}")
-            continue
-        rates[lanes] = trial.rate
-
-    fastest = max(rates.values())
-    selected = min(
-        lanes
-        for lanes, rate in rates.items()
-        if rate >= fastest * 0.97
-    )
-    accelerator_lane_cache[cache_key] = selected
-    print(
-        "    "
-        + ", ".join(
-            f"{lanes}: {rate:.1f} pairs/s"
-            for lanes, rate in sorted(rates.items())
-        )
-    )
-    print(f"  > Selected {selected} accelerator lane(s).")
-    return selected
-
-
-def process_accelerated_tasks(
-    tasks,
-    workers,
-    input_h5,
-    device,
-    batch_id,
-):
-    lanes = _select_lanes(
-        tasks,
-        workers,
-        input_h5,
-        device,
-        batch_id,
-    )
-    return _run_accelerated_pipeline(
-        tasks,
-        workers,
-        input_h5,
-        device,
-        batch_id,
-        lanes,
-        True,
-    )
 
 
 def process_cpu_tasks(
@@ -748,16 +603,9 @@ def process_cpu_tasks(
     batch_id,
     show_progress=True,
     result_callback=None,
-    warmup_task_count=0,
-    benchmark_timer=None,
     benchmark_trial=None,
 ):
     tasks = list(tasks)
-    warmup_task_count = int(warmup_task_count)
-    if benchmark_timer is not None and (
-        warmup_task_count < 0 or warmup_task_count >= len(tasks)
-    ):
-        raise ValueError("Benchmark warm-up count must leave a timed task.")
     results = []
     with Pool(
         processes=workers,
@@ -789,14 +637,8 @@ def process_cpu_tasks(
                 results = run_bounded_cpu_trial(
                     pool, calculate_cpu_pair, tasks, workers, benchmark_trial
                 )
-            elif benchmark_timer is None:
-                run_phase(tasks)
             else:
-                if warmup_task_count:
-                    run_phase(tasks[:warmup_task_count])
-                benchmark_timer.start()
-                run_phase(tasks[warmup_task_count:])
-                benchmark_timer.stop()
+                run_phase(tasks)
         finally:
             progress.close()
     if result_callback is not None and results:
@@ -854,17 +696,13 @@ def _validate_execution_mode_hardware():
 
 def _execute_injection_plan(
     plan, tasks, workers, input_h5, batch_id, store, lengths,
-    matmul_precision, show_progress=False, warmup_task_count=0,
-    benchmark_timer=None,
-    benchmark_trial=None,
+    matmul_precision, show_progress=False, benchmark_trial=None,
 ):
     candidate, variant, lanes = plan
     if candidate.is_cpu:
         return process_cpu_tasks(
             tasks, workers, input_h5, batch_id,
             show_progress=show_progress,
-            warmup_task_count=warmup_task_count,
-            benchmark_timer=benchmark_timer,
             benchmark_trial=benchmark_trial,
         )
     if variant == "tiled":
@@ -878,15 +716,11 @@ def _execute_injection_plan(
             alignment_callback=calculate_alignment_data,
             batch_alignment_callback=calculate_alignment_batch,
             precision=matmul_precision,
-            warmup_task_count=warmup_task_count,
-            benchmark_timer=benchmark_timer,
             benchmark_trial=benchmark_trial,
         )
     return _run_accelerated_pipeline(
         tasks, workers, input_h5, candidate.device, batch_id, lanes,
         show_progress, matmul_precision=matmul_precision,
-        warmup_task_count=warmup_task_count,
-        benchmark_timer=benchmark_timer,
         benchmark_trial=benchmark_trial,
     )
 
@@ -1293,17 +1127,11 @@ def process_batch(
                     )
                     budget = next_budget
         elif _uses_accelerator(device):
-            if embedding_store is None and accelerator_workers is None:
-                # Retain the historical callable path for external callers/tests.
-                results = process_accelerated_tasks(
-                    batch_tasks, workers, new_emb_path, device, batch_id
-                )
-            else:
-                results = _run_accelerated_pipeline(
-                    batch_tasks, workers, new_emb_path, device, batch_id, lanes,
-                    True, matmul_precision=matmul_precision,
-                    result_callback=writer,
-                )
+            results = _run_accelerated_pipeline(
+                batch_tasks, workers, new_emb_path, device, batch_id, lanes,
+                True, matmul_precision=matmul_precision,
+                result_callback=writer,
+            )
         else:
             results = process_cpu_tasks(
                 batch_tasks, workers, new_emb_path, batch_id,

@@ -21,8 +21,6 @@ if __name__ == "__main__" and "--headless" in sys.argv:
     raise SystemExit(headless_main("tools"))
 import html
 import os
-import ntpath
-import posixpath
 import ast
 import json
 import math
@@ -89,7 +87,6 @@ from tools.tool_helpers.Tool_Pipeline import (
     save_shared_tool_settings,
     write_json_document,
 )
-from mcp_server.pipeline.Pipeline_Settings import serialize_export_settings
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
     SingleInstanceController,
@@ -109,6 +106,8 @@ HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
 TF32_PRECISION_LABEL = "TF32 (Nvidia GPU Only)"
 BF16_PRECISION_LABEL = "BF16 (Low Precision)"
 AUTOMATIC_32BIT_PRECISION_LABEL = "Automatic 32-bit"
+# The stored TREE_METHOD value that tools/Embedding_MSA.py checks for.
+NEIGHBOR_JOINING_TREE_METHOD = "Neighbor-joining (Slow)"
 HOST_CACHE_SLIDER_SCALE = 10
 HOST_CACHE_SLIDER_STEPS = round(HOST_CACHE_MAX_GB * HOST_CACHE_SLIDER_SCALE)
 
@@ -401,8 +400,11 @@ from PySide6.QtGui import QColor, QIcon, QPalette
 from desktop.Desktop_App import (
     MONOSPACE_QSS_FONT_STACK,
     UI_QSS_FONT_STACK,
+    add_combo_options,
+    combo_value,
     configure_qt_application_fonts,
     force_light_palette,
+    select_combo_value,
 )
 
 
@@ -510,24 +512,12 @@ def _selection_supports_bf16(device_selection, candidates=None):
 def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
     """Synchronize device-dependent TF32 and BF16 precision choices."""
     selection = device_combo.currentData()
-    if selection is None:
-        selection = device_combo.currentText()
     available = _selection_supports_tf32(selection, candidates)
     tf32_index = precision_combo.findData("tf32")
-    if tf32_index < 0:
-        tf32_index = precision_combo.findText(TF32_PRECISION_LABEL)
-    if tf32_index < 0:
-        tf32_index = precision_combo.findText("tf32")
     current_value = precision_combo.currentData()
-    if current_value is None:
-        current_value = precision_combo.currentText()
     if not available:
-        if current_value in {"tf32", TF32_PRECISION_LABEL}:
+        if current_value == "tf32":
             auto_index = precision_combo.findData("automatic_32bit")
-            if auto_index < 0:
-                auto_index = precision_combo.findText(
-                    AUTOMATIC_32BIT_PRECISION_LABEL
-                )
             precision_combo.setCurrentIndex(max(0, auto_index))
         if tf32_index >= 0:
             precision_combo.removeItem(tf32_index)
@@ -536,11 +526,7 @@ def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
     precision_combo.setProperty("tf32Available", available)
     bf16_available = _selection_supports_bf16(selection, candidates)
     bf16_index = precision_combo.findData("bf16")
-    if bf16_index < 0:
-        bf16_index = precision_combo.findText(BF16_PRECISION_LABEL)
     current_value = precision_combo.currentData()
-    if current_value is None:
-        current_value = precision_combo.currentText()
     if not bf16_available and bf16_index >= 0 and current_value != "bf16":
         precision_combo.removeItem(bf16_index)
     elif bf16_available and bf16_index < 0:
@@ -559,8 +545,6 @@ def _sync_alignment_tiled_option(
         else list(candidates)
     )
     selection = device_combo.currentData()
-    if selection is None:
-        selection = device_combo.currentText()
     normalized = Hardware_Utils.normalize_device_selection(selection)
     eligible = [
         candidate
@@ -576,16 +560,16 @@ def _sync_alignment_tiled_option(
             candidate for candidate in eligible if candidate.spec == normalized
         ]
     hide_tiled = not eligible
-    tiled_index = execution_combo.findText("tiled")
+    tiled_index = execution_combo.findData("tiled")
     if hide_tiled:
-        if execution_combo.currentText() == "tiled":
-            auto_index = execution_combo.findText("auto")
+        if execution_combo.currentData() == "tiled":
+            auto_index = execution_combo.findData("auto")
             execution_combo.setCurrentIndex(max(0, auto_index))
-        tiled_index = execution_combo.findText("tiled")
+        tiled_index = execution_combo.findData("tiled")
         if tiled_index >= 0:
             execution_combo.removeItem(tiled_index)
     elif tiled_index < 0:
-        execution_combo.addItem("tiled")
+        add_combo_options(execution_combo, ["tiled"])
     available = not hide_tiled
     execution_combo.setProperty("tiledAvailable", available)
     return available
@@ -1207,7 +1191,6 @@ class ToolsGUI(QMainWindow):
         
         self.MANUAL_SETTINGS = {
             "Sequence_and_Embedding_Preparation": {
-                "is_combined": True,
                 "scripts": {
                     "Sanitize_Sequences.py": [
                         {
@@ -1312,7 +1295,6 @@ class ToolsGUI(QMainWindow):
                 }
             },
             "Sequence_Similarity_Calculations": {
-                "is_combined": True,
                 "scripts": {
                     "Align_Similarity_Matrix.py": [
                 {
@@ -1506,7 +1488,6 @@ class ToolsGUI(QMainWindow):
                 }
             },
             "Embedding_MSA": {
-                "is_combined": True,
                 "scripts": {
                     "Embedding_MSA.py": [
                         {
@@ -1649,7 +1630,6 @@ class ToolsGUI(QMainWindow):
                 }
             },
             "Embedding_and_Network_Tools": {
-                "is_combined": True,
                 "scripts": {
                     "Embedding_Injection.py": [
                         {
@@ -1782,7 +1762,6 @@ class ToolsGUI(QMainWindow):
                 }
             },
             "Others": {
-                "is_combined": True,
                 "scripts": {
                     "Embedding_PWA.py": [
                         {
@@ -2271,17 +2250,12 @@ class ToolsGUI(QMainWindow):
             return
             
         for tab_key, settings_def in self.MANUAL_SETTINGS.items():
-            if isinstance(settings_def, dict) and settings_def.get("is_combined"):
-                self.create_combined_tab(
-                    tools_dir,
-                    tab_key,
-                    settings_def["scripts"],
-                )
-            else:
-                script_path = os.path.join(tools_dir, tab_key)
-                if os.path.exists(script_path):
-                    self.create_script_tab(script_path, tab_key, settings_def)
-            
+            self.create_combined_tab(
+                tools_dir,
+                tab_key,
+                settings_def["scripts"],
+            )
+
         if self.tabs.count() > 0:
             self.on_tab_changed(0)
             
@@ -2652,8 +2626,9 @@ class ToolsGUI(QMainWindow):
                         )
                         idx = ui_element.count() - 1
                 else:
-                    ui_element.addItems(s_def['options'])
-                    idx = ui_element.findText(str(actual_val))
+                    # Without option_values, each option is stored as itself.
+                    add_combo_options(ui_element, s_def['options'])
+                    idx = ui_element.findData(str(actual_val))
                 if idx >= 0: ui_element.setCurrentIndex(idx)
 
             elif s_def['type'] == "device_dropdown":
@@ -3076,19 +3051,19 @@ class ToolsGUI(QMainWindow):
                         norm_combo.blockSignals(False)
                         return
                     
-                    current_norm = norm_combo.currentText()
+                    current_norm = combo_value(norm_combo)
                     norm_combo.blockSignals(True)
                     norm_combo.clear()
                     
-                    is_local = score_combo.currentText() == "local"
+                    is_local = combo_value(score_combo) == "local"
                     if is_local:
-                        norm_combo.addItems(["shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["shorter_sequence", "longer_sequence", "average_sequence"])
                         if current_norm == "alignment_length":
                             current_norm = "longer_sequence"
                     else:
-                        norm_combo.addItems(["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"])
                         
-                    norm_combo.setCurrentText(current_norm)
+                    select_combo_value(norm_combo, current_norm)
                     norm_combo.blockSignals(False)
                 
                 def update_msa_toggles(_text):
@@ -3131,13 +3106,13 @@ class ToolsGUI(QMainWindow):
                         score_combo.setCurrentIndex(-1)
                         norm_combo.setCurrentIndex(-1)
                     else:
-                        if score_combo.currentIndex() == -1: score_combo.setCurrentText("global")
+                        if score_combo.currentIndex() == -1: select_combo_value(score_combo, "global")
                     score_combo.blockSignals(False)
                     norm_combo.blockSignals(False)
                     
                     sync_local_norm_mode()
                     if not is_blast and norm_combo.currentIndex() == -1:
-                        norm_combo.setCurrentText("alignment_length")
+                        select_combo_value(norm_combo, "alignment_length")
                     
                 score_combo.currentTextChanged.connect(lambda text: sync_local_norm_mode())
                 net_combo.currentTextChanged.connect(update_msa_toggles)
@@ -3159,16 +3134,16 @@ class ToolsGUI(QMainWindow):
                 tree_method_combo = tree_method_input['widget']
                 bootstrap_switch = bootstrap_input['widget']
                 
-                def update_tree_method_toggles(text):
-                    is_nj = "neighbor-joining" in text.lower()
+                def update_tree_method_toggles(*_):
+                    is_nj = combo_value(tree_method_combo) == NEIGHBOR_JOINING_TREE_METHOD
                     if is_nj:
                         bootstrap_switch.setChecked(False)
                         bootstrap_switch.setEnabled(False)
                     else:
                         bootstrap_switch.setEnabled(True)
                         
-                tree_method_combo.currentTextChanged.connect(update_tree_method_toggles)
-                update_tree_method_toggles(tree_method_combo.currentText()) # Trigger once on load
+                tree_method_combo.currentIndexChanged.connect(update_tree_method_toggles)
+                update_tree_method_toggles() # Trigger once on load
 
             if net_input and bootstrap_input and imputed_consensus_input:
                 bootstrap_switch = bootstrap_input['widget']
@@ -3204,8 +3179,8 @@ class ToolsGUI(QMainWindow):
                         and bootstrap_switch.isEnabled()
                         and (
                             tree_method_combo is None
-                            or "neighbor-joining"
-                            not in tree_method_combo.currentText().lower()
+                            or combo_value(tree_method_combo)
+                            != NEIGHBOR_JOINING_TREE_METHOD
                         )
                     )
                     enabled, tip = imputed_consensus_switch_state(
@@ -3391,19 +3366,19 @@ class ToolsGUI(QMainWindow):
                 norm_combo = norm_input['widget']
                 
                 def sync_local_norm_mode_ssearch():
-                    current_norm = norm_combo.currentText()
+                    current_norm = combo_value(norm_combo)
                     norm_combo.blockSignals(True)
                     norm_combo.clear()
                     
-                    is_local = score_combo.currentText() == "local"
+                    is_local = combo_value(score_combo) == "local"
                     if is_local:
-                        norm_combo.addItems(["shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["shorter_sequence", "longer_sequence", "average_sequence"])
                         if current_norm == "alignment_length":
                             current_norm = "longer_sequence"
                     else:
-                        norm_combo.addItems(["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"])
                         
-                    norm_combo.setCurrentText(current_norm)
+                    select_combo_value(norm_combo, current_norm)
                     norm_combo.blockSignals(False)
                     
                 score_combo.currentTextChanged.connect(lambda text: sync_local_norm_mode_ssearch())
@@ -3767,55 +3742,6 @@ class ToolsGUI(QMainWindow):
         tab_name = TAB_DISPLAY_NAMES.get(tab_key, tab_key.replace("_", " "))
         self.tabs.addTab(scroll, tab_name)
 
-    def create_script_tab(self, script_path, script_name, script_settings_def=None):
-        with open(script_path, "r", encoding="utf-8") as f:
-            source = f.read()
-            
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            print(f"Syntax error in {script_name}, skipping.")
-            return
-            
-        docstring = ast.get_docstring(tree) or ""
-            
-        if script_name not in self.MANUAL_SETTINGS:
-            return
-            
-        script_settings_def = self.MANUAL_SETTINGS[script_name]
-        
-        tab = QWidget()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(tab)
-        
-        main_layout = QVBoxLayout(tab)
-        
-        form_widget = QFrame()
-        form_widget.setObjectName("toolSectionCard")
-        form_widget.setStyleSheet(SECTION_CARD_STYLE)
-        layout = QFormLayout(form_widget)
-        layout.setHorizontalSpacing(30)
-        layout.setVerticalSpacing(12)
-        
-        layout.addRow(self._create_tool_header(script_name, script_path))
-
-        self._populate_script_layout(layout, script_name, script_path, script_settings_def, source, tree)
-        self._tool_form_layouts.append(layout)
-        
-        main_layout.addWidget(form_widget)
-        main_layout.addStretch() # Pushes the form strictly to the top
-        
-        self.tab_paths.append(script_path)
-        self.script_data[script_path]['docstring'] = docstring
-        
-        scroll.setProperty(
-            "descriptionKey",
-            script_name.removesuffix(".py"),
-        )
-        tab_name = script_name.replace(".py", "").replace("_", " ")
-        self.tabs.addTab(scroll, tab_name)
-
     def eventFilter(self, obj, event):
         event_type = event.type()
         routed_events = (
@@ -3852,7 +3778,7 @@ class ToolsGUI(QMainWindow):
                     val = widget.currentData()
                 else:
                     val = (
-                        widget.currentData()
+                        combo_value(widget)
                         if widget.property("persistItemData")
                         else widget.currentText()
                     )
@@ -3891,16 +3817,6 @@ class ToolsGUI(QMainWindow):
             raw_path = line_edit.text().strip()
             directories[key] = os.path.normpath(raw_path) if raw_path else ""
         return directories
-
-    @staticmethod
-    def _portable_export_directory_path(path):
-        """Use portable separators for relative directories in exported JSON."""
-        if not path:
-            return ""
-        path = os.fspath(path)
-        if ntpath.isabs(path) or posixpath.isabs(path):
-            return path
-        return path.replace("\\", "/")
 
     @staticmethod
     def _normalized_export_filename(raw_name):

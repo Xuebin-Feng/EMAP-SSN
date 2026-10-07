@@ -16,6 +16,14 @@
 import Command_Engine
 import numpy as np
 
+# The target names execute_reset handles, after target_name() normalizes a
+# typed target.
+TARGET_NAMES = frozenset({
+    "color", "size", "shape", "cluster", "group",
+    "hide", "hidden", "network", "order", "layer",
+})
+USAGE = "Usage: reset [colors | sizes | shapes | clusters | groups | hide | network | order | layer]"
+
 
 def print_help():
     print("""
@@ -45,13 +53,29 @@ def print_help():
 
     Notes:
       Multiple targets may be reset in one command. Singular and plural target
-      names are accepted. The reset is stored as one undoable action.
+      names are accepted. The reset is stored as one undoable action. An
+      unknown target aborts the command, and nothing is reset.
 
     Examples:
       reset network hide
       reset colors sizes shapes
       reset order
     """)
+
+
+def target_name(target):
+    """Return the name execute_reset matches for one typed target ("Colors" -> "color")."""
+    target = target.lower()
+    return target[:-1] if target.endswith('s') else target
+
+
+def check_targets(targets):
+    """Raise ValueError unless at least one target is given and every target is known."""
+    if not targets:
+        raise ValueError(f"Specify at least one reset target.\n{USAGE}")
+    unknown = [target for target in targets if target_name(target) not in TARGET_NAMES]
+    if unknown:
+        raise ValueError(f"Unknown reset target(s): {', '.join(unknown)}. Nothing was reset.\n{USAGE}")
 
 
 def reset_node_render_order(viewer):
@@ -70,6 +94,16 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             viewer.console_text.text = "Help information printed to the terminal"
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        return
+
+    # Checked here as well as in execute_reset: the VR viewer runs this command
+    # with its own execute_reset.
+    try:
+        check_targets(args)
+    except ValueError as error:
+        msg = f"Error: {error}"
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg)
         return
 
     msg = Command_Engine.execute_reset(viewer, args)

@@ -286,6 +286,34 @@ def event_client_from_path(path):
         return None
     return client_id
 
+
+def contained_path(directory, relative):
+    """Return the absolute path ``relative`` names inside ``directory``, or None.
+
+    ``relative`` is a request path minus its route prefix. A drive, a root or
+    a ``..`` component in it is refused before joining: os.path.join honours
+    a rooted ``\\x`` and a drive-relative ``C:..\\x``, and neither counts as
+    absolute to ntpath.isabs on Python 3.13. Names that only start with two
+    dots stay servable; ESMFold writes ``..x.pdb`` for the node "..x". The
+    joined path must then lie inside ``directory`` component by component,
+    because as a string ``<directory>_secret.txt`` starts with it too.
+    """
+    normalized = os.path.normpath(relative)
+    drive, tail = os.path.splitdrive(normalized)
+    # normpath has already turned os.altsep into os.sep.
+    if drive or tail.startswith(os.sep) or os.pardir in tail.split(os.sep):
+        return None
+    root = os.path.normcase(os.path.abspath(directory))
+    # abspath resolves the path the way Windows opens it, so NUL in any
+    # folder becomes the \\.\nul device, which is on no drive.
+    candidate = os.path.abspath(os.path.join(directory, normalized))
+    try:
+        inside = os.path.commonpath([root, os.path.normcase(candidate)]) == root
+    except ValueError:  # Different drives, such as that device's.
+        return None
+    return candidate if inside else None
+
+
 class WebServerHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Silences console log spam
@@ -310,13 +338,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         # Check dynamically registered static routes first (e.g. for agent files)
         for route_prefix, local_dir in self.server.static_routes.items():
             if clean_path.startswith(route_prefix):
-                rel = clean_path[len(route_prefix):]
-                normalized = os.path.normpath(rel)
-                if normalized.startswith("..") or os.path.isabs(normalized):
-                    self.send_error(403, "Forbidden")
-                    return
-                filepath = os.path.normpath(os.path.join(local_dir, normalized))
-                if not filepath.startswith(os.path.normpath(local_dir)):
+                filepath = contained_path(local_dir, clean_path[len(route_prefix):])
+                if filepath is None:
                     self.send_error(403, "Forbidden")
                     return
                 if not os.path.isfile(filepath):
@@ -327,14 +350,8 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 return
 
         # Fallback to serving public files inside BASE_DIR (src/web_ui)
-        safe_rel_path = clean_path.lstrip("/")
-        normalized = os.path.normpath(safe_rel_path)
-        if normalized.startswith("..") or os.path.isabs(normalized):
-            self.send_error(403, "Forbidden")
-            return
-
-        filepath = os.path.normpath(os.path.join(BASE_DIR, normalized))
-        if not filepath.startswith(os.path.normpath(BASE_DIR)):
+        filepath = contained_path(BASE_DIR, clean_path.lstrip("/"))
+        if filepath is None:
             self.send_error(403, "Forbidden")
             return
 

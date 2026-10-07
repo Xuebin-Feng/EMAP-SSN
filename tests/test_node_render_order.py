@@ -1,3 +1,8 @@
+"""Viewer node draw order (EMAPSSN_Viewer.MainViewer): persistent promotion
+order, the effective tiers (selected, connected, left-clicked), the submitted
+marker order and click rings, picking as the inverse of the submitted order,
+left-click focus, command promotions, order resets and box-selection timing."""
+
 import os
 import sys
 import tempfile
@@ -17,9 +22,16 @@ if SRC_DIR not in sys.path:
 
 import Command_Engine
 import EMAPSSN_Config as cfg
-from EMAPSSN_Viewer import MainViewer
+from EMAPSSN_Viewer import MainViewer, _topmost_nearest_visible_node_index
 from commands import color as color_command
 from commands import spectrum as spectrum_command
+
+# Connected-node promotion is off when the two colours are equal (they are user
+# settings), so tests of the promoted tiers pin two distinct colours.
+DISTINCT_CONNECTED_COLORS = {
+    "CONNECTED_NODE_COLOR": "red",
+    "NODE_BOUNDARY_COLOR": "black",
+}
 
 
 class FakeMarkers:
@@ -90,6 +102,7 @@ class NodeRenderOrderTests(unittest.TestCase):
             viewer.node_render_order, [3, 5, 4, 0, 1, 2]
         )
 
+    @mock.patch.multiple(cfg, **DISTINCT_CONNECTED_COLORS)
     def test_effective_order_separates_selected_and_left_click_tiers(self):
         viewer = self.make_viewer(7)
         viewer.node_render_order = np.array([6, 5, 4, 3, 2, 1, 0])
@@ -111,6 +124,7 @@ class NodeRenderOrderTests(unittest.TestCase):
             [6, 5, 4, 3, 2, 1, 0],
         )
 
+    @mock.patch.multiple(cfg, **DISTINCT_CONNECTED_COLORS)
     def test_left_clicked_selected_node_is_unique_top_tier(self):
         viewer = self.make_viewer(6)
         viewer.node_render_order = np.array([5, 4, 3, 2, 1, 0])
@@ -187,6 +201,7 @@ class NodeRenderOrderTests(unittest.TestCase):
             viewer.markers.data["symbol"], ["triangle_up", "star", "square"]
         )
 
+    @mock.patch.multiple(cfg, **DISTINCT_CONNECTED_COLORS)
     def test_left_click_rings_are_immediately_below_each_clicked_node(self):
         viewer = self.make_renderable_viewer(5)
         viewer.node_render_order = np.array([2, 4, 3, 1, 0], dtype=np.int32)
@@ -251,7 +266,9 @@ class NodeRenderOrderTests(unittest.TestCase):
         with mock.patch.object(cfg, "CONNECTED_NODE_COLOR", "black"), mock.patch.object(
             cfg, "NODE_BOUNDARY_COLOR", "#000000ff"
         ), mock.patch.object(
-            np, "isin", side_effect=AssertionError("neighbor discovery should be skipped")
+            viewer,
+            "_connected_to_selected_indices",
+            side_effect=AssertionError("neighbor discovery should be skipped"),
         ):
             viewer.update_nodes()
 
@@ -290,6 +307,66 @@ class NodeRenderOrderTests(unittest.TestCase):
         viewer._apply_state(state)
 
         np.testing.assert_array_equal(viewer.node_render_order, [2, 0, 3, 1])
+
+
+class NodePickingOrderTests(unittest.TestCase):
+    def test_identical_positions_choose_later_drawn_node(self):
+        positions = np.array([[3.0, 4.0], [3.0, 4.0]], dtype=np.float32)
+
+        selected = _topmost_nearest_visible_node_index(
+            positions,
+            np.array([True, True]),
+            np.array([3.0, 4.0]),
+        )
+
+        self.assertEqual(selected, 1)
+
+    def test_nearest_node_still_wins_when_distances_differ(self):
+        positions = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=np.float32)
+
+        selected = _topmost_nearest_visible_node_index(
+            positions,
+            np.array([True, True]),
+            np.array([0.25, 0.0]),
+        )
+
+        self.assertEqual(selected, 0)
+
+    def test_identical_positions_follow_submitted_draw_order(self):
+        positions = np.array(
+            [[3.0, 4.0], [3.0, 4.0], [3.0, 4.0]], dtype=np.float32
+        )
+
+        selected = _topmost_nearest_visible_node_index(
+            positions,
+            np.array([True, True, True]),
+            np.array([3.0, 4.0]),
+            np.array([2, 0, 1]),
+        )
+
+        self.assertEqual(selected, 1)
+
+    def test_hidden_top_node_is_not_pickable(self):
+        positions = np.array([[3.0, 4.0], [3.0, 4.0]], dtype=np.float32)
+
+        selected = _topmost_nearest_visible_node_index(
+            positions,
+            np.array([True, False]),
+            np.array([3.0, 4.0]),
+        )
+
+        self.assertEqual(selected, 0)
+
+    def test_no_visible_nodes_returns_none(self):
+        positions = np.array([[3.0, 4.0], [3.0, 4.0]], dtype=np.float32)
+
+        selected = _topmost_nearest_visible_node_index(
+            positions,
+            np.array([False, False]),
+            np.array([3.0, 4.0]),
+        )
+
+        self.assertIsNone(selected)
 
 
 class LeftClickFocusTests(unittest.TestCase):

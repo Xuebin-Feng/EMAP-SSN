@@ -13,7 +13,8 @@ import time
 from types import SimpleNamespace
 import unittest
 
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# tests/__init__ already selects the offscreen platform; this must be set
+# before Qt WebEngine starts Chromium.
 os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from PySide6.QtCore import QUrl
@@ -23,21 +24,27 @@ from PySide6.QtWebEngineCore import QWebEngineScript
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from http.server import ThreadingHTTPServer
 from web_ui.Web_Server import MIME_TYPES, WebServerHandler
-from tests.test_agent_images import image_bytes
+from tests.agent_fixtures import image_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
+# The agent resources served by exact name. model_card.json is never among
+# them: the real one holds the user's API keys.
+AGENT_RESOURCES = {
+    path.name for path in (ROOT / 'src/resources/agent').iterdir() if path.name != 'model_card.json'
+}
 
 
 class FixtureHandler(WebServerHandler):
     def do_GET(self):
         path = self.path.split('?')[0]
-        if path == '/agent_resource/model_card.json':
+        name = path.rsplit('/', 1)[-1]
+        if name == 'model_card.json':
             self._send_json(200, {'cards': [{'id': 'test', 'name': 'Test vision model', 'url': 'http://test', 'model': 'test'}]})
             return
         if path == '/agent':
             file = ROOT / 'src/web_ui/agent.html'
-        elif path.startswith('/agent_resource/'):
-            file = ROOT / 'src/resources/agent' / path.rsplit('/', 1)[-1]
+        elif path.startswith('/agent_resource/') and name in AGENT_RESOURCES:
+            file = ROOT / 'src/resources/agent' / name
         else:
             self.send_error(404)
             return

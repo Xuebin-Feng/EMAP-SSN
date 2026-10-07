@@ -29,7 +29,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import Embedding_MSA
-from tests.test_embedding_msa_memory import (
+from tests.msa_fixtures import (
     EMBED_NAME,
     InProcessPool,
     NetworkFixture,
@@ -365,8 +365,13 @@ class FullRunTests(unittest.TestCase):
 
 
 class MergeSpeedTests(unittest.TestCase):
-    def test_four_thousand_sequence_merge_takes_well_under_a_second(self):
-        # The string merge took about 1.5 s for half as many sequences.
+    def test_four_thousand_sequence_merge_beats_the_string_merge_per_sequence(self):
+        # Wall-clock limits fail on a busy machine, so the array merge is
+        # compared with the 96dbeb6 string merge timed in this process on 200
+        # of the 4000 sequences. Appending one character per sequence and
+        # column cost about 80 times more per sequence than the array merge
+        # (it made a 44k-sequence MSA spend hours merging). Requiring a tenth
+        # leaves room for load spikes, and the string merge itself fails.
         rng = np.random.default_rng(13)
         clusters = [
             Embedding_MSA.MSACluster(
@@ -385,7 +390,31 @@ class MergeSpeedTests(unittest.TestCase):
             )
             timings.append(time.perf_counter() - started)
         self.assertEqual(merged.aligned.shape, (5000, 4000))
-        self.assertLess(min(timings), 1.0, f"merge timings: {timings}")
+
+        subset = 100
+        string_clusters = [
+            StringCluster(
+                [row.tobytes().decode("ascii")
+                 for row in np.ascontiguousarray(cluster.aligned[:, :subset].T)],
+                cluster.ids[:subset],
+            )
+            for cluster in clusters
+        ]
+        started = time.perf_counter()
+        reference_merge(
+            string_clusters[0], string_clusters[1], path,
+            clusters[0].embedding, clusters[1].embedding,
+        )
+        reference_seconds = time.perf_counter() - started
+
+        per_sequence = min(timings) / 4000
+        reference_per_sequence = reference_seconds / (2 * subset)
+        self.assertLess(
+            per_sequence * 10,
+            reference_per_sequence,
+            f"array merge of 4000 sequences: {timings} s; "
+            f"string merge of {2 * subset}: {reference_seconds:.3f} s",
+        )
 
 
 if __name__ == "__main__":

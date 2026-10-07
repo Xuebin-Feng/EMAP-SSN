@@ -11,14 +11,13 @@ from unittest import mock
 
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from tests.test_viewer_snapshot_transport import SnapshotHTTPTests
-from tests.test_viewer_command_portal import PortalTests
+from tests.viewer_fixtures import PortalFixture, SnapshotHTTPFixture
 from Viewer_Command_Portal import get_portal
 
 
-class PortalHTTPTests(SnapshotHTTPTests):
+class PortalHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
     def test_attached_viewer_query_output_without_launch_capture(self):
-        from tests.test_incomplete_alignment_commands import load_manager, write_fasta
+        from tests.sparse_alignment import load_manager, write_fasta
         msa = str(Path(self.directory.name) / 'query.fasta')
         write_fasta(msa, [(h, 'AC') for h in self.viewer.full_headers])
         self.viewer.alignment = load_manager(msa, self.viewer.full_headers, self.viewer.full_headers[0])
@@ -40,15 +39,6 @@ class PortalHTTPTests(SnapshotHTTPTests):
         v.broadcast_metadata_state = lambda: None
         v.broadcast_event = lambda event: None
         v.canvas = SimpleNamespace(render=lambda: np.zeros((30, 40, 4), dtype=np.uint8))
-
-    # Inherited snapshot-specific tests use their original route.
-    def test_auth_validation_and_immutable_readonly_data(self):
-        self.url = self.url.replace('/commands', '/data')
-        super().test_auth_validation_and_immutable_readonly_data()
-
-    def test_capture_on_qt_and_aggregation_off_qt(self):
-        self.url = self.url.replace('/commands', '/data')
-        super().test_capture_on_qt_and_aggregation_off_qt()
 
     def test_catalog_help_requires_no_queued_command(self):
         portal = get_portal(self.viewer)
@@ -94,7 +84,7 @@ class PortalHTTPTests(SnapshotHTTPTests):
         self.assertEqual(capture['width'], 40)
 
 
-class AgentAdapterTests(PortalTests):
+class AgentAdapterTests(PortalFixture, unittest.TestCase):
     def test_web_agent_waits_for_portal_and_uses_actual_outcomes(self):
         from web_ui import agent_backend as agent
         v = self.viewer

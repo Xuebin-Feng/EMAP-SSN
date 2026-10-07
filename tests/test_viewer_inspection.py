@@ -1,0 +1,266 @@
+"""Viewer inspection service (desktop.Viewer_Inspection).
+
+Covers the live summary and node queries, and the captured snapshots agents
+read: isolation from later Viewer changes, subsets, field projection, category
+summaries, cursors, long-value paging and the snapshot memory and lifetime limits.
+"""
+import json
+from pathlib import Path
+import sys
+import unittest
+from types import SimpleNamespace
+from unittest import mock
+import numpy as np
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from desktop.Viewer_Inspection import (
+    ViewerInspectionService,
+    ViewerInspectionError,
+    SnapshotStore,
+    encoded,
+)
+from tests.viewer_fixtures import SnapshotFixture
+
+
+class ViewerInspectionTests(unittest.TestCase):
+    def setUp(self):
+        self.viewer = SimpleNamespace(
+            n_nodes=4,
+            full_headers=["A", "B", "C", "D"],
+            visible_mask=[True, False, True, True],
+            selected_indices=[3, 0, 3, 99],
+            edges=[(0, 1), (2, 3)],
+            metadata={
+                "score": {"type": "numeric", "values": [1.0, float("nan"), 3.5, 4.0]},
+                "family": {"type": "text", "values": ["x", "y", "x", "z"]},
+            },
+            cluster_labels=[1, 1, 2, 2],
+            group_labels=[{"g1"}, set(), {"g2"}, {"g1", "g2"}],
+            current_slider_threshold=0.75,
+        )
+        self.config = SimpleNamespace(
+            NODE_FASTA_FILE=None,
+            INPUT_HDF5="network.h5",
+            MSA_FILE="",
+            TARGET_CACHE_PATH=None,
+            TARGET_CACHE_FILE=None,
+            SIMILARITY_THRESHOLD=0.1,
+        )
+        self.service = ViewerInspectionService(self.viewer, self.config)
+
+    def test_summary_is_bounded_and_json_ready(self):
+        summary = self.service.get_summary()
+        self.assertEqual(summary["node_count"], 4)
+        self.assertEqual(summary["edge_count"], 2)
+        self.assertEqual(summary["visible_node_count"], 3)
+        self.assertEqual(summary["selected_node_count"], 2)
+        self.assertIsNone(summary["inputs"]["node_fasta"])
+        self.assertEqual(summary["clusters"]["count"], 2)
+        self.assertEqual(summary["groups"]["count"], 2)
+
+    def test_query_nodes_filters_pages_and_normalizes_values(self):
+        page = self.service.query_nodes(
+            scope="visible",
+            offset=1,
+            limit=2,
+            columns=["score"],
+        )
+        self.assertEqual(page["total"], 3)
+        self.assertEqual([row["index"] for row in page["nodes"]], [2, 3])
+        self.assertEqual(page["nodes"][0]["metadata"], {"score": 3.5})
+        selected = self.service.query_nodes(scope="selected", columns=["score"])
+        self.assertEqual([row["index"] for row in selected["nodes"]], [0, 3])
+
+    def test_query_rejects_unbounded_or_unknown_requests(self):
+        with self.assertRaises(ViewerInspectionError):
+            self.service.query_nodes(limit=501)
+        with self.assertRaises(ViewerInspectionError):
+            self.service.query_nodes(columns=["missing"])
+        with self.assertRaises(ViewerInspectionError):
+            self.service.query_nodes(scope="mutating")
+
+
+class SnapshotTests(SnapshotFixture, unittest.TestCase):
+    def test_isolation_and_duplicates(self):
+        self.v.metadata['Length']['values'][0]=99
+        self.v.group_labels[0].append('changed')
+        self.v.visible_mask[:]=False
+        result=self.call('query_nodes',columns=['Length'])
+        self.assertEqual(result['rows'][0]['metadata']['Length'],1)
+        self.assertEqual([r['index'] for r in result['rows']],list(range(4)))
+        self.assertEqual(result['rows'][0]['groups'],['a','b'])
+        self.assertTrue(result['rows'][0]['visible'])
+    def test_subset_expression(self):
+        result=self.call('create_subset',scope='all',expression='{Length>1}&{Length<3}')
+        rows=self.call('query_nodes',subset_id=result['subset_id'])['rows']
+        self.assertEqual([r['index'] for r in rows],[1])
+        empty=self.call('create_subset',scope='selected')
+        self.assertEqual(empty['matched_count'],0)
+        for expr in ('@file@','A1'):
+            with self.assertRaises(ViewerInspectionError): self.call('create_subset',scope='all',expression=expr)
+    def test_counts(self):
+        rows=self.call('summarize_subset',columns=['Length','Org,名'])['rows']
+        self.assertEqual(rows[0]['quantiles'],[1,1.25,1.5,1.75,2])
+        self.assertEqual(rows[0]['missing_count'],1)
+        self.assertEqual(rows[0]['invalid_count'],1)
+        self.assertEqual(rows[1]['distinct_count'],2)
+    def test_pages_and_binding(self):
+        a=self.call('query_nodes',limit=2)
+        b=self.call('query_nodes',limit=2,cursor=a['next_cursor'])
+        self.assertEqual([r['index'] for r in a['rows']+b['rows']],list(range(4)))
+        self.assertTrue(b['complete'])
+        with self.assertRaises(ViewerInspectionError): self.call('query_nodes',columns=['Length'],cursor=a['next_cursor'])
+    def test_long_value(self):
+        self.v.full_headers[0]='名'*20000
+        self.sid=self.service.capture_snapshot()
+        result=self.call('query_nodes',max_bytes=1024)
+        self.assertTrue(result['rows'][0]['node_id']['omitted'])
+        self.assertLessEqual(len(encoded(result)),1024)
+        chunks=[]; offset=0
+        while True:
+            page=self.call('read_value',index=0,field='node_id',offset=offset,max_bytes=1024)
+            chunks.append(page['text']); offset=page['next_offset']
+            self.assertLessEqual(len(encoded(page)),1024)
+            if page['complete']: break
+        self.assertEqual(json.loads(''.join(chunks)),self.v.full_headers[0])
+    def test_lifetime_memory(self):
+        self.service.capture_snapshot(); self.service.capture_snapshot()
+        with self.assertRaisesRegex(ViewerInspectionError,'refresh'): self.call('query_nodes')
+        store=SnapshotStore(max_bytes=1)
+        with self.assertRaises(ViewerInspectionError): store.capture(self.service)
+        clock=[0]; store=SnapshotStore(clock=lambda:clock[0]); sid=store.capture(self.service); clock[0]=901
+        with self.assertRaises(ViewerInspectionError): store.execute('query_nodes',sid)
+    def test_projection_exact_fields_size_and_cursor(self):
+        full=self.call('query_nodes')
+        compact=self.call('query_nodes',fields=['node_id'])
+        self.assertTrue(all(set(row)=={'node_id'} for row in compact['rows']))
+        self.assertLess(len(encoded(compact)),len(encoded(full)))
+        first=self.call('query_nodes',fields=['node_id'],limit=1)
+        with self.assertRaises(ViewerInspectionError):
+            self.call('query_nodes',fields=['index'],cursor=first['next_cursor'])
+        for args in ({'fields':[]},{'fields':['index','index']},{'fields':['bad']},
+                     {'fields':['node_id'],'columns':['Length']},
+                     {'fields':['node_id'],'visual_fields':['color']}):
+            with self.assertRaises(ViewerInspectionError): self.call('query_nodes',**args)
+        self.v.full_headers[0]='x'*10000
+        self.sid=self.service.capture_snapshot()
+        page=self.call('query_nodes',fields=['node_id'],max_bytes=1024)
+        self.assertLessEqual(len(encoded(page)),1024)
+        self.assertEqual(page['rows'][0]['node_id']['read_value']['index'],0)
+
+
+class SnapshotAdditionalTests(SnapshotFixture, unittest.TestCase):
+    def test_preflight_before_copy_and_foreign_snapshot(self):
+        store = SnapshotStore(max_bytes=1)
+        with mock.patch('desktop.Viewer_Inspection.deepcopy') as copy:
+            with self.assertRaises(ViewerInspectionError):
+                store.capture(self.service)
+            copy.assert_not_called()
+        with self.assertRaisesRegex(ViewerInspectionError, 'refresh'):
+            SnapshotStore().execute('query_nodes', self.sid)
+
+    def test_oversized_category_summaries_remain_retrievable(self):
+        self.v.metadata['Org,名']['values'][0] = '名' * 10000
+        self.sid = self.service.capture_snapshot()
+        result = self.call('summarize_subset', columns=['Org,名'], max_bytes=1024)
+        rows = result['rows'][:]
+        while result['next_cursor']:
+            result = self.call('summarize_subset', columns=['Org,名'], max_bytes=1024,
+                               cursor=result['next_cursor'])
+            self.assertLessEqual(len(encoded(result)), 1024)
+            rows.extend(result['rows'])
+        self.assertTrue(rows[0]['top_categories']['omitted'])
+        category = next(row['category'] for row in rows if isinstance(row.get('category'), dict))
+        self.assertEqual(category['read_value'], {'index': 0, 'field': 'metadata', 'column': 'Org,名'})
+
+    def test_multiple_long_group_labels_have_unambiguous_references(self):
+        self.v.group_labels[0] = {'x' * 4000, 'y' * 4000}
+        self.sid = self.service.capture_snapshot()
+        result = self.call('summarize_subset', max_bytes=1024)
+        references = []
+        while True:
+            references.extend(row['category']['read_value'] for row in result['rows']
+                              if isinstance(row.get('category'), dict))
+            if result['complete']:
+                break
+            result = self.call('summarize_subset', max_bytes=1024, cursor=result['next_cursor'])
+        recovered = []
+        for reference in references:
+            value = self.call('read_value', **reference, limit=5000)
+            recovered.append(json.loads(value['text']))
+        self.assertEqual(set(recovered), self.v.group_labels[0])
+
+    def test_metadata_deletion_and_history_restore_do_not_change_snapshot(self):
+        original = self.v.metadata
+        self.v.metadata = {}
+        without_metadata = self.service.capture_snapshot()
+        # History restores the prior arrays; subsequent edits must still be isolated.
+        self.v.metadata = original
+        original['Length']['values'][0] = 99
+        self.assertEqual(self.call('query_nodes', columns=['Length'])['rows'][0]['metadata']['Length'], 1)
+        self.assertEqual(self.store.execute('describe_fields', without_metadata)['rows'], [])
+    def test_refresh_after_state_changes(self):
+        old=self.call('get_summary')
+        self.v.metadata.clear()
+        self.v.cluster_labels[:]=-1
+        self.v.group_labels=[[] for _ in range(4)]
+        self.v.selected_indices=[2]
+        self.v.current_slider_threshold=.9
+        self.v.alignment=SimpleNamespace(aln=object(),viewer_to_aln=np.array([0,-1,1,-1]),resolved_ref_full='same',msa_file='changed',offset=3)
+        sid=self.service.capture_snapshot()
+        new=self.store.execute('get_summary',sid)
+        self.assertEqual(old['metadata_column_count'],2)
+        self.assertEqual(new['metadata_column_count'],0)
+        self.assertEqual(new['clusters']['noise_count'],4)
+        self.assertEqual(new['clusters']['count'],0)
+        self.assertEqual(new['alignment']['mapped_nodes'],2)
+        self.assertEqual(new['alignment']['unmapped_nodes'],2)
+        self.assertEqual(self.call('get_summary')['active_threshold'],.5)
+        self.assertEqual(self.call('query_nodes')['rows'][0]['groups'],['a','b'])
+    def test_empty_snapshot_and_missing_alignment(self):
+        v=SimpleNamespace(n_nodes=0,full_headers=[],edges=[],metadata={},selected_indices=[],alignment=SimpleNamespace(aln=None,viewer_to_aln=[]))
+        service=ViewerInspectionService(v); sid=service.capture_snapshot()
+        self.assertFalse(service.snapshots.execute('get_summary',sid)['alignment']['available'])
+        self.assertEqual(service.snapshots.execute('query_nodes',sid)['rows'],[])
+        self.assertEqual(service.snapshots.execute('summarize_subset',sid)['rows'],[])
+    def test_subset_caps_cross_snapshot_and_lru(self):
+        subset=self.call('create_subset',scope='visible')['subset_id']
+        second=self.service.capture_snapshot()
+        with self.assertRaises(ViewerInspectionError): self.store.execute('query_nodes',second,subset_id=subset)
+        for _ in range(31): self.call('create_subset',scope='selected')
+        with self.assertRaises(ViewerInspectionError): self.call('create_subset',scope='all')
+        self.service.capture_snapshot()
+        with self.assertRaises(ViewerInspectionError): self.store.execute('query_nodes',second)
+        self.call('query_nodes')
+    def test_exact_nonfinite_and_group_recovery(self):
+        self.assertEqual(self.call('query_nodes',columns=['Length'])['rows'][3]['metadata']['Length'],{'nonfinite':'Infinity'})
+        self.v.group_labels[0]=['名'*3000,'x']
+        self.sid=self.service.capture_snapshot()
+        page=self.call('query_nodes',max_bytes=1024)
+        self.assertTrue(page['rows'][0]['groups']['omitted'])
+        text=''; offset=0
+        while True:
+            part=self.call('read_value',index=0,field='groups',offset=offset,max_bytes=1024)
+            text+=part['text']; offset=part['next_offset']
+            if part['complete']: break
+        self.assertEqual(json.loads(text),self.v.group_labels[0])
+    def test_many_categories_ties_and_complete_pages(self):
+        self.v.metadata['Org,名']['values'][:]=['b','a','b','a']
+        self.sid=self.service.capture_snapshot()
+        result=self.call('summarize_subset',columns=['Org,名'],limit=1)
+        self.assertEqual(result['rows'][0]['top_categories'],[('a',2),('b',2)])
+        rows=result['rows']
+        while result['next_cursor']:
+            result=self.call('summarize_subset',columns=['Org,名'],limit=1,cursor=result['next_cursor'])
+            rows+=result['rows']
+        self.assertEqual([(r['category'],r['count']) for r in rows if r.get('field')=='Org,名' and 'category' in r],[('a',2),('b',2)])
+    def test_selection_labels_and_unknown_references(self):
+        self.v.selected_indices=[0,1]
+        self.sid=self.service.capture_snapshot()
+        subset=self.call('create_subset',scope='all',expression='$sele$&!{Length>1}')
+        self.assertEqual(subset['matched_count'],1)
+        for expr in ('{Absent=1}','#absent#','@missing@|{Length>0}'):
+            with self.assertRaises(ValueError): self.call('create_subset',scope='all',expression=expr)
+
+
+if __name__ == '__main__':
+    unittest.main()

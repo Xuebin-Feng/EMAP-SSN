@@ -66,15 +66,17 @@ def print_help():
     """)
 
 def _export_svg(viewer, filepath):
-    """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility."""
-    print("Generating layered, editable SVG for Illustrator...")
-    
+    """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility.
+
+    Returns False, writing nothing, when no node is visible.
+    """
     # 1. Filter visible elements
     vis = viewer.visible_mask
     if not np.any(vis):
-        print("Warning: No visible nodes to export.")
-        return
-        
+        return False
+
+    print("Generating layered, editable SVG for Illustrator...")
+
     pos = viewer.pos[vis]
     colors = viewer.current_colors[vis]
     sizes = viewer.current_sizes[vis]
@@ -241,6 +243,7 @@ def _export_svg(viewer, filepath):
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write('\n'.join(svg_lines))
     print(f"Successfully generated structured SVG at: {filepath}")
+    return True
 
 def _capture_tile(viewer, is_transparent):
     """Helper function to render the current camera view and extract RGBA."""
@@ -373,7 +376,8 @@ def run(viewer, args):
         
     # 3. Determine filename
     ext = ".svg" if is_svg else ".png"
-    
+    image_format = ext[1:].upper()
+
     if len(args) > 0:
         try:
             filename = validate_output_basename("_".join(args))
@@ -421,8 +425,14 @@ def run(viewer, args):
             viewer.console_text.text = ""
             
         if is_svg:
-            _export_svg(viewer, filepath)
-            
+            if not _export_svg(viewer, filepath):
+                msg = "Error: No visible nodes to export."
+                Command_Engine.command_failed(viewer, msg)
+                print(f"\n{msg}")
+                viewer.console_text.text = msg
+                if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
+                return
+
         elif is_full:
             print("\nCalculating seamless tile grid (bypassing OpenGL edge-clipping)...")
             
@@ -554,7 +564,7 @@ def run(viewer, args):
         Command_Engine.command_artifact(viewer, filepath)
         print(f"\n{msg}")
         
-        viewer.console_text.text = f"Saved {ext.upper()}: {filename}"
+        viewer.console_text.text = f"Saved {image_format}: {filename}"
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
         
         # Open the save folder in the system file explorer
@@ -563,10 +573,10 @@ def run(viewer, args):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        error_msg = f"Failed to save {ext.upper()}: {e}"
+        error_msg = f"Failed to save {image_format}: {e}"
         Command_Engine.command_failed(viewer, error_msg)
         print(f"\n{error_msg}")
-        viewer.console_text.text = f"Error saving {ext.upper()}. Check console."
+        viewer.console_text.text = f"Error saving {image_format}. Check console."
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
         return

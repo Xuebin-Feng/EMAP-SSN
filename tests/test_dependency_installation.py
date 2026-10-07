@@ -2,10 +2,19 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
+"""Install_Dependencies: backend specs and install commands, the saved backend
+state, the install and readiness flows, the generated validator programs and
+the parsing of their reports, and the `uv pip check` consistency gate.
+
+Nothing here installs anything: uv, pip and the validators are mocked, except
+that the validator programs run in a real interpreter against a fake torch.
+"""
+
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,180 +27,7 @@ sys.path.insert(0, str(SRC))
 
 import Detect_GPU  # noqa: E402
 import Install_Dependencies  # noqa: E402
-
-
-def detected_report(**overrides):
-    report = {
-        "platform": "windows",
-        "os_version": "10.0.26100",
-        "windows_build": 26100,
-        "controllers": [],
-        "processors": [],
-        "nvidia_devices": [],
-        "vendor": "CPU",
-        "backend": "cpu",
-        "gfx_target": None,
-        "reason": "test",
-    }
-    report.update(overrides)
-    return report
-
-
-class GPUDetectionTests(unittest.TestCase):
-    def _detect(self, *, system="Windows", version="10.0.26200", controllers=(), processors=(), nvidia=()):
-        with mock.patch.object(Detect_GPU.platform, "system", return_value=system), \
-                mock.patch.object(Detect_GPU.platform, "version", return_value=version), \
-                mock.patch.object(Detect_GPU.platform, "machine", return_value="x86_64"), \
-                mock.patch.object(Detect_GPU, "_controller_names", return_value=list(controllers)), \
-                mock.patch.object(Detect_GPU, "_windows_names", return_value=list(processors)), \
-                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=list(nvidia)):
-            return Detect_GPU.detect_hardware()
-
-    def test_windows_amd_models_map_to_official_gfx_targets(self):
-        # ROCm 7.14 is the single AMD profile, so every supported model now
-        # resolves to the same backend and differs only in its GFX target.
-        examples = {
-            "AMD Radeon RX 9070 XT": "gfx1201",
-            "AMD Radeon RX 9060 XT": "gfx1200",
-            "AMD Radeon RX 7900 XTX": "gfx1100",
-            "AMD Radeon RX 7800 XT": "gfx1101",
-            "AMD Radeon RX 7600": "gfx1102",
-            "AMD Radeon PRO W6800": "gfx1030",
-            "AMD Radeon 780M Graphics": "gfx1103",
-            "AMD Radeon 890M Graphics": "gfx1150",
-            "AMD Radeon 8060S Graphics": "gfx1151",
-            "AMD Radeon 860M Graphics": "gfx1152",
-        }
-        for name, target in examples.items():
-            with self.subTest(name=name):
-                report = self._detect(controllers=[name])
-                self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
-                self.assertEqual(report["gfx_target"], target)
-
-    def test_unknown_windows_amd_uses_intel_if_available_otherwise_cpu(self):
-        mixed = self._detect(controllers=["AMD Radeon Graphics", "Intel Arc A770"])
-        self.assertEqual(mixed["backend"], "xpu")
-        amd_only = self._detect(controllers=["AMD Radeon Graphics"])
-        self.assertEqual(amd_only["backend"], "cpu")
-
-    def test_windows_11_25h2_routes_supported_amd_to_rocm(self):
-        report = self._detect(
-            version="10.0.26200", controllers=["AMD Radeon RX 7900 XTX"]
-        )
-        self.assertEqual(report["backend"], "rocm")
-        self.assertEqual(report["gfx_target"], "gfx1100")
-        self.assertEqual(
-            [candidate["backend"] for candidate in report["backend_candidates"]],
-            ["rocm", "cpu"],
-        )
-
-    def test_windows_before_11_25h2_rejects_rocm(self):
-        # AMD publishes native Windows ROCm for Windows 11 25H2 only, so both
-        # Windows 10 and an older Windows 11 build fall through to CPU.
-        for version in ("10.0.19045", "10.0.26100"):
-            with self.subTest(version=version):
-                report = self._detect(
-                    version=version, controllers=["AMD Radeon RX 7900 XTX"]
-                )
-                self.assertEqual(report["backend"], "cpu")
-                self.assertEqual(
-                    [candidate["backend"] for candidate in report["backend_candidates"]],
-                    ["cpu"],
-                )
-                self.assertIn("Windows 11 25H2", report["reason"])
-
-    def test_nvidia_cuda_version_depends_on_architecture_and_driver(self):
-        modern = [{"name": "RTX 5090", "compute_capability": "12.0", "driver_version": "595.10"}]
-        self.assertEqual(self._detect(nvidia=modern)["backend"], "cuda132")
-        old_driver = [{"name": "RTX 4090", "compute_capability": "8.9", "driver_version": "579.99"}]
-        self.assertEqual(self._detect(nvidia=old_driver)["backend"], "cuda126")
-        old_gpu = [{"name": "GTX 1080", "compute_capability": "6.1", "driver_version": "595.10"}]
-        self.assertEqual(self._detect(nvidia=old_gpu)["backend"], "cuda126")
-
-    def test_linux_nvidia_inventory_merges_lspci_and_smi_by_pci_address(self):
-        linux_device = {
-            "id": "0000:01:00.0",
-            "name": "NVIDIA Corporation AD104 [GeForce RTX 4070]",
-            "vendor": "NVIDIA",
-            "pci_id": "10de:2786",
-            "driver_version": None,
-            "driver": "nvidia",
-            "kind": "discrete",
-            "architecture": None,
-            "source": "lspci",
-        }
-        smi_device = {
-            "bus_id": "00000000:01:00.0",
-            "name": "NVIDIA GeForce RTX 4070",
-            "compute_capability": "8.9",
-            "driver_version": "595.84",
-        }
-        with mock.patch.object(Detect_GPU.platform, "system", return_value="Linux"), \
-                mock.patch.object(Detect_GPU.platform, "version", return_value="6.8"), \
-                mock.patch.object(Detect_GPU, "_controller_names", return_value=[]), \
-                mock.patch.object(Detect_GPU, "_linux_inventory", return_value=[linux_device]), \
-                mock.patch.object(
-                    Detect_GPU, "_read_os_release", return_value={"id": "ubuntu", "version_id": "24.04"}
-                ), mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[smi_device]):
-            report = Detect_GPU.detect_hardware()
-
-        nvidia_devices = [device for device in report["devices"] if device["vendor"] == "NVIDIA"]
-        self.assertEqual(len(nvidia_devices), 1)
-        self.assertEqual(nvidia_devices[0]["id"], "0000:01:00.0")
-        self.assertEqual(nvidia_devices[0]["compute_capability"], "8.9")
-        self.assertEqual(nvidia_devices[0]["driver_version"], "595.84")
-        self.assertEqual(report["backend"], "cuda132")
-
-    def test_linux_amd_and_apple_silicon_backends(self):
-        # The inventory is supplied explicitly: on Linux the controller names
-        # only seed discovery, so an unpatched host would otherwise decide this.
-        amd_device = {
-            "id": "0000:03:00.0",
-            "name": "AMD Radeon RX 7900 XTX",
-            "vendor": "AMD",
-            "pci_id": "1002:744c",
-            "driver_version": None,
-            "driver": "amdgpu",
-            "kind": "discrete",
-            "architecture": "gfx1100",
-            "source": "lspci",
-        }
-        with mock.patch.object(
-                Detect_GPU, "_read_os_release", return_value={"id": "ubuntu", "version_id": "24.04"}
-            ), mock.patch.object(
-                Detect_GPU, "_linux_inventory", return_value=[amd_device]
-            ), mock.patch.object(
-                Detect_GPU, "_rocm_targets", return_value={"gfx1100"}
-            ), mock.patch.object(
-                Detect_GPU.Path, "exists", return_value=True
-            ), mock.patch.object(
-                Detect_GPU.os, "access", return_value=True
-            ):
-            linux = self._detect(
-                system="Linux", version="6.8", controllers=["AMD Radeon RX 7900 XTX"]
-            )
-        # The four ROCm profiles collapsed into one, so the ladder is the single
-        # ROCm candidate followed by the portable CPU fallback.
-        self.assertEqual(linux["backend"], "rocm")
-        self.assertEqual(linux["gfx_target"], "gfx1100")
-        self.assertEqual(
-            [candidate["backend"] for candidate in linux["backend_candidates"]],
-            ["rocm", "cpu"],
-        )
-        with mock.patch.object(Detect_GPU.platform, "machine", return_value="arm64"), \
-                mock.patch.object(Detect_GPU.platform, "system", return_value="Darwin"), \
-                mock.patch.object(Detect_GPU.platform, "version", return_value="25.0"), \
-                mock.patch.object(Detect_GPU, "_controller_names", return_value=[]), \
-                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]):
-            apple = Detect_GPU.detect_hardware()
-        self.assertEqual(apple["backend"], "mps")
-
-    def test_json_cli_contains_selection_reason(self):
-        report = detected_report(reason="No accelerator")
-        output = io.StringIO()
-        with mock.patch.object(Detect_GPU, "detect_hardware", return_value=report), redirect_stdout(output):
-            self.assertEqual(Detect_GPU.main(["--json"]), 0)
-        self.assertEqual(json.loads(output.getvalue())["reason"], "No accelerator")
+from tests.gpu_fixtures import detected_report  # noqa: E402
 
 
 class DependencyInstallerTests(unittest.TestCase):
@@ -255,14 +91,26 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
 
     def test_successful_backend_validation_is_silent(self):
-        success = mock.Mock(returncode=0, stdout="", stderr="")
+        # A real validator report: an empty stdout would take the shim that
+        # fabricates a payload for mocks, not the JSON path production uses.
+        device = {"spec": "cpu", "success": True}
+        success = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                "backend": "cpu", "profile": "cpu",
+                "devices": [device], "package_error": None,
+            }),
+            stderr="",
+        )
         output = io.StringIO()
         spec = Install_Dependencies.backend_spec({"backend": "cpu"})
         with mock.patch.object(
             Install_Dependencies, "_run", return_value=success
         ), redirect_stdout(output):
-            self.assertTrue(Install_Dependencies.validate_backend(Path("python"), spec))
+            validation = Install_Dependencies.validate_backend(Path("python"), spec)
 
+        self.assertEqual(validation["validated_devices"], [device])
+        self.assertEqual(validation["validated_devices"][0]["spec"], "cpu")
         self.assertEqual(output.getvalue(), "")
 
     def test_package_only_validation_does_not_require_a_visible_device(self):
@@ -332,6 +180,8 @@ class DependencyInstallerTests(unittest.TestCase):
             f"torch[device-gfx1100]=={Install_Dependencies.ROCM_TORCH_VERSION}", command
         )
         self.assertEqual(command[-1], "https://repo.amd.com/rocm/whl-multi-arch/")
+        # One step on every platform: torch with its device extra is the whole install.
+        self.assertEqual(len(spec.install_steps), 1)
         # The recorded version drops the +rocm local segment so it stays
         # comparable with torch.__version__ during runtime validation.
         self.assertEqual(spec.torch_version, Install_Dependencies.TORCH_VERSION)
@@ -345,20 +195,6 @@ class DependencyInstallerTests(unittest.TestCase):
             path = Path(temp_dir) / "state.json"
             path.write_text("{broken", encoding="utf-8")
             self.assertIsNone(Install_Dependencies.read_state(path))
-
-    def test_state_distinguishes_requested_backend_from_cpu_fallback(self):
-        requested = Install_Dependencies.backend_spec(
-            {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"}
-        )
-        active = Install_Dependencies.backend_spec({"backend": "cpu"})
-        profile = Install_Dependencies._state_profile(
-            active, ROOT / "src" / "requirements.txt", requested
-        )
-        self.assertEqual(
-            profile["requested_backend"]["backend"], Install_Dependencies.ROCM_BACKEND
-        )
-        self.assertEqual(profile["requested_backend"]["gfx_target"], "gfx1100")
-        self.assertEqual(profile["active_backend"]["backend"], "cpu")
 
     def test_backend_cleanup_includes_xpu_and_rocm_runtime_packages(self):
         for name in (
@@ -962,6 +798,14 @@ class DependencyInstallerTests(unittest.TestCase):
             write_state.call_args.args[2]["fallback_from"],
             Install_Dependencies.ROCM_BACKEND,
         )
+        # The saved state keeps the requested ladder apart from the active build.
+        saved = write_state.call_args.args[1]
+        self.assertEqual(saved["active_backend"]["backend"], "cpu")
+        self.assertEqual(
+            [candidate["backend"] for candidate in saved["requested_candidates"]],
+            [Install_Dependencies.ROCM_BACKEND, "cpu"],
+        )
+        self.assertEqual(saved["requested_candidates"][0]["gfx_target"], "gfx1100")
         status = output.getvalue()
         self.assertNotIn("$ ", status)
         self.assertNotIn("Selected PyTorch backend:", status)
@@ -1105,6 +949,495 @@ class PackageConsistencyTests(unittest.TestCase):
         self.assertEqual(
             names & Install_Dependencies.ESM_OMITTED_REQUIREMENTS, set()
         )
+
+
+class DependencyReadinessTests(unittest.TestCase):
+    def test_ready_environment_is_checked_without_installing(self):
+        completed = mock.Mock(returncode=0)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            python = root / "python"
+            python.touch()
+            state = {"active_backend": {"backend": "cpu"}}
+            active = Install_Dependencies.backend_spec({"backend": "cpu"})
+            with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
+                    mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
+                    mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
+                    mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
+                    mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
+                    mock.patch.object(Install_Dependencies, "read_state", return_value=state), \
+                    mock.patch.object(Install_Dependencies, "_state_mismatches", return_value=[]), \
+                    mock.patch.object(Install_Dependencies, "_backend_from_state", return_value=active), \
+                    mock.patch.object(Install_Dependencies, "validate_backend", return_value={"devices": []}), \
+                    mock.patch.object(
+                        Install_Dependencies,
+                        "_installed_version",
+                        side_effect=lambda _python, package: (
+                            Install_Dependencies.TRANSFORMERS_VERSION
+                            if package == "transformers"
+                            else Install_Dependencies.ESM_VERSION
+                        ),
+                    ), mock.patch.object(
+                        Install_Dependencies, "validate_package_consistency", return_value=True
+                    ) as consistency, mock.patch.object(
+                        Install_Dependencies, "validate_esm_stack", return_value=True
+                    ):
+                ready = Install_Dependencies.environment_is_ready(
+                    project_root=root, venv=root, uv_executable="uv"
+                )
+
+        self.assertTrue(ready)
+        consistency.assert_called_once_with("uv", python)
+
+    def test_changed_state_requires_setup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            python = root / "python"
+            python.touch()
+            with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
+                    mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
+                    mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
+                    mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
+                    mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
+                    mock.patch.object(Install_Dependencies, "read_state", return_value={}), \
+                    mock.patch.object(
+                        Install_Dependencies,
+                        "_state_mismatches",
+                        return_value=["hardware_fingerprint"],
+                    ), \
+                    mock.patch.object(Install_Dependencies, "validate_backend") as validate:
+                ready = Install_Dependencies.environment_is_ready(
+                    project_root=root, venv=root, uv_executable="uv"
+                )
+
+        self.assertFalse(ready)
+        validate.assert_not_called()
+
+
+class InstallerProfileTests(unittest.TestCase):
+    def test_candidates_resolving_to_the_same_install_collapse_to_one_rung(self):
+        # Two AMD devices on one target used to differ by ROCm release; with a
+        # single profile they resolve to an identical install, and the repeat
+        # rung is dropped rather than retried.
+        report = {
+            "backend_candidates": [
+                {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["amd0"]},
+                {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["amd1"]},
+                {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
+            ]
+        }
+        specs = Install_Dependencies.backend_specs(report)
+        self.assertEqual([spec.backend for spec in specs], ["rocm", "cpu"])
+        self.assertEqual(specs[0].device_ids, ("amd0",))
+
+    def test_hardware_fingerprint_ignores_physical_identity_and_driver_release(self):
+        report = {
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+            "platform": "linux",
+            "devices": [
+                {
+                    "id": "0000:01:00.0", "name": "NVIDIA H100", "vendor": "NVIDIA",
+                    "pci_id": "10de:2330", "driver_version": "570.1", "driver": "nvidia",
+                    "kind": "discrete", "compute_capability": "9.0",
+                    "eligible_profiles": ["cuda"],
+                },
+                {
+                    "id": "0000:02:00.0", "name": "NVIDIA H100", "vendor": "NVIDIA",
+                    "pci_id": "10de:2330", "driver_version": "570.1", "driver": "nvidia",
+                    "kind": "discrete", "compute_capability": "9.0",
+                    "eligible_profiles": ["cuda"],
+                },
+            ],
+            "backend_candidates": [
+                {"backend": "cuda126", "profile": "cuda126", "vendor": "NVIDIA", "device_ids": ["0000:01:00.0", "0000:02:00.0"]},
+                {"backend": "cpu", "profile": "cpu", "vendor": "CPU", "device_ids": ["cpu"]},
+            ],
+        }
+        first = Install_Dependencies.hardware_fingerprint(report)
+        report["devices"].reverse()
+        report["devices"][0]["id"] = "0000:a1:00.0"
+        report["devices"][1]["id"] = "0000:a2:00.0"
+        report["devices"][0]["driver_version"] = "575.9"
+        report["devices"][1]["driver_version"] = "575.9"
+        report["backend_candidates"][0]["device_ids"] = ["0000:a1:00.0", "0000:a2:00.0"]
+        self.assertEqual(first, Install_Dependencies.hardware_fingerprint(report))
+
+    def test_hardware_fingerprint_changes_with_compatibility_facts(self):
+        report = {
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+            "platform": "linux",
+            "devices": [{
+                "name": "NVIDIA H100", "vendor": "NVIDIA", "pci_id": "10de:2330",
+                "kind": "discrete", "compute_capability": "9.0",
+                "eligible_profiles": ["cuda"],
+            }],
+            "backend_candidates": [
+                {"backend": "cuda126", "profile": "cuda126", "vendor": "NVIDIA"},
+                {"backend": "cpu", "profile": "cpu", "vendor": "CPU"},
+            ],
+        }
+        first = Install_Dependencies.hardware_fingerprint(report)
+        for mutation in ("profile", "model", "count", "revision"):
+            changed = json.loads(json.dumps(report))
+            if mutation == "profile":
+                changed["backend_candidates"][0].update(backend="cuda132", profile="cuda132")
+            elif mutation == "model":
+                changed["devices"][0]["pci_id"] = "10de:2331"
+            elif mutation == "count":
+                changed["devices"].append(dict(changed["devices"][0]))
+            else:
+                changed["compatibility_revision"] += 1
+            with self.subTest(mutation=mutation):
+                self.assertNotEqual(first, Install_Dependencies.hardware_fingerprint(changed))
+
+    def test_failed_cuda_falls_through_to_xpu(self):
+        report = {
+            "compatibility_revision": 3,
+            "platform": "windows",
+            "os": {"windows_build": 26200},
+            "devices": [],
+            "ignored_devices": [],
+            "reason": "test ladder",
+            "backend_candidates": [
+                {"backend": "cuda126", "profile": "cuda126", "device_ids": ["n0"]},
+                {"backend": "xpu", "profile": "xpu", "device_ids": ["i0"]},
+                {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
+            ],
+        }
+        validation = {"validated_devices": [{"spec": "xpu:0", "success": True}]}
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        written: dict = {}
+
+        def capture_state(_path, payload, _report=None):
+            written.update(payload)
+
+        with tempfile.TemporaryDirectory() as folder, \
+            mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
+            mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
+            mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+            mock.patch.object(Install_Dependencies, "install_backend", side_effect=[None, validation]) as install_backend, \
+            mock.patch.object(Install_Dependencies, "_installed_version", return_value=None), \
+            mock.patch.object(Install_Dependencies, "write_state", side_effect=capture_state):
+            result = Install_Dependencies.install(
+                project_root=ROOT, venv=Path(folder), uv_executable="uv"
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual([call.args[2].backend for call in install_backend.call_args_list], ["cuda126", "xpu"])
+        self.assertEqual(written["active_backend"]["backend"], "xpu")
+
+    def test_previous_compatibility_revision_is_invalidated(self):
+        requirements = ROOT / "src" / "requirements.txt"
+        specs = Install_Dependencies.backend_specs(
+            {"backend_candidates": [{"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]}]}
+        )
+        current = {
+            "schema": Install_Dependencies.STATE_SCHEMA,
+            "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+            "hardware_fingerprint": "fingerprint",
+            "requirements_sha256": Install_Dependencies._requirements_sha256(requirements),
+            "esm_version": Install_Dependencies.ESM_VERSION,
+            "transformers_version": Install_Dependencies.TRANSFORMERS_VERSION,
+            "esm_runtime_requirements_sha256": Install_Dependencies._requirements_sha256(
+                Install_Dependencies._esm_runtime_requirements_path(ROOT)
+            ),
+            "requested_candidates": Install_Dependencies._spec_payloads(specs),
+        }
+        self.assertTrue(
+            Install_Dependencies._state_matches(current, specs, "fingerprint", requirements)
+        )
+        stale = dict(current)
+        stale["compatibility_revision"] = Detect_GPU.COMPATIBILITY_REVISION - 1
+        self.assertEqual(
+            Install_Dependencies._state_mismatches(
+                stale, specs, "fingerprint", requirements
+            ),
+            ["compatibility_revision"],
+        )
+
+    def test_dry_run_prints_every_candidate(self):
+        report = {
+            "compatibility_revision": 3, "platform": "windows", "os": {}, "devices": [],
+            "ignored_devices": [], "reason": "test",
+            "backend_candidates": [
+                {"backend": "rocm", "profile": "rocm", "gfx_target": "gfx1100", "device_ids": ["a"]},
+                {"backend": "cpu", "profile": "cpu", "device_ids": ["cpu"]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as folder, \
+            mock.patch.object(Install_Dependencies, "venv_python", return_value=Path("python")), \
+            mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
+            mock.patch("builtins.print") as printer:
+            result = Install_Dependencies.install(project_root=ROOT, venv=Path(folder), uv_executable="uv", dry_run=True)
+        output = "\n".join(" ".join(str(value) for value in call.args) for call in printer.call_args_list)
+        self.assertEqual(result, 0)
+        self.assertIn("Dry run candidate 1: ROCm 7.14 (gfx1100)", output)
+        self.assertIn("torch[device-gfx1100]", output)
+        self.assertIn("Dry run candidate 2: CPU", output)
+
+
+class BackendValidationTests(unittest.TestCase):
+    """validate_backend's reading of the runtime validator's JSON report."""
+
+    ROCM = {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"}
+
+    def _validate(self, report, devices=(), *, package_error=None, returncode=0, stdout=None):
+        spec = Install_Dependencies.backend_spec(report)
+        if stdout is None:
+            stdout = json.dumps({
+                "backend": spec.backend, "profile": spec.profile,
+                "devices": list(devices), "package_error": package_error,
+            })
+        completed = mock.Mock(returncode=returncode, stdout=stdout, stderr="")
+        with mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                redirect_stderr(io.StringIO()):
+            return Install_Dependencies.validate_backend(Path("python"), spec)
+
+    @staticmethod
+    def _device(spec="cuda:0", architecture="gfx1100", success=True):
+        return {"spec": spec, "architecture": architecture, "success": success, "error": None}
+
+    def test_rocm_device_must_report_the_selected_gfx_target(self):
+        # A ROCm build for another GFX target imports and even runs a tensor
+        # op on some devices, so the reported architecture is the real check.
+        for architecture in ("gfx1101", "gfx110", None, ""):
+            with self.subTest(architecture=architecture):
+                self.assertIsNone(
+                    self._validate(self.ROCM, [self._device(architecture=architecture)])
+                )
+        for architecture in ("gfx1100", "gfx1100:sramecc+:xnack-", "GFX1100"):
+            with self.subTest(architecture=architecture):
+                validation = self._validate(
+                    self.ROCM, [self._device(architecture=architecture)]
+                )
+                self.assertEqual(
+                    [device["spec"] for device in validation["validated_devices"]],
+                    ["cuda:0"],
+                )
+
+    def test_only_rocm_devices_on_the_selected_target_are_validated(self):
+        validation = self._validate(self.ROCM, [
+            self._device("cuda:0", "gfx1101"),
+            self._device("cuda:1", "gfx1100:xnack-"),
+            self._device("cuda:2", None),
+        ])
+        self.assertEqual(
+            [device["spec"] for device in validation["validated_devices"]], ["cuda:1"]
+        )
+        mismatched, _matched, unreported = validation["devices"]
+        self.assertFalse(mismatched["success"])
+        self.assertIn("gfx1101 does not match selected target gfx1100", mismatched["error"])
+        self.assertFalse(unreported["success"])
+        self.assertIn("did not report an architecture", unreported["error"])
+
+    def test_cuda_architecture_is_not_held_to_a_gfx_target(self):
+        validation = self._validate(
+            {"backend": "cuda132"}, [self._device(architecture="sm_120")]
+        )
+        self.assertEqual(
+            [device["spec"] for device in validation["validated_devices"]], ["cuda:0"]
+        )
+
+    def test_failed_or_unreadable_reports_are_rejected(self):
+        device = self._device(architecture="sm_120")
+        cases = {
+            "package error": dict(
+                devices=[device], package_error="unexpected CUDA runtime: 12.6"
+            ),
+            "nonzero exit": dict(devices=[device], returncode=1),
+            "non-JSON output": dict(stdout="Traceback (most recent call last):"),
+            "JSON that is not an object": dict(stdout="[]"),
+            "no passing device": dict(
+                devices=[self._device(architecture="sm_120", success=False)]
+            ),
+        }
+        for label, arguments in cases.items():
+            with self.subTest(label):
+                self.assertIsNone(self._validate({"backend": "cuda132"}, **arguments))
+
+
+# A stand-in `torch` package for running the generated validator programs in a
+# real interpreter. fake_torch.json beside the package configures it, and
+# calls.log records every device probe so a test can prove a probe never ran.
+FAKE_TORCH = '''\
+import json
+import os
+from types import SimpleNamespace
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(_ROOT, "fake_torch.json"), encoding="utf-8") as _handle:
+    _CONFIG = json.load(_handle)
+
+
+def _record(name):
+    with open(os.path.join(_ROOT, "calls.log"), "a", encoding="utf-8") as handle:
+        handle.write(name + "\\n")
+
+
+class _Tensor:
+    def __init__(self, value):
+        self.value = value
+
+    def __add__(self, other):
+        return _Tensor(self.value + other)
+
+    def item(self):
+        return self.value
+
+
+def ones(size, device=None):
+    _record(f"ones:{device}")
+    return _Tensor(1)
+
+
+def _runtime(name, devices):
+    def is_available():
+        _record(f"{name}.is_available")
+        return bool(devices)
+
+    return SimpleNamespace(
+        is_available=is_available,
+        device_count=lambda: len(devices),
+        get_device_name=lambda index: devices[index]["name"],
+        get_device_properties=lambda index: SimpleNamespace(**devices[index]["properties"]),
+        synchronize=lambda index=None: None,
+    )
+
+
+__version__ = _CONFIG["version"]
+version = SimpleNamespace(cuda=_CONFIG.get("cuda"), hip=_CONFIG.get("hip"))
+cuda = _runtime("cuda", _CONFIG.get("cuda_devices", []))
+xpu = _runtime("xpu", _CONFIG.get("xpu_devices", []))
+backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: _CONFIG.get("mps", False)))
+'''
+
+
+class ValidatorProgramTests(unittest.TestCase):
+    """The generated validator programs, compiled and run against a fake torch.
+
+    The programs are f-string templates with doubled braces, so a templating
+    slip would surface only at install time, failing every accelerator rung.
+    """
+
+    PROFILES = (
+        {"backend": "cpu"},
+        {"backend": "cuda126"},
+        {"backend": "cuda132"},
+        {"backend": "xpu"},
+        {"backend": "mps"},
+        {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"},
+    )
+    GPU = {"name": "Test GPU", "properties": {"major": 8, "minor": 9}}
+
+    def _validate(self, validator, report, **torch_config):
+        """Run `validator` for the report's first rung against a fake torch.
+
+        Returns the validation result, the validator's stderr and the device
+        probes the program made.
+        """
+        spec = Install_Dependencies.backend_spec(report)
+        config = {"version": f"{Install_Dependencies.TORCH_VERSION}+test", **torch_config}
+        with tempfile.TemporaryDirectory() as folder:
+            package = Path(folder) / "torch"
+            package.mkdir()
+            (package / "__init__.py").write_text(FAKE_TORCH, encoding="utf-8")
+            (Path(folder) / "fake_torch.json").write_text(json.dumps(config), encoding="utf-8")
+
+            def run(command, *, capture=False):
+                # -E and -S keep the caller's environment and site-packages (and
+                # so the real torch) out; `-c` puts the working folder first.
+                return subprocess.run(
+                    [command[0], "-E", "-S", *command[1:]], cwd=folder,
+                    capture_output=True, text=True, timeout=60, check=False,
+                )
+
+            errors = io.StringIO()
+            with mock.patch.object(Install_Dependencies, "_run", side_effect=run), \
+                    redirect_stderr(errors):
+                validation = validator(Path(sys.executable), spec)
+            calls = Path(folder) / "calls.log"
+            probes = calls.read_text(encoding="utf-8").split() if calls.exists() else []
+        return validation, errors.getvalue(), probes
+
+    def test_generated_programs_compile_for_every_profile(self):
+        for report in self.PROFILES:
+            spec = Install_Dependencies.backend_spec(report)
+            for name, build in (
+                ("runtime", Install_Dependencies._validation_program),
+                ("package", Install_Dependencies._package_validation_program),
+            ):
+                with self.subTest(backend=spec.backend, program=name):
+                    compile(build(spec), f"<{name} validator {spec.backend}>", "exec")
+        compile(Install_Dependencies._esm_stack_program(), "<esm stack>", "exec")
+
+    def test_runtime_validator_accepts_the_matching_build(self):
+        rocm_gpu = {"name": "RX 7900 XTX", "properties": {"gcnArchName": "gfx1100:sramecc+:xnack-"}}
+        cases = (
+            ({"backend": "cpu"}, {}, [("cpu", None)]),
+            (
+                {"backend": "cuda126"},
+                {"cuda": "12.6", "cuda_devices": [self.GPU, {"name": "B", "properties": {"major": 12, "minor": 0}}]},
+                [("cuda:0", "sm_89"), ("cuda:1", "sm_120")],
+            ),
+            ({"backend": "cuda132"}, {"cuda": "13.2", "cuda_devices": [self.GPU]}, [("cuda:0", "sm_89")]),
+            (
+                {"backend": "rocm", "gfx_target": "gfx1100"},
+                {"hip": "7.14", "cuda_devices": [rocm_gpu]},
+                [("cuda:0", "gfx1100:sramecc+:xnack-")],
+            ),
+            ({"backend": "xpu"}, {"xpu_devices": [{"name": "Arc", "properties": {}}]}, [("xpu:0", None)]),
+            ({"backend": "mps"}, {"mps": True}, [("mps", None)]),
+        )
+        for report, torch_config, expected in cases:
+            with self.subTest(backend=report["backend"]):
+                validation, errors, _probes = self._validate(
+                    Install_Dependencies.validate_backend, report, **torch_config
+                )
+                self.assertIsNotNone(validation, errors)
+                self.assertEqual(
+                    [(item["spec"], item["architecture"]) for item in validation["validated_devices"]],
+                    expected,
+                )
+
+    def test_runtime_validator_rejects_a_build_for_another_profile(self):
+        cases = (
+            ({"backend": "cuda132"}, {"cuda": "12.6", "cuda_devices": [self.GPU]},
+             "unexpected CUDA runtime: 12.6"),
+            ({"backend": "cpu"}, {"cuda": "12.6"}, "CPU profile loaded an accelerator build"),
+            ({"backend": "cuda126"}, {"version": "2.11.0+cu126", "cuda": "12.6", "cuda_devices": [self.GPU]},
+             "unexpected torch version: 2.11.0+cu126"),
+            ({"backend": "cuda126"}, {"cuda": "12.6", "hip": "7.14", "cuda_devices": [self.GPU]},
+             "CUDA profile loaded a ROCm build"),
+            ({"backend": "rocm", "gfx_target": "gfx1100"}, {"cuda_devices": [self.GPU]},
+             "ROCm/HIP build metadata is missing"),
+        )
+        for report, torch_config, message in cases:
+            with self.subTest(backend=report["backend"], message=message):
+                validation, errors, _probes = self._validate(
+                    Install_Dependencies.validate_backend, report, **torch_config
+                )
+                self.assertIsNone(validation)
+                self.assertIn(message, errors)
+
+    def test_package_validator_checks_the_build_without_probing_a_device(self):
+        # Control: the runtime validator's probes are recorded.
+        _validation, _errors, probes = self._validate(
+            Install_Dependencies.validate_backend, {"backend": "cuda126"}, cuda="12.6"
+        )
+        self.assertIn("cuda.is_available", probes)
+
+        validation, errors, probes = self._validate(
+            Install_Dependencies.validate_backend_package, {"backend": "cuda126"}, cuda="12.6"
+        )
+        self.assertIsNotNone(validation, errors)
+        self.assertTrue(validation["preserved_without_accelerator"])
+        self.assertEqual(probes, [])
+
+        validation, errors, probes = self._validate(
+            Install_Dependencies.validate_backend_package, {"backend": "cuda132"}, cuda="12.6"
+        )
+        self.assertIsNone(validation)
+        self.assertIn("unexpected CUDA runtime: 12.6", errors)
+        self.assertEqual(probes, [])
 
 
 if __name__ == "__main__":

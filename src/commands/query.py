@@ -15,7 +15,6 @@
 
 import os
 import re
-import fnmatch
 import numpy as np
 from collections import Counter
 import EMAPSSN_Config as cfg
@@ -434,44 +433,39 @@ def run(viewer, args):
         print("No nodes selected. Defaulting to ALL nodes in the network.")
 
     # --- 3. Compute Subset Rows ---
-    target_rows = None
-    n_seqs = len(viewer.alignment.aln)
-    subset_mode = False
+    # expr is never empty here, so every query runs on an evaluated subset.
+    viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
 
-    if expr:
-        viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
-        
-        try:
-            mask = Command_Engine.parse_advanced_expression(
-                expr,
-                viewer_to_aln,
-                valid_indices,
-                viewer.full_headers,
-                getattr(viewer, 'cluster_labels', None),
-                getattr(viewer, 'group_labels', None),
-                getattr(viewer, 'alignment', None),
-                metadata=getattr(viewer, 'metadata', None),
-                selection_mask=Command_Engine.get_selected_mask(viewer),
-            )
-        except Exception as e:
-            Command_Engine.report_selection_error(viewer, expr, e, "Query")
-            return
-            
-        valid_nodes = np.where(mask)[0]
-        aln_rows = viewer_to_aln[valid_nodes]
-        target_rows = aln_rows[aln_rows != -1]
-        
-        n_seqs = len(target_rows)
-        subset_mode = True
-        
-        if n_seqs == 0:
-            msg = f"No sequences matched the expression '{expr}'. Aborting query."
-            viewer.console_text.text = msg
-            print("-" * 50)
-            print(msg)
-            print("-" * 50)
-            Command_Engine.command_succeeded(viewer, msg)
-            return
+    try:
+        mask = Command_Engine.parse_advanced_expression(
+            expr,
+            viewer_to_aln,
+            valid_indices,
+            viewer.full_headers,
+            getattr(viewer, 'cluster_labels', None),
+            getattr(viewer, 'group_labels', None),
+            getattr(viewer, 'alignment', None),
+            metadata=getattr(viewer, 'metadata', None),
+            selection_mask=Command_Engine.get_selected_mask(viewer),
+        )
+    except Exception as e:
+        Command_Engine.report_selection_error(viewer, expr, e, "Query")
+        return
+
+    valid_nodes = np.where(mask)[0]
+    aln_rows = viewer_to_aln[valid_nodes]
+    target_rows = aln_rows[aln_rows != -1]
+
+    n_seqs = len(target_rows)
+
+    if n_seqs == 0:
+        msg = f"No sequences matched the expression '{expr}'. Aborting query."
+        viewer.console_text.text = msg
+        print("-" * 50)
+        print(msg)
+        print("-" * 50)
+        Command_Engine.command_succeeded(viewer, msg)
+        return
 
     # --- 4. Detect Mode: Position Breakdown (Mode 1) vs Frequency Search (Mode 2) ---
     inner = pos_str[1:-1].strip()
@@ -512,10 +506,7 @@ def run(viewer, args):
         # MODE 2: POSITION FREQUENCY SEARCH MODE
         # =====================================================================
         print("-" * 50)
-        if subset_mode:
-            print(f"QUERY POSITION SEARCH SUBSET: '{expr}' ({n_seqs} sequences mapped)")
-        else:
-            print(f"QUERY POSITION SEARCH GLOBAL: All Mapped Alignment Sequences ({n_seqs} sequences)")
+        print(f"QUERY POSITION SEARCH SUBSET: '{expr}' ({n_seqs} sequences mapped)")
         print(f"Alignment File:   {msa_file_display}")
         print(f"Active Reference: {ref_display}")
         print(f"Alignment Offset: {offset_display}")
@@ -536,20 +527,14 @@ def run(viewer, args):
 
         for idx, pos_label in enumerate(ordered_pos_labels):
             col_idx = label_to_col[pos_label]
-            if subset_mode:
-                sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
-                if hasattr(sliced, 'toarray'):
-                    dense_col = sliced.toarray().flatten()
-                else:
-                    dense_col = np.array(sliced).flatten()
-                n_gaps = np.sum(dense_col == 0)
-                residues = dense_col[dense_col != 0]
-                counts = Counter(residues)
+            sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
+            if hasattr(sliced, 'toarray'):
+                dense_col = sliced.toarray().flatten()
             else:
-                col_vec = viewer.alignment.aln.matrix[:, col_idx]
-                residues = col_vec.data
-                n_gaps = n_seqs - len(residues)
-                counts = Counter(residues)
+                dense_col = np.array(sliced).flatten()
+            n_gaps = np.sum(dense_col == 0)
+            residues = dense_col[dense_col != 0]
+            counts = Counter(residues)
 
             gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
             all_gap_fracs[idx] = gap_frac
@@ -622,10 +607,7 @@ def run(viewer, args):
     found_count = 0
 
     print("-" * 50)
-    if subset_mode:
-        print(f"QUERY SUBSET: '{expr}' ({n_seqs} sequences mapped)")
-    else:
-        print(f"QUERY GLOBAL: All Mapped Alignment Sequences ({n_seqs} sequences)")
+    print(f"QUERY SUBSET: '{expr}' ({n_seqs} sequences mapped)")
     print(f"Alignment File:   {msa_file_display}")
     print(f"Active Reference: {ref_display}")
     print(f"Alignment Offset: {offset_display}")
@@ -646,23 +628,17 @@ def run(viewer, args):
             
         col_idx = viewer.alignment.label_to_col[pos]
         found_count += 1
-        
-        if subset_mode:
-            # Slicing specific rows returns a dense matrix or array
-            sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
-            if hasattr(sliced, 'toarray'):
-                dense_col = sliced.toarray().flatten()
-            else:
-                dense_col = np.array(sliced).flatten()
 
-            n_gaps = np.sum(dense_col == 0)
-            residues = dense_col[dense_col != 0]
-            counts = Counter(residues)
+        # Slicing specific rows returns a dense matrix or array
+        sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
+        if hasattr(sliced, 'toarray'):
+            dense_col = sliced.toarray().flatten()
         else:
-            col_vec = viewer.alignment.aln.matrix[:, col_idx]
-            residues = col_vec.data
-            n_gaps = n_seqs - len(residues)
-            counts = Counter(residues)
+            dense_col = np.array(sliced).flatten()
+
+        n_gaps = np.sum(dense_col == 0)
+        residues = dense_col[dense_col != 0]
+        counts = Counter(residues)
 
         aa_counts = {}
         for aa_int, count in counts.items():

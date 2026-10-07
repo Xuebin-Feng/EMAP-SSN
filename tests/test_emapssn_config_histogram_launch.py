@@ -25,6 +25,27 @@ import EMAPSSN_Config  # noqa: E402
 from EMAPSSN_Config import build_score_histogram_figure  # noqa: E402
 
 
+def _run_config_script(script, *args):
+    """Run an offscreen Configuration-window script in a fresh interpreter.
+
+    The scripts open the window through tests.config_gui_loader, so it reads
+    temporary directories; SSN_VIEWER_SETTINGS_PATH names a missing file, so
+    EMAPSSN_Config's SETTINGS_FILE is not the developer's viewer_settings.json.
+    """
+    with tempfile.TemporaryDirectory() as settings_dir:
+        env = os.environ.copy()
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        env["SSN_VIEWER_SETTINGS_PATH"] = os.path.join(settings_dir, "missing.json")
+        return subprocess.run(
+            [sys.executable, "-c", script, *args],
+            cwd=PROJECT_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+
+
 class ScoreHistogramFigureTests(unittest.TestCase):
     def test_alignment_histogram_preserves_bins_threshold_and_title(self):
         scores = np.linspace(0.0, 1.0, 201)
@@ -103,9 +124,9 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             f"""
             import os
             import pathlib
-            import runpy
             import sys
             import tempfile
+            import time
             from types import SimpleNamespace
             from unittest import mock
 
@@ -116,18 +137,26 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             root = pathlib.Path({str(PROJECT_ROOT)!r})
             src = root / "src"
             sys.path.insert(0, str(src))
+            sys.path.insert(0, str(root))
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication
-            test_app = QApplication.instance() or QApplication([])
+            from tests.config_gui_loader import load_config_namespace, open_config_window
+            app = QApplication.instance() or QApplication([])
 
-            with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
-                sys, "exit", return_value=None
-            ):
-                namespace = runpy.run_path(str(src / "EMAPSSN_Config.py"), run_name="__main__")
+            # A window over temporary directories, not the developer's viewer_settings.json.
+            namespace = load_config_namespace()
+            home = tempfile.TemporaryDirectory()
+            window = open_config_window(namespace["ConfigGUI"], home.name)
 
-            app = namespace["app"]
-            window = namespace["window"]
+            def settle_cache_discovery():
+                # Selecting the inputs starts background input hashing, which also
+                # validates the network; it must finish before that is patched below.
+                deadline = time.monotonic() + 60
+                while window._cache_hash_pending_keys is not None:
+                    assert time.monotonic() < deadline, "cache discovery did not finish"
+                    app.processEvents()
+                    time.sleep(0.01)
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 work = pathlib.Path(temp_dir)
@@ -146,6 +175,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 window.cb_fasta.addItem(fasta_path.name)
                 window.cb_hdf5.clear()
                 window.cb_hdf5.addItem(network_path.name)
+                settle_cache_discovery()
 
                 manifest = SimpleNamespace(network_type="blast", model_name="BLAST")
                 method_globals = window.run_statistics.__globals__
@@ -207,19 +237,11 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             window.close()
             app.processEvents()
+            home.cleanup()
             print("SHARED_STATUS_TOOLTIP_OK")
             """
         )
-        env = os.environ.copy()
-        env["QT_QPA_PLATFORM"] = "offscreen"
-        completed = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=PROJECT_ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
+        completed = _run_config_script(script)
 
         self.assertEqual(
             completed.returncode,
@@ -234,7 +256,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             """
             import os
             import pathlib
-            import runpy
             import sys
             import tempfile
             from unittest import mock
@@ -243,20 +264,20 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             import numpy as np
 
             os.environ["QT_QPA_PLATFORM"] = "offscreen"
-            src = pathlib.Path(sys.argv[1]) / "src"
+            root = pathlib.Path(sys.argv[1])
+            src = root / "src"
             sys.path.insert(0, str(src))
+            sys.path.insert(0, str(root))
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication
-            test_app = QApplication.instance() or QApplication([])
+            from tests.config_gui_loader import load_config_namespace, open_config_window
+            app = QApplication.instance() or QApplication([])
 
-            with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
-                sys, "exit", return_value=None
-            ):
-                namespace = runpy.run_path(str(src / "EMAPSSN_Config.py"), run_name="__main__")
-
-            app = namespace["app"]
-            window = namespace["window"]
+            # A window over temporary directories, not the developer's viewer_settings.json.
+            namespace = load_config_namespace()
+            home = tempfile.TemporaryDirectory()
+            window = open_config_window(namespace["ConfigGUI"], home.name)
             real_file = h5py.File
             indexed = set()
 
@@ -338,19 +359,11 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             window.close()
             app.processEvents()
+            home.cleanup()
             print("LENGTH_COLUMNS_OK")
             """
         )
-        env = os.environ.copy()
-        env["QT_QPA_PLATFORM"] = "offscreen"
-        completed = subprocess.run(
-            [sys.executable, "-c", script, str(PROJECT_ROOT)],
-            cwd=PROJECT_ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
+        completed = _run_config_script(script, str(PROJECT_ROOT))
 
         self.assertEqual(
             completed.returncode,
@@ -364,7 +377,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             f"""
             import os
             import pathlib
-            import runpy
             import sys
             import tempfile
             import time
@@ -377,20 +389,19 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             root = pathlib.Path({str(PROJECT_ROOT)!r})
             src = root / "src"
             sys.path.insert(0, str(src))
+            sys.path.insert(0, str(root))
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtCore import QTimer, qInstallMessageHandler
             from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
             from EMAPSSN_Config import build_score_histogram_figure
-            test_app = QApplication.instance() or QApplication([])
+            from tests.config_gui_loader import load_config_namespace, open_config_window
+            app = QApplication.instance() or QApplication([])
 
-            with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
-                sys, "exit", return_value=None
-            ):
-                namespace = runpy.run_path(str(src / "EMAPSSN_Config.py"), run_name="__main__")
-
-            app = namespace["app"]
-            window = namespace["window"]
+            # A window over temporary directories, not the developer's viewer_settings.json.
+            namespace = load_config_namespace()
+            home = tempfile.TemporaryDirectory()
+            window = open_config_window(namespace["ConfigGUI"], home.name)
             dialog_type = namespace["ScoreHistogramDialog"]
 
             def settle_cache_discovery():
@@ -457,6 +468,10 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     snapshot = pathlib.Path(launch_env["SSN_VIEWER_SETTINGS_PATH"])
                     assert snapshot.is_file()
                     snapshot.unlink()
+                    # The generator would delete its layout snapshot; the mock leaves it.
+                    layout_snapshot = pathlib.Path(generator_handoff.call_args.args[1])
+                    assert layout_snapshot.name.startswith("ssn_layout_"), layout_snapshot
+                    layout_snapshot.unlink()
 
                 failed_generator_handoff = mock.Mock(side_effect=OSError("exec failed"))
                 with mock.patch.object(window, "save_settings", return_value=True), mock.patch.dict(
@@ -500,19 +515,11 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             window.close()
             app.processEvents()
+            home.cleanup()
             print("OFFSCREEN_CONFIG_OK")
             """
         )
-        env = os.environ.copy()
-        env["QT_QPA_PLATFORM"] = "offscreen"
-        completed = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=PROJECT_ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
+        completed = _run_config_script(script)
 
         self.assertEqual(
             completed.returncode,

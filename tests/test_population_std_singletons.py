@@ -5,7 +5,6 @@ import pathlib
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -20,18 +19,13 @@ for module_dir in (SRC_DIR, TOOLS_DIR, UTILITIES_DIR):
     if str(module_dir) not in sys.path:
         sys.path.insert(0, str(module_dir))
 
+# The tests package points tool imports at a missing settings file.
 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Similarity_Matrix as similarity_matrix
-    import Cache_Manifest
     import Embedding_MSA as embedding_msa
     import Embedding_PWA as embedding_pwa
     import Embedding_SSEARCH as embedding_ssearch
-    with mock.patch.object(
-        Cache_Manifest,
-        "validate_network_schema",
-        return_value=SimpleNamespace(model_name="test_model"),
-    ):
-        import Network_Injection as network_injection
+    import Network_Injection as network_injection
 
 
 class PopulationStandardDeviationTests(unittest.TestCase):

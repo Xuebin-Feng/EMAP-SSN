@@ -21,7 +21,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from tests import MISSING_TOOL_SETTINGS  # noqa: E402
 from utilities import BLAST_Tabular as blast_tabular  # noqa: E402
+from utilities.BLAST_Tabular import ParseSummary  # noqa: E402
 
 
 DIAMOND_FIELDS = (
@@ -583,6 +585,24 @@ class ParseBlastOutputTests(unittest.TestCase):
                 with self.assertRaises(blast_tabular.BlastParseError):
                     self.build(fasta, blast, name=f"collision_{index}.h5")
 
+    def test_fasta_manifest_errors_name_the_line_or_record(self):
+        cases = {
+            # Line numbers count blank lines too.
+            "\nAAAA\n>A\nBBBB\n": (
+                "FASTA line 2: sequence data appears before the first header."
+            ),
+            ">A\nAAAA\n>B\n\n>C\nCCCC\n": "FASTA record 2 ('B') has no sequence.",
+            "": "The FASTA manifest contains no records.",
+            "\n  \n": "The FASTA manifest contains no records.",
+        }
+        for index, (text, message) in enumerate(cases.items()):
+            fasta = self.temp_path / f"manifest_{index}.fasta"
+            fasta.write_text(text, encoding="utf-8", newline="\n")
+            with self.subTest(text=text):
+                with self.assertRaises(blast_tabular.BlastParseError) as raised:
+                    blast_tabular.load_header_manifest(fasta)
+                self.assertEqual(str(raised.exception), message)
+
     def test_distinct_blast_headers_that_sanitize_together_fail(self):
         fasta = self.write_fasta([("A_", "AAAA"), ("B", "BBBB")])
         blast = self.write_blast(
@@ -704,6 +724,40 @@ class ParseBlastOutputTests(unittest.TestCase):
         with self.assertRaisesRegex(blast_tabular.BlastParseError, "schema differs"):
             self.build(fasta, blast, layout="outfmt7_fields")
 
+    def test_outfmt7_rows_need_their_block_query_and_fields(self):
+        fasta = self.write_fasta([("A", "AAAA"), ("B", "BBBB")])
+        cases = {
+            "no query": (
+                "# Fields: subject id, evalue\nB\t1e-5\n",
+                "BLAST line 2: outfmt-7 data appears before a # Query: declaration.",
+            ),
+            "no fields": (
+                "# Query: A\nB\t1e-5\n",
+                "BLAST line 2: outfmt-7 data appears before a # Fields: declaration.",
+            ),
+            # Each query block declares its own fields.
+            "fields only in an earlier block": (
+                "# Query: A\n# Fields: subject id, evalue\nB\t1e-5\n"
+                "# Query: B\nA\t1e-5\n",
+                "BLAST line 5: outfmt-7 data appears before a # Fields: declaration.",
+            ),
+            "extra column": (
+                "# Query: A\n# Fields: subject id, evalue\nB\t1e-5\t99\n",
+                "BLAST line 3: row has 3 fields but # Fields declares 2.",
+            ),
+        }
+        for index, (label, (text, message)) in enumerate(cases.items()):
+            blast = self.write_blast(text, f"outfmt7_{index}.tabular")
+            output = self.temp_path / f"outfmt7_{index}.h5"
+            with self.subTest(label):
+                with self.assertRaises(blast_tabular.BlastParseError) as raised:
+                    self.build(
+                        fasta, blast, name=output.name, layout="outfmt7_fields"
+                    )
+                self.assertEqual(str(raised.exception), message)
+                self.assertFalse(output.exists())
+                self.assertFalse(pathlib.Path(f"{output}.partial").exists())
+
     def test_outfmt7_prefers_subject_title_when_id_is_also_present(self):
         fasta = self.write_fasta([("A full", "AAAA"), ("B full", "BBBB")])
         blast = self.write_blast(
@@ -768,13 +822,191 @@ class ParseBlastOutputTests(unittest.TestCase):
             self.assertEqual(left.attrs["score_transform"], "-log10(E + 1e-300)")
 
 
+def replace_dataset(network, name, data):
+    del network[name]
+    network.create_dataset(name, data=data)
+
+
+class FinalOutputValidationTests(unittest.TestCase):
+    """validate_final_output refuses a corrupt network before it is published."""
+
+    HEADERS = ["A", "B", "C"]
+
+    def setUp(self):
+        self._temp_dir = tempfile.TemporaryDirectory()
+        self.temp_path = pathlib.Path(self._temp_dir.name)
+        fasta = self.temp_path / "input.fasta"
+        fasta.write_bytes(
+            "".join(f">{header}\nACDE\n" for header in self.HEADERS).encode("utf-8")
+        )
+        blast = self.temp_path / "input.tabular"
+        blast.write_bytes(
+            "".join(
+                standard_row(query, subject, evalue) + "\n"
+                for query, subject, evalue in (
+                    ("A", "B", "1e-5"),
+                    ("A", "C", "1e-6"),
+                    ("B", "C", "1e-7"),
+                )
+            ).encode("utf-8")
+        )
+        self.network = self.temp_path / "network.h5"
+        with contextlib.redirect_stdout(io.StringIO()):
+            blast_tabular.build_blast_network(
+                blast, fasta, self.network, batch_size=2, show_progress=False
+            )
+        with h5py.File(self.network, "r") as network:
+            # Edges (A, B), (A, C), (B, C) are read two at a time below.
+            np.testing.assert_array_equal(network["i"][:], [0, 0, 1])
+            np.testing.assert_array_equal(network["j"][:], [1, 2, 2])
+            self.assertEqual(network["i"].dtype, np.uint16)
+            self.attributes = dict(network.attrs)
+
+    def tearDown(self):
+        self._temp_dir.cleanup()
+
+    def validate(self, path, expected_attributes=None):
+        return blast_tabular.validate_final_output(
+            path, self.HEADERS, 3, 2, expected_attributes=expected_attributes
+        )
+
+    def corrupted(self, name, change):
+        path = self.temp_path / f"{name}.h5"
+        shutil.copyfile(self.network, path)
+        with h5py.File(path, "r+") as network:
+            change(network)
+        return path
+
+    def unreadable(self, name):
+        path = self.temp_path / name
+        path.write_bytes(b"not an HDF5 file")
+        return path
+
+    def test_built_network_passes_with_its_own_attributes(self):
+        self.assertEqual(
+            self.validate(self.network, expected_attributes=self.attributes),
+            (True, ""),
+        )
+
+    def test_corrupt_networks_are_refused_with_the_reason(self):
+        def reverse_first_pair(network):
+            network["i"][0], network["j"][0] = 1, 0
+
+        def repeat_second_pair_in_next_read(network):
+            network["i"][2], network["j"][2] = 0, 2
+
+        def set_attribute(name, value):
+            def change(network):
+                network.attrs[name] = value
+            return change
+
+        cases = {
+            "reversed pair": (reverse_first_pair, "edge pair does not satisfy i < j"),
+            "duplicate pair across reads": (
+                repeat_second_pair_in_next_read,
+                "edge pairs are not strictly sorted and unique",
+            ),
+            "NaN score": (
+                lambda network: network["score"].__setitem__(1, np.nan),
+                "score dataset contains a non-finite value",
+            ),
+            "index past the headers": (
+                lambda network: network["j"].__setitem__(2, 3),
+                "edge index is outside the header array",
+            ),
+            "int64 i": (
+                lambda network: replace_dataset(
+                    network, "i", np.array([0, 0, 1], dtype=np.int64)
+                ),
+                "invalid i dtype: int64",
+            ),
+            "i and j dtypes differ": (
+                lambda network: replace_dataset(
+                    network, "j", np.array([1, 2, 2], dtype=np.uint32)
+                ),
+                "i and j dtypes do not match",
+            ),
+            "float64 scores": (
+                lambda network: replace_dataset(
+                    network, "score", np.array([5.0, 6.0, 7.0])
+                ),
+                "invalid score dtype: float64",
+            ),
+            "missing score dataset": (
+                lambda network: network.__delitem__("score"),
+                "missing dataset(s): score",
+            ),
+            "missing manifest hash": (
+                lambda network: network.attrs.__delitem__("manifest_sha256"),
+                "missing provenance attribute(s): manifest_sha256",
+            ),
+            "non-hex manifest hash": (
+                set_attribute("manifest_sha256", "g" * 64),
+                "manifest_sha256 is not a lowercase SHA-256 digest",
+            ),
+            "uppercase manifest hash": (
+                set_attribute("manifest_sha256", "A" * 64),
+                "manifest_sha256 is not a lowercase SHA-256 digest",
+            ),
+            "short manifest hash": (
+                set_attribute("manifest_sha256", "a" * 63),
+                "manifest_sha256 is not a lowercase SHA-256 digest",
+            ),
+            "more sanitized than distinct headers": (
+                set_attribute("blast_headers_sanitized", 4),
+                "blast_headers_sanitized is outside its valid range",
+            ),
+            "negative column": (
+                set_attribute("query_column_1based", -1),
+                "query_column_1based cannot be negative",
+            ),
+            "other network type": (
+                set_attribute("model_name", "ESM"),
+                "model_name must be 'BLAST'",
+            ),
+        }
+        for name, (change, reason) in cases.items():
+            with self.subTest(name):
+                path = self.corrupted(name.replace(" ", "_"), change)
+                self.assertEqual(self.validate(path), (False, reason))
+
+    def test_changed_provenance_attribute_is_refused(self):
+        self.assertEqual(
+            self.validate(self.network, expected_attributes={"matrix": "X"}),
+            (False, "provenance attribute 'matrix' changed"),
+        )
+
+    def test_unreadable_output_is_refused(self):
+        for path in (
+            self.temp_path / "missing.h5",
+            self.unreadable("not_hdf5.h5"),
+        ):
+            with self.subTest(path=path.name):
+                valid, reason = self.validate(path)
+                self.assertFalse(valid)
+                self.assertTrue(
+                    reason.startswith("unable to read final output: "), reason
+                )
+
+
 def load_parse_tool():
-    """Import the tool script afresh so a test can set its module settings."""
+    """Import the tool script afresh so a test can set its module settings.
+
+    A file-location import bypasses the tests package's import hook, so the
+    script's import-time settings read is pointed at a missing file here.
+    """
     spec = importlib.util.spec_from_file_location(
         "parse_blast_output_under_test", SRC_DIR / "tools" / "Parse_BLAST_Output.py"
     )
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with mock.patch.dict(
+        os.environ,
+        {
+            "SSN_TOOL_SETTINGS_SCRIPT": "Parse_BLAST_Output.py",
+            "SSN_TOOL_SETTINGS_FILE": MISSING_TOOL_SETTINGS,
+        },
+    ):
+        spec.loader.exec_module(module)
     return module
 
 
@@ -852,6 +1084,46 @@ class ParseBlastToolTests(unittest.TestCase):
         )
         self.assertLess(report.index("WARNING:"), report.index("Conversion complete."))
         self.assertTrue((self.temp_path / "hits_[DIAMOND]_EValue.h5").is_file())
+
+    def test_parse_blast_uses_fixed_import_metadata_and_batch_size(self):
+        module = self.tool
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = pathlib.Path(temp_dir) / "parser.json"
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "DIRECTORIES": {
+                            "FASTA_DIR": temp_dir,
+                            "NETWORK_DIR": temp_dir,
+                        },
+                        "Parse_BLAST_Output.py": {
+                            "INPUT_BLAST_TABULAR": "input.tabular",
+                            "INPUT_FASTA": "input.fasta",
+                            "MATRIX": "BLOSUM62",
+                            "BATCH_SIZE": 7,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            summary = ParseSummary(
+                output_path=str(pathlib.Path(temp_dir) / "output.h5"),
+                fasta_header_count=2,
+                fasta_headers_sanitized=0,
+                blast_header_count=2,
+                blast_headers_sanitized=0,
+                data_rows=1,
+                self_rows=0,
+                unique_edges=1,
+            )
+            with mock.patch.object(
+                module, "build_blast_network", return_value=summary
+            ) as builder, mock.patch.dict(os.environ, {}, clear=False):
+                self.assertEqual(module.main([str(settings_path)]), 0)
+
+        self.assertEqual(builder.call_args.kwargs["matrix"], "Imported")
+        self.assertEqual(builder.call_args.kwargs["batch_size"], 1000000)
 
 
 class DiamondIntegrationTests(unittest.TestCase):

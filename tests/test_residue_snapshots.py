@@ -1,18 +1,21 @@
-"""Scientific semantics, projection and isolation for alignment snapshots."""
+"""Residue distributions, residue subsets and isolation of alignment snapshots."""
+from pathlib import Path
+import sys
 import unittest
 from types import SimpleNamespace
 from copy import deepcopy
 import numpy as np
 from scipy.sparse import csr_matrix
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from tests.sparse_alignment import sparse_alignment
-from tests.test_viewer_snapshots import SnapshotTests
+from tests.viewer_fixtures import SnapshotFixture
 import Alignment_Manager
-from desktop.Viewer_Inspection import ViewerInspectionError, encoded
+from desktop.Viewer_Inspection import ViewerInspectionError
 
 
 class ResidueSnapshotTests(unittest.TestCase):
     def setUp(self):
-        SnapshotTests.setUp(self)
+        SnapshotFixture.setUp(self)
         self.v.alignment_offset = 10
         self.v.active_reference = 'ref'
         # Row 3 is loaded but mapped to no network node. `.` reads back as a gap
@@ -147,24 +150,6 @@ class ResidueSnapshotTests(unittest.TestCase):
         self.v.alignment=None
         with self.assertRaisesRegex(ValueError,'No alignment loaded'):
             self.service.capture_snapshot(include_alignment=True)
-
-    def test_projection_exact_fields_size_and_cursor(self):
-        full=self.call('query_nodes')
-        compact=self.call('query_nodes',fields=['node_id'])
-        self.assertTrue(all(set(row)=={'node_id'} for row in compact['rows']))
-        self.assertLess(len(encoded(compact)),len(encoded(full)))
-        first=self.call('query_nodes',fields=['node_id'],limit=1)
-        with self.assertRaises(ViewerInspectionError):
-            self.call('query_nodes',fields=['index'],cursor=first['next_cursor'])
-        for args in ({'fields':[]},{'fields':['index','index']},{'fields':['bad']},
-                     {'fields':['node_id'],'columns':['Length']},
-                     {'fields':['node_id'],'visual_fields':['color']}):
-            with self.assertRaises(ViewerInspectionError): self.call('query_nodes',**args)
-        self.v.full_headers[0]='x'*10000
-        self.sid=self.service.capture_snapshot()
-        page=self.call('query_nodes',fields=['node_id'],max_bytes=1024)
-        self.assertLessEqual(len(encoded(page)),1024)
-        self.assertEqual(page['rows'][0]['node_id']['read_value']['index'],0)
 
 
 if __name__ == '__main__': unittest.main()

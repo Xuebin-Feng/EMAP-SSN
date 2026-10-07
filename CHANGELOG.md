@@ -148,6 +148,13 @@ still change before version 1.0.0.
   the Viewer's Qt thread was busy also stopped the launch; the probe is now retried.
 - MCP pipeline jobs inherited the server's standard input, which carries the MCP
   protocol; a job that prompted for input could consume protocol messages.
+- On Windows, cancelling an MCP pipeline job, or closing the MCP server while a job
+  ran, could leave processes the job had started running, such as the worker processes
+  of an alignment with several `WORKERS`. The server ended only the process it had
+  launched, which in a virtual environment is the `python.exe` redirector. The tool's
+  interpreter stopped with it, but the interpreter's own child processes did not. The
+  job's whole process tree is now ended; on Linux and macOS, the job's process group
+  already was.
 - Embedding MSA and embedding search (SSEARCH), run through MCP or a settings file,
   accepted local scores with `alignment_length` normalization, dividing each local
   score by its own alignment length; the Tools window, the Viewer and layout generation
@@ -287,6 +294,20 @@ still change before version 1.0.0.
   Occupancy % and Alignment Offset fields stack, the Alignment Offset field stayed
   100 px wide instead of reaching the right edge like the others. It now does; in a
   wide window it keeps its 100 px beside the other two.
+- `Network_Extraction.py` left whitelist sequences out of the sub-network. It read the
+  whitelist FASTA as plain UTF-8, so a file saved with a byte-order mark, as Windows
+  Notepad can write, lost its first record without any message. It also compared
+  headers as written, while networks store them sanitized, so a whitelist taken from
+  the FASTA the network was built from missed every record whose header sanitizing
+  changes, such as one with a description after a space, brackets or a `/`. The tool
+  now reads the whitelist with the shared FASTA reader, sanitizes each header with the
+  same rules as the network's headers, and reports how many whitelist headers matched
+  no network header.
+- The Config and VR Config accepted a saved profile named "(custom)", "(default)" or
+  "(new)". The profile selector listed it under the same text as the built-in entry
+  and could not tell the two apart. These names are now reserved like "custom",
+  "default" and "new", and an existing profile file with one of them no longer
+  appears in the selector; rename the file to use it again.
 
 ## [0.3.0] - 2026-10-01
 

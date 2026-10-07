@@ -1,3 +1,7 @@
+"""Shell terminal launcher (src/bin/EMAPSSN_Terminal_Launcher.sh) and the macOS
+app bundles install.sh generates: source checks that run everywhere, and
+behaviour checks that run the script with fake terminals under /bin/bash."""
+
 from __future__ import annotations
 
 import os
@@ -10,7 +14,24 @@ import unittest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER = PROJECT_ROOT / "src" / "bin" / "EMAPSSN_Terminal_Launcher.sh"
+SRC_DIR = PROJECT_ROOT / "src"
+LAUNCHER = SRC_DIR / "bin" / "EMAPSSN_Terminal_Launcher.sh"
+
+
+class ShellLauncherSourceTests(unittest.TestCase):
+    def test_macos_startup_terminal_checks_for_exit_every_fifty_milliseconds(self):
+        source = (SRC_DIR / "bin" / "EMAPSSN_Terminal_Launcher.sh").read_text(
+            encoding="utf-8"
+        )
+        busy_loop = source.split("repeat while busy of launchTab", 1)[1]
+        self.assertIn("delay 0.05", busy_loop.split("end repeat", 1)[0])
+
+    def test_generated_macos_apps_open_command_file_without_apple_events(self):
+        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('exec /usr/bin/open -a Terminal', installer)
+        self.assertIn('Contents/Resources/start.command', installer)
+        self.assertIn('"$app_kind" --terminal-session', installer)
+        self.assertNotIn("NSAppleEventsUsageDescription", installer)
 
 
 @unittest.skipUnless(Path("/bin/bash").is_file(), "requires /bin/bash")
@@ -197,16 +218,6 @@ class ShellTerminalLauncherTests(unittest.TestCase):
                 argv.index("repeat with launchAttempt from 1 to 100"),
                 argv.index("repeat while busy of launchTab"),
             )
-
-    def test_generated_macos_apps_open_command_file_without_apple_events(self):
-        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
-        self.assertIn('exec /usr/bin/open -a Terminal', installer)
-        self.assertIn('Contents/Resources/start.command', installer)
-        self.assertIn('"$app_kind" --terminal-session', installer)
-        self.assertNotIn("NSAppleEventsUsageDescription", installer)
-
-    def test_clean_cutover_has_no_legacy_macos_installer(self):
-        self.assertFalse((PROJECT_ROOT / "install.command").exists())
 
 
 if __name__ == "__main__":

@@ -346,7 +346,9 @@ class ViewerCommandPortal(QtCore.QObject):
 
     def read_output(self, request_id=None, stream='stdout', offset=0, limit=8192, submission_id=None):
         request_id = self._resolve_request(request_id, submission_id)
-        if stream not in {'stdout', 'stderr'} or offset < 0 or not 1 <= limit <= 32768:
+        # A page must hold the longest UTF-8 character (4 bytes); a smaller
+        # limit can return an empty page that never advances the cursor.
+        if stream not in {'stdout', 'stderr'} or offset < 0 or not 4 <= limit <= 32768:
             raise ValueError('Invalid output page bounds')
         with self.output_lock:
             if request_id not in self.output:

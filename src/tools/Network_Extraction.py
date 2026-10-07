@@ -34,7 +34,8 @@ Settings:
 - OUTPUT_NET: The location to save the newly filtered subset network.
 
 Algorithm:
-1. Loads the target whitelist of sequences into RAM from the parsed FASTA headers.
+1. Loads the target whitelist of sequences into RAM from the parsed FASTA headers, sanitized with the
+   same header rules as the network's own headers; whitelist headers that match no network header are reported.
 2. Interrogates the HDF5 network metadata to auto-detect its file structure (BLAST vs Embedding).
 3. Constructs an integer mapping array bridging the old global node indices to the newly contiguous subset indices.
 4. Loads the source/target topology vectors into RAM and masks them utilizing boolean logic (dropping connections where either participant is omitted).
@@ -52,6 +53,7 @@ import sys
 import h5py
 import numpy as np
 from Cache_Manifest import validate_network_schema
+from utilities.Sequence_Utils import read_fasta, sanitize_header
 
 # ==========================================
 # USER CONFIGURATION
@@ -172,22 +174,25 @@ def configure_runtime_paths():
         )
 
 def load_fasta_headers(fasta_path):
+    """Read whitelist headers in file order, sanitized as network headers are.
+
+    Only the per-header rule applies. load_sanitized_fasta also merges and
+    renames records by sequence, which depends on the whole FASTA, so a subset
+    would not reproduce the network's names (and BLAST networks skip it).
+    """
     print(f"Loading filtered headers from: {fasta_path}")
-    headers = set()
     try:
-        with open(fasta_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith(">"):
-                    headers.add(line[1:]) 
+        raw_headers, _ = read_fasta(fasta_path)
     except FileNotFoundError:
         sys.exit(f"❌ Error: FASTA file not found at {fasta_path}")
+    headers = list(dict.fromkeys(sanitize_header(header)[0] for header in raw_headers))
     print(f"-> Found {len(headers)} sequences in filtered FASTA.")
     return headers
 
 def filter_network(input_net, input_fasta, output_net):
     # 1. Load Whitelist
-    keep_headers_set = load_fasta_headers(input_fasta)
+    keep_headers = load_fasta_headers(input_fasta)
+    keep_headers_set = set(keep_headers)
 
     # 2. Verify Input
     print(f"\nLoading master network: {input_net} ...")
@@ -229,10 +234,16 @@ def filter_network(input_net, input_fasta, output_net):
                 new_idx_counter += 1
                 
         num_kept = len(new_headers)
-        missing_headers = keep_headers_set - set(new_headers)
-        
+        kept_headers_set = set(new_headers)
+        unmatched_headers = [
+            header for header in keep_headers if header not in kept_headers_set
+        ]
+
         print(f"-> Retaining {num_kept} / {len(original_headers)} sequences.")
-        print(f"-> Missing   {len(missing_headers)} sequences from FASTA.")
+        print(
+            f"-> {len(unmatched_headers)} of {len(keep_headers)} whitelist headers "
+            "matched no network header."
+        )
 
         if num_kept == 0:
             sys.exit("❌ Error: No headers matched. Check your FASTA IDs vs Network IDs.")
@@ -284,12 +295,12 @@ def filter_network(input_net, input_fasta, output_net):
 
     print("\n✅ Sub-Network Extraction Complete!")
 
-    if missing_headers:
-        print("\n⚠️  The following FASTA headers were not found in the network:")
-        for missing in list(missing_headers)[:10]:
+    if unmatched_headers:
+        print("\n⚠️  The following whitelist headers matched no network header:")
+        for missing in unmatched_headers[:10]:
             print(f"    - {missing}")
-        if len(missing_headers) > 10:
-            print(f"    ... and {len(missing_headers) - 10} more.")
+        if len(unmatched_headers) > 10:
+            print(f"    ... and {len(unmatched_headers) - 10} more.")
 
 def main(argv=None):
     load_tool_settings(globals(), __file__, PROJECT_ROOT, argv)

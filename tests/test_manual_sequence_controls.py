@@ -10,21 +10,24 @@ from unittest import mock
 
 import h5py
 import numpy as np
+import torch
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+TOOLS_DIR = os.path.join(SRC_DIR, "tools")
+for directory in (SRC_DIR, TOOLS_DIR):
+    if directory not in sys.path:
+        sys.path.insert(0, directory)
 
-from tools.Embedding_PWA import (
+from Embedding_PWA import (
     prepare_embedding_database,
     resolve_manual_alignment_inputs,
     run_alignment,
     sanitize_alignment_header,
 )
-import tools.Embedding_PWA as embedding_pwa
-import tools.Embedding_SSEARCH as embedding_ssearch
-from tools.Embedding_SSEARCH import (
+import Embedding_PWA as embedding_pwa
+import Embedding_SSEARCH as embedding_ssearch
+from Embedding_SSEARCH import (
     resolve_manual_query_sequence,
     validate_score_normalization,
 )
@@ -121,7 +124,16 @@ class ManualSequenceControlTests(unittest.TestCase):
             self.assertEqual(database.model_name, "test_model")
             self.assertEqual(database.sequence_by_header, dict(zip(headers, sequences)))
 
-            with mock.patch.object(embedding_pwa, "GENERATE_REPORT", False):
+            # run_alignment picks its own device; keep the score matrix on the
+            # CPU so the test never initializes a GPU.
+            with (
+                mock.patch.object(embedding_pwa, "GENERATE_REPORT", False),
+                mock.patch.object(
+                    embedding_pwa.Hardware_Utils,
+                    "get_optimal_device",
+                    return_value=torch.device("cpu"),
+                ) as get_device,
+            ):
                 with redirect_stdout(StringIO()) as output:
                     run_alignment(
                         " reference[1]/A ",
@@ -136,6 +148,7 @@ class ManualSequenceControlTests(unittest.TestCase):
                         "",
                         database.model_name,
                     )
+            get_device.assert_called_once_with()
             self.assertIn("reference(1)_A", output.getvalue())
             self.assertIn("Found pre-calculated embedding", output.getvalue())
 

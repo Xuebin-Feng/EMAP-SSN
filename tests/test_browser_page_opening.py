@@ -1,6 +1,9 @@
-"""Focused tests for duplicate-safe bundled browser page opening."""
+"""Opening the bundled browser pages: one tab per page and Viewer
+(src/web_ui/Browser_Page.py), each Viewer's own URL, and the ESMFold page's
+opener (src/web_ui/esmfold_backend.py)."""
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +15,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from web_ui import Browser_Page
+from commands import agent, meta  # noqa: E402
+from EMAPSSN_Viewer import MainViewer  # noqa: E402
+from web_ui import Browser_Page, esmfold_backend  # noqa: E402
 
 
 class FakeWebServer:
@@ -237,6 +242,71 @@ class BrowserPageOpeningTests(unittest.TestCase):
             viewer.console_text.text,
             "Could not open Metadata UI: http://localhost:49123/meta.html",
         )
+
+
+class InstanceUrlRoutingTests(unittest.TestCase):
+    class Viewer:
+        # MainViewer's own openers, so the URLs opened are the ones production builds.
+        _open_web_ui = MainViewer._open_web_ui
+        open_agent_ui = MainViewer.open_agent_ui
+        open_metadata_ui = MainViewer.open_metadata_ui
+
+        def __init__(self):
+            self.console_text = mock.Mock(text="")
+            self.web_server = None
+
+        def get_web_url(self, path):
+            return f"http://127.0.0.1:49123/{path.lstrip('/')}"
+
+        def update_console_background(self):
+            pass
+
+    def test_agent_meta_and_esmfold_use_viewer_instance_port(self):
+        viewer = self.Viewer()
+        expected = [
+            "http://127.0.0.1:49123/agent.html",
+            "http://127.0.0.1:49123/meta.html",
+            "http://127.0.0.1:49123/esmfold.html",
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(agent, "register"), \
+                mock.patch.object(meta, "register"), \
+                mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
+                mock.patch("webbrowser.open") as browser_open:
+            agent.run(viewer, [])
+            meta.run(viewer, [])
+            esmfold_backend.open_esmfold_ui(viewer)
+
+        self.assertEqual(
+            [call.args[0] for call in browser_open.call_args_list], expected
+        )
+
+
+class ESMFoldBrowserOpeningTests(unittest.TestCase):
+    def test_esmfold_page_opens_through_viewer_shared_opener(self):
+        # The default suits the Fold View button; the esmfold command passes
+        # show_existing_dialog=False.
+        for options, show_existing_dialog in (({}, True), ({"show_existing_dialog": False}, False)):
+            with self.subTest(options=options):
+                viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False))
+                self.assertFalse(esmfold_backend.open_esmfold_ui(viewer, **options))
+
+                viewer._open_web_ui.assert_called_once_with(
+                    "/esmfold.html",
+                    "ESMFold Mol* UI",
+                    "esmfold",
+                    show_existing_dialog=show_existing_dialog,
+                )
+
+    def test_fold_view_sidebar_uses_default_modal_behavior(self):
+        viewer = SimpleNamespace(add_sidebar_button=mock.Mock())
+        esmfold_backend.activate(viewer)
+        callback = viewer.add_sidebar_button.call_args.args[2]
+
+        with mock.patch.object(esmfold_backend, "open_esmfold_ui") as open_ui:
+            callback()
+
+        open_ui.assert_called_once_with(viewer)
 
 
 if __name__ == "__main__":

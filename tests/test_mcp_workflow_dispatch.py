@@ -19,6 +19,7 @@ from mcp_server.core.Workflow_Dispatch import (
 )
 from mcp_server.pipeline import Pipeline_Operations as pipeline_ops
 from mcp_server.viewer import Viewer_Operations as viewer_ops
+from mcp_server.viewer import Viewer_Operations as ops
 
 
 class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
@@ -193,6 +194,72 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
                 for args in ({"action": "missing"}, {"action": "help", "arguments": None},
                              {"action": "help", "arguments": []}):
                     self.assertTrue((await client.call_tool("emapssn_pipeline", args)).is_error)
+
+
+class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lookup_validation_and_schema_before_transport(self):
+        import jsonschema
+        for action in ('get_command_request', 'read_command_output'):
+            model = REGISTRY['emapssn_viewer_data'][action].model
+            schema = model.model_json_schema()
+            invalid = [{}, {'request_id': 'r', 'submission_id': 's'}, {'request_id': ''},
+                       {'submission_id': ' '}, {'request_id': 1}, {'submission_id': False}]
+            with mock.patch.object(ops, '_portal_call') as transport:
+                for arguments in invalid:
+                    with self.subTest(action=action, arguments=arguments):
+                        with self.assertRaises(ToolError):
+                            await dispatch('emapssn_viewer_data', action, arguments, None)
+                        with self.assertRaises(jsonschema.ValidationError):
+                            jsonschema.validate(arguments, schema)
+                transport.assert_not_called()
+            for arguments in ({'request_id': 'r'}, {'submission_id': 's'}, {'request_id': None, 'submission_id': 's'}):
+                jsonschema.validate(arguments, schema)
+                with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value={}) as transport:
+                    await dispatch('emapssn_viewer_data', action, arguments, None)
+                    forwarded = transport.call_args.args[2]
+                    for key, value in arguments.items():
+                        self.assertEqual(forwarded[key], value)
+
+    async def test_execution_followup_uses_returned_session_on_new_and_retry(self):
+        result = {'request_id': 'r', 'session_id': 'origin', 'submission_id': 's', 'status': 'queued'}
+        with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result):
+            for _ in range(2):
+                response = await dispatch('emapssn_viewer_control', 'execute_commands',
+                                          {'submission_id': 's', 'commands': 'select help'}, None)
+                step = response['next_step']
+                self.assertEqual(step, {'tool': 'emapssn_viewer_data', 'action': 'get_command_request',
+                                        'arguments': {'request_id': 'r', 'session_id': 'origin'}})
+                REGISTRY[step['tool']][step['action']].model.model_validate(step['arguments'])
+                self.assertNotIn('next_step', result)
+        self.assertNotIn('execute_commands', REGISTRY['emapssn_viewer_data'])
+
+    async def test_session_selection_and_reconnect_keep_lookup_local(self):
+        from mcp_server.viewer.Viewer_Client import MCPViewerClient
+        # Exercise the actual client routing while keeping transport read-only.
+        client = MCPViewerClient(Path.cwd())
+        selected = []
+        def discover(target, **kwargs):
+            selected.append(target)
+            return SimpleNamespace(session_id=target)
+        def request(session, endpoint, payload=None):
+            if endpoint.endswith('/session'):
+                return {'inspection_capabilities': ['commands_v1']}
+            self.assertEqual(payload['arguments'], {'submission_id': 's'})
+            return {'session_id': session.session_id, 'request_id': session.session_id + '-r'}
+        with mock.patch('mcp_server.viewer.Viewer_Client.select_viewer_session', side_effect=discover), \
+                mock.patch.object(client, '_request', side_effect=request):
+            client.connected_session_id = 'first'
+            original = await client.command_action('get_command_request', {'submission_id': 's'})
+            client.connected_session_id = 'second'
+            other = await client.command_action('get_command_request', {'submission_id': 's'})
+            explicit = await client.command_action('get_command_request', {'submission_id': 's'}, 'first')
+            client.connected_session_id = None
+            client.connected_session_id = 'first'
+            reconnected = await client.command_action('get_command_request', {'submission_id': 's'})
+        self.assertEqual(original, explicit)
+        self.assertEqual(original, reconnected)
+        self.assertNotEqual(original, other)
+        self.assertEqual(selected, ['first', 'second', 'first', 'first'])
 
 
 if __name__ == "__main__":

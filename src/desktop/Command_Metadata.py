@@ -54,7 +54,7 @@ COMMAND_METADATA = {
         argument('target', 'Default clusters, excluding noise; groups exports all custom groups. Requires corresponding memberships and in-memory sequences. Do not mix these modes with explicit labels. Group labels name the files and clustering parameters the cluster folder; one that is not a plain filename (only a hand-edited layout cache can carry one) is refused before anything is written.', choice('clusters'), choice('groups', 'group')),
         argument('labels', 'One or more #LABEL# tokens for existing clusters, groups, or noise; repeated labels are deduplicated. Legacy group: prefixes are rejected.')),
     'group': entry('Assign overlapping custom group labels or manage existing groups.',
-        argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups, reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
+        argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups (all of which must exist, or nothing is removed), reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
         argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes.'),
         argument('names', 'Names use letters, digits, underscores, hyphens or periods, without spaces. Reserved command names, canonical cluster_N names of clusters that currently exist, and every subcluster_N_M name in the generated form (positive IDs without leading zeros) cannot be assigned. remove accepts multiple names.')),
     'hide': entry('Hide selected or matching visible nodes and their connected edges.',
@@ -93,7 +93,7 @@ COMMAND_METADATA = {
     'reference': entry('Inspect or change the reference sequence used for alignment mapping.',
         argument('target', 'Omit to inspect the current reference and whether it is active. Supply a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard pattern; an exact header or identifier takes priority, and the resolved full header anchors numbering. A configured reference absent from the current MSA remains inactive in occupancy mode.')),
     'reset': entry('Restore selected network properties in one undoable action.',
-        argument('targets', 'One or more targets: reset colors/sizes to configured defaults, shapes to discs, clear clusters/groups, unhide nodes, restore original/last-saved positions, or reset render order. Keywords are case-insensitive.',
+        argument('targets', 'One or more targets: reset colors/sizes to configured defaults, shapes to discs, clear clusters/groups, unhide nodes, restore original/last-saved positions, or reset render order. Keywords are case-insensitive; an unknown target fails the command without resetting anything.',
             choice('colors','color'), choice('sizes','size'), choice('shapes','shape'), choice('clusters','cluster'), choice('groups','group'),
             choice('hide','hides','hidden','hiddens'), choice('network','networks'), choice('order','orders','layer','layers'))),
     'run': entry('Open a script-selection dialog and execute a text command batch or Python-generated commands.',
@@ -115,7 +115,7 @@ COMMAND_METADATA = {
         CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),
     'undo': entry('Restore the previous state; report a no-op if undo history is empty.'),
     'zoom': entry('Set camera view width while retaining its center and canvas aspect ratio.',
-        argument('width', 'Numeric width in scene units; omission prints help.')),
+        argument('width', 'Positive, finite width in scene units; omission prints help.')),
 }
 
 # Help flags are command-specific; these are documentation, not dispatch aliases.

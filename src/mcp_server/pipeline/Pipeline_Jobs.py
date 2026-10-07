@@ -631,12 +631,15 @@ class PipelineJobManager:
             if process.returncode is not None:
                 return
             if os.name == "nt":
+                # Without /F, taskkill closes only windowed processes, so a
+                # console tool refuses it. Terminating just the launched process
+                # would then orphan the tool: a venv's python.exe is a
+                # redirector, and its interpreter's children outlive it where
+                # no later tree kill can find them. Force the tree while the
+                # launched process still roots it.
                 taskkill_code = await self._taskkill(process.pid, force=False)
                 if taskkill_code != 0 and process.returncode is None:
-                    try:
-                        process.terminate()
-                    except ProcessLookupError:
-                        return
+                    await self._taskkill(process.pid, force=True)
             else:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)

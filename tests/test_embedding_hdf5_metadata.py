@@ -1,3 +1,12 @@
+"""Metadata-first embedding databases and the tools that write or read them.
+
+HDF5_Storage writes the manifest (headers, full sequences, model, saving mode)
+before any embedding. Generate_Embeddings resumes against it, and
+Embedding_Cropping, Embedding_Extraction, Embedding_Injection and
+Embedding_SSEARCH read sequences from it instead of from a separate FASTA.
+"""
+
+import os
 import pathlib
 import sys
 import tempfile
@@ -342,6 +351,77 @@ class EmbeddingWriterTests(unittest.TestCase):
             self.assertEqual(manifest.sequence_by_header, {"Alpha": "ACDE"})
             self.assertFalse(hasattr(Embedding_SSEARCH, "INPUT_FASTA"))
             self.assertFalse(hasattr(Embedding_SSEARCH, "FULL_INPUT_FASTA"))
+
+
+class EmbeddingCroppingTests(unittest.TestCase):
+    """Crops copy the source rows at the crop's offset and report every skip."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = pathlib.Path(temporary.name)
+        self.source = self.root / "source.h5"
+        # Every row holds different values, so a wrong offset changes them.
+        self.rows = {}
+        records = [("Full", "MKACDEF"), ("Repeat", "AAGAA"), ("NoMatch", "WWW")]
+        with h5py.File(self.source, "w") as hf:
+            group = Embedding_HDF5.create_metadata_first_file(
+                hf,
+                [header for header, _ in records],
+                [sequence for _, sequence in records],
+                "test_model",
+                "float16",
+            )
+            start = 0
+            for header, sequence in records:
+                size = 3 * len(sequence)
+                data = np.arange(start, start + size, dtype=np.float16)
+                self.rows[header] = data.reshape(len(sequence), 3)
+                group.create_dataset(header, data=self.rows[header])
+                start += size
+            Embedding_HDF5.mark_generation_complete(hf)
+
+    def write_crops(self, text):
+        path = self.root / "cropped.fasta"
+        path.write_bytes(text.encode("utf-8"))
+        return path
+
+    def test_crops_copy_rows_at_their_offset_and_skips_are_listed(self):
+        cropped = self.write_crops(
+            ">Full\nacd\n>Repeat\nAA\n>NoMatch\nYY\n>Absent\nMK\n"
+        )
+        output = self.root / "cropped.h5"
+
+        result = Embedding_Cropping.crop_embeddings(self.source, cropped, output)
+
+        self.assertEqual(result["output_hdf5"], output)
+        self.assertEqual(result["resolved_headers"], ["Full", "Repeat"])
+        # "AA" occurs twice in "AAGAA"; the first occurrence is used.
+        self.assertEqual(result["ambiguous_resolved"], ["Repeat"])
+        self.assertEqual(result["substring_not_found"], ["NoMatch"])
+        self.assertEqual(result["missing_from_source"], ["Absent"])
+        with h5py.File(output, "r") as hf:
+            manifest = Embedding_HDF5.read_embedding_manifest(hf)
+            self.assertEqual(manifest.headers, ["Full", "Repeat"])
+            self.assertEqual(manifest.sequences, ["ACD", "AA"])
+            self.assertEqual(manifest.saving_mode, "float16")
+            self.assertEqual(manifest.model_name, "test_model")
+            np.testing.assert_array_equal(
+                hf["embeddings"]["Full"][:], self.rows["Full"][2:5]
+            )
+            np.testing.assert_array_equal(
+                hf["embeddings"]["Repeat"][:], self.rows["Repeat"][0:2]
+            )
+
+    def test_output_that_resolves_to_the_source_is_rejected(self):
+        cropped = self.write_crops(">Full\nACD\n")
+        original = self.source.read_bytes()
+        same_file = os.path.join(str(self.root), ".", "source.h5")
+
+        with self.assertRaisesRegex(ValueError, "must not overwrite"):
+            Embedding_Cropping.crop_embeddings(self.source, cropped, same_file)
+
+        self.assertEqual(self.source.read_bytes(), original)
 
 
 if __name__ == "__main__":

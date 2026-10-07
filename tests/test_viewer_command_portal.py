@@ -1,4 +1,10 @@
-"""Command equivalence, completion, isolation, and bounded Viewer feedback."""
+"""Viewer command portal (Viewer_Command_Portal) and command worker tracking (Viewer_Worker_Tracking).
+
+Covers equivalence with manual commands, completion, isolation, retries and
+lookups, bounded feedback, submission limits, shutdown, and failures of
+detached workers and command scripts.
+"""
+import importlib
 import io
 import json
 import os
@@ -8,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -16,65 +23,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from PySide6 import QtWidgets
 import Command_Engine as ce
 from Viewer_Command_Portal import ViewerCommandPortal, CURRENT, bind, user_interaction
+from tests.viewer_fixtures import PortalFixture, Viewer
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Visual_State import edge_stages, capture_view
+from desktop.Command_Metadata import get_command_metadata
 
 
-class Viewer:
-    def __init__(self, root):
-        self.command_history = []
-        self.history_file = str(Path(root) / 'history.txt')
-        self.console_text = SimpleNamespace(text='')
-        self.console_bg = SimpleNamespace(visible=False)
-        self.tooltip = SimpleNamespace(text='', visible=False)
-        self.events = []
-        self.n_nodes = 3
-        self.full_headers = ['one', 'two', 'three']
-        self.visible_mask = np.ones(3, bool)
-        self.selected_indices = []
-        self.cluster_labels = np.array([0, 0, 1])
-        self.group_labels = [set(), set(), set()]
-        self.metadata = {}
-        self.pos = np.array([[0., 0.], [1., 1.], [2., 2.]])
-        self.edges = np.array([[0, 1], [1, 2]])
-        self.edge_scores = np.array([.5, .8])
-        self.current_slider_threshold = .4
-        self.current_colors = np.ones((3, 4))
-        self.current_sizes = np.ones(3)
-        self.current_shapes = np.array(['disc'] * 3, dtype=object)
-        self.saved = 0
-    def broadcast_event(self, event): self.events.append(event)
-    def broadcast_metadata_state(self): pass
-    def update_console_background(self): pass
-    def update_nodes(self): pass
-    def update_selection_visual(self): pass
-    def update_edges(self): pass
-    def _save_state(self): self.saved += 1
-    def promote_nodes(self, indices): pass
-    def set_background_job_status(self, message): pass
-    def process_command(self, command, record_history=True):
-        with bind(None): ce.execute_command(self, command, record_history)
+def fake_test_command(run):
+    """Resolve the command `test` to a module whose run() is ``run``.
+
+    Every other import_module call, including the real command modules the
+    Command_Engine imports for the commands that follow, is left unchanged.
+    """
+    real_import = importlib.import_module
+
+    def import_module(name, package=None):
+        if name == 'commands.test':
+            return SimpleNamespace(run=run)
+        return real_import(name, package)
+    return mock.patch('importlib.import_module', side_effect=import_module)
 
 
-class PortalTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+def worker_tracker(context, root):
+    """A WorkerTracker whose status files live under ``root``; its poll timer is stopped.
 
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.viewer = Viewer(self.directory.name)
-        self.portal = ViewerCommandPortal(self.viewer)
-        self.viewer.command_portal = self.portal
-        self.addCleanup(self.portal.shutdown)
+    WorkerTracker derives its folder from its own file (<project>/temp/command_workers).
+    """
+    import Viewer_Worker_Tracking
+    with mock.patch.object(Viewer_Worker_Tracking, '__file__', str(Path(root) / 'src' / 'Viewer_Worker_Tracking.py')):
+        tracker = Viewer_Worker_Tracking.WorkerTracker(context)
+    tracker.timer.stop()
+    return tracker
 
-    def finish(self, request_id):
-        deadline = time.monotonic() + 5
-        while self.portal.get(request_id)['status'] not in {'succeeded', 'failed', 'cancelled'} and time.monotonic() < deadline:
-            self.app.processEvents()
-            time.sleep(.005)
-        return self.portal.get(request_id)
+
+
+class PortalTests(PortalFixture, unittest.TestCase):
 
     def test_manual_and_portal_selection_color_hide(self):
         manual = Viewer(self.directory.name)
@@ -115,7 +98,7 @@ class PortalTests(unittest.TestCase):
         def run(viewer, args):
             scheduler.enqueue('test', 'test', None, worker, str(Path(self.directory.name) / 'out'))
             ce.command_succeeded(viewer)
-        with mock.patch('importlib.import_module', return_value=SimpleNamespace(run=run)):
+        with fake_test_command(run):
             r = self.portal.submit('background', ['test', 'select "two"'])
             self.portal.pump()
         self.assertEqual(self.portal.get(r['request_id'])['status'], 'running')
@@ -133,7 +116,7 @@ class PortalTests(unittest.TestCase):
         def run(viewer, args):
             CURRENT.get().children(['select "one"', 'agent "recursive"', 'select "two"'])
             ce.command_succeeded(viewer)
-        with mock.patch('importlib.import_module', return_value=SimpleNamespace(run=run)):
+        with fake_test_command(run):
             r = self.portal.submit('nested', 'test')
             # Only dispatch the parent under the mock.
             record = self.portal.requests[r['request_id']]['commands'][0]
@@ -159,7 +142,7 @@ class PortalTests(unittest.TestCase):
             self.portal.submit('old', 'select help')
 
     def test_handler_without_outcome_never_claims_success(self):
-        with mock.patch('importlib.import_module', return_value=SimpleNamespace(run=lambda v,a: None)):
+        with fake_test_command(lambda v,a: None):
             r = self.portal.submit('silent', 'test')
             self.portal.pump()
         self.assertEqual(self.portal.get(r['request_id'])['status'], 'failed')
@@ -210,17 +193,14 @@ class PortalTests(unittest.TestCase):
             result = self.finish(request_id)
         self.assertEqual(result['status'], 'cancelled', result)
 
-    def test_worker_final_result_and_unexpected_exit(self):
+    def test_worker_final_failed_status_keeps_partial_results(self):
         from Viewer_Command_Portal import ExecutionContext
-        from Viewer_Worker_Tracking import WorkerTracker
         import psutil
         request_id = self.portal.submit('worker-status', 'test')['request_id']
         record = self.portal.requests[request_id]['commands'][0]
         record.update(dispatched=True, outcome='succeeded', status='running')
         context = ExecutionContext(self.portal, request_id, record)
-        tracker = WorkerTracker(context)
-        tracker.timer.stop()
-        tracker.path = Path(self.directory.name) / 'status.json'
+        tracker = worker_tracker(context, self.directory.name)
         tracker.path.write_text(json.dumps({'pid': os.getpid(), 'created': psutil.Process().create_time(),
             'status': 'failed', 'message': 'One of two structures failed', 'artifacts': ['partial.pdb'],
             'result': {'succeeded': 1, 'total': 2}}))
@@ -242,6 +222,208 @@ class PortalTests(unittest.TestCase):
         result = self.finish(request_id)
         self.assertEqual(result['status'], 'failed', result)
         self.assertEqual(self.viewer.selected_indices, [0])
+
+
+class LookupTests(PortalFixture, unittest.TestCase):
+    def test_reset_choices_and_aliases_match_behavior(self):
+        self.viewer.original_pos = self.viewer.pos.copy()
+        for item in get_command_metadata('reset')['arguments'][0]['choices']:
+            for token in [item['value'], *item['aliases']]:
+                with self.subTest(token=token), redirect_stdout(io.StringIO()):
+                    result = self.finish(self.portal.submit(token, 'reset ' + token)['request_id'])
+                    self.assertEqual(result['status'], 'succeeded', result)
+                    text = result['commands'][0]['messages'][0]['text']
+                    expected = {'hide': 'hidden', 'order': 'node order'}.get(item['value'], item['value'])
+                    self.assertEqual(text, 'Reset successful: ' + expected + '.')
+
+    def test_status_output_paging_and_retry_equivalence(self):
+        with redirect_stdout(io.StringIO()):
+            request = self.portal.submit('submission', ['select help', 'zoom help'])
+            self.finish(request['request_id'])
+        for offset in (0, 1, 2):
+            self.assertEqual(self.portal.get(request['request_id'], offset=offset, limit=1),
+                             self.portal.get(submission_id='submission', offset=offset, limit=1))
+        for stream in ('stdout', 'stderr'):
+            self.portal.append_output(request['request_id'], stream, 'abcdefghijk')
+            self.assertEqual(self.portal.read_output(request['request_id'], stream, 4, 4),
+                             self.portal.read_output(submission_id='submission', stream=stream, offset=4, limit=4))
+        self.assertEqual(self.portal.submit('submission', ['select help', 'zoom help'])['request_id'], request['request_id'])
+        with self.assertRaisesRegex(ValueError, 'different payload'):
+            self.portal.submit('submission', 'select help')
+        self.assertEqual(len(self.portal.requests), 1)
+
+    def test_invalid_unknown_evicted_and_isolated_lookups_never_submit(self):
+        invalid = [{}, {'request_id': 'a', 'submission_id': 'b'}, {'request_id': ''},
+                   {'submission_id': ' '}, {'request_id': 12}, {'submission_id': False},
+                   {'request_id': []}, {'submission_id': {}}]
+        for handler in (self.portal.get, self.portal.read_output):
+            for arguments in invalid:
+                with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                    handler(**arguments)
+            with self.assertRaisesRegex(ValueError, 'Unknown submission_id'):
+                handler(submission_id='unknown')
+        self.assertEqual(len(self.portal.requests), 0)
+        with redirect_stdout(io.StringIO()):
+            request = self.portal.submit('old', 'select help')
+            self.finish(request['request_id'])
+        other = ViewerCommandPortal(Viewer(self.directory.name))
+        self.addCleanup(other.shutdown)
+        with self.assertRaisesRegex(ValueError, 'Unknown submission_id'):
+            other.get(submission_id='old')
+        self.portal.history_limit = 1
+        with redirect_stdout(io.StringIO()):
+            self.finish(self.portal.submit('new', 'select help')['request_id'])
+        for handler in (self.portal.get, self.portal.read_output):
+            with self.assertRaisesRegex(ValueError, 'known but its result was evicted'):
+                handler(submission_id='old')
+        self.assertEqual(len(self.portal.requests), 1)
+
+
+class PortalLimitTests(PortalFixture, unittest.TestCase):
+    """Submission limits, the queue bound, shutdown, and byte-exact output pages."""
+
+    def test_invalid_submissions_are_rejected_before_queueing(self):
+        invalid = [('empty id', '', 'select help'), ('129-character id', 'x' * 129, 'select help'),
+                   ('numeric id', 7, 'select help'), ('missing id', None, 'select help'),
+                   ('no commands', 'none', []), ('101 commands', 'many', ['select help'] * 101),
+                   ('tuple', 'tuple', ('select help',)), ('blank command', 'blank', ['select help', '   ']),
+                   ('two lines', 'lines', ['select "one"\nselect "two"']),
+                   ('carriage return', 'return', ['select help\r']), ('8193 characters', 'long', ['x' * 8193]),
+                   ('not text', 'number', [5])]
+        for label, submission_id, commands in invalid:
+            with self.subTest(label), self.assertRaises(ValueError):
+                self.portal.submit(submission_id, commands)
+        self.assertEqual((self.portal.requests, self.portal.queue, self.portal.submissions), ({}, [], {}))
+        # The limits themselves are accepted; nothing runs, as no Qt events are processed.
+        self.portal.submit('x' * 128, ['select help'] * 100)
+        self.portal.submit('longest command', 'x' * 8192)
+        self.assertEqual(len(self.portal.queue), 2)
+
+    def test_full_queue_rejects_new_submissions_but_answers_retries(self):
+        for index in range(100):
+            self.portal.submit(f'queued-{index}', 'select help')
+        with self.assertRaisesRegex(ValueError, 'queue is full'):
+            self.portal.submit('one too many', 'select help')
+        self.assertNotIn('one too many', self.portal.submissions)
+        self.assertEqual(len(self.portal.requests), 100)
+        self.assertEqual(self.portal.submit('queued-0', 'select help')['request_id'], self.portal.queue[0])
+
+    def test_shutdown_cancels_queued_requests_and_nested_children(self):
+        first = self.portal.submit('first', ['select "one"', 'select "two"'])['request_id']
+        second = self.portal.submit('second', 'select "three"')['request_id']
+        top, sibling = self.portal.requests[first]['commands']
+        child, grandchild = self.portal.new_command('select "two"'), self.portal.new_command('select "three"')
+        finished = self.portal.new_command('zoom help')
+        finished.update(status='succeeded', outcome='succeeded')
+        child['children'].append(grandchild)
+        top['children'] += [child, finished]
+        self.portal.shutdown()
+        self.assertEqual(self.portal.queue, [])
+        for record in (top, sibling, child, grandchild, *self.portal.requests[second]['commands']):
+            self.assertEqual((record['status'], record['outcome']), ('cancelled', 'cancelled'), record)
+            self.assertIsNotNone(record['finished_at'])
+        self.assertEqual((finished['status'], finished['outcome']), ('succeeded', 'succeeded'))
+        for request_id in (first, second):
+            self.assertEqual(self.portal.get(request_id)['status'], 'cancelled')
+            self.assertEqual([e['status'] for e in self.viewer.events if e['request_id'] == request_id][-1],
+                             'cancelled')
+        for submission_id, commands in (('later', 'select help'), ('first', ['select "one"', 'select "two"'])):
+            with self.assertRaisesRegex(ValueError, 'shutting down'):
+                self.portal.submit(submission_id, commands)
+        self.app.processEvents()
+        self.assertEqual(self.viewer.selected_indices, [])
+
+    def test_output_pages_never_split_a_character(self):
+        request_id = self.portal.submit('output', 'select help')['request_id']
+        dna = '\U0001F9EC'  # four UTF-8 bytes
+        text = 'ab\u540dc' + dna * 2 + 'end'
+        self.portal.append_output(request_id, 'stdout', text)
+        pages, offset = [], 0
+        for _ in range(len(text.encode('utf-8'))):
+            page = self.portal.read_output(request_id, offset=offset, limit=4)
+            size = len(page['text'].encode('utf-8'))
+            self.assertLessEqual(size, 4)
+            self.assertEqual((page['offset'], page['next_offset']), (offset, offset + size))
+            pages.append(page['text'])
+            offset = page['next_offset']
+            if page['eof']:
+                break
+        self.assertEqual(pages, ['ab', '\u540dc', dna, dna, 'end'])
+
+    def test_output_limit_holds_the_longest_character(self):
+        # A page must fit any UTF-8 character (up to four bytes). With limit 1
+        # or 2, 'a\u540db' read from offset 1 returned '' and next_offset 1 with
+        # eof False, so a pager never advanced.
+        request_id = self.portal.submit('output', 'select help')['request_id']
+        self.portal.append_output(request_id, 'stdout', 'a\u540db')
+        for limit in (0, 1, 2, 3):
+            with self.subTest(limit=limit), self.assertRaisesRegex(ValueError, 'Invalid output page bounds'):
+                self.portal.read_output(request_id, offset=1, limit=limit)
+        page = self.portal.read_output(request_id, offset=1, limit=4)
+        self.assertEqual((page['text'], page['offset'], page['next_offset'], page['eof']), ('\u540db', 1, 5, True))
+
+
+class WorkerTrackingTests(PortalFixture, unittest.TestCase):
+    """Detached workers and command scripts that end without a usable result fail their request."""
+
+    def tracked_command(self, submission_id):
+        from Viewer_Command_Portal import ExecutionContext
+        request_id = self.portal.submit(submission_id, 'test')['request_id']
+        record = self.portal.requests[request_id]['commands'][0]
+        record.update(dispatched=True, outcome='succeeded', status='running')
+        return request_id, ExecutionContext(self.portal, request_id, record)
+
+    def assert_worker_failed(self, request_id, message):
+        result = self.finish(request_id)
+        self.assertEqual(result['status'], 'failed', result)
+        job = result['commands'][0]['jobs'][0]
+        self.assertEqual((job['status'], job['message']), ('failed', message))
+
+    def test_worker_that_ends_without_a_final_status_fails_the_request(self):
+        import psutil
+        import Viewer_Worker_Tracking
+        created = psutil.Process().create_time()
+        # A live worker that has not finished is left running.
+        request_id, context = self.tracked_command('alive')
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.path.write_text(json.dumps({'pid': os.getpid(), 'created': created, 'status': 'running'}))
+        tracker.poll()
+        self.portal.pump()
+        self.assertEqual(self.portal.get(request_id)['status'], 'running')
+        self.assertEqual(context.record['jobs'][0]['status'], 'running')
+        # The worker process has exited.
+        with mock.patch.object(Viewer_Worker_Tracking.psutil, 'Process', side_effect=psutil.NoSuchProcess(os.getpid())):
+            tracker.poll()
+        self.assert_worker_failed(request_id, 'Worker exited before reporting a final result')
+        # The recorded PID now belongs to a process started at another time.
+        request_id, context = self.tracked_command('pid reused')
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.path.write_text(json.dumps({'pid': os.getpid(), 'created': created - 10, 'status': 'running'}))
+        tracker.poll()
+        self.assert_worker_failed(request_id, 'Worker exited before reporting a final result')
+
+    def test_worker_that_never_reports_startup_fails_after_60_seconds(self):
+        import Viewer_Worker_Tracking
+        request_id, context = self.tracked_command('silent')
+        tracker = worker_tracker(context, self.directory.name)
+        for elapsed, status in ((59, 'queued'), (61, 'failed')):
+            clock = SimpleNamespace(monotonic=lambda: tracker.created + elapsed)
+            with mock.patch.object(Viewer_Worker_Tracking, 'time', clock):
+                tracker.poll()
+            self.assertEqual(context.record['jobs'][0]['status'], status)
+        self.assert_worker_failed(
+            request_id, 'Worker did not report startup within 60 seconds; inspect its terminal before retrying')
+
+    def test_script_that_exits_with_an_error_prepares_no_commands(self):
+        from Viewer_Worker_Tracking import ScriptTracker
+        script = Path(self.directory.name) / 'failing.py'
+        script.write_text('import sys\nprint(\'select "one"\')\nsys.exit(3)\n')
+        request_id, context = self.tracked_command('failing script')
+        ScriptTracker(context, str(script))
+        self.assert_worker_failed(request_id, 'Python command script exited with code 3')
+        self.assertEqual(self.portal.get(request_id)['total_commands'], 1)  # no child commands
+        self.assertEqual(self.viewer.selected_indices, [])
+        self.assertIn('select "one"', self.portal.read_output(request_id)['text'])
 
 
 if __name__ == '__main__': unittest.main()

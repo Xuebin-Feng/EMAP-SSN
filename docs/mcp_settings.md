@@ -332,13 +332,10 @@ warning recorded at import, such as a search truncated per query, as a finding. 
 checks CSR dimensions and mapping metadata without scanning CSR arrays or
 reconstructing the alignment.
 
-A valid sparse network is not automatically unfinished. Selected-edge counts can
-be inherited by network extraction, so count differences are reported as warnings,
-not standalone proof of interrupted generation. Retained alignment `_resume`
-state indicates unfinished publication. Explicit completion flags are reported as
-evidence, but malformed structures prevent confirmation of a complete result.
-Without a trustworthy completion marker, generation status stays unknown—even
-for a final-looking filename or a structurally valid file.
+A valid sparse network is not automatically unfinished. Explicit completion flags
+are reported as evidence, but malformed structures prevent confirmation of a
+complete result. Without a trustworthy completion marker, generation status stays
+unknown—even for a final-looking filename or a structurally valid file.
 
 FASTA/BLAST inspection streams text and checks record/row structure. Aligned FASTA
 also checks equal lengths. Lowercase or unusual FASTA characters are reported as

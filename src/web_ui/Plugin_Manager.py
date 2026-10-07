@@ -22,7 +22,6 @@ from dataclasses import dataclass
 import importlib
 import os
 import re
-from types import ModuleType
 from typing import Callable, Mapping
 
 
@@ -327,7 +326,6 @@ class WebPluginManager:
             os.path.dirname(os.path.abspath(__file__)), "plugins"
         )
         self.descriptors: dict[str, WebPluginDescriptor] = {}
-        self.modules: dict[str, ModuleType] = {}
         self.diagnostics: list[WebPluginDiagnostic] = []
 
     def _record_error(self, descriptor, stage, error):
@@ -368,7 +366,6 @@ class WebPluginManager:
             self.registry._active_registration_owner = descriptor.plugin_id
             register_callable(self.registry, self.viewer)
             self.registry.registered_plugins.add(descriptor.plugin_id)
-            self.modules[descriptor.plugin_id] = module
             return True
         except Exception as error:
             self.registry.restore(snapshot)
@@ -376,15 +373,3 @@ class WebPluginManager:
             return False
         finally:
             self.registry._active_registration_owner = None
-
-    def activate(self, plugin_id: str):
-        descriptor = self.descriptors.get(plugin_id)
-        if descriptor is None:
-            raise WebPluginError(f"unknown web plugin '{plugin_id}'")
-        if plugin_id not in self.registry.registered_plugins:
-            if not self._register_descriptor(descriptor):
-                raise WebPluginError(f"web plugin '{plugin_id}' could not be registered")
-        module = self.modules.get(plugin_id) or importlib.import_module(
-            descriptor.backend
-        )
-        return getattr(module, descriptor.activate_callable)(self.viewer)

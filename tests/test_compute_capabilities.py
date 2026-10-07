@@ -1,3 +1,10 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
+"""MCP Compute_Capabilities: the device metadata report (built without running
+any computation) and the helper-subprocess wrapper with its tool restrictions."""
+
 import json
 from pathlib import Path
 import subprocess

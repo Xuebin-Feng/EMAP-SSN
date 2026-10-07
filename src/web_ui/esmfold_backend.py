@@ -17,7 +17,6 @@ import os
 import json
 import EMAPSSN_Config as cfg
 from web_ui.Plugin_Manager import ensure_registry
-from web_ui.Browser_Page import open_browser_page
 from desktop.Viewer_State import resolve_selected_cache
 
 STRUCTURES_DIRECTORY = os.path.join("$cache_file$", "Predicted_Structures")
@@ -78,16 +77,7 @@ def register(viewer):
 
 def open_esmfold_ui(viewer, *, show_existing_dialog=True):
     """Opens the local Mol* page in the user's default browser."""
-    opener = getattr(viewer, "_open_web_ui", None)
-    if callable(opener):
-        return opener(
-            "/esmfold.html",
-            "ESMFold Mol* UI",
-            "esmfold",
-            show_existing_dialog=show_existing_dialog,
-        )
-    return open_browser_page(
-        viewer,
+    return viewer._open_web_ui(
         "/esmfold.html",
         "ESMFold Mol* UI",
         "esmfold",

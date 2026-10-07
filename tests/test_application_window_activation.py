@@ -2,10 +2,16 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
+"""Desktop application identity and windows (desktop.Desktop_App): product
+names and the Linux desktop identity, file-manager reveal, bringing a window to
+the front, the launcher ready marker, and the single-instance channel shared by
+the apps, their launchers and desktop.Single_Instance_Probe."""
+
 from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -18,6 +24,65 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from desktop import Desktop_App as Application_Windows  # noqa: E402
+from desktop import Single_Instance_Probe  # noqa: E402
+
+
+class FakeApplication:
+    def __init__(self):
+        self.application_name = None
+        self.desktop_file_name = None
+
+    def setApplicationName(self, name):
+        self.application_name = name
+
+    def setDesktopFileName(self, name):
+        self.desktop_file_name = name
+
+
+class ApplicationIdentityTests(unittest.TestCase):
+    def test_canonical_product_and_component_names(self):
+        self.assertEqual(Application_Windows.PRODUCT_NAME, "EMAP-SSN")
+        self.assertEqual(Application_Windows.APPLICATION_VERSION, "0.3.0")
+        self.assertEqual(
+            Application_Windows.PRODUCT_LONG_NAME,
+            "EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein "
+            "Sequence Similarity Network Platform",
+        )
+        self.assertEqual(Application_Windows.CONFIG_DISPLAY_NAME, "EMAP-SSN Configuration")
+        self.assertEqual(Application_Windows.VIEWER_DISPLAY_NAME, "EMAP-SSN Viewer")
+        self.assertEqual(Application_Windows.TOOLS_DISPLAY_NAME, "EMAP-SSN Tools")
+
+    def test_linux_identity_matches_desktop_file_basename(self):
+        application = FakeApplication()
+
+        with mock.patch.object(Application_Windows.sys, "platform", "linux"):
+            Application_Windows.configure_linux_qt_desktop_identity(
+                application, Application_Windows.VIEWER_DESKTOP_FILE_NAME
+            )
+
+        self.assertEqual(application.application_name, "emapssn")
+        self.assertEqual(application.desktop_file_name, "emapssn")
+
+    def test_non_linux_platform_is_unchanged(self):
+        application = FakeApplication()
+
+        with mock.patch.object(Application_Windows.sys, "platform", "darwin"):
+            Application_Windows.configure_linux_qt_desktop_identity(
+                application, Application_Windows.VIEWER_DESKTOP_FILE_NAME
+            )
+
+        self.assertIsNone(application.application_name)
+        self.assertIsNone(application.desktop_file_name)
+
+    def test_installer_generates_matching_wm_classes(self):
+        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            f"StartupWMClass={Application_Windows.VIEWER_DESKTOP_FILE_NAME}\n", installer
+        )
+        self.assertIn(
+            f"StartupWMClass={Application_Windows.TOOLS_DESKTOP_FILE_NAME}\n", installer
+        )
 
 
 class ApplicationWindowActivationTests(unittest.TestCase):
@@ -213,6 +278,95 @@ class ApplicationWindowActivationTests(unittest.TestCase):
 
         callback.assert_called_once_with()
         connection.disconnectFromServer.assert_called_once_with()
+
+
+class SingleInstanceContractTests(unittest.TestCase):
+    """The launcher probe and each app must agree on the instance channel."""
+
+    def test_probe_ids_match_the_apps_their_launchers_start(self):
+        self.assertEqual(
+            Single_Instance_Probe.APPLICATION_IDS,
+            {"viewer": "SSN_Config", "tools": "SSN_Tools"},
+        )
+        launchers = {
+            "EMAPSSN.bat": ("viewer", "EMAPSSN_Config.py"),
+            "EMAPSSN.sh": ("viewer", "EMAPSSN_Config.py"),
+            "EMAPSSN_Tools.bat": ("tools", "EMAPSSN_Tools.py"),
+            "EMAPSSN_Tools.sh": ("tools", "EMAPSSN_Tools.py"),
+        }
+        for launcher, (kind, application) in launchers.items():
+            with self.subTest(launcher=launcher):
+                launcher_source = (SRC_DIR / "bin" / launcher).read_text(
+                    encoding="utf-8"
+                )
+                application_source = (SRC_DIR / application).read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn(application, launcher_source)
+                self.assertEqual(
+                    re.findall(
+                        r'Single_Instance_Probe\.py"?\s+(\w+)', launcher_source
+                    ),
+                    [kind],
+                )
+                # The probe must knock on the channel the started app listens on.
+                self.assertEqual(
+                    re.findall(
+                        r'SingleInstanceController\(\s*"([^"]+)"',
+                        application_source,
+                    ),
+                    [Single_Instance_Probe.APPLICATION_IDS[kind]],
+                )
+
+    def test_probe_main_notifies_the_requested_application(self):
+        for notified, exit_code in ((True, 0), (False, 1)):
+            with self.subTest(notified=notified), mock.patch.object(
+                Single_Instance_Probe, "QCoreApplication"
+            ), mock.patch.object(
+                Single_Instance_Probe,
+                "notify_existing_instance",
+                return_value=notified,
+            ) as notify:
+                self.assertEqual(Single_Instance_Probe.main(["tools"]), exit_code)
+
+            notify.assert_called_once_with("SSN_Tools")
+
+    def test_stale_channel_after_a_crash_is_removed_and_claimed(self):
+        server = mock.Mock()
+        server.listen.side_effect = [False, True]
+        lock = mock.Mock()
+        lock.tryLock.return_value = True
+        with mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalServer", return_value=server
+        ) as local_server, mock.patch.object(
+            Application_Windows.QtCore, "QLockFile", return_value=lock
+        ):
+            controller = Application_Windows.SingleInstanceController("stale-test")
+            self.assertTrue(controller.acquire_or_notify())
+
+        local_server.removeServer.assert_called_once_with(controller.server_name)
+        self.assertEqual(server.listen.call_count, 2)
+        self.assertTrue(controller.owns_server)
+        lock.unlock.assert_not_called()
+
+    def test_unclaimable_channel_releases_the_lock_and_raises(self):
+        server = mock.Mock()
+        server.listen.side_effect = [False, False]
+        server.errorString.return_value = "address in use"
+        lock = mock.Mock()
+        lock.tryLock.return_value = True
+        with mock.patch.object(
+            Application_Windows.QtNetwork, "QLocalServer", return_value=server
+        ) as local_server, mock.patch.object(
+            Application_Windows.QtCore, "QLockFile", return_value=lock
+        ):
+            controller = Application_Windows.SingleInstanceController("failed-test")
+            with self.assertRaisesRegex(RuntimeError, "address in use"):
+                controller.acquire_or_notify()
+
+        local_server.removeServer.assert_called_once_with(controller.server_name)
+        lock.unlock.assert_called_once_with()
+        self.assertFalse(controller.owns_server)
 
 
 if __name__ == "__main__":

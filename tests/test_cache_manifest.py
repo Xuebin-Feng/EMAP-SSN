@@ -1,5 +1,8 @@
+"""Cache_Manifest: cache selection from settings, manifest identity and
+compatibility hashing, canonical cache-folder names, network metadata and
+schema validation, manifest discovery, cache paths, HDF5 cache validation,
+and the Viewer reloading a generated cache only when its manifest binds it."""
 import json
-import hashlib
 import os
 import pathlib
 import sys
@@ -18,47 +21,21 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import Cache_Manifest
-from commands import save as save_command
 from desktop.Viewer_State import resolve_selected_cache
+from tests.layout_fixtures import make_compatibility, make_manifest  # noqa: E402
 
 
-def make_compatibility(sequence_hash="a" * 64, network_hash="b" * 64, **overrides):
-    settings = {
-        "alignment_score": "global",
-        "normalization": "alignment_length",
-        "umap_mode": False,
-        "umap_neighbors": 15,
-        "top_edge_percent": None,
-        "similarity_threshold": 0.4,
-    }
-    settings.update(overrides)
-    return Cache_Manifest.build_compatibility(
-        sequence_hash,
-        network_hash,
-        "alignment",
-        **settings,
-    )
-
-
-def make_manifest(compatibility, sequence_name="set.fasta", network_name="network.h5"):
-    return Cache_Manifest.build_manifest(
-        {
-            "basename": sequence_name,
-            "size_bytes": 10,
-            "sha256": compatibility["sequence_sha256"],
-        },
-        {
-            "basename": network_name,
-            "size_bytes": 20,
-            "sha256": compatibility["network_sha256"],
-        },
-        compatibility,
-    )
-
-
-def make_provenance(manifest_id):
-    return {"cache_manifest_id": manifest_id, "layout_compatibility_json": "{}",
-            "layout_compatibility_id": hashlib.sha256(b"{}").hexdigest()}
+def write_network(path, model_name, network_type="alignment"):
+    """An empty network with the datasets ``network_type`` requires."""
+    required = {
+        "alignment": ("seq_lens", "i", "j", "l_score", "l_len", "g_score", "g_len"),
+        "blast": ("i", "j", "score"),
+    }[network_type]
+    with h5py.File(path, "w") as network:
+        network.attrs["model_name"] = model_name
+        network.create_dataset("headers", data=[b"A"])
+        for dataset in required:
+            network.create_dataset(dataset, data=[])
 
 
 class CacheSelectionTests(unittest.TestCase):
@@ -287,6 +264,13 @@ class ManifestIdentityTests(unittest.TestCase):
                 "version_04.h5",
             )
 
+    def test_version_gaps_and_occupied_directory_names(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            (root / "version_03.h5").write_bytes(b"cache")
+            (root / "version_04.h5").mkdir()
+            self.assertEqual(Cache_Manifest.next_cache_version_filename(root), "version_05.h5")
+
     def test_default_folder_adds_identity_suffix_for_canonical_collision(self):
         current_compatibility = make_compatibility()
         current_manifest = make_manifest(current_compatibility)
@@ -381,6 +365,131 @@ class ManifestDiscoveryTests(unittest.TestCase):
             Cache_Manifest.validate_manifest(manifest)
 
 
+class CanonicalCacheNameTests(unittest.TestCase):
+    """build_canonical_cache_name gives the folder that the desktop Viewer and
+    opt_vr look up (resolve_selected_cache), so existing caches are found only
+    while these names stay exactly the same."""
+
+    def canonical_name(self, model_name, network_type="alignment",
+                       sequence_path="d/my set.fasta", **settings):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "network.h5"
+            write_network(network_path, model_name, network_type)
+            return Cache_Manifest.build_canonical_cache_name(
+                sequence_path, network_path, network_type, **settings
+            )
+
+    def test_alignment_name_lists_the_score_settings_and_the_top_filter(self):
+        self.assertEqual(
+            self.canonical_name(
+                "esm/c:300m", alignment_score="local",
+                normalization="average_sequence", top_edge_percent=12.5,
+                similarity_threshold=0.3,
+            ),
+            "my set_[esm_c_300m]_average_sequence_local_Top12.5Pct",
+        )
+
+    def test_umap_name_records_neighbors_and_ignores_edge_filters(self):
+        self.assertEqual(
+            self.canonical_name(
+                "esm/c:300m", alignment_score="local",
+                normalization="average_sequence", umap_mode=True,
+                umap_neighbors=15, top_edge_percent=12.5,
+                similarity_threshold=0.3,
+            ),
+            "my set_[esm_c_300m]_average_sequence_local_UMAP_k15",
+        )
+
+    def test_blast_name_omits_score_settings_and_formats_thresholds_as_floats(self):
+        for threshold, expected in ((1e-5, "set_[BLAST]_Score1e-05"),
+                                    (10, "set_[BLAST]_Score10.0")):
+            with self.subTest(threshold=threshold):
+                self.assertEqual(
+                    self.canonical_name(
+                        "BLAST", "blast", sequence_path="set.fasta",
+                        alignment_score="global",
+                        normalization="alignment_length",
+                        similarity_threshold=threshold,
+                    ),
+                    expected,
+                )
+
+    def test_no_active_edge_filter_adds_no_suffix(self):
+        for threshold in (None, "", "None"):
+            with self.subTest(threshold=threshold):
+                self.assertEqual(
+                    self.canonical_name(
+                        "BLAST", "blast", sequence_path="set.fasta",
+                        top_edge_percent=None, similarity_threshold=threshold,
+                    ),
+                    "set_[BLAST]",
+                )
+
+
+class NetworkMetadataTests(unittest.TestCase):
+    """model_name selects the network type, and the type the required datasets."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = pathlib.Path(self.temp.name) / "network.h5"
+
+    def test_model_name_must_be_present_nonblank_utf8_text(self):
+        # A fixed-length string attribute reads back as bytes. h5py decodes a
+        # variable-length one with surrogateescape, so its invalid UTF-8 reads
+        # back as lone surrogates (b"\xff" as "\udcff") rather than failing.
+        for model_name, message in ((None, "missing the required root attribute 'model_name'"),
+                                    ("  ", "blank required root attribute 'model_name'"),
+                                    (np.bytes_(b"\xff"), "'model_name' attribute that is not valid UTF-8"),
+                                    (7, "non-text 'model_name' attribute")):
+            with self.subTest(model_name=model_name):
+                write_network(self.path, "model")
+                with h5py.File(self.path, "a") as network:
+                    del network.attrs["model_name"]
+                    if model_name is not None:
+                        network.attrs["model_name"] = model_name
+                with self.assertRaisesRegex(Cache_Manifest.NetworkMetadataError, message):
+                    Cache_Manifest.read_network_metadata(self.path)
+        with self.subTest(model_name="variable-length b'\\xff'"):
+            write_network(self.path, "model")
+            with h5py.File(self.path, "a") as network:
+                network.attrs.create("model_name", b"\xff", dtype=h5py.string_dtype(encoding="utf-8"))
+            with h5py.File(self.path, "r") as network:
+                self.assertEqual(network.attrs["model_name"], "\udcff")
+                for source in (self.path, network):
+                    with self.assertRaisesRegex(Cache_Manifest.NetworkMetadataError,
+                                                "'model_name' attribute that is not valid UTF-8"):
+                        Cache_Manifest.read_network_metadata(source)
+
+    def test_blast_model_name_is_trimmed_and_case_insensitive(self):
+        write_network(self.path, " Blast ", "blast")
+        metadata = Cache_Manifest.validate_network_schema(self.path, "blast")
+        self.assertEqual(metadata, Cache_Manifest.NetworkMetadata("Blast", "blast"))
+        write_network(self.path, "blast-like model")
+        self.assertEqual(
+            Cache_Manifest.validate_network_schema(self.path).network_type, "alignment"
+        )
+
+    def test_missing_datasets_of_the_declared_type_are_listed(self):
+        write_network(self.path, "model")
+        with h5py.File(self.path, "a") as network:
+            del network["l_len"]
+        with self.assertRaisesRegex(
+            Cache_Manifest.NetworkMetadataError,
+            r"model_name='model' \(alignment\) but is missing required dataset\(s\): l_len\.",
+        ):
+            Cache_Manifest.validate_network_schema(self.path)
+
+    def test_expected_type_must_match_the_declared_type(self):
+        write_network(self.path, "model")
+        with self.assertRaisesRegex(
+            Cache_Manifest.NetworkMetadataError,
+            "declares network type 'alignment' through model_name='model', "
+            "not the expected type 'blast'",
+        ):
+            Cache_Manifest.validate_network_schema(self.path, "blast")
+
+
 class CachePathAndHdf5Tests(unittest.TestCase):
     def test_node_render_order_requires_complete_integer_permutation(self):
         np.testing.assert_array_equal(
@@ -472,71 +581,8 @@ class CachePathAndHdf5Tests(unittest.TestCase):
                     )
 
 
-class InteractiveSaveTests(unittest.TestCase):
-    def test_saved_snapshot_is_atomically_bound_to_active_manifest(self):
-        compatibility = make_compatibility()
-        manifest = make_manifest(compatibility)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            folder = pathlib.Path(temp_dir) / "cache-folder"
-            Cache_Manifest.write_manifest_atomic(folder, manifest)
-            default_path = folder / "version_00.h5"
-            viewer = SimpleNamespace(
-                cache_manifest_id=manifest["manifest_id"],
-                _cache_provenance=make_provenance(manifest["manifest_id"]),
-                full_headers=["A", "B"],
-                pos=np.zeros((2, 2), dtype=np.float32),
-                original_pos=np.ones((2, 2), dtype=np.float32),
-                node_render_order=np.array([1, 0], dtype=np.int32),
-            )
-
-            with mock.patch.object(
-                save_command,
-                "resolve_selected_cache",
-                return_value=str(default_path),
-            ), mock.patch.object(save_command.Command_Engine, "print_help"):
-                save_command.run(viewer, [])
-
-            self.assertTrue(default_path.exists())
-            self.assertFalse(pathlib.Path(str(default_path) + ".partial").exists())
-            with h5py.File(default_path, "r") as cache:
-                self.assertEqual(
-                    cache.attrs["cache_manifest_id"], manifest["manifest_id"]
-                )
-                np.testing.assert_array_equal(cache["positions"][:], viewer.pos)
-                np.testing.assert_array_equal(
-                    cache["node_render_order"][:], viewer.node_render_order
-                )
-            np.testing.assert_array_equal(viewer.original_pos, viewer.pos)
-
-    def test_unsafe_interactive_filename_is_rejected(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            folder = pathlib.Path(temp_dir) / "cache-folder"
-            folder.mkdir()
-            viewer = SimpleNamespace(
-                cache_manifest_id="d" * 64,
-                full_headers=["A"],
-                pos=np.zeros((1, 2), dtype=np.float32),
-            )
-            messages = []
-            with mock.patch.object(
-                save_command,
-                "resolve_selected_cache",
-                return_value=str(folder / "version_00.h5"),
-            ), mock.patch.object(
-                save_command.Command_Engine,
-                "print_help",
-                side_effect=lambda _viewer, message: messages.append(message),
-            ):
-                save_command.run(viewer, ["../escape"])
-
-            self.assertTrue(messages)
-            self.assertIn("Error saving layout state", messages[-1])
-            self.assertFalse((pathlib.Path(temp_dir) / "escape.h5").exists())
-
-
 class ViewerCacheIntegrationTests(unittest.TestCase):
     def test_new_cache_and_manifest_are_reloaded_only_when_bound(self):
-        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         import Layout_Engine_SSN as layout_engine
         import EMAPSSN_Viewer
 
@@ -613,7 +659,9 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
                 generate_layout_cache(gen_settings)
 
             settings["TARGET_CACHE_MODE"] = "existing"
-            with mock.patch.multiple(EMAPSSN_Viewer.cfg, **settings):
+            # load_and_simulate also sets CACHE_MANIFEST_ID and INPUT_IS_EVALUE.
+            with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None,
+                                     INPUT_IS_EVALUE=False, **settings):
                 created = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
                 created.load_and_simulate()
 
@@ -647,7 +695,9 @@ class ViewerCacheIntegrationTests(unittest.TestCase):
                 )
 
             settings["TARGET_CACHE_MODE"] = "existing"
-            with mock.patch.multiple(EMAPSSN_Viewer.cfg, **settings):
+            # load_and_simulate also sets CACHE_MANIFEST_ID and INPUT_IS_EVALUE.
+            with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None,
+                                     INPUT_IS_EVALUE=False, **settings):
                 loaded = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
                 loaded.load_and_simulate()
             np.testing.assert_allclose(loaded.pos, expected_positions)

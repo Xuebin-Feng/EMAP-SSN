@@ -205,13 +205,26 @@ def resolve_manual_query_sequence(enabled, sequence):
     return cleaned_sequence
 
 
+NORMALIZATION_MODES = ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence")
+
+
+def _unknown_norm_mode(norm_mode):
+    return ValueError(
+        f"Unknown NORM_MODE {norm_mode!r}; choose alignment_length, "
+        "shorter_sequence, longer_sequence, or average_sequence."
+    )
+
+
 def validate_score_normalization(alignment_mode, norm_mode):
-    """Reject normalizing local search scores by their own alignment length.
+    """Reject unknown modes, and normalizing local search scores by their own
+    alignment length.
 
     The Tools window removes this option for local searches: dividing a local
     score by its own path length rewards short local matches however little of
     either sequence they cover.
     """
+    if norm_mode not in NORMALIZATION_MODES:
+        raise _unknown_norm_mode(norm_mode)
     if alignment_mode == "local" and norm_mode == "alignment_length":
         raise ValueError(
             "NORM_MODE alignment_length is unavailable for local alignments; "
@@ -285,12 +298,18 @@ def encode_identity_residues(sequence, unmatched_code):
     return codes
 
 
+def normalization_length(align_len, len_i, len_j, mode):
+    """Return the length a NORM_MODE divides raw scores by (the reported length)."""
+    if mode == "alignment_length": return align_len
+    elif mode == "shorter_sequence": return min(len_i, len_j)
+    elif mode == "longer_sequence": return max(len_i, len_j)
+    elif mode == "average_sequence": return (len_i + len_j) / 2.0
+    raise _unknown_norm_mode(mode)
+
+
 def normalize_score(raw_score, align_len, len_i, len_j, mode):
-    if mode == "alignment_length": return raw_score / align_len if align_len > 0 else 0.0
-    elif mode == "shorter_sequence": denom = min(len_i, len_j); return raw_score / denom if denom > 0 else 0.0
-    elif mode == "longer_sequence": denom = max(len_i, len_j); return raw_score / denom if denom > 0 else 0.0
-    elif mode == "average_sequence": denom = (len_i + len_j) / 2.0; return raw_score / denom if denom > 0 else 0.0
-    else: return raw_score / align_len if align_len > 0 else 0.0
+    denom = normalization_length(align_len, len_i, len_j, mode)
+    return raw_score / denom if denom > 0 else 0.0
 
 # --- HDF5 MULTIPROCESSING INITIALIZATION ---
 worker_hf = None
@@ -336,17 +355,7 @@ def finish_search(args):
     # Both kernels report the length of the selected path: internal gaps only
     # for local alignments and every column, end gaps included, for global.
     identity = 100.0 * int(identities) / path_len if path_len > 0 else 0.0
-
-    if norm_mode == "alignment_length":
-        eff_len = path_len
-    elif norm_mode == "shorter_sequence":
-        eff_len = min(len_q, len_t)
-    elif norm_mode == "longer_sequence":
-        eff_len = max(len_q, len_t)
-    elif norm_mode == "average_sequence":
-        eff_len = (len_q + len_t) / 2.0
-    else:
-        eff_len = path_len
+    eff_len = normalization_length(path_len, len_q, len_t, norm_mode)
 
     return {
         "index": idx,

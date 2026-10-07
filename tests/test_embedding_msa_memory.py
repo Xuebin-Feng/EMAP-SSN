@@ -3,8 +3,12 @@
 The reference functions restate the code before the memory changes (commit
 17a1030): a per-edge Python filter, float32 bootstrap replicates and one
 cophenetic array per tree. The current code must reproduce them bit for bit.
+The guide-tree kernels (score normalization, sparse cophenetic distances and
+the consensus finalization) are also checked against hand-computed values and
+SciPy.
 """
 
+import copy
 import gc
 import io
 import os
@@ -16,9 +20,9 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
-import h5py
 import numpy as np
 import scipy.cluster.hierarchy as sch
+from scipy.spatial.distance import squareform
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -30,14 +34,16 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import Embedding_MSA
-from utilities.HDF5_Storage import create_metadata_first_file, mark_generation_complete
+from tests.msa_fixtures import (
+    UPGMA,
+    ArrayAssertions,
+    GuideTreeBuilt,
+    InProcessPool,
+    NetworkFixture,
+    builder_settings,
+)
 
 
-RESIDUES = np.array(list("ACDEFGHIKLMNPQRSTVWY"))
-MODEL = "test_model"
-EMBED_NAME = f"Fixture_[{MODEL}]_embeddings.h5"
-NETWORK_NAME = f"Fixture_[{MODEL}]_network.h5"
-UPGMA = "UPGMA (Fast)"
 NEIGHBOR_JOINING = "Neighbor-joining (Slow)"
 MODE_INTS = {
     "alignment_length": 0,
@@ -45,112 +51,6 @@ MODE_INTS = {
     "longer_sequence": 2,
     "average_sequence": 3,
 }
-
-
-class NetworkFixture:
-    """A small embedding database and network written to a folder.
-
-    By default two embedded sequences are absent from the network, two
-    network sequences have no embedding, some pairs are listed twice with new
-    scores, and three edges point outside the header table, so every filter
-    path runs.
-    """
-
-    def __init__(
-        self,
-        root,
-        *,
-        sequences=24,
-        missing=(5, 17),
-        ghosts=2,
-        complete=True,
-        duplicates=4,
-        out_of_range=True,
-        blast=False,
-        seed=0,
-    ):
-        rng = np.random.default_rng(seed)
-        self.root = pathlib.Path(root)
-        self.embed_dir = self.root / "Embeddings"
-        self.network_dir = self.root / "Networks"
-        self.msa_dir = self.root / "Multiple_Alignments"
-        for directory in (self.embed_dir, self.network_dir, self.msa_dir):
-            directory.mkdir(parents=True, exist_ok=True)
-        self.blast = blast
-
-        self.emb_headers = [f"seq{index:04d}" for index in range(sequences)]
-        self.emb_sequences = [
-            "".join(rng.choice(RESIDUES, int(rng.integers(10, 31))))
-            for _ in self.emb_headers
-        ]
-        self.net_headers = [
-            header for index, header in enumerate(self.emb_headers)
-            if index not in missing
-        ]
-        for ghost in range(ghosts):
-            self.net_headers.insert(1 + 7 * ghost, f"ghost{ghost}")
-
-        node_count = len(self.net_headers)
-        sources, targets = np.triu_indices(node_count, k=1)
-        if not complete:
-            listed = rng.random(sources.size) < 0.6
-            sources, targets = sources[listed], targets[listed]
-        order = rng.permutation(sources.size)
-        sources, targets = sources[order], targets[order]
-        flipped = rng.random(sources.size) < 0.5
-        sources, targets = (
-            np.where(flipped, targets, sources),
-            np.where(flipped, sources, targets),
-        )
-        if duplicates:
-            again = rng.choice(sources.size, duplicates, replace=False)
-            sources = np.concatenate([sources, targets[again]])
-            targets = np.concatenate([targets, sources[again]])
-        if out_of_range:
-            sources = np.concatenate([sources, [node_count + 2, 1, node_count]])
-            targets = np.concatenate([targets, [0, 65535, node_count + 1]])
-        self.arr_i = sources.astype(np.uint16)
-        self.arr_j = targets.astype(np.uint16)
-
-        edge_count = self.arr_i.size
-        if blast:
-            self.score = rng.uniform(0.0, 180.0, edge_count).astype(np.float32)
-            self.length = np.ones_like(self.score)
-        else:
-            self.score = rng.uniform(-20.0, 400.0, edge_count).astype(np.float32)
-            # Zero lengths exercise the max(length, 1) guard.
-            self.length = rng.integers(0, 80, edge_count).astype(np.uint16)
-
-        with h5py.File(self.embed_dir / EMBED_NAME, "w") as embeddings:
-            group = create_metadata_first_file(
-                embeddings, self.emb_headers, self.emb_sequences, MODEL, "float16"
-            )
-            for header, sequence in zip(self.emb_headers, self.emb_sequences):
-                group.create_dataset(
-                    header,
-                    data=rng.standard_normal((len(sequence), 8)).astype(np.float16),
-                )
-            mark_generation_complete(embeddings)
-
-        with h5py.File(self.network_dir / NETWORK_NAME, "w") as network:
-            network.attrs["model_name"] = "BLAST" if blast else MODEL
-            network.create_dataset(
-                "headers",
-                data=np.asarray(self.net_headers, dtype=object),
-                dtype=h5py.string_dtype(encoding="utf-8"),
-            )
-            network.create_dataset("i", data=self.arr_i)
-            network.create_dataset("j", data=self.arr_j)
-            if blast:
-                network.create_dataset("score", data=self.score)
-            else:
-                network.create_dataset(
-                    "seq_lens", data=np.full(node_count, 20, dtype=np.uint16)
-                )
-                network.create_dataset("g_score", data=self.score)
-                network.create_dataset("g_len", data=self.length)
-                network.create_dataset("l_score", data=self.score / 2)
-                network.create_dataset("l_len", data=self.length)
 
 
 def reference_edges(fixture, normalization_mode="alignment_length"):
@@ -240,30 +140,6 @@ def reference_consensus_tree(baseline, max_dist, noise_scale, num_trees, random_
     return sch.linkage(consensus, method="average")
 
 
-class InProcessPool:
-    """Runs bootstrap trees in this process, in seed order.
-
-    The consensus sum is then reproducible, and test patches reach the
-    workers.
-    """
-
-    def __init__(self, processes=None):
-        self.processes = processes
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc_info):
-        return False
-
-    def imap_unordered(self, func, iterable):
-        return map(func, iterable)
-
-
-class GuideTreeBuilt(Exception):
-    """Stops run_msa_builder once the guide tree exists."""
-
-
 class HeldMemoryPool(InProcessPool):
     """Records the traced memory still held when bootstrapping starts."""
 
@@ -272,43 +148,6 @@ class HeldMemoryPool(InProcessPool):
     def imap_unordered(self, func, iterable):
         HeldMemoryPool.held_bytes = tracemalloc.get_traced_memory()[0]
         raise GuideTreeBuilt
-
-
-def builder_settings(fixture, **settings):
-    """Return the module globals that point run_msa_builder at the fixture."""
-    values = {
-        "USE_SEQUENCE_FILTER": False,
-        "INPUT_FASTA": "",
-        "INPUT_EMBED": EMBED_NAME,
-        "INPUT_NETWORK": NETWORK_NAME,
-        "ALIGNMENT_SCORE": "global",
-        "NORMALIZATION_MODE": "alignment_length",
-        "TREE_METHOD": UPGMA,
-        "BOOTSTRAP_TREE": False,
-        "NUM_TREES": 3,
-        "NOISE_SCALE": 0.02,
-        "RANDOM_SEED": 42,
-        "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": False,
-        "WORKERS": 1,
-        "DEVICE_SELECTION": "cpu",
-        "SHOW_REGRESSION_PLOT": False,
-        "POOLING_METHOD": "max",
-        "LENGTH_RATIO_POWER": 2.0,
-        "FASTA_DIR": str(fixture.root),
-        "EMBED_DIR": str(fixture.embed_dir),
-        "NETWORK_DIR": str(fixture.network_dir),
-        "MSA_DIR": str(fixture.msa_dir),
-        "SAFE_TEMP_DIR": str(fixture.msa_dir),
-        # run_msa_builder assigns these globals; patching restores them.
-        "FULL_INPUT_FASTA": Embedding_MSA.FULL_INPUT_FASTA,
-        "FULL_INPUT_EMBED": Embedding_MSA.FULL_INPUT_EMBED,
-        "FULL_INPUT_NETWORK": Embedding_MSA.FULL_INPUT_NETWORK,
-        "OUTPUT_FASTA": Embedding_MSA.OUTPUT_FASTA,
-        "_seq_set": Embedding_MSA._seq_set,
-        "_model_name": Embedding_MSA._model_name,
-    }
-    values.update(settings)
-    return values
 
 
 def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **settings):
@@ -358,15 +197,6 @@ def run_until_guide_tree(fixture, *, record_edges=True, pool=InProcessPool, **se
     return seen
 
 
-class ArrayAssertions:
-    def assertSameArray(self, actual, expected):
-        actual = np.asarray(actual)
-        expected = np.asarray(expected)
-        self.assertEqual(actual.dtype, expected.dtype)
-        self.assertEqual(actual.shape, expected.shape)
-        self.assertEqual(actual.tobytes(), expected.tobytes())
-
-
 class EdgeIndexMappingTests(unittest.TestCase):
     def test_unknown_and_out_of_range_endpoints_map_to_minus_one(self):
         table = np.asarray([2, -1, 0, 1], dtype=np.int32)
@@ -400,6 +230,102 @@ class CopheneticAccumulationTests(ArrayAssertions, unittest.TestCase):
         accumulator = np.zeros(0, dtype=np.float32)
         Embedding_MSA.accumulate_full_cophenetic(np.zeros((0, 4)), 1, accumulator)
         self.assertEqual(accumulator.size, 0)
+
+
+class SparseCopheneticTests(ArrayAssertions, unittest.TestCase):
+    """Sparse networks average cophenetic distances over their own edges only."""
+
+    def test_listed_pairs_match_scipy_cophenetic_distances(self):
+        rng = np.random.default_rng(5)
+        num_seqs = 40
+        tree = sch.linkage(rng.random(num_seqs * (num_seqs - 1) // 2), method="average")
+        # Every ordered pair, so half of them list the larger index first.
+        edge_i, edge_j = np.nonzero(~np.eye(num_seqs, dtype=bool))
+        edge_i = edge_i.astype(np.int32)
+        edge_j = edge_j.astype(np.int32)
+        expected = squareform(sch.cophenet(tree))[edge_i, edge_j].astype(np.float32)
+
+        actual = Embedding_MSA.compute_sparse_cophenetic(tree, num_seqs, edge_i, edge_j)
+
+        self.assertSameArray(actual, expected)
+        self.assertTrue(np.any(edge_i > edge_j))
+
+    def test_partial_consensus_replaces_only_the_listed_pairs(self):
+        baseline = np.arange(1, 11, dtype=np.float32)  # 5 sequences, 10 pairs
+        # Pairs (0, 1), (4, 3) and (1, 3) are condensed entries 0, 9 and 5.
+        edge_i = np.asarray([0, 4, 1], dtype=np.int32)
+        edge_j = np.asarray([1, 3, 3], dtype=np.int32)
+        accumulated = np.asarray([8.0, 12.0, 2.0], dtype=np.float32)
+        expected = baseline.copy()
+        expected[[0, 9, 5]] = [2.0, 3.0, 0.5]
+
+        result = Embedding_MSA.finalize_cophenetic_consensus(
+            baseline, 5, edge_i, edge_j, accumulated, 4, False
+        )
+
+        self.assertIs(result, baseline)
+        self.assertSameArray(result, expected)
+
+    def test_full_consensus_divides_every_pair(self):
+        accumulated = np.arange(1, 11, dtype=np.float32)
+        expected = accumulated / np.float32(4)
+
+        result = Embedding_MSA.finalize_cophenetic_consensus(
+            accumulated, 5, None, None, None, 4, True
+        )
+
+        self.assertIs(result, accumulated)
+        self.assertSameArray(result, expected)
+
+    def test_zero_trees_are_rejected(self):
+        for full_consensus in (False, True):
+            with self.subTest(full_consensus=full_consensus):
+                with self.assertRaisesRegex(ValueError, "NUM_TREES must be greater than zero"):
+                    Embedding_MSA.finalize_cophenetic_consensus(
+                        np.ones(3, dtype=np.float32),
+                        3,
+                        np.asarray([0], dtype=np.int32),
+                        np.asarray([1], dtype=np.int32),
+                        np.ones(1, dtype=np.float32),
+                        0,
+                        full_consensus,
+                    )
+
+
+class NormalizedScoreKernelTests(unittest.TestCase):
+    """One edge between sequences of 4 and 8 residues, raw score 12, length 0."""
+
+    def normalize(self, mode_int, is_evalue=False):
+        return Embedding_MSA.calculate_normalized_scores_kernel(
+            np.asarray([0], dtype=np.int32),
+            np.asarray([1], dtype=np.int32),
+            np.asarray([12.0], dtype=np.float32),
+            np.asarray([0.0], dtype=np.float32),
+            np.asarray([4, 8], dtype=np.int32),
+            is_evalue,
+            mode_int,
+        )
+
+    def test_each_mode_divides_by_its_own_length(self):
+        # A zero alignment length counts as 1.
+        for mode, expected in (
+            ("alignment_length", 12.0),
+            ("shorter_sequence", 3.0),
+            ("longer_sequence", 1.5),
+            ("average_sequence", 2.0),
+        ):
+            with self.subTest(mode=mode):
+                norm_scores, max_norm_score = self.normalize(MODE_INTS[mode])
+                self.assertEqual(norm_scores.dtype, np.float32)
+                self.assertEqual(norm_scores.tolist(), [expected])
+                self.assertEqual(max_norm_score, expected)
+
+    def test_evalue_scores_are_not_normalized(self):
+        norm_scores, max_norm_score = self.normalize(
+            MODE_INTS["shorter_sequence"], is_evalue=True
+        )
+        self.assertEqual(norm_scores.tolist(), [12.0])
+        self.assertEqual(max_norm_score, 12.0)
 
 
 class BootstrapWorkerTests(ArrayAssertions, unittest.TestCase):
@@ -528,6 +454,20 @@ class GuideTreeEquivalenceTests(ArrayAssertions, unittest.TestCase):
         self.assert_reference_edges(seen, expected_edges)
         baseline = reference_baseline(*expected_edges)
         self.assertSameArray(seen["guide_tree"], sch.linkage(baseline, method="average"))
+
+    def test_local_score_reads_the_local_datasets(self):
+        fixture = NetworkFixture(self.directory, seed=5)
+        seen = run_until_guide_tree(
+            fixture, ALIGNMENT_SCORE="local", NORMALIZATION_MODE="shorter_sequence"
+        )
+
+        # The fixture stores half of every global score as the local score.
+        local = copy.copy(fixture)
+        local.score = fixture.score / 2
+        expected_edges = reference_edges(local, "shorter_sequence")
+        self.assert_reference_edges(seen, expected_edges)
+        global_dists = reference_edges(fixture, "shorter_sequence")[2]
+        self.assertNotEqual(global_dists.tobytes(), expected_edges[2].tobytes())
 
 
 class MemoryBudgetTests(unittest.TestCase):

@@ -83,7 +83,6 @@ from utilities import Hardware_Acceleration as Hardware_Utils
 from Embedding_Alignment_Engine import (
     AcceleratorMemorySnapshot,
     AdaptiveTilePlan,
-    BenchmarkPhaseTimer,
     BenchmarkTrial,
     BENCHMARK_TRIAL_SECONDS,
     run_bounded_cpu_trial,
@@ -132,9 +131,6 @@ ACCELERATOR_TUNE_PAIRS = None
 ACCELERATOR_CONFIRM_PAIRS = None
 HOST_CACHE_GB = "auto"
 ACCELERATOR_PRECISION = "automatic_32bit"
-# Compatibility for callers that use _accelerator_worker_count directly.
-# Production scheduling always uses the automatic lane tuner.
-GPU_STREAMS = 4
 LOCAL_GAP_P = -2.0
 GLOBAL_GAP_P = 0.0
 BATCH_SIZE = 500000
@@ -509,20 +505,6 @@ def _supports_explicit_streams(device):
     return _device_type(device) in {"cuda", "xpu"}
 
 
-def _accelerator_worker_count(device, cpu_workers, requested_lanes=None):
-    """
-    Bound an explicit lane request to what the selected backend can use.
-
-    ``requested_lanes`` is optional to preserve compatibility with callers of
-    the previous CUDA-only helper.
-    """
-    if not _supports_explicit_streams(device):
-        return 1
-    if requested_lanes is None:
-        requested_lanes = GPU_STREAMS
-    return max(1, min(int(requested_lanes), int(cpu_workers)))
-
-
 def _accelerator_lane_candidates(device, cpu_workers):
     """Return conservative tuning candidates for the active backend."""
     device_type = _device_type(device)
@@ -665,8 +647,6 @@ def _run_scalar_accelerated_pipeline(
     matmul_precision="ieee_fp32",
     result_callback=None,
     result_chunk_size=65536,
-    warmup_task_count=0,
-    benchmark_timer=None,
     benchmark_trial=None,
 ):
     """
@@ -677,11 +657,6 @@ def _run_scalar_accelerated_pipeline(
     contexts while allowing both stages to remain busy.
     """
     batch_tasks = list(batch_tasks)
-    warmup_task_count = int(warmup_task_count)
-    if benchmark_timer is not None and (
-        warmup_task_count < 0 or warmup_task_count >= len(batch_tasks)
-    ):
-        raise ValueError("Benchmark warm-up count must leave a timed task.")
     results = []
     ready_limit = max(accelerator_workers, min(workers, 8))
     cached_row_header = None
@@ -817,14 +792,8 @@ def _run_scalar_accelerated_pipeline(
             benchmark_trial.start()
             run_phase(batch_tasks, benchmark_trial)
             benchmark_trial.stop(len(batch_tasks))
-        elif benchmark_timer is None:
-            run_phase(batch_tasks)
         else:
-            if warmup_task_count:
-                run_phase(batch_tasks[:warmup_task_count])
-            benchmark_timer.start()
-            run_phase(batch_tasks[warmup_task_count:])
-            benchmark_timer.stop()
+            run_phase(batch_tasks)
 
     if result_callback is not None and results:
         result_callback(results)
@@ -842,8 +811,6 @@ def _run_accelerated_pipeline(
     show_progress,
     matmul_precision="ieee_fp32",
     result_callback=None,
-    warmup_task_count=0,
-    benchmark_timer=None,
     benchmark_trial=None,
 ):
     """Compatibility wrapper for the original per-pair accelerator path."""
@@ -858,8 +825,6 @@ def _run_accelerated_pipeline(
             show_progress,
             matmul_precision=matmul_precision,
             result_callback=result_callback,
-            warmup_task_count=warmup_task_count,
-            benchmark_timer=benchmark_timer,
             benchmark_trial=benchmark_trial,
         )
 
@@ -1082,17 +1047,10 @@ def process_cpu_tasks(
     batch_id,
     show_progress=True,
     result_callback=None,
-    warmup_task_count=0,
-    benchmark_timer=None,
     benchmark_trial=None,
 ):
     """Process complete pairs in parallel when no accelerator is available."""
     batch_tasks = list(batch_tasks)
-    warmup_task_count = int(warmup_task_count)
-    if benchmark_timer is not None and (
-        warmup_task_count < 0 or warmup_task_count >= len(batch_tasks)
-    ):
-        raise ValueError("Benchmark warm-up count must leave a timed task.")
     results = []
     with Pool(
         processes=workers,
@@ -1124,66 +1082,14 @@ def process_cpu_tasks(
                 results = run_bounded_cpu_trial(
                     pool, calculate_cpu_pair, batch_tasks, workers, benchmark_trial
                 )
-            elif benchmark_timer is None:
-                run_phase(batch_tasks)
             else:
-                if warmup_task_count:
-                    run_phase(batch_tasks[:warmup_task_count])
-                benchmark_timer.start()
-                run_phase(batch_tasks[warmup_task_count:])
-                benchmark_timer.stop()
+                run_phase(batch_tasks)
         finally:
             progress.close()
     if result_callback is not None and results:
         result_callback(results)
         results.clear()
     return results
-
-
-def _representative_pending_pairs(
-    safe_headers,
-    sequence_lengths,
-    computed_mask,
-    required_mask,
-    num_tasks,
-    limit,
-):
-    """Sample the complete pending workload, then stratify by estimated cost."""
-    limit = max(1, min(int(limit), int(num_tasks)))
-    probe_count = min(int(num_tasks), max(limit * 8, limit))
-    target_ordinals = np.linspace(
-        0, int(num_tasks) - 1, num=probe_count, dtype=np.int64
-    )
-    targets = set(int(value) for value in target_ordinals)
-    probes = []
-    ordinal = 0
-    n_sequences = len(safe_headers)
-    for row in range(n_sequences):
-        columns = np.arange(row + 1, n_sequences)
-        pending = ~computed_mask[row, row + 1:]
-        if required_mask is not None:
-            pending &= required_mask[row, row + 1:]
-        for column in columns[pending]:
-            if ordinal in targets:
-                cost = int(sequence_lengths[row]) * int(sequence_lengths[column])
-                probes.append(
-                    (
-                        cost,
-                        (
-                            row,
-                            int(column),
-                            safe_headers[row],
-                            safe_headers[column],
-                        ),
-                    )
-                )
-            ordinal += 1
-
-    probes.sort(key=lambda item: (item[0], item[1][0], item[1][1]))
-    selected_indices = np.linspace(
-        0, len(probes) - 1, num=min(limit, len(probes)), dtype=np.int64
-    )
-    return [probes[int(index)][1] for index in selected_indices]
 
 
 def _iter_pending_pairs(safe_headers, computed_mask, required_mask):
@@ -1202,63 +1108,6 @@ def _first_pending_pairs(safe_headers, computed_mask, required_mask, num_tasks, 
         _iter_pending_pairs(safe_headers, computed_mask, required_mask),
         max(0, min(int(limit), int(num_tasks))),
     ))
-
-
-def _representative_row_local_pending_pairs(
-    safe_headers,
-    sequence_lengths,
-    computed_mask,
-    required_mask,
-    num_tasks,
-    limit,
-):
-    """Return a cost-stratified sample that retains production row locality."""
-    limit = max(1, min(int(limit), int(num_tasks)))
-    n_sequences = len(safe_headers)
-    populated_rows = []
-    pending_by_row = {}
-    for row in range(n_sequences - 1):
-        pending = ~computed_mask[row, row + 1:]
-        if required_mask is not None:
-            pending &= required_mask[row, row + 1:]
-        columns = np.flatnonzero(pending) + row + 1
-        if len(columns):
-            populated_rows.append(row)
-            pending_by_row[row] = columns
-    if not populated_rows:
-        return []
-
-    row_count = min(8, len(populated_rows), limit)
-    row_positions = np.linspace(
-        0,
-        len(populated_rows) - 1,
-        num=row_count,
-        dtype=np.int64,
-    )
-    selected_rows = [populated_rows[int(position)] for position in row_positions]
-    per_row = max(1, math.ceil(limit / len(selected_rows)))
-    sample = []
-    for row in selected_rows:
-        columns = pending_by_row[row]
-        ordered = sorted(
-            (int(column) for column in columns),
-            key=lambda column: (
-                int(sequence_lengths[row]) * int(sequence_lengths[column]),
-                column,
-            ),
-        )
-        positions = np.linspace(
-            0,
-            len(ordered) - 1,
-            num=min(per_row, len(ordered)),
-            dtype=np.int64,
-        )
-        for position in positions:
-            column = ordered[int(position)]
-            sample.append(
-                (row, column, safe_headers[row], safe_headers[column])
-            )
-    return sample[:limit]
 
 
 def _precision_device(candidates):

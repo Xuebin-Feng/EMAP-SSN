@@ -37,45 +37,6 @@ class LayoutGenerationError(ValueError):
     """Raised when settings or cache publication are unsafe or invalid."""
 
 
-_REQUIRED_JSON_KEYS = {
-    "NODE_FASTA_FILE",
-    "INPUT_HDF5",
-    "CACHE_FILENAME",
-    "ALIGNMENT_SCORE",
-    "NORM_MODE",
-    "SIMILARITY_THRESHOLD",
-    "TOP_EDGE_PERCENT",
-    "UMAP_MODE",
-    "UMAP_NEIGHBORS",
-    "UMAP_MIN_DIST",
-    "LAYOUT_DEVICE_SELECTION",
-    "SPRING_K",
-    "COULOMB_K",
-    "COULOMB_CUTOFF",
-    "DAMPING",
-    "DT",
-    "MAX_STEPS",
-    "RMSD_THRESHOLD",
-    "PERCENTAGE_DROP_THRESHOLD",
-    "RMSD_WINDOW",
-    "ENABLE_PROGRESSIVE_SIMULATION",
-    "PACKING_GEOMETRY",
-    "PACKING_GRID_SIZE",
-}
-
-_OBSOLETE_LAYOUT_ENGINE_KEYS = {
-    "PHYSICS_ENGINE",
-    "MC_SWEEPS",
-    "MC_QUENCH_SWEEPS",
-    "MC_TELEPORT_PROBABILITY",
-    "MC_RANDOM_SEED",
-    "SGLD_MIN_K",
-    "SGLD_K_PERCENT",
-    "SGLD_START_TEMP",
-    "SGLD_NOISE_SCALE",
-}
-
-
 def _resolve_project_path(
     value: Any,
     project_root: Path,
@@ -179,49 +140,28 @@ class LayoutGenerationSettings:
     ) -> "LayoutGenerationSettings":
         from desktop.Viewer_State import decode_document
         try:
-            values = decode_document(dict(document), "layout")
+            # decode_document rejects unknown, obsolete and missing fields.
+            payload = decode_document(dict(document), "layout")
         except (ValueError, TypeError) as error:
             raise LayoutGenerationError(str(error)) from error
-        directories = {"SAVED_LAYOUT_DIR": values["SAVED_LAYOUT_DIR"]}
-
-        allowed = {
-            item.name for item in fields(cls) if not item.name.startswith("_")
-        } | _OBSOLETE_LAYOUT_ENGINE_KEYS
-        unknown = sorted(set(values) - allowed)
-        missing = sorted(_REQUIRED_JSON_KEYS - set(values))
-        if unknown:
-            raise LayoutGenerationError(
-                "Unknown layout-generation setting(s): " + ", ".join(unknown)
-            )
-        if missing:
-            raise LayoutGenerationError(
-                "Missing layout-generation setting(s): " + ", ".join(missing)
-            )
 
         root = Path(project_root).resolve()
-        payload = dict(values)
-        for obsolete_key in _OBSOLETE_LAYOUT_ENGINE_KEYS:
-            payload.pop(obsolete_key, None)
-
-        saved_layout_dir = directories.get("SAVED_LAYOUT_DIR")
+        saved_layout_dir = payload["SAVED_LAYOUT_DIR"]
         if saved_layout_dir is None or not str(saved_layout_dir).strip():
             saved_layout_dir = os.path.join("Cache_Files", "Saved_Layouts")
-        fasta_dir = directories.get(
-            "FASTA_DIR", os.path.join("Input_Files", "Sequence_Sets")
-        )
-        hdf5_dir = directories.get(
-            "HDF5_DIR",
-            directories.get("NETWORK_DIR", os.path.join("Input_Files", "Networks_EValues")),
-        )
 
         payload["SAVED_LAYOUT_DIR"] = _resolve_project_path(
             saved_layout_dir, root
         )
         payload["NODE_FASTA_FILE"] = _resolve_project_path(
-            payload["NODE_FASTA_FILE"], root, default_dir=fasta_dir
+            payload["NODE_FASTA_FILE"],
+            root,
+            default_dir=os.path.join("Input_Files", "Sequence_Sets"),
         )
         payload["INPUT_HDF5"] = _resolve_project_path(
-            payload["INPUT_HDF5"], root, default_dir=hdf5_dir
+            payload["INPUT_HDF5"],
+            root,
+            default_dir=os.path.join("Input_Files", "Networks_EValues"),
         )
         settings = cls(**payload)
         settings.validate()

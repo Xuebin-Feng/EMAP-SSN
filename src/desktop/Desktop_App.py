@@ -934,6 +934,40 @@ class ResponsiveSelectorLayout(ResponsiveFlowLayout):
         return height
 
 
+# =====================================================================
+# 5. Combo Boxes Storing Values Apart from Their Labels
+# =====================================================================
+
+def add_combo_options(combo, values, labels=None):
+    """Add items that store ``values`` and show ``labels`` (the values by default).
+
+    Code reads and selects items by their stored value (``combo_value``,
+    ``select_combo_value``), never by the displayed text, so a label can be
+    reworded or translated without changing what settings files contain. The
+    ``persistItemData`` property tells the settings collectors to save values.
+    """
+    labels = values if labels is None else labels
+    if len(labels) != len(values):
+        raise ValueError("Each combo box value needs exactly one label.")
+    for value, label in zip(values, labels):
+        combo.addItem(label, value)
+    combo.setProperty("persistItemData", True)
+
+
+def combo_value(combo):
+    """Return the selected item's stored value, or "" when nothing is selected."""
+    value = combo.currentData()
+    return "" if value is None else value
+
+
+def select_combo_value(combo, value):
+    """Select the item storing ``value``; keep the selection if no item does."""
+    index = -1 if value is None else combo.findData(value)
+    if index >= 0:
+        combo.setCurrentIndex(index)
+    return index >= 0
+
+
 __all__ = [
     "PRODUCT_NAME",
     "APPLICATION_VERSION",
@@ -978,4 +1012,7 @@ __all__ = [
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
     "ResponsiveSelectorLayout",
+    "add_combo_options",
+    "combo_value",
+    "select_combo_value",
 ]

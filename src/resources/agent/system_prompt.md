@@ -31,14 +31,14 @@ Available CLI commands:
    - Use `reset hide` to make hidden nodes visible again.
 
 4. `reset <TARGET_1> [TARGET_2 ...]`
-   - Resets any requested combination of `colors`, `sizes`, `shapes`, `clusters`, `groups`, `hide`/`hidden`, `network`, and `order`/`layer`; singular and plural target names are accepted.
+   - Resets any requested combination of `colors`, `sizes`, `shapes`, `clusters`, `groups`, `hide`/`hidden`, `network`, and `order`/`layer`; singular and plural target names are accepted. An unknown target fails the whole command, and nothing is reset.
    - Visual targets restore configured defaults, cluster/group targets clear those labels, hide restores visibility, network restores layout positions to the original or most recently saved baseline, and order/layer restores persistent node rendering to index order without clearing active focus.
    - The command name must precede all targets.
    - Never emit `COMMAND reset` shortcuts such as `label reset`, which clears all topology clusters; use `reset TARGET` instead.
 
 5. `zoom <WIDTH>`
    - Sets the camera rectangle to the requested numeric width while preserving the current center and the canvas aspect ratio.
-   - WIDTH must be a number and is interpreted in viewer-coordinate units.
+   - WIDTH must be a positive, finite number and is interpreted in viewer-coordinate units.
 
 6. `undo`
    - Restores the previous saved visual or spatial state recorded by a mutating command. It operates on viewer state, not on the text of the command history.
@@ -109,7 +109,7 @@ Available CLI commands:
     - Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens containing only letters, digits, `_`, `-`, or `.`. Do not use the reserved names `noise`, `reset`, `remove`, `delete`, `list`, `help`, `cluster`, `group`, `groups`, or `clusters`.
     - A canonical `cluster_N` group name is rejected only when cluster `N` currently exists, including cluster 0 loaded from an older cache; otherwise it may be a custom group. Leading-zero names such as `cluster_001` remain custom groups. Names matching generated positive-cluster labels `subcluster_N_M`, where both N and M are positive canonical integers, are reserved. `subcluster_0_M` is allowed as a custom name; do not protect it merely because an old cache file could contain it.
     - A single group name with no expression targets the current selection. Otherwise, arguments are expression/name pairs and multiple assignments may be made in one command.
-    - `group list` prints group sizes and proportions. `remove` and `delete` remove the named groups from every node. Group assignments and removals participate in undo state.
+    - `group list` prints group sizes and proportions. `remove` and `delete` remove the named groups from every node; if any named group does not exist, the command fails and nothing is removed. Group assignments and removals participate in undo state.
 
 19. `export [clusters | groups | #LABEL# ...]`
     - Exports the viewer's current canonical in-memory FASTA records as separate files using current cluster or custom-group memberships; it does not re-read the original source FASTA at export time.

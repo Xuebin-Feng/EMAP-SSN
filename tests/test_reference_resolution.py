@@ -17,42 +17,35 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager  # noqa: E402
 from commands import reference as reference_command  # noqa: E402
+from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from utilities.Sequence_Utils import reference_header_matches  # noqa: E402
-from tests.test_incomplete_alignment_commands import load_manager, write_fasta  # noqa: E402
+from tests.sparse_alignment import load_manager, write_fasta  # noqa: E402
 
 
 class ReferenceResolutionTests(unittest.TestCase):
-    def run_reference(self, records, headers, *targets, configured=""):
+    def run_reference(self, records, headers, *targets, configured="", offset=0):
         """Run `reference` for each target on a toy MSA.
 
         RECORDS are the MSA rows and HEADERS the network headers, so a network
         node can be absent from the MSA. CONFIGURED is the ALIGNMENT_REFERENCE
-        setting. Returns the viewer, the terminal log, and the success messages
-        reported to the command portal.
+        setting and OFFSET the session's alignment offset. The Viewer's own
+        load_global_alignment reloads the MSA. Returns the viewer, the terminal
+        log, and the success messages reported to the command portal.
         """
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         msa_path = os.path.join(directory.name, "toy.fasta")
         write_fasta(msa_path, records)
-        viewer = SimpleNamespace(
-            full_headers=list(headers),
-            active_reference="",
-            alignment_offset=0,
-            console_text=SimpleNamespace(text=""),
-        )
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.full_headers = list(headers)
+        viewer.active_reference = ""
+        viewer.alignment_offset = offset
+        viewer.console_text = SimpleNamespace(text="")
         viewer.alignment = load_manager(msa_path, viewer.full_headers)
-
-        def load_global_alignment():
-            viewer.alignment = Alignment_Manager.Alignment_Manager(
-                msa_path,
-                full_headers=viewer.full_headers,
-                active_reference=viewer.active_reference,
-            )
-
-        viewer.load_global_alignment = load_global_alignment
         output = io.StringIO()
         engine = reference_command.Command_Engine
-        with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
+        with mock.patch.object(Alignment_Manager.cfg, "MSA_FILE", msa_path), \
+                mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50), \
                 mock.patch.object(Alignment_Manager.cfg, "ALIGNMENT_REFERENCE", configured), \
                 mock.patch.object(
                     engine, "command_succeeded", wraps=engine.command_succeeded
@@ -221,6 +214,27 @@ class ReferenceResolutionTests(unittest.TestCase):
                         "remains active."
                     ],
                 )
+                self.assertIn("configured but inactive", viewer.console_text.text)
+
+    def test_reference_reload_keeps_the_session_offset(self):
+        # `offset 10` earlier in the session. Switching the reference reloads
+        # the MSA, which must apply the same offset to the new anchor.
+        viewer, _, messages = self.run_reference(
+            [("node1", "MKC"), ("node2", "M-C")],
+            ["node1", "node2"],
+            "node2",
+            "node1",
+            offset=10,
+        )
+
+        self.assertEqual(
+            messages,
+            ["Reference successfully set: node2.", "Reference successfully set: node1."],
+        )
+        self.assertEqual(viewer.alignment.resolved_ref_full, "node1")
+        self.assertEqual(viewer.alignment_offset, 10)
+        self.assertEqual(viewer.alignment.offset, 10)
+        self.assertEqual(viewer.alignment.label_to_col, {"11": 0, "12": 1, "13": 2})
 
     def test_occupancy_mode_keeps_no_columns_for_the_configured_reference(self):
         # After `reference` selects a sequence the MSA lacks, numbering is pure

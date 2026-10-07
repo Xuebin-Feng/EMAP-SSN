@@ -668,8 +668,12 @@ def _read_pair_scores(data, settings, pair_mask, valid_sources, valid_targets):
     )
 
 
-def prepare_network(data, *, settings, selected_fasta_headers=None):
-    """Return filtered ``(headers, edges, scores)`` for an open network file."""
+def prepare_network(data, *, settings, selected_fasta_headers):
+    """Return filtered ``(headers, edges, scores)`` for an open network file.
+
+    Only nodes named in ``selected_fasta_headers`` (the selected FASTA's
+    sanitized headers) are kept.
+    """
     metadata = cache_manifest.validate_network_schema(data)
     settings.INPUT_IS_EVALUE = metadata.network_type == "blast"
 
@@ -692,54 +696,43 @@ def prepare_network(data, *, settings, selected_fasta_headers=None):
 
     fasta_path = getattr(settings, "NODE_FASTA_FILE", "")
     kept_indices = []
-    if selected_fasta_headers is not None or os.path.exists(fasta_path):
-        clean_fasta_path = os.path.normpath(fasta_path)
-        print(f"Scanning FASTA file for node filter: {clean_fasta_path}")
-        fasta_ids = set()
-        fasta_headers = set()
-        try:
-            if selected_fasta_headers is None:
-                from utilities.Sequence_Utils import load_sanitized_fasta
-                selected_fasta_headers, _, _ = load_sanitized_fasta(fasta_path)
+    clean_fasta_path = os.path.normpath(fasta_path)
+    print(f"Scanning FASTA file for node filter: {clean_fasta_path}")
+    fasta_ids = set()
+    fasta_headers = set()
+    try:
+        for header in selected_fasta_headers:
+            fasta_headers.add(header)
+            header_parts = header.split()
+            if header_parts:
+                fasta_ids.add(header_parts[0])
 
-            for header in selected_fasta_headers:
-                fasta_headers.add(header)
-                header_parts = header.split()
-                if header_parts:
-                    fasta_ids.add(header_parts[0])
-
-            network_headers = set(headers)
-            network_ids = {header.split()[0] for header in headers}
-            missing_nodes = [
-                identifier
-                for identifier in fasta_ids
-                if identifier not in network_ids and identifier not in network_headers
-            ]
-            if missing_nodes:
-                print(
-                    "CRITICAL WARNING: The passed FASTA file is NOT a strict "
-                    f"subset of the network file. {len(missing_nodes)} FASTA "
-                    "sequences are missing from the network."
-                )
-
-            for index, header in enumerate(headers):
-                record_id = header.split()[0]
-                if header in fasta_headers or record_id in fasta_ids:
-                    kept_indices.append(index)
-
-            kept_indices = np.asarray(kept_indices, dtype=np.int64)
+        network_headers = set(headers)
+        network_ids = {header.split()[0] for header in headers}
+        missing_nodes = [
+            identifier
+            for identifier in fasta_ids
+            if identifier not in network_ids and identifier not in network_headers
+        ]
+        if missing_nodes:
             print(
-                f"Filtered {total_nodes} down to {len(kept_indices)} valid "
-                "FASTA subsets."
+                "CRITICAL WARNING: The passed FASTA file is NOT a strict "
+                f"subset of the network file. {len(missing_nodes)} FASTA "
+                "sequences are missing from the network."
             )
-        except Exception as error:
-            print(f"Error reading FASTA filter: {error}. Retaining all sequences.")
-            kept_indices = np.arange(total_nodes)
-    else:
+
+        for index, header in enumerate(headers):
+            record_id = header.split()[0]
+            if header in fasta_headers or record_id in fasta_ids:
+                kept_indices.append(index)
+
+        kept_indices = np.asarray(kept_indices, dtype=np.int64)
         print(
-            f"No FASTA file found at {fasta_path}. Retaining all "
-            f"{total_nodes} sequences."
+            f"Filtered {total_nodes} down to {len(kept_indices)} valid "
+            "FASTA subsets."
         )
+    except Exception as error:
+        print(f"Error reading FASTA filter: {error}. Retaining all sequences.")
         kept_indices = np.arange(total_nodes)
 
     kept_mask = np.zeros(total_nodes, dtype=bool)

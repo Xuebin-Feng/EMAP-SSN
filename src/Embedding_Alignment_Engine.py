@@ -1232,6 +1232,16 @@ def _gather_padded_targets(packed, target_starts, target_lengths, pad_row):
     )
 
 
+def _copy_tile_row(packed, start, length):
+    """Copy one row embedding out of the packed tile into its own tensor.
+
+    The copy runs on the current lane's stream; other lanes must wait for it.
+    A separate tensor matches the per-sequence embeddings earlier versions
+    passed to the matrix multiply.
+    """
+    return packed[start:start + length].clone()
+
+
 def _batched_score_matrices(row_tensor, target_tensors, target_lengths):
     """Compute padded score matrices while excluding padding from statistics.
 
@@ -1602,8 +1612,6 @@ def _run_synchronous_tiled_pipeline(
     result_chunk_size,
     plan,
     matrix_budget,
-    warmup_task_count,
-    benchmark_timer,
     benchmark_trial=None,
 ):
     """Run tiled work on a default-queue backend such as Apple MPS."""
@@ -1715,14 +1723,8 @@ def _run_synchronous_tiled_pipeline(
             benchmark_trial.start()
             run_phase(tasks)
             benchmark_trial.stop(len(tasks))
-        elif benchmark_timer is None:
-            run_phase(tasks)
         else:
-            if warmup_task_count:
-                run_phase(tasks[:warmup_task_count])
-            benchmark_timer.start()
-            run_phase(tasks[warmup_task_count:])
-            benchmark_timer.stop()
+            run_phase(tasks)
 
     if result_callback is not None and results:
         result_callback(results)
@@ -1769,8 +1771,6 @@ def run_tiled_accelerator_pipeline(
     result_callback=None,
     result_chunk_size=65536,
     memory_plan_override=None,
-    warmup_task_count=0,
-    benchmark_timer=None,
     benchmark_trial=None,
     batch_alignment_callback=None,
 ):
@@ -1793,13 +1793,6 @@ def run_tiled_accelerator_pipeline(
     tasks = list(tasks)
     if not tasks:
         return []
-    warmup_task_count = int(warmup_task_count)
-    if warmup_task_count < 0 or warmup_task_count >= len(tasks):
-        if benchmark_timer is not None:
-            raise ValueError(
-                "Benchmark warm-up count must leave at least one timed task."
-            )
-        warmup_task_count = 0
 
     plan = memory_plan_override or accelerator_memory_plan(
         device,
@@ -1827,8 +1820,6 @@ def run_tiled_accelerator_pipeline(
             result_chunk_size=result_chunk_size,
             plan=plan,
             matrix_budget=matrix_budget,
-            warmup_task_count=warmup_task_count,
-            benchmark_timer=benchmark_timer,
             benchmark_trial=benchmark_trial,
         )
     block_ids = store.block_ids(per_block, element_bytes=element_bytes)
@@ -1968,6 +1959,8 @@ def run_tiled_accelerator_pipeline(
                     starts = upload_tile(layout, group)
                     row_tensor = None
                     row_index = None
+                    row_ready = None
+                    row_lanes = set()
                     rows = OrderedDict()
                     for task in tile_tasks:
                         rows.setdefault(int(task[0]), []).append(task)
@@ -1995,13 +1988,19 @@ def run_tiled_accelerator_pipeline(
                             ]
                             with backend.stream_context(stream):
                                 if row_index != idx_i:
-                                    # A fresh tensor, like the per-sequence
-                                    # embeddings of earlier versions.
-                                    start = starts[idx_i]
-                                    row_tensor = packed[
-                                        start:start + int(lengths[idx_i])
-                                    ].clone()
+                                    row_tensor = _copy_tile_row(
+                                        packed, starts[idx_i], int(lengths[idx_i])
+                                    )
+                                    row_ready = backend.create_event()
+                                    row_ready.record(stream)
+                                    row_lanes = {id(stream)}
                                     row_index = idx_i
+                                elif id(stream) not in row_lanes:
+                                    # The copy was queued on another lane;
+                                    # order this lane after it before any
+                                    # kernel here reads the row.
+                                    _stream_wait(stream, row_ready)
+                                    row_lanes.add(id(stream))
                                 targets = _gather_padded_targets(
                                     packed,
                                     [starts[index] for index in target_indices],
@@ -2044,14 +2043,8 @@ def run_tiled_accelerator_pipeline(
                 benchmark_trial.start()
                 run_phase(tasks)
                 benchmark_trial.stop(len(tasks))
-            elif benchmark_timer is None:
-                run_phase(tasks)
             else:
-                if warmup_task_count:
-                    run_phase(tasks[:warmup_task_count])
-                benchmark_timer.start()
-                run_phase(tasks[warmup_task_count:])
-                benchmark_timer.stop()
+                run_phase(tasks)
     finally:
         # Hand the cached blocks back to the driver, also after a failure:
         # callers check mem_get_info before the next batch or plan, and the

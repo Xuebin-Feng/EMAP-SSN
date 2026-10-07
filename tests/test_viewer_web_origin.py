@@ -6,8 +6,9 @@ could drive ``/api/action`` blind, and a rebound DNS name could read
 ``/api/events``. The header sets below are the ones Chromium and urllib
 were observed to send, so a change that breaks a real caller fails here.
 
-These tests live in their own file on purpose: tests/test_viewer_portal_adapters.py
-subclasses SnapshotHTTPTests, so anything added there runs three times.
+The guard covers every route, so its tests live here rather than in
+tests/test_web_server.py or the inspection-route tests built on
+tests/viewer_fixtures.SnapshotHTTPFixture.
 """
 import http.client
 import json

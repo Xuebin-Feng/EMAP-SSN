@@ -93,7 +93,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         combo.setCurrentIndex(1)
         combo.setEnabled(True)
         combo.blockSignals(False)
-        self.window._toggle_new_cache_input(combo.currentText())
+        self.window._toggle_new_cache_input()
         self.window.line_new_cache.setText("new-layout-name")
         self.flush()
 

@@ -1,7 +1,9 @@
 """Deadline accounting and production-order contracts for alignment trials."""
+import io
+import sys
 import tempfile
 import unittest
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -10,10 +12,18 @@ import h5py
 import numpy as np
 import torch
 
-from tests.test_align_similarity_matrix_pipeline import (
-    similarity_matrix as alignment, alignment_engine as engine, ImmediateExecutor,
-)
-from tests.test_network_injection_pipeline import network_injection as injection
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+for module_dir in (SRC_DIR, SRC_DIR / "tools"):
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
+
+# The tests package points tool imports at a missing settings file.
+with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+    import Align_Similarity_Matrix as alignment
+    import Embedding_Alignment_Engine as engine
+    import Network_Injection as injection
+
+from tests.alignment_fixtures import ImmediateExecutor  # noqa: E402
 
 
 class FirstBatchBenchmarkTests(unittest.TestCase):

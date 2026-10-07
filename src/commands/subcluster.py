@@ -110,17 +110,25 @@ def run(viewer, args):
             Command_Engine.command_succeeded(viewer, 'No groups are currently defined.')
             return
             
+        generated = [
+            [g for g in g_set if group_cmd.is_generated_subcluster_name(g)]
+            for g_set in viewer.group_labels
+        ]
+        total_removed = sum(len(names) for names in generated)
+
+        # Nothing to clear is not an error, but it must not add an undo step.
+        if total_removed == 0:
+            msg = "No subcluster groups to clear."
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer, msg)
+            return
+
         viewer._save_state()
 
-        total_removed = 0
-        for g_set in viewer.group_labels:
-            to_remove = [
-                g for g in g_set if group_cmd.is_generated_subcluster_name(g)
-            ]
-            for g in to_remove:
+        for g_set, names in zip(viewer.group_labels, generated):
+            for g in names:
                 g_set.remove(g)
-                total_removed += 1
-                
+
         viewer.update_nodes()
         
         msg = f"Cleared all subcluster groups (removed {total_removed} label instances)."

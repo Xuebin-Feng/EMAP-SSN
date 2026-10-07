@@ -765,11 +765,6 @@ def detect_hardware() -> dict[str, Any]:
     }
 
 
-def detect_gpu() -> str:
-    """Return the legacy vendor label used by older callers."""
-    return str(detect_hardware()["vendor"])
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="emit the complete detection report")

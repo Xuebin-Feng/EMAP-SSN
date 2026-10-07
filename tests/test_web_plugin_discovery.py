@@ -1,13 +1,11 @@
-"""Regression tests for bundled web-plugin discovery and registration."""
+"""Web plugin discovery, registration and activation (src/web_ui/Plugin_Manager.py)."""
 
 from pathlib import Path
 import sys
 import tempfile
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 import unittest
 from unittest import mock
-
-import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -125,166 +123,6 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(registry.apply_state_providers({"order": ""})["order"], "Ab")
         self.assertEqual(len(registry._state_providers), 2)
 
-    def test_server_uses_the_preconfigured_registry_route_mapping(self):
-        from web_ui import Web_Server
-
-        viewer = FakeViewer()
-        registry = WebPluginRegistry(viewer)
-        viewer.web_plugin_registry = registry
-        registry.register_static_route("alpha", "/alpha/", ".")
-        server = Web_Server.start_server(viewer, preferred_port=0)
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-
-        self.assertIs(server.static_routes, registry.static_routes)
-        self.assertIn("/alpha/", server.static_routes)
-        self.assertIn("/fonts/", server.static_routes)
-
-    def test_server_tracks_named_event_clients_independently(self):
-        from queue import Queue
-        from web_ui import Web_Server
-
-        viewer = FakeViewer()
-        registry = WebPluginRegistry(viewer)
-        viewer.web_plugin_registry = registry
-        server = Web_Server.start_server(viewer, preferred_port=0)
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        meta_queue = Queue()
-        esmfold_queue = Queue()
-        viewer._web_ui_pending_opens = {"esmfold": float("inf")}
-
-        server.register_event_queue(meta_queue, "meta")
-        server.register_event_queue(esmfold_queue, "esmfold")
-        self.assertTrue(server.has_event_client("meta"))
-        self.assertTrue(server.has_event_client("esmfold"))
-        self.assertNotIn("esmfold", viewer._web_ui_pending_opens)
-
-        server.unregister_event_queue(esmfold_queue, "esmfold")
-        self.assertTrue(server.has_event_client("meta"))
-        self.assertFalse(server.has_event_client("esmfold"))
-        server.unregister_event_queue(meta_queue, "meta")
-
-    def test_event_client_url_labels_are_validated(self):
-        from web_ui import Web_Server
-
-        self.assertEqual(
-            Web_Server.event_client_from_path("/api/events?client=ESMFold"),
-            "esmfold",
-        )
-        self.assertIsNone(Web_Server.event_client_from_path("/api/events"))
-        self.assertIsNone(
-            Web_Server.event_client_from_path("/api/events?client=esmfold%2Fother")
-        )
-
-    def test_named_sse_request_registers_and_releases_client(self):
-        import time
-        from urllib.request import urlopen
-        from web_ui import Web_Server
-
-        viewer = FakeViewer()
-        registry = WebPluginRegistry(viewer)
-        viewer.web_plugin_registry = registry
-        server = Web_Server.start_server(viewer, preferred_port=0)
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        url = (
-            f"http://localhost:{server.server_address[1]}"
-            "/api/events?client=esmfold"
-        )
-
-        response = urlopen(url, timeout=2)
-        try:
-            deadline = time.monotonic() + 2
-            while not server.has_event_client("esmfold") and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(server.has_event_client("esmfold"))
-        finally:
-            response.close()
-
-        deadline = time.monotonic() + 3
-        while server.has_event_client("esmfold") and time.monotonic() < deadline:
-            time.sleep(0.05)
-        self.assertFalse(server.has_event_client("esmfold"))
-
-    def test_bundled_pages_identify_their_event_streams(self):
-        expected_clients = {
-            "esmfold.html": "esmfold",
-            "meta.html": "meta",
-            "agent.html": "agent",
-        }
-        web_ui_dir = SRC_DIR / "web_ui"
-        for filename, client_id in expected_clients.items():
-            with self.subTest(filename=filename):
-                source = (web_ui_dir / filename).read_text(encoding="utf-8")
-                self.assertIn(f"/api/events?client={client_id}", source)
-
-
-class MetadataHighlightActionTests(unittest.TestCase):
-    def make_viewer(self):
-        return type(
-            "MetadataViewer",
-            (),
-            {
-                "n_nodes": 3,
-                "visible_mask": np.array([True, True, False], dtype=bool),
-                "apply_left_click_focus": mock.Mock(),
-                "clear_left_click_focus": mock.Mock(),
-            },
-        )()
-
-    def test_select_accepts_only_visible_integer_node_indices(self):
-        from web_ui import meta_backend
-
-        viewer = self.make_viewer()
-        self.assertTrue(meta_backend.handle_select_node(viewer, {"index": 1}))
-        viewer.apply_left_click_focus.assert_called_once_with(1)
-
-        for invalid in (True, 1.0, "1", -1, 2, 3, None):
-            with self.subTest(index=invalid):
-                self.assertFalse(
-                    meta_backend.handle_select_node(viewer, {"index": invalid})
-                )
-        viewer.apply_left_click_focus.assert_called_once_with(1)
-
-    def test_registered_clear_action_only_delegates_click_focus_clear(self):
-        from web_ui import meta_backend
-
-        viewer = self.make_viewer()
-        registry = WebPluginRegistry(viewer)
-        meta_backend.register_backend(registry, viewer)
-
-        self.assertIn("select", registry.actions)
-        self.assertIn("clear_selection", registry.actions)
-        self.assertTrue(registry.actions["clear_selection"]({}))
-        viewer.clear_left_click_focus.assert_called_once_with()
-
-    def test_activation_wrapper_does_not_duplicate_viewer_row_broadcast(self):
-        from web_ui import meta_backend
-
-        viewer = SimpleNamespace(
-            left_click_highlight_indices=[1],
-            broadcast_event=mock.Mock(),
-            add_sidebar_button=mock.Mock(),
-            open_metadata_ui=mock.Mock(),
-            sidebar_buttons_to_persist=[],
-        )
-        original_mouse_press = mock.Mock(
-            side_effect=lambda _event: viewer.broadcast_event(
-                {"type": "highlight_row", "index": 1}
-            )
-        )
-        viewer.on_mouse_press = original_mouse_press
-
-        meta_backend.activate(viewer)
-        viewer.on_mouse_press(SimpleNamespace(button=1, modifiers=[]))
-
-        original_mouse_press.assert_called_once()
-        viewer.broadcast_event.assert_called_once_with(
-            {"type": "highlight_row", "index": 1}
-        )
-        self.assertIsNone(viewer.left_click_highlight_indices)
-
 
 class ManagerTests(unittest.TestCase):
     @staticmethod
@@ -393,7 +231,7 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(len(manager.registry.actions), action_count)
         self.assertEqual(len(manager.registry._state_providers), provider_count)
 
-        manager.activate("agent")
+        agent_backend.activate(viewer)
         self.assertEqual(len(viewer.buttons), 1)
 
     def test_compatibility_registration_activates_meta_and_defers_structure_directory(self):

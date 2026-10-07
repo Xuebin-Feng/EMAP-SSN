@@ -1,4 +1,10 @@
-"""Regression coverage for incomplete MSA loading and AA expression semantics."""
+"""MSAs whose rows do not match the network one to one.
+
+Covers loading a partial or reordered MSA (coverage, reference fallback,
+warnings), three-state AA expressions for unaligned nodes, and the commands
+(alignment, query, logo, label, select) that map network nodes to alignment
+rows through viewer_to_aln.
+"""
 
 import io
 import json
@@ -22,17 +28,18 @@ if SRC_DIR not in sys.path:
 
 import Alignment_Manager
 import Command_Engine
+import EMAPSSN_Config as cfg
+from commands import alignment as alignment_command
+from commands import label as label_command
+from commands import logo as logo_command
+from commands import query as query_command
+from commands import select as select_command
+from tests.sparse_alignment import load_manager, write_fasta
 
 
 class TTYBuffer(io.StringIO):
     def isatty(self):
         return True
-
-
-def write_fasta(path, records):
-    with open(path, "w", encoding="utf-8") as handle:
-        for header, sequence in records:
-            handle.write(f">{header}\n{sequence}\n")
 
 
 class IncompleteAlignmentLoaderTests(unittest.TestCase):
@@ -295,6 +302,174 @@ class IncompleteAlignmentViewerSmokeTests(unittest.TestCase):
                     self.assertEqual(len(viewer.alignment.aln), expected_count)
         finally:
             cfg.MSA_FILE = old_msa
+
+
+class IncompleteAlignmentCommandTests(unittest.TestCase):
+    def test_alignment_command_accepts_zero_overlap_and_reports_coverage(self):
+        from EMAPSSN_Viewer import MainViewer
+
+        with tempfile.TemporaryDirectory() as directory:
+            msa_path = os.path.join(directory, "zero.fasta")
+            write_fasta(msa_path, [("other", "AC")])
+            headers = ["node1", "node2"]
+            viewer = SimpleNamespace(
+                full_headers=headers,
+                active_reference="node1",
+                alignment_offset=0,
+                alignment=SimpleNamespace(aln=None),
+                console_text=SimpleNamespace(text=""),
+            )
+            # The command points cfg.MSA_FILE at the new MSA and reloads
+            # through the Viewer's own method.
+            viewer.load_global_alignment = lambda: MainViewer.load_global_alignment(viewer)
+            old_msa = cfg.MSA_FILE
+            try:
+                with redirect_stdout(io.StringIO()) as output:
+                    alignment_command.run(viewer, [msa_path])
+            finally:
+                cfg.MSA_FILE = old_msa
+
+        self.assertIsNotNone(viewer.alignment.aln)
+        self.assertEqual(len(viewer.alignment.aln), 0)
+        self.assertIn("0/2 network nodes aligned", output.getvalue())
+        self.assertIn("0/2 aligned", viewer.console_text.text)
+
+    def test_query_logo_and_label_reject_loaded_zero_coverage_clearly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            msa_path = os.path.join(directory, "zero.fasta")
+            write_fasta(msa_path, [("other", "AC")])
+            alignment = load_manager(msa_path, ["node1"], "node1")
+            viewer = SimpleNamespace(
+                alignment=alignment,
+                full_headers=["node1"],
+                active_reference="node1",
+                console_text=SimpleNamespace(text=""),
+            )
+
+            with redirect_stdout(io.StringIO()):
+                query_command.run(viewer, ["[1]"])
+            self.assertIn("no aligned rows", viewer.console_text.text)
+
+            logo_command.run(viewer, ["[1]"])
+            self.assertIn("no aligned rows", viewer.console_text.text)
+
+            with redirect_stdout(io.StringIO()):
+                label_command.run(viewer, [])
+            self.assertIn("no aligned rows", viewer.console_text.text)
+
+    def test_select_not_aa_excludes_unaligned_node(self):
+        with tempfile.TemporaryDirectory() as directory:
+            msa_path = os.path.join(directory, "partial.fasta")
+            write_fasta(msa_path, [("node1", "AC"), ("node3", "TC")])
+            headers = ["node1", "node2", "node3"]
+            alignment = load_manager(msa_path, headers, "node1")
+            viewer = SimpleNamespace(
+                alignment=alignment,
+                full_headers=headers,
+                visible_mask=np.ones(3, dtype=bool),
+                selected_indices=[],
+                console_text=SimpleNamespace(text=""),
+                update_selection_visual=lambda: None,
+            )
+
+            with mock.patch.object(cfg, "HEADER_LIST_DIR", directory):
+                select_command.run(viewer, ["!A1"])
+
+        self.assertEqual(viewer.selected_indices, [2])
+
+
+class CapturingScheduler:
+    def __init__(self):
+        self.job = None
+
+    def is_output_path_reserved(self, _path):
+        return False
+
+    def enqueue(self, **job):
+        self.job = job
+        return 1
+
+
+class AlignmentRowOrderTests(unittest.TestCase):
+    """MSA rows keep the FASTA order, so viewer_to_aln is a permutation.
+
+    Network order is n1, n2, n3 but the FASTA lists n3 (W), n1 (A), n2 (C).
+    A command that indexed rows by network position would read W for n1.
+    """
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        fasta_path = os.path.join(self.directory, "permuted.fasta")
+        write_fasta(fasta_path, [("n3", "W"), ("n1", "A"), ("n2", "C")])
+        self.headers = ["n1", "n2", "n3"]
+        with mock.patch.object(Alignment_Manager.cfg, "FILTER_MIN_OCCUPANCY", 50):
+            self.alignment = load_manager(fasta_path, self.headers, "n1")
+
+    def test_loader_maps_network_nodes_to_their_fasta_rows(self):
+        np.testing.assert_array_equal(self.alignment.viewer_to_aln, [1, 2, 0])
+        self.assertEqual(self.alignment.resolved_ref_full, "n1")
+
+    def test_query_reports_the_named_nodes_residue(self):
+        viewer = SimpleNamespace(
+            alignment=self.alignment,
+            alignment_offset=0,
+            full_headers=self.headers,
+            selected_indices=[],
+            cluster_labels=None,
+            group_labels=None,
+            metadata=None,
+            console_text=SimpleNamespace(text=""),
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            query_command.run(viewer, ['"n1"', "[1]"])
+
+        position_lines = [
+            line for line in output.getvalue().splitlines() if line.startswith("Pos ")
+        ]
+        self.assertEqual(position_lines, ["Pos 1       \tGap   0.0% | A 100.0%"])
+
+    def test_logo_plots_the_selected_nodes_row(self):
+        scheduler = CapturingScheduler()
+        viewer = SimpleNamespace(
+            alignment=self.alignment,
+            full_headers=self.headers,
+            selected_indices=[0],
+            cluster_labels=None,
+            group_labels=None,
+            active_reference="n1",
+            console_text=SimpleNamespace(text=""),
+            background_job_scheduler=scheduler,
+        )
+
+        with mock.patch.object(logo_command, "LOGO_DIRECTORY", self.directory), \
+                mock.patch.object(logo_command.cfg, "HEADER_LIST_DIR", self.directory), \
+                redirect_stdout(io.StringIO()):
+            logo_command.run(viewer, ["[1]", "permuted.svg"])
+
+        self.assertEqual(scheduler.job["payload"]["selected_seqs"], ("A",))
+
+    def test_label_subsets_hold_their_nodes_rows(self):
+        viewer = SimpleNamespace(
+            alignment=self.alignment,
+            full_headers=self.headers,
+            cluster_labels=np.asarray([1, 2, 3]),
+            group_labels=None,
+        )
+        viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
+
+        tasks = label_command._build_label_tasks(viewer, "clusters", viewer_to_aln)
+
+        self.assertEqual(
+            [
+                (int(task[1]), [str(record.seq) for record in task[2]], task[4].tolist())
+                for task in tasks
+            ],
+            [(1, ["A"], [1]), (2, ["C"], [2]), (3, ["W"], [0])],
+        )
 
 
 if __name__ == "__main__":

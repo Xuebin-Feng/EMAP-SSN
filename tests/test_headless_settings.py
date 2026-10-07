@@ -1,3 +1,8 @@
+"""Headless settings (utilities.Headless_Settings): pipeline and Config
+settings exports and their saved-directory resolution, layout-cache generation
+from exported documents (explicit names, auto versions, publish races, two
+writer processes), CLI exports without GUI or hardware imports, and real CPU
+layout jobs through the MCP pipeline job manager."""
 import asyncio
 import copy
 import json
@@ -12,37 +17,15 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-import numpy as np
 from utilities.Headless_Settings import (
     export_pipeline_settings, export_config_settings, build_pipeline_export,
 )
-from desktop.Viewer_State import DEFAULTS, decode_document, normalize_viewer_settings
+from desktop.Viewer_State import decode_document
 from tools.tool_helpers.Tool_Pipeline import list_tool_specs
-from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
-from tests.layout_fixtures import settings_document, write_inputs
+from tests.layout_fixtures import HeadlessSettingsFixture, settings_document, write_inputs
 
 
-class HeadlessSettingsTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-
-    def saved_config(self):
-        write_inputs(self.root)
-        values = copy.deepcopy(DEFAULTS)
-        values.update(NODE_FASTA_FILE="set.fasta", INPUT_HDF5="network.h5", FASTA_DIR=str(self.root),
-                      HDF5_DIR=str(self.root), CACHE_FILE_DIR=str(self.root / "custom-cache"),
-                      SIMILARITY_THRESHOLD=0.1, NODE_SIZE="13", MAX_STEPS=1,
-                      LAYOUT_DEVICE_SELECTION="cpu")
-        (self.root / "viewer_settings.json").write_text(json.dumps(values))
-        return values
-
-    def generate(self, document):
-        engine = SimpleNamespace(calculate_layout=lambda *a: (np.array([[0, 0], [1, 1]], dtype=np.float32), 12.0))
-        with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine, "Layout_Engine_UMAP": engine}):
-            return generate_layout_cache(LayoutGenerationSettings.from_document(document, project_root=self.root))
-
+class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
     def test_pipeline_saved_values_and_only_selected_section(self):
         saved = {"DIRECTORIES": {"FASTA_DIR": "my sequences", "SETTING_EXPORT_DIR": "exports"},
                  "Sanitize_Sequences.py": {"INPUT_FASTA": "chosen.fasta"},
@@ -162,11 +145,41 @@ class HeadlessSettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "filename does not match"):
             self.generate(document)
 
-    def test_version_gaps_and_occupied_directory_names(self):
-        from Cache_Manifest import next_cache_version_filename
-        (self.root / "version_03.h5").write_bytes(b"cache")
-        (self.root / "version_04.h5").mkdir()
-        self.assertEqual(next_cache_version_filename(self.root), "version_05.h5")
+    def test_saved_text_values_convert_to_layout_setting_types(self):
+        # EMAP-SSN Configuration saves several widget values as text, and the
+        # exports pass saved values to from_namespace as they are.
+        from Layout_Cache_Generator import LayoutGenerationSettings
+        for threshold, top, expected in (("0.3", "None", (0.3, None)),
+                                         ("", "5", (None, 5.0)),
+                                         (" None ", "12.5", (None, 12.5))):
+            with self.subTest(threshold=threshold, top=top):
+                settings = LayoutGenerationSettings.from_namespace(
+                    SimpleNamespace(SAVED_LAYOUT_DIR="layouts", NODE_FASTA_FILE="set.fasta",
+                                    INPUT_HDF5="network.h5", UMAP_MODE="False",
+                                    ENABLE_PROGRESSIVE_SIMULATION="true", MAX_STEPS="25",
+                                    DT="0.01", SIMILARITY_THRESHOLD=threshold,
+                                    TOP_EDGE_PERCENT=top),
+                    cache_filename="version_00.h5", project_root=self.root)
+                self.assertIs(settings.UMAP_MODE, False)
+                self.assertIs(settings.ENABLE_PROGRESSIVE_SIMULATION, True)
+                self.assertEqual((settings.MAX_STEPS, type(settings.MAX_STEPS)), (25, int))
+                self.assertEqual((settings.DT, type(settings.DT)), (0.01, float))
+                self.assertEqual((settings.SIMILARITY_THRESHOLD, settings.TOP_EDGE_PERCENT), expected)
+
+    def test_local_scores_normalized_by_alignment_length_are_not_generated(self):
+        from Layout_Cache_Generator import LayoutGenerationError
+        values = self.saved_config()
+        document = export_config_settings("layout", self.root)["settings_document"]
+        self.assertEqual(document["network"]["NORM_MODE"], "alignment_length")
+        document["network"]["ALIGNMENT_SCORE"] = "local"
+        with self.assertRaisesRegex(LayoutGenerationError, "alignment_length is unavailable for local"):
+            self.generate(document)
+        # Saved Config values with that pair are refused when exported.
+        values["ALIGNMENT_SCORE"] = "local"
+        (self.root / "viewer_settings.json").write_text(json.dumps(values))
+        with self.assertRaisesRegex(LayoutGenerationError, "alignment_length is unavailable for local"):
+            export_config_settings("layout", self.root)
+        self.assertEqual(list(self.root.rglob("*.h5")), [self.root / "network.h5"])
 
     def test_auto_publish_race_reuses_calculation(self):
         self.saved_config()
@@ -269,7 +282,8 @@ class HeadlessLayoutJobTests(unittest.IsolatedAsyncioTestCase):
             try:
                 jobs = [await manager.submit_layout_job(copy.deepcopy(document)) for _ in range(2)]
                 snapshots = {j["job_id"]: Path(j["settings_snapshot"]).read_bytes() for j in jobs}
-                deadline = asyncio.get_running_loop().time() + 90
+                # Generous: peer processes may load every CPU while both jobs run.
+                deadline = asyncio.get_running_loop().time() + 240
                 for job in jobs:
                     while True:
                         state = await manager.get_job(job["job_id"])

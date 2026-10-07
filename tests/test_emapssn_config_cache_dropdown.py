@@ -1001,7 +1001,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             combo.setCurrentIndex(0)
             combo.setEnabled(True)
             combo.blockSignals(False)
-            self.window._toggle_new_cache_input(combo.currentText())
+            self.window._toggle_new_cache_input()
             self.app.processEvents()
 
             tab = self.window.tabs.widget(0).widget()
@@ -1084,7 +1084,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             combo.setEnabled(True)
             combo.blockSignals(False)
             self.window._cache_launch_allowed = True
-            self.window._toggle_new_cache_input(combo.currentText())
+            self.window._toggle_new_cache_input()
             self.window.line_new_cache.setText("cache-name")
 
             with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
@@ -1117,9 +1117,9 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertFalse(self.window.lbl_alignment_offset.isEnabled())
                 request_cache_discovery.assert_not_called()
 
-                # textActivated is emitted only for a user selection, so this is
+                # activated is emitted only for a user selection, so this is
                 # the one path that should move focus to the cache-name field.
-                combo.textActivated.emit("(New Layout Cache)")
+                combo.activated.emit(combo.currentIndex())
                 self.app.processEvents()
                 self.assertIs(self.app.focusWidget(), self.window.line_new_cache)
         finally:
@@ -1132,8 +1132,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             combo.setCurrentIndex(original_combo_index)
             combo.setEnabled(original_combo_enabled)
             combo.blockSignals(False)
-            self.window._toggle_new_cache_input(combo.currentText())
-            if combo.currentText() == "(New Layout Cache)":
+            self.window._toggle_new_cache_input()
+            if self.window._new_cache_selected():
                 self.window.line_new_cache.setText(original_cache_name)
             self.window.line_ref.setText(original_reference)
             self.window.tabs.setCurrentIndex(original_tab)
@@ -1549,12 +1549,31 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.window.btn_export_layout.sizeHint().height(),
             self.window.btn_check.sizeHint().height(),
         )
-        with mock.patch.object(self.window, "_cache_launch_allowed", True):
-            self.window._toggle_new_cache_input("(New Layout Cache)")
-            self.assertTrue(self.window.btn_export_layout.isEnabled())
-            self.window._toggle_new_cache_input("version_00.h5")
-            self.assertFalse(self.window.btn_export_layout.isEnabled())
-        self.window._toggle_new_cache_input(self.window.cb_cache_file.currentText())
+        combo = self.window.cb_cache_file
+        original_items = [
+            (combo.itemText(index), combo.itemData(index))
+            for index in range(combo.count())
+        ]
+        original_index = combo.currentIndex()
+        try:
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("version_00.h5", "layout/version_00.h5")
+            combo.addItem("(New Layout Cache)", None)
+            combo.blockSignals(False)
+            with mock.patch.object(self.window, "_cache_launch_allowed", True):
+                combo.setCurrentIndex(1)
+                self.assertTrue(self.window.btn_export_layout.isEnabled())
+                combo.setCurrentIndex(0)
+                self.assertFalse(self.window.btn_export_layout.isEnabled())
+        finally:
+            combo.blockSignals(True)
+            combo.clear()
+            for text, data in original_items:
+                combo.addItem(text, data)
+            combo.setCurrentIndex(original_index)
+            combo.blockSignals(False)
+            self.window._toggle_new_cache_input()
 
 
 if __name__ == "__main__":

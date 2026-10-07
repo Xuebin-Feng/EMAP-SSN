@@ -2,6 +2,10 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
+"""Application fonts (desktop.Desktop_App): the bundled Noto font pack, Qt and
+VisPy font registration, the light palette, DPI-independent VisPy text sizes,
+and the local font assets used by the embedded web pages."""
+
 from __future__ import annotations
 
 import gc
@@ -34,6 +38,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QTabWidget,
 )
 
+from desktop import Desktop_App  # noqa: E402
 from desktop.Desktop_App import (  # noqa: E402
     DESKTOP_FONT_DIR,
     FONT_FILES,
@@ -53,7 +58,34 @@ from desktop.Desktop_App import (  # noqa: E402
     force_light_palette,
     qt_monospace_font,
     register_vispy_application_fonts,
+    vispy_points_at_reference_dpi,
+    vispy_points_for_logical_pixels,
 )
+
+
+class VispyTextScalingTests(unittest.TestCase):
+    def test_logical_pixel_size_is_independent_of_canvas_dpi(self):
+        logical_pixels = 16.0
+
+        for dpi in (72.0, 96.0, 144.0, 192.0, 220.0):
+            with self.subTest(dpi=dpi):
+                points = vispy_points_for_logical_pixels(
+                    logical_pixels, dpi
+                )
+                rendered_pixels = points / 72.0 * dpi
+                self.assertAlmostEqual(rendered_pixels, logical_pixels)
+
+    def test_reference_point_size_preserves_96_dpi_appearance(self):
+        for dpi in (96.0, 144.0, 192.0):
+            with self.subTest(dpi=dpi):
+                points = vispy_points_at_reference_dpi(8.0, dpi)
+                rendered_pixels = points / 72.0 * dpi
+                self.assertAlmostEqual(rendered_pixels, 8.0 / 72.0 * 96.0)
+
+    def test_invalid_canvas_dpi_uses_reference_dpi(self):
+        points = vispy_points_for_logical_pixels(16.0, 0.0)
+
+        self.assertEqual(points, 12.0)
 
 
 class ApplicationFontTests(unittest.TestCase):
@@ -61,6 +93,15 @@ class ApplicationFontTests(unittest.TestCase):
     def setUpClass(cls):
         cls._owns_app = QApplication.instance() is None
         cls.app = QApplication.instance() or QApplication([])
+        # These tests register the bundled Noto fonts and switch the application
+        # to them and to the Fusion light palette. A borrowed application gets
+        # its own look back: while Noto Sans stays registered, stylesheets that
+        # name it first make widgets in later test modules measure wider.
+        cls._saved_style = cls.app.style().name()
+        cls._saved_palette = QPalette(cls.app.palette())
+        cls._saved_font = QFont(cls.app.font())
+        cls._saved_font_ids = dict(Desktop_App._qt_font_ids)
+        cls._saved_app_ref = Desktop_App._qt_app_ref
 
     @classmethod
     def tearDownClass(cls):
@@ -70,6 +111,16 @@ class ApplicationFontTests(unittest.TestCase):
             cls.app.closeAllWindows()
             cls.app.quit()
             delete(cls.app)
+        else:
+            for path, font_id in Desktop_App._qt_font_ids.items():
+                if font_id >= 0 and cls._saved_font_ids.get(path) != font_id:
+                    QFontDatabase.removeApplicationFont(font_id)
+            Desktop_App._qt_font_ids.clear()
+            Desktop_App._qt_font_ids.update(cls._saved_font_ids)
+            Desktop_App._qt_app_ref = cls._saved_app_ref
+            cls.app.setStyle(cls._saved_style)
+            cls.app.setPalette(cls._saved_palette)
+            cls.app.setFont(cls._saved_font)
         cls.app = None
         gc.collect()
 

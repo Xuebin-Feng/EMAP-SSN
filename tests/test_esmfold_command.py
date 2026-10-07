@@ -102,9 +102,8 @@ class ESMFoldCommandTests(unittest.TestCase):
                 ) as get_device,
                 mock.patch.object(
                     esmfold_command.esmfold_backend,
-                    "STRUCTURES_DIRECTORY",
-                    structures_dir,
-                    create=True,
+                    "get_structures_directory",
+                    return_value=structures_dir,
                 ),
                 mock.patch.object(
                     esmfold_command,
@@ -152,9 +151,8 @@ class ESMFoldCommandTests(unittest.TestCase):
                 ) as get_device,
                 mock.patch.object(
                     esmfold_command.esmfold_backend,
-                    "STRUCTURES_DIRECTORY",
-                    structures_dir,
-                    create=True,
+                    "get_structures_directory",
+                    return_value=structures_dir,
                 ),
                 mock.patch.object(
                     esmfold_command,
@@ -170,6 +168,7 @@ class ESMFoldCommandTests(unittest.TestCase):
 
             try:
                 get_device.assert_not_called()
+                launch.assert_called_once()
                 command = launch.call_args.args[0]
                 self.assertEqual(
                     command[-5:],
@@ -181,7 +180,10 @@ class ESMFoldCommandTests(unittest.TestCase):
                         "http://127.0.0.1:49123/api/action",
                     ],
                 )
+                # The worker's terminal asks for Biohub credentials; the
+                # Viewer neither loads nor forwards them.
                 self.assertNotIn("ESM_API_TOKEN", " ".join(command))
+                self.assertFalse(hasattr(esmfold_command, "Biohub_API"))
                 open_esmfold_ui.assert_called_once_with(
                     viewer,
                     show_existing_dialog=False,
@@ -197,9 +199,8 @@ class ESMFoldCommandTests(unittest.TestCase):
                     with (
                         mock.patch.object(
                             esmfold_command.esmfold_backend,
-                            "STRUCTURES_DIRECTORY",
-                            structures_dir,
-                            create=True,
+                            "get_structures_directory",
+                            return_value=structures_dir,
                         ),
                         mock.patch.object(
                             esmfold_command,
@@ -257,38 +258,6 @@ class ESMFoldCommandTests(unittest.TestCase):
                 launch.assert_not_called()
                 self.assertIn("Usage: esmfold [large] [multi]", output.getvalue())
 
-    def test_large_command_defers_credentials_to_worker_terminal(self):
-        viewer = self.make_viewer(1)
-        with tempfile.TemporaryDirectory() as structures_dir:
-            with (
-                mock.patch.object(
-                    esmfold_command.esmfold_backend,
-                    "STRUCTURES_DIRECTORY",
-                    structures_dir,
-                    create=True,
-                ),
-                mock.patch.object(esmfold_command, "launch_in_terminal") as launch,
-                mock.patch.object(esmfold_command.esmfold_backend, "register"),
-                mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui"),
-            ):
-                esmfold_command.run(viewer, ["large"])
-
-            try:
-                launch.assert_called_once()
-                self.assertFalse(hasattr(esmfold_command, "Biohub_API"))
-                self.assertEqual(
-                    launch.call_args.args[0][-5:],
-                    [
-                        "--delete-input",
-                        "--mode",
-                        "large",
-                        "--action-url",
-                        "http://127.0.0.1:49123/api/action",
-                    ],
-                )
-            finally:
-                self.remove_worker_input(launch)
-
     def test_unavailable_web_server_prevents_worker_launch(self):
         viewer = self.make_viewer(1)
         viewer.get_web_url.side_effect = RuntimeError("bind failed")
@@ -296,9 +265,8 @@ class ESMFoldCommandTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     esmfold_command.esmfold_backend,
-                    "STRUCTURES_DIRECTORY",
-                    structures_dir,
-                    create=True,
+                    "get_structures_directory",
+                    return_value=structures_dir,
                 ),
                 mock.patch.object(esmfold_command, "launch_in_terminal") as launch,
                 mock.patch.object(esmfold_command.esmfold_backend, "register"),

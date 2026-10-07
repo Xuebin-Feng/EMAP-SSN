@@ -22,7 +22,6 @@ import json
 import math
 import os
 import re
-import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -181,22 +180,24 @@ def _read_open_network_metadata(network, source_label):
 
     raw_model_name = network.attrs["model_name"]
     if isinstance(raw_model_name, bytes):
-        try:
-            model_name = raw_model_name.decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise NetworkMetadataError(
-                f"Network file '{source_label}' has a 'model_name' attribute that "
-                "is not valid UTF-8."
-            ) from error
-    elif isinstance(raw_model_name, str):
-        model_name = raw_model_name
-    else:
+        # A fixed-length string attribute reads back as bytes. Decode it the way
+        # h5py decodes variable-length ones, invalid UTF-8 becoming lone
+        # surrogates, so the check below covers both.
+        raw_model_name = raw_model_name.decode("utf-8", errors="surrogateescape")
+    if not isinstance(raw_model_name, str):
         raise NetworkMetadataError(
             f"Network file '{source_label}' has a non-text 'model_name' attribute "
             f"of type {type(raw_model_name).__name__}."
         )
+    try:
+        raw_model_name.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise NetworkMetadataError(
+            f"Network file '{source_label}' has a 'model_name' attribute that "
+            "is not valid UTF-8."
+        ) from error
 
-    model_name = model_name.strip()
+    model_name = raw_model_name.strip()
     if not model_name:
         raise NetworkMetadataError(
             f"Network file '{source_label}' has a blank required root attribute "
@@ -224,11 +225,6 @@ def read_network_metadata(network_source):
 
     with h5py.File(network_path, "r") as network:
         return _read_open_network_metadata(network, source_label)
-
-
-def detect_network_type(network_source):
-    """Return ``blast`` or ``alignment`` using only ``model_name`` metadata."""
-    return read_network_metadata(network_source).network_type
 
 
 def validate_network_schema(network_source, expected_network_type=None):
@@ -433,27 +429,6 @@ def write_manifest_atomic(folder_path, manifest):
         if os.path.exists(partial_path):
             os.remove(partial_path)
     return final_path
-
-
-def copy_file_atomic(source_path, destination_path):
-    """Copy one file without ever exposing a partially written destination."""
-    source = os.path.abspath(os.path.normpath(source_path))
-    destination = os.path.abspath(os.path.normpath(destination_path))
-    if not os.path.isfile(source):
-        raise CacheManifestError(f"Backup source file does not exist: {source}")
-    if os.path.normcase(source) == os.path.normcase(destination):
-        raise CacheManifestError("Backup source and destination must be different files.")
-    if os.path.exists(destination):
-        raise CacheManifestError(f"Backup destination already exists: {destination}")
-
-    partial_path = destination + ".partial"
-    try:
-        shutil.copy2(source, partial_path)
-        os.replace(partial_path, destination)
-    finally:
-        if os.path.exists(partial_path):
-            os.remove(partial_path)
-    return destination
 
 
 def _is_within(root_path, candidate_path):

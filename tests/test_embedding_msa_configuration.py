@@ -1,3 +1,11 @@
+"""Embedding_MSA configuration: settings, paths, devices and the memmap cache.
+
+Covers how settings reach the module (headless and Tools-window runs), input
+and output path resolution, score/normalization validation, the device
+benchmark and score-matrix fallback, and where the bootstrap memmap cache is
+written.
+"""
+
 import gc
 import io
 import json
@@ -24,7 +32,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import Embedding_MSA
-from tests.test_embedding_msa_memory import (
+from tests.msa_fixtures import (
     EMBED_NAME,
     MODEL,
     NETWORK_NAME,
@@ -195,6 +203,30 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
                 Embedding_MSA.run_msa_builder()
 
         self.assertIn("alignment_length is unavailable for local", str(raised.exception.code))
+        open_file.assert_not_called()
+
+    def test_unknown_normalization_mode_is_rejected_before_opening_files(self):
+        # Direct CLI runs read hand-written settings unchecked. An unknown mode
+        # was caught only after the network had loaded, and never for a BLAST
+        # network, whose scores are not normalized.
+        for score in ("global", "local"):
+            with self.subTest(score=score), self.assertRaisesRegex(
+                Embedding_MSA.MSAConfigurationError, "Unknown NORMALIZATION_MODE 'longest'"
+            ):
+                Embedding_MSA.validate_score_normalization(score, "longest")
+        with mock.patch.multiple(
+            Embedding_MSA,
+            ALIGNMENT_SCORE="global",
+            NORMALIZATION_MODE="longest",
+            INPUT_EMBED=self.input_embed,
+            INPUT_NETWORK=self.input_network,
+        ), mock.patch.object(Embedding_MSA.mp, "set_start_method"), mock.patch.object(
+            Embedding_MSA.h5py, "File"
+        ) as open_file:
+            with self.assertRaises(SystemExit) as raised:
+                Embedding_MSA.run_msa_builder()
+
+        self.assertIn("Unknown NORMALIZATION_MODE 'longest'", str(raised.exception.code))
         open_file.assert_not_called()
 
     def test_noncanonical_embedding_name_uses_stem_fallback(self):

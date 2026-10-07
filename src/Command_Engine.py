@@ -458,11 +458,7 @@ def evaluate_string_mask(full_headers, target):
     """Evaluates a raw string, NCBI ID, or wildcard pattern into a boolean mask."""
     mask = np.zeros(len(full_headers), dtype=bool)
     t_lower = target.lower()
-    
-    # 0. NCBI Mode: e.g. E1_RA
-    ncbi_pattern = re.compile(r'\b([A-Z]{2}_\d+(?:\.\d+)?|[A-Z]{3}\d{5,7}(?:\.\d+)?)\b', re.IGNORECASE)
-    is_ncbi_format = bool(ncbi_pattern.search(target))
-    
+
     for i, full_header in enumerate(full_headers):
         fh_lower = full_header.lower()
         
@@ -697,13 +693,16 @@ def evaluate_metadata_mask(full_headers, metadata, target):
         elif op in ('==', '='):
             mask = prop_vals == val
         elif op == '!=':
-            mask = prop_vals != val
+            # Like every other comparison, != skips nodes with no value (NaN);
+            # !{Length=100} selects the complement, missing values included.
+            mask = (prop_vals != val) & ~np.isnan(prop_vals)
 
     # --- Text/String Evaluation ---
     else:
-        t_val = val_str.lower()
-        clean_t_val = t_val.strip('"\'') # Handle optional quoting
-        
+        # Optional quotes delimit the value for wildcard patterns too:
+        # {Organism="*coli"} is the pattern *coli, not "*coli" with its quotes.
+        t_val = val_str.lower().strip('"\'')
+
         if op in ('==', '='):
             if '*' in t_val or '?' in t_val:
                 for i, v in enumerate(prop_vals):
@@ -711,7 +710,7 @@ def evaluate_metadata_mask(full_headers, metadata, target):
                         mask[i] = True
             else:
                 for i, v in enumerate(prop_vals):
-                    if clean_t_val in str(v).lower():
+                    if t_val in str(v).lower():
                         mask[i] = True
         elif op == '!=':
             if '*' in t_val or '?' in t_val:
@@ -720,7 +719,7 @@ def evaluate_metadata_mask(full_headers, metadata, target):
                         mask[i] = True
             else:
                 for i, v in enumerate(prop_vals):
-                    if clean_t_val not in str(v).lower():
+                    if t_val not in str(v).lower():
                         mask[i] = True
                         
     return mask
@@ -1139,17 +1138,22 @@ def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
 
 
 def execute_reset(viewer, targets):
-    """Executes reset on the specified targets."""
-    lower_parts = [p.lower() for p in targets]
+    """Executes reset on the specified targets.
+
+    Raises ValueError, before any undo state is saved or anything is reset,
+    when no target is given or any target is unknown.
+    """
+    from commands import reset as reset_command
+    reset_command.check_targets(targets)
 
     targets_found = []
     needs_update = False
-    
+
     viewer._save_state()
-    
-    for p in lower_parts:
-        base_p = p[:-1] if p.endswith('s') else p
-        
+
+    for p in targets:
+        base_p = reset_command.target_name(p)
+
         if base_p == "color":
             if hasattr(viewer, 'current_colors'):
                 import matplotlib.colors as mcolors
@@ -1200,7 +1204,6 @@ def execute_reset(viewer, targets):
             targets_found.append("network")
 
         elif base_p in ["order", "layer"]:
-            from commands import reset as reset_command
             reset_command.reset_node_render_order(viewer)
             needs_update = True
             if "node order" not in targets_found:
@@ -1211,11 +1214,8 @@ def execute_reset(viewer, targets):
         if "hidden" in targets_found or "network" in targets_found:
             viewer.update_edges()
 
-    if targets_found:
-        msg = f"Reset successful: {', '.join(targets_found)}."
-    else:
-        msg = "Usage: reset [colors | sizes | shapes | clusters | groups | hide | network | order | layer]"
-    
+    msg = f"Reset successful: {', '.join(targets_found)}."
+
     viewer.console_text.text = msg
     print(f"{msg}")
     if hasattr(viewer, 'update_console_background'):

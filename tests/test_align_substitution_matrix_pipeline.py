@@ -1,9 +1,14 @@
+"""Tests of Align_Substitution_Matrix (BLAST all-vs-all): FASTA sanitization,
+workspace derivation, guarding and resume, BLAST workers, result-to-batch
+parsing and validation, streaming compilation and the mocked end-to-end run.
+"""
+import glob
+import io
 import os
 import pathlib
 import sys
 import tempfile
 import unittest
-import io
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
@@ -19,12 +24,9 @@ if str(UTILITIES_DIR) not in sys.path:
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-# Import with no settings file, as test_align_similarity_matrix_pipeline does:
-# the project-root tools_settings.json holds a developer's own selections.
-with mock.patch.dict(os.environ, {
-    "SSN_TOOL_SETTINGS_SCRIPT": "Align_Substitution_Matrix.py",
-    "SSN_TOOL_SETTINGS_FILE": str(PROJECT_ROOT / "tests" / "nonexistent-settings.json"),
-}), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+# The tests package points tool imports at a missing settings file, so the
+# project-root tools_settings.json (a developer's own selections) is not read.
+with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Substitution_Matrix as substitution_matrix
 
 
@@ -182,6 +184,45 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                     batch_size=1,
                 )
             self.assertTrue(resumed["reused"])
+
+    def test_result_parser_scores_evalues_and_counts_rejected_lines(self):
+        lines = [
+            self._blast_line(0, 1, "0"),  # E-value 0 scores 300 (the 1e-300 floor)
+            self._blast_line(2, 2, "1e-5"),  # self-hit: valid, but no edge
+            self._blast_line(3, 1, "1e-4"),  # stored as (1, 3)
+            "# BLAST comment\n",
+            "\n",
+            "0 1 100.0 10\n",  # too few columns
+            self._blast_line("x", 1, "1e-5"),  # non-integer index
+            self._blast_line(0, 4, "1e-5"),  # index beyond the four sequences
+            self._blast_line(-1, 2, "1e-5"),  # negative index
+            self._blast_line(1, 2, "nan"),  # non-finite E-values
+            self._blast_line(1, 2, "inf"),
+            self._blast_line(1, 2, "-1e-5"),  # negative E-value
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            batch_dir = os.path.join(temp_dir, "batches")
+            os.makedirs(batch_dir)
+            result_path = os.path.join(temp_dir, "result.txt")
+            with open(result_path, "w", encoding="utf-8") as result:
+                result.writelines(lines)
+
+            with mock.patch.object(substitution_matrix, "BATCH_DIR", batch_dir):
+                record = substitution_matrix.parse_result_to_batch(
+                    result_path,
+                    "query-checksum",
+                    self._metadata(),
+                    batch_size=2,
+                )
+
+            self.assertEqual(
+                (record["edges"], record["valid_lines"], record["mismatches"]),
+                (2, 3, 7),
+            )
+            with h5py.File(record["path"], "r") as batch:
+                np.testing.assert_array_equal(batch["i"][:], [0, 1])
+                np.testing.assert_array_equal(batch["j"][:], [1, 3])
+                np.testing.assert_allclose(batch["score"][:], [300.0, 4.0], rtol=1e-6)
 
     def test_reciprocal_hits_are_canonicalized_and_keep_the_best_score(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -457,6 +498,57 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 self.assertEqual(len(backups), 1)
                 self.assertTrue((backups[0] / "marker.txt").exists())
 
+    def test_workspace_operations_refuse_paths_outside_network_directory(self):
+        # cleanup_workspace removes SAFE_TEMP_DIR with rmtree, so the guard must
+        # refuse the network folder itself and every folder outside it.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_dir = os.path.join(temp_dir, "networks")
+            cases = (
+                ("network folder", network_dir),
+                ("parent folder", temp_dir),
+                ("sibling sharing the name prefix", network_dir + "_temp"),
+                ("path leaving through ..", os.path.join(network_dir, "..", "elsewhere")),
+            )
+            operations = (
+                ("cleanup", substitution_matrix.cleanup_workspace),
+                ("quarantine", lambda: substitution_matrix.quarantine_workspace("test")),
+                ("initialize", lambda: substitution_matrix.check_and_initialize_workspace(
+                    self._metadata()
+                )),
+            )
+            markers = []
+            for label, workspace in cases:
+                os.makedirs(workspace, exist_ok=True)
+                marker = os.path.join(workspace, f"marker_{len(markers)}.txt")
+                pathlib.Path(marker).write_text(label, encoding="utf-8")
+                markers.append(marker)
+                for name, operation in operations:
+                    with self.subTest(workspace=label, operation=name), mock.patch.multiple(
+                        substitution_matrix,
+                        NETWORK_DIR=network_dir,
+                        SAFE_TEMP_DIR=workspace,
+                    ), redirect_stdout(io.StringIO()):
+                        with self.assertRaisesRegex(
+                            RuntimeError, "Refusing workspace operation outside NETWORK_DIR"
+                        ):
+                            operation()
+
+            for marker in markers:
+                self.assertTrue(os.path.exists(marker), marker)
+            self.assertEqual(
+                glob.glob(os.path.join(temp_dir, "**", "*_BackUp*"), recursive=True), []
+            )
+
+            # Control: a workspace inside NETWORK_DIR is removed, the folder kept.
+            inside = os.path.join(network_dir, "set_[BLAST]_EValue_temp")
+            os.makedirs(inside)
+            with mock.patch.multiple(
+                substitution_matrix, NETWORK_DIR=network_dir, SAFE_TEMP_DIR=inside
+            ):
+                substitution_matrix.cleanup_workspace()
+            self.assertFalse(os.path.exists(inside))
+            self.assertTrue(os.path.exists(markers[0]))
+
     def test_failed_compilation_retains_workspace_and_explicit_cleanup_removes_it(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             network_dir = os.path.join(temp_dir, "networks")
@@ -565,8 +657,14 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
             ), mock.patch.object(
                 substitution_matrix,
                 "configure_runtime_paths",
-            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            ), mock.patch.object(
+                # On Linux this would switch the whole test process to spawn.
+                substitution_matrix.multiprocessing,
+                "set_start_method",
+            ) as set_start_method, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 substitution_matrix.run_workflow()
+
+            set_start_method.assert_called_once_with("spawn")
 
             self.assertTrue(os.path.exists(output_path))
             self.assertFalse(os.path.exists(workspace))
@@ -576,6 +674,35 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 np.testing.assert_allclose(network["score"][:], [25.0])
                 self.assertEqual(network.attrs["model_name"], "BLAST")
                 self.assertEqual(network.attrs["matrix"], "BLOSUM62")
+
+    def test_main_exits_nonzero_when_no_fasta_is_selected(self):
+        # The MCP job runner reports exit code 0 as a successful job, so a run
+        # without a selected FASTA reached agents as a success that wrote nothing.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stdout = io.StringIO()
+            with mock.patch.multiple(
+                substitution_matrix,
+                INPUT_FASTA=None,
+                FASTA_DIR=os.path.join(temp_dir, "fastas"),
+                NETWORK_DIR=os.path.join(temp_dir, "networks"),
+            ), mock.patch.object(
+                # main([]) reads the project-root tools_settings.json (a
+                # developer's own selections); the import hook doesn't cover it.
+                substitution_matrix,
+                "load_tool_settings",
+            ), mock.patch.object(
+                # On Linux this would switch the whole test process to spawn.
+                substitution_matrix.multiprocessing,
+                "set_start_method",
+            ), redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                exit_code = substitution_matrix.main([])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn(
+                "❌ Error: No input FASTA file has been selected.",
+                stdout.getvalue(),
+            )
+            self.assertEqual(os.listdir(temp_dir), [])
 
 
 if __name__ == "__main__":

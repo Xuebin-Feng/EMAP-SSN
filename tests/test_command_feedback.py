@@ -1,4 +1,4 @@
-"""Agent-facing help and outcome summaries through the real command portal."""
+"""Outcome summaries, help and artifacts that Viewer commands report through the real command portal."""
 import io
 import unittest
 from contextlib import redirect_stdout
@@ -7,69 +7,22 @@ from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
-from tests import test_viewer_command_portal as fixtures
-from desktop.Viewer_Inspection import command_catalog, _command_syntax
+from tests.viewer_fixtures import PortalFixture
+from desktop.Viewer_Inspection import command_catalog
 from Viewer_Command_Portal import ExecutionContext
 from Viewer_Command_Portal import CURRENT
 
 
-class CatalogTests(unittest.TestCase):
-    def test_usage_sections_do_not_collect_examples_or_prose(self):
-        text = '''Usage: reset colors
-                  reset sizes
-                  reset colors
-
-Description:
-  reset is reversible
-Examples:
-  reset shapes
-Usage:
-reset hide
-'''
-        self.assertEqual(_command_syntax(text, 'reset'),
-                         ['reset colors', 'reset sizes', 'reset hide'])
-        self.assertEqual(_command_syntax('No usage available.', 'reset'), [])
-        self.assertEqual(_command_syntax('Usage:\n  <target>', 'reset'), [])
-
-    def test_catalog_is_read_only_and_preserves_detailed_help(self):
-        with mock.patch('Command_Engine.execute_command', side_effect=AssertionError('executed')):
-            general = command_catalog()
-            detailed = command_catalog('reset')['commands'][0]
-        self.assertEqual(len(general['commands']), 24)
-        self.assertTrue(all(c['help'] is None and isinstance(c['syntax'], list)
-                            for c in general['commands']))
-        self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['syntax'])
-        for target in ('colors', 'sizes', 'shapes', 'clusters', 'groups', 'hide', 'network', 'order, layer'):
-            self.assertIn(target, detailed['help'])
-        self.assertIn('arguments={"command":"reset"}', general['note'])
-        with self.assertRaisesRegex(ValueError, 'Unknown command'):
-            command_catalog('missing')
-
-    def test_help_built_with_an_f_string_is_read_whole(self):
-        """meta's help is an f-string; the catalog used to stop at its first placeholder."""
-        meta = command_catalog('meta')['commands'][0]
-        for form in ('meta download <filename>', 'meta show/display <property_name>',
-                     'meta delete/remove/clear <property_name> [property_name ...]'):
-            self.assertIn(form, meta['syntax'])
-        self.assertIn('Deleting every column with "all" is not supported.', meta['help'])
-        # A placeholder reads as <name>: braces would mean a metadata predicate.
-        self.assertIn('the metadata directory: <meta_dir>', meta['help'])
-        # f-strings in run() are runtime message templates, not syntax.
-        self.assertNotIn('meta <first_arg> <property_name> [property_name ...]', meta['syntax'])
-
-    def test_an_alternative_usage_form_is_catalogued(self):
-        self.assertEqual(
-            _command_syntax('Usage: label [A]\n   or: label [B]\nNotes:\n  or: label [C]', 'label'),
-            ['label [A]', 'label [B]'],
-        )
-        self.assertIn('label [TARGET] [key value] [<key 2> <value 2> ...] [NAME]',
-                      command_catalog('label')['commands'][0]['syntax'])
-
-
-class FeedbackTests(unittest.TestCase):
-    setUpClass = classmethod(fixtures.PortalTests.setUpClass.__func__)
-    setUp = fixtures.PortalTests.setUp
-    finish = fixtures.PortalTests.finish
+class FeedbackTests(PortalFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        import EMAPSSN_Config as cfg
+        # Some commands create their output folders before anything else, even
+        # for `help`; the defaults are relative to the working directory.
+        for name, folder in (('METADATA_DIR', 'metadata'), ('ANALYSIS_RESULT_DIR', 'results')):
+            patcher = mock.patch.object(cfg, name, str(Path(self.directory.name) / folder))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def execute(self, command, expected='succeeded'):
         with redirect_stdout(io.StringIO()):
@@ -84,7 +37,7 @@ class FeedbackTests(unittest.TestCase):
 
     def test_every_catalogued_command_reports_help_success(self):
         self.viewer.alignment = SimpleNamespace(aln=[object()], has_reference=True)
-        with mock.patch('commands.agent.register'), mock.patch('commands.meta.register'):
+        with mock.patch('web_ui.agent_backend.register'), mock.patch('web_ui.meta_backend.register'):
             for entry in command_catalog()['commands']:
                 with self.subTest(command=entry['command']):
                     record = self.execute(entry['command'] + ' help')
@@ -112,7 +65,7 @@ class FeedbackTests(unittest.TestCase):
             ('group "absent" example', 'No nodes matched'),
             ('group list', 'Listed 1'),
             ('cluster list', 'Listed 2'),
-            ('subcluster clear', 'Cleared all subcluster groups'),
+            ('subcluster clear', 'No subcluster groups to clear'),
         ]:
             with self.subTest(command=command):
                 record = self.execute(command)
@@ -137,13 +90,17 @@ class FeedbackTests(unittest.TestCase):
     def test_interfaces_and_registration(self):
         self.viewer.open_agent_ui = mock.Mock()
         self.viewer.open_metadata_ui = mock.Mock()
-        with mock.patch('commands.agent.register'), mock.patch('commands.meta.register'), \
-                mock.patch('commands.esmfold.esmfold_backend.register'):
+        with mock.patch('web_ui.agent_backend.register') as agent_register, \
+                mock.patch('web_ui.meta_backend.register') as meta_register, \
+                mock.patch('web_ui.esmfold_backend.register') as esmfold_register:
             self.assertIn('Opened the Agent interface', self.success_text(self.execute('agent')))
             self.assertIn('Opened the metadata interface', self.success_text(self.execute('meta')))
             self.assertIn('Registered', self.success_text(self.execute('agent --register-only')))
             self.assertIn('Registered', self.success_text(self.execute('meta --register-only')))
             self.assertIn('Registered', self.success_text(self.execute('esmfold --register-only')))
+        # The stand-ins, not the real registrations, were reached.
+        self.assertEqual((agent_register.call_count, meta_register.call_count, esmfold_register.call_count),
+                         (2, 2, 1))
 
     def test_metadata_file_summary_and_artifact(self):
         self.viewer.metadata = {'Example': {'type': 'number', 'values': np.arange(3)}}
@@ -183,7 +140,7 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(len(record['messages'][-1]['text']), 2048)
 
     def test_label_and_logo_submission_remains_pending_until_job_completion(self):
-        from tests.test_incomplete_alignment_commands import load_manager, write_fasta
+        from tests.sparse_alignment import load_manager, write_fasta
         import EMAPSSN_Config as cfg
         import Cache_Manifest as cache_manifest
         msa = str(Path(self.directory.name) / 'alignment.fasta')

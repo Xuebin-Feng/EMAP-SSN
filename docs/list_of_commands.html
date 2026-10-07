@@ -836,7 +836,7 @@
                     <div class="syntax-content">zoom &lt;width&gt;</div>
                     <button class="copy-btn" onclick="copyText('zoom', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio.</p>
+                <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio. The width must be a positive, finite number.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>zoom 500</span><button class="copy-btn" onclick="copyText('zoom 500', this)">Copy</button></li>
@@ -889,6 +889,7 @@
 <li><code>network / networks</code>: Snaps all node positions back to the original starting layout coordinates (or the state loaded from the last .h5 save).</li>
 <li><code>order / orders / layer / layers</code>: Restores the persistent node rendering order to internal node-index order. Active selected or clicked nodes and their neighbors remain temporarily elevated until focus is cleared.</li>
                 </ul>
+                <p><strong>Validation:</strong> An unrecognized target aborts the whole command: nothing is reset, and no undo step is recorded.</p>
                 <p><strong>Shortcuts:</strong> <code>color reset</code>, <code>group reset</code>, <code>hide reset</code>, and <code>label reset</code> are equivalent to <code>reset colors</code>, <code>reset groups</code>, <code>reset hidden</code>, and <code>reset clusters</code>. Note that <code>label reset</code> therefore clears every topology cluster rather than running a conservation report.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -1291,7 +1292,7 @@
                 <ul>
                     <li><strong>Viewing Groups:</strong> Type <code>group list</code> to print a statistical table showing active custom groups, node counts, and network percentages.</li>
                     <li><strong>Inspecting Nodes:</strong> Left-clicking a node displays its custom groups on the second line of the tooltip header.</li>
-                    <li><strong>Deleting Groups:</strong> Run <code>group remove &lt;Group1&gt; [Group2]</code> (or <code>group delete</code>) to delete custom groups from the network.</li>
+                    <li><strong>Deleting Groups:</strong> Run <code>group remove &lt;Group1&gt; [Group2]</code> (or <code>group delete</code>) to delete custom groups from the network. Every named group must exist; if any is missing, the command fails and nothing is removed.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>

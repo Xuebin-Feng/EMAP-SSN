@@ -29,6 +29,14 @@ NORMALIZATIONS = (
 PAIR_COLUMNS = {"i", "j", "score", "g_score", "g_len", "l_score", "l_len"}
 
 
+def _every_header(network):
+    """Every node's header: a FASTA selection that keeps the whole network."""
+    return [
+        header.decode("utf-8") if isinstance(header, bytes) else header
+        for header in network["headers"][:]
+    ]
+
+
 def _settings(**overrides):
     values = {
         "NODE_FASTA_FILE": "",
@@ -118,7 +126,7 @@ class ScoreEquivalenceTests(unittest.TestCase):
                     for subset in (False, True):
                         settings = _settings(ALIGNMENT_SCORE=score, NORM_MODE=normalization)
                         expected = _former_scores(columns, settings)
-                        selected = None
+                        selected = [f"N{index}" for index in range(node_count)]
                         if subset:
                             selected = [f"N{index}" for index in kept_nodes]
                             expected = expected[in_subset]
@@ -144,14 +152,18 @@ class ScoreEquivalenceTests(unittest.TestCase):
                     network_path, "r"
                 ) as network, redirect_stdout(io.StringIO()), warnings.catch_warnings():
                     warnings.simplefilter("error")
-                    prepare_network(network, settings=settings, selected_fasta_headers=None)
+                    prepare_network(
+                        network, settings=settings, selected_fasta_headers=_every_header(network)
+                    )
 
 
 class ColumnReadTests(unittest.TestCase):
     def assert_pair_columns_read(self, network_path, settings, expected):
         with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
             recorder = _ReadRecorder(network)
-            prepare_network(recorder, settings=settings, selected_fasta_headers=None)
+            prepare_network(
+                recorder, settings=settings, selected_fasta_headers=_every_header(network)
+            )
         self.assertEqual(recorder.indexed & PAIR_COLUMNS, expected)
 
     def test_alignment_networks_skip_the_unused_score_and_length_columns(self):
@@ -209,9 +221,12 @@ class PeakMemoryTests(unittest.TestCase):
                 )
                 with self.subTest(score=score, normalization=normalization):
                     with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
+                        every_header = _every_header(network)
                         tracemalloc.start()
                         try:
-                            prepare_network(network, settings=settings, selected_fasta_headers=None)
+                            prepare_network(
+                                network, settings=settings, selected_fasta_headers=every_header
+                            )
                             _, peak = tracemalloc.get_traced_memory()
                         finally:
                             tracemalloc.stop()
@@ -310,7 +325,7 @@ class NetworkPreparationTests(unittest.TestCase):
                 raw = rng.integers(0, 7, len(pairs)).astype(np.float32)
             if trial % 3 == 0:
                 raw[rng.integers(0, len(raw), 25)] = np.nan
-            selected = None if trial % 2 else [f"N{index}" for index in range(0, node_count, 3)]
+            selected = [f"N{index}" for index in range(0, node_count, 1 if trial % 2 else 3)]
             percent = float(rng.choice([0.5, 5.0, 37.5, 100.0]))
             with self.subTest(trial=trial), tempfile.TemporaryDirectory() as temp_dir:
                 network_path = pathlib.Path(temp_dir) / "alignment.h5"
@@ -327,7 +342,7 @@ class NetworkPreparationTests(unittest.TestCase):
                 settings = _preparation_settings(TOP_EDGE_PERCENT=percent)
                 with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
                     prepare_network(network, settings=settings, selected_fasta_headers=selected)
-                kept = np.arange(node_count) if selected is None else np.arange(0, node_count, 3)
+                kept = np.arange(0, node_count, 1 if trial % 2 else 3)
                 in_subset = np.isin(pairs[:, 0], kept) & np.isin(pairs[:, 1], kept)
                 normalized = raw[in_subset] / np.float32(2)
                 edge_count = int(len(kept) * (len(kept) - 1) / 2.0 * (percent / 100.0))
@@ -356,7 +371,9 @@ class NetworkPreparationTests(unittest.TestCase):
             settings = _preparation_settings(SIMILARITY_THRESHOLD=3.0)
             with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
                 with self.assertRaises(IndexError):
-                    prepare_network(network, settings=settings, selected_fasta_headers=None)
+                    prepare_network(
+                        network, settings=settings, selected_fasta_headers=_every_header(network)
+                    )
 
     def test_empty_blast_network_returns_empty_connectivity(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -373,7 +390,7 @@ class NetworkPreparationTests(unittest.TestCase):
                 headers, edges, scores = prepare_network(
                     network,
                     settings=settings,
-                    selected_fasta_headers=None,
+                    selected_fasta_headers=_every_header(network),
                 )
 
             self.assertEqual(headers, ["A", "B"])

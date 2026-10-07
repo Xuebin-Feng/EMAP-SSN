@@ -1,3 +1,7 @@
+"""Shared terminal launcher (utilities.Terminal_Launcher): terminal discovery,
+per-platform argv construction, hold modes, launch errors, and the rule that
+Python callers delegate to it instead of naming terminals themselves."""
+
 from __future__ import annotations
 
 import os
@@ -13,125 +17,6 @@ SRC_DIR = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from utilities import Terminal_Launcher as launcher  # noqa: E402
-from desktop import Desktop_App as identity  # noqa: E402
-from desktop import Desktop_App as application_fonts  # noqa: E402
-from desktop import Desktop_Launcher_Monitor as desktop_monitor  # noqa: E402
-
-
-class FakeApplication:
-    def __init__(self):
-        self.application_name = None
-        self.desktop_file_name = None
-
-    def setApplicationName(self, name):
-        self.application_name = name
-
-    def setDesktopFileName(self, name):
-        self.desktop_file_name = name
-
-
-class ApplicationIdentityTests(unittest.TestCase):
-    def test_canonical_product_and_component_names(self):
-        self.assertEqual(identity.PRODUCT_NAME, "EMAP-SSN")
-        self.assertEqual(identity.APPLICATION_VERSION, "0.3.0")
-        self.assertEqual(
-            identity.PRODUCT_LONG_NAME,
-            "EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein "
-            "Sequence Similarity Network Platform",
-        )
-        self.assertEqual(identity.CONFIG_DISPLAY_NAME, "EMAP-SSN Configuration")
-        self.assertEqual(identity.VIEWER_DISPLAY_NAME, "EMAP-SSN Viewer")
-        self.assertEqual(identity.TOOLS_DISPLAY_NAME, "EMAP-SSN Tools")
-
-    def test_linux_identity_matches_desktop_file_basename(self):
-        application = FakeApplication()
-
-        with mock.patch.object(identity.sys, "platform", "linux"):
-            identity.configure_linux_qt_desktop_identity(
-                application, identity.VIEWER_DESKTOP_FILE_NAME
-            )
-
-        self.assertEqual(application.application_name, "emapssn")
-        self.assertEqual(application.desktop_file_name, "emapssn")
-
-    def test_non_linux_platform_is_unchanged(self):
-        application = FakeApplication()
-
-        with mock.patch.object(identity.sys, "platform", "darwin"):
-            identity.configure_linux_qt_desktop_identity(
-                application, identity.VIEWER_DESKTOP_FILE_NAME
-            )
-
-        self.assertIsNone(application.application_name)
-        self.assertIsNone(application.desktop_file_name)
-
-    def test_installer_generates_matching_wm_classes(self):
-        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
-
-        self.assertIn(
-            f"StartupWMClass={identity.VIEWER_DESKTOP_FILE_NAME}\n", installer
-        )
-        self.assertIn(
-            f"StartupWMClass={identity.TOOLS_DESKTOP_FILE_NAME}\n", installer
-        )
-
-
-class DesktopPlatformPolicyTests(unittest.TestCase):
-    def test_wayland_desktop_launch_prefers_xcb(self):
-        environment = {"XDG_SESSION_TYPE": "wayland"}
-
-        result = desktop_monitor._apply_linux_qt_platform_policy(
-            environment, platform_name="linux"
-        )
-
-        self.assertIs(result, environment)
-        self.assertEqual(result["QT_QPA_PLATFORM"], "xcb")
-
-    def test_explicit_qt_platform_override_is_preserved(self):
-        environment = {
-            "XDG_SESSION_TYPE": "wayland",
-            "QT_QPA_PLATFORM": "wayland",
-        }
-
-        desktop_monitor._apply_linux_qt_platform_policy(
-            environment, platform_name="linux"
-        )
-
-        self.assertEqual(environment["QT_QPA_PLATFORM"], "wayland")
-
-    def test_non_wayland_session_is_unchanged(self):
-        environment = {"XDG_SESSION_TYPE": "x11"}
-
-        desktop_monitor._apply_linux_qt_platform_policy(
-            environment, platform_name="linux"
-        )
-
-        self.assertNotIn("QT_QPA_PLATFORM", environment)
-
-
-class VispyTextScalingTests(unittest.TestCase):
-    def test_logical_pixel_size_is_independent_of_canvas_dpi(self):
-        logical_pixels = 16.0
-
-        for dpi in (72.0, 96.0, 144.0, 192.0, 220.0):
-            with self.subTest(dpi=dpi):
-                points = application_fonts.vispy_points_for_logical_pixels(
-                    logical_pixels, dpi
-                )
-                rendered_pixels = points / 72.0 * dpi
-                self.assertAlmostEqual(rendered_pixels, logical_pixels)
-
-    def test_reference_point_size_preserves_96_dpi_appearance(self):
-        for dpi in (96.0, 144.0, 192.0):
-            with self.subTest(dpi=dpi):
-                points = application_fonts.vispy_points_at_reference_dpi(8.0, dpi)
-                rendered_pixels = points / 72.0 * dpi
-                self.assertAlmostEqual(rendered_pixels, 8.0 / 72.0 * 96.0)
-
-    def test_invalid_canvas_dpi_uses_reference_dpi(self):
-        points = application_fonts.vispy_points_for_logical_pixels(16.0, 0.0)
-
-        self.assertEqual(points, 12.0)
 
 
 class TerminalRegistryTests(unittest.TestCase):
@@ -258,13 +143,6 @@ class TerminalPolicyTests(unittest.TestCase):
         self.assertIn("project path", script)
         self.assertIn("echo unsafe", script)
 
-    def test_macos_startup_terminal_checks_for_exit_every_fifty_milliseconds(self):
-        source = (SRC_DIR / "bin" / "EMAPSSN_Terminal_Launcher.sh").read_text(
-            encoding="utf-8"
-        )
-        busy_loop = source.split("repeat while busy of launchTab", 1)[1]
-        self.assertIn("delay 0.05", busy_loop.split("end repeat", 1)[0])
-
     def test_launch_missing_terminal_does_not_spawn_background_process(self):
         with mock.patch.object(launcher.shutil, "which", return_value=None), mock.patch.object(
             launcher.subprocess, "Popen"
@@ -327,16 +205,21 @@ class TerminalPolicyTests(unittest.TestCase):
 
 class CallerIntegrationTests(unittest.TestCase):
     def test_python_callers_use_shared_helper_without_terminal_lists(self):
-        callers = (
-            SRC_DIR / "EMAPSSN_Tools.py",
-            SRC_DIR / "EMAPSSN_Config.py",
-            SRC_DIR / "commands" / "esmfold.py",
-            SRC_DIR / "desktop" / "Desktop_Launcher_Monitor.py",
+        # Every module that opens a terminal is found by scanning src, so a new
+        # caller cannot be missed the way a hand-written list missed one.
+        helper = SRC_DIR / "utilities" / "Terminal_Launcher.py"
+        callers = sorted(
+            path
+            for path in SRC_DIR.rglob("*.py")
+            if path != helper
+            and "launch_in_terminal" in path.read_text(encoding="utf-8")
         )
+        self.assertTrue(callers, "no launch_in_terminal callers found under src")
         for path in callers:
-            with self.subTest(path=path.name):
+            with self.subTest(path=path.relative_to(SRC_DIR).as_posix()):
                 source = path.read_text(encoding="utf-8")
-                self.assertIn("launch_in_terminal", source)
+                self.assertIn("Terminal_Launcher import", source)
+                self.assertNotIn("def launch_in_terminal", source)
                 self.assertNotIn("x-terminal-emulator", source)
                 self.assertNotIn("gnome-terminal", source)
                 self.assertNotIn('f"bash -c', source)

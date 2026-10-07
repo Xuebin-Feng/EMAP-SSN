@@ -21,6 +21,8 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from resources.esmfold import esmfold_worker
+from web_ui import esmfold_backend
+from web_ui.Plugin_Manager import WebPluginRegistry
 
 
 class FakeProtein:
@@ -379,6 +381,38 @@ class ESMFoldWorkerTests(unittest.TestCase):
         self.assertEqual(len(attempts), 3)
 
 
+class ViewerNotificationTests(unittest.TestCase):
+    """What notify_server posts is what the Viewer's ESMFold backend acts on."""
+
+    def posted_payload(self, node_id, pdb_filename):
+        with mock.patch.object(esmfold_worker.urllib.request, "urlopen") as urlopen:
+            esmfold_worker.notify_server(node_id, pdb_filename, "http://127.0.0.1:49123/api/action")
+        return json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+
+    def dispatch(self, payload):
+        """Deliver ``payload`` as MainViewer.handle_web_action does; return the broadcasts."""
+        viewer = types.SimpleNamespace(broadcast_event=mock.Mock())
+        registry = WebPluginRegistry(viewer)
+        with tempfile.TemporaryDirectory() as structures_dir, mock.patch.object(
+            esmfold_backend, "get_structures_directory", return_value=structures_dir
+        ):
+            esmfold_backend.register_backend(registry, viewer)
+        with redirect_stdout(io.StringIO()):
+            registry.actions[payload["action"]](payload)
+        return [call.args[0] for call in viewer.broadcast_event.call_args_list]
+
+    def test_folded_structure_reaches_the_page_as_a_structure_url(self):
+        self.assertEqual(
+            self.dispatch(self.posted_payload("node/1", "node_1.pdb")),
+            [{"type": "esmfold_pdb", "node_id": "node/1", "pdb_url": "/structures/node_1.pdb"}],
+        )
+
+    def test_notification_without_a_filename_is_not_broadcast(self):
+        payload = self.posted_payload("node/1", "node_1.pdb")
+        del payload["pdb_filename"]
+        self.assertEqual(self.dispatch(payload), [])
+
+
 class LocalModelDataRootTests(unittest.TestCase):
     """Only ESM3 is redirected; every other model keeps esm's own repositories."""
 
@@ -402,10 +436,15 @@ class LocalModelDataRootTests(unittest.TestCase):
         esm3_class = mock.Mock()
         esm3_class.from_pretrained.return_value.to.return_value = loaded
         modules["esm.models.esm3"].ESM3 = esm3_class
+        # A stub rather than mock.patch("huggingface_hub.snapshot_download"):
+        # resolving that target imports the real package (httpx, tqdm, ...)
+        # inside the patched sys.modules, which then drops those modules and
+        # leaves orphan copies behind. A stub also can never download weights.
+        download = mock.Mock(return_value="cached-esm3")
+        modules["huggingface_hub"] = types.ModuleType("huggingface_hub")
+        modules["huggingface_hub"].snapshot_download = download
 
-        with mock.patch.dict(sys.modules, modules), mock.patch(
-            "huggingface_hub.snapshot_download", return_value="cached-esm3"
-        ) as download:
+        with mock.patch.dict(sys.modules, modules):
             self.assertIs(esmfold_worker._load_local_model("cpu"), loaded)
             data_root = modules["esm.pretrained"].data_root
             self.assertEqual(data_root("esm3"), Path("cached-esm3"))

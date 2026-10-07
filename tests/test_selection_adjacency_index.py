@@ -1,3 +1,5 @@
+"""MainViewer's neighbour lookup for the selection (adjacency index) and when
+update_edges re-uploads edge geometry."""
 import os
 import sys
 import unittest
@@ -5,8 +7,6 @@ from unittest import mock
 
 import numpy as np
 
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
@@ -16,6 +16,8 @@ if SRC_DIR not in sys.path:
 import EMAPSSN_Config as cfg
 import EMAPSSN_Viewer
 from EMAPSSN_Viewer import MainViewer
+from EMAPSSN_Viewer import _contiguous_line_positions  # noqa: E402
+from EMAPSSN_Viewer import _edge_segment_positions  # noqa: E402
 
 
 def scan_every_edge_for_neighbors(edges, selected, node_count):
@@ -142,6 +144,13 @@ class AdjacencyIndexTests(unittest.TestCase):
 
 class EdgeGeometryUploadTests(unittest.TestCase):
     def make_viewer(self):
+        # update_edges draws only the edges touching the selection in UMAP mode,
+        # and drops them while multi-dragging in low-resource mode; these tests
+        # expect neither filter, whatever the configuration was left at.
+        for name in ("UMAP_MODE", "LOW_RESOURCE_MODE"):
+            patcher = mock.patch.object(cfg, name, False)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         viewer = MainViewer.__new__(MainViewer)
         viewer.n_nodes = 4
         viewer.edges = np.array([[0, 1], [1, 2], [2, 3]], dtype=np.int32)
@@ -204,6 +213,33 @@ class EdgeGeometryUploadTests(unittest.TestCase):
             viewer.selected_indices = [2]
             viewer.update_edges()
         self.assertGreater(viewer.line_visual.upload_count, first)
+
+    def test_line_positions_are_finite_contiguous_float32(self):
+        source = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)[:, ::-1]
+        result = _contiguous_line_positions(source)
+
+        self.assertEqual(result.dtype, np.float32)
+        self.assertTrue(result.flags.c_contiguous)
+        np.testing.assert_array_equal(result, [[2.0, 1.0], [4.0, 3.0]])
+
+        with self.assertRaisesRegex(ValueError, "NaN or infinite"):
+            _contiguous_line_positions([[0.0, float("nan")]])
+
+    def test_edge_segments_match_per_edge_endpoint_order(self):
+        rng = np.random.default_rng(7)
+        for columns in (2, 3):
+            positions = rng.normal(size=(50, columns)).astype(np.float32)
+            edges = rng.integers(0, 50, size=(200, 2)).astype(np.int32)
+            reference = []
+            for source, target in edges:  # The former draw_network loop.
+                reference.append(positions[source])
+                reference.append(positions[target])
+            result = _edge_segment_positions(positions, edges)
+            self.assertEqual(result.dtype, np.float32)
+            self.assertTrue(result.flags.c_contiguous)
+            np.testing.assert_array_equal(result, np.asarray(reference))
+        empty = _edge_segment_positions(positions, np.empty((0, 2), dtype=np.int32))
+        self.assertEqual(empty.shape, (0, 3))
 
 
 if __name__ == "__main__":
