@@ -645,12 +645,21 @@ class PipelineJobManager:
                     os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     return
+            deadline = asyncio.get_running_loop().time() + self.termination_grace
             try:
                 await asyncio.wait_for(
                     process.wait(),
                     timeout=self.termination_grace,
                 )
-                return
+                # A group member can outlive the leader: multiprocessing's
+                # resource tracker ignores SIGTERM and exits once it has cleaned
+                # up after the others, and a tool's helper may ignore SIGTERM
+                # outright. Members get what is left of the grace period, then
+                # SIGKILL like a slow leader.
+                if os.name == "nt" or await self._wait_for_process_group(
+                    process.pid, deadline
+                ):
+                    return
             except TimeoutError:
                 pass
             if os.name == "nt":
@@ -669,6 +678,25 @@ class PipelineJobManager:
                 await asyncio.wait_for(process.wait(), timeout=5.0)
             except TimeoutError:
                 pass
+
+    @staticmethod
+    async def _wait_for_process_group(pgid, deadline):
+        """Return True once the group has no processes left, or False at the deadline.
+
+        The system keeps a group's ID while any member lives. Once the group is
+        empty, Linux and macOS give the number out again only after their PID
+        counter wraps around, and it names a group again only if that new
+        process starts one. Reaching a stranger would take both within one poll.
+        """
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return True
+            if loop.time() >= deadline:
+                return False
+            await asyncio.sleep(0.05)
 
     @staticmethod
     async def _taskkill(pid, *, force):

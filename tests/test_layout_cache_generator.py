@@ -468,6 +468,74 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertFalse(snapshot.exists())
                 self.assertFalse(settings_file.exists())
 
+    def test_cli_output_is_utf8_whatever_the_stream_encoding(self):
+        """A run on its own whose output goes to a file or a pipe prints UTF-8.
+
+        Python opens those in the ANSI code page on Windows, so printing the
+        FASTA path of a project folder such as "Projekt-α" raised
+        UnicodeEncodeError and the run ended before writing its cache.
+        """
+        sample = "Résistance α-amylase 中文"
+        script = SRC / "Layout_Cache_Generator.py"
+        # The script's real startup, up to --help, which exits before any work.
+        probe = "\n".join([
+            "import runpy, sys",
+            f"sys.path.insert(0, {str(SRC)!r})",
+            f"sys.argv = [{str(script)!r}, '--help']",
+            "try:",
+            "    runpy.run_path(sys.argv[0], run_name='__main__')",
+            "except SystemExit:",
+            "    pass",
+            f"print('stdout:', {ascii(sample)})",
+            f"print('stderr:', {ascii(sample)}, file=sys.stderr)",
+        ])
+        # cp1252 is a file's or pipe's encoding on Western Windows; the
+        # variable sets it on any platform.
+        environment = {
+            key: value for key, value in os.environ.items() if key != "PYTHONUTF8"
+        }
+        environment["PYTHONIOENCODING"] = "cp1252"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = pathlib.Path(temp_dir) / "generator.log"
+            with log_path.open("wb") as log:  # as with `> generator.log 2>&1`
+                process = subprocess.run(
+                    [sys.executable, "-u", "-c", probe],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    env=environment,
+                    timeout=120,
+                )
+            output = log_path.read_bytes().decode("utf-8", errors="replace")
+
+        self.assertEqual(process.returncode, 0, output)
+        self.assertIn(f"stdout: {sample}", output)
+        self.assertIn(f"stderr: {sample}", output)
+
+    def test_import_leaves_the_process_streams_alone(self):
+        """Config, the VR Config and the MCP server import this module, and the
+        MCP server's stdout carries its protocol: only a run of the script
+        itself may switch the output streams."""
+        check = "\n".join([
+            "import sys",
+            "before = [(s.encoding, s.errors) for s in (sys.stdout, sys.stderr)]",
+            "import Layout_Cache_Generator",
+            "assert [(s.encoding, s.errors) for s in (sys.stdout, sys.stderr)] == before",
+        ])
+        environment = {
+            key: value for key, value in os.environ.items() if key != "PYTHONUTF8"
+        }
+        environment["PYTHONIOENCODING"] = "cp1252"
+        process = subprocess.run(
+            [sys.executable, "-c", check],
+            cwd=SRC,
+            capture_output=True,
+            env=environment,
+            timeout=120,
+        )
+        self.assertEqual(
+            process.returncode, 0, process.stderr.decode("utf-8", errors="replace")
+        )
+
 
 class LayoutTargetProtectionTests(unittest.TestCase):
     """resolve_layout_selection refuses a Viewer-chosen target folder that

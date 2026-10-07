@@ -139,6 +139,14 @@ still change before version 1.0.0.
   use the previous kernel. With 2 CPU workers, the first batch ran at 7,255 instead of
   3,326 pairs per second, with identical scores. This matters with GPUs much faster
   than the test machine's, where the CPU alignments limit throughput.
+- **Labels, switches and buttons size themselves to their text,** so longer wording,
+  such as a translation, moves or widens them instead of being cut off. In the Config
+  and VR Config windows, fields start one spacing after the longest label instead of
+  at a fixed 180 px column, and every tab still shares that column. The ON/OFF and
+  Auto switches, the color **Pick** buttons and the Viewer's sidebar buttons keep
+  14 px between their text and each end, and a switch keeps one size in both states.
+  In English the label column is 174 px, the ON/OFF switches 51 px and the Viewer's
+  sidebar 137 px.
 
 ### Fixed
 

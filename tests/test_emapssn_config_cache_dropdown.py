@@ -891,7 +891,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         expected_thickness = self.namespace["CONFIG_SEPARATOR_THICKNESS"]
         expected_field_x = (
             expected_margin
-            + self.namespace["CONFIG_FIELD_LABEL_WIDTH"]
+            + self.window.label_column_width
             + self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"]
         )
         profile_field_positions = []

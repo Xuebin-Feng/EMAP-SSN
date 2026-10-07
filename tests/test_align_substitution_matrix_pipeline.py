@@ -658,12 +658,20 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 substitution_matrix,
                 "configure_runtime_paths",
             ), mock.patch.object(
+                # main([]) reads the project-root tools_settings.json (a
+                # developer's own selections); the import hook doesn't cover it.
+                substitution_matrix,
+                "load_tool_settings",
+            ), mock.patch.object(
                 # On Linux this would switch the whole test process to spawn.
                 substitution_matrix.multiprocessing,
                 "set_start_method",
             ) as set_start_method, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                substitution_matrix.run_workflow()
+                exit_code = substitution_matrix.main([])
 
+            # main()'s return value is the process exit code, and the MCP job
+            # runner reports a job as succeeded only for exit code 0.
+            self.assertEqual(exit_code, 0)
             set_start_method.assert_called_once_with("spawn")
 
             self.assertTrue(os.path.exists(output_path))

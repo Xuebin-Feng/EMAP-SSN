@@ -7,6 +7,7 @@ children run two levels below it.
 """
 import asyncio
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -32,8 +33,15 @@ from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
 
 TERMINATION_GRACE = 1.0
 
-# The child prints its own PID because behind a venv redirector it is not the
-# PID Popen reports, and the file appears only once the whole tree is running.
+SLEEPER = "import os, time; print(os.getpid(), flush=True); time.sleep(60)"
+SIGTERM_IGNORING_SLEEPER = (
+    "import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+    "print(os.getpid(), flush=True); time.sleep(60)"
+)
+
+# The job runs the child code it is given. The child prints its own PID because
+# behind a venv redirector it is not the PID Popen reports, and the file appears
+# only once the whole tree is running.
 SPAWNING_JOB = """
 import json
 import os
@@ -41,10 +49,7 @@ import subprocess
 import sys
 import time
 
-child = subprocess.Popen(
-    [sys.executable, "-c", "import os, time; print(os.getpid(), flush=True); time.sleep(60)"],
-    stdout=subprocess.PIPE,
-)
+child = subprocess.Popen([sys.executable, "-c", sys.argv[2]], stdout=subprocess.PIPE)
 pids = {"job": os.getpid(), "child": child.pid, "sleeper": int(child.stdout.readline())}
 with open(sys.argv[1] + ".partial", "w", encoding="utf-8") as handle:
     json.dump(pids, handle)
@@ -127,13 +132,20 @@ class JobProcessTreeTests(unittest.IsolatedAsyncioTestCase):
         # python.exe redirector when the tests run from the project venv.
         return ToolInvocation(
             tool=spec,
-            argv=(python_executable or sys.executable, "-u", str(self.script), str(self.pid_file)),
+            argv=(
+                python_executable or sys.executable,
+                "-u",
+                str(self.script),
+                str(self.pid_file),
+                self.child_code,
+            ),
             cwd=str(self.temporary_path),
             settings_path=snapshot,
             owns_settings_snapshot=True,
         )
 
-    async def _start_spawning_job(self):
+    async def _start_spawning_job(self, child_code=SLEEPER):
+        self.child_code = child_code
         job = await self.manager.submit(
             "sanitize_sequences",
             {
@@ -176,6 +188,38 @@ class JobProcessTreeTests(unittest.IsolatedAsyncioTestCase):
         await self.manager.close()
         self.assertEqual((await self.manager.get_job(job["job_id"]))["status"], "cancelled")
         await self._assert_all_ended(processes, started)
+
+    async def test_cancel_ends_a_process_that_ignores_sigterm(self):
+        # On POSIX the job's leader exits at SIGTERM within the grace period,
+        # so the member that ignores SIGTERM must still get SIGKILL.
+        job, processes = await self._start_spawning_job(SIGTERM_IGNORING_SLEEPER)
+        started = time.monotonic()
+        cancelled = await self.manager.cancel(job["job_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        await self._assert_all_ended(processes, started)
+
+    @unittest.skipIf(os.name == "nt", "Windows stops console processes only by force.")
+    async def test_cancel_lets_group_members_clean_up_within_the_grace_period(self):
+        # multiprocessing's resource tracker outlives the leader the same way,
+        # to unlink the semaphores the dead processes leave behind.
+        marker = self.temporary_path / "cleaned-up"
+        cleaning_sleeper = (
+            "import os, signal, sys, time\n"
+            "def stop(*_):\n"
+            "    time.sleep(0.3)\n"
+            f"    open({str(marker)!r}, 'w').close()\n"
+            "    sys.exit(0)\n"
+            "signal.signal(signal.SIGTERM, stop)\n"
+            "print(os.getpid(), flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        # A long grace costs nothing here: cancel returns once the group is empty.
+        self.manager.termination_grace = 10.0
+        job, processes = await self._start_spawning_job(cleaning_sleeper)
+        cancelled = await self.manager.cancel(job["job_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertTrue(marker.exists(), "A group member was killed before it finished cleaning up.")
+        self.assertEqual([], [_describe(process) for process in processes if _alive(process)])
 
 
 if __name__ == "__main__":

@@ -31,7 +31,6 @@ from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
-import Cache_Manifest as cache_manifest
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
     format_alignment_offset_display,
@@ -1466,7 +1465,6 @@ def run(viewer, args):
             return
 
     try:
-        cache_manifest.validate_network_schema(cfg.INPUT_HDF5)
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         frozen_alignment = _FrozenAlignmentManager(alignment, viewer_to_aln)
     except Exception as error:

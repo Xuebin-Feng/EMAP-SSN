@@ -146,6 +146,7 @@ from desktop.Desktop_App import (
     VISPY_FALLBACK_FACE,
     configure_linux_qt_desktop_identity,
     configure_qt_application_fonts,
+    fit_buttons_to_text,
     force_light_palette,
     register_vispy_application_fonts,
     show_window_in_front,
@@ -776,6 +777,7 @@ class MainViewer:
         self.slider_overlay.show()
         
         # --- 6. Set up MainWindow & WebServer ---
+        # The sidebar's width until its buttons size it (_fit_sidebar_to_buttons).
         self._panel_w = 180
         self.main_window = QtWidgets.QMainWindow()
         from utilities.Viewer_Sessions import ensure_viewer_identity
@@ -2697,7 +2699,6 @@ class MainViewer:
         btn.setObjectName(name)
         if tooltip:
             btn.setToolTip(tooltip)
-        btn.setFixedWidth(150)
         btn.setFixedHeight(35)
         btn.clicked.connect(callback)
         
@@ -2706,8 +2707,16 @@ class MainViewer:
         layout.insertWidget(layout.count() - 1, btn)
         
         self.sidebar_buttons[name] = btn
+        self._fit_sidebar_to_buttons()
         self.set_sidebar_visible(True)
         return btn
+
+    def _fit_sidebar_to_buttons(self):
+        """Give every sidebar button the widest label's width, and the panel room for them."""
+        margins = self.right_panel_layout.contentsMargins()
+        button_width = fit_buttons_to_text(*self.sidebar_buttons.values())
+        self._panel_w = button_width + margins.left() + margins.right()
+        self.main_window.setMinimumWidth(self._panel_w)
 
 
     def start_web_server(self):

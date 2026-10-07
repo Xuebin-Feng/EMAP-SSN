@@ -14,23 +14,14 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from tests.config_gui_loader import load_config_namespace, open_config_window
+
 
 class ResponsiveConfigTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Load GUI definitions without the launcher, IPC, or application event loop.
-        path = SRC / "EMAPSSN_Config.py"
-        marker = "    existing_qt_application = QApplication.instance()"
-        text = path.read_text(encoding="utf-8")
-        if marker not in text:
-            # Without it, exec would run on into the event loop and hang.
-            raise AssertionError("EMAPSSN_Config.py no longer contains the launcher marker")
-        source = text.split(marker)[0]
-        cls.namespace = {"__name__": "__main__", "__file__": str(path)}
-        with tempfile.TemporaryDirectory() as directory, patch.dict(
-            os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(Path(directory) / "missing.json")}
-        ):
-            exec(compile(source, str(path), "exec"), cls.namespace)
+        cls.namespace = load_config_namespace()
         cls.gui_class = cls.namespace["ConfigGUI"]
         cls.app = cls.namespace["QApplication"].instance() or cls.namespace["QApplication"]([])
         cls.namespace["configure_qt_application_fonts"](cls.app)
@@ -39,12 +30,7 @@ class ResponsiveConfigTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        root = Path(self.directory.name)
-        settings = {"INPUT_FILE_DIR": str(root / "inputs"),
-                    "CACHE_FILE_DIR": str(root / "cache"),
-                    "ANALYSIS_RESULT_DIR": str(root / "results")}
-        with patch.object(self.gui_class, "_read_custom_settings", return_value=settings):
-            self.window = self.gui_class()
+        self.window = open_config_window(self.gui_class, self.directory.name)
         self.window.show()
         self.flush()
 
@@ -57,14 +43,65 @@ class ResponsiveConfigTests(unittest.TestCase):
         for _ in range(4):
             self.app.processEvents()
 
-    def resize_panel(self, width):
-        self.window.resize(width + 360, 850)
-        self.window.main_split.setSizes([width + 4, 326])
+    def resize_panel(self, width, window=None):
+        window = self.window if window is None else window
+        window.resize(width + 360, 850)
+        window.main_split.setSizes([width + 4, 326])
         self.flush()
-        delta = width - self.window.tabs.currentWidget().width()
-        left, right = self.window.main_split.sizes()
-        self.window.main_split.setSizes([left + delta, right - delta])
+        delta = width - window.tabs.currentWidget().width()
+        left, right = window.main_split.sizes()
+        window.main_split.setSizes([left + delta, right - delta])
         self.flush()
+
+    def natural_width(self, label):
+        """Width a label's text needs.
+
+        QLabel expands its size hint to its minimum width, so a label in the
+        fixed-width column is measured on a fresh copy.
+        """
+        if isinstance(label, self.namespace["QStackedWidget"]):
+            return max(self.natural_width(label.widget(i)) for i in range(label.count()))
+        probe = self.namespace["QLabel"](label.text())
+        probe.setFont(label.font())
+        return probe.sizeHint().width()
+
+    def assert_fields_follow_the_label_column(self, window):
+        """Each label at a tab's left edge shows its whole text, and its field starts
+        a field spacing after the label column. The column's own labels span it;
+        a stacked row's later labels keep their width. Returns how many labels
+        were checked."""
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QLabel, QWidget
+        margin = self.namespace["CONFIG_TAB_CONTENT_MARGIN"]
+        field_x = (margin + window.label_column_width
+                   + self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"])
+        column = set(window._label_column)
+        checked = 0
+        for index in range(window.tabs.count()):
+            window.tabs.setCurrentIndex(index)
+            self.flush()
+            page = window.tabs.currentWidget().widget()
+            visible = [widget for widget in page.findChildren(QWidget)
+                       if widget.isVisibleTo(page)]
+            corner = {widget: widget.mapTo(page, QPoint()) for widget in visible}
+            for label in visible:
+                if not isinstance(label, QLabel) or not label.text():
+                    continue
+                if corner[label].x() != margin:
+                    continue
+                top, bottom = corner[label].y(), corner[label].y() + label.height()
+                beside = [corner[other].x() for other in visible
+                          if not other.isAncestorOf(label)
+                          and corner[other].x() >= margin + label.width()
+                          and corner[other].y() < bottom
+                          and corner[other].y() + other.height() > top]
+                with self.subTest(tab=index, label=label.text()):
+                    if column & {label, label.parentWidget()}:
+                        self.assertEqual(label.width(), window.label_column_width)
+                    self.assertGreaterEqual(label.width(), self.natural_width(label))
+                    self.assertEqual(min(beside), field_x)
+                checked += 1
+        return checked
 
     def assert_geometry(self, parent):
         QWidget = self.namespace["QWidget"]
@@ -389,6 +426,96 @@ class ResponsiveConfigTests(unittest.TestCase):
         self.assertGreater(self.window.tabs.currentWidget().horizontalScrollBar().maximum(), 0)
         self.assertGreaterEqual(self.window.line_ref.width(), 700)
         self.assert_geometry(self.window.tabs.currentWidget().widget())
+
+    def test_label_column_is_the_longest_label_on_every_tab(self):
+        window = self.window
+        column = list(dict.fromkeys(window._label_column))
+        self.assertGreater(len(column), 30)
+        self.assertEqual(window.label_column_width,
+                         max(self.natural_width(label) for label in column))
+        # Stacked rows move their later labels into the column (600 px).
+        for width in (1400, 600):
+            self.resize_panel(width)
+            with self.subTest(width=width):
+                self.assertGreater(self.assert_fields_follow_the_label_column(window), 30)
+
+    def open_window_with(self, **classes):
+        """A window built while the module uses ``classes`` in place of its own."""
+        with patch.dict(self.namespace, classes):
+            window = open_config_window(self.gui_class, self.directory.name)
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        window.show()
+        self.flush()
+        return window
+
+    def test_a_later_label_longer_than_the_first_column_widens_it(self):
+        """A stacked row moves its later labels into the column, so the longest
+        of those counts too, or that row's fields would start further right."""
+        QLabel = self.namespace["QLabel"]
+
+        class LongLabel(QLabel):
+            def __init__(self, text="", *args, **kwargs):
+                if text == "Connected Node Color:":
+                    text = f"{text} {'~' * 30}"
+                super().__init__(text, *args, **kwargs)
+
+        window = self.open_window_with(QLabel=LongLabel)
+        longest = window.labels["CONNECTED_NODE_COLOR"]
+        self.assertEqual(window.label_column_width, self.natural_width(longest))
+        self.assertGreater(window.label_column_width, self.window.label_column_width)
+        for width in (1600, 700):
+            self.resize_panel(width, window)
+            with self.subTest(width=width):
+                self.assertGreater(self.assert_fields_follow_the_label_column(window), 30)
+
+    def test_longer_labels_widen_the_column_without_clipping(self):
+        """Labels and switch texts half again as long, as a translation may make
+        them, move the fields and widen the switches; nothing overlaps or clips."""
+        ResponsiveFieldLayout = self.namespace["ResponsiveFieldLayout"]
+        QLabel = self.namespace["QLabel"]
+        ToggleSwitch = self.namespace["ToggleSwitch"]
+
+        def longer(text):
+            return f"{text} {'~' * (len(text) // 2)}" if isinstance(text, str) and text else text
+
+        class LongLabel(QLabel):
+            def __init__(self, text="", *args, **kwargs):
+                super().__init__(longer(text), *args, **kwargs)
+
+        class LongToggle(ToggleSwitch):
+            def __init__(self, on_text="ON", off_text="OFF", parent=None):
+                super().__init__(longer(on_text), longer(off_text), parent)
+
+        from desktop.Desktop_App import BUTTON_TEXT_PADDING
+
+        window = self.open_window_with(QLabel=LongLabel, ToggleSwitch=LongToggle)
+        self.assertGreater(window.label_column_width, self.window.label_column_width + 40)
+        switches = window.findChildren(LongToggle)
+        self.assertEqual(len(switches), 4)
+        for switch in switches:
+            text_width = switch.fontMetrics().horizontalAdvance(switch.text())
+            self.assertGreaterEqual(switch.width() - text_width, 2 * BUTTON_TEXT_PADDING)
+        for width in (1600, 700):
+            self.resize_panel(width, window)
+            with self.subTest(width=width):
+                self.assertGreater(self.assert_fields_follow_the_label_column(window), 30)
+            for index in range(window.tabs.count()):
+                window.tabs.setCurrentIndex(index)
+                self.flush()
+                scroll = window.tabs.currentWidget()
+                page = scroll.widget()
+                self.assert_geometry(page)
+                if width == 1600:
+                    self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+                for group in page.findChildren(self.namespace["QWidget"]):
+                    if not isinstance(group.layout(), ResponsiveFieldLayout):
+                        continue
+                    for label, _control in group.layout().pairs:
+                        if label.isVisibleTo(page):
+                            with self.subTest(width=width, label=group.objectName()):
+                                self.assertGreaterEqual(label.width(),
+                                                        self.natural_width(label))
 
 
 if __name__ == "__main__":

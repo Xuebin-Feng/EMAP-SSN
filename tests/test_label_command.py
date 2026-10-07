@@ -113,7 +113,6 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 last_cluster_params=None,
             )
         viewer.background_job_scheduler = ImmediateScheduler(viewer)
-        metadata = SimpleNamespace(model_name="test-model", network_type="cosine")
         viewer_to_aln = getattr(viewer.alignment, "viewer_to_aln", None)
         if viewer_to_aln is None or np.asarray(viewer_to_aln).shape != (
             len(viewer.full_headers),
@@ -129,7 +128,6 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 mock.patch.object(label.cfg, "NODE_FASTA_FILE", "nodes.fasta"), \
                 mock.patch.object(label.cfg, "INPUT_HDF5", "network.h5"), \
                 mock.patch.object(label.cfg, "MSA_FILE", "alignment.fasta"), \
-                mock.patch.object(label.cache_manifest, "validate_network_schema", return_value=metadata), \
                 mock.patch.object(
                     label.Command_Engine,
                     "get_alignment_mapping",
@@ -755,17 +753,8 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 last_cluster_params=("leiden_1.0", 10),
                 background_job_scheduler=scheduler,
             )
-            metadata = SimpleNamespace(
-                model_name="test-model",
-                network_type="cosine",
-            )
             with mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
-                    mock.patch.object(label.cfg, "INPUT_HDF5", "network.h5"), \
-                    mock.patch.object(
-                        label.cache_manifest,
-                        "validate_network_schema",
-                        return_value=metadata,
-                    ):
+                    mock.patch.object(label.cfg, "INPUT_HDF5", "network.h5"):
                 label.run(viewer, ["snapshot_report"])
                 explicit_job = scheduler.job
                 label.run(viewer, [])

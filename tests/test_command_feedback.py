@@ -142,7 +142,6 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
     def test_label_and_logo_submission_remains_pending_until_job_completion(self):
         from tests.sparse_alignment import load_manager, write_fasta
         import EMAPSSN_Config as cfg
-        import Cache_Manifest as cache_manifest
         msa = str(Path(self.directory.name) / 'alignment.fasta')
         write_fasta(msa, [('one', 'AC'), ('two', 'AC'), ('three', 'AD')])
         self.viewer.alignment = load_manager(msa, self.viewer.full_headers, 'one')
@@ -155,8 +154,7 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
             contexts.append(context)
         self.viewer.background_job_scheduler = SimpleNamespace(
             is_output_path_reserved=lambda path: False, enqueue=enqueue)
-        with mock.patch.object(cfg, 'resolve_directory_path', return_value=self.directory.name), \
-                mock.patch.object(cache_manifest, 'validate_network_schema', return_value={}):
+        with mock.patch.object(cfg, 'resolve_directory_path', return_value=self.directory.name):
             for command in ('logo [1] result.svg', 'label clusters result.xlsx'):
                 with self.subTest(command=command), redirect_stdout(io.StringIO()):
                     request = self.portal.submit(command, command)

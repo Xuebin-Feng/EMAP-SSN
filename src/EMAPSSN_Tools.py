@@ -97,6 +97,7 @@ from desktop.Desktop_App import (
     SingleInstanceController,
     TOOLS_DESKTOP_FILE_NAME,
     TOOLS_DISPLAY_NAME,
+    ToggleSwitch,
     configure_linux_qt_desktop_identity,
     show_window_in_front,
 )
@@ -844,11 +845,9 @@ class HostCacheControl(QWidget):
         control_layout.setContentsMargins(0, 0, 0, 0)
         control_layout.setSpacing(12)
 
-        self.auto_button = QPushButton()
+        self.auto_button = ToggleSwitch("AUTO ON", "AUTO OFF")
         self.auto_button.setObjectName("hostCacheAutoButton")
         self.auto_button.setAccessibleName("Automatic host cache")
-        self.auto_button.setCheckable(True)
-        self.auto_button.setFixedSize(82, 28)
 
         self.slider = NoScrollSlider(Qt.Orientation.Horizontal)
         self.slider.setObjectName("hostCacheSlider")
@@ -916,19 +915,6 @@ class HostCacheControl(QWidget):
         self.slider.blockSignals(False)
 
     def _apply_auto_state(self, enabled):
-        self.auto_button.setText("AUTO ON" if enabled else "AUTO OFF")
-        if enabled:
-            self.auto_button.setStyleSheet(
-                "QPushButton { background-color: #4CAF50; color: white; "
-                "border-radius: 14px; font-weight: bold; "
-                "border: 1px solid #388E3C; }"
-            )
-        else:
-            self.auto_button.setStyleSheet(
-                "QPushButton { background-color: #e0e0e0; color: #333; "
-                "border-radius: 14px; font-weight: bold; "
-                "border: 1px solid #bdbdbd; }"
-            )
         self.slider.setEnabled(not enabled)
         self.spinbox.setEnabled(not enabled)
 
@@ -2422,21 +2408,8 @@ class ToolsGUI(QMainWindow):
             
             if var_name == "EDGE_PREFILTERING":
                 # Create the switch button
-                switch_btn = QPushButton()
-                switch_btn.setCheckable(True)
-                switch_btn.setFixedSize(60, 28)
-                
-                def switch_toggle_style(checked, btn=switch_btn):
-                    if checked:
-                        btn.setText("ON")
-                        btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; font-weight: bold; border: 1px solid #388E3C; }")
-                    else:
-                        btn.setText("OFF")
-                        btn.setStyleSheet("QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }")
-                
-                switch_btn.toggled.connect(switch_toggle_style)
+                switch_btn = ToggleSwitch()
                 switch_btn.setChecked(bool(actual_val))
-                switch_toggle_style(bool(actual_val))
                 
                 # Get tooltip for prefiltering
                 prefilter_tip = self.SCRIPT_TIPS.get(script_name, {}).get("EDGE_PREFILTERING", "Edge Prefiltering")
@@ -2552,21 +2525,8 @@ class ToolsGUI(QMainWindow):
 
             if var_name == "ENABLE_LENGTH_FILTER":
                 # Create the switch button for length filter
-                filter_btn = QPushButton()
-                filter_btn.setCheckable(True)
-                filter_btn.setFixedSize(60, 28)
-                
-                def switch_toggle_style_filter(checked, btn=filter_btn):
-                    if checked:
-                        btn.setText("ON")
-                        btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; font-weight: bold; border: 1px solid #388E3C; }")
-                    else:
-                        btn.setText("OFF")
-                        btn.setStyleSheet("QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }")
-                
-                filter_btn.toggled.connect(switch_toggle_style_filter)
+                filter_btn = ToggleSwitch()
                 filter_btn.setChecked(bool(actual_val))
-                switch_toggle_style_filter(bool(actual_val))
                 
                 filter_tip = self.SCRIPT_TIPS.get(script_name, {}).get("ENABLE_LENGTH_FILTER", "Enable Length Filter")
                 filter_btn.setToolTip(filter_tip)
@@ -2694,21 +2654,8 @@ class ToolsGUI(QMainWindow):
                 ui_element.combo = combo # Save a reference so save_and_run can extract the text
                 
             elif s_def['type'] == "switch":
-                ui_element = QPushButton()
-                ui_element.setCheckable(True)
-                ui_element.setFixedSize(60, 28)
-                
-                def switch_toggle_style(checked, btn=ui_element):
-                    if checked:
-                        btn.setText("ON")
-                        btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; font-weight: bold; border: 1px solid #388E3C; }")
-                    else:
-                        btn.setText("OFF")
-                        btn.setStyleSheet("QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }")
-                
-                ui_element.toggled.connect(switch_toggle_style)
+                ui_element = ToggleSwitch()
                 ui_element.setChecked(bool(actual_val))
-                switch_toggle_style(bool(actual_val)) 
                 
             elif s_def['type'] == "slider":
                 ui_element = QWidget()

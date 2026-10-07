@@ -896,4 +896,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Before any output: run on its own, this script may print to a file or a pipe.
+    from utilities.Output_Streams import configure_output_streams
+    configure_output_streams()
     raise SystemExit(main())

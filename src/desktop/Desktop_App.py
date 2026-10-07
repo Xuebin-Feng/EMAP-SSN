@@ -20,10 +20,10 @@ import weakref
 
 from PySide6 import QtCore, QtNetwork
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
+from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import QLayout, QPushButton
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QFont
     from PySide6.QtWidgets import QApplication
 
 # =====================================================================
@@ -968,6 +968,68 @@ def select_combo_value(combo, value):
     return index >= 0
 
 
+# =====================================================================
+# 6. Buttons Sized by Their Text
+# =====================================================================
+
+# The space between a button's text and each of its two ends. A button sized
+# by its text grows with a longer text, such as a translation, instead of
+# clipping it. On a toggle switch this is the radius of its rounded ends.
+BUTTON_TEXT_PADDING = 14
+
+
+def text_button_width(texts, font, padding=BUTTON_TEXT_PADDING):
+    """Return the width that shows the widest of ``texts`` in ``font``, padded."""
+    metrics = QFontMetrics(font)
+    return max(metrics.horizontalAdvance(text) for text in texts) + 2 * padding
+
+
+def fit_buttons_to_text(*buttons, padding=BUTTON_TEXT_PADDING):
+    """Give ``buttons`` one fixed width: their widest text plus ``padding`` at each end."""
+    width = 0
+    for button in buttons:
+        button.ensurePolished()  # A stylesheet may set the font the text is drawn in.
+        width = max(width, text_button_width([button.text()], button.font(), padding))
+    for button in buttons:
+        button.setFixedWidth(width)
+    return width
+
+
+TOGGLE_SWITCH_HEIGHT = 28
+TOGGLE_ON_STYLESHEET = (
+    "QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; "
+    "font-weight: bold; border: 1px solid #388E3C; }"
+)
+TOGGLE_OFF_STYLESHEET = (
+    "QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; "
+    "font-weight: bold; border: 1px solid #bdbdbd; }"
+)
+
+
+class ToggleSwitch(QPushButton):
+    """A checkable pill that reads ``on_text`` or ``off_text``.
+
+    Its width fits the longer of the two texts, so toggling never resizes it.
+    Each toggle swaps the whole stylesheet, as the per-window copies this
+    replaces did, so a disabled style the Config's profile gating appends lasts
+    until the next toggle.
+    """
+
+    def __init__(self, on_text="ON", off_text="OFF", parent=None):
+        super().__init__(parent)
+        self._texts = (off_text, on_text)
+        self.setCheckable(True)
+        bold = QFont(self.font())
+        bold.setBold(True)  # Both stylesheets draw the text bold.
+        self.setFixedSize(text_button_width(self._texts, bold), TOGGLE_SWITCH_HEIGHT)
+        self.toggled.connect(self._show_state)
+        self._show_state(False)
+
+    def _show_state(self, checked):
+        self.setText(self._texts[bool(checked)])
+        self.setStyleSheet(TOGGLE_ON_STYLESHEET if checked else TOGGLE_OFF_STYLESHEET)
+
+
 __all__ = [
     "PRODUCT_NAME",
     "APPLICATION_VERSION",
@@ -1015,4 +1077,11 @@ __all__ = [
     "add_combo_options",
     "combo_value",
     "select_combo_value",
+    "BUTTON_TEXT_PADDING",
+    "text_button_width",
+    "fit_buttons_to_text",
+    "TOGGLE_SWITCH_HEIGHT",
+    "TOGGLE_ON_STYLESHEET",
+    "TOGGLE_OFF_STYLESHEET",
+    "ToggleSwitch",
 ]
