@@ -243,6 +243,85 @@ class BrowserPageOpeningTests(unittest.TestCase):
             "Could not open Metadata UI: http://localhost:49123/meta.html",
         )
 
+    def test_unavailable_web_server_reports_without_opening(self):
+        viewer = self.make_viewer()
+
+        def unavailable(_path):
+            raise RuntimeError("the web server is not running")
+
+        viewer.get_web_url = unavailable
+        with mock.patch.object(Browser_Page.webbrowser, "open") as browser_open:
+            self.assertFalse(
+                Browser_Page.open_browser_page(
+                    viewer, "/meta.html", "Metadata UI", "meta"
+                )
+            )
+
+        browser_open.assert_not_called()
+        self.assertEqual(viewer._web_ui_pending_opens, {})
+        self.assertEqual(
+            viewer.console_text.text,
+            "Metadata UI unavailable: the web server is not running",
+        )
+
+    def test_browser_error_clears_pending_reservation(self):
+        viewer = self.make_viewer()
+        with mock.patch.object(
+            Browser_Page.webbrowser, "open", side_effect=OSError("no browser")
+        ):
+            self.assertFalse(
+                Browser_Page.open_browser_page(
+                    viewer, "/agent.html", "Agent UI", "agent"
+                )
+            )
+
+        self.assertEqual(viewer._web_ui_pending_opens, {})
+        self.assertEqual(viewer.console_text.text, "Could not open Agent UI: no browser")
+
+    def test_connected_client_clears_a_pending_reservation(self):
+        # The page connected before its reservation expired; once it closes,
+        # the next click opens it again at once.
+        viewer = self.make_viewer({"meta"})
+        viewer._web_ui_pending_opens = {"meta": 110.0}
+        with (
+            mock.patch.object(Browser_Page.time, "monotonic", return_value=100.0),
+            mock.patch.object(Browser_Page.QMessageBox, "information"),
+            mock.patch.object(
+                Browser_Page.webbrowser, "open", return_value=True
+            ) as browser_open,
+        ):
+            self.assertFalse(
+                Browser_Page.open_browser_page(
+                    viewer, "/meta.html", "Metadata UI", "meta"
+                )
+            )
+            self.assertEqual(viewer._web_ui_pending_opens, {})
+            viewer.web_server.connected_clients.clear()
+            self.assertTrue(
+                Browser_Page.open_browser_page(
+                    viewer, "/meta.html", "Metadata UI", "meta"
+                )
+            )
+
+        browser_open.assert_called_once_with("http://localhost:49123/meta.html", new=2)
+
+    def test_viewer_without_a_console_or_web_server_still_opens(self):
+        viewer = SimpleNamespace(
+            get_web_url=lambda path: f"http://localhost:49123/{path.lstrip('/')}",
+            _web_ui_pending_opens=None,
+        )
+        with mock.patch.object(
+            Browser_Page.webbrowser, "open", return_value=True
+        ) as browser_open:
+            self.assertTrue(
+                Browser_Page.open_browser_page(
+                    viewer, "/meta.html", "Metadata UI", "meta"
+                )
+            )
+
+        browser_open.assert_called_once()
+        self.assertEqual(list(viewer._web_ui_pending_opens), ["meta"])
+
 
 class InstanceUrlRoutingTests(unittest.TestCase):
     class Viewer:

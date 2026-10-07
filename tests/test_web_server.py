@@ -91,6 +91,65 @@ class PagePolicyTests(unittest.TestCase):
         self.assertEqual(esmfold['connect-src'], ["'self'", 'https:', 'data:'])
 
 
+class PagePolicyOverHTTPTests(unittest.TestCase):
+    """The running server sends each HTML page the policy of the bytes it
+    serves, and sends none with scripts or JSON."""
+
+    def setUp(self):
+        use_private_session_directory(self)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        files = Path(directory.name)
+        (files / 'app.js').write_bytes(b'console.log(1);')
+        (files / 'data.json').write_bytes(b'{"a": 1}')
+        (files / 'page.html').write_bytes(b'<script>\r\nrun();\r\n</script>')
+        viewer = FakeViewer()
+        viewer.web_plugin_registry = WebPluginRegistry(viewer)
+        viewer.web_plugin_registry.register_static_route('files', '/files/', str(files))
+        self.server = Web_Server.start_server(viewer, preferred_port=0)
+        self.addCleanup(Web_Server.stop_server, self.server)
+
+    def get(self, path):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=10)
+        try:
+            connection.request('GET', path)
+            response = connection.getresponse()
+            return response, response.read()
+        finally:
+            connection.close()
+
+    def test_bundled_pages_carry_the_policy_of_their_served_bytes(self):
+        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+            with self.subTest(page=page):
+                response, body = self.get(f'/{page}')
+                self.assertEqual(response.status, 200)
+                self.assertEqual(body, (PAGES / page).read_bytes())
+                self.assertEqual(response.getheader('Content-Type'), 'text/html; charset=utf-8')
+                self.assertEqual(
+                    response.msg.get_all('Content-Security-Policy'),
+                    [content_security_policy(page, body)],
+                )
+                script_src = directives(response.getheader('Content-Security-Policy'))['script-src']
+                self.assertEqual("'unsafe-eval'" in script_src, page == 'esmfold.html')
+
+    def test_route_served_pages_get_a_policy_too(self):
+        response, _body = self.get('/files/page.html')
+        self.assertEqual(response.status, 200)
+        script_src = directives(response.getheader('Content-Security-Policy'))['script-src']
+        self.assertEqual(script_src, ["'self'", sha256_source('\nrun();\n')])
+
+    def test_scripts_and_json_carry_no_policy(self):
+        for path, content_type in (
+            ('/files/app.js', 'application/javascript'),
+            ('/files/data.json', 'application/json'),
+        ):
+            with self.subTest(path=path):
+                response, _body = self.get(path)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.getheader('Content-Type'), f'{content_type}; charset=utf-8')
+                self.assertIsNone(response.getheader('Content-Security-Policy'))
+
+
 class ConcurrentWebServerTests(unittest.TestCase):
     def setUp(self):
         use_private_session_directory(self)
