@@ -109,22 +109,6 @@ class OutputTests(unittest.TestCase):
         self.assertIn(f"Expression: {expression}".encode("utf-8"), log)
         self.assertEqual(log, result.stdout)
 
-    def test_viewer_streams_escape_what_a_terminal_cannot_show(self):
-        from EMAPSSN_Viewer import _configure_output_streams
-
-        class Terminal(io.BytesIO):
-            def isatty(self):
-                return True
-
-        pipe = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
-        terminal = io.TextIOWrapper(Terminal(), encoding="cp1252")
-        _configure_output_streams([pipe, terminal, None])
-        for stream in (pipe, terminal):
-            stream.write("α")
-            stream.flush()
-        self.assertEqual(pipe.buffer.getvalue(), "α".encode("utf-8"))
-        self.assertEqual(terminal.buffer.getvalue(), b"\\u03b1")  # a terminal keeps its encoding
-
     def test_terminal_copy_keeps_characters_that_a_read_cuts(self):
         class RawConsole:
             """The raw writer behind a Windows console under -u. Like any raw

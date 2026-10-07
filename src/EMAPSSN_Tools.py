@@ -16,6 +16,10 @@
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 import sys
+if __name__ == "__main__":
+    # Before any output: the desktop launcher logs this process to a file, and --headless output may be piped.
+    from utilities.Output_Streams import configure_output_streams
+    configure_output_streams()
 if __name__ == "__main__" and "--headless" in sys.argv:
     from utilities.Headless_Settings import main as headless_main
     raise SystemExit(headless_main("tools"))

@@ -193,6 +193,15 @@ still change before version 1.0.0.
   writes UTF-8 to pipes and files, whatever started it, and escapes characters a
   terminal's encoding lacks instead of failing. The normal-mode console window also
   lost or garbled a character that a pipe read split in two; it now shows it whole.
+- On Windows, the `run` command mangled non-ASCII text in the commands that a Python
+  command script printed, however the Viewer was started. Python wrote the script's
+  output to the Viewer's pipe in the Windows ANSI code page (cp1252 on most Western
+  systems), while the Viewer read it as UTF-8. A script printing `α-amylase` failed
+  with "'charmap' codec can't encode character", and `é` vanished from a typed `run`
+  (`select "café"` ran as `select "caf"`, which also selects "caffeine") or became
+  `�` in a request from MCP or the agent page. Scripts now print UTF-8 whatever the
+  Viewer's environment says, and a byte that is still not UTF-8 shows as `�` instead
+  of disappearing.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
   that headless Viewers cannot render on Windows and that normal mode can.

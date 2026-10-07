@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Desktop launcher monitor: the launch-and-wait handshake, the launch environment (managed path overrides, Linux Qt platform), terminal fallback and exit codes."""
+"""Desktop launcher monitor: the launch-and-wait handshake, the launch environment (managed path overrides, Linux Qt platform), terminal fallback, exit codes and the application log's encoding."""
 
 from __future__ import annotations
 
@@ -340,6 +340,67 @@ class DesktopPlatformPolicyTests(unittest.TestCase):
         )
 
         self.assertNotIn("QT_QPA_PLATFORM", environment)
+
+
+class ApplicationLogEncodingTests(unittest.TestCase):
+    """What Config and Tools print reaches application.log, which the error
+    terminal reads back, as UTF-8.
+
+    The log is the application's stdout and stderr, and Python writes a file in
+    the ANSI code page on Windows: "é" came back as U+FFFD, and printing "α"
+    raised UnicodeEncodeError, which closed Config from a Qt slot and stopped
+    every Tools launch from a project folder with such a name.
+    """
+
+    SAMPLE = "Résistance α-amylase 中文"
+    PROBE_EXIT = 3  # not 0, so the monitor keeps the log and returns at once
+    # Runs an application script's real startup as the monitor starts it, but
+    # with --headless --help, which exits before any window, single-instance
+    # lock or event loop; then prints SAMPLE to both streams. The stream setup
+    # has to come first in the script to cover that branch and the GUI alike.
+    PROBE = "\n".join([
+        "import os, runpy, sys",
+        "script = sys.argv[1]",
+        "sys.path.insert(0, os.path.dirname(script))",
+        "sys.argv = [script, '--headless', '--help']",
+        "try:",
+        "    runpy.run_path(script, run_name='__main__')",
+        "except SystemExit:",
+        "    pass",
+        f"print('stdout:', {ascii(SAMPLE)})",
+        f"print('stderr:', {ascii(SAMPLE)}, file=sys.stderr)",
+        f"sys.exit({PROBE_EXIT})",
+    ])
+
+    def test_application_log_is_utf8_whatever_the_file_encoding(self):
+        start = Desktop_Launcher_Monitor.subprocess.Popen
+
+        def start_probe(command, **kwargs):
+            python, unbuffered, script = command
+            return start([python, unbuffered, "-c", self.PROBE, script], **kwargs)
+
+        # cp1252 is a file's encoding on Western Windows; the variable sets it
+        # on any platform.
+        environment = {
+            name: value for name, value in os.environ.items() if name != "PYTHONUTF8"
+        }
+        environment["PYTHONIOENCODING"] = "cp1252"
+        for app_kind in sorted(Desktop_Launcher_Monitor.APP_SCRIPTS):
+            with self.subTest(app=app_kind):
+                with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+                    os.environ, environment, clear=True
+                ), mock.patch.object(
+                    Desktop_Launcher_Monitor.subprocess, "Popen", side_effect=start_probe
+                ):
+                    state = Path(temp_dir) / "state"
+                    result = Desktop_Launcher_Monitor.run_monitor(app_kind, state)
+                    log = (state / "application.log").read_bytes().decode(
+                        "utf-8", errors="replace"
+                    )
+
+                self.assertEqual(result, self.PROBE_EXIT, log)
+                self.assertIn(f"stdout: {self.SAMPLE}", log)
+                self.assertIn(f"stderr: {self.SAMPLE}", log)
 
 
 if __name__ == "__main__":

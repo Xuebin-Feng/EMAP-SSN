@@ -82,13 +82,16 @@ def run(viewer, args):
                 Command_Engine.command_succeeded(viewer, 'Python command script started; waiting for its output.')
                 return
 
-            # Execute python script in a subprocess using the current python executable
+            # Execute python script in a subprocess using the current python executable.
+            # Its output is decoded as UTF-8, so the child must print UTF-8; a piped
+            # child otherwise uses the Windows ANSI code page. Bad bytes show as U+FFFD.
             result = subprocess.run(
                 [sys.executable, file_path],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
-                errors='ignore'
+                errors='replace',
+                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
             )
             
             if result.returncode != 0:

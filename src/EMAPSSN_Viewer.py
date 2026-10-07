@@ -31,29 +31,6 @@ def _configure_headless_platform(argv=None, environment=None):
 _configure_headless_platform()
 
 
-def _configure_output_streams(streams=None):
-    """Let the Viewer print any text on the streams it was started with.
-
-    An MCP client starts the Viewer with stdout and stderr on a pipe
-    (Viewer_Terminal.py) or a log file. Python opens those in the ANSI code
-    page on Windows, so printing a header such as "α-amylase" raised
-    UnicodeEncodeError and aborted the command. Pipes and files switch to
-    UTF-8, which the launcher's log readers and console copy decode; a
-    terminal keeps its own encoding. Characters a stream cannot encode are
-    escaped instead of raised.
-    """
-    for stream in (sys.stdout, sys.stderr) if streams is None else streams:
-        if not hasattr(stream, "reconfigure"):
-            continue  # None under pythonw, or a replacement stream left as given
-        try:
-            if stream.isatty():
-                stream.reconfigure(errors="backslashreplace")
-            else:
-                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
-        except (OSError, ValueError):
-            pass  # a closed stream
-
-
 def _parse_viewer_arguments(argv=None):
     """Parse command-line arguments for EMAPSSN_Viewer.py."""
     import argparse
@@ -85,7 +62,9 @@ def _parse_viewer_arguments(argv=None):
 _startup_settings = None
 _startup_args = None
 if __name__ == "__main__":
-    _configure_output_streams()
+    # Before any output: an MCP client gives the Viewer a pipe (Viewer_Terminal.py) or a log file.
+    from utilities.Output_Streams import configure_output_streams
+    configure_output_streams()
     from desktop.Viewer_State import read_viewer_settings, resolve_viewer_document
     _startup_args = _parse_viewer_arguments()
     print("Validating Viewer settings and inputs...", flush=True)

@@ -83,10 +83,12 @@ class ScriptTracker(QtCore.QObject):
         self.job_id = 'script-' + uuid.uuid4().hex
         context.add_job(self.job_id, status_detail='Executing selected Python command script')
         self.finished.connect(self._finish, QtCore.Qt.ConnectionType.QueuedConnection)
+        # Decoded as UTF-8, so the child must print UTF-8, not the Windows ANSI code page.
+        environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
         def work():
             try:
                 result = subprocess.run([sys.executable, path], capture_output=True,
-                    text=True, encoding='utf-8', errors='replace')
+                    text=True, encoding='utf-8', errors='replace', env=environment)
             except Exception as error:
                 result = error
             self.finished.emit(result)
