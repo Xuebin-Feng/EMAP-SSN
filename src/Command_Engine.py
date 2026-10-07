@@ -20,6 +20,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 import EMAPSSN_Config as cfg
+from utilities.Localization import display_text
 
 
 class SelectionExpressionError(ValueError):
@@ -1161,17 +1162,27 @@ def parse_advanced_expression(
         selection_mask,
     )
 
+def show_status(viewer, message):
+    """Show message, a Message or plain text, on the Viewer's console line.
+
+    Every write to the line goes through here, because it is the one place
+    command feedback is translated: the terminal and the command portal (MCP
+    clients and the agent page) keep a Message's English text.
+    """
+    viewer.console_text.text = display_text(message)
+
 def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
     """Prints help/errors to CLI, and a notification or status to the viewer console."""
     from Viewer_Command_Portal import report
     if report_message:
         report(message=msg if terminal_msg is None else terminal_msg, viewer=viewer)
     print(f"\n{msg if terminal_msg is None else terminal_msg}")
-    
+
     if hasattr(viewer, 'console_text'):
         # Display single-line status, errors, warnings, or help headers directly on the on-screen console
-        first_line = msg.split('\n')[0] if '\n' in msg else msg
-        viewer.console_text.text = first_line.strip()
+        shown = display_text(msg)
+        first_line = shown.split('\n')[0] if '\n' in shown else shown
+        show_status(viewer, first_line.strip())
         
         if hasattr(viewer, 'update_console_background'):
             viewer.update_console_background()
@@ -1256,7 +1267,7 @@ def execute_reset(viewer, targets):
 
     msg = f"Reset successful: {', '.join(targets_found)}."
 
-    viewer.console_text.text = msg
+    show_status(viewer, msg)
     print(f"{msg}")
     if hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
@@ -1350,7 +1361,7 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
 
         if hasattr(module, 'run'):
             if not silent and hasattr(viewer, 'console_text'):
-                viewer.console_text.text = f"Running {command_name}..."
+                show_status(viewer, f"Running {command_name}...")
             if not silent and hasattr(viewer, 'update_console_background'):
                 viewer.update_console_background()
             if hasattr(app, 'process_events'):
@@ -1363,20 +1374,20 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
         else:
             command_failed(viewer, f"No run entry point in {command_name}")
             if not silent and hasattr(viewer, 'console_text'):
-                viewer.console_text.text = f"Error: No 'run' in {command_name}"
+                show_status(viewer, f"Error: No 'run' in {command_name}")
             if not silent and hasattr(viewer, 'update_console_background'):
                 viewer.update_console_background()
 
     except ModuleNotFoundError as error:
         command_failed(viewer, f"Unknown command: {command_name}" if error.name == f"commands.{command_name}" else f"Command dependency unavailable: {error.name}")
         if not silent and hasattr(viewer, 'console_text'):
-            viewer.console_text.text = f"Unknown command: {command_name}"
+            show_status(viewer, f"Unknown command: {command_name}")
         if not silent and hasattr(viewer, 'update_console_background'):
             viewer.update_console_background()
     except Exception as e:
         command_failed(viewer, str(e))
         if not silent and hasattr(viewer, 'console_text'):
-            viewer.console_text.text = f"Error: {e}"
+            show_status(viewer, f"Error: {e}")
         if not silent and hasattr(viewer, 'update_console_background'):
             viewer.update_console_background()
         print(f"Command Error: {e}")

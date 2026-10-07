@@ -894,7 +894,7 @@ class MainViewer:
         """Helper to render the command line with a visible cursor."""
         buf = self.input_buffer
         c = self.cursor_pos
-        self.console_text.text = f"Cmd: {buf[:c]}_{buf[c:]}"
+        Command_Engine.show_status(self, f"Cmd: {buf[:c]}_{buf[c:]}")
         self.update_console_background()
         self.canvas.update()
 
@@ -1543,7 +1543,7 @@ class MainViewer:
         else:
             msg = "Nothing to undo."
             changed = False
-        self.console_text.text = msg
+        Command_Engine.show_status(self, msg)
         print(msg)
         if changed:
             self.broadcast_metadata_state()
@@ -1563,7 +1563,7 @@ class MainViewer:
         else:
             msg = "Nothing to redo."
             changed = False
-        self.console_text.text = msg
+        Command_Engine.show_status(self, msg)
         print(msg)
         if changed:
             self.broadcast_metadata_state()
@@ -2073,7 +2073,7 @@ class MainViewer:
             if self.console_mode:
                 self.console_mode = False
                 self.console_bg.visible = False
-                self.console_text.text = ""
+                Command_Engine.show_status(self, "")
                 self.canvas.update()
             return
 
@@ -2275,10 +2275,10 @@ class MainViewer:
                     native_app = vispy_app.use_app().native
                     native_app.clipboard().setText(full_header)
                     
-                    self.console_text.text = f"Copied: {full_header}"
+                    Command_Engine.show_status(self, f"Copied: {full_header}")
                     print(f"Copied to clipboard: {full_header}")
                 except Exception as e:
-                    self.console_text.text = f"Copy Failed: {full_header}"
+                    Command_Engine.show_status(self, f"Copy Failed: {full_header}")
                     print(f"Clipboard Error: {e}")
 
                 self.update_console_background()
@@ -2332,13 +2332,13 @@ class MainViewer:
                         from vispy import app as vispy_app
                         native_app = vispy_app.use_app().native
                         native_app.clipboard().setText(sequence)
-                        self.console_text.text = f"Copied sequence of: {rec_id}"
+                        Command_Engine.show_status(self, f"Copied sequence of: {rec_id}")
                         print(f"Copied sequence to clipboard: {rec_id} ({len(sequence)} aa)")
                     except Exception as e:
-                        self.console_text.text = f"Copy Failed: {rec_id}"
+                        Command_Engine.show_status(self, f"Copy Failed: {rec_id}")
                         print(f"Clipboard Error: {e}")
                 else:
-                    self.console_text.text = f"Sequence not found for: {rec_id}"
+                    Command_Engine.show_status(self, f"Sequence not found for: {rec_id}")
                     print(f"Sequence not found in FASTA for: {rec_id}")
 
                 self.update_console_background()
@@ -2393,7 +2393,7 @@ class MainViewer:
 
         print(f"Node Selected: {self.full_headers[node_idx]}")
         if getattr(self, 'console_text', None) is not None:
-            self.console_text.text = f"Selected: {label}{group_suffix}"
+            Command_Engine.show_status(self, f"Selected: {label}{group_suffix}")
 
         for display in getattr(self, 'hud_displays', {}).values():
             if getattr(display, 'on_node_clicked', None):
@@ -2992,9 +2992,9 @@ class MainViewer:
 
             # Output final count to console
             if len(self.selected_indices) > 0:
-                self.console_text.text = f"Selected {len(self.selected_indices)} nodes."
+                Command_Engine.show_status(self, f"Selected {len(self.selected_indices)} nodes.")
             else:
-                self.console_text.text = "Selection cleared."
+                Command_Engine.show_status(self, "Selection cleared.")
                 
             event.handled = True
             return

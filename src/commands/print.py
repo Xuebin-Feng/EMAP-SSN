@@ -334,7 +334,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -360,7 +360,7 @@ def run(viewer, args):
             msg = "Error: 'SVG' export is not compatible with 'transparent' or 'full'."
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
-            viewer.console_text.text = msg
+            Command_Engine.show_status(viewer, msg)
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
             return
             
@@ -368,7 +368,7 @@ def run(viewer, args):
             msg = "Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg')."
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
-            viewer.console_text.text = msg
+            Command_Engine.show_status(viewer, msg)
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
             return
 
@@ -385,7 +385,7 @@ def run(viewer, args):
             msg = f"Error: {error}"
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
-            viewer.console_text.text = msg
+            Command_Engine.show_status(viewer, msg)
             if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
             return
     else:
@@ -422,14 +422,14 @@ def run(viewer, args):
             meta_text_visual.visible = False
         if hasattr(viewer, 'console_bg'):
             viewer.console_bg.visible = False
-            viewer.console_text.text = ""
+            Command_Engine.show_status(viewer, "")
             
         if is_svg:
             if not _export_svg(viewer, filepath):
                 msg = "Error: No visible nodes to export."
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
-                viewer.console_text.text = msg
+                Command_Engine.show_status(viewer, msg)
                 if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
                 return
 
@@ -465,7 +465,7 @@ def run(viewer, args):
                 msg = "Error: No visible nodes to export."
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
-                viewer.console_text.text = msg
+                Command_Engine.show_status(viewer, msg)
                 if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
                 return
                 
@@ -564,7 +564,7 @@ def run(viewer, args):
         Command_Engine.command_artifact(viewer, filepath)
         print(f"\n{msg}")
         
-        viewer.console_text.text = f"Saved {image_format}: {filename}"
+        Command_Engine.show_status(viewer, f"Saved {image_format}: {filename}")
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
         
         # Open the save folder in the system file explorer
@@ -576,7 +576,7 @@ def run(viewer, args):
         error_msg = f"Failed to save {image_format}: {e}"
         Command_Engine.command_failed(viewer, error_msg)
         print(f"\n{error_msg}")
-        viewer.console_text.text = f"Error saving {image_format}. Check console."
+        Command_Engine.show_status(viewer, f"Error saving {image_format}. Check console.")
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
         return

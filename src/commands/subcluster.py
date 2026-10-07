@@ -99,7 +99,7 @@ def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -202,7 +202,7 @@ def run(viewer, args):
         elif mode == "leiden": param1 = 1.0
 
     if hasattr(viewer, 'console_text'):
-        viewer.console_text.text = f"Subclustering cluster_{cluster_id} ({mode.upper()})..."
+        Command_Engine.show_status(viewer, f"Subclustering cluster_{cluster_id} ({mode.upper()})...")
     print(f"Running {mode.upper()} Subclustering for cluster_{cluster_id} (Param={param1}, MinSize={min_sz})...")
 
     # --- 3. Extract Subgraph Edges ---
@@ -238,7 +238,7 @@ def run(viewer, args):
         if not network_clustering.NUMBA_AVAILABLE:
             print("Error: Numba required for topology clustering.")
             Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
-            viewer.console_text.text = "Error: Numba library missing."
+            Command_Engine.show_status(viewer, "Error: Numba library missing.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             return
 
@@ -306,7 +306,7 @@ def run(viewer, args):
             msg = "Missing libraries! Run: pip install markov_clustering networkx scipy"
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
-            viewer.console_text.text = msg
+            Command_Engine.show_status(viewer, msg)
             return
             
         print("Building Sparse Adjacency Matrix...")
@@ -346,7 +346,7 @@ def run(viewer, args):
             msg = "Missing library! Run: pip install graspologic-native"
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
-            viewer.console_text.text = msg
+            Command_Engine.show_status(viewer, msg)
             return
 
         print("Building Edge List & Mapping Edge Weights...")
@@ -428,6 +428,6 @@ def run(viewer, args):
 
     msg = f"Done! Found {n_subclusters} subclusters in cluster_{cluster_id} via {mode.upper()}."
     if hasattr(viewer, 'console_text'):
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)

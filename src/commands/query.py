@@ -359,7 +359,7 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -367,7 +367,7 @@ def run(viewer, args):
     if alignment is None or alignment.aln is None:
         msg = "Error: No alignment loaded in the viewer."
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         print(msg)
         return
 
@@ -377,7 +377,7 @@ def run(viewer, args):
             "Query analysis is unavailable."
         )
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         print(msg)
         return
 
@@ -429,7 +429,7 @@ def run(viewer, args):
     if expr == "$sele$" and not getattr(viewer, 'selected_indices', []):
         expr = '"*"'  # The wildcard string matches all headers
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "No selection found. Defaulting to ALL nodes."
+            Command_Engine.show_status(viewer, "No selection found. Defaulting to ALL nodes.")
         print("No nodes selected. Defaulting to ALL nodes in the network.")
 
     # --- 3. Compute Subset Rows ---
@@ -460,7 +460,7 @@ def run(viewer, args):
 
     if n_seqs == 0:
         msg = f"No sequences matched the expression '{expr}'. Aborting query."
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         print("-" * 50)
         print(msg)
         print("-" * 50)
@@ -515,10 +515,11 @@ def run(viewer, args):
 
         n_cols = len(ordered_pos_labels)
         if n_cols == 0:
-            print("No valid alignment columns mapped.")
+            message = "No valid alignment columns mapped."
+            print(message)
             if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = "No valid alignment columns mapped."
-            Command_Engine.command_succeeded(viewer, 'No valid alignment columns mapped.')
+                Command_Engine.show_status(viewer, message)
+            Command_Engine.command_succeeded(viewer, message)
             return
 
         # Precompute AA and Gap frequencies for all mapped columns
@@ -554,7 +555,7 @@ def run(viewer, args):
         except _FrequencyParenthesesError as error:
             msg = str(error)
             if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = "Error: Individual frequency arguments must be enclosed in ()"
+                Command_Engine.show_status(viewer, "Error: Individual frequency arguments must be enclosed in ()")
                 Command_Engine.command_failed(viewer, viewer.console_text.text)
             print("-" * 50)
             print(msg)
@@ -564,7 +565,7 @@ def run(viewer, args):
             msg = f"Error parsing position logic '[{inner}]': {error}"
             Command_Engine.command_failed(viewer, msg)
             if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = msg
+                Command_Engine.show_status(viewer, msg)
             print(msg)
             return
 
@@ -595,9 +596,10 @@ def run(viewer, args):
             print("[No positions matched the search criteria]")
 
         print("-" * 50)
+        message = f"Found {len(matching_labels)} matching position(s). Check terminal."
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = f"Found {len(matching_labels)} matching position(s). Check terminal."
-        Command_Engine.command_succeeded(viewer, f"Found {len(matching_labels)} matching position(s). Check terminal.")
+            Command_Engine.show_status(viewer, message)
+        Command_Engine.command_succeeded(viewer, message)
         return
 
 
@@ -665,7 +667,8 @@ def run(viewer, args):
     print("-" * 50)
     
     if found_count > 0:
-        viewer.console_text.text = f"Queried {found_count} position(s). Check terminal."
+        message = f"Queried {found_count} position(s). Check terminal."
     else:
-        viewer.console_text.text = "No valid positions queried."
-    Command_Engine.command_succeeded(viewer, f"Queried {found_count} position(s). Check terminal." if found_count > 0 else "No valid positions queried.")
+        message = "No valid positions queried."
+    Command_Engine.show_status(viewer, message)
+    Command_Engine.command_succeeded(viewer, message)

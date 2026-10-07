@@ -87,7 +87,7 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -199,7 +199,7 @@ def run(viewer, args):
         push_assignment()
         
     if not assignments:
-        viewer.console_text.text = "Error: No valid assignments found."
+        Command_Engine.show_status(viewer, "Error: No valid assignments found.")
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
@@ -272,9 +272,9 @@ def run(viewer, args):
         viewer.promote_nodes(modified_nodes)
         viewer.update_nodes()
         msg = f"Applied: {'; '.join(stats)}"
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         print(f"\nSuccess! {msg}")
     else:
-        viewer.console_text.text = "No nodes matched criteria."
+        Command_Engine.show_status(viewer, "No nodes matched criteria.")
         print("\nNo nodes matched your criteria.")
     Command_Engine.command_succeeded(viewer, msg if total_modified > 0 else "No nodes matched criteria.")

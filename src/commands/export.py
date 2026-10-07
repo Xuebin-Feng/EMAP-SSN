@@ -98,7 +98,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '-?']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -177,14 +177,14 @@ def run(viewer, args):
 
     # --- Validations ---
     if target_mode == "clusters" and getattr(viewer, 'cluster_labels', None) is None:
-        viewer.console_text.text = "Error: Run 'cluster' first."
+        Command_Engine.show_status(viewer, "Error: Run 'cluster' first.")
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         print("Error: Run 'cluster' first to export clusters.")
         Command_Engine.command_failed(viewer, "Error: Run 'cluster' first to export clusters.")
         return
         
     if target_mode == "groups" and getattr(viewer, 'group_labels', None) is None:
-        viewer.console_text.text = "Error: No groups defined."
+        Command_Engine.show_status(viewer, "Error: No groups defined.")
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         print("Error: No groups defined. Use the 'group' command first.")
         Command_Engine.command_failed(viewer, "Error: No groups defined. Use the 'group' command first.")
@@ -195,7 +195,7 @@ def run(viewer, args):
     if not source_records:
         msg = "Error: No in-memory sequence set is available for export."
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         print(msg)
         return
 
@@ -331,7 +331,7 @@ def run(viewer, args):
 
     if not file_map:
         msg = "No valid subsets found to export."
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         print(msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -359,7 +359,7 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, f'Failed to write {filename}: {e}')
 
     msg = f"Exported {files_written} files ({seqs_written} sequences)."
-    viewer.console_text.text = msg
+    Command_Engine.show_status(viewer, msg)
     print(f"\nSuccess! {msg}")
     
     # Auto-open the output folder in the system file manager

@@ -44,7 +44,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -117,7 +117,7 @@ def run(viewer, args):
     # Load the selected alignment file
     print(f"\nAttempting to load alignment: {selected_file}...")
     if hasattr(viewer, 'console_text'):
-        viewer.console_text.text = f"Loading {selected_file}..."
+        Command_Engine.show_status(viewer, f"Loading {selected_file}...")
 
     # Backup current state for safety rollback
     backup_msa_file = cfg.MSA_FILE
@@ -150,9 +150,7 @@ def run(viewer, args):
         )
         print(f"\n{success_msg}")
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = (
-                f"Loaded {selected_file}: {aligned_count}/{total_count} aligned"
-            )
+            Command_Engine.show_status(viewer, f"Loaded {selected_file}: {aligned_count}/{total_count} aligned")
 
         Command_Engine.command_succeeded(viewer, success_msg)
 
@@ -167,5 +165,5 @@ def run(viewer, args):
         viewer.active_reference = backup_active_ref
         
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Load failed. Reverted to previous alignment."
+            Command_Engine.show_status(viewer, "Load failed. Reverted to previous alignment.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)

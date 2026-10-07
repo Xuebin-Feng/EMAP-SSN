@@ -323,6 +323,13 @@ still change before version 1.0.0.
 - `label` reported each failure to MCP clients twice, once with and once without the
   `Error:` prefix, for example when an argument was invalid or no clusters or groups
   existed. Each failure is now reported once, as the console shows it.
+- The Config and VR Config could not save while a BLAST network was selected: **Save**
+  reported "invalid value for ALIGNMENT_SCORE" and **Save & Run** stopped before
+  launching. A BLAST network blanks the Alignment Score Mode and Normalization Mode
+  fields, which BLAST scores do not use, and the blank fields were saved as empty text.
+  Saving now keeps the choice the fields showed before they went blank, or that of a
+  profile loaded since. Selecting an alignment network again restores that choice
+  instead of resetting it to global and alignment_length.
 
 ### Removed
 

@@ -110,7 +110,7 @@ def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -152,7 +152,7 @@ def run(viewer, args):
         print(f"{'='*52}\n")
         
         msg = f"Listed {len(sorted_groups)} groups in console."
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
 
@@ -304,18 +304,20 @@ def run(viewer, args):
             
     if total_modified > 0:
         viewer.update_nodes()
-        msg = f"Groups Applied: {'; '.join(stats)}"
+        applied = '; '.join(stats)
         if warnings_issued:
-            msg += f" ({len(warnings_issued)} skipped)"
-        viewer.console_text.text = msg
+            msg = f"Groups Applied: {applied} ({len(warnings_issued)} skipped)"
+        else:
+            msg = f"Groups Applied: {applied}"
+        Command_Engine.show_status(viewer, msg)
         print(f"\nSuccess! {msg}")
     elif warnings_issued:
         # If nothing was modified but we had warnings, show the first warning on the HUD
         msg = f"Skipped: {warnings_issued[0]}"
-        viewer.console_text.text = f"Skipped: {warnings_issued[0]}"
+        Command_Engine.show_status(viewer, msg)
         print(f"\nOperation skipped or aborted due to warnings.")
     else:
         msg = "No nodes matched criteria for grouping."
-        viewer.console_text.text = "No nodes matched criteria for grouping."
+        Command_Engine.show_status(viewer, msg)
         print("\nNo nodes matched your criteria.")
     Command_Engine.command_succeeded(viewer, msg)

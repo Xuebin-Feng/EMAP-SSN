@@ -143,7 +143,7 @@ def run(viewer, args):
     if not args:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Error: Missing arguments for spectrum coloring."
+            Command_Engine.show_status(viewer, "Error: Missing arguments for spectrum coloring.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
@@ -158,7 +158,7 @@ def run(viewer, args):
         if arg_lower in ['help', '-h', '--help']:
             print_help()
             if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = "Help information printed to the terminal"
+                Command_Engine.show_status(viewer, "Help information printed to the terminal")
             Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
             return
         if arg_lower.startswith(('prop:', 'property:', 'scheme:', 'color:')):

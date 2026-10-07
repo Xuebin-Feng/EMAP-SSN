@@ -86,7 +86,7 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -157,9 +157,13 @@ def run(viewer, args):
                         sequences_to_save.append(sequence)
 
                 write_fasta_atomic(save_path, headers_to_save, sequences_to_save)
-                msg = f"Saved {len(headers_to_save)} sequences to {save_path}"
                 if missing_count > 0:
-                    msg += f" ({missing_count} missing from the loaded sequences)"
+                    msg = (
+                        f"Saved {len(headers_to_save)} sequences to {save_path} "
+                        f"({missing_count} missing from the loaded sequences)"
+                    )
+                else:
+                    msg = f"Saved {len(headers_to_save)} sequences to {save_path}"
             else:
                 with open(save_path, "w", encoding="utf-8", newline="\n") as f:
                     for idx in selected_indices:
@@ -249,7 +253,7 @@ def run(viewer, args):
         return
 
     if not expr:
-        viewer.console_text.text = "Error: No logic expression provided."
+        Command_Engine.show_status(viewer, "Error: No logic expression provided.")
         Command_Engine.command_failed(viewer, viewer.console_text.text)
         print("\nError: Please provide a valid boolean expression.")
         Command_Engine.command_failed(viewer, '\nError: Please provide a valid boolean expression.')

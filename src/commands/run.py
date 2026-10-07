@@ -71,7 +71,7 @@ def run(viewer, args):
             
             print(f"[Run] Executing Python script: {file_path}")
             if hasattr(viewer, 'console_text'):
-                viewer.console_text.text = "Executing Python script..."
+                Command_Engine.show_status(viewer, "Executing Python script...")
                 if hasattr(vispy_app, 'process_events'):
                     vispy_app.process_events()
 

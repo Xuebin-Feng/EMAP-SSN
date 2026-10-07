@@ -522,13 +522,17 @@ def _generate_logo_artifact(payload):
             except OSError:
                 pass
 
-    message = f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes"
-    if identity_threshold is not None:
-        message += (
-            f" (identity {identity_threshold * 100:g}%, "
-            f"effective N {effective_sequence_count:.2f})"
+    if identity_threshold is None:
+        message = (
+            f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes "
+            f"to {filename}"
         )
-    message += f" to {filename}"
+    else:
+        message = (
+            f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes "
+            f"(identity {identity_threshold * 100:g}%, "
+            f"effective N {effective_sequence_count:.2f}) to {filename}"
+        )
     return {
         "message": message,
         "save_path": save_path,
@@ -732,7 +736,7 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Help information printed to the terminal"
+            Command_Engine.show_status(viewer, "Help information printed to the terminal")
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -836,7 +840,7 @@ def run(viewer, args):
     if expr == "$sele$" and not getattr(viewer, 'selected_indices', []):
         expr = '"*"'  # The wildcard string matches all headers
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "No selection found. Defaulting to ALL nodes."
+            Command_Engine.show_status(viewer, "No selection found. Defaulting to ALL nodes.")
         print("No nodes selected. Defaulting to ALL nodes in the network.")
 
     # 5. Parse Position Array
@@ -851,21 +855,21 @@ def run(viewer, args):
     if not requested_positions:
         msg = "Error: Could not parse positions from brackets."
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         return
 
     alignment = getattr(viewer, 'alignment', None)
     if alignment is None or alignment.aln is None:
         msg = "Error: MSA not loaded in viewer. Please check inputs."
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         return
     if len(alignment.aln) == 0:
         msg = (
             "Error: The selected MSA contains no aligned rows for the current network."
         )
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         return
 
     # 6. Apply Boolean Logic to get matching sequences
@@ -890,7 +894,7 @@ def run(viewer, args):
         
     if len(selected_nodes) == 0:
         msg = "No nodes matched the criteria for logo generation."
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
 
@@ -911,7 +915,7 @@ def run(viewer, args):
     if not valid_cols:
         msg = "Error: Requested positions are outside the sequence bounds."
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         return
 
     # 8. Extract Sequences for Selected Nodes
@@ -927,7 +931,7 @@ def run(viewer, args):
             "Error: No aligned nodes matched the logo selection criteria."
         )
         Command_Engine.command_failed(viewer, msg)
-        viewer.console_text.text = msg
+        Command_Engine.show_status(viewer, msg)
         return
 
     # 9. Freeze the selected data and submit one background artifact job.

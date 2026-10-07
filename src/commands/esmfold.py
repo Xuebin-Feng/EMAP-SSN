@@ -52,7 +52,7 @@ def sanitize_filename(name):
 
 def _set_console_text(viewer, message):
     if hasattr(viewer, 'console_text'):
-        viewer.console_text.text = message
+        Command_Engine.show_status(viewer, message)
 
 
 def _report_usage_error(viewer, message):
@@ -123,7 +123,7 @@ def run(viewer, args):
         print("Error: No nodes selected. Please select a node in the visualizer first.")
         Command_Engine.command_failed(viewer, 'Error: No nodes selected. Please select a node in the visualizer first.')
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Error: No nodes selected."
+            Command_Engine.show_status(viewer, "Error: No nodes selected.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
@@ -132,7 +132,7 @@ def run(viewer, args):
         print("Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
         Command_Engine.command_failed(viewer, "Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Error: Multiple nodes selected. Use 'esmfold multi'."
+            Command_Engine.show_status(viewer, "Error: Multiple nodes selected. Use 'esmfold multi'.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
@@ -188,7 +188,7 @@ def run(viewer, args):
         print("Error: Could not retrieve sequences for selected nodes.")
         Command_Engine.command_failed(viewer, 'Error: Could not retrieve sequences for selected nodes.')
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Error: Sequence retrieval failed."
+            Command_Engine.show_status(viewer, "Error: Sequence retrieval failed.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
@@ -285,7 +285,7 @@ def run(viewer, args):
         if context is None:
             QMessageBox.critical(parent, "ESMFold Launch Error", message)
         if hasattr(viewer, 'console_text'):
-            viewer.console_text.text = "Error: Could not launch the ESMFold terminal."
+            Command_Engine.show_status(viewer, "Error: Could not launch the ESMFold terminal.")
             Command_Engine.command_failed(viewer, viewer.console_text.text)
         return
 
