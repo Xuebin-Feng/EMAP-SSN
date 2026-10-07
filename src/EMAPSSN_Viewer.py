@@ -1415,7 +1415,6 @@ class MainViewer:
             
         self.update_selection_visual()
         self.update_edges()
-        self._refresh_metadata_views()
 
     def _get_custom_attributes_snapshot(self):
         if not getattr(self, '_cacheable_attrs', None):
@@ -1465,22 +1464,6 @@ class MainViewer:
             "columns": removed_columns,
             "hud_property": hud_property,
         })
-
-    def _refresh_metadata_views(self):
-        """Refresh native metadata widgets after metadata shape/value changes."""
-        source_model = getattr(self, "metadata_source_model", None)
-        if source_model is not None and hasattr(source_model, "refresh_columns"):
-            source_model.refresh_columns()
-
-        table_view = getattr(self, "metadata_table_view", None)
-        if table_view is not None:
-            header = table_view.horizontalHeader()
-            if hasattr(header, "setFilterBoxes") and source_model is not None:
-                header.setFilterBoxes(source_model.columnCount())
-
-        proxy_model = getattr(self, "metadata_proxy_model", None)
-        if proxy_model is not None:
-            proxy_model.invalidateFilter()
 
     def _set_metadata_hud_property(self, property_name):
         """Synchronize the optional clicked-node metadata HUD with history."""
@@ -1541,8 +1524,6 @@ class MainViewer:
                     self._set_metadata_hud_property(None)
         else:
             raise ValueError(f"Unsupported history entry kind: {kind}")
-
-        self._refresh_metadata_views()
 
     def _save_state(self):
         """Saves current state to history and clears redo stack."""
@@ -1701,11 +1682,6 @@ class MainViewer:
         if getattr(self, 'line_visual', None) is None:
             return
         active_edges, _ = edge_stages(self, cfg, cache=True)
-        current_vis_hash = (self.visible_mask.tobytes(), self.current_slider_threshold)
-        if getattr(self, '_last_vis_mask_hash', None) != current_vis_hash:
-            self._last_vis_mask_hash = current_vis_hash
-            if hasattr(self, 'sync_metadata_table_visibility'):
-                self.sync_metadata_table_visibility()
         self._cached_active_edges = active_edges
         if len(active_edges):
             self.line_visual.visible = True
@@ -2418,9 +2394,6 @@ class MainViewer:
         print(f"Node Selected: {self.full_headers[node_idx]}")
         if getattr(self, 'console_text', None) is not None:
             self.console_text.text = f"Selected: {label}{group_suffix}"
-
-        if hasattr(self, 'sync_metadata_table_selection'):
-            self.sync_metadata_table_selection(node_idx)
 
         for display in getattr(self, 'hud_displays', {}).values():
             if getattr(display, 'on_node_clicked', None):

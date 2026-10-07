@@ -21,10 +21,6 @@ import uuid
 import numpy as np
 
 
-DEFAULT_NODE_LIMIT = 100
-MAX_NODE_LIMIT = 500
-
-
 class ViewerInspectionError(ValueError):
     """Raised when a bounded Viewer query is invalid."""
 
@@ -540,104 +536,8 @@ class ViewerInspectionService:
             },
         }
 
-    def query_nodes(
-        self,
-        scope="all",
-        offset=0,
-        limit=DEFAULT_NODE_LIMIT,
-        columns=None,
-    ):
-        """Return one bounded page of nodes and requested metadata."""
-        scope = str(scope).strip().lower()
-        if scope not in {"all", "visible", "selected"}:
-            raise ViewerInspectionError(
-                "scope must be one of: all, visible, selected"
-            )
-        try:
-            offset = int(offset)
-            limit = int(limit)
-        except (TypeError, ValueError) as error:
-            raise ViewerInspectionError("offset and limit must be integers") from error
-        if offset < 0:
-            raise ViewerInspectionError("offset must be non-negative")
-        if limit < 1 or limit > MAX_NODE_LIMIT:
-            raise ViewerInspectionError(
-                f"limit must be between 1 and {MAX_NODE_LIMIT}"
-            )
-
-        metadata = self._metadata()
-        available_columns = tuple(str(name) for name in metadata)
-        if columns is None:
-            requested_columns = available_columns
-        else:
-            if isinstance(columns, str) or not isinstance(columns, Sequence):
-                raise ViewerInspectionError("columns must be a list of metadata names")
-            requested_columns = tuple(str(name) for name in columns)
-            unknown = [name for name in requested_columns if name not in metadata]
-            if unknown:
-                raise ViewerInspectionError(
-                    "Unknown metadata columns: " + ", ".join(unknown)
-                )
-
-        node_count = self._node_count()
-        visible = self._visible_flags(node_count)
-        selected = self._selected_indices(node_count)
-        selected_set = set(selected)
-        if scope == "visible":
-            indices = [index for index in range(node_count) if visible[index]]
-        elif scope == "selected":
-            indices = selected
-        else:
-            indices = list(range(node_count))
-
-        headers = getattr(self._viewer, "full_headers", ())
-        clusters = getattr(self._viewer, "cluster_labels", None)
-        groups = getattr(self._viewer, "group_labels", None)
-        rows = []
-        for index in indices[offset : offset + limit]:
-            metadata_values = {}
-            for column in requested_columns:
-                entry = metadata[column]
-                values = entry.get("values", ()) if isinstance(entry, Mapping) else ()
-                value = values[index] if index < len(values) else None
-                metadata_values[column] = json_value(value)
-            rows.append(
-                {
-                    "index": index,
-                    "node_id": (
-                        json_value(headers[index])
-                        if index < len(headers)
-                        else str(index)
-                    ),
-                    "visible": visible[index],
-                    "selected": index in selected_set,
-                    "cluster": (
-                        json_value(clusters[index])
-                        if clusters is not None and index < len(clusters)
-                        else None
-                    ),
-                    "groups": (
-                        json_value(groups[index])
-                        if groups is not None and index < len(groups)
-                        else []
-                    ),
-                    "metadata": metadata_values,
-                }
-            )
-
-        return {
-            "scope": scope,
-            "offset": offset,
-            "limit": limit,
-            "total": len(indices),
-            "columns": list(requested_columns),
-            "nodes": rows,
-        }
-
 
 __all__ = [
-    "DEFAULT_NODE_LIMIT",
-    "MAX_NODE_LIMIT",
     "SnapshotStore",
     "ViewerInspectionError",
     "ViewerInspectionService",

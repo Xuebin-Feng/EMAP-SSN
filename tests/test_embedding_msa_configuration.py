@@ -229,6 +229,32 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
         self.assertIn("Unknown NORMALIZATION_MODE 'longest'", str(raised.exception.code))
         open_file.assert_not_called()
 
+    def test_unknown_alignment_score_is_rejected_before_opening_files(self):
+        # Only an exact "global" selected the network's global scores, so a
+        # hand-written "Global" built the guide tree from local scores silently,
+        # even with alignment_length, which local scores must not use.
+        for score in ("Global", "LOCAL", " global", "glocal", "", None, 1):
+            with self.subTest(score=score):
+                for normalization in ("alignment_length", "longer_sequence"):
+                    with self.assertRaisesRegex(
+                        Embedding_MSA.MSAConfigurationError, "Unknown ALIGNMENT_SCORE"
+                    ):
+                        Embedding_MSA.validate_score_normalization(score, normalization)
+        with mock.patch.multiple(
+            Embedding_MSA,
+            ALIGNMENT_SCORE="Global",
+            NORMALIZATION_MODE="alignment_length",
+            INPUT_EMBED=self.input_embed,
+            INPUT_NETWORK=self.input_network,
+        ), mock.patch.object(Embedding_MSA.mp, "set_start_method"), mock.patch.object(
+            Embedding_MSA.h5py, "File"
+        ) as open_file:
+            with self.assertRaises(SystemExit) as raised:
+                Embedding_MSA.run_msa_builder()
+
+        self.assertIn("Unknown ALIGNMENT_SCORE 'Global'", str(raised.exception.code))
+        open_file.assert_not_called()
+
     def test_noncanonical_embedding_name_uses_stem_fallback(self):
         resolved = self.resolve(input_embed="custom_embeddings.h5")
         self.assertEqual(resolved["sequence_set"], "custom")

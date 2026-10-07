@@ -4,10 +4,15 @@ Python callers delegate to it instead of naming terminals themselves."""
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import os
 from pathlib import Path
+import runpy
 import shlex
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -200,6 +205,149 @@ class TerminalPolicyTests(unittest.TestCase):
             stdin=launcher.subprocess.DEVNULL,
             stdout=log,
             stderr=log,
+        )
+
+    def test_unsupported_platform_raises_without_spawning(self):
+        with mock.patch.object(launcher.subprocess, "Popen") as popen:
+            with self.assertRaises(launcher.TerminalUnavailableError) as raised:
+                launcher.launch_in_terminal(
+                    ["python", "worker.py"], cwd=PROJECT_ROOT, platform_name="sunos5"
+                )
+        self.assertEqual(
+            str(raised.exception),
+            "Terminal launching is not supported on platform 'sunos5'.",
+        )
+        popen.assert_not_called()
+
+
+class WindowsLaunchTests(unittest.TestCase):
+    """The win32 path: a new console running the --windows-child wrapper,
+    which runs the command and holds the console as requested."""
+
+    COMMAND = ["python.exe", "worker.py", "a&b", "%PATH%"]
+
+    def test_win32_launch_opens_a_new_console_running_the_child_wrapper(self):
+        with mock.patch.object(launcher.subprocess, "Popen") as popen:
+            launcher.launch_in_terminal(
+                self.COMMAND,
+                cwd=PROJECT_ROOT,
+                hold="on_error",
+                title="EMAP-SSN Viewer",
+                platform_name="win32",
+            )
+        argv = popen.call_args.args[0]
+        self.assertEqual(
+            argv[:3],
+            [launcher._console_python(), "-u", os.path.abspath(launcher.__file__)],
+        )
+        self.assertEqual(argv[-2], "--windows-child")
+        self.assertEqual(
+            launcher._decode_windows_payload(argv[-1]),
+            (self.COMMAND, launcher.HoldMode.ON_ERROR, "EMAP-SSN Viewer"),
+        )
+        # CREATE_NEW_CONSOLE is 0x10, also where subprocess lacks the name.
+        self.assertEqual(
+            popen.call_args.kwargs, {"cwd": str(PROJECT_ROOT), "creationflags": 0x10}
+        )
+
+    def test_win32_launch_without_hold_or_title_runs_the_command_itself(self):
+        with mock.patch.object(launcher.subprocess, "Popen") as popen:
+            launcher.launch_in_terminal(
+                self.COMMAND, cwd=PROJECT_ROOT, platform_name="win32"
+            )
+        popen.assert_called_once_with(
+            self.COMMAND, cwd=str(PROJECT_ROOT), creationflags=0x10
+        )
+
+    def test_child_uses_the_console_python_beside_pythonw(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pythonw = os.path.join(temp_dir, "pythonw.exe")
+            with mock.patch.object(launcher.sys, "executable", pythonw):
+                self.assertEqual(launcher._console_python(), pythonw)
+                python = os.path.join(temp_dir, "python.exe")
+                Path(python).touch()
+                self.assertEqual(launcher._console_python(), python)
+
+    def run_child(self, hold, title="", returncode=0, run_error=None, prompt_error=None):
+        """Run _run_windows_child with the command, prompt and console faked."""
+        payload = launcher._encode_windows_payload(self.COMMAND, hold, title)
+        completed = subprocess.CompletedProcess(self.COMMAND, returncode)
+        run = mock.Mock(side_effect=run_error or (lambda *args, **kwargs: completed))
+        prompt = mock.Mock(side_effect=prompt_error)
+        windll = mock.Mock()
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.object(launcher.subprocess, "run", run), \
+                mock.patch("builtins.input", prompt), \
+                mock.patch("ctypes.windll", windll, create=True), \
+                mock.patch.dict(os.environ, {"COMSPEC": "test-shell.exe"}), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            status = launcher._run_windows_child(payload)
+        return status, run, prompt, windll, stdout.getvalue(), stderr.getvalue()
+
+    def test_on_error_child_prompts_only_after_a_failure(self):
+        status, run, prompt, windll, output, _ = self.run_child(
+            launcher.HoldMode.ON_ERROR, title="EMAP-SSN Viewer", returncode=3
+        )
+        self.assertEqual(status, 3)
+        run.assert_called_once_with(self.COMMAND, check=False)
+        prompt.assert_called_once_with("Press Enter to close...")
+        self.assertEqual(output, "\nProcess exited with code 3.\n")
+        windll.kernel32.SetConsoleTitleW.assert_called_once_with("EMAP-SSN Viewer")
+
+        status, run, prompt, windll, output, _ = self.run_child(
+            launcher.HoldMode.ON_ERROR, returncode=0
+        )
+        self.assertEqual(status, 0)
+        prompt.assert_not_called()
+        self.assertEqual(output, "")
+        windll.kernel32.SetConsoleTitleW.assert_not_called()
+
+    def test_child_that_cannot_start_exits_127_and_holds(self):
+        status, _run, prompt, _windll, _output, errors = self.run_child(
+            launcher.HoldMode.ON_ERROR, run_error=FileNotFoundError(2, "not found")
+        )
+        self.assertEqual(status, 127)
+        self.assertEqual(errors, "Failed to start python.exe: [Errno 2] not found\n")
+        prompt.assert_called_once_with("Press Enter to close...")
+
+    def test_closed_stdin_at_the_prompt_is_tolerated(self):
+        status, _run, prompt, _windll, _output, _errors = self.run_child(
+            launcher.HoldMode.ON_ERROR, returncode=3, prompt_error=EOFError
+        )
+        self.assertEqual(status, 3)
+        prompt.assert_called_once_with("Press Enter to close...")
+
+    def test_always_child_opens_the_comspec_shell_after_the_command(self):
+        status, run, prompt, _windll, output, _ = self.run_child(
+            launcher.HoldMode.ALWAYS, returncode=0
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            run.call_args_list,
+            [mock.call(self.COMMAND, check=False), mock.call(["test-shell.exe"], check=False)],
+        )
+        prompt.assert_not_called()
+        self.assertEqual(output, "\nProcess exited with code 0.\n")
+
+    def test_script_entry_point_returns_the_child_status(self):
+        payload = launcher._encode_windows_payload(
+            self.COMMAND, launcher.HoldMode.ON_ERROR, ""
+        )
+        completed = subprocess.CompletedProcess(self.COMMAND, 5)
+        script = os.path.abspath(launcher.__file__)
+        with mock.patch.object(subprocess, "run", return_value=completed), \
+                mock.patch("builtins.input"), \
+                mock.patch("ctypes.windll", create=True), \
+                redirect_stdout(io.StringIO()):
+            with mock.patch.object(sys, "argv", [script, "--windows-child", payload]):
+                with self.assertRaises(SystemExit) as child_exit:
+                    runpy.run_path(script, run_name="__main__")
+            with mock.patch.object(sys, "argv", [script]):
+                with self.assertRaises(SystemExit) as direct_exit:
+                    runpy.run_path(script, run_name="__main__")
+        self.assertEqual(child_exit.exception.code, 5)
+        self.assertEqual(
+            direct_exit.exception.code, "Terminal_Launcher.py is an internal utility."
         )
 
 

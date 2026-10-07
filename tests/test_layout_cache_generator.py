@@ -32,6 +32,8 @@ from Layout_Cache_Generator import (
 from desktop.Viewer_State import decode_document, LAYOUT_SECTIONS
 from utilities.Sequence_Utils import derive_node_metadata
 from tests.layout_fixtures import (  # noqa: E402
+    make_compatibility,
+    make_manifest,
     settings_document as _settings_document,
     write_inputs as _write_inputs,
 )
@@ -465,6 +467,100 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertIn("--delete-settings", called_cmd[0])
                 self.assertFalse(snapshot.exists())
                 self.assertFalse(settings_file.exists())
+
+
+class LayoutTargetProtectionTests(unittest.TestCase):
+    """resolve_layout_selection refuses a Viewer-chosen target folder that
+    belongs to another cache, and creates nothing while it checks."""
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = pathlib.Path(temp_dir.name)
+        _write_inputs(self.root)
+        self.layouts = self.root / "layouts"
+        self.target = self.layouts / "foo"
+
+    def settings(self, target="foo/version_00.h5"):
+        document = _settings_document(self.root)
+        document["output"]["TARGET_CACHE_PATH"] = target
+        return LayoutGenerationSettings.from_document(document, project_root=self.root)
+
+    def resolve(self, target="foo/version_00.h5"):
+        settings = self.settings(target)
+        manifest = Layout_Cache_Generator.resolve_layout_selection(settings)
+        return settings, manifest
+
+    def resolve_error(self, target="foo/version_00.h5"):
+        with self.assertRaises(LayoutGenerationError) as raised:
+            self.resolve(target)
+        return str(raised.exception)
+
+    def test_free_target_resolves_without_creating_it(self):
+        settings, manifest = self.resolve()
+        self.assertEqual(
+            settings.TARGET_CACHE_PATH,
+            os.path.join(settings.SAVED_LAYOUT_DIR, "foo", "version_00.h5"),
+        )
+        self.assertEqual(manifest["compatibility"]["network_type"], "alignment")
+        self.assertFalse(self.layouts.exists())
+
+    def test_target_holding_another_inputs_manifest_is_refused(self):
+        Cache_Manifest.write_manifest_atomic(
+            self.target, make_manifest(make_compatibility())
+        )
+        self.assertEqual(
+            self.resolve_error(),
+            "The target folder contains an incompatible cache manifest.",
+        )
+
+    def test_target_with_an_unreadable_manifest_is_refused(self):
+        self.target.mkdir(parents=True)
+        (self.target / Cache_Manifest.MANIFEST_FILENAME).write_text("{", encoding="utf-8")
+        with self.assertRaises(json.JSONDecodeError) as parse_error:
+            json.loads("{")
+        self.assertEqual(
+            self.resolve_error(),
+            f"The target folder contains an invalid cache manifest: {parse_error.exception}",
+        )
+
+    def test_target_with_stray_files_and_no_manifest_is_refused(self):
+        self.target.mkdir(parents=True)
+        # The FASTA backup and staged .partial files may be there already.
+        for name in ("notes.txt", "set.fasta", "version_00.h5.partial"):
+            (self.target / name).write_text("x", encoding="utf-8")
+        self.assertEqual(
+            self.resolve_error(),
+            "The canonical target folder already contains files but no compatible "
+            "manifest: notes.txt",
+        )
+
+        (self.target / "notes.txt").unlink()
+        settings, _manifest = self.resolve()
+        self.assertEqual(
+            settings.TARGET_CACHE_PATH,
+            os.path.join(settings.SAVED_LAYOUT_DIR, "foo", "version_00.h5"),
+        )
+
+    def test_target_away_from_the_compatible_manifest_folder_is_refused(self):
+        _settings, manifest = self.resolve()
+        Cache_Manifest.write_manifest_atomic(self.layouts / "bar", manifest)
+        self.assertEqual(
+            self.resolve_error(),
+            "The viewer target folder differs from the compatible manifest folder.",
+        )
+
+        settings, _manifest = self.resolve("bar/version_00.h5")
+        self.assertEqual(
+            settings.TARGET_CACHE_PATH,
+            os.path.join(settings.SAVED_LAYOUT_DIR, "bar", "version_00.h5"),
+        )
+
+    def test_target_filename_must_match_cache_filename(self):
+        self.assertEqual(
+            self.resolve_error("foo/other.h5"),
+            "The viewer target filename does not match CACHE_FILENAME.",
+        )
 
 
 class NodeMetadataDerivationTests(unittest.TestCase):

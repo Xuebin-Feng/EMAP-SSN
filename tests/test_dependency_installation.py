@@ -30,6 +30,28 @@ import Install_Dependencies  # noqa: E402
 from tests.gpu_fixtures import detected_report  # noqa: E402
 
 
+def _saved_state(active, requirements):
+    """The backend state an earlier install saved with `active` validated.
+
+    write_state adds the detection report, hardware fingerprint and requested
+    candidate ladder when the test passes it a report.
+    """
+    return {
+        "schema": Install_Dependencies.STATE_SCHEMA,
+        "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
+        "active_backend": Install_Dependencies._spec_payloads((active,))[0],
+        "requirements_sha256": Install_Dependencies._requirements_sha256(requirements),
+        "esm_version": Install_Dependencies.ESM_VERSION,
+        "transformers_version": Install_Dependencies.TRANSFORMERS_VERSION,
+        "esm_runtime_requirements_sha256": Install_Dependencies._requirements_sha256(
+            requirements.parent / "esm_runtime_requirements.txt"
+        ),
+        "validated_devices": [],
+        "ignored_devices": [],
+        "attempts": [],
+    }
+
+
 class DependencyInstallerTests(unittest.TestCase):
     def _cpu_report(self):
         return detected_report(
@@ -91,8 +113,7 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
 
     def test_successful_backend_validation_is_silent(self):
-        # A real validator report: an empty stdout would take the shim that
-        # fabricates a payload for mocks, not the JSON path production uses.
+        # A real validator report: validate_backend parses its JSON.
         device = {"spec": "cpu", "success": True}
         success = mock.Mock(
             returncode=0,
@@ -103,7 +124,7 @@ class DependencyInstallerTests(unittest.TestCase):
             stderr="",
         )
         output = io.StringIO()
-        spec = Install_Dependencies.backend_spec({"backend": "cpu"})
+        spec = Install_Dependencies.backend_specs({"backend": "cpu"})[0]
         with mock.patch.object(
             Install_Dependencies, "_run", return_value=success
         ), redirect_stdout(output):
@@ -123,7 +144,7 @@ class DependencyInstallerTests(unittest.TestCase):
             }),
             stderr="",
         )
-        spec = Install_Dependencies.backend_spec({"backend": "cuda126"})
+        spec = Install_Dependencies.backend_specs({"backend": "cuda126"})[0]
         with mock.patch.object(Install_Dependencies, "_run", return_value=success) as run:
             validation = Install_Dependencies.validate_backend_package(
                 Path("python"), spec
@@ -153,13 +174,13 @@ class DependencyInstallerTests(unittest.TestCase):
         }
         for backend, index_suffix in index_suffixes.items():
             with self.subTest(backend=backend):
-                spec = Install_Dependencies.backend_spec({"backend": backend})
-                command = Install_Dependencies.torch_install_command("uv", python, spec)
+                spec = Install_Dependencies.backend_specs({"backend": backend})[0]
+                command = Install_Dependencies.backend_install_commands("uv", python, spec)[0]
                 self.assertIn(f"torch=={Install_Dependencies.TORCH_VERSION}", command)
                 self.assertTrue(command[-1].endswith(index_suffix))
 
-        mps = Install_Dependencies.backend_spec({"backend": "mps"})
-        self.assertNotIn("--index-url", Install_Dependencies.torch_install_command("uv", python, mps))
+        mps = Install_Dependencies.backend_specs({"backend": "mps"})[0]
+        self.assertNotIn("--index-url", Install_Dependencies.backend_install_commands("uv", python, mps)[0])
 
     def test_rocm_is_one_architecture_specific_profile(self):
         # The per-ROCm-release profiles are gone: a single `rocm` backend
@@ -172,10 +193,10 @@ class DependencyInstallerTests(unittest.TestCase):
             ),
             [Install_Dependencies.ROCM_BACKEND],
         )
-        spec = Install_Dependencies.backend_spec(
+        spec = Install_Dependencies.backend_specs(
             {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"}
-        )
-        command = Install_Dependencies.torch_install_command("uv", Path("python"), spec)
+        )[0]
+        command = Install_Dependencies.backend_install_commands("uv", Path("python"), spec)[0]
         self.assertIn(
             f"torch[device-gfx1100]=={Install_Dependencies.ROCM_TORCH_VERSION}", command
         )
@@ -186,9 +207,9 @@ class DependencyInstallerTests(unittest.TestCase):
         # comparable with torch.__version__ during runtime validation.
         self.assertEqual(spec.torch_version, Install_Dependencies.TORCH_VERSION)
         with self.assertRaises(ValueError):
-            Install_Dependencies.backend_spec(
+            Install_Dependencies.backend_specs(
                 {"backend": Install_Dependencies.ROCM_BACKEND}
-            )
+            )[0]
 
     def test_malformed_local_state_is_ignored(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -270,7 +291,7 @@ class DependencyInstallerTests(unittest.TestCase):
 
         def install_backend(*_args):
             events.append("BACKEND")
-            return True
+            return {"validated_devices": [{"spec": "cpu", "success": True}]}
 
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             Install_Dependencies, "venv_python", return_value=Path(sys.executable)
@@ -377,7 +398,7 @@ class DependencyInstallerTests(unittest.TestCase):
                 venv = Path(temp_dir)
                 Install_Dependencies.write_state(
                     venv / Install_Dependencies.STATE_FILENAME,
-                    Install_Dependencies._state_profile(
+                    _saved_state(
                         spec, ROOT / "src" / "requirements.txt"
                     ),
                     report,
@@ -411,7 +432,7 @@ class DependencyInstallerTests(unittest.TestCase):
         report = self._cpu_report()
         specs = Install_Dependencies.backend_specs(report)
         requirements = ROOT / "src" / "requirements.txt"
-        state = Install_Dependencies._state_profile(specs[0], requirements)
+        state = _saved_state(specs[0], requirements)
         state.update({
             "hardware_fingerprint": Install_Dependencies.hardware_fingerprint(report),
             "requested_candidates": Install_Dependencies._spec_payloads(specs),
@@ -442,7 +463,7 @@ class DependencyInstallerTests(unittest.TestCase):
         specs = Install_Dependencies.backend_specs(report)
         requirements = ROOT / "src" / "requirements.txt"
         fingerprint = Install_Dependencies.hardware_fingerprint(report)
-        state = Install_Dependencies._state_profile(specs[0], requirements)
+        state = _saved_state(specs[0], requirements)
         state.update({
             "hardware_fingerprint": "old-fingerprint",
             "requested_candidates": [],
@@ -512,7 +533,7 @@ class DependencyInstallerTests(unittest.TestCase):
             runtime = Path(temp_dir) / "esm_runtime_requirements.txt"
             requirements.write_text("# Core\nnumpy==2.5.3\n", encoding="utf-8")
             runtime.write_text("# ESM runtime\neinops\n", encoding="utf-8")
-            state = Install_Dependencies._state_profile(specs[0], requirements)
+            state = _saved_state(specs[0], requirements)
             state.update({
                 "hardware_fingerprint": fingerprint,
                 "requested_candidates": Install_Dependencies._spec_payloads(specs),
@@ -545,7 +566,7 @@ class DependencyInstallerTests(unittest.TestCase):
         validation = {"validated_devices": [{"spec": "cuda:0", "success": True}]}
         with tempfile.TemporaryDirectory() as temp_dir:
             venv = Path(temp_dir)
-            state = Install_Dependencies._state_profile(specs[0], requirements)
+            state = _saved_state(specs[0], requirements)
             Install_Dependencies.write_state(
                 venv / Install_Dependencies.STATE_FILENAME, state, report
             )
@@ -592,7 +613,7 @@ class DependencyInstallerTests(unittest.TestCase):
             python.touch()
             Install_Dependencies.write_state(
                 venv / Install_Dependencies.STATE_FILENAME,
-                Install_Dependencies._state_profile(
+                _saved_state(
                     cuda_spec, ROOT / "src" / "requirements.txt"
                 ),
                 cuda_report,
@@ -635,7 +656,7 @@ class DependencyInstallerTests(unittest.TestCase):
             venv = Path(temp_dir)
             Install_Dependencies.write_state(
                 venv / Install_Dependencies.STATE_FILENAME,
-                Install_Dependencies._state_profile(
+                _saved_state(
                     cuda_spec, ROOT / "src" / "requirements.txt"
                 ),
                 cuda_report,
@@ -741,7 +762,7 @@ class DependencyInstallerTests(unittest.TestCase):
             venv = Path(temp_dir)
             Install_Dependencies.write_state(
                 venv / Install_Dependencies.STATE_FILENAME,
-                Install_Dependencies._state_profile(
+                _saved_state(
                     specs[0], ROOT / "src" / "requirements.txt"
                 ),
                 report,
@@ -779,7 +800,10 @@ class DependencyInstallerTests(unittest.TestCase):
                 mock.patch.object(Install_Dependencies, "venv_python", return_value=Path(sys.executable)), \
                 mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
                 mock.patch.object(Install_Dependencies, "_run", return_value=success), \
-                mock.patch.object(Install_Dependencies, "install_backend", side_effect=[False, True]) as install_backend, \
+                mock.patch.object(
+                    Install_Dependencies, "install_backend",
+                    side_effect=[None, {"validated_devices": [{"spec": "cpu", "success": True}]}],
+                ) as install_backend, \
                 mock.patch.object(Install_Dependencies, "_installed_version", return_value=None), \
                 mock.patch.object(Install_Dependencies, "write_state") as write_state, \
                 redirect_stdout(output):
@@ -814,16 +838,13 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_validated_cpu_fallback_is_reused_for_the_same_hardware(self):
         report = self._rocm_report()
-        requested = Install_Dependencies.backend_spec(report)
-        active = Install_Dependencies.backend_spec({"backend": "cpu"})
+        active = Install_Dependencies.backend_specs({"backend": "cpu"})[0]
         success = mock.Mock(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as temp_dir:
             venv = Path(temp_dir)
             Install_Dependencies.write_state(
                 venv / Install_Dependencies.STATE_FILENAME,
-                Install_Dependencies._state_profile(
-                    active, ROOT / "src" / "requirements.txt", requested
-                ),
+                _saved_state(active, ROOT / "src" / "requirements.txt"),
                 report,
             )
             with mock.patch.object(
@@ -833,7 +854,9 @@ class DependencyInstallerTests(unittest.TestCase):
                 ), mock.patch.object(
                     Install_Dependencies, "_run", return_value=success
                 ), mock.patch.object(
-                    Install_Dependencies, "validate_backend", return_value=True
+                    Install_Dependencies,
+                    "validate_backend",
+                    return_value={"validated_devices": [{"spec": "cpu", "success": True}]},
                 ) as validate, mock.patch.object(
                     Install_Dependencies, "install_backend"
                 ) as install_backend, mock.patch.object(
@@ -959,7 +982,7 @@ class DependencyReadinessTests(unittest.TestCase):
             python = root / "python"
             python.touch()
             state = {"active_backend": {"backend": "cpu"}}
-            active = Install_Dependencies.backend_spec({"backend": "cpu"})
+            active = Install_Dependencies.backend_specs({"backend": "cpu"})[0]
             with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
                     mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
                     mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
@@ -1181,7 +1204,7 @@ class BackendValidationTests(unittest.TestCase):
     ROCM = {"backend": Install_Dependencies.ROCM_BACKEND, "gfx_target": "gfx1100"}
 
     def _validate(self, report, devices=(), *, package_error=None, returncode=0, stdout=None):
-        spec = Install_Dependencies.backend_spec(report)
+        spec = Install_Dependencies.backend_specs(report)[0]
         if stdout is None:
             stdout = json.dumps({
                 "backend": spec.backend, "profile": spec.profile,
@@ -1246,6 +1269,7 @@ class BackendValidationTests(unittest.TestCase):
             "nonzero exit": dict(devices=[device], returncode=1),
             "non-JSON output": dict(stdout="Traceback (most recent call last):"),
             "JSON that is not an object": dict(stdout="[]"),
+            "no output": dict(stdout=""),
             "no passing device": dict(
                 devices=[self._device(architecture="sm_120", success=False)]
             ),
@@ -1334,7 +1358,7 @@ class ValidatorProgramTests(unittest.TestCase):
         Returns the validation result, the validator's stderr and the device
         probes the program made.
         """
-        spec = Install_Dependencies.backend_spec(report)
+        spec = Install_Dependencies.backend_specs(report)[0]
         config = {"version": f"{Install_Dependencies.TORCH_VERSION}+test", **torch_config}
         with tempfile.TemporaryDirectory() as folder:
             package = Path(folder) / "torch"
@@ -1360,7 +1384,7 @@ class ValidatorProgramTests(unittest.TestCase):
 
     def test_generated_programs_compile_for_every_profile(self):
         for report in self.PROFILES:
-            spec = Install_Dependencies.backend_spec(report)
+            spec = Install_Dependencies.backend_specs(report)[0]
             for name, build in (
                 ("runtime", Install_Dependencies._validation_program),
                 ("package", Install_Dependencies._package_validation_program),

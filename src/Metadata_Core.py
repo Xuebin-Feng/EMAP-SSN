@@ -95,16 +95,6 @@ def _record_metadata_cell_history(viewer, column, row, before, after):
     elif hasattr(viewer, "_save_state"):
         viewer._save_state()
 
-def refresh_metadata_views(viewer):
-    refresh = getattr(viewer, "_refresh_metadata_views", None)
-    if callable(refresh):
-        refresh()
-        return
-
-    source_model = getattr(viewer, "metadata_source_model", None)
-    if source_model is not None and hasattr(source_model, "refresh_columns"):
-        source_model.refresh_columns()
-
 def metadata_state_event(viewer):
     return {
         "type": "state_updated",
@@ -223,7 +213,6 @@ def delete_metadata_columns(viewer, requested_names, broadcast=True):
             if display is not None:
                 display.hide()
 
-    refresh_metadata_views(viewer)
     if broadcast:
         broadcast_metadata_state(viewer)
     return resolved

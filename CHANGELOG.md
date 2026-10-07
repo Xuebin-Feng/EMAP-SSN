@@ -303,11 +303,32 @@ still change before version 1.0.0.
   now reads the whitelist with the shared FASTA reader, sanitizes each header with the
   same rules as the network's headers, and reports how many whitelist headers matched
   no network header.
+- `@file@` header lists in Viewer selection expressions left nodes out without any
+  message. A list saved with a byte-order mark, as Windows Notepad can write, lost its
+  first entry. Entries were compared as written, while networks store headers
+  sanitized, so a header copied from the FASTA the network was built from matched
+  nothing when sanitizing changes it, such as one with a description after a space.
+  `[NCBI]` and `[PDB]` lists missed every node whose accession or PDB ID is followed by
+  a description, because sanitizing turns the space after the ID into `_`, which the
+  ID search read as part of the ID. A list that was not UTF-8 lost the characters it
+  could not decode, and a UTF-16 list matched nothing. Lists are now read as UTF-8
+  with or without a byte-order mark, each entry is sanitized like a network header,
+  and an ID ends at `_` as it does at a space. A list in another encoding is refused
+  with a message, and the terminal lists the entries that matched no node.
 - The Config and VR Config accepted a saved profile named "(custom)", "(default)" or
   "(new)". The profile selector listed it under the same text as the built-in entry
   and could not tell the two apart. These names are now reserved like "custom",
   "default" and "new", and an existing profile file with one of them no longer
   appears in the selector; rename the file to use it again.
+- `label` reported each failure to MCP clients twice, once with and once without the
+  `Error:` prefix, for example when an argument was invalid or no clusters or groups
+  existed. Each failure is now reported once, as the console shows it.
+
+### Removed
+
+- The Viewer's `GET /api/mcp/v1/nodes` inspection route, which returned a page of
+  live node data. No client used it: the MCP server reads node pages from captured
+  snapshots through `query_nodes` on `POST /api/mcp/v1/data`.
 
 ## [0.3.0] - 2026-10-01
 

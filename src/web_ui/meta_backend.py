@@ -30,7 +30,6 @@ from Metadata_Core import (
     _parse_metadata_value,
     _metadata_values_equal,
     _record_metadata_cell_history,
-    refresh_metadata_views,
     metadata_state_event,
     broadcast_metadata_state,
     _resolve_metadata_column_names,

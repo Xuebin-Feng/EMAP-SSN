@@ -383,7 +383,6 @@ class LeftClickFocusTests(unittest.TestCase):
         viewer.console_text = SimpleNamespace(text="")
         display = SimpleNamespace(on_node_clicked=mock.Mock())
         viewer.hud_displays = {"probe": display}
-        viewer.sync_metadata_table_selection = mock.Mock()
         viewer.update_nodes = mock.Mock()
         viewer.broadcast_event = mock.Mock()
         return viewer, display
@@ -401,7 +400,6 @@ class LeftClickFocusTests(unittest.TestCase):
             viewer.console_text.text,
             "Selected: [Cluster 7] B [Groups: alpha, beta]",
         )
-        viewer.sync_metadata_table_selection.assert_called_once_with(1)
         display.on_node_clicked.assert_called_once_with(1)
         viewer.update_nodes.assert_called_once_with()
         viewer.broadcast_event.assert_called_once_with(

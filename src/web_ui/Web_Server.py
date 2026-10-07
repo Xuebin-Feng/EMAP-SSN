@@ -325,7 +325,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         parsed_path = urlsplit(self.path)
         clean_path = parsed_path.path
         if clean_path.startswith("/api/mcp/v1/"):
-            self.handle_mcp_inspection(clean_path, parsed_path.query)
+            self.handle_mcp_inspection(clean_path)
             return
         if clean_path == "/api/events":
             self.handle_sse(event_client_from_path(self.path))
@@ -442,7 +442,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         self.rfile.read(length)
         return {}
 
-    def handle_mcp_inspection(self, clean_path, query_string):
+    def handle_mcp_inspection(self, clean_path):
         if not self._inspection_authorized():
             self._send_json(
                 401,
@@ -464,25 +464,6 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 }
             elif clean_path == "/api/mcp/v1/summary":
                 payload = self.server.inspection_bridge.request("get_summary")
-            elif clean_path == "/api/mcp/v1/nodes":
-                query = parse_qs(query_string, keep_blank_values=True)
-                raw_columns = query.get("columns")
-                columns = None
-                if raw_columns is not None:
-                    columns = []
-                    for value in raw_columns:
-                        columns.extend(
-                            column.strip()
-                            for column in value.split(",")
-                            if column.strip()
-                        )
-                payload = self.server.inspection_bridge.request(
-                    "query_nodes",
-                    scope=query.get("scope", ["all"])[0],
-                    offset=query.get("offset", [0])[0],
-                    limit=query.get("limit", [100])[0],
-                    columns=columns,
-                )
             else:
                 self._send_json(404, {"error": "Inspection endpoint not found."})
                 return

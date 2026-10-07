@@ -473,90 +473,130 @@ def evaluate_string_mask(full_headers, target):
             
     return mask
 
-def evaluate_file_mask(full_headers, target):
-    """Evaluates an external header file, FASTA file, or NCBI/PDB list into a boolean mask."""
-    mask = np.zeros(len(full_headers), dtype=bool)
-    exact_matches = set()
-    target_ncbi_ids = set()
-    target_pdb_ids = set()
-    is_ncbi_mode = False
-    is_pdb_mode = False
-    
-    file_name = target.strip()
-    if file_name.lower().startswith('[ncbi]'):
-        is_ncbi_mode = True
-        file_name = file_name[6:]
-    elif file_name.lower().startswith('[pdb]'):
-        is_pdb_mode = True
-        file_name = file_name[5:]
-        
-    load_path, header_dir = _selection_file_path(target)
-        
-    if not os.path.isfile(load_path):
-        print(f"Warning: Could not find file '{os.path.basename(load_path)}' in {header_dir}")
-        return mask
-        
-    # Standard NCBI format regex (RefSeq or GenBank)
-    ncbi_pattern = re.compile(r'\b([A-Z]{2}_\d+(?:\.\d+)?|[A-Z]{3}\d{5,7}(?:\.\d+)?)\b', re.IGNORECASE)
-    # Standard PDB regex: 1 digit (1-9) + 3 alphanumeric. Accounts for optional chain appendages (e.g., 1XYZ_A)
-    pdb_pattern = re.compile(r'\b([1-9][A-Z0-9]{3})(?:_[A-Z0-9]+)?\b', re.IGNORECASE)
-    
-    # 2. Parse the Input File
+# Identifiers that [NCBI] and [PDB] header lists select by: RefSeq (WP_0123.1)
+# or GenBank (ABC12345.1) protein accessions, and PDB IDs with an optional
+# chain (1XYZ_A). Network headers are canonical, and sanitize_header turned
+# their spaces into "_", so an identifier ends at any character but a letter or
+# a digit. \b counts "_" as part of a word and missed WP_0123.1 in
+# WP_0123.1_kinase.
+_NCBI_ACCESSION_PATTERN = re.compile(
+    r'(?<![A-Z0-9])([A-Z]{2}_\d+(?:\.\d+)?|[A-Z]{3}\d{5,7}(?:\.\d+)?)(?![A-Z0-9])',
+    re.IGNORECASE,
+)
+_PDB_ID_PATTERN = re.compile(
+    r'(?<![A-Z0-9])([1-9][A-Z0-9]{3})(?:_[A-Z0-9]+)?(?![A-Z0-9])',
+    re.IGNORECASE,
+)
+
+def _read_header_list(load_path):
+    """Entries of a header list: a FASTA file's header lines, or another file's lines.
+
+    A UTF-8 byte-order mark is skipped, as Sequence_Utils.read_fasta skips it.
+    Text that is not UTF-8 raises SelectionContextError: decoding it anyway
+    would change characters and leave those entries matching nothing.
+    """
     is_fasta = load_path.lower().endswith('.fasta')
-    with open(load_path, 'r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            
-            # If FASTA, only read header lines and strip the '>'
-            if is_fasta:
-                if not line.startswith('>'): continue
-                raw_str = line[1:] 
-            else:
-                raw_str = line
-                
-            if is_ncbi_mode:
-                match = ncbi_pattern.search(raw_str)
-                if match:
-                    target_ncbi_ids.add(match.group(1).lower())
-            elif is_pdb_mode:
-                match = pdb_pattern.search(raw_str)
-                if match:
-                    target_pdb_ids.add(match.group(1).lower())
-            else:
-                exact_matches.add(raw_str.lower())
-    
-    # 3. Evaluate Against Network Headers
-    for i, full_header in enumerate(full_headers):
-        fh_lower = full_header.lower()
-        
-        if is_ncbi_mode:
-            # Extract NCBI ID from the network header and check against the set
-            match = ncbi_pattern.search(full_header)
-            if match and match.group(1).lower() in target_ncbi_ids:
-                mask[i] = True
-            else:
-                # Fallback check against the full header just in case
-                match_sh = ncbi_pattern.search(full_header)
-                if match_sh and match_sh.group(1).lower() in target_ncbi_ids:
-                    mask[i] = True
-                    
-        elif is_pdb_mode:
-            # Extract all PDB-like IDs from the header and see if any match our targets
-            matches = pdb_pattern.findall(full_header)
-            if any(m.lower() in target_pdb_ids for m in matches):
-                mask[i] = True
-            else:
-                # Fallback check against full header
-                matches_sh = pdb_pattern.findall(full_header)
-                if any(m.lower() in target_pdb_ids for m in matches_sh):
-                    mask[i] = True
-                    
+    entries = []
+    try:
+        with open(load_path, 'r', encoding='utf-8-sig') as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                if not is_fasta:
+                    entries.append(line)
+                elif line.startswith('>'):
+                    entries.append(line[1:])
+    except UnicodeDecodeError as error:
+        raise SelectionContextError(
+            f"Selection file '{os.path.basename(load_path)}' is not UTF-8 text.\n"
+            "Save it with UTF-8 encoding and try again."
+        ) from error
+    return entries
+
+def _print_for_terminal(text):
+    """Print TEXT, escaping the characters the terminal's encoding lacks.
+
+    A Viewer that an MCP client starts prints to a pipe or a log file, which on
+    Windows uses the ANSI code page; printing a header such as "α-amylase"
+    there would raise UnicodeEncodeError and abort the command.
+    """
+    import sys
+
+    encoding = getattr(sys.stdout, 'encoding', None) or 'utf-8'
+    try:
+        text = text.encode(encoding, 'backslashreplace').decode(encoding)
+    except LookupError:
+        text = text.encode('ascii', 'backslashreplace').decode('ascii')
+    print(text)
+
+def evaluate_file_mask(full_headers, target):
+    """Evaluates an external header file, FASTA file, or NCBI/PDB list into a boolean mask.
+
+    Entries are sanitized as network headers were (Sequence_Utils.sanitize_header),
+    so a header copied from the source FASTA, description and all, selects its
+    node. A plain list matches whole headers. An [NCBI] or [PDB] list matches
+    each entry's first accession or PDB ID with a header's first accession, or
+    with any PDB ID in it. Letter case is ignored. Entries that select no node
+    are printed.
+    """
+    from utilities.Sequence_Utils import sanitize_header
+
+    mask = np.zeros(len(full_headers), dtype=bool)
+    prefix = target.strip().lower()
+    if prefix.startswith('[ncbi]'):
+        id_pattern = _NCBI_ACCESSION_PATTERN
+    elif prefix.startswith('[pdb]'):
+        id_pattern = _PDB_ID_PATTERN
+    else:
+        id_pattern = None
+
+    load_path, header_dir = _selection_file_path(target)
+    if not os.path.isfile(load_path):
+        _print_for_terminal(
+            f"Warning: Could not find file '{os.path.basename(load_path)}' in {header_dir}"
+        )
+        return mask
+
+    # Distinct entries, by canonical spelling, with the key each selects by:
+    # that spelling, or the first identifier in it (None if it holds none).
+    entries = {}
+    for entry in _read_header_list(load_path):
+        canonical = sanitize_header(entry)[0]
+        if id_pattern is None:
+            key = canonical.lower()
         else:
-            # Standard Exact/String Matching
-            if fh_lower in exact_matches:
+            match = id_pattern.search(canonical)
+            key = match.group(1).lower() if match else None
+        entries.setdefault(canonical.lower(), (canonical, key))
+    wanted = {key for _, key in entries.values() if key is not None}
+
+    found = set()
+    for i, header in enumerate(full_headers):
+        if id_pattern is None:
+            keys = [header]
+        elif id_pattern is _PDB_ID_PATTERN:
+            keys = id_pattern.findall(header)
+        else:
+            match = id_pattern.search(header)
+            keys = [match.group(1)] if match else []
+        for key in keys:
+            key = key.lower()
+            if key in wanted:
                 mask[i] = True
-                
+                found.add(key)
+
+    unmatched = [canonical for canonical, key in entries.values() if key not in found]
+    if unmatched:
+        shown = unmatched[:_SUGGESTION_LIMIT]
+        lines = [
+            f"Warning: {len(unmatched)} of {len(entries)} entries in "
+            f"'{os.path.basename(load_path)}' matched no node:"
+        ]
+        lines.extend(f"  {entry}" for entry in shown)
+        if len(unmatched) > len(shown):
+            lines.append(f"  ... (+{len(unmatched) - len(shown)} more)")
+        _print_for_terminal("\n".join(lines))
     return mask
 
 def evaluate_label_mask(full_headers, cluster_labels, group_labels, target):

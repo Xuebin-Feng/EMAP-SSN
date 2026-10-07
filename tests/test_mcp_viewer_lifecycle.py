@@ -8,6 +8,7 @@ headless Viewers; test_visible_viewer_launch_through_headless_config opens a
 real console and Viewer window by design.
 """
 import asyncio
+import io
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from copy import deepcopy
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -591,6 +594,130 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 await client.close_session(timeout=0)
             remove.assert_not_called()
         self.assertEqual(client.connected_session_id, "test")
+
+
+class ViewerRequestTests(unittest.TestCase):
+    """MCPViewerClient._request sends one authenticated JSON request and turns
+    every failure into an MCPViewerError."""
+
+    SESSION = SimpleNamespace(
+        session_id="viewer-1", base_url="http://127.0.0.1:49200", token="token-123"
+    )
+    URL = "http://127.0.0.1:49200/api/mcp/v1/data"
+
+    def request(self, reply, data=None):
+        """Return (result or MCPViewerError, [(request, timeout)]) for one reply."""
+        calls = []
+
+        def urlopen(request, timeout):
+            calls.append((request, timeout))
+            if isinstance(reply, BaseException):
+                raise reply
+            return io.BytesIO(reply)
+
+        client = MCPViewerClient(PROJECT_ROOT, request_timeout=7.5)
+        with mock.patch(
+            "mcp_server.viewer.Viewer_Client.urllib.request.urlopen", side_effect=urlopen
+        ):
+            try:
+                return client._request(self.SESSION, "/api/mcp/v1/data", data), calls
+            except MCPViewerError as error:
+                return error, calls
+
+    def http_error(self, body):
+        return urllib.error.HTTPError(self.URL, 400, "Bad Request", {}, io.BytesIO(body))
+
+    def test_request_sends_authenticated_json_and_returns_the_mapping(self):
+        arguments = {"action": "get_summary", "arguments": {"max_bytes": 100}}
+        result, calls = self.request(b'{"snapshot_id": "s1", "count": 2}', data=arguments)
+        self.assertEqual(result, {"snapshot_id": "s1", "count": 2})
+        [(request, timeout)] = calls
+        self.assertEqual(request.full_url, self.URL)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.get_header("Authorization"), "Bearer token-123")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+        self.assertEqual(json.loads(request.data), arguments)
+        self.assertEqual(timeout, 7.5)
+
+        _result, calls = self.request(b"{}")
+        self.assertEqual(calls[0][0].get_method(), "GET")
+        self.assertIsNone(calls[0][0].data)
+
+    def test_http_errors_use_the_viewers_own_message_when_it_sends_one(self):
+        cases = [
+            (b'{"error": "Unknown action \'x\'."}', "Unknown action 'x'."),
+            (b"<html>Bad Request</html>", "Viewer inspection returned HTTP 400."),
+            (b'["Unknown action"]', "Viewer inspection returned HTTP 400."),
+            (b'{"error": ""}', "Viewer inspection returned HTTP 400."),
+            (b"\xff\xfe", "Viewer inspection returned HTTP 400."),
+        ]
+        for body, message in cases:
+            with self.subTest(body=body):
+                error, _calls = self.request(self.http_error(body))
+                self.assertIsInstance(error, MCPViewerError)
+                self.assertEqual(str(error), message)
+                self.assertIsInstance(error.__cause__, urllib.error.HTTPError)
+
+    def test_unreachable_viewer_and_malformed_replies_are_viewer_errors(self):
+        cases = [
+            (
+                urllib.error.URLError(ConnectionRefusedError(10061, "refused")),
+                "Could not inspect the Viewer: <urlopen error [Errno 10061] refused>",
+            ),
+            (
+                b"not json",
+                "Could not inspect the Viewer: Expecting value: line 1 column 1 (char 0)",
+            ),
+            (b'["a", "list"]', "The Viewer returned an invalid JSON response."),
+        ]
+        for reply, message in cases:
+            with self.subTest(reply=reply):
+                error, _calls = self.request(reply)
+                self.assertIsInstance(error, MCPViewerError)
+                self.assertEqual(str(error), message)
+
+    def test_command_portal_needs_the_commands_capability(self):
+        client = MCPViewerClient(PROJECT_ROOT)
+        submission = {"command": "zoom 2"}
+        for capabilities, expected in (
+            (["snapshots_v1"], None),
+            (["snapshots_v1", "commands_v1"], {"request_id": "r1"}),
+        ):
+            requested = []
+
+            def fake_request(session, endpoint, data=None):
+                requested.append((endpoint, data))
+                if endpoint == "/api/mcp/v1/session":
+                    return {"inspection_capabilities": capabilities}
+                return {"request_id": "r1"}
+
+            with self.subTest(capabilities=capabilities), mock.patch(
+                "mcp_server.viewer.Viewer_Client.select_viewer_session",
+                return_value=self.SESSION,
+            ), mock.patch.object(client, "_request", side_effect=fake_request):
+                if expected is None:
+                    with self.assertRaises(MCPViewerError) as raised:
+                        asyncio.run(client.command_action(
+                            "submit_command", submission, session_id="viewer-1"
+                        ))
+                    self.assertEqual(
+                        str(raised.exception),
+                        "Viewer does not support the command portal; upgrade and "
+                        "restart the Viewer.",
+                    )
+                    self.assertEqual(requested, [("/api/mcp/v1/session", None)])
+                else:
+                    result = asyncio.run(client.command_action(
+                        "submit_command", submission, session_id="viewer-1"
+                    ))
+                    self.assertEqual(result, expected)
+                    self.assertEqual(
+                        requested[-1],
+                        (
+                            "/api/mcp/v1/commands",
+                            {"action": "submit_command", "arguments": submission},
+                        ),
+                    )
 
 
 if __name__ == "__main__":

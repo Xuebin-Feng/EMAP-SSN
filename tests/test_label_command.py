@@ -6,10 +6,12 @@ the gmax outside background, output filenames, and the job snapshot. The
 analysis helpers are covered in test_label_analysis.
 """
 
+import io
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -428,6 +430,71 @@ class LabelWorkbookPercentTests(unittest.TestCase):
             viewer,
             "Error: gmin is fixed at 97% and cannot be set by the label command.",
         )
+
+    def test_missing_reference_fails_before_any_job_is_scheduled(self):
+        viewer = self.make_viewer(["A", "A", "C"], [0, 0, 1], [set(), set(), set()])
+        viewer.alignment.has_reference = False
+        viewer.background_job_scheduler = CapturingScheduler()
+        message = (
+            "Error: No active alignment reference. Use 'reference <ID>' with a "
+            "node present in the current MSA."
+        )
+        with mock.patch.object(label.Command_Engine, "command_failed") as command_failed, \
+                redirect_stdout(io.StringIO()) as output:
+            label.run(viewer, [])
+
+        command_failed.assert_called_once_with(viewer, message)
+        self.assertIsNone(viewer.background_job_scheduler.job)
+        self.assertEqual(viewer.console_text.text, message)
+        self.assertEqual(output.getvalue(), message + "\n")
+
+    def test_global_stats_profile_divides_by_every_aligned_row(self):
+        cases = {
+            ("Y", "Y", "Y", "Y", "A", "A"): "Y  66.7% | A  33.3%",
+            # The gap row counts in the denominator but adds no residue.
+            ("Y", "Y", "Y", "Y", "A", "-"): "Y  66.7% | A  16.7%",
+        }
+        for index, (sequences, profile) in enumerate(cases.items()):
+            viewer = self.make_viewer(
+                list(sequences), [0, 0, 1, 1, 2, 2], [set() for _ in range(6)]
+            )
+            with self.subTest(sequences=sequences), \
+                    tempfile.TemporaryDirectory() as directory:
+                self.run_label(
+                    directory,
+                    ["gmax", "50%", "cmin", "100%", f"profile_{index}"],
+                    viewer=viewer,
+                )
+                worksheet = openpyxl.load_workbook(
+                    Path(directory, f"profile_{index}.xlsx")
+                )["Subset Stats"]
+                self.assertEqual(
+                    worksheet.cell(find_row(worksheet, "Subset Name"), 10).value, "#1"
+                )
+                self.assertEqual(
+                    worksheet.cell(find_row(worksheet, "Global Stats"), 10).value,
+                    profile,
+                )
+
+    def test_global_conserved_row_needs_more_than_97_percent(self):
+        # 33 of 34 rows is 97.06% Y; 32 of 33 is 96.97%.
+        for y_rows, expected in ((33, ["Y1"]), (32, ["None"])):
+            sequences = ["Y"] * y_rows + ["A"]
+            viewer = self.make_viewer(
+                sequences, [0] * len(sequences), [set() for _ in sequences]
+            )
+            with self.subTest(y_rows=y_rows), tempfile.TemporaryDirectory() as directory:
+                self.run_label(directory, [f"conserved_{y_rows}"], viewer=viewer)
+                workbook = openpyxl.load_workbook(
+                    Path(directory, f"conserved_{y_rows}.xlsx")
+                )
+                for sheet_name in ("Subset Stats", "Occupancy Stats"):
+                    worksheet = workbook[sheet_name]
+                    row = find_row(worksheet, "Global Conserved (>97%)")
+                    values = [
+                        cell.value for cell in worksheet[row + 1] if cell.value is not None
+                    ]
+                    self.assertEqual(values, expected, sheet_name)
 
     def test_shared_union_reports_two_clusters_that_fail_individually(self):
         viewer = self.make_viewer(

@@ -778,9 +778,9 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>4. External File Cross-Referencing (<code>@Filename@</code>)</span></div>
                     <div class="collapsible-content">
-                        <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory.</p>
+                        <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory. The file must be UTF-8 text; entries that match no node are listed in the terminal.</p>
                         <ul>
-                            <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case. <code>.txt</code> is appended when the name ends in neither <code>.txt</code> nor <code>.fasta</code>.</li>
+                            <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case; a FASTA file contributes its <code>&gt;</code> header lines. Each line is first cleaned up as headers were when the network was built (runs of spaces become one <code>_</code>, square brackets become parentheses), so a header copied from the original FASTA still matches. <code>.txt</code> is appended when the name ends in neither <code>.txt</code> nor <code>.fasta</code>.</li>
                             <li><strong>NCBI Extraction:</strong> <code>@[NCBI]my_targets.txt@</code> automatically scans the text file for standard NCBI accession codes (e.g., <code>WP_01234.1</code>) and matches the network headers containing those codes, ignoring surrounding text.</li>
                             <li><strong>PDB Extraction:</strong> <code>@[PDB]my_targets.txt@</code> performs the same extraction but for Protein Data Bank codes (e.g., <code>1XYZ</code>).</li>
                         </ul>

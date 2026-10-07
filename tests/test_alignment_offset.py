@@ -22,11 +22,13 @@ from utilities.Sequence_Utils import (
     simplify_node_label,
     sort_alignment_labels,
 )
+from EMAPSSN_Viewer import MainViewer
+from commands import alignment as alignment_command
 from commands import label as label_command
 from commands import logo as logo_command
 from commands import offset as offset_command
 from commands import query as query_command
-from tests.sparse_alignment import sparse_alignment
+from tests.sparse_alignment import load_manager, sparse_alignment, write_fasta
 
 
 def make_reference_manager():
@@ -131,6 +133,24 @@ class AlignmentOffsetMappingTests(unittest.TestCase):
 
         self.assertFalse(manager.set_offset(10))
         self.assertEqual(manager.col_to_label[0], "1")
+
+    def test_offset_must_be_an_integer_value(self):
+        manager = make_reference_manager()
+        for value in (True, False, 1.5, "1.5", None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as raised:
+                    manager.set_offset(value)
+                self.assertEqual(
+                    str(raised.exception), "Alignment offset must be an integer."
+                )
+                self.assertEqual(manager.offset, 0)
+                self.assertEqual(manager.col_to_label, {0: "1", 1: "1.1", 2: "2"})
+
+        # A float holding a whole number is accepted and stored as an int.
+        self.assertTrue(manager.set_offset(10.0))
+        self.assertEqual(manager.offset, 10)
+        self.assertIs(type(manager.offset), int)
+        self.assertEqual(manager.col_to_label, {0: "11", 1: "11.1", 2: "12"})
 
     def test_shifted_mapping_drives_query_lookup(self):
         manager = make_reference_manager()
@@ -321,6 +341,50 @@ class OffsetCommandTests(unittest.TestCase):
         self.assertIn(
             "requires a correctly loaded reference",
             output.call_args.args[1],
+        )
+
+    def test_command_rejects_more_than_one_value(self):
+        engine = offset_command.Command_Engine
+        with mock.patch.object(engine, "print_help") as output, \
+                mock.patch.object(engine, "command_failed") as failed, \
+                mock.patch.object(engine, "command_succeeded") as succeeded:
+            offset_command.run(self.viewer, ["1", "2"])
+
+        message = "Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]"
+        output.assert_called_once_with(self.viewer, message)
+        failed.assert_called_once_with(self.viewer, message)
+        succeeded.assert_not_called()
+        self.assertEqual(self.manager.offset, 0)
+        self.assertEqual(self.viewer.alignment_offset, 0)
+
+
+class OffsetPersistenceTests(unittest.TestCase):
+    def test_switching_the_msa_keeps_the_session_offset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = os.path.join(directory, "first.fasta")
+            second = os.path.join(directory, "second.fasta")
+            write_fasta(first, [("ref", "ACG"), ("other", "ATG")])
+            # The new MSA adds an insertion column after reference residue 1.
+            write_fasta(second, [("ref", "A-CG"), ("other", "ATCG")])
+            viewer = MainViewer.__new__(MainViewer)
+            viewer.full_headers = ["ref", "other"]
+            viewer.active_reference = "ref"
+            viewer.alignment_offset = 0
+            viewer.console_text = SimpleNamespace(text="")
+            cfg = Alignment_Manager.cfg
+            with mock.patch.object(cfg, "MSA_FILE", first), \
+                    mock.patch.object(cfg, "ALIGNMENT_OFFSET", 0), \
+                    mock.patch.object(cfg, "FILTER_MIN_OCCUPANCY", 50), \
+                    redirect_stdout(io.StringIO()):
+                viewer.alignment = load_manager(first, viewer.full_headers, reference="ref")
+                offset_command.run(viewer, ["10"])
+                alignment_command.run(viewer, [second])
+
+        self.assertEqual(viewer.alignment_offset, 10)
+        self.assertTrue(viewer.alignment.has_reference)
+        self.assertEqual(viewer.alignment.offset, 10)
+        self.assertEqual(
+            viewer.alignment.col_to_label, {0: "11", 1: "11.1", 2: "12", 3: "13"}
         )
 
 

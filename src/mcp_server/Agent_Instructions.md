@@ -192,7 +192,8 @@ and may be empty when source help has no extractable signature.
 Submit emapssn_viewer_control(action="execute_commands") with submission_id; reuse it on retries.
 Follow its next_step (tool, action, arguments) to poll the originating session.
 get_command_request and read_command_output accept exactly one nonempty request_id
-or submission_id. IDs are Viewer-local; supply session_id after reconnecting.
+or submission_id. IDs are Viewer-local; after reconnecting, supply session_id
+(list_command_requests recovers IDs).
 Unknown/evicted submissions return errors without executing work.
 Poll get_command_request and inspect per-command messages for outcome summaries.
 Execution completion is indicated by status (succeeded, failed, or cancelled);

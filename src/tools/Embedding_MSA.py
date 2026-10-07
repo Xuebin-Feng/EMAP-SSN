@@ -217,6 +217,7 @@ def _embedding_sequence_set(input_embed):
     return stem
 
 
+ALIGNMENT_MODES = ("global", "local")
 NORMALIZATION_MODES = ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence")
 
 
@@ -228,6 +229,10 @@ def validate_score_normalization(alignment_score, normalization_mode):
     dividing a local score by its own path length rewards short local matches
     however little of either sequence they cover.
     """
+    if alignment_score not in ALIGNMENT_MODES:
+        raise MSAConfigurationError(
+            f"Unknown ALIGNMENT_SCORE {alignment_score!r}; choose global or local."
+        )
     if normalization_mode not in NORMALIZATION_MODES:
         raise MSAConfigurationError(
             f"Unknown NORMALIZATION_MODE {normalization_mode!r}; choose "

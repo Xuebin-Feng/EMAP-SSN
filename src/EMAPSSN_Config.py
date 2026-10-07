@@ -922,8 +922,9 @@ if __name__ == "__main__":
             self._cache_hash_pending_keys = None
             self._cache_launch_allowed = False
             self._last_duplicate_signature = None
+            self._scoring_hidden_by_blast = None
             self.current_cache_folder = None
-            
+
             self.create_inputs_tab()
             self.create_visuals_tab()
             self.create_physics_tab()
@@ -1850,18 +1851,32 @@ if __name__ == "__main__":
             self.cb_score_mode.setEnabled(not is_blast)
             self.cb_norm_mode.setEnabled(not is_blast)
             if is_blast:
+                # BLAST scores use neither mode, so both controls go blank.
+                # Keep the alignment choice they showed: Save writes it and
+                # leaving BLAST restores it.
+                if self.cb_score_mode.currentIndex() != -1:
+                    self._scoring_hidden_by_blast = {
+                        "ALIGNMENT_SCORE": combo_value(self.cb_score_mode),
+                        "NORM_MODE": combo_value(self.cb_norm_mode),
+                    }
                 self.cb_score_mode.setCurrentIndex(-1)
                 self.cb_norm_mode.setCurrentIndex(-1)
             else:
-                if self.cb_score_mode.currentIndex() == -1:
-                    select_combo_value(self.cb_score_mode, "global")
+                hidden = self._scoring_hidden_by_blast or {
+                    "ALIGNMENT_SCORE": "global",
+                    "NORM_MODE": "alignment_length",
+                }
+                self._scoring_hidden_by_blast = None
+                restore = self.cb_score_mode.currentIndex() == -1
+                if restore:
+                    select_combo_value(self.cb_score_mode, hidden["ALIGNMENT_SCORE"])
                 # Signals are blocked above, so the currentTextChanged-driven
                 # refresh of cb_norm_mode's item list never fires here. Refresh
                 # it explicitly or a stale item list (e.g. left over from
-                # "local" mode) can silently reject the default below.
+                # "local" mode) can silently reject the value restored below.
                 self.update_norm_mode_options()
-                if self.cb_norm_mode.currentIndex() == -1:
-                    select_combo_value(self.cb_norm_mode, "alignment_length")
+                if restore:
+                    select_combo_value(self.cb_norm_mode, hidden["NORM_MODE"])
             self.cb_score_mode.blockSignals(False)
             self.cb_norm_mode.blockSignals(False)
 
@@ -3702,6 +3717,10 @@ if __name__ == "__main__":
             return data
 
         def _widget_profile_value(self, key):
+            hidden = self._scoring_hidden_by_blast
+            if hidden and key in hidden and self.cb_score_mode.currentIndex() == -1:
+                # A BLAST network blanks both modes; save the choice they hide.
+                return hidden[key]
             widget = self.inputs[key]
             if isinstance(widget, QComboBox):
                 if key == "LAYOUT_DEVICE_SELECTION":

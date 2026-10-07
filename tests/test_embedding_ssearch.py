@@ -190,6 +190,22 @@ class ScoreNormalizationTests(unittest.TestCase):
                 Embedding_SSEARCH.main([])
         prepare.assert_not_called()
 
+    def test_unknown_alignment_mode_is_rejected(self):
+        # Only an exact "local" selected the local kernel and gap penalty, so a
+        # hand-written "Local" or a typo ran a global search silently, and
+        # "Local" with alignment_length also passed the local-score check.
+        for alignment_mode in ("Local", "GLOBAL", " local", "glocal", "", None, 1):
+            with self.subTest(alignment_mode=alignment_mode):
+                for norm_mode in ("alignment_length", "longer_sequence"):
+                    with self.assertRaisesRegex(ValueError, "Unknown ALIGNMENT_MODE"):
+                        Embedding_SSEARCH.validate_score_normalization(alignment_mode, norm_mode)
+        with mock.patch.object(Embedding_SSEARCH, "load_tool_settings"), mock.patch.multiple(
+            Embedding_SSEARCH, ALIGNMENT_MODE="Local", NORM_MODE="longer_sequence"
+        ), mock.patch.object(Embedding_SSEARCH, "prepare_database_embeddings") as prepare:
+            with self.assertRaisesRegex(ValueError, "Unknown ALIGNMENT_MODE 'Local'"):
+                Embedding_SSEARCH.main([])
+        prepare.assert_not_called()
+
     def test_empty_lengths_normalize_to_zero(self):
         self.assertEqual(
             Embedding_SSEARCH.normalize_score(10.0, 0, 5, 8, "alignment_length"),

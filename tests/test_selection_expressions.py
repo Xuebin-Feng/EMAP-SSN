@@ -436,11 +436,20 @@ class HeaderListFileTests(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Lists with entries that match no node print a warning.
+        self.output = io.StringIO()
+        output_patcher = mock.patch.object(sys, "stdout", self.output)
+        output_patcher.start()
+        self.addCleanup(output_patcher.stop)
 
     def write_list(self, name, text):
         path = os.path.join(self.header_dir, name)
         with open(path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
+
+    def write_bytes(self, name, data):
+        with open(os.path.join(self.header_dir, name), "wb") as handle:
+            handle.write(data)
 
     def test_plain_list_matches_whole_headers_ignoring_case_and_outer_spaces(self):
         self.write_list("picked.txt", "ALPHA\n  beta_7  \n\nAlp\n")
@@ -505,6 +514,127 @@ class HeaderListFileTests(unittest.TestCase):
             output.getvalue(),
             f"Warning: Could not find file 'absent.txt' in {self.header_dir}\n",
         )
+
+    def test_a_byte_order_mark_does_not_hide_the_first_entry(self):
+        # Windows Notepad can save UTF-8 with a byte-order mark, which plain
+        # utf-8 decoding left on the first line.
+        for name, text in (
+            ("marked.txt", "﻿Alpha\nbeta_7\n"),
+            ("marked.fasta", "﻿>Alpha\nMKVL\n>beta_7\nMKVL\n"),
+        ):
+            with self.subTest(name=name):
+                self.write_bytes(name, text.encode("utf-8"))
+                np.testing.assert_array_equal(
+                    Command_Engine.evaluate_file_mask(self.HEADERS, name),
+                    [True, False, True, False],
+                )
+
+    def test_entries_match_the_sanitized_headers_that_networks_store(self):
+        # Networks store headers through sanitize_header: whitespace runs
+        # become "_", brackets parentheses, and characters such as / "_".
+        # An entry that is already canonical, as `select save` writes it,
+        # still matches.
+        headers = ["A_first_sequence", "Kinase_(Homo_sapiens)", "PF00069_x_y", "A"]
+        for name, text in (
+            (
+                "source.fasta",
+                ">A first sequence\nMKVL\n>Kinase [Homo sapiens]\nMKVL\n"
+                ">PF00069 x/y\nMKVL\n",
+            ),
+            ("source.txt", "a  FIRST sequence\nKinase_(Homo_sapiens)\nPF00069 x/y\n"),
+        ):
+            with self.subTest(name=name):
+                self.write_list(name, text)
+                np.testing.assert_array_equal(
+                    Command_Engine.evaluate_file_mask(headers, name),
+                    [True, True, True, False],
+                )
+        self.assertEqual(self.output.getvalue(), "")
+
+    def test_ids_followed_by_an_underscore_select_their_nodes(self):
+        # Sanitizing turns the spaces around an ID into "_", which \b counted
+        # as part of the ID's word. The last header of each case is a near miss.
+        cases = (
+            (
+                "[NCBI]accessions.txt",
+                "WP_012345678.1\nXP_000111222.3 desc\nAAB12345.2\n",
+                [
+                    "WP_012345678.1_hypothetical_protein_(Escherichia_coli)",
+                    "Escherichia_coli_XP_000111222.3",
+                    "AAB12345.2_x",
+                    "WP_012345678.2_hypothetical_protein",
+                ],
+            ),
+            (
+                "[PDB]structures.txt",
+                "1abc\n2XYZ_B\n5JKL\n",
+                ["1ABC_A_Crystal_structure", "2XYZ_B_thing", "Model_5JKL_B", "4GHI_A_other"],
+            ),
+        )
+        for target, text, headers in cases:
+            with self.subTest(target=target):
+                self.write_list(target.split("]")[1], text)
+                np.testing.assert_array_equal(
+                    Command_Engine.evaluate_file_mask(headers, target),
+                    [True, True, True, False],
+                )
+
+    def test_a_list_that_is_not_utf8_is_refused_rather_than_read_lossily(self):
+        # Undecodable bytes used to be dropped: a Windows-1252 "é" vanished
+        # from its entry, and a UTF-16 list matched nothing, without a word.
+        for name, data in (
+            ("latin.txt", "Protéine X\nAlpha\n".encode("cp1252")),
+            ("wide.txt", "﻿Alpha\r\nbeta_7\r\n".encode("utf-16-le")),
+        ):
+            with self.subTest(name=name):
+                self.write_bytes(name, data)
+                with self.assertRaisesRegex(
+                    Command_Engine.SelectionContextError,
+                    re.escape(f"'{name}' is not UTF-8 text"),
+                ):
+                    Command_Engine.evaluate_file_mask(self.HEADERS, name)
+
+    def test_entries_that_select_no_node_are_reported(self):
+        # "ALPHA" repeats "Alpha"; an [NCBI] entry without an accession cannot
+        # match at all.
+        self.write_list("picked.txt", "Alpha\ngamma\nALPHA\nAlp\n")
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "picked.txt"),
+            [True, False, False, False],
+        )
+        self.write_list("accessions.txt", "WP_012345678.1 kinase\nhypothetical protein\nXP_1.1\n")
+        Command_Engine.evaluate_file_mask(["WP_012345678.1_kinase"], "[NCBI]accessions.txt")
+        self.assertEqual(
+            self.output.getvalue(),
+            "Warning: 2 of 3 entries in 'picked.txt' matched no node:\n"
+            "  gamma\n"
+            "  Alp\n"
+            "Warning: 2 of 3 entries in 'accessions.txt' matched no node:\n"
+            "  hypothetical_protein\n"
+            "  XP_1.1\n",
+        )
+
+    def test_the_report_names_at_most_ten_entries(self):
+        self.write_list("many.txt", "".join(f"missing_{n}\n" for n in range(12)))
+        Command_Engine.evaluate_file_mask(self.HEADERS, "many.txt")
+        self.assertEqual(
+            self.output.getvalue().splitlines(),
+            ["Warning: 12 of 12 entries in 'many.txt' matched no node:"]
+            + [f"  missing_{n}" for n in range(10)]
+            + ["  ... (+2 more)"],
+        )
+
+    def test_the_report_escapes_what_the_terminal_cannot_encode(self):
+        # A Viewer that an MCP client starts prints to a pipe or a log file,
+        # which on Windows uses the ANSI code page.
+        self.write_list("enzymes.txt", "Alpha\nα-amylase\n")
+        terminal = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        with redirect_stdout(terminal):
+            mask = Command_Engine.evaluate_file_mask(self.HEADERS, "enzymes.txt")
+            terminal.flush()
+            printed = terminal.buffer.getvalue()
+        np.testing.assert_array_equal(mask, [True, False, False, False])
+        self.assertIn(b"  \\u03b1-amylase", printed)
 
 
 if __name__ == "__main__":

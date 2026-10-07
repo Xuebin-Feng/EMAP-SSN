@@ -165,11 +165,6 @@ def backend_specs(report: dict[str, Any]) -> list[BackendSpec]:
     return specs
 
 
-def backend_spec(report: dict[str, Any]) -> BackendSpec:
-    """Return the first requested backend for compatibility with older callers."""
-    return backend_specs(report)[0]
-
-
 def venv_python(venv: Path) -> Path:
     for candidate in (venv / "Scripts" / "python.exe", venv / "bin" / "python"):
         if candidate.is_file():
@@ -193,11 +188,6 @@ def backend_install_commands(uv_executable: str, python: Path, spec: BackendSpec
             command += ["--index-url", step.index_url]
         commands.append(command)
     return commands
-
-
-def torch_install_command(uv_executable: str, python: Path, spec: BackendSpec) -> list[str]:
-    """Return the first backend install command for legacy tests/callers."""
-    return backend_install_commands(uv_executable, python, spec)[0]
 
 
 def esm_install_command(uv_executable: str, python: Path) -> list[str]:
@@ -326,28 +316,6 @@ def write_state(
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.replace(temporary, path)
-
-
-def _state_profile(
-    active: BackendSpec, requirements: Path, requested: BackendSpec | None = None
-) -> dict[str, Any]:
-    """Build state metadata while preserving the schema-2 helper interface."""
-    requested = requested or active
-    return {
-        "schema": STATE_SCHEMA,
-        "compatibility_revision": Detect_GPU.COMPATIBILITY_REVISION,
-        "requested_backend": _spec_payloads((requested,))[0],
-        "active_backend": _spec_payloads((active,))[0],
-        "requirements_sha256": _requirements_sha256(requirements),
-        "esm_version": ESM_VERSION,
-        "transformers_version": TRANSFORMERS_VERSION,
-        "esm_runtime_requirements_sha256": _requirements_sha256(
-            requirements.parent / "esm_runtime_requirements.txt"
-        ),
-        "validated_devices": [],
-        "ignored_devices": [],
-        "attempts": [],
-    }
 
 
 def _backend_from_state(value: Any) -> BackendSpec | None:
@@ -536,10 +504,6 @@ def _validation_program(spec: BackendSpec) -> str:
 def validate_backend(python: Path, spec: BackendSpec) -> dict[str, Any] | None:
     completed = _run([str(python), "-c", _validation_program(spec)], capture=True)
     detail = completed.stderr.strip()
-    if completed.returncode == 0 and not completed.stdout.strip():
-        # Preserve compatibility with callers/tests that mock a successful
-        # subprocess without executing the structured validator.
-        return _legacy_validation_payload(spec)
     try:
         result = json.loads(completed.stdout.strip())
     except json.JSONDecodeError:
@@ -623,18 +587,6 @@ def validate_backend_package(python: Path, spec: BackendSpec) -> dict[str, Any] 
     result["validated_devices"] = []
     result["preserved_without_accelerator"] = True
     return result
-
-
-def _legacy_validation_payload(spec: BackendSpec) -> dict[str, Any]:
-    runtime_spec = "cpu" if spec.backend == "cpu" else "mps" if spec.backend == "mps" else "xpu:0" if spec.backend == "xpu" else "cuda:0"
-    device = {"spec": runtime_spec, "index": 0 if ":" in runtime_spec else None, "name": spec.description, "architecture": spec.gfx_target, "success": True, "error": None}
-    return {"backend": spec.backend, "profile": spec.profile, "torch_version": spec.torch_version, "devices": [device], "validated_devices": [device], "package_error": None}
-
-
-def _normalize_validation(value: Any, spec: BackendSpec) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        return value
-    return _legacy_validation_payload(spec) if value else None
 
 
 def _installed_distribution_names(python: Path) -> list[str]:
@@ -946,9 +898,7 @@ def install(
                 f"Validating installed {saved_active.description} before considering "
                 "a backend reinstall."
             )
-            validation = _normalize_validation(
-                validate_backend(python, saved_active), saved_active
-            )
+            validation = validate_backend(python, saved_active)
         if validation is not None:
             active = saved_active
             attempts = list(current_state.get("attempts", [])) if current_state else []
@@ -967,7 +917,7 @@ def install(
     if active is None:
         for spec in specs:
             print(f"Trying PyTorch backend: {spec.description}")
-            validation = _normalize_validation(install_backend(uv_executable, python, spec), spec)
+            validation = install_backend(uv_executable, python, spec)
             attempts.append({
                 "backend": spec.backend,
                 "profile": spec.profile,

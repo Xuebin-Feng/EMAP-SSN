@@ -1,8 +1,8 @@
 """Viewer inspection service (desktop.Viewer_Inspection).
 
-Covers the live summary and node queries, and the captured snapshots agents
-read: isolation from later Viewer changes, subsets, field projection, category
-summaries, cursors, long-value paging and the snapshot memory and lifetime limits.
+Covers the live summary and the captured snapshots agents read: isolation
+from later Viewer changes, subsets, field projection, category summaries,
+cursors, long-value paging and the snapshot memory and lifetime limits.
 """
 import json
 from pathlib import Path
@@ -56,27 +56,6 @@ class ViewerInspectionTests(unittest.TestCase):
         self.assertIsNone(summary["inputs"]["node_fasta"])
         self.assertEqual(summary["clusters"]["count"], 2)
         self.assertEqual(summary["groups"]["count"], 2)
-
-    def test_query_nodes_filters_pages_and_normalizes_values(self):
-        page = self.service.query_nodes(
-            scope="visible",
-            offset=1,
-            limit=2,
-            columns=["score"],
-        )
-        self.assertEqual(page["total"], 3)
-        self.assertEqual([row["index"] for row in page["nodes"]], [2, 3])
-        self.assertEqual(page["nodes"][0]["metadata"], {"score": 3.5})
-        selected = self.service.query_nodes(scope="selected", columns=["score"])
-        self.assertEqual([row["index"] for row in selected["nodes"]], [0, 3])
-
-    def test_query_rejects_unbounded_or_unknown_requests(self):
-        with self.assertRaises(ViewerInspectionError):
-            self.service.query_nodes(limit=501)
-        with self.assertRaises(ViewerInspectionError):
-            self.service.query_nodes(columns=["missing"])
-        with self.assertRaises(ViewerInspectionError):
-            self.service.query_nodes(scope="mutating")
 
 
 class SnapshotTests(SnapshotFixture, unittest.TestCase):

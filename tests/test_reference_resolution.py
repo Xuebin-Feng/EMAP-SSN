@@ -174,6 +174,33 @@ class ReferenceResolutionTests(unittest.TestCase):
         self.assertNotIn("Multiple matches", log)
         self.assertEqual(viewer.alignment.resolved_ref_full, "WP_0123.1_protein_A")
 
+    def test_unknown_target_fails_without_reloading(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        msa_path = os.path.join(directory.name, "toy.fasta")
+        write_fasta(msa_path, [("node1", "MKC"), ("node2", "M-C")])
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.full_headers = ["node1", "node2"]
+        viewer.active_reference = "node1"
+        viewer.console_text = SimpleNamespace(text="")
+        alignment = load_manager(msa_path, viewer.full_headers, reference="node1")
+        viewer.alignment = alignment
+        viewer.load_global_alignment = mock.Mock()
+        engine = reference_command.Command_Engine
+        with mock.patch.object(engine, "command_failed") as failed, \
+                mock.patch.object(engine, "command_succeeded") as succeeded, \
+                redirect_stdout(io.StringIO()) as output:
+            reference_command.run(viewer, ["zzz"])
+
+        message = "Error: Reference 'zzz' not found."
+        failed.assert_called_once_with(viewer, message)
+        succeeded.assert_not_called()
+        viewer.load_global_alignment.assert_not_called()
+        self.assertIs(viewer.alignment, alignment)
+        self.assertEqual(viewer.active_reference, "node1")
+        self.assertEqual(viewer.console_text.text, message)
+        self.assertEqual(output.getvalue(), f"\n{message}\n")
+
     def test_bare_reference_marks_an_unresolved_reference_inactive(self):
         viewer, _, _ = self.run_reference(
             [("node1", "AC")], ["node1", "node2"], "node2", ""

@@ -205,6 +205,7 @@ def resolve_manual_query_sequence(enabled, sequence):
     return cleaned_sequence
 
 
+ALIGNMENT_MODES = ("global", "local")
 NORMALIZATION_MODES = ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence")
 
 
@@ -223,6 +224,10 @@ def validate_score_normalization(alignment_mode, norm_mode):
     score by its own path length rewards short local matches however little of
     either sequence they cover.
     """
+    if alignment_mode not in ALIGNMENT_MODES:
+        raise ValueError(
+            f"Unknown ALIGNMENT_MODE {alignment_mode!r}; choose global or local."
+        )
     if norm_mode not in NORMALIZATION_MODES:
         raise _unknown_norm_mode(norm_mode)
     if alignment_mode == "local" and norm_mode == "alignment_length":
