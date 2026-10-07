@@ -154,6 +154,13 @@ still change before version 1.0.0.
   already refuse that pairing. Both tools now stop with a configuration error before
   opening their inputs, and their MCP schemas require `shorter_sequence`,
   `longer_sequence` or `average_sequence` with local scores.
+- Embedding MSA kept its noise-perturbed guide-tree cache (a memory-mapped distance
+  matrix of about 4 bytes per sequence pair, 3.9 GB for 44,000 sequences) in the
+  project's default `Input_Files/Multiple_Alignments` folder whenever it ran through
+  MCP, from the command line or from the Tools window, whatever `MSA_DIR` was set to.
+  Such a run recreated that folder if it had been removed and could fill the project's
+  drive. The cache now goes to the run's `MSA_DIR`, or to `SAFE_TEMP_DIR` when a
+  settings file sets one.
 - On Linux and macOS, a normal-mode MCP `start_session` ran its terminal program on the
   server's own standard streams: it inherited the MCP protocol's input and output, and
   its errors (an emulator's "cannot open display", or macOS refusing control of

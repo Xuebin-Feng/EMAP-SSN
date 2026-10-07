@@ -34,7 +34,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 | Gap Extend Penalty **`GAP_EXTEND`** | The gap extend penalty score. More negative values penalize extending existing gaps. |
 | CPU Worker Processes **`WORKERS`** | The number of CPU processes allocated for parallel noise-perturbed guide-tree calculations. With UPGMA, each worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences), so peak memory grows with this setting. Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores. |
 | Compute Device **`DEVICE_SELECTION`** | Selects `auto` or a specific available CPU, CUDA, XPU, or MPS device for sequential profile score-matrix construction. Auto benchmarks three real leaf-to-leaf guide-tree merges near the 25th, 50th, and 90th score-matrix cost percentiles and selects one device for the full progressive merge. Guide-tree calculations and dynamic-programming traceback remain on CPU. |
-| Temporary Working Directory **`SAFE_TEMP_DIR`** | The temporary directory used to cache intermediate files and memory-mapped matrices. |
+| Temporary Working Directory **`SAFE_TEMP_DIR`** | The temporary directory used to cache intermediate files and memory-mapped matrices. When unset, the cache is created in the run's alignment folder (`MSA_DIR`) and removed after the guide tree is built. |
 
 ### 📤 Output
 

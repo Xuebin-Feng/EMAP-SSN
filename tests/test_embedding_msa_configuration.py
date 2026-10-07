@@ -1,11 +1,13 @@
+import gc
 import io
 import json
+import multiprocessing
 import os
 import pathlib
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -22,6 +24,17 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import Embedding_MSA
+from tests.test_embedding_msa_memory import (
+    EMBED_NAME,
+    MODEL,
+    NETWORK_NAME,
+    GuideTreeBuilt,
+    InProcessPool,
+    NetworkFixture,
+)
+
+SCRIPT_SOURCE = TOOLS_DIR / "Embedding_MSA.py"
+CACHE_LINE = "Temporary memmap cache active at: "
 
 
 class EmbeddingMsaConfigurationTests(unittest.TestCase):
@@ -104,6 +117,16 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
             os.path.basename(output_path),
             "uniprotkb_IPR011343_90_[esmc_6b]_alignment.fasta",
         )
+
+    def test_blank_temporary_directory_keeps_cache_in_msa_dir(self):
+        for temp_dir in (None, "", "   "):
+            with self.subTest(temp_dir=temp_dir):
+                self.assertEqual(
+                    Embedding_MSA.build_memmap_cache_dir(
+                        temp_dir, self.msa_dir, "Set", "esmc_6b"
+                    ),
+                    os.path.join(self.msa_dir, "Set_[esmc_6b]_Memmap_Cache"),
+                )
 
     def test_enabled_filter_requires_a_selected_fasta(self):
         with self.assertRaisesRegex(
@@ -553,6 +576,136 @@ class EmbeddingMsaConfigurationTests(unittest.TestCase):
         self.assertIn('DEVICE_SELECTION = "auto"', pathlib.Path(
             Embedding_MSA.__file__
         ).read_text(encoding="utf-8"))
+
+
+class MemmapCacheLocationTests(unittest.TestCase):
+    """The replicate-tree memory-map cache follows each run's MSA_DIR.
+
+    Each test runs the tool's module code afresh as if the script lived in a
+    stand-in project, so its import-time defaults point at a folder the test
+    can watch. It then builds the guide tree of a 22-sequence fixture from two
+    noise-perturbed replicates.
+    """
+
+    def setUp(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = pathlib.Path(temp_dir.name)
+        self.project = self.root / "project"
+        self.fixture = NetworkFixture(self.root / "data", sequences=22)
+        self.msa_dir = self.root / "data" / "Chosen_Alignments"
+        self.cache_name = f"Fixture_[{MODEL}]_Memmap_Cache"
+
+    def write_settings(self, path, **tool_settings):
+        document = {
+            "DIRECTORIES": {
+                "FASTA_DIR": str(self.fixture.root),
+                "EMBED_DIR": str(self.fixture.embed_dir),
+                "NETWORK_DIR": str(self.fixture.network_dir),
+                "MSA_DIR": str(self.msa_dir),
+            },
+            "Embedding_MSA.py": {
+                "INPUT_EMBED": EMBED_NAME,
+                "INPUT_NETWORK": NETWORK_NAME,
+                "USE_SEQUENCE_FILTER": False,
+                "BOOTSTRAP_TREE": True,
+                "NUM_TREES": 2,
+                "WORKERS": 1,
+                "DEVICE_SELECTION": "cpu",
+                "SHOW_REGRESSION_PLOT": False,
+                **tool_settings,
+            },
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def load_tool(self, module_name):
+        """Run Embedding_MSA's module code as a copy in the stand-in project.
+
+        A script run skips the import-time settings block; so does any load
+        made before the project has a tools_settings.json.
+        """
+        script = self.project / "src" / "tools" / "Embedding_MSA.py"
+        namespace = {"__name__": module_name, "__file__": str(script)}
+        code = compile(SCRIPT_SOURCE.read_text(encoding="utf-8"), str(script), "exec")
+        with mock.patch.dict(os.environ):
+            # Only spawned workers inherit a settings file through these.
+            os.environ.pop("SSN_TOOL_SETTINGS_SCRIPT", None)
+            os.environ.pop("SSN_TOOL_SETTINGS_FILE", None)
+            exec(code, namespace)
+        return namespace
+
+    def run_until_guide_tree(self, namespace, entry_point, *args):
+        """Run until the guide tree is built; return the cache folders used."""
+
+        def stop_at_guide_tree(*_args, **_kwargs):
+            raise GuideTreeBuilt
+
+        namespace["benchmark_msa_devices"] = stop_at_guide_tree
+        output = io.StringIO()
+        # set_start_method is patched because the builder switches the whole
+        # process to spawn; the in-process pool keeps the replicates here.
+        with mock.patch.dict(os.environ), mock.patch.object(
+            multiprocessing, "set_start_method"
+        ), mock.patch.object(
+            multiprocessing, "Pool", InProcessPool
+        ), redirect_stdout(output), redirect_stderr(io.StringIO()):
+            with self.assertRaises(GuideTreeBuilt):
+                namespace[entry_point](*args)
+        # Release the builder's HDF5 handles before the folder is removed.
+        gc.collect()
+        return [
+            pathlib.Path(line[len(CACHE_LINE):])
+            for line in output.getvalue().splitlines()
+            if line.startswith(CACHE_LINE)
+        ]
+
+    def assert_cache_in_msa_dir_only(self, caches):
+        self.assertEqual(caches, [self.msa_dir / self.cache_name])
+        self.assertFalse(
+            (self.project / "Input_Files").exists(),
+            "the run created the project's default data folders",
+        )
+
+    def test_exported_settings_run_keeps_cache_in_msa_dir(self):
+        # MCP jobs and command-line runs pass an exported settings file.
+        settings = self.write_settings(self.root / "exported.json")
+        namespace = self.load_tool("embedding_msa_script")
+
+        caches = self.run_until_guide_tree(namespace, "main", [str(settings)])
+
+        self.assert_cache_in_msa_dir_only(caches)
+
+    def test_tools_window_run_keeps_cache_in_msa_dir(self):
+        # The Tools window saves tools_settings.json, then starts the script.
+        namespace = self.load_tool("embedding_msa_script")
+        self.write_settings(self.project / "tools_settings.json")
+
+        caches = self.run_until_guide_tree(namespace, "main", [])
+
+        self.assert_cache_in_msa_dir_only(caches)
+
+    def test_explicit_temporary_directory_is_used(self):
+        scratch = self.root / "Scratch"
+        settings = self.write_settings(
+            self.root / "exported.json", SAFE_TEMP_DIR=str(scratch)
+        )
+        namespace = self.load_tool("embedding_msa_script")
+
+        caches = self.run_until_guide_tree(namespace, "main", [str(settings)])
+
+        self.assertEqual(caches, [scratch / self.cache_name])
+
+    def test_imported_module_keeps_cache_in_settings_msa_dir(self):
+        # An importing caller applies tools_settings.json while the module
+        # loads, then calls the builder directly.
+        self.write_settings(self.project / "tools_settings.json")
+        namespace = self.load_tool("Embedding_MSA")
+
+        caches = self.run_until_guide_tree(namespace, "run_msa_builder")
+
+        self.assert_cache_in_msa_dir_only(caches)
 
 
 if __name__ == "__main__":

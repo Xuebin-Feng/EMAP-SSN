@@ -125,7 +125,9 @@ FASTA_DIR = _DEFAULT_DIRECTORIES["FASTA_DIR"]
 EMBED_DIR = _DEFAULT_DIRECTORIES["EMBED_DIR"]
 NETWORK_DIR = _DEFAULT_DIRECTORIES["NETWORK_DIR"]
 MSA_DIR = _DEFAULT_DIRECTORIES["MSA_DIR"]
-SAFE_TEMP_DIR = MSA_DIR
+# None keeps the replicate-tree memory-map cache in the run's MSA_DIR, which
+# is only known once settings are applied; a settings value overrides it.
+SAFE_TEMP_DIR = None
 
 # Alignment Settings
 GAP_OPEN = -0.5
@@ -158,8 +160,7 @@ if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
                         if not os.path.isabs(str(v)):
                             v = os.path.normpath(os.path.join(PROJECT_ROOT, str(v)))
                         globals()[k] = v
-                SAFE_TEMP_DIR = MSA_DIR
-                        
+
             # 2. Load script-specific settings
             script_name = os.path.basename(__file__)
             if script_name in all_settings:
@@ -271,6 +272,16 @@ def resolve_msa_configuration(
 def build_msa_output_path(msa_dir, sequence_set, model_name):
     """Build the final MSA filename from resolved, validated metadata."""
     return os.path.join(msa_dir, f"{sequence_set}_[{model_name}]_alignment.fasta")
+
+
+def build_memmap_cache_dir(temp_dir, msa_dir, sequence_set, model_name):
+    """Build the replicate-tree memory-map folder for one run.
+
+    The cache sits beside the alignment in ``msa_dir`` unless a temporary
+    directory was set explicitly.
+    """
+    root = temp_dir if temp_dir is not None and str(temp_dir).strip() else msa_dir
+    return os.path.join(root, f"{sequence_set}_[{model_name}]_Memmap_Cache")
 
 
 FULL_INPUT_FASTA = ""
@@ -1625,8 +1636,9 @@ def run_msa_builder():
         # --- MEMORY MAPPING FIX FOR WINDOWS IPC LIMITS ---
         print("Writing the complete distance baseline to a temporary Memory-Mapped file for workers...")
         
-        # 1. Define a strictly named, predictable folder in the user-defined Temp directory
-        temp_dir = os.path.join(SAFE_TEMP_DIR, f"{_seq_set}_[{_model_name}]_Memmap_Cache")
+        # 1. Define a strictly named, predictable folder in this run's MSA_DIR
+        #    (or the explicitly set temporary directory)
+        temp_dir = build_memmap_cache_dir(SAFE_TEMP_DIR, MSA_DIR, _seq_set, _model_name)
         
         # 2. Auto-Cleanup Failsafe: Wipe the folder if it was left behind by a previous crash
         if os.path.exists(temp_dir):
