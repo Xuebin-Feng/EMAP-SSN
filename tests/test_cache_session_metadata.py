@@ -13,11 +13,11 @@ import h5py
 import Cache_Manifest
 from utilities.Cache_Metadata import read_cache_metadata
 from utilities.Viewer_Sessions import ensure_viewer_identity, session_alias, select_viewer_session
-from tests.test_layout_cache_generator import _write_inputs
+from tests.layout_fixtures import write_inputs
 
 
 def _build_settings_cache(root, dimensions):
-    """Publish a minimal cache of `dimensions` for the inputs _write_inputs wrote."""
+    """Publish a minimal cache of `dimensions` for the inputs write_inputs wrote."""
     manifest = Cache_Manifest.build_manifest_for_files(
         str(root / "set.fasta"), str(root / "network.h5"),
         alignment_score="global", normalization="alignment_length",
@@ -39,7 +39,7 @@ class MetadataTests(unittest.TestCase):
     def test_attributes_manifest_validation_and_refresh(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            _write_inputs(root)
+            write_inputs(root)
             manifest = Cache_Manifest.build_manifest_for_files(str(root / "set.fasta"), str(root / "network.h5"),
                 alignment_score="global", normalization="alignment_length", similarity_threshold=0.1)
             folder = root / "cache"
@@ -72,7 +72,7 @@ class MetadataTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            _write_inputs(root)
+            write_inputs(root)
             # The 2D twin resolves, so the fixture itself is a valid cache.
             self.assertEqual(
                 resolve_cache_settings(_build_settings_cache(root, 2))["SIMILARITY_THRESHOLD"], 0.1)
@@ -89,7 +89,7 @@ class MetadataTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            _write_inputs(root)
+            write_inputs(root)
             self.assertEqual(
                 resolve_cache_settings(_build_settings_cache(root, 3), allow_3d=True),
                 resolve_cache_settings(_build_settings_cache(root, 2)),

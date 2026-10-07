@@ -1000,7 +1000,11 @@ if __name__ == "__main__":
             for editor in self.findChildren(QLineEdit):
                 if isinstance(editor.parentWidget(), (QSpinBox, QDoubleSpinBox, QComboBox)):
                     continue
-                editor.setMinimumWidth(editor.fontMetrics().horizontalAdvance("M" * 12))
+                # A field sharing its cell with a button leaves room for it.
+                shared_width = int(editor.property("sharedCellWidth") or 0)
+                editor.setMinimumWidth(
+                    editor.fontMetrics().horizontalAdvance("M" * 12) - shared_width
+                )
             for slider in self.findChildren(QSlider):
                 slider.setMinimumWidth(slider.fontMetrics().horizontalAdvance("M" * 8))
             for form in self.findChildren(QFormLayout):
@@ -2164,7 +2168,8 @@ if __name__ == "__main__":
                 offset_value = 0
             self.spin_alignment_offset.setValue(offset_value)
             self.spin_alignment_offset.setAccelerated(True)
-            self.spin_alignment_offset.setFixedWidth(100)
+            # A minimum rather than a fixed width, so it spans the row once the fields stack.
+            self.spin_alignment_offset.setMinimumWidth(100)
             self.spin_alignment_offset.setStyleSheet(
                 "QSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
             )
@@ -2339,7 +2344,7 @@ if __name__ == "__main__":
             last_width = max(row._column_minima()[2] for row in aligned_rows[1:])
             for row in aligned_rows[1:]:
                 label, control = row.pairs[2]
-                label.setFixedWidth(last_width - row.spacing() - control.width())
+                label.setFixedWidth(last_width - row.spacing() - row._minimum(control).width())
 
             def aligned_column_widths(width, *, spanning=False):
                 gap = CONFIG_FIELD_HORIZONTAL_SPACING
@@ -3267,22 +3272,28 @@ if __name__ == "__main__":
             btn_auto_dt.setChecked(auto_dt_state)
             switch_toggle_style_auto_dt(auto_dt_state)
 
-            # The button sits at the end of the label column, against the field,
-            # so the Step Size field keeps the width of the fields below it.
-            dt_label_cell = QWidget()
-            dt_label_layout = QHBoxLayout(dt_label_cell)
-            dt_label_layout.setContentsMargins(0, 0, 0, 0)
-            dt_label_layout.addWidget(lbl_dt)
-            dt_label_layout.addStretch()
-            dt_label_layout.addWidget(btn_auto_dt)
+            # The button starts the Step Size cell, in line with the fields below
+            # it. The field gives up the button's width (see
+            # _prepare_responsive_layouts), so the cell needs no more room than
+            # a plain field and the row wraps no sooner than the others.
+            dt_field = QWidget()
+            dt_field.setObjectName("wrapper")
+            dt_field_layout = QHBoxLayout(dt_field)
+            dt_field_layout.setContentsMargins(0, 0, 0, 0)
+            dt_field_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+            dt_field_layout.addWidget(btn_auto_dt)
+            dt_field_layout.addWidget(le_dt)
+            le_dt.setProperty(
+                "sharedCellWidth", btn_auto_dt.width() + dt_field_layout.spacing()
+            )
 
             lbl_steps = QLabel("Max Steps:")
             le_steps = QLineEdit(str(globals().get("MAX_STEPS", 10000)))
             self.inputs["MAX_STEPS"] = le_steps
             self.labels["MAX_STEPS"] = lbl_steps
 
-            convergence_grid.addWidget(dt_label_cell, 0, 0)
-            convergence_grid.addWidget(le_dt, 0, 2)
+            convergence_grid.addWidget(lbl_dt, 0, 0)
+            convergence_grid.addWidget(dt_field, 0, 2)
             convergence_grid.addWidget(lbl_steps, 0, 4)
             convergence_grid.addWidget(le_steps, 0, 6)
 
@@ -3471,7 +3482,7 @@ if __name__ == "__main__":
                 packing_controls_grid, "packing", trailing=True
             ))
 
-            paired_left_labels = (dt_label_cell, lbl_rmsd)
+            paired_left_labels = (lbl_dt, lbl_rmsd)
             paired_right_labels = (
                 physics_slider_controls["COULOMB_K"][0],
                 physics_slider_controls["DAMPING"][0],

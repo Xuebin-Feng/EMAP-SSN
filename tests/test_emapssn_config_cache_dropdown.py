@@ -24,6 +24,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         from PySide6.QtWidgets import QApplication
         test_app = QApplication.instance() or QApplication([])
 
+        # The Config's __main__ block installs its own excepthook; give it back afterwards.
+        cls.saved_excepthook = sys.excepthook
         with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
             sys, "exit", return_value=None
         ):
@@ -43,6 +45,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.window.close()
         cls.app.processEvents()
+        sys.excepthook = cls.saved_excepthook
 
     def test_default_directory_layout_uses_input_and_analysis_roots(self):
         defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]
@@ -197,10 +200,23 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.addCleanup(physics_selector.setCurrentText, "(custom)")
         self.addCleanup(button.setChecked, False)
 
-        # The button ends the Step Size label's cell, right against the field.
-        cell_layout = button.parentWidget().layout()
-        self.assertIs(cell_layout.itemAt(cell_layout.count() - 1).widget(), button)
-        self.assertIs(cell_layout.itemAt(0).widget(), self.window.labels["DT"])
+        # The button starts the Step Size cell, where the other fields start,
+        # and the cell needs no more room than a plain field, so its row wraps
+        # no sooner than the others.
+        cell = button.parentWidget()
+        self.assertIs(cell.layout().itemAt(0).widget(), button)
+        self.assertIs(cell.layout().itemAt(1).widget(), field)
+        self.assertEqual(
+            cell.layout().spacing(),
+            self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"],
+        )
+
+        def minimum_width(widget):
+            return widget.minimumSizeHint().expandedTo(widget.minimumSize()).width()
+
+        self.assertEqual(
+            minimum_width(cell), minimum_width(self.window.inputs["MAX_STEPS"])
+        )
 
         button.setChecked(False)
         self.app.processEvents()
@@ -1246,28 +1262,46 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.window.tip_panel.setText(original_tip)
 
     def test_new_profile_without_name_reports_in_tooltip_without_popup(self):
+        globals_dict = self.window.save_settings.__globals__
+        original_settings_file = globals_dict["DEFAULT_SETTINGS_FILE"]
+        original_root = self.window.inputs["SAVED_CONFIG_DIR"].text()
+        original_custom = dict(self.window._custom_settings)
         original_tip = self.window.tip_panel.text()
         selector = self.window.profile_selectors["visual_effects"]
         name_input = self.window.profile_name_inputs["visual_effects"]
         original_selection = selector.currentText()
         original_name = name_input.text()
-        try:
-            selector.setCurrentText("(new)")
-            name_input.clear()
-            with mock.patch.object(
-                self.namespace["QMessageBox"], "critical"
-            ) as critical:
-                self.assertFalse(self.window.save_settings())
 
-            self.assertIn(
-                "Failed to save settings: Enter a profile name.",
-                self.window.tip_panel.text(),
-            )
-            critical.assert_not_called()
-        finally:
-            selector.setCurrentText(original_selection)
-            name_input.setText(original_name)
-            self.window.tip_panel.setText(original_tip)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                # Only the name check stops this save, so a regression must
+                # write to temp rather than the developer's own settings.
+                globals_dict["DEFAULT_SETTINGS_FILE"] = str(
+                    pathlib.Path(temp_dir, "viewer_settings.json")
+                )
+                self.window.inputs["SAVED_CONFIG_DIR"].setText(temp_dir)
+                self.window._saved_config_directory_committed()
+                selector.setCurrentText("(new)")
+                name_input.clear()
+                with mock.patch.object(
+                    self.namespace["QMessageBox"], "critical"
+                ) as critical:
+                    self.assertFalse(self.window.save_settings())
+
+                self.assertIn(
+                    "Failed to save settings: Enter a profile name.",
+                    self.window.tip_panel.text(),
+                )
+                critical.assert_not_called()
+                self.assertEqual(list(pathlib.Path(temp_dir).rglob("*.json")), [])
+            finally:
+                globals_dict["DEFAULT_SETTINGS_FILE"] = original_settings_file
+                self.window._custom_settings = original_custom
+                self.window.inputs["SAVED_CONFIG_DIR"].setText(original_root)
+                self.window._saved_config_directory_committed()
+                selector.setCurrentText(original_selection)
+                name_input.setText(original_name)
+                self.window.tip_panel.setText(original_tip)
 
     def test_malformed_named_profile_keeps_current_visual_state(self):
         selector = self.window.profile_selectors["visual_effects"]

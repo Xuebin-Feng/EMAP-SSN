@@ -20,9 +20,12 @@ class ResponsiveConfigTests(unittest.TestCase):
     def setUpClass(cls):
         # Load GUI definitions without the launcher, IPC, or application event loop.
         path = SRC / "EMAPSSN_Config.py"
-        source = path.read_text(encoding="utf-8").split(
-            "    existing_qt_application = QApplication.instance()"
-        )[0]
+        marker = "    existing_qt_application = QApplication.instance()"
+        text = path.read_text(encoding="utf-8")
+        if marker not in text:
+            # Without it, exec would run on into the event loop and hang.
+            raise AssertionError("EMAPSSN_Config.py no longer contains the launcher marker")
+        source = text.split(marker)[0]
         cls.namespace = {"__name__": "__main__", "__file__": str(path)}
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(Path(directory) / "missing.json")}
@@ -96,6 +99,8 @@ class ResponsiveConfigTests(unittest.TestCase):
 
     def test_all_tabs_and_optional_fields_fit_repeated_resizes(self):
         self.show_optional_names()
+        stacking_rows = {0: {"filterRow"}, 1: {"visualRow5"},
+                         2: {"physicsSlidersRow1", "convergenceRow0"}}
         for width in (600, 800, 1000, 1400, 600, 1400):
             self.resize_panel(width)
             for index in range(self.window.tabs.count()):
@@ -107,10 +112,13 @@ class ResponsiveConfigTests(unittest.TestCase):
                     self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
                     self.assert_geometry(scroll.widget())
                     if width in (600, 1400):
-                        groups = [widget for widget in scroll.widget().findChildren(
-                            self.namespace["QWidget"]
-                        ) if widget.objectName() in {"umapRow", "visualRow5", "physicsSlidersRow0"}]
-                        for group in groups:
+                        expected = stacking_rows.get(index, set())
+                        groups = {widget.objectName(): widget
+                                  for widget in scroll.widget().findChildren(
+                                      self.namespace["QWidget"]
+                                  ) if widget.objectName() in expected}
+                        self.assertEqual(set(groups), expected)
+                        for group in groups.values():
                             self.assertEqual(group.property("stacked"), width == 600)
             self.assert_geometry(self.window.left_bottom_widget)
 
@@ -270,6 +278,27 @@ class ResponsiveConfigTests(unittest.TestCase):
                           for key in ("ALIGNMENT_OFFSET", "UMAP_MODE")]
                 self.assertEqual(starts[0], starts[1])
                 self.assert_geometry(page)
+
+    def test_alignment_offset_spans_stacked_rows_and_keeps_its_wide_width(self):
+        from PySide6.QtCore import QPoint
+        page = self.window.tabs.currentWidget().widget()
+        offset = self.window.spin_alignment_offset
+        label = self.window.lbl_alignment_offset
+
+        def right(widget):
+            return widget.mapTo(page, QPoint(widget.width(), 0)).x()
+
+        for width in (1400, 600, 800, 1400):
+            self.resize_panel(width)
+            with self.subTest(width=width):
+                stacked = width < 1400
+                self.assertEqual(offset.parentWidget().property("stacked"), stacked)
+                self.assertGreaterEqual(label.width(), label.sizeHint().width())
+                if stacked:
+                    self.assertEqual(right(offset), right(self.window.line_ref))
+                    self.assertEqual(right(offset), right(self.window.spin_min_occ))
+                else:
+                    self.assertEqual(offset.width(), 100)
 
     def test_alignment_offset_ignores_hover_wheel_but_accepts_keyboard(self):
         from PySide6.QtCore import QPoint, QPointF, Qt

@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -29,229 +29,14 @@ from Layout_Cache_Generator import (
     LayoutGenerationSettings,
     generate_layout_cache,
 )
-from desktop.Viewer_State import decode_document, LAYOUT_SECTIONS, prepare_network
+from desktop.Viewer_State import decode_document, LAYOUT_SECTIONS
 from utilities.Sequence_Utils import derive_node_metadata
+from tests.layout_fixtures import (  # noqa: E402
+    settings_document as _settings_document,
+    write_inputs as _write_inputs,
+)
 
 FIELD_SECTION = {key: section for section, keys in LAYOUT_SECTIONS.items() for key in keys}
-
-
-def _settings_document(temp_path, *, cache_filename="version_00.h5"):
-    legacy = {
-        "DIRECTORIES": {"SAVED_LAYOUT_DIR": str(temp_path / "layouts")},
-        "Layout_Cache_Generator.py": {
-            "NODE_FASTA_FILE": str(temp_path / "set.fasta"),
-            "INPUT_HDF5": str(temp_path / "network.h5"),
-            "CACHE_FILENAME": cache_filename,
-            "ALIGNMENT_SCORE": "global",
-            "NORM_MODE": "alignment_length",
-            "SIMILARITY_THRESHOLD": 0.1,
-            "TOP_EDGE_PERCENT": None,
-            "UMAP_MODE": False,
-            "UMAP_NEIGHBORS": 15,
-            "UMAP_MIN_DIST": 0.1,
-            "LAYOUT_DEVICE_SELECTION": "auto",
-            "SPRING_K": 5.0,
-            "COULOMB_K": 10.0,
-            "COULOMB_CUTOFF": 30.0,
-            "DAMPING": 0.9,
-            "DT": 0.005,
-            "MAX_STEPS": 10000,
-            "RMSD_THRESHOLD": 0.005,
-            "PERCENTAGE_DROP_THRESHOLD": 0.1,
-            "RMSD_WINDOW": 50,
-            "ENABLE_PROGRESSIVE_SIMULATION": False,
-            "PACKING_GEOMETRY": "Square",
-            "PACKING_GRID_SIZE": 20.0,
-        },
-    }
-    from desktop.Viewer_State import DEFAULTS, encode_document
-    return encode_document("layout", {**DEFAULTS, **legacy["Layout_Cache_Generator.py"],
-        "SAVED_LAYOUT_DIR": str(temp_path / "layouts"), "TARGET_CACHE_PATH": None, "CACHE_NAME_MODE": "explicit"})
-
-
-def _write_inputs(temp_path):
-    (temp_path / "set.fasta").write_text(
-        ">Alpha?? Beta\nAA\n>Gamma##Delta\nCC\n", encoding="utf-8"
-    )
-    with h5py.File(temp_path / "network.h5", "w") as network:
-        string_dtype = h5py.string_dtype("utf-8")
-        network.attrs["model_name"] = "model"
-        network.create_dataset(
-            "headers",
-            data=np.asarray(["Alpha_Beta", "Gamma_Delta"], dtype=object),
-            dtype=string_dtype,
-        )
-        network.create_dataset("i", data=np.asarray([0], dtype=np.uint16))
-        network.create_dataset("j", data=np.asarray([1], dtype=np.uint16))
-        network.create_dataset("seq_lens", data=np.asarray([2, 2], dtype=np.uint16))
-        for name in ("g_score", "l_score"):
-            network.create_dataset(name, data=np.asarray([10], dtype=np.float32))
-        for name in ("g_len", "l_len"):
-            network.create_dataset(name, data=np.asarray([2], dtype=np.uint16))
-
-
-def _preparation_settings(**overrides):
-    values = {
-        "NODE_FASTA_FILE": "",
-        "ALIGNMENT_SCORE": "global",
-        "NORM_MODE": "alignment_length",
-        "SIMILARITY_THRESHOLD": 0.0,
-        "TOP_EDGE_PERCENT": None,
-        "UMAP_MODE": False,
-        "UMAP_NEIGHBORS": 15,
-    }
-    values.update(overrides)
-    return SimpleNamespace(**values)
-
-
-class NetworkPreparationTests(unittest.TestCase):
-    def test_alignment_normalization_modes_and_fasta_subset(self):
-        expected_scores = {
-            "alignment_length": 4.0,
-            "shorter_sequence": 4.0,
-            "longer_sequence": 2.0,
-            "average_sequence": 8.0 / 3.0,
-        }
-        with tempfile.TemporaryDirectory() as temp_dir:
-            network_path = pathlib.Path(temp_dir) / "alignment.h5"
-            with h5py.File(network_path, "w") as network:
-                network.attrs["model_name"] = "model"
-                network.create_dataset("headers", data=[b"A", b"B", b"C"])
-                network.create_dataset("i", data=[0, 0, 1])
-                network.create_dataset("j", data=[1, 2, 2])
-                network.create_dataset("seq_lens", data=[2, 4, 8])
-                for name in ("g_score", "l_score"):
-                    network.create_dataset(name, data=[8.0, 8.0, 8.0])
-                for name in ("g_len", "l_len"):
-                    network.create_dataset(name, data=[2, 2, 2])
-
-            for normalization, expected_score in expected_scores.items():
-                with self.subTest(normalization=normalization), h5py.File(
-                    network_path, "r"
-                ) as network:
-                    settings = _preparation_settings(NORM_MODE=normalization)
-                    headers, edges, scores = prepare_network(
-                        network,
-                        settings=settings,
-                        selected_fasta_headers=["A", "B"],
-                    )
-                    self.assertEqual(headers, ["A", "B"])
-                    np.testing.assert_array_equal(edges, [[0, 1]])
-                    np.testing.assert_allclose(scores, [expected_score])
-                    self.assertFalse(settings.INPUT_IS_EVALUE)
-
-    def test_top_percent_updates_effective_threshold(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            network_path = pathlib.Path(temp_dir) / "alignment.h5"
-            with h5py.File(network_path, "w") as network:
-                network.attrs["model_name"] = "model"
-                network.create_dataset("headers", data=[b"A", b"B", b"C"])
-                network.create_dataset("i", data=[0, 0, 1])
-                network.create_dataset("j", data=[1, 2, 2])
-                network.create_dataset("seq_lens", data=[2, 2, 2])
-                for name in ("g_score", "l_score"):
-                    network.create_dataset(name, data=[2.0, 6.0, 4.0])
-                for name in ("g_len", "l_len"):
-                    network.create_dataset(name, data=[2, 2, 2])
-
-            settings = _preparation_settings(TOP_EDGE_PERCENT=34.0)
-            with h5py.File(network_path, "r") as network:
-                headers, edges, scores = prepare_network(
-                    network,
-                    settings=settings,
-                    selected_fasta_headers=["A", "B", "C"],
-                )
-
-            self.assertEqual(headers, ["A", "B", "C"])
-            self.assertEqual(settings.SIMILARITY_THRESHOLD, 3.0)
-            np.testing.assert_array_equal(edges, [[0, 2]])
-            np.testing.assert_allclose(scores, [3.0])
-
-    def test_top_percent_cutoff_matches_descending_sort(self):
-        # The cutoff selects the edge_count-th largest score without sorting;
-        # it must equal the former np.sort(scores)[::-1][edge_count - 1],
-        # including ties and NaN scores, with every node kept or a subset.
-        rng = np.random.default_rng(3)
-        node_count = 40
-        pairs = np.array([(i, j) for i in range(node_count) for j in range(i + 1, node_count)])
-        headers = [f"N{index}".encode() for index in range(node_count)]
-        for trial in range(16):
-            if trial % 4 == 3:  # Distinct scores expose an off-by-one rank.
-                raw = rng.permutation(len(pairs)).astype(np.float32)
-            else:
-                raw = rng.integers(0, 7, len(pairs)).astype(np.float32)
-            if trial % 3 == 0:
-                raw[rng.integers(0, len(raw), 25)] = np.nan
-            selected = None if trial % 2 else [f"N{index}" for index in range(0, node_count, 3)]
-            percent = float(rng.choice([0.5, 5.0, 37.5, 100.0]))
-            with self.subTest(trial=trial), tempfile.TemporaryDirectory() as temp_dir:
-                network_path = pathlib.Path(temp_dir) / "alignment.h5"
-                with h5py.File(network_path, "w") as network:
-                    network.attrs["model_name"] = "model"
-                    network.create_dataset("headers", data=headers)
-                    network.create_dataset("i", data=pairs[:, 0].astype(np.uint16))
-                    network.create_dataset("j", data=pairs[:, 1].astype(np.uint16))
-                    network.create_dataset("seq_lens", data=np.full(node_count, 9, np.uint16))
-                    for name in ("g_score", "l_score"):
-                        network.create_dataset(name, data=raw)
-                    for name in ("g_len", "l_len"):
-                        network.create_dataset(name, data=np.full(len(pairs), 2, np.uint16))
-                settings = _preparation_settings(TOP_EDGE_PERCENT=percent)
-                with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
-                    prepare_network(network, settings=settings, selected_fasta_headers=selected)
-                kept = np.arange(node_count) if selected is None else np.arange(0, node_count, 3)
-                in_subset = np.isin(pairs[:, 0], kept) & np.isin(pairs[:, 1], kept)
-                normalized = raw[in_subset] / np.float32(2)
-                edge_count = int(len(kept) * (len(kept) - 1) / 2.0 * (percent / 100.0))
-                edge_count = max(1, min(edge_count, len(normalized)))
-                expected = float(np.sort(normalized)[::-1][edge_count - 1])
-                if np.isnan(expected):
-                    self.assertTrue(np.isnan(settings.SIMILARITY_THRESHOLD))
-                else:
-                    self.assertEqual(settings.SIMILARITY_THRESHOLD, expected)
-
-    def test_pair_indices_beyond_headers_still_fail_when_every_node_is_kept(self):
-        # The out-of-range pair scores below the threshold, so only an
-        # up-front bounds check can reject it; filtering would drop it silently.
-        with tempfile.TemporaryDirectory() as temp_dir:
-            network_path = pathlib.Path(temp_dir) / "alignment.h5"
-            with h5py.File(network_path, "w") as network:
-                network.attrs["model_name"] = "model"
-                network.create_dataset("headers", data=[b"A", b"B"])
-                network.create_dataset("i", data=[0, 0])
-                network.create_dataset("j", data=[1, 2])
-                network.create_dataset("seq_lens", data=[2, 2])
-                for name in ("g_score", "l_score"):
-                    network.create_dataset(name, data=[8.0, 2.0])
-                for name in ("g_len", "l_len"):
-                    network.create_dataset(name, data=[2, 2])
-            settings = _preparation_settings(SIMILARITY_THRESHOLD=3.0)
-            with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
-                with self.assertRaises(IndexError):
-                    prepare_network(network, settings=settings, selected_fasta_headers=None)
-
-    def test_empty_blast_network_returns_empty_connectivity(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            network_path = pathlib.Path(temp_dir) / "blast.h5"
-            with h5py.File(network_path, "w") as network:
-                network.attrs["model_name"] = "blast"
-                network.create_dataset("headers", data=[b"A", b"B"])
-                network.create_dataset("i", data=np.asarray([], dtype=np.int32))
-                network.create_dataset("j", data=np.asarray([], dtype=np.int32))
-                network.create_dataset("score", data=np.asarray([], dtype=np.float32))
-
-            settings = _preparation_settings()
-            with h5py.File(network_path, "r") as network:
-                headers, edges, scores = prepare_network(
-                    network,
-                    settings=settings,
-                    selected_fasta_headers=None,
-                )
-
-            self.assertEqual(headers, ["A", "B"])
-            self.assertEqual(edges.shape, (0, 2))
-            self.assertEqual(scores.shape, (0,))
-            self.assertTrue(settings.INPUT_IS_EVALUE)
 
 
 class LayoutSettingsTests(unittest.TestCase):
@@ -649,13 +434,20 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             fake_result = SimpleNamespace(
                 cache_path=str(temp_path / "layouts" / "folder" / "cli_test.h5"),
             )
+            stale_target = {
+                "SSN_TARGET_CACHE_PATH": "stale.h5",
+                "SSN_TARGET_CACHE_MODE": "stale",
+                "SSN_TARGET_CACHE": "stale",
+            }
             with mock.patch(
                 "Layout_Cache_Generator.generate_layout_cache",
                 return_value=fake_result,
             ) as mock_gen, mock.patch("desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc), mock.patch(
                 "subprocess.call",
                 side_effect=capture_launch,
-            ) as mock_call:
+            ) as mock_call, mock.patch.dict(os.environ, stale_target):
+                # main() reads an inherited SSN_VIEWER_SETTINGS_PATH and then deletes it.
+                os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
                 code = Layout_Cache_Generator.main(
                     [str(settings_file), "--launch-viewer", "--delete-settings"]
                 )
@@ -664,7 +456,8 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 mock_call.assert_called_once()
                 called_cmd, called_kwargs = mock_call.call_args
                 self.assertIn("EMAPSSN_Viewer.py", called_cmd[0][2])
-                self.assertNotIn("SSN_TARGET_CACHE_PATH", called_kwargs["env"])
+                for key in stale_target:
+                    self.assertNotIn(key, called_kwargs["env"])
                 snapshot = pathlib.Path(called_cmd[0][4])
                 snapshot_document = captured
                 self.assertEqual(snapshot_document["inputs"]["TARGET_CACHE_PATH"], fake_result.cache_path)

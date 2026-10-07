@@ -19,7 +19,7 @@ from utilities.Headless_Settings import (
 from desktop.Viewer_State import DEFAULTS, decode_document, normalize_viewer_settings
 from tools.tool_helpers.Tool_Pipeline import list_tool_specs
 from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
-from tests.test_layout_cache_generator import _write_inputs, _settings_document
+from tests.layout_fixtures import settings_document, write_inputs
 
 
 class HeadlessSettingsTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class HeadlessSettingsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
 
     def saved_config(self):
-        _write_inputs(self.root)
+        write_inputs(self.root)
         values = copy.deepcopy(DEFAULTS)
         values.update(NODE_FASTA_FILE="set.fasta", INPUT_HDF5="network.h5", FASTA_DIR=str(self.root),
                       HDF5_DIR=str(self.root), CACHE_FILE_DIR=str(self.root / "custom-cache"),
@@ -185,8 +185,8 @@ class HeadlessSettingsTests(unittest.TestCase):
         self.assertEqual(Path(attempts[0]).read_bytes(), b"other writer")
 
     def test_two_processes_share_folder_and_distinct_versions(self):
-        _write_inputs(self.root)
-        document = _settings_document(self.root)
+        write_inputs(self.root)
+        document = settings_document(self.root)
         document["output"]["CACHE_NAME_MODE"] = "auto"
         path = self.root / "layout.json"
         path.write_text(json.dumps(document))
@@ -234,8 +234,8 @@ runpy.run_path(sys.argv[0],run_name='__main__')
         self.assertEqual(json.loads(result.stdout)["settings_path"], str(target))
 
     def test_config_cli_export_does_not_import_qt_or_hardware(self):
-        _write_inputs(self.root)
-        document = _settings_document(self.root)
+        write_inputs(self.root)
+        document = settings_document(self.root)
         document["output"]["CACHE_NAME_MODE"] = "auto"
         source = self.root / "source.json"
         source.write_text(json.dumps(document))
@@ -260,8 +260,8 @@ class HeadlessLayoutJobTests(unittest.IsolatedAsyncioTestCase):
         from mcp_server.pipeline.Pipeline_Jobs import PipelineJobManager
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            _write_inputs(root)
-            document = _settings_document(root)
+            write_inputs(root)
+            document = settings_document(root)
             section = document["output"]
             section["CACHE_NAME_MODE"] = "auto"
             document["simulation"].update(MAX_STEPS=1, LAYOUT_DEVICE_SELECTION="cpu")

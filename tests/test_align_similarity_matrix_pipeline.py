@@ -2853,7 +2853,8 @@ class TiledProducerTests(unittest.TestCase):
 
         self.assertGreaterEqual(tiles, 3)
         expected = []
-        with mock.patch.object(similarity_matrix, "GLOBAL_GAP_P", 0.0),                 mock.patch.object(similarity_matrix, "LOCAL_GAP_P", -2.0):
+        with mock.patch.object(similarity_matrix, "GLOBAL_GAP_P", 0.0), \
+                mock.patch.object(similarity_matrix, "LOCAL_GAP_P", -2.0):
             for row, column, *_scores in results:
                 matrix = alignment_engine._batched_score_matrices(
                     embeddings[row], [embeddings[column]], [self.LENGTHS[column]]

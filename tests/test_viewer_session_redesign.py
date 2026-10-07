@@ -14,8 +14,8 @@ import psutil
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import test_layout_cache_generator as fixtures
+from tests import layout_fixtures as fixtures
+from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
 from desktop.Viewer_State import (
     validate_viewer_document,
     ViewerSettingsError,
@@ -34,10 +34,10 @@ class SettingsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        fixtures._write_inputs(self.root)
-        settings = fixtures.LayoutGenerationSettings.from_document(fixtures._settings_document(self.root), project_root=fixtures.ROOT)
+        fixtures.write_inputs(self.root)
+        settings = LayoutGenerationSettings.from_document(fixtures.settings_document(self.root), project_root=fixtures.ROOT)
         with mock.patch("Layout_Engine_SSN.calculate_layout", return_value=(np.array([[0, 0], [1, 1]], dtype=np.float32), 10.0)):
-            self.cache = fixtures.generate_layout_cache(settings).cache_path
+            self.cache = generate_layout_cache(settings).cache_path
         self.document = dict(TARGET_CACHE_PATH=self.cache, NODE_FASTA_FILE=str(self.root / "set.fasta"),
             INPUT_HDF5=str(self.root / "network.h5"), MSA_FILE="", UMAP_MODE=False,
             ALIGNMENT_SCORE="global", NORM_MODE="alignment_length", SIMILARITY_THRESHOLD=0.1,
@@ -329,6 +329,14 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     summary = await client.call_tool("emapssn_viewer_data", {"action": "get_summary", "arguments": {}})
                     self.assertFalse(summary.is_error, str(summary))
                     self.assertEqual(summary.structured_content["node_count"], 2)
+                    sessions = await client.call_tool("emapssn_viewer_data", {"action": "list_sessions", "arguments": {}})
+                    self.assertFalse(sessions.is_error, str(sessions))
+                    self.assertIn(ready.structured_content["session_id"],
+                                  [entry["session_id"] for entry in sessions.structured_content["sessions"]])
+                    nodes = await client.call_tool("emapssn_viewer_data", {"action": "query_nodes", "arguments": {
+                        "snapshot_id": summary.structured_content["snapshot_id"], "limit": 10}})
+                    self.assertFalse(nodes.is_error, str(nodes))
+                    self.assertEqual(len(nodes.structured_content["rows"]), 2)
                     output = await client.call_tool("emapssn_viewer_data", {"action": "read_log", "arguments": {}})
                     self.assertIn("Building network display: 2 nodes", output.structured_content["text"])
                     closed = await client.call_tool("emapssn_viewer_control", {"action": "close_session", "arguments": {

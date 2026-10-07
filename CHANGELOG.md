@@ -46,7 +46,7 @@ still change before version 1.0.0.
   `RMSD_WINDOW` still count steps. On the 4,033-sequence test network the stages ran
   at 0.0097 to 0.0148 and the batch of small components at 0.083, with the same run
   time and edge lengths as `DT` 0.01. Layout documents without `AUTO_DT` load with it
-  off. The VR Config has no Auto button yet, so VR layouts keep using Step Size.
+  off. The VR Config has the same button.
 
 ### Changed
 
@@ -276,6 +276,10 @@ still change before version 1.0.0.
   "Step limit reached". The log also warns when active nodes end a stage on the
   layout boundary, where a diverged simulation leaves them. Stages stop at the same
   step as before.
+- In a narrow Config or VR Config window, where the Alignment Reference ID, Min
+  Occupancy % and Alignment Offset fields stack, the Alignment Offset field stayed
+  100 px wide instead of reaching the right edge like the others. It now does; in a
+  wide window it keeps its 100 px beside the other two.
 
 ## [0.3.0] - 2026-10-01
 
