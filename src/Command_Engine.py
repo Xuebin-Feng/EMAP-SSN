@@ -515,22 +515,6 @@ def _read_header_list(load_path):
         ) from error
     return entries
 
-def _print_for_terminal(text):
-    """Print TEXT, escaping the characters the terminal's encoding lacks.
-
-    A Viewer that an MCP client starts prints to a pipe or a log file, which on
-    Windows uses the ANSI code page; printing a header such as "α-amylase"
-    there would raise UnicodeEncodeError and abort the command.
-    """
-    import sys
-
-    encoding = getattr(sys.stdout, 'encoding', None) or 'utf-8'
-    try:
-        text = text.encode(encoding, 'backslashreplace').decode(encoding)
-    except LookupError:
-        text = text.encode('ascii', 'backslashreplace').decode('ascii')
-    print(text)
-
 def evaluate_file_mask(full_headers, target):
     """Evaluates an external header file, FASTA file, or NCBI/PDB list into a boolean mask.
 
@@ -554,9 +538,7 @@ def evaluate_file_mask(full_headers, target):
 
     load_path, header_dir = _selection_file_path(target)
     if not os.path.isfile(load_path):
-        _print_for_terminal(
-            f"Warning: Could not find file '{os.path.basename(load_path)}' in {header_dir}"
-        )
+        print(f"Warning: Could not find file '{os.path.basename(load_path)}' in {header_dir}")
         return mask
 
     # Distinct entries, by canonical spelling, with the key each selects by:
@@ -597,7 +579,7 @@ def evaluate_file_mask(full_headers, target):
         lines.extend(f"  {entry}" for entry in shown)
         if len(unmatched) > len(shown):
             lines.append(f"  ... (+{len(unmatched) - len(shown)} more)")
-        _print_for_terminal("\n".join(lines))
+        print("\n".join(lines))
     return mask
 
 def evaluate_label_mask(full_headers, cluster_labels, group_labels, target):

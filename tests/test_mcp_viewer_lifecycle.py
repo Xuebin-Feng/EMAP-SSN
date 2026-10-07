@@ -40,6 +40,18 @@ from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
 
+# Launched Viewers must cope with whatever encoding their pipes and log files
+# get: a UTF-8 override, set here or inherited from the shell, once hid a crash
+# on non-UTF-8 output. Launches therefore run without one.
+_ENCODING_OVERRIDES = ("PYTHONIOENCODING", "PYTHONUTF8")
+
+
+def _launch_environment(**values):
+    """os.environ without UTF-8 encoding overrides, plus ``values``."""
+    environment = {name: value for name, value in os.environ.items() if name not in _ENCODING_OVERRIDES}
+    environment.update(values)
+    return environment
+
 
 def _stop_recorded_launches(sessions_root):
     """Stop every launch process still recorded under ``sessions_root`` (test cleanup)."""
@@ -155,8 +167,8 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_visible_viewer_launch_through_headless_config(self):
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(fixture.root / "sessions"),
-                                         "PYTHONIOENCODING": "utf-8"}):
+        with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
+                             clear=True):
             client = MCPViewerClient(fixtures.ROOT)
             info = None
             try:
@@ -333,8 +345,8 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         launch_id = None
-        with mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(fixture.root / "sessions"),
-                                         "PYTHONIOENCODING": "utf-8"}), \
+        with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
+                             clear=True), \
                 mock.patch.object(tempfile, "tempdir", str(fixture.root)):
             async with Client(mcp) as client:
                 try:
@@ -375,6 +387,38 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     if launch_id is not None:
                         await MCPViewerClient(fixtures.ROOT).close_session(launch_id=launch_id)
+
+    async def test_headless_viewer_prints_text_outside_the_ansi_code_page(self):
+        # A launched Viewer prints to a pipe or a log file, which Python opens in
+        # the ANSI code page on Windows, so a command echoing "α-amylase" ended
+        # with "'charmap' codec can't encode character".
+        fixture = SettingsTests(); fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        sessions = fixture.root / "sessions"
+        self.addCleanup(_stop_recorded_launches, sessions)
+        # Deliberately not UTF-8, unlike the other launches: cp1252 is that pipe
+        # encoding on Western Windows, and the variable sets it on any platform.
+        environment = _launch_environment(SSN_VIEWER_SESSION_DIR=str(sessions), PYTHONIOENCODING="cp1252")
+        with mock.patch.dict(os.environ, environment, clear=True):
+            client = MCPViewerClient(fixtures.ROOT)
+            info = await client.launch_session(settings_document=fixture.document, mode="headless", timeout=120)
+            self.assertEqual(info["status"], "ready", info)
+            try:
+                submission = {"submission_id": "non-ansi", "commands": ["hide (α-amylase"]}
+                record = await client.command_action("execute_commands", submission, session_id=info["session_id"])
+                for _ in range(600):
+                    if record["status"] in {"succeeded", "failed", "cancelled", "skipped"}:
+                        break
+                    await asyncio.sleep(0.1)
+                    record = await client.command_action(
+                        "get_command_request", {"request_id": record["request_id"]}, session_id=info["session_id"])
+                messages = [message["text"] for command in record["commands"] for message in command["messages"]]
+                self.assertEqual(record["status"], "failed", messages)  # the expression is invalid
+                self.assertFalse([text for text in messages if "codec" in text], messages)
+                output = await client.read_log(info["session_id"])
+                self.assertIn("Expression: (α-amylase", output["text"])
+            finally:
+                await client.close_session(info["session_id"])
 
     @unittest.skipUnless(sys.platform == "win32", "Windows console creation flags")
     async def test_windows_launch_keeps_headless_viewers_off_screen(self):
@@ -488,12 +532,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             FILTER_MIN_OCCUPANCY=75, ALIGNMENT_OFFSET=10,
         )
         directory = fixture.root / "sessions"
-        environment = dict(os.environ, SSN_VIEWER_SESSION_DIR=str(directory), PYTHONIOENCODING="utf-8",
-                           TEMP=str(fixture.root), TMP=str(fixture.root))
+        environment = _launch_environment(SSN_VIEWER_SESSION_DIR=str(directory),
+                                          TEMP=str(fixture.root), TMP=str(fixture.root))
         parameters = StdioServerParameters(command=sys.executable,
             args=["-u", str(fixtures.SRC / "EMAPSSN_MCP_Server.py")], cwd=str(fixtures.ROOT), env=environment)
         info = None
-        with mock.patch.dict(os.environ, environment), mock.patch.object(tempfile, "tempdir", str(fixture.root)), mock.patch("mcp.os.win32.utilities._create_job_object", return_value=None):
+        with mock.patch.dict(os.environ, environment, clear=True), mock.patch.object(tempfile, "tempdir", str(fixture.root)), mock.patch("mcp.os.win32.utilities._create_job_object", return_value=None):
             try:
                 async with Client(parameters, read_timeout_seconds=60) as first:
                     started = await first.call_tool("emapssn_viewer_control", {"action": "start_session", "arguments": {"mode": "headless", "settings_document": fixture.document}})

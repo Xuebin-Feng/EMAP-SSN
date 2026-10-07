@@ -624,17 +624,20 @@ class HeaderListFileTests(unittest.TestCase):
             + ["  ... (+2 more)"],
         )
 
-    def test_the_report_escapes_what_the_terminal_cannot_encode(self):
+    def test_the_report_reaches_a_viewer_pipe_intact(self):
         # A Viewer that an MCP client starts prints to a pipe or a log file,
-        # which on Windows uses the ANSI code page.
+        # which Python opens in the ANSI code page on Windows; the Viewer's
+        # startup switches it to UTF-8 before any command runs.
+        from utilities.Output_Streams import configure_output_streams
+
         self.write_list("enzymes.txt", "Alpha\nα-amylase\n")
-        terminal = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
-        with redirect_stdout(terminal):
+        pipe = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        configure_output_streams([pipe])
+        with redirect_stdout(pipe):
             mask = Command_Engine.evaluate_file_mask(self.HEADERS, "enzymes.txt")
-            terminal.flush()
-            printed = terminal.buffer.getvalue()
+        pipe.flush()
         np.testing.assert_array_equal(mask, [True, False, False, False])
-        self.assertIn(b"  \\u03b1-amylase", printed)
+        self.assertIn("  α-amylase".encode("utf-8"), pipe.buffer.getvalue())
 
 
 if __name__ == "__main__":

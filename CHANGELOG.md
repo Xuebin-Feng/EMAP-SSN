@@ -161,13 +161,15 @@ still change before version 1.0.0.
   already refuse that pairing. Both tools now stop with a configuration error before
   opening their inputs, and their MCP schemas require `shorter_sequence`,
   `longer_sequence` or `average_sequence` with local scores.
-- Embedding MSA and embedding search (SSEARCH), run with a hand-written settings file,
-  accepted an `ALIGNMENT_SCORE` (MSA) or `ALIGNMENT_MODE` (SSEARCH) other than
-  `global` or `local`. SSEARCH ran a global search, with the global gap penalty, for
-  any value but `local`, such as `Local`. Embedding MSA built its guide tree from local
-  scores for any value but `global`, such as `Global`, even with `alignment_length`
-  normalization. Both tools now stop with a configuration error that names the setting,
-  before opening their inputs.
+- Embedding MSA, embedding search (SSEARCH) and pairwise embedding alignment (PWA), run
+  with a hand-written settings file, accepted an `ALIGNMENT_SCORE` (MSA) or
+  `ALIGNMENT_MODE` (SSEARCH, PWA) other than `global` or `local`. SSEARCH ran a global
+  search, with the global gap penalty, for any value but `local`, such as `Local`.
+  Embedding MSA built its guide tree from local scores for any value but `global`, such
+  as `Global`, even with `alignment_length` normalization. PWA ran a local alignment,
+  with the local gap penalty, for any text but `global`, such as `Global`, while its
+  report printed that text as the mode. All three tools now stop with a configuration
+  error that names the setting, before opening their inputs.
 - Embedding MSA kept its noise-perturbed guide-tree cache (a memory-mapped distance
   matrix of about 4 bytes per sequence pair, 3.9 GB for 44,000 sequences) in the
   project's default `Input_Files/Multiple_Alignments` folder whenever it ran through
@@ -202,6 +204,29 @@ still change before version 1.0.0.
   `�` in a request from MCP or the agent page. Scripts now print UTF-8 whatever the
   Viewer's environment says, and a byte that is still not UTF-8 shows as `�` instead
   of disappearing.
+- The `run` command misread `.txt` command files saved in common Windows encodings.
+  With a UTF-8 byte-order mark (a Notepad option, and PowerShell 5.1's
+  `Set-Content -Encoding UTF8`), the first command failed as unknown. A UTF-16 file
+  (PowerShell 5.1's `>` and `Out-File` default) became NUL-laced garbage commands. An
+  ANSI file (older Notepad's and PowerShell 5.1 `Set-Content`'s default) lost its
+  non-ASCII characters, so `select "café"` ran as `select "caf"`, which also selects
+  "caffeine". `run` now reads a `.txt` file as Notepad does: a byte-order mark (UTF-8,
+  UTF-16 or UTF-32) names the encoding, and a file without one is UTF-8 when it
+  decodes as UTF-8 and is otherwise read in the system's ANSI code page (cp1252 on
+  most Western systems), with a note in the terminal. A byte that still doesn't
+  decode shows as `�` instead of disappearing. The VR viewer's `run` reads files the
+  same way.
+- On Windows, Config and Tools opened from the EMAP-SSN and EMAP-SSN Tools shortcuts,
+  and MCP layout jobs, failed when they printed text outside the Windows ANSI code page
+  (cp1252 on most Western systems). Their output goes to a log file, which Python
+  writes in that code page. Tools could not run any tool from a project folder such as
+  `Projekt-α`: Run reported "'charmap' codec can't encode character" and started
+  nothing. Config closed when it found two compatible cache folders for the selected
+  inputs and their paths had such a character, and a `start_layout_job` job reading or
+  writing such a path failed. The terminal that shows the log after a failure read it
+  as UTF-8, so even `é` came back as `�`. Config and Tools now write UTF-8 to files and
+  pipes, whatever started them, as the Viewer does, and escape characters a terminal's
+  encoding lacks instead of failing.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
   that headless Viewers cannot render on Windows and that normal mode can.

@@ -9,7 +9,8 @@ constructor always reads <project>/viewer_settings.json
 (ConfigGUI._read_custom_settings ignores the environment) and then hashes the
 inputs that file selects. load_config_namespace() runs the module source up to
 its application block, so no launcher, IPC, excepthook or event loop starts,
-with SSN_VIEWER_SETTINGS_PATH pointed at a missing file. open_config_window()
+with SSN_VIEWER_SETTINGS_PATH pointed at a missing file, and leaves the test
+process's output streams as it found them. open_config_window()
 builds a window whose directory settings all point into a given folder.
 
 Not collected by unittest; import with ``from tests.config_gui_loader import ...``.
@@ -36,6 +37,11 @@ def load_config_namespace():
         sys.path.insert(0, str(SRC))
     namespace = {"__name__": "__main__", "__file__": str(CONFIG_PATH)}
     excepthook = sys.excepthook
+    streams = [
+        (stream, stream.encoding, stream.errors)
+        for stream in (sys.stdout, sys.stderr)
+        if hasattr(stream, "reconfigure")
+    ]
     try:
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(Path(directory) / "missing.json")}
@@ -45,6 +51,10 @@ def load_config_namespace():
     finally:
         # The application block installs _exit_on_uncaught_exception; never keep it.
         sys.excepthook = excepthook
+        # Nor the startup's switch to UTF-8 (utilities.Output_Streams): these
+        # streams are the test runner's.
+        for stream, encoding, errors in streams:
+            stream.reconfigure(encoding=encoding, errors=errors)
     return namespace
 
 
