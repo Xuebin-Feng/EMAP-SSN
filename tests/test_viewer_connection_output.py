@@ -1,5 +1,7 @@
 import asyncio
+import codecs
 import io
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -76,6 +78,98 @@ class OutputTests(unittest.TestCase):
         terminal.write.side_effect = OSError("closed")
         copy_output(io.BytesIO(b"x" * 20000), output, terminal)
         self.assertEqual(output.getvalue(), b"x" * 20000)
+
+    def test_viewer_prints_any_text_whatever_the_pipe_encoding(self):
+        """An MCP-launched Viewer prints to Viewer_Terminal's pipe, which Python
+        opens in the ANSI code page on Windows; a command echoing text outside
+        it failed with UnicodeEncodeError."""
+        expression = "header == 'α-amylase 中文'"
+        viewer = SRC / "EMAPSSN_Viewer.py"
+        child = "\n".join([
+            "import runpy, sys, types",
+            f"sys.path.insert(0, {str(SRC)!r})",
+            f"sys.argv = [{str(viewer)!r}, '--help']",
+            "try:",
+            "    runpy.run_path(sys.argv[0], run_name='__main__')  # the Viewer's startup",
+            "except SystemExit:",
+            "    pass",
+            "import Command_Engine",
+            "Command_Engine.report_selection_error(",
+            f"    types.SimpleNamespace(), {ascii(expression)}, ValueError('No node matches.'))",
+        ])
+        # cp1252 is that pipe encoding here; the variable sets it on any platform.
+        environment = {key: value for key, value in os.environ.items() if key != "PYTHONUTF8"}
+        environment["PYTHONIOENCODING"] = "cp1252"
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, str(SRC / "mcp_server" / "viewer" / "Viewer_Terminal.py"), directory,
+                sys.executable, "-u", "-c", child], capture_output=True, env=environment, timeout=60)
+            log = (Path(directory) / "stdout.log").read_bytes()
+            errors = (Path(directory) / "stderr.log").read_text(encoding="utf-8", errors="replace")
+        self.assertEqual(result.returncode, 0, errors)
+        self.assertIn(f"Expression: {expression}".encode("utf-8"), log)
+        self.assertEqual(log, result.stdout)
+
+    def test_viewer_streams_escape_what_a_terminal_cannot_show(self):
+        from EMAPSSN_Viewer import _configure_output_streams
+
+        class Terminal(io.BytesIO):
+            def isatty(self):
+                return True
+
+        pipe = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+        terminal = io.TextIOWrapper(Terminal(), encoding="cp1252")
+        _configure_output_streams([pipe, terminal, None])
+        for stream in (pipe, terminal):
+            stream.write("α")
+            stream.flush()
+        self.assertEqual(pipe.buffer.getvalue(), "α".encode("utf-8"))
+        self.assertEqual(terminal.buffer.getvalue(), b"\\u03b1")  # a terminal keeps its encoding
+
+    def test_terminal_copy_keeps_characters_that_a_read_cuts(self):
+        class RawConsole:
+            """The raw writer behind a Windows console under -u. Like any raw
+            stream it may take fewer bytes than offered: here at most five a
+            call, and never a character that the data cuts off at its end."""
+            def __init__(self):
+                self.shown = bytearray()
+
+            def write(self, data):
+                offered = bytes(data[:5])
+                decoder = codecs.getincrementaldecoder("utf-8")("replace")
+                decoder.decode(offered)
+                taken = len(offered) - len(decoder.getstate()[0])
+                self.shown += offered[:taken]
+                return taken
+
+            def flush(self):
+                pass
+
+        class Pipe:
+            """Hands out CHUNKS, noting before each read what the console shows."""
+            def __init__(self, chunks, console):
+                self.chunks, self.console, self.shown = list(chunks), console, []
+
+            def read(self, size):
+                self.shown.append(bytes(self.console.shown))
+                return self.chunks.pop(0) if self.chunks else b""
+
+        data = "AαB中C\U0001f9eaD\n".encode("utf-8")
+        reads = range(1, len(data))
+        for cuts in [(i,) for i in reads] + [(i, j) for i in reads for j in reads if i < j]:
+            bounds = (0, *cuts, len(data))
+            chunks = [data[start:end] for start, end in zip(bounds, bounds[1:])]
+            with self.subTest(chunks=chunks):
+                log, console = io.BytesIO(), RawConsole()
+                pipe = Pipe(chunks, console)
+                copy_output(pipe, log, console)
+                self.assertEqual(log.getvalue(), data)
+                # Each read finds every character the earlier reads completed shown.
+                whole = [codecs.getincrementaldecoder("utf-8")().decode(data[:end]).encode("utf-8")
+                         for end in bounds]
+                self.assertEqual(pipe.shown, whole)
+        terminal = io.BytesIO()  # a POSIX terminal takes any byte, so it gets a cut-off ending too
+        copy_output(io.BytesIO(data[:2]), io.BytesIO(), terminal)
+        self.assertEqual(terminal.getvalue(), data[:2])
 
 
 if __name__ == "__main__":

@@ -320,7 +320,11 @@ def _linux_inventory(processors: list[str]) -> list[dict[str, Any]]:
             gfx = amd_gfx_target([name, *processors]) if vendor == "AMD" else None
             current = {
                 "id": address,
-                "name": re.sub(r"\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]\s*$", "", name, flags=re.I),
+                # lspci -nn ends the name with "[vendor:device]", then "(rev xx)"
+                # when the revision is nonzero; pci_id keeps the numeric ID.
+                "name": re.sub(
+                    r"\s*\[[0-9a-f]{4}:[0-9a-f]{4}\](?:\s*\(rev [0-9a-f]{2}\))?\s*$", "", name, flags=re.I
+                ),
                 "vendor": vendor,
                 "pci_id": pci_id,
                 "driver_version": None,
@@ -330,6 +334,12 @@ def _linux_inventory(processors: list[str]) -> list[dict[str, Any]]:
                 "source": "lspci",
             }
             devices.append(current)
+        elif re.match(r"(?:[0-9a-f]{4,8}:)?[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]\s", line, re.I):
+            # Any other device's header ends the GPU's detail lines; _lines()
+            # strips their indentation, so only the leading PCI address tells
+            # them apart. Otherwise the GPU's HDMI audio function, listed right
+            # after it, would hand the GPU its snd_hda_intel driver.
+            current = None
         elif current is not None:
             driver = re.search(r"Kernel driver in use:\s*(.+)", line, re.I)
             if driver:

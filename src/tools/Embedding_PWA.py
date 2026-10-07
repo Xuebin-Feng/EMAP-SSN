@@ -174,6 +174,22 @@ def resolve_manual_alignment_inputs(
         )
     return resolved_ref, resolved_tar, model_name
 
+
+ALIGNMENT_MODES = ("global", "local")
+
+
+def validate_alignment_mode(alignment_mode):
+    """Reject anything but an exact "global" or "local".
+
+    run_alignment picks the kernel, gap penalty and identity denominator by
+    exact name; any other value would fall through to the local kernel while
+    the report printed it as the mode.
+    """
+    if alignment_mode not in ALIGNMENT_MODES:
+        raise ValueError(
+            f"Unknown ALIGNMENT_MODE {alignment_mode!r}; choose global or local."
+        )
+
 # ==========================================
 # 1. HELPER FUNCTIONS (Data Loading & Gen)
 # ==========================================
@@ -399,6 +415,7 @@ def run_alignment(
     manual_ref_enabled=None,
     manual_tar_enabled=None,
 ):
+    validate_alignment_mode(mode)
     if manual_ref_enabled is None:
         manual_ref_enabled = bool(seq_ref_manual)
     else:
@@ -680,6 +697,7 @@ def main(argv=None):
     )
     print(f"--- 🧬 Embedding Pairwise Alignment ---")
     try:
+        validate_alignment_mode(ALIGNMENT_MODE)
         database = None
         if not MANUAL_REF_SEQ or not MANUAL_TAR_SEQ:
             database = prepare_embedding_database(FULL_INPUT_EMBED)

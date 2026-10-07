@@ -482,9 +482,10 @@ def download_metadata(viewer, filepath, expr=None):
         else:
             df.to_excel(filepath, header=False, index=False)
 
-        msg = f"Metadata successfully downloaded to {filepath}"
         if expr:
-            msg += f" (filtered by: {expr})"
+            msg = f"Metadata successfully downloaded to {filepath} (filtered by: {expr})"
+        else:
+            msg = f"Metadata successfully downloaded to {filepath}"
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_artifact(viewer, filepath)
         Command_Engine.command_succeeded(viewer, msg)

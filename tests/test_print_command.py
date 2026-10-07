@@ -37,6 +37,11 @@ def load_print_command():
     command_engine = types.ModuleType("Command_Engine")
     for name in ("command_artifact", "command_succeeded", "command_failed"):
         setattr(command_engine, name, mock.Mock())
+
+    def show_status(viewer, message):
+        viewer.console_text.text = str(message)
+
+    command_engine.show_status = show_status
     config = types.ModuleType("EMAPSSN_Config")
     config.ANALYSIS_RESULT_DIR = "Analysis_Results"
     config.SEQUENCE_SET = "test_sequences"

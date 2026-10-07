@@ -161,6 +161,13 @@ still change before version 1.0.0.
   already refuse that pairing. Both tools now stop with a configuration error before
   opening their inputs, and their MCP schemas require `shorter_sequence`,
   `longer_sequence` or `average_sequence` with local scores.
+- Embedding MSA and embedding search (SSEARCH), run with a hand-written settings file,
+  accepted an `ALIGNMENT_SCORE` (MSA) or `ALIGNMENT_MODE` (SSEARCH) other than
+  `global` or `local`. SSEARCH ran a global search, with the global gap penalty, for
+  any value but `local`, such as `Local`. Embedding MSA built its guide tree from local
+  scores for any value but `global`, such as `Global`, even with `alignment_length`
+  normalization. Both tools now stop with a configuration error that names the setting,
+  before opening their inputs.
 - Embedding MSA kept its noise-perturbed guide-tree cache (a memory-mapped distance
   matrix of about 4 bytes per sequence pair, 3.9 GB for 44,000 sequences) in the
   project's default `Input_Files/Multiple_Alignments` folder whenever it ran through
@@ -176,6 +183,16 @@ still change before version 1.0.0.
   writes to the launch's `stderr.log`. A launch fails, with that output, as soon as its
   terminal exits with an error, or 60 s after it started when its terminal exited
   cleanly without starting the Viewer.
+- On Windows, a Viewer started by MCP `start_session` failed any command that printed
+  text outside the Windows ANSI code page (cp1252 on most Western systems), such as a
+  selection error echoing an expression with `α-amylase` in it, or the "LLM Agent
+  Activated: … → …" line: the command stopped with "'charmap' codec can't encode
+  character". The Viewer printed to a pipe in normal mode and to its log files in
+  headless mode, which Python writes in that code page, while `read_log` and the
+  Viewer's console window read UTF-8, so even `é` came back as `�`. The Viewer now
+  writes UTF-8 to pipes and files, whatever started it, and escapes characters a
+  terminal's encoding lacks instead of failing. The normal-mode console window also
+  lost or garbled a character that a pipe read split in two; it now shows it whole.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
   that headless Viewers cannot render on Windows and that normal mode can.
@@ -330,6 +347,16 @@ still change before version 1.0.0.
   Saving now keeps the choice the fields showed before they went blank, or that of a
   profile loaded since. Selecting an alignment network again restores that choice
   instead of resetting it to global and alignment_length.
+- On Linux, GPU detection gave a GPU the kernel driver of a device `lspci` lists
+  after it, usually the GPU's own HDMI audio function, so the detection report
+  showed `snd_hda_intel` as the driver of an NVIDIA or AMD card. An Intel Arc GPU
+  with no driver bound could be reported eligible for the XPU backend rather than
+  provisional, because the next device's driver counted as its own. Device names
+  from `lspci` also kept their trailing PCI ID and revision, such as
+  `[10de:2684] (rev a1)`; they now end with the model name. Because the name is part
+  of the saved hardware profile, the first launch after updating on Linux with an AMD
+  or Intel GPU, or an NVIDIA GPU without a working `nvidia-smi`, re-validates the
+  installed PyTorch backend once without reinstalling it.
 
 ### Removed
 

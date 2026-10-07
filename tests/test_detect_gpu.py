@@ -626,6 +626,65 @@ class ProbeParserTests(unittest.TestCase):
                 self.assertEqual(device["driver"], driver)
                 self.assertEqual(device["source"], "lspci")
 
+    def test_lspci_gpu_keeps_its_driver_when_its_audio_function_follows(self):
+        # lspci lists a GPU's HDMI audio function right after the GPU itself.
+        output = (
+            "0000:01:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD102 [GeForce RTX 4090] [10de:2684] (rev a1)\n"
+            "\tSubsystem: ASUSTeK Computer Inc. Device [1043:889c]\n"
+            "\tKernel driver in use: nvidia\n"
+            "\tKernel modules: nvidiafb, nouveau, nvidia_drm, nvidia\n"
+            "0000:01:00.1 Audio device [0403]: NVIDIA Corporation AD102 High Definition Audio Controller [10de:22ba] (rev a1)\n"
+            "\tSubsystem: ASUSTeK Computer Inc. Device [1043:889c]\n"
+            "\tKernel driver in use: snd_hda_intel\n"
+            "\tKernel modules: snd_hda_intel\n"
+        )
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(output)):
+            devices = Detect_GPU._linux_inventory([])
+        self.assertEqual(
+            [(device["id"], device["driver"]) for device in devices], [("0000:01:00.0", "nvidia")]
+        )
+
+    def test_lspci_gpu_without_a_driver_does_not_take_the_next_devices(self):
+        # No driver is bound to this Arc GPU, so the Ethernet controller listed
+        # after it must not lend it igc and make the XPU look eligible.
+        output = (
+            "0000:03:00.0 VGA compatible controller [0300]: Intel Corporation DG2 [Arc A770] [8086:56a0] (rev 08)\n"
+            "\tSubsystem: Intel Corporation Device [8086:1020]\n"
+            "\tKernel modules: i915, xe\n"
+            "0000:05:00.0 Ethernet controller [0200]: Intel Corporation Ethernet Controller I225-V [8086:15f3] (rev 03)\n"
+            "\tSubsystem: ASUSTeK Computer Inc. Device [1043:87d2]\n"
+            "\tKernel driver in use: igc\n"
+            "\tKernel modules: igc\n"
+        )
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(output)):
+            devices = Detect_GPU._linux_inventory([])
+        self.assertEqual([(device["id"], device["driver"]) for device in devices], [("0000:03:00.0", None)])
+
+        Detect_GPU._evaluate_devices(devices, "linux", {"id": "ubuntu", "version_id": "24.04"}, set())
+        self.assertEqual(devices[0]["eligible_profiles"], ["xpu"])
+        self.assertEqual(devices[0]["eligibility"], "provisional")
+
+    def test_lspci_names_drop_the_trailing_pci_id_and_revision(self):
+        # The numeric ID lives on in pci_id; a zero revision prints no "(rev xx)".
+        output = (
+            "0000:01:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD102 [GeForce RTX 4090] [10de:2684] (rev a1)\n"
+            "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev c8)\n"
+            "0000:00:08.0 VGA compatible controller [0300]: Microsoft Corporation Hyper-V virtual VGA [1414:5353]\n"
+        )
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(output)):
+            devices = Detect_GPU._linux_inventory([])
+        self.assertEqual(
+            [(device["name"], device["pci_id"]) for device in devices],
+            [
+                ("NVIDIA Corporation AD102 [GeForce RTX 4090]", "10de:2684"),
+                (
+                    "Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M]",
+                    "1002:744c",
+                ),
+                ("Microsoft Corporation Hyper-V virtual VGA", "1414:5353"),
+            ],
+        )
+
     def test_windows_cim_json_with_a_bom_becomes_devices(self):
         nvidia_id = "PCI\\VEN_10DE&DEV_2684&SUBSYS_889C1043&REV_A1\\4&2283F625&0&0019"
         amd_id = "PCI\\VEN_1002&DEV_744C&SUBSYS_0E3B1002&REV_C8\\6&1A2B3C4D&0&0008"

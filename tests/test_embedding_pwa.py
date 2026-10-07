@@ -2,8 +2,9 @@
 
 Covers the global and local tracebacks (checked against the SSEARCH kernels),
 the alignment columns and identity marks, the mapping of highlighted reference
-positions onto the target, and the console and HTML report. Manual-sequence
-switches are covered in test_manual_sequence_controls.
+positions onto the target, the console and HTML report, and the rejection of
+unknown ALIGNMENT_MODE values. Manual-sequence switches are covered in
+test_manual_sequence_controls.
 """
 
 import os
@@ -260,6 +261,96 @@ class PairwiseIdentityReportTests(unittest.TestCase):
                 ]
                 self.assertEqual(sum(line.count("|") for line in marks), identities)
                 self.assertIn(match.group(0), html)
+
+
+class AlignmentModeTests(unittest.TestCase):
+    # Only an exact "global" selected Needleman-Wunsch, so a hand-written
+    # "Global", " global" or a typo ran a local alignment with LOCAL_GAP_P
+    # under a "Mode: GLOBAL" heading.
+    UNKNOWN_MODES = (
+        "Global", "GLOBAL", " global", "Local", " local", "glocal", "", None, 1,
+    )
+
+    def test_unknown_alignment_mode_is_rejected(self):
+        for alignment_mode in self.UNKNOWN_MODES:
+            with self.subTest(alignment_mode=alignment_mode):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    re.escape(f"Unknown ALIGNMENT_MODE {alignment_mode!r}"),
+                ):
+                    embedding_pwa.validate_alignment_mode(alignment_mode)
+        for alignment_mode in ("global", "local"):
+            with self.subTest(alignment_mode=alignment_mode):
+                embedding_pwa.validate_alignment_mode(alignment_mode)
+
+    def run_main(self, alignment_mode):
+        # The database stub ends any run that gets past the mode check.
+        # main() rebinds FULL_INPUT_EMBED; patching it restores the module's.
+        with (
+            mock.patch.object(embedding_pwa, "load_tool_settings"),
+            mock.patch.multiple(
+                embedding_pwa,
+                ALIGNMENT_MODE=alignment_mode,
+                MANUAL_REF_SEQ=False,
+                MANUAL_TAR_SEQ=False,
+                FULL_INPUT_EMBED="",
+            ),
+            mock.patch.object(
+                embedding_pwa,
+                "prepare_embedding_database",
+                side_effect=FileNotFoundError("database opened"),
+            ) as prepare,
+            mock.patch.object(embedding_pwa, "load_model_integrated") as load_model,
+            redirect_stdout(StringIO()) as output,
+        ):
+            status = embedding_pwa.main([])
+        return status, output.getvalue(), prepare, load_model
+
+    def test_main_rejects_unknown_mode_before_opening_the_database(self):
+        status, output, prepare, load_model = self.run_main("Global")
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "❌ Unknown ALIGNMENT_MODE 'Global'; choose global or local.", output
+        )
+        prepare.assert_not_called()
+        load_model.assert_not_called()
+
+        # Under the same stubs a valid mode goes on to open the database.
+        status, output, prepare, _ = self.run_main("global")
+        self.assertEqual(status, 1)
+        self.assertIn("❌ database opened", output)
+        prepare.assert_called_once()
+
+    def test_run_alignment_rejects_unknown_mode_before_reading_embeddings(self):
+        # Direct callers skip main(), so run_alignment checks the mode too.
+        with (
+            mock.patch.object(
+                embedding_pwa, "fetch_embedding", return_value=None
+            ) as fetch,
+            mock.patch.object(embedding_pwa, "load_model_integrated") as load_model,
+            redirect_stdout(StringIO()),
+        ):
+            for alignment_mode in self.UNKNOWN_MODES:
+                with self.subTest(alignment_mode=alignment_mode):
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        re.escape(f"Unknown ALIGNMENT_MODE {alignment_mode!r}"),
+                    ):
+                        embedding_pwa.run_alignment(
+                            "reference",
+                            "target",
+                            "",
+                            "",
+                            "database.h5",
+                            {"reference": "ACDE", "target": "ACDF"},
+                            alignment_mode,
+                            -2.0,
+                            0.0,
+                            "",
+                            "test_model",
+                        )
+        fetch.assert_not_called()
+        load_model.assert_not_called()
 
 
 if __name__ == "__main__":

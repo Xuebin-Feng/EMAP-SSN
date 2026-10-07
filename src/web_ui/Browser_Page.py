@@ -25,9 +25,10 @@ PENDING_OPEN_SECONDS = 10.0
 
 
 def _set_console_message(viewer, message):
-    console_text = getattr(viewer, "console_text", None)
-    if console_text is not None:
-        console_text.text = message
+    if getattr(viewer, "console_text", None) is not None:
+        import Command_Engine
+
+        Command_Engine.show_status(viewer, message)
         update_background = getattr(viewer, "update_console_background", None)
         if callable(update_background):
             update_background()
