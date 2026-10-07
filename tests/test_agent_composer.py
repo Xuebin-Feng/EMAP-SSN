@@ -1,4 +1,4 @@
-"""Exercise the real composer in Qt WebEngine against a local HTTP fixture.
+"""Exercise the real Agent page (composer and model cards) in Qt WebEngine against a local HTTP fixture.
 
 Run separately from suites that create a QCoreApplication. Set
 AGENT_UI_SCREENSHOTS to a directory to save the responsive-layout checks.
@@ -279,6 +279,147 @@ class ComposerTests(unittest.TestCase):
         self.wait_for('violations.length >= 2')
         self.assertFalse(self.js("'pwned' in window"))
         self.assertTrue(self.js("violations.every(directive => directive.startsWith('script-src'))"))
+
+
+class ModelCardFixtureHandler(FixtureHandler):
+    """Serve model_card.json as a test sets it: bytes, an HTTP error status, or None (404)."""
+    model_card = None
+
+    def do_GET(self):
+        if self.path.split('?')[0].rsplit('/', 1)[-1] != 'model_card.json':
+            super().do_GET()
+            return
+        body = type(self).model_card
+        if not isinstance(body, bytes):
+            self.send_error(body or 404)
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class ModelCardPageTests(unittest.TestCase):
+    """The page never saves its cards over a model_card.json it could not load."""
+    DEFAULT_NAMES = ['Ollama (Local)', 'LM Studio (Local)', 'Llama.cpp (Local)']
+    js = ComposerTests.js
+    wait_for = ComposerTests.wait_for
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        cls.server = ThreadingHTTPServer(('127.0.0.1', 0), ModelCardFixtureHandler)
+        cls.server.viewer = SimpleNamespace(communicator=SimpleNamespace(handle_action=lambda data: None))
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.view = QWebEngineView()
+        # Actions are recorded as the page sends them, so a save made while the
+        # page loads is already listed once its controls are set up.
+        script = QWebEngineScript()
+        script.setInjectionPoint(QWebEngineScript.DocumentCreation)
+        script.setWorldId(QWebEngineScript.MainWorld)
+        script.setSourceCode(
+            'window.EventSource = class { close() {} };'
+            'window.sentActions = [];'
+            '(() => { const pageFetch = window.fetch; window.fetch = (url, options) => {'
+            ' if (url === "/api/action") sentActions.push(JSON.parse(options.body));'
+            ' return pageFetch(url, options); }; })();'
+        )
+        cls.view.page().scripts().insert(script)
+        cls.view.resize(1000, 800)
+        cls.view.show()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.view.close()
+        cls.view.deleteLater()
+        cls.app.processEvents()
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
+
+    def open_page(self, model_card):
+        ModelCardFixtureHandler.model_card = model_card
+        loaded = []
+        callback = lambda ok: loaded.append(ok)
+        self.view.loadFinished.connect(callback)
+        self.view.load(QUrl(f'http://127.0.0.1:{self.server.server_port}/agent'))
+        deadline = time.monotonic() + 10
+        while not loaded and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.view.loadFinished.disconnect(callback)
+        self.assertEqual(loaded, [True])
+        # The controls are set up once loadModelCards has finished.
+        self.wait_for("document.getElementById('capture-viewer-btn').onclick !== null")
+
+    def state(self):
+        return json.loads(self.js("""JSON.stringify({
+            actions: sentActions,
+            cards: modelCards.map(card => card.name),
+            errors: Array.from(document.querySelectorAll('#chat-log .msg-error'), e => e.textContent),
+            button: document.getElementById('save-cards-btn').textContent,
+        })"""))
+
+    def test_a_file_that_cannot_be_loaded_is_never_saved_over(self):
+        unusable = {
+            # Chromium's own message would quote this file, sk-SECRET included.
+            'invalid JSON': (b'{"cards": [{"name": "My API", "api_key": sk-SECRET}]}', 'it is not valid JSON'),
+            'array root': (b'[{"name": "My API", "api_key": "sk-SECRET"}]', 'must contain a JSON object'),
+            'cards not a list': (b'{"cards": {"0": {"name": "My API"}}}', 'must contain a JSON object'),
+            'server error': (500, 'the Viewer answered HTTP 500'),
+        }
+        for label, (model_card, reason) in unusable.items():
+            with self.subTest(label):
+                self.open_page(model_card)
+                self.js("document.getElementById('save-cards-btn').click()")
+                clicked = self.state()
+                # Connecting renders the history into a cleared chat log.
+                self.js("handleServerEvent({type:'init',data:{llm_loaded:false,llm_history:[]}})")
+                connected = self.state()
+
+                self.assertEqual(clicked['actions'], [])
+                self.assertEqual(clicked['cards'], self.DEFAULT_NAMES)
+                self.assertEqual(clicked['button'], '💾 Save')
+                # Then only the request for the Viewer's own parse error, which
+                # gives the position without quoting the file.
+                self.assertEqual(connected['actions'], [{'action': 'check_model_cards'}])
+                for state in (clicked, connected):
+                    self.assertEqual(len(state['errors']), 1)
+                    self.assertIn(reason, state['errors'][0])
+                    self.assertIn('will not be saved', state['errors'][0])
+                    self.assertNotIn('SECRET', state['errors'][0])
+
+    def test_without_saved_cards_the_defaults_are_saved(self):
+        for model_card in (None, b'{"cards": []}', b'{}'):
+            with self.subTest(model_card=model_card):
+                self.open_page(model_card)
+                state = self.state()
+
+                [save] = state['actions']
+                self.assertEqual(save['action'], 'save_model_cards')
+                self.assertEqual([card['name'] for card in save['cards']], self.DEFAULT_NAMES)
+                self.assertTrue(save['save_id'])
+                self.assertEqual(state['errors'], [])
+
+    def test_saved_cards_are_shown_and_a_save_is_confirmed_by_the_viewer(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1'}]}).encode())
+        self.assertEqual(self.state()['actions'], [])
+        self.assertEqual(self.state()['cards'], ['My API'])
+
+        self.js("setAgentThinking('Test model'); document.getElementById('save-cards-btn').click()")
+        [save] = self.state()['actions']
+        self.assertEqual([card['name'] for card in save['cards']], ['My API'])
+        self.assertEqual(self.state()['button'], '💾 Save')
+        self.js("handleServerEvent({type:'model_cards_saved',save_id:'another page'})")
+        self.assertEqual(self.state()['button'], '💾 Save')
+        self.js(f"handleServerEvent({{type:'model_cards_saved',save_id:{json.dumps(save['save_id'])}}})")
+        self.assertEqual(self.state()['button'], '✓ Saved!')
+
+        self.js("handleServerEvent({type:'model_cards_error',save_id:'x',error:'Model cards were not saved: disk full'})")
+        self.assertEqual(self.state()['errors'], ['Error: Model cards were not saved: disk full'])
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') !== null"))
 
 
 if __name__ == '__main__':

@@ -656,21 +656,6 @@ class MCPViewerClient:
     async def query_nodes(self, snapshot_id, session_id=None, **arguments):
         return await self.inspect_data("query_nodes", dict(snapshot_id=snapshot_id, **arguments), session_id)
 
-    async def _get(self, session_id, endpoint):
-        target = self._target(session_id)
-        try:
-            session = await asyncio.to_thread(
-                select_viewer_session,
-                target,
-                timeout=self.discovery_timeout,
-            )
-        except LookupError as error:
-            async with self._selection_lock:
-                if target == self.connected_session_id:
-                    self.connected_session_id = None
-            raise MCPViewerError(str(error)) from error
-        return await asyncio.to_thread(self._request, session, endpoint)
-
     def _request(self, session, endpoint, data=None):
         request = urllib.request.Request(
             f"{session.base_url}{endpoint}",

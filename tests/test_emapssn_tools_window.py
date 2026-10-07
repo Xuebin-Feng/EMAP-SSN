@@ -1212,5 +1212,126 @@ class ToolsModelDropdownTests(unittest.TestCase):
         self.assertFalse(combo.currentText().startswith("Unavailable"))
 
 
+class SharedSettingsSaveTests(unittest.TestCase):
+    """Save Directories and a tool's Run keep a tools_settings.json they cannot load."""
+
+    UNREADABLE = (
+        '{"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},}',
+        "[1, 2]",
+    )
+    SANITIZE = str(SRC_DIR / "tools" / "Sanitize_Sequences.py")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def save_directories(self, root):
+        """Run Save Directories with FASTA_DIR set; return (critical, information)."""
+        import EMAPSSN_Tools
+        from PySide6.QtWidgets import QLineEdit
+
+        window = SimpleNamespace(dir_inputs={
+            "FASTA_DIR": QLineEdit(str(root / "sequences")),
+            "EMBED_DIR": QLineEdit("  "),
+        })
+        with mock.patch.object(EMAPSSN_Tools.QMessageBox, "critical") as critical, \
+                mock.patch.object(EMAPSSN_Tools.QMessageBox, "information") as information:
+            ToolsGUI.save_directories(window)
+        return critical, information
+
+    def run_sanitize(self):
+        """Run Sanitize_Sequences.py from the GUI; return (critical, information, launch)."""
+        import EMAPSSN_Tools
+
+        window = SimpleNamespace(_collect_tool_settings=lambda path: {"INPUT_FASTA": "new.fasta"})
+        with mock.patch.object(EMAPSSN_Tools.QMessageBox, "critical") as critical, \
+                mock.patch.object(EMAPSSN_Tools.QMessageBox, "information") as information, \
+                mock.patch.object(EMAPSSN_Tools, "launch_in_terminal") as launch, \
+                mock.patch("builtins.print"):
+            ToolsGUI.save_and_run(window, self.SANITIZE)
+        return critical, information, launch
+
+    def test_directory_save_replaces_only_the_directories(self):
+        root = isolated_tools_project(
+            self, {"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"}}
+        )
+        critical, information = self.save_directories(root)
+
+        critical.assert_not_called()
+        information.assert_called_once()
+        document = json.loads((root / "tools_settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(document, {
+            "DIRECTORIES": {
+                "FASTA_DIR": os.path.normpath(str(root / "sequences")),
+                "EMBED_DIR": "",
+            },
+            "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},
+        })
+        self.assertEqual(os.listdir(root), ["tools_settings.json"])
+
+    def test_directory_save_keeps_a_file_it_cannot_load(self):
+        root = isolated_tools_project(self)
+        settings = root / "tools_settings.json"
+        for content in self.UNREADABLE:
+            with self.subTest(content=content):
+                settings.write_text(content, encoding="utf-8")
+                critical, information = self.save_directories(root)
+
+                self.assertEqual(settings.read_text(encoding="utf-8"), content)
+                information.assert_not_called()
+                critical.assert_called_once()
+                message = critical.call_args.args[2]
+                self.assertIn(str(settings), message)
+                self.assertIn("left unchanged", message)
+
+    def test_directory_save_that_fails_midway_keeps_the_previous_file(self):
+        root = isolated_tools_project(
+            self, {"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"}}
+        )
+        settings = root / "tools_settings.json"
+        before = settings.read_bytes()
+
+        def fail_midway(document, handle, **options):
+            handle.write('{"DIRECTORIES": ')
+            raise OSError(28, "No space left on device")
+
+        with mock.patch.object(json, "dump", side_effect=fail_midway):
+            critical, information = self.save_directories(root)
+
+        information.assert_not_called()
+        self.assertIn("No space left on device", critical.call_args.args[2])
+        self.assertEqual(settings.read_bytes(), before)
+        self.assertEqual(os.listdir(root), ["tools_settings.json"])
+
+    def test_run_saves_its_section_and_keeps_the_others(self):
+        root = isolated_tools_project(
+            self, {"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"}}
+        )
+        critical, information, launch = self.run_sanitize()
+
+        critical.assert_not_called()
+        launch.assert_called_once()
+        information.assert_called_once()
+        document = json.loads((root / "tools_settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(document["Sanitize_Sequences.py"], {"INPUT_FASTA": "new.fasta"})
+        self.assertEqual(document["Generate_Embeddings.py"], {"MODEL_NAME": "esm2_t6_8m"})
+
+    def test_run_keeps_a_file_it_cannot_load_and_starts_nothing(self):
+        root = isolated_tools_project(self)
+        settings = root / "tools_settings.json"
+        for content in self.UNREADABLE:
+            with self.subTest(content=content):
+                settings.write_text(content, encoding="utf-8")
+                critical, information, launch = self.run_sanitize()
+
+                self.assertEqual(settings.read_text(encoding="utf-8"), content)
+                launch.assert_not_called()
+                information.assert_not_called()
+                critical.assert_called_once()
+                message = critical.call_args.args[2]
+                self.assertIn(str(settings), message)
+                self.assertIn("not started", message)
+
+
 if __name__ == "__main__":
     unittest.main()

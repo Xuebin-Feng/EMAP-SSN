@@ -346,6 +346,8 @@ class MetadataPredicateTests(unittest.TestCase):
                 "values": np.array(["Escherichia coli", "Bacillus", "coliform"], dtype=object),
             },
             "Length": {"type": "number", "values": np.array([100.0, 200.0, 300.0])},
+            # NaN where a sequence has no hydropathy-scored residue.
+            "GRAVY": {"type": "number", "values": np.array([-0.5, np.nan, 0.25])},
         }
         return Command_Engine.parse_advanced_expression(
             expression,
@@ -405,6 +407,18 @@ class MetadataPredicateTests(unittest.TestCase):
             ("{Length<200}", [True, False, False]),
             ("{Length>=200}", [False, True, True]),
             ("{Length>200}", [False, False, True]),
+        ))
+
+    def test_numeric_comparisons_skip_missing_values(self):
+        # != skips a missing value like every other comparison (it used to
+        # select it); the ! operator still selects the complement.
+        self.assert_matches((
+            ("{GRAVY!=-0.5}", [False, False, True]),
+            ("{GRAVY=-0.5}", [True, False, False]),
+            ("{GRAVY>=-0.5}", [True, False, True]),
+            ("{GRAVY<1}", [True, False, True]),
+            ("{GRAVY=(-1)-1}", [True, False, True]),
+            ("!{GRAVY=-0.5}", [False, True, True]),
         ))
 
 

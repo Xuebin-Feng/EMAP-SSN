@@ -1,7 +1,6 @@
 import os
 import json
 import pathlib
-import runpy
 import sys
 import tempfile
 import unittest
@@ -22,17 +21,17 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         from utilities import Hardware_Acceleration as Hardware_Utils  # noqa: F401 - load torch before PySide6
         from EMAPSSN_Tools import DynamicComboBox
         from PySide6.QtWidgets import QApplication
-        test_app = QApplication.instance() or QApplication([])
+        from tests.config_gui_loader import load_config_namespace, open_config_window
 
-        # The Config's __main__ block installs its own excepthook; give it back afterwards.
-        cls.saved_excepthook = sys.excepthook
-        with mock.patch.object(QApplication, "exec", return_value=0), mock.patch.object(
-            sys, "exit", return_value=None
-        ):
-            namespace = runpy.run_path(str(SRC / "EMAPSSN_Config.py"), run_name="__main__")
-
-        cls.app = namespace["app"]
-        cls.window = namespace["window"]
+        # Keep the developer's viewer_settings.json, and the inputs it selects,
+        # out of both the module defaults and the window.
+        namespace = load_config_namespace()
+        cls.app = QApplication.instance() or QApplication([])
+        namespace["configure_qt_application_fonts"](cls.app)
+        namespace["force_light_palette"](cls.app)
+        cls.temp_directory = tempfile.TemporaryDirectory()
+        cls.window = open_config_window(namespace["ConfigGUI"], cls.temp_directory.name)
+        cls.window.show()
         cls.namespace = namespace
         cls.dynamic_combo_class = DynamicComboBox
         cls.window._cache_hash_request_id += 1
@@ -45,7 +44,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.window.close()
         cls.app.processEvents()
-        sys.excepthook = cls.saved_excepthook
+        cls.temp_directory.cleanup()
 
     def test_default_directory_layout_uses_input_and_analysis_roots(self):
         defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]

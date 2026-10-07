@@ -41,7 +41,9 @@ AMD_GFX_PATTERNS = (
     ("gfx1200", (r"rx\s*9060(?:\s*xt(?:\s*lp)?)?",)),
     ("gfx1100", (r"rx\s*7900\s*(?:xtx|xt|gre)", r"w7900", r"w7800")),
     ("gfx1101", (r"rx\s*7800\s*xt", r"rx\s*7700(?:\s*xt)?", r"w7700", r"v710")),
-    ("gfx1102", (r"rx\s*7600\b(?!\s*xt)",)),
+    # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT is the same
+    # gfx1102 silicon, and the installer validates the backend before use.
+    ("gfx1102", (r"rx\s*7600(?:\s*xt)?\b",)),
     ("gfx1030", (r"w6800", r"v620")),
     ("gfx1103", (r"radeon\s*780m",)),
     ("gfx1150", (r"radeon\s*(?:890m|880m)", r"ryzen\s*ai\s*9\s*hx\s*(?:375|370)")),

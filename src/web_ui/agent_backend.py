@@ -29,6 +29,7 @@ import urllib.request
 import urllib.error
 import gc
 import re
+import tempfile
 import uuid
 
 # src/ directory so we can resolve sibling packages regardless of cwd.
@@ -44,23 +45,90 @@ from web_ui.agent_images import validate_attachments, message_content, history_m
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 
+class ModelCardsError(ValueError):
+    """Model cards could not be loaded or saved; model_card.json is unchanged."""
+
+
+def _model_card_path():
+    return os.path.join(_SRC_DIR, "resources", "agent", "model_card.json")
+
+
+def _is_card_list(cards):
+    return isinstance(cards, list) and all(isinstance(card, dict) for card in cards)
+
+
+def _read_model_card_document(path):
+    """Return the saved document, or None when there is no file yet.
+
+    A file that cannot be read, is not valid JSON, or is not an object whose
+    "cards" (when present) is a list of objects raises ModelCardsError. Its
+    cards and API keys may still be recoverable, so nothing replaces it.
+    """
+    def unusable(problem):
+        return ModelCardsError(
+            f"{path} {problem}. The file was left unchanged: correct it, or "
+            "delete it to start over from the default cards."
+        )
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            document = json.load(f)
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError as e:
+        raise unusable(f"is not valid JSON ({e})") from e
+    except (OSError, UnicodeError) as e:
+        raise unusable(f"could not be read ({e})") from e
+    if not isinstance(document, dict) or not _is_card_list(document.get("cards", [])):
+        raise unusable('must contain a JSON object whose "cards" is a list of objects')
+    return document
+
+
 def load_model_cards():
-    """Loads model cards from resources/agent/model_card.json."""
-    path = os.path.join(_SRC_DIR, "resources", "agent", "model_card.json")
+    """Loads model cards from resources/agent/model_card.json.
+
+    Without the file, or when it holds no cards, the three local-server
+    defaults are returned. A file that cannot be used raises ModelCardsError
+    instead of letting the defaults stand in for the saved cards.
+    """
     defaults = [
         {"id": "ollama",   "name": "Ollama (Local)",    "url": "http://localhost:11434/v1", "model": "qwen2.5:1.5b", "api_key": "", "temperature": 0.0},
         {"id": "lmstudio", "name": "LM Studio (Local)", "url": "http://localhost:1234/v1",  "model": "",             "api_key": "", "temperature": 0.0},
         {"id": "llamacpp", "name": "Llama.cpp (Local)", "url": "http://localhost:8080/v1",  "model": "",             "api_key": "", "temperature": 0.0},
     ]
-    if os.path.exists(path):
+    document = _read_model_card_document(_model_card_path()) or {}
+    cards = document.get("cards")
+    return cards if cards else defaults
+
+
+def save_model_cards(cards):
+    """Atomically replace the saved cards, keeping any other top-level keys.
+
+    Raises ModelCardsError when cards is not a non-empty list of objects (the
+    Agent page never removes its last card) or the saved file cannot be used,
+    and OSError or ValueError when the new file cannot be written. In every
+    case model_card.json is left as it was.
+    """
+    if not cards or not _is_card_list(cards):
+        raise ModelCardsError('the request must contain a non-empty "cards" list of objects')
+    path = _model_card_path()
+    document = _read_model_card_document(path) or {}
+    document["cards"] = cards
+    descriptor, partial_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(path)}.", suffix=".partial", dir=os.path.dirname(path)
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+            # The Agent page reads this file with JSON.parse, which rejects NaN.
+            json.dump(document, f, indent=2, ensure_ascii=False, allow_nan=False)
+        os.replace(partial_path, path)
+    except BaseException:
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                cards = data.get("cards", [])
-                return cards if cards else defaults
-        except Exception as e:
-            print(f"Warning: Failed to parse model_card.json: {e}")
-    return defaults
+            os.unlink(partial_path)
+        except OSError:
+            pass
+        raise
+    return path
 
 # ─── Server detection ─────────────────────────────────────────────────────────
 
@@ -153,7 +221,11 @@ def activate_agent_from_card(viewer, card, quiet=False):
 
 def activate_agent(viewer, force_backend=None, quiet=False):
     """Activates the LLM agent (terminal helper — all modes unified via model cards)."""
-    cards = load_model_cards()
+    try:
+        cards = load_model_cards()
+    except ModelCardsError as error:
+        Command_Engine.print_help(viewer, f"Error: {error}")
+        return False
     deactivate_agent(viewer, quiet=True)
 
     if force_backend == "api":
@@ -653,13 +725,27 @@ def handle_set_backend(viewer, data):
     })
 
 def handle_save_model_cards(viewer, data):
-    cards = data.get("cards", [])
+    """Save the Agent page's cards and tell the page whether they were saved."""
+    save_id = data.get("save_id")
     try:
-        path = os.path.join(_SRC_DIR, "resources", "agent", "model_card.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"cards": cards}, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"Warning: Failed to save model_card.json: {e}")
+        save_model_cards(data.get("cards"))
+    except (ValueError, OSError) as e:
+        message = f"Model cards were not saved: {e}"
+        print(f"Warning: {message}")
+        viewer.broadcast_event({"type": "model_cards_error", "error": message, "save_id": save_id})
+        return
+    viewer.broadcast_event({"type": "model_cards_saved", "save_id": save_id})
+
+def handle_check_model_cards(viewer, data):
+    """Report why model_card.json cannot be used, for a page that failed to load it.
+
+    The page cannot show its browser's parse error, which quotes the file and
+    so its API keys; this one gives only the line and column.
+    """
+    try:
+        _read_model_card_document(_model_card_path())
+    except ModelCardsError as e:
+        viewer.broadcast_event({"type": "model_cards_error", "error": f"Model cards could not be loaded: {e}"})
 
 def handle_clear_history(viewer, data):
     _invalidate_agent_turn(viewer)
@@ -689,6 +775,9 @@ def register_backend(registry, viewer):
     )
     registry.register_action(
         "agent", "save_model_cards", lambda data: handle_save_model_cards(viewer, data)
+    )
+    registry.register_action(
+        "agent", "check_model_cards", lambda data: handle_check_model_cards(viewer, data)
     )
     registry.register_action(
         "agent", "clear_history", lambda data: handle_clear_history(viewer, data)

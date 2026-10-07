@@ -415,16 +415,28 @@ def write_json_document(path, document, *, atomic=True, trailing_newline=False):
 
 
 def load_shared_settings(project_root):
-    """Load the GUI's shared document while preserving its fallback behavior."""
+    """Load the GUI's shared document and fill its missing directories.
+
+    A missing file counts as an empty document. A file that cannot be read,
+    is not valid JSON or does not hold a JSON object raises ToolSettingsError:
+    saving over it would discard every section it holds, so callers report
+    the error and leave the file alone.
+    """
     settings_path = default_settings_path(project_root)
-    document = {}
-    if os.path.exists(settings_path):
-        try:
-            with open(settings_path, "r", encoding="utf-8") as handle:
-                loaded = json.load(handle)
-            document = dict(loaded) if isinstance(loaded, Mapping) else loaded
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            pass
+    try:
+        with open(settings_path, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except FileNotFoundError:
+        loaded = {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ToolSettingsError(
+            f"Could not read settings file '{settings_path}': {error}"
+        ) from error
+    if not isinstance(loaded, Mapping):
+        raise ToolSettingsError(
+            f"Settings file '{settings_path}' must contain a JSON object."
+        )
+    document = dict(loaded)
     fill_missing_directory_defaults(document)
     return document
 
@@ -447,7 +459,16 @@ def save_shared_tool_settings(
     fill_missing_directory_defaults(document)
     document[spec.settings_section] = dict(tool_settings)
     settings_path = default_settings_path(project_root)
-    write_json_document(settings_path, document, atomic=False)
+    write_json_document(settings_path, document, atomic=True)
+    return settings_path
+
+
+def save_shared_directories(project_root, directories):
+    """Replace the GUI's DIRECTORIES section and preserve every tool section."""
+    document = load_shared_settings(project_root)
+    document["DIRECTORIES"] = dict(directories)
+    settings_path = default_settings_path(project_root)
+    write_json_document(settings_path, document, atomic=True)
     return settings_path
 
 
@@ -802,6 +823,7 @@ __all__ = [
     "write_json_document",
     "load_shared_settings",
     "save_shared_tool_settings",
+    "save_shared_directories",
     "create_settings_snapshot",
     "resolve_tool_directories",
     "prepare_gui_invocation",

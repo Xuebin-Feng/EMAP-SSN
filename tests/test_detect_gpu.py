@@ -383,6 +383,8 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon RX 7900 XTX": "gfx1100",
             "AMD Radeon RX 7800 XT": "gfx1101",
             "AMD Radeon RX 7600": "gfx1102",
+            # Same silicon as the RX 7600, though AMD's list names only that.
+            "AMD Radeon RX 7600 XT": "gfx1102",
             "AMD Radeon PRO W6800": "gfx1030",
             "AMD Radeon 780M Graphics": "gfx1103",
             "AMD Radeon 890M Graphics": "gfx1150",

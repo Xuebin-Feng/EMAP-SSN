@@ -789,6 +789,11 @@
         let eventSource = null;
         let agentActive = false;
         let modelCards = [];
+        // Set when model_card.json exists but could not be loaded; saving is
+        // then refused so the defaults shown never replace the saved cards.
+        let modelCardsLoadError = null;
+        let cardsSaveId = null;
+        let cardsSavedTimer = null;
         let prevLlmLoaded = null;
         let prevLlmModelName = null;
         let prevLlmBackend = null;
@@ -848,21 +853,38 @@
 
         // ─── Model Cards ──────────────────────────────────────────────────────────
         async function loadModelCards() {
+            // The defaults are saved only when there is no file or it holds no
+            // cards. Any other failure keeps the file (and its API keys) as it is.
+            let savedCards = null;
             try {
                 const resp = await fetch("/agent_resource/model_card.json?v=" + Date.now());
-                if (!resp.ok) throw new Error("not found");
-                const data = await resp.json();
-                modelCards = Array.isArray(data.cards) && data.cards.length > 0
-                    ? data.cards
-                    : deepClone(DEFAULT_CARDS);
-                if (!Array.isArray(data.cards) || data.cards.length === 0) saveModelCards();
+                if (resp.status === 404) {
+                    savedCards = [];
+                } else if (!resp.ok) {
+                    throw new Error(`the Viewer answered HTTP ${resp.status}`);
+                } else {
+                    const data = await resp.json();
+                    if (!isPlainObject(data) || (data.cards !== undefined && !isCardList(data.cards))) {
+                        throw new Error('it must contain a JSON object whose "cards" is a list of objects');
+                    }
+                    savedCards = data.cards || [];
+                }
             } catch (e) {
-                modelCards = deepClone(DEFAULT_CARDS);
-                saveModelCards();
+                // The browser's JSON error quotes the file, API keys included;
+                // check_model_cards (sent once connected) reports the position.
+                const reason = e instanceof SyntaxError ? "it is not valid JSON" : e.message;
+                modelCardsLoadError = `Model cards could not be loaded from model_card.json (${reason}). ` +
+                    "Changes made on this page will not be saved: correct the file, or delete it " +
+                    "to start over from the default cards, then reload this page.";
             }
+            modelCards = savedCards && savedCards.length > 0 ? savedCards : deepClone(DEFAULT_CARDS);
+            if (savedCards && savedCards.length === 0) saveModelCards();
             populateDropdown();
             renderCardsPanel();
         }
+
+        function isPlainObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
+        function isCardList(value) { return Array.isArray(value) && value.every(isPlainObject); }
 
         function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
@@ -879,8 +901,30 @@
             if (prevVal !== "" && parseInt(prevVal) < modelCards.length) sel.value = prevVal;
         }
 
-        function saveModelCards() {
-            sendAction({ action: "save_model_cards", cards: modelCards });
+        // The server answers with model_cards_saved or model_cards_error; only
+        // the Save button's own save shows "Saved" when it is confirmed.
+        function saveModelCards(fromSaveButton = false) {
+            if (modelCardsLoadError) {
+                appendErrorMsg(modelCardsLoadError, true);
+                return;
+            }
+            const saveId = uid();
+            if (fromSaveButton) cardsSaveId = saveId;
+            sendAction({ action: "save_model_cards", cards: modelCards, save_id: saveId });
+        }
+
+        function showCardsSaved() {
+            const saveCardsBtn = document.getElementById("save-cards-btn");
+            if (!saveCardsBtn.dataset.label) saveCardsBtn.dataset.label = saveCardsBtn.textContent;
+            saveCardsBtn.textContent = "✓ Saved!";
+            saveCardsBtn.style.backgroundColor = "#22c55e";
+            saveCardsBtn.style.borderColor = "#22c55e";
+            clearTimeout(cardsSavedTimer);
+            cardsSavedTimer = setTimeout(() => {
+                saveCardsBtn.textContent = saveCardsBtn.dataset.label;
+                saveCardsBtn.style.backgroundColor = "";
+                saveCardsBtn.style.borderColor = "";
+            }, 1600);
         }
 
         function renderCardsPanel() {
@@ -1204,18 +1248,7 @@
 
             addCardBtn.addEventListener("click", addCard);
 
-            saveCardsBtn.addEventListener("click", () => {
-                saveModelCards();
-                const orig = saveCardsBtn.textContent;
-                saveCardsBtn.textContent = "✓ Saved!";
-                saveCardsBtn.style.backgroundColor = "#22c55e";
-                saveCardsBtn.style.borderColor = "#22c55e";
-                setTimeout(() => {
-                    saveCardsBtn.textContent = orig;
-                    saveCardsBtn.style.backgroundColor = "";
-                    saveCardsBtn.style.borderColor = "";
-                }, 1600);
-            });
+            saveCardsBtn.addEventListener("click", () => saveModelCards(true));
         }
 
         // ─── SSE ──────────────────────────────────────────────────────────────────
@@ -1265,6 +1298,12 @@
                     }
                     reconcileSubmission(event.data.llm_history || []);
                     if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status);
+                    // Rendering the history cleared the chat log, which is where
+                    // a model_card.json problem found at page load is shown.
+                    if (modelCardsLoadError) {
+                        appendErrorMsg(modelCardsLoadError, true);
+                        sendAction({ action: "check_model_cards" });
+                    }
                     break;
                 case "agent_command_request":
                     activeCommandRequest = event.request_id;
@@ -1296,6 +1335,16 @@
                     if (!finishSubmission(event, true)) break;
                     appendErrorMsg(event.error);
                     enableInput(true);
+                    break;
+                case "model_cards_saved":
+                    if (event.save_id && event.save_id === cardsSaveId) {
+                        cardsSaveId = null;
+                        showCardsSaved();
+                    }
+                    break;
+                case "model_cards_error":
+                    if (event.save_id === cardsSaveId) cardsSaveId = null;
+                    appendErrorMsg(event.error, true);
                     break;
             }
         }
@@ -1515,9 +1564,9 @@
             chatLog.scrollTop = chatLog.scrollHeight;
         }
 
-        function appendErrorMsg(err) {
+        function appendErrorMsg(err, keepThinking = false) {
             const thinking = document.getElementById("thinking-bubble");
-            if (thinking) thinking.remove();
+            if (thinking && !keepThinking) thinking.remove();
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-error";

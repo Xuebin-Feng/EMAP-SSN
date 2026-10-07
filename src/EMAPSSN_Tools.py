@@ -78,12 +78,13 @@ from tools.tool_helpers.Model_Plugins import (
 )
 from tools.tool_helpers.Tool_Pipeline import (
     DEFAULT_DIRECTORY_PATHS,
-    build_settings_document,
+    ToolSettingsError,
     format_invocation_command,
     get_tool_spec_for_script,
     load_shared_settings,
     prepare_exported_invocation,
     prepare_gui_invocation,
+    save_shared_directories,
     save_shared_tool_settings,
     write_json_document,
 )
@@ -2213,35 +2214,29 @@ class ToolsGUI(QMainWindow):
         self.tab_paths.append("DIRECTORIES_TAB")
 
     def save_directories(self):
-        import json
-        import os
-        
-        # Determine the absolute path of the project root (where EMAPSSN_Tools.py lives)
-        project_root = os.path.dirname(os.path.abspath(__file__))
-        
         new_settings = {}
         for key, le in self.dir_inputs.items():
             raw_path = le.text().strip()
             # Save the path exactly as written
             new_settings[key] = os.path.normpath(raw_path) if raw_path else ""
-            
-        settings_file = os.path.join(_PROJECT_ROOT, "tools_settings.json")
-        combined_settings = {}
-        os.makedirs(os.path.dirname(settings_file), exist_ok=True)
-        if os.path.exists(settings_file):
-            try:
-                with open(settings_file, "r", encoding="utf-8") as f:
-                    combined_settings = json.load(f)
-            except: pass
-            
-        combined_settings["DIRECTORIES"] = new_settings
-        
+
+        # Only DIRECTORIES is replaced. A settings file that cannot be read is
+        # reported and kept, because rewriting it would drop every tool section.
         try:
-            with open(settings_file, "w", encoding="utf-8") as f:
-                json.dump(combined_settings, f, indent=4)
-            QMessageBox.information(self, "Success", "Global directories saved to JSON successfully.")
+            save_shared_directories(_PROJECT_ROOT, new_settings)
+        except ToolSettingsError as error:
+            QMessageBox.critical(
+                self,
+                "Directories Not Saved",
+                f"{error}\n\nThe file was left unchanged. Correct it, or delete "
+                "it to start over from the default settings, then save the "
+                "directories again.",
+            )
+            return
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save directories:\n{e}")
+            return
+        QMessageBox.information(self, "Success", "Global directories saved to JSON successfully.")
 
     def load_tools(self):
         tools_dir = os.path.join(_SRC_DIR, "tools")
@@ -3909,8 +3904,19 @@ class ToolsGUI(QMainWindow):
         # 1. Collect current values from GUI
         new_settings = self._collect_tool_settings(script_path)
 
-        # 2. Load existing JSON to avoid overwriting unrelated settings
-        combined_settings = load_shared_settings(_PROJECT_ROOT)
+        # 2. Load existing JSON to avoid overwriting unrelated settings. A file
+        # that cannot be read is kept, and the tool is not started from it.
+        try:
+            combined_settings = load_shared_settings(_PROJECT_ROOT)
+        except ToolSettingsError as error:
+            QMessageBox.critical(
+                self,
+                "Tool Not Started",
+                f"{error}\n\nThe file was left unchanged and the tool was not "
+                "started. Correct the file, or delete it to start over from the "
+                "default settings, then run the tool again.",
+            )
+            return
         tool_spec = get_tool_spec_for_script(script_path)
         script_name = tool_spec.script_name
         selected_model = None

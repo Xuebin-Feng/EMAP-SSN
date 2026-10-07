@@ -62,6 +62,16 @@ def print_help():
       agent hide noise clusters
     """)
 
+def _load_saved_cards(viewer):
+    """Return the saved model cards, or None after reporting an unusable model_card.json."""
+    from web_ui.agent_backend import ModelCardsError, load_model_cards
+    try:
+        return load_model_cards()
+    except ModelCardsError as error:
+        Command_Engine.print_help(viewer, f"Error: {error}")
+        Command_Engine.command_failed(viewer, f"Error: {error}")
+        return None
+
 def run(viewer, args):
     """Called by EMAPSSN_Viewer at startup (--register-only) and when user types 'agent'."""
     register(viewer)
@@ -93,9 +103,6 @@ def run(viewer, args):
         return
 
     # Helper to check if a string matches any loaded model card custom name
-    from web_ui.agent_backend import load_model_cards
-    cards = load_model_cards()
-
     def find_matching_card(custom_name):
         name_clean = custom_name.strip().lower()
         for card in cards:
@@ -107,6 +114,9 @@ def run(viewer, args):
     is_model_spec = full_arg.startswith("<") and full_arg.endswith(">")
 
     if is_model_spec:
+        cards = _load_saved_cards(viewer)
+        if cards is None:
+            return
         model_custom_name = full_arg[1:-1].strip()
         card = find_matching_card(model_custom_name)
         if card:
@@ -127,6 +137,9 @@ def run(viewer, args):
 
     # Auto-activate first card if agent isn't turned on
     if not getattr(viewer, "llm_loaded", False):
+        cards = _load_saved_cards(viewer)
+        if cards is None:
+            return
         if cards:
             activate_agent_from_card(viewer, cards[0], quiet=True)
         else:

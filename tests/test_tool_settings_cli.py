@@ -27,12 +27,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     DEFAULT_DIRECTORY_PATHS,
     TOOL_DIRECTORY_KEYS,
+    ToolSettingsError,
     apply_settings_document,
     fill_missing_directory_defaults,
     inherited_settings_path,
+    load_shared_settings,
     load_tool_settings,
     project_directory_defaults,
     read_settings_document,
+    save_shared_directories,
     save_shared_tool_settings,
     select_settings_path,
 )
@@ -413,13 +416,28 @@ class ToolSettingsHandOffTests(unittest.TestCase):
 
 
 class SharedToolSettingsTests(unittest.TestCase):
-    """save_shared_tool_settings rewrites one tool's section of tools_settings.json."""
+    """The Tools window's writers rewrite one section of tools_settings.json.
+
+    save_shared_tool_settings replaces a tool's section and
+    save_shared_directories replaces DIRECTORIES; neither ever writes over a
+    file it cannot load, and both replace the file atomically.
+    """
 
     @staticmethod
     def write_shared(root, text):
         path = pathlib.Path(root) / "tools_settings.json"
         path.write_text(text, encoding="utf-8")
         return path
+
+    @staticmethod
+    def saves(root):
+        """Each shared writer, applied to the tools_settings.json in root."""
+        return {
+            "tool section": lambda: save_shared_tool_settings(
+                root, "sanitize_sequences", {"INPUT_FASTA": "new.fasta"}
+            ),
+            "directories": lambda: save_shared_directories(root, {"FASTA_DIR": "new"}),
+        }
 
     def test_saving_replaces_one_section_keeps_the_others_and_fills_directories(self):
         with tempfile.TemporaryDirectory() as root:
@@ -441,26 +459,69 @@ class SharedToolSettingsTests(unittest.TestCase):
             "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m", "BATCH_SIZE": 4},
         })
 
-    def test_unparsable_file_is_replaced_and_a_non_object_root_is_refused(self):
-        # Current behaviour: unparsable JSON counts as an empty document, so the
-        # rewrite keeps only default directories and the saved section; a JSON
-        # root that is not an object raises before anything is written.
+    def test_saving_directories_replaces_only_that_section(self):
         with tempfile.TemporaryDirectory() as root:
-            path = self.write_shared(
-                root, '{"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},'
-            )
-            save_shared_tool_settings(root, "sanitize_sequences", {"INPUT_FASTA": "new.fasta"})
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {
-                "DIRECTORIES": DEFAULT_DIRECTORY_PATHS,
-                "Sanitize_Sequences.py": {"INPUT_FASTA": "new.fasta"},
-            })
+            path = self.write_shared(root, json.dumps({
+                "DIRECTORIES": {"FASTA_DIR": "old", "PATH_DIR": "legacy"},
+                "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},
+                "Embedding_MSA.py": {"TREE_METHOD": "UPGMA"},
+            }))
 
-            self.write_shared(root, "[1, 2]")
-            with self.assertRaisesRegex(TypeError, "mutable mapping"):
-                save_shared_tool_settings(
-                    root, "sanitize_sequences", {"INPUT_FASTA": "new.fasta"}
-                )
-            self.assertEqual(path.read_text(encoding="utf-8"), "[1, 2]")
+            returned = save_shared_directories(root, {"FASTA_DIR": "new", "MSA_DIR": ""})
+            document = json.loads(path.read_text(encoding="utf-8"))
+
+            path.unlink()
+            save_shared_directories(root, {"FASTA_DIR": "new"})
+            created = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(returned, str(path))
+        self.assertEqual(document, {
+            "DIRECTORIES": {"FASTA_DIR": "new", "MSA_DIR": ""},
+            "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},
+            "Embedding_MSA.py": {"TREE_METHOD": "UPGMA"},
+        })
+        self.assertEqual(created, {"DIRECTORIES": {"FASTA_DIR": "new"}})
+
+    def test_a_file_that_cannot_be_loaded_is_reported_and_kept(self):
+        # One trailing comma used to make the document count as empty, so a
+        # save kept only the saved section and wiped every other tool's.
+        unreadable = {
+            "trailing comma": (
+                b'{"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"},}',
+                r"line 1 column \d+",
+            ),
+            "array root": (b"[1, 2]", "must contain a JSON object"),
+            "not UTF-8": (b'{"DIRECTORIES": "\xff"}', "codec can't decode"),
+        }
+        for label, (content, reason) in unreadable.items():
+            with tempfile.TemporaryDirectory() as root:
+                path = pathlib.Path(root) / "tools_settings.json"
+                path.write_bytes(content)
+                with self.subTest(label, load=True), self.assertRaisesRegex(
+                    ToolSettingsError, reason
+                ):
+                    load_shared_settings(root)
+                for writer, save in self.saves(root).items():
+                    with self.subTest(label, writer=writer):
+                        with self.assertRaisesRegex(ToolSettingsError, "tools_settings.json"):
+                            save()
+                        self.assertEqual(path.read_bytes(), content)
+
+    def test_a_failed_write_leaves_the_previous_file_in_place(self):
+        original = json.dumps({"Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m"}})
+
+        def fail_midway(document, handle, **options):
+            handle.write('{"DIRECTORIES": ')
+            raise OSError(28, "No space left on device")
+
+        for writer in ("tool section", "directories"):
+            with self.subTest(writer=writer), tempfile.TemporaryDirectory() as root:
+                path = self.write_shared(root, original)
+                with mock.patch.object(json, "dump", side_effect=fail_midway), \
+                        self.assertRaisesRegex(OSError, "No space left"):
+                    self.saves(root)[writer]()
+                self.assertEqual(path.read_text(encoding="utf-8"), original)
+                self.assertEqual(os.listdir(root), ["tools_settings.json"])
 
 
 class PortableExportDirectoryTests(unittest.TestCase):

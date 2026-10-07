@@ -6,6 +6,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -17,6 +18,28 @@ if SRC_DIR not in sys.path:
 
 from commands import hide as hide_command
 from tests.command_fixtures import one_node_viewer, reported_outcomes
+
+
+def graph_viewer(visible, edges, scores, selected=()):
+    """A viewer with one node per visible flag and the given scored edges."""
+    viewer = one_node_viewer()
+    viewer.n_nodes = len(visible)
+    viewer.full_headers = [f"node{index}" for index in range(len(visible))]
+    viewer.visible_mask = np.array(visible)
+    viewer.edges = np.array(edges, dtype=int).reshape(-1, 2)
+    viewer.edge_scores = np.array(scores, dtype=float)
+    viewer.selected_indices = list(selected)
+    viewer.hovered_node_idx = 0
+    viewer.selected_node_idx = 0
+    viewer.tooltip = SimpleNamespace(text="node0")
+    return viewer
+
+
+def run_hide(viewer, args):
+    """Run hide and return the (succeeded, failed) outcome mocks."""
+    with reported_outcomes() as outcomes, redirect_stdout(io.StringIO()):
+        hide_command.run(viewer, args)
+    return outcomes
 
 
 class HideCommandTests(unittest.TestCase):
@@ -77,6 +100,105 @@ class HideCommandTests(unittest.TestCase):
         viewer.update_edges.assert_called_once_with()
         failed.assert_not_called()
         self.assertEqual(succeeded.call_args.args[1], "Hidden 1 nodes matching expression.")
+
+    def test_hide_without_arguments_hides_the_selection(self):
+        viewer = graph_viewer([True, True, True], [], [], selected=[0, 2])
+        succeeded, failed = run_hide(viewer, [])
+
+        np.testing.assert_array_equal(viewer.visible_mask, [False, True, False])
+        self.assertEqual(viewer.selected_indices, [])
+        self.assertIsNone(viewer.hovered_node_idx)
+        self.assertIsNone(viewer.selected_node_idx)
+        self.assertEqual(viewer.tooltip.text, "")
+        viewer._save_state.assert_called_once_with()
+        viewer.update_selection_visual.assert_called_once_with()
+        viewer.update_edges.assert_called_once_with()
+        failed.assert_not_called()
+        succeeded.assert_called_once_with(viewer, "Hidden 2 selected nodes.")
+
+    def test_hide_without_arguments_or_selection_fails(self):
+        viewer = graph_viewer([True, True], [], [])
+        succeeded, failed = run_hide(viewer, [])
+
+        failed.assert_called_once_with(viewer, "Error: No nodes currently selected.")
+        succeeded.assert_not_called()
+        np.testing.assert_array_equal(viewer.visible_mask, [True, True])
+        viewer._save_state.assert_not_called()
+        viewer.update_edges.assert_not_called()
+
+    def test_hide_single_hides_visible_nodes_without_an_active_edge(self):
+        # Edges 0-1 (score 0.9) and 2-3 (score 0.3); node 4 has no edge.
+        edges, scores = [(0, 1), (2, 3)], [0.9, 0.3]
+        cases = [
+            (0.5, [True] * 5, [True, True, False, False, False], 3),
+            # An edge scoring exactly the threshold stays active.
+            (0.3, [True] * 5, [True, True, True, True, False], 1),
+            # An edge to a hidden node is not active.
+            (0.3, [True, False, True, True, True], [False, False, True, True, False], 2),
+        ]
+        for threshold, visible, expected, count in cases:
+            with self.subTest(threshold=threshold, visible=visible):
+                viewer = graph_viewer(visible, edges, scores, selected=[0, 4])
+                viewer.current_slider_threshold = threshold
+                succeeded, failed = run_hide(viewer, ["single"])
+
+                np.testing.assert_array_equal(viewer.visible_mask, expected)
+                self.assertEqual(
+                    viewer.selected_indices,
+                    [index for index in (0, 4) if expected[index]],
+                )
+                self.assertEqual(viewer.tooltip.text, "")
+                viewer._save_state.assert_called_once_with()
+                viewer.update_selection_visual.assert_called_once_with()
+                viewer.update_edges.assert_called_once_with()
+                failed.assert_not_called()
+                succeeded.assert_called_once_with(
+                    viewer, f"Hidden {count} single/free nodes."
+                )
+
+    def test_hide_free_without_a_slider_uses_the_configured_threshold(self):
+        viewer = graph_viewer([True] * 5, [(0, 1), (2, 3)], [0.9, 0.3])
+        with mock.patch.object(hide_command.cfg, "SIMILARITY_THRESHOLD", 0.5):
+            succeeded, _failed = run_hide(viewer, ["FREE"])
+
+        np.testing.assert_array_equal(
+            viewer.visible_mask, [True, True, False, False, False]
+        )
+        succeeded.assert_called_once_with(viewer, "Hidden 3 single/free nodes.")
+
+    def test_hide_single_without_edge_scores_counts_every_visible_edge(self):
+        viewer = graph_viewer([True] * 3, [(0, 1)], [])
+        viewer.current_slider_threshold = 0.99
+        succeeded, _failed = run_hide(viewer, ["single"])
+
+        np.testing.assert_array_equal(viewer.visible_mask, [True, True, False])
+        succeeded.assert_called_once_with(viewer, "Hidden 1 single/free nodes.")
+
+    def test_hide_single_with_nothing_to_hide_adds_no_undo_step(self):
+        # Node 2 is single but already hidden.
+        viewer = graph_viewer([True, True, False], [(0, 1)], [0.9])
+        viewer.current_slider_threshold = 0.5
+        succeeded, failed = run_hide(viewer, ["single"])
+
+        np.testing.assert_array_equal(viewer.visible_mask, [True, True, False])
+        viewer._save_state.assert_not_called()
+        viewer.update_edges.assert_not_called()
+        failed.assert_not_called()
+        succeeded.assert_called_once_with(
+            viewer, "No single/free nodes found to hide at the current edge threshold."
+        )
+
+    def test_hide_reset_shows_every_node_again(self):
+        viewer = graph_viewer([False, True, False], [], [])
+        succeeded, failed = run_hide(viewer, ["RESET"])
+
+        np.testing.assert_array_equal(viewer.visible_mask, [True, True, True])
+        viewer._save_state.assert_called_once_with()
+        viewer.update_nodes.assert_called_once_with()
+        viewer.update_edges.assert_called_once_with()
+        failed.assert_not_called()
+        succeeded.assert_called_once_with(viewer, "Reset successful: hidden.")
+        self.assertEqual(viewer.console_text.text, "Reset successful: hidden.")
 
 
 if __name__ == "__main__":
