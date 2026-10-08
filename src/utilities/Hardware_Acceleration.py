@@ -458,37 +458,26 @@ def prepare_layout_batch(
                     f"({component_node_count} nodes)..."
                 )
             try:
-                import scipy.sparse as sp
-                from scipy.sparse.csgraph import laplacian
-                from scipy.sparse.linalg import eigsh
+                try:
+                    from utilities import Spectral_Start
+                except ImportError:
+                    import Spectral_Start
 
-                row = np.concatenate((local_edges[:, 0], local_edges[:, 1]))
-                col = np.concatenate((local_edges[:, 1], local_edges[:, 0]))
-                data = np.concatenate((scores, scores))
-                adjacency = sp.coo_matrix(
-                    (data, (row, col)),
-                    shape=(component_node_count, component_node_count),
+                # The eigenvectors after the trivial one, each spread by asinh
+                # and then mapped across 80% of the component's box.
+                axes = Spectral_Start.spectral_axes(
+                    local_edges,
+                    scores,
+                    component_node_count,
+                    dimensions,
+                    draw=None if rng is None else rng.standard_normal,
+                    verbose=verbose,
                 )
-                graph_laplacian = laplacian(adjacency, normed=True)
-                eigsh_v0 = (
-                    None
-                    if rng is None
-                    else rng.standard_normal(component_node_count)
-                )
-                _, vectors = eigsh(
-                    graph_laplacian,
-                    k=dimensions + 1,
-                    which="SM",
-                    tol=1e-3,
-                    v0=eigsh_v0,
-                )
-                # Eigenvector 0 is the trivial constant vector; take the
-                # next `dimensions` as the coordinate axes.
                 axis_blocks = []
-                for axis_index in range(1, dimensions + 1):
-                    coordinates = vectors[:, axis_index]
-                    normalized = (coordinates - np.min(coordinates)) / (
-                        np.ptp(coordinates) + 1e-9
+                for coordinates in axes.T:
+                    scaled = Spectral_Start.asinh_scaled(coordinates)
+                    normalized = (scaled - np.min(scaled)) / (
+                        np.ptp(scaled) + 1e-9
                     )
                     axis_blocks.append(
                         (normalized - 0.5) * box_limit * 0.8

@@ -151,6 +151,32 @@ still change before version 1.0.0.
   layout of its 34,302-node component once (5 to 7 minutes) instead of twice, with 0.4
   GiB less peak memory; the 13K network took 15.3 s instead of 22.5 s, with identical
   positions.
+- **Spectral starts use the intended eigenvectors, and large components solve them in
+  seconds.** A component's starting layout comes from the eigenvectors of its normalized
+  graph Laplacian after the trivial one: λ2 and λ3, and λ2–λ4 in 3D. ARPACK's
+  smallest-magnitude stopping test is relative to the eigenvalue, so it often missed the
+  eigenvalue of exactly zero and returned the next ones instead; skipping its first
+  column then laid those components out on λ3/λ4 (λ3–λ5 in 3D). In the test networks
+  that happened to three of the four components above 2,000 nodes and to about half of
+  those with 20–499 nodes. The trivial eigenvector, √degree, is now excluded explicitly.
+  Components of 2,000 or more nodes are solved with SciPy's LOBPCG, kept orthogonal to
+  √degree, with its matrix products on all but two logical CPUs; a result that misses
+  the residual or orthogonality check falls back to ARPACK, continuing the same seeded
+  random stream. On the test machine the 44K network's 34,302-node component now gets
+  its spectral start in 23 s (28 s in 3D) instead of about 7 minutes.
+- **Spectral starts no longer collapse to a dot.** Each axis of a spectral start is
+  spread with asinh around its median, in units of half its 5–95% range, before the
+  usual mapping into the component's box. A few outlying nodes used to stretch that
+  mapping so far that the rest of a large component started inside a dot one or two
+  units wide, and its explosive expansion left about a dozen nodes per 44K run on the
+  layout boundary in the first stages. With both changes, the 44K network's layout shows
+  no boundary warnings and took 257 s instead of 695 s (296 s in 3D), and the 13K
+  network took 8.7 s instead of 14 s (10.1 s instead of 11.6 s in 3D); the Fungal
+  network's time was unchanged (3.6–3.8 s). **Seeded layouts change once** for every
+  component with a spectral start (4 or more nodes in 2D, 5 or more in 3D) and for every
+  batch that contains one, because a batch shares one simulation; packing may also move
+  unchanged components. Grid starts (2–3 nodes, up to 4 in 3D) are unchanged, and so are
+  batches made only of them.
 - Neighbor-joining guide trees in `Embedding_MSA.py` and the edge filter of the
   `jaccard` mode of `cluster` and `subcluster` also run in parallel on all but two
   logical CPUs; neighbor-joining bootstrap workers split those threads between them.

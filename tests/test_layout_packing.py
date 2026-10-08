@@ -1,9 +1,10 @@
 """Component search, edge grouping and grid packing in the SSN layout engine.
 
 The reference functions restate the per-edge Python code these replaced (as of
-commit 0704907). The simulation must keep seeing exactly the same inputs, so
-the component order, the batch preparation and the progressive-stage anchors
-are compared bit for bit. Packing is new, so it is checked by what it
+commit 0704907), with the spectral start's later axis rule and asinh spread.
+The simulation must keep seeing exactly the same inputs, so the component
+order, the batch preparation and the progressive-stage anchors are compared
+bit for bit. Packing is new, so it is checked by what it
 guarantees: the clearance between components, rigid moves and tight cells.
 """
 
@@ -141,15 +142,32 @@ def _reference_layout_batch(
                 )
                 graph_laplacian = laplacian(adjacency, normed=True)
                 eigsh_v0 = None if rng is None else rng.standard_normal(component_node_count)
-                _, vectors = eigsh(
+                values, vectors = eigsh(
                     graph_laplacian, k=dimensions + 1, which="SM", tol=1e-3, v0=eigsh_v0,
                 )
+                # The axes skip the trivial eigenvector, sqrt(degree), wherever
+                # ARPACK put it, and take the next ones by eigenvalue.
+                degree = [0.0] * component_node_count
+                for (source, target), score in zip(local_edges, scores):
+                    if source != target:
+                        degree[source] += score
+                        degree[target] += score
+                root_degree = np.sqrt(degree)
+                axes = [
+                    vectors[:, index] for index in np.argsort(values, kind="stable")
+                    if abs(root_degree @ vectors[:, index])
+                    <= 0.9 * np.linalg.norm(root_degree) * np.linalg.norm(vectors[:, index])
+                ][:dimensions]
                 axis_blocks = []
-                for axis_index in range(1, dimensions + 1):
-                    coordinates = vectors[:, axis_index]
-                    normalized = (coordinates - np.min(coordinates)) / (
-                        np.ptp(coordinates) + 1e-9
-                    )
+                for coordinates in axes:
+                    # asinh around the median, in units of half the 5-95% range
+                    # (half the full range when that is numerically empty).
+                    low, middle, high = np.percentile(coordinates, [5.0, 50.0, 95.0])
+                    spread = (high - low) / 2.0
+                    if not spread > np.ptp(coordinates) / 2.0 * 1e-6:
+                        spread = float(np.ptp(coordinates)) / 2.0
+                    scaled = np.arcsinh((coordinates - middle) / spread)
+                    normalized = (scaled - np.min(scaled)) / (np.ptp(scaled) + 1e-9)
                     axis_blocks.append((normalized - 0.5) * box_limit * 0.8)
                 local_positions = np.column_stack(axis_blocks).astype(np.float32)
                 spectral_success = True

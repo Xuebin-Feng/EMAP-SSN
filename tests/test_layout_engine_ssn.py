@@ -790,23 +790,23 @@ class BenchmarkHandOffTests(unittest.TestCase):
         self._assert_hand_off_keeps_the_layout(self._candidate("cuda:0"))
 
     def test_each_job_is_prepared_and_its_spectral_layout_solved_once(self):
-        import scipy.sparse.linalg
+        from utilities import Spectral_Start
 
         hardware = ssn_engine.Layout_Hardware
-        prepare, eigsh = hardware.prepare_layout_batch, scipy.sparse.linalg.eigsh
+        prepare, solve = hardware.prepare_layout_batch, Spectral_Start.spectral_axes
         prepared_jobs, solved = [], []
 
         def counted_prepare(batch_components, *args, **kwargs):
             prepared_jobs.append(tuple(int(component[0]) for component in batch_components))
             return prepare(batch_components, *args, **kwargs)
 
-        def counted_eigsh(matrix, *args, **kwargs):
-            solved.append(matrix.shape[0])
-            return eigsh(matrix, *args, **kwargs)
+        def counted_solve(local_edges, scores, node_count, *args, **kwargs):
+            solved.append(node_count)
+            return solve(local_edges, scores, node_count, *args, **kwargs)
 
         with self._hidden_accelerators(), mock.patch.object(
             hardware, "prepare_layout_batch", side_effect=counted_prepare
-        ), mock.patch.object(scipy.sparse.linalg, "eigsh", side_effect=counted_eigsh):
+        ), mock.patch.object(Spectral_Start, "spectral_axes", side_effect=counted_solve):
             _, log = self._layout("auto", self._candidate("cpu"))
 
         self.assertEqual(len(prepared_jobs), 4)
