@@ -476,6 +476,15 @@ still change before version 1.0.0.
 - `Align_Substitution_Matrix.py` (BLAST all-vs-all) exited with code 0 when no input
   FASTA was selected, so MCP reported a job that wrote nothing as succeeded. It now
   exits with code 1.
+- On Windows, `Align_Substitution_Matrix.py` (BLAST all-vs-all) stopped within seconds
+  with `Argument "out". File is not accessible` when its network folder was deep, even
+  without spaces. `blastp` cannot open a path of 260 characters or more, whatever the
+  long-path setting, and its result files add 92 characters to the temporary
+  workspace, so a workspace path of about 170 characters already failed. Such a
+  workspace now reaches BLAST through its 8.3 short path or a temporary directory
+  link, as a workspace path containing a space already did. When neither can be made,
+  the error gives the path's length and suggests mapping a drive letter to the network
+  folder.
 - Embedding MSA ran out of memory on large complete networks. Filtering stored every
   edge as a Python tuple (about 130 bytes each), so a 44,127-sequence network with
   973.6 million edges needed about 150 GB and stopped with `MemoryError` on a 96 GB

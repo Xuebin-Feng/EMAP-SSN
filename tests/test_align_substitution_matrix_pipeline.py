@@ -30,6 +30,19 @@ with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
     import Align_Substitution_Matrix as substitution_matrix
 
 
+def _long_paths_supported():
+    """Whether this process can open paths of MAX_PATH (260) characters or more."""
+    if os.name != "nt":
+        return True
+    import ctypes
+    try:
+        enabled = ctypes.WinDLL("ntdll").RtlAreLongPathsEnabled
+    except (AttributeError, OSError):
+        return False
+    enabled.restype = ctypes.c_ubyte
+    return bool(enabled())
+
+
 class SubstitutionMatrixPipelineTests(unittest.TestCase):
     @staticmethod
     def _metadata(**overrides):
@@ -460,6 +473,73 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 )
             run.assert_not_called()
 
+    def test_blast_workspace_alias_is_itself_short_and_space_free(self):
+        # The length limit applies on Windows only; patching it in checks the
+        # rules on every platform. Nothing here touches the disk.
+        limit = 260
+        self.assertEqual(
+            substitution_matrix.BLAST_MAX_PATH,
+            limit if os.name == "nt" else None,
+        )
+        reserve = substitution_matrix.BLAST_PATH_RESERVE
+        root = os.path.abspath(os.sep)
+        link_base = os.path.join(root, "links")
+
+        def path_of_length(length, fill="w"):
+            return os.path.join(root, fill * (length - len(root)))
+
+        at_limit = path_of_length(limit - reserve)
+        cases = (
+            # label, workspace, what _windows_short_path returns, expected alias
+            ("below the limit", path_of_length(limit - reserve - 1), None, "workspace"),
+            # A volume without 8.3 names returns the long path unchanged.
+            ("at the limit without short names", at_limit, at_limit, "link"),
+            ("at the limit with a short path", at_limit, os.path.join(root, "SHORT~1"), "short path"),
+            ("containing a space", os.path.join(root, "My Networks", "set_temp"), None, "link"),
+        )
+        for label, workspace, short_path, expected in cases:
+            create_link = mock.Mock()
+            remove_link = mock.Mock()
+            with self.subTest(label), mock.patch.multiple(
+                substitution_matrix,
+                BLAST_MAX_PATH=limit,
+                _windows_short_path=mock.Mock(return_value=short_path),
+                _space_free_link_bases=mock.Mock(return_value=[link_base]),
+                _create_directory_link=create_link,
+                _remove_directory_link=remove_link,
+            ), redirect_stdout(io.StringIO()):
+                alias, release = substitution_matrix.resolve_blast_workspace(workspace)
+                release()
+
+                if expected == "workspace":
+                    self.assertEqual(alias, workspace)
+                elif expected == "short path":
+                    self.assertEqual(alias, short_path)
+                else:
+                    self.assertEqual(os.path.dirname(alias), link_base)
+                    create_link.assert_called_once_with(alias, workspace)
+                    remove_link.assert_called_once_with(alias)
+                if expected != "link":
+                    create_link.assert_not_called()
+                self.assertNotIn(" ", alias)
+                self.assertLess(len(alias) + reserve, limit)
+
+        # A link under a base that is itself too long would fail the same way,
+        # so it is never created and the error reports the length.
+        create_link = mock.Mock()
+        with mock.patch.multiple(
+            substitution_matrix,
+            BLAST_MAX_PATH=limit,
+            _windows_short_path=mock.Mock(return_value=None),
+            _space_free_link_bases=mock.Mock(return_value=[at_limit]),
+            _create_directory_link=create_link,
+        ), self.assertRaises(RuntimeError) as raised:
+            substitution_matrix.resolve_blast_workspace(at_limit)
+        create_link.assert_not_called()
+        message = str(raised.exception)
+        self.assertIn(f"is too long for BLAST ({limit - reserve} characters", message)
+        self.assertIn(f"{at_limit}: the link path would be too long", message)
+
     def test_thread_change_quarantines_workspace_but_batch_size_is_irrelevant(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             network_dir = os.path.join(temp_dir, "networks")
@@ -584,7 +664,11 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 substitution_matrix.cleanup_workspace()
                 self.assertFalse(os.path.exists(workspace))
 
-    def test_mocked_end_to_end_workflow_publishes_then_cleans_workspace(self):
+    def _run_mocked_workflow(self, input_path, network_dir, fake_subprocess_run, **patches):
+        """Run main([]) for input_path with BLAST, the worker pool and settings mocked.
+
+        Returns the exit code and the mocked multiprocessing.set_start_method.
+        """
         class ImmediatePool:
             def __init__(self, processes):
                 self.processes = processes
@@ -600,6 +684,57 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 for task in tasks:
                     yield function(task)
 
+        workspace = os.path.join(network_dir, "input_[BLAST]_EValue_temp")
+        settings = {
+            "INPUT_FASTA": "input.fasta",
+            "FULL_INPUT_FASTA": input_path,
+            "SEQUENCE_SET": "input",
+            "NETWORK_DIR": network_dir,
+            "OUTPUT_HDF5": os.path.join(network_dir, "input_[BLAST]_EValue.h5"),
+            "SAFE_TEMP_DIR": workspace,
+            "CHUNKS_DIR": os.path.join(workspace, "chunks"),
+            "RESULTS_DIR": os.path.join(workspace, "results"),
+            "BATCH_DIR": os.path.join(workspace, "batches"),
+            "CONFIG_FILE": os.path.join(workspace, "job_config.json"),
+            "NUM_THREADS": 1,
+            "BATCH_SIZE": 1,
+            "MATRIX": "BLOSUM62",
+            "MAKEBLASTDB_CMD": "makeblastdb",
+            "BLASTP_CMD": "blastp",
+        }
+        settings.update(patches)
+        with mock.patch.multiple(
+            substitution_matrix,
+            **settings,
+        ), mock.patch.object(
+            substitution_matrix,
+            "get_blastp_version",
+            return_value="blastp: test",
+        ), mock.patch.object(
+            substitution_matrix.subprocess,
+            "run",
+            side_effect=fake_subprocess_run,
+        ), mock.patch.object(
+            substitution_matrix.multiprocessing,
+            "Pool",
+            ImmediatePool,
+        ), mock.patch.object(
+            substitution_matrix,
+            "configure_runtime_paths",
+        ), mock.patch.object(
+            # main([]) reads the project-root tools_settings.json (a
+            # developer's own selections); the import hook doesn't cover it.
+            substitution_matrix,
+            "load_tool_settings",
+        ), mock.patch.object(
+            # On Linux this would switch the whole test process to spawn.
+            substitution_matrix.multiprocessing,
+            "set_start_method",
+        ) as set_start_method, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            exit_code = substitution_matrix.main([])
+        return exit_code, set_start_method
+
+    def test_mocked_end_to_end_workflow_publishes_then_cleans_workspace(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             fasta_dir = os.path.join(temp_dir, "fastas")
             network_dir = os.path.join(temp_dir, "networks")
@@ -622,52 +757,11 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 )
                 return mock.Mock(returncode=0, stdout="", stderr="")
 
-            patches = {
-                "INPUT_FASTA": "input.fasta",
-                "FULL_INPUT_FASTA": input_path,
-                "SEQUENCE_SET": "input",
-                "NETWORK_DIR": network_dir,
-                "OUTPUT_HDF5": output_path,
-                "SAFE_TEMP_DIR": workspace,
-                "CHUNKS_DIR": os.path.join(workspace, "chunks"),
-                "RESULTS_DIR": os.path.join(workspace, "results"),
-                "BATCH_DIR": os.path.join(workspace, "batches"),
-                "CONFIG_FILE": os.path.join(workspace, "job_config.json"),
-                "NUM_THREADS": 1,
-                "BATCH_SIZE": 1,
-                "MATRIX": "BLOSUM62",
-                "MAKEBLASTDB_CMD": "makeblastdb",
-                "BLASTP_CMD": "blastp",
-            }
-            with mock.patch.multiple(
-                substitution_matrix,
-                **patches,
-            ), mock.patch.object(
-                substitution_matrix,
-                "get_blastp_version",
-                return_value="blastp: test",
-            ), mock.patch.object(
-                substitution_matrix.subprocess,
-                "run",
-                side_effect=fake_subprocess_run,
-            ), mock.patch.object(
-                substitution_matrix.multiprocessing,
-                "Pool",
-                ImmediatePool,
-            ), mock.patch.object(
-                substitution_matrix,
-                "configure_runtime_paths",
-            ), mock.patch.object(
-                # main([]) reads the project-root tools_settings.json (a
-                # developer's own selections); the import hook doesn't cover it.
-                substitution_matrix,
-                "load_tool_settings",
-            ), mock.patch.object(
-                # On Linux this would switch the whole test process to spawn.
-                substitution_matrix.multiprocessing,
-                "set_start_method",
-            ) as set_start_method, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                exit_code = substitution_matrix.main([])
+            exit_code, set_start_method = self._run_mocked_workflow(
+                input_path,
+                network_dir,
+                fake_subprocess_run,
+            )
 
             # main()'s return value is the process exit code, and the MCP job
             # runner reports a job as succeeded only for exit code 0.
@@ -682,6 +776,95 @@ class SubstitutionMatrixPipelineTests(unittest.TestCase):
                 np.testing.assert_allclose(network["score"][:], [25.0])
                 self.assertEqual(network.attrs["model_name"], "BLAST")
                 self.assertEqual(network.attrs["matrix"], "BLOSUM62")
+
+    @unittest.skipUnless(
+        _long_paths_supported(),
+        "Windows long paths are disabled, so Python cannot write this workspace either",
+    )
+    def test_deep_space_free_workspace_keeps_blast_paths_under_max_path(self):
+        # An MCP job's space-free NETWORK_DIR made the workspace 172 characters
+        # long, and blastp, which is not long-path aware, rejected its
+        # 264-character -out path as "not accessible".
+        limit = 260
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fasta_dir = os.path.join(temp_dir, "fastas")
+            os.makedirs(fasta_dir)
+            input_path = os.path.join(fasta_dir, "input.fasta")
+            pathlib.Path(input_path).write_text(
+                ">a\nACDE\n>b\nACDF\n",
+                encoding="utf-8",
+            )
+            workspace_name = "input_[BLAST]_EValue_temp"
+            padding = "p" * max(1, 172 - len(temp_dir) - len(workspace_name) - 2)
+            network_dir = os.path.join(temp_dir, padding)
+            workspace = os.path.abspath(os.path.join(network_dir, workspace_name))
+            longest_name = os.path.join("results", "result_" + "0" * 64 + ".txt.partial")
+            self.assertGreaterEqual(len(os.path.join(workspace, longest_name)), limit)
+
+            links = {}
+            commands = []
+
+            def create_link(link_path, target_path):
+                links[link_path] = target_path
+
+            def through_links(path):
+                # Resolve the mocked junction the way Windows would.
+                for link_path, target_path in links.items():
+                    if path.startswith(link_path + os.sep):
+                        return target_path + path[len(link_path):]
+                return path
+
+            def fake_subprocess_run(command, **kwargs):
+                commands.append((list(command), kwargs.get("cwd")))
+                if os.path.basename(command[0]).startswith("makeblastdb"):
+                    return mock.Mock(returncode=0, stdout="", stderr="")
+                partial_result = through_links(command[command.index("-out") + 1])
+                pathlib.Path(partial_result).write_text(
+                    self._blast_line(0, 1, "1e-25"),
+                    encoding="utf-8",
+                )
+                return mock.Mock(returncode=0, stdout="", stderr="")
+
+            remove_link = mock.Mock()
+            exit_code, _ = self._run_mocked_workflow(
+                input_path,
+                network_dir,
+                fake_subprocess_run,
+                BLAST_MAX_PATH=limit,
+                # A volume without 8.3 names returns the long path unchanged.
+                _windows_short_path=lambda path: path,
+                _create_directory_link=create_link,
+                _remove_directory_link=remove_link,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(
+                os.path.exists(os.path.join(network_dir, "input_[BLAST]_EValue.h5"))
+            )
+            self.assertFalse(os.path.exists(workspace))
+
+            self.assertEqual(
+                [os.path.basename(command[0]) for command, _ in commands],
+                ["makeblastdb", "blastp"],
+            )
+            blast_paths = []
+            for command, cwd in commands:
+                blast_paths.append(cwd)
+                blast_paths.extend(
+                    command[index + 1]
+                    for index, argument in enumerate(command[:-1])
+                    if argument in ("-in", "-out", "-query", "-db")
+                )
+            for path in blast_paths:
+                with self.subTest(path=path):
+                    self.assertLess(len(path), limit)
+
+            # BLAST reached the workspace through one link, released afterwards.
+            self.assertEqual(list(links.values()), [workspace])
+            (link,) = links
+            remove_link.assert_called_once_with(link)
+            for path in blast_paths:
+                self.assertTrue(path == link or path.startswith(link + os.sep), path)
 
     def test_main_exits_nonzero_when_no_fasta_is_selected(self):
         # The MCP job runner reports exit code 0 as a successful job, so a run

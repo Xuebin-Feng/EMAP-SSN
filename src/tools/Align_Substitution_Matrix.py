@@ -344,7 +344,7 @@ def prepare_blast_fasta(input_fasta, output_fasta):
     return headers, sequences
 
 
-# --- BLAST space-free path aliasing -----------------------------------------
+# --- BLAST-safe path aliasing -----------------------------------------------
 #
 # NCBI BLAST parses database paths as a whitespace-delimited list of names, so
 # an absolute path containing a space is truncated at the first space: a project
@@ -357,8 +357,35 @@ def prepare_blast_fasta(input_fasta, output_fasta):
 # database, so a space in the working directory reintroduces the failure even
 # though every database file was written correctly.
 #
+# The Windows BLAST binaries are not long-path aware either: blastp rejects any
+# file path of 260 characters (MAX_PATH, counting the terminating NUL) or more
+# as "not accessible", whatever the LongPathsEnabled setting. The longest path
+# BLAST is handed, "<workspace>\results\result_<64 hex>.txt.partial", is 92
+# characters longer than the workspace, so a space-free workspace of about 170
+# characters is already out of reach.
+#
 # The only reliable fix is to hand the BLAST binaries a path to the workspace
-# that contains no spaces at all.
+# that contains no spaces at all and leaves room for those names.
+
+# Path length at which the BLAST binaries reject a file; None where they have
+# no such limit.
+BLAST_MAX_PATH = 260 if os.name == "nt" else None
+# Characters kept free after the workspace path for the names BLAST opens
+# inside it; the longest, a partial result file, needs 92.
+BLAST_PATH_RESERVE = 100
+
+
+def _blast_path_problems(path):
+    """Return why BLAST cannot open files under ``path`` (empty if it can)."""
+    problems = []
+    if " " in path:
+        problems.append("contains a space")
+    if BLAST_MAX_PATH is not None and len(path) + BLAST_PATH_RESERVE >= BLAST_MAX_PATH:
+        problems.append(
+            f"is too long for BLAST ({len(path)} characters; the files BLAST "
+            f"opens inside it must stay under {BLAST_MAX_PATH})"
+        )
+    return problems
 
 
 def _windows_short_path(path):
@@ -445,7 +472,7 @@ def _links_to(link_path, target_path):
 
 def blast_path(path, workspace_root, blast_workspace):
     """
-    Rewrite a workspace file as an absolute path under the space-free alias.
+    Rewrite a workspace file as an absolute path under the BLAST-safe alias.
 
     Every BLAST argument is passed this way rather than as a relative name,
     because the working directory cannot be relied upon: POSIX resolves a
@@ -459,25 +486,31 @@ def blast_path(path, workspace_root, blast_workspace):
 
 def resolve_blast_workspace(workspace):
     """
-    Expose ``workspace`` to BLAST through a path that contains no spaces.
+    Expose ``workspace`` to BLAST through a short path that contains no spaces.
 
     Returns ``(blast_path, release)``. ``blast_path`` is the root that every
     BLAST argument is rebased onto; ``release`` removes any temporary link
     that was created and never touches the workspace contents.
     """
     absolute = os.path.abspath(workspace)
-    if " " not in absolute:
+    problems = " and ".join(_blast_path_problems(absolute))
+    if not problems:
         return absolute, lambda: None
 
+    # An 8.3 short path can keep long names on volumes without short names,
+    # so it has to pass the same checks as the workspace itself.
     short_path = _windows_short_path(absolute)
-    if short_path and " " not in short_path:
-        print(f"-> Workspace path contains spaces; using short path: {short_path}")
+    if short_path and not _blast_path_problems(short_path):
+        print(f"-> Workspace path {problems}; using short path: {short_path}")
         return short_path, lambda: None
 
     link_name = "ssn_blast_" + hashlib.sha256(absolute.encode("utf-8")).hexdigest()[:16]
     failures = []
     for base in _space_free_link_bases(absolute):
         link_path = os.path.join(base, link_name)
+        if _blast_path_problems(link_path):
+            failures.append(f"{base}: the link path would be too long")
+            continue
         try:
             # lexists, so a link left behind by an interrupted run is still
             # seen even when its former target no longer exists.
@@ -490,21 +523,25 @@ def resolve_blast_workspace(workspace):
         except OSError as error:
             failures.append(f"{base}: {error}")
             continue
-        print(f"-> Workspace path contains spaces; linking BLAST to: {link_path}")
+        print(f"-> Workspace path {problems}; linking BLAST to: {link_path}")
         return link_path, lambda: _remove_directory_link(link_path)
 
     if os.name == "nt":
-        drive = os.path.splitdrive(absolute)[0] or "E:"
-        suggestion = f'    subst S: "{drive}\\"     (then set NETWORK_DIR under S:)'
+        # A drive letter for the network folder itself removes both its
+        # spaces and its length from every path BLAST sees.
+        suggestion = (
+            f'    subst S: "{os.path.dirname(absolute)}"     '
+            "(then set NETWORK_DIR to S:\\)"
+        )
     else:
         suggestion = "    ln -s '" + absolute + "' /tmp/ssn_blast   (then set NETWORK_DIR there)"
 
     raise RuntimeError(
-        "BLAST cannot open a database whose path contains a space, and no "
-        "space-free link to the workspace could be created:\n"
+        f"BLAST cannot open files in a workspace whose path {problems}, and no "
+        "short, space-free link to the workspace could be created:\n"
         f"  {absolute}\n"
         "  Attempts: " + ("; ".join(failures) if failures else "no candidate location") + "\n"
-        "  Fix this by setting NETWORK_DIR to a path without spaces, or by "
+        "  Fix this by setting NETWORK_DIR to a shorter path without spaces, or by "
         "creating the link yourself, for example:\n"
         + suggestion
     )
@@ -635,8 +672,9 @@ def run_alignment_worker(args):
     except OSError:
         pass
 
-    # Address every file through the space-free alias, so no path BLAST
-    # parses can contain a space regardless of platform.
+    # Address every file through the BLAST-safe alias, so no path BLAST
+    # parses can contain a space regardless of platform, or reach the
+    # Windows path length limit.
     query_argument = blast_path(query_file, workspace_root, blast_workspace)
     database_argument = blast_path(target_ref, workspace_root, blast_workspace)
     output_argument = blast_path(partial_out, workspace_root, blast_workspace)
@@ -1225,8 +1263,9 @@ def run_workflow():
     print(f"Loaded {len(headers)} sanitized sequences from FASTA.")
 
     # 2. REBUILD TARGET DATABASE
-    # Every BLAST invocation runs from a space-free view of the workspace,
-    # because BLAST splits database paths on whitespace internally.
+    # Every BLAST invocation runs from a short, space-free view of the
+    # workspace, because BLAST splits database paths on whitespace internally
+    # and on Windows cannot open paths of MAX_PATH characters or more.
     workspace_root = os.path.abspath(SAFE_TEMP_DIR)
     blast_workspace, release_blast_workspace = resolve_blast_workspace(SAFE_TEMP_DIR)
     try:
@@ -1238,7 +1277,7 @@ def run_workflow():
                 pass
         print("Building BLAST Database...")
         # makeblastdb re-opens the finished database by absolute path to
-        # verify it, so -in and -out are addressed through the space-free
+        # verify it, so -in and -out are addressed through the BLAST-safe
         # alias rather than as relative names.
         safe_fasta_argument = blast_path(
             safe_fasta_path, workspace_root, blast_workspace
