@@ -102,8 +102,10 @@ if [ "$LAUNCH_MODE" = "--run-only" ]; then
 fi
 
 # Healthy direct launches take the same read-only fast path as desktop launches.
+# --setup-only callers have just run --check-only, so it is not repeated.
 environment_ready=0
-if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
+if [ "$LAUNCH_MODE" != "--setup-only" ] &&
+        [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
         "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
             --uv-executable "$UV_EXE" --venv .venv; then
     environment_ready=1
@@ -112,10 +114,12 @@ fi
 if [ "$environment_ready" -ne 1 ]; then
     ssn_acquire_dependency_setup_lock "$PROJECT_ROOT" || exit 1
 
-    # Another launcher may have completed setup while this process waited.
+    # Another launcher may have completed setup while this process waited. The
+    # earlier check already printed why setup is needed, and the installer
+    # prints its own detection, so this re-check stays quiet.
     if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1 &&
             "$VENV_PYTHON" src/Install_Dependencies.py --check-only \
-                --uv-executable "$UV_EXE" --venv .venv; then
+                --uv-executable "$UV_EXE" --venv .venv >/dev/null 2>&1; then
         printf 'Dependency setup was completed by another launcher.\n'
     else
         if [ ! -x "$VENV_PYTHON" ] || ! "$VENV_PYTHON" -c "$VENV_PROBE" >/dev/null 2>&1; then

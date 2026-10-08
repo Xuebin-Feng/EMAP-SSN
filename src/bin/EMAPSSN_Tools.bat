@@ -73,20 +73,26 @@ if /I "%LAUNCH_MODE%"=="--wait-for-setup" (
 )
 
 :: Healthy direct launches take the same read-only fast path as desktop launches.
+:: --setup-only callers have just run --check-only, and the --locked-setup
+:: child runs because its parent's check failed, so neither repeats it.
+if /I "%LAUNCH_MODE%"=="--locked-setup" goto LOCKED_SETUP
+if /I "%LAUNCH_MODE%"=="--setup-only" goto START_LOCKED_SETUP
 call :ENVIRONMENT_READY
 if !ERRORLEVEL! equ 0 goto SETUP_COMPLETE
 
-if /I not "%LAUNCH_MODE%"=="--locked-setup" (
-    "%COMSPEC%" /d /c ""%~f0" --locked-setup"
-    if !ERRORLEVEL! neq 0 exit /b !ERRORLEVEL!
-    goto SETUP_COMPLETE
-)
+:START_LOCKED_SETUP
+"%COMSPEC%" /d /c ""%~f0" --locked-setup"
+if !ERRORLEVEL! neq 0 exit /b !ERRORLEVEL!
+goto SETUP_COMPLETE
 
+:LOCKED_SETUP
 call :ACQUIRE_SETUP_LOCK
 if !ERRORLEVEL! neq 0 exit /b 1
 
-:: Another launcher may have completed setup while this process waited.
-call :ENVIRONMENT_READY
+:: Another launcher may have completed setup while this process waited. The
+:: earlier check already printed why setup is needed, and the installer prints
+:: its own detection, so this re-check stays quiet.
+call :ENVIRONMENT_READY >nul 2>nul
 if !ERRORLEVEL! equ 0 (
     echo Dependency setup was completed by another launcher.
     call :RELEASE_SETUP_LOCK

@@ -1,7 +1,8 @@
 """Launcher scripts (install.sh/.bat and src/bin launchers): shared environment
 sanitizing and setup-lock policy, the managed-venv interpreter probe, the
 existing-instance probe that runs before dependency validation, the desktop
-launcher structure, and the POSIX dependency-setup lock."""
+launcher structure, the POSIX dependency-setup lock, and how many readiness
+checks a setup runs."""
 
 from __future__ import annotations
 
@@ -11,10 +12,12 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 import types
 import unittest
+import venv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -299,6 +302,163 @@ class LauncherStructureTests(unittest.TestCase):
         self.assertIn("Starting EMAPSSN_Config", direct_posix)
         self.assertNotIn("terminal.dismissed", direct_windows)
         self.assertNotIn("terminal.dismissed", direct_posix)
+
+
+# Stand-ins for the scripts a launcher runs; each call is recorded in a log.
+_STUB_INSTALLER = """\
+import os
+import sys
+
+checking = "--check-only" in sys.argv
+with open(os.environ["SSN_LAUNCHER_TEST_LOG"], "a", encoding="utf-8") as log:
+    log.write("check\\n" if checking else "install\\n")
+print("stub readiness report" if checking else "stub installer report")
+sys.exit(int(os.environ["SSN_LAUNCHER_TEST_CHECK_EXIT"]) if checking else 0)
+"""
+_STUB_APPLICATION = """\
+import os
+
+with open(os.environ["SSN_LAUNCHER_TEST_LOG"], "a", encoding="utf-8") as log:
+    log.write("app\\n")
+"""
+_STUB_INSTANCE_PROBE = "raise SystemExit(1)\n"
+
+
+class _ReadinessCheckCountMixin:
+    """Run the real launchers against stand-in scripts and count readiness checks.
+
+    Each Install_Dependencies.py --check-only detects the hardware again and
+    prints its report. A desktop launch whose saved state had changed printed
+    that report three times after "Setup or repair is required": --setup-only
+    repeated the desktop launcher's check, the Windows --locked-setup child
+    repeated its parent's, and the re-check under the setup lock printed it too.
+    """
+
+    LAUNCHERS = ()  # (launcher file name, application script) pairs
+
+    @classmethod
+    def _build_root(cls):
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        cls.root = Path(temporary.name)
+        (cls.root / "src" / "bin").mkdir(parents=True)
+        (cls.root / "src" / "desktop").mkdir()
+        (cls.root / "stub-bin").mkdir()
+        for launcher, application in cls.LAUNCHERS:
+            (cls.root / "src" / "bin" / launcher).write_bytes(
+                (SRC_DIR / "bin" / launcher).read_bytes()
+            )
+            (cls.root / "src" / application).write_text(_STUB_APPLICATION, encoding="utf-8")
+        (cls.root / "src" / "Install_Dependencies.py").write_text(
+            _STUB_INSTALLER, encoding="utf-8"
+        )
+        (cls.root / "src" / "desktop" / "Single_Instance_Probe.py").write_text(
+            _STUB_INSTANCE_PROBE, encoding="utf-8"
+        )
+
+    def _launch(self, launcher, mode, *, check_exit):
+        log = self.root / "launcher.log"
+        log.unlink(missing_ok=True)
+        environment = os.environ.copy()
+        environment["PATH"] = str(self.root / "stub-bin") + os.pathsep + environment["PATH"]
+        environment["SSN_LAUNCHER_TEST_LOG"] = str(log)
+        environment["SSN_LAUNCHER_TEST_CHECK_EXIT"] = str(check_exit)
+        result = subprocess.run(
+            self._command(launcher, mode),
+            cwd=self.root,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=180,
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertFalse((self.root / "temp" / "dependency_setup.lock").exists(), output)
+        calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        return output, calls
+
+    def test_setup_only_checks_once_quietly_before_installing(self):
+        for launcher, _application in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                output, calls = self._launch(launcher, "--setup-only", check_exit=10)
+
+                self.assertEqual(calls, ["check", "install"], output)
+                self.assertNotIn("stub readiness report", output)
+                self.assertIn("stub installer report", output)
+
+    def test_setup_only_stops_when_the_environment_became_ready(self):
+        for launcher, _application in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                output, calls = self._launch(launcher, "--setup-only", check_exit=0)
+
+                self.assertEqual(calls, ["check"], output)
+                self.assertIn("Dependency setup was completed by another launcher.", output)
+
+    def test_direct_launch_reports_its_failed_check_once(self):
+        for launcher, _application in self.LAUNCHERS:
+            with self.subTest(launcher=launcher):
+                output, calls = self._launch(launcher, "", check_exit=10)
+
+                # The fast-path check, then the re-check under the setup lock.
+                self.assertEqual(calls, ["check", "check", "install", "app"], output)
+                self.assertEqual(output.count("stub readiness report"), 1, output)
+                self.assertEqual(output.count("stub installer report"), 1, output)
+
+
+@unittest.skipUnless(os.name == "nt", "runs the Windows batch launchers")
+class WindowsReadinessCheckCountTests(_ReadinessCheckCountMixin, unittest.TestCase):
+    LAUNCHERS = (("EMAPSSN.bat", "EMAPSSN_Config.py"), ("EMAPSSN_Tools.bat", "EMAPSSN_Tools.py"))
+
+    @classmethod
+    def setUpClass(cls):
+        source = (SRC_DIR / "bin" / "EMAPSSN.bat").read_text(encoding="utf-8")
+        managed = tuple(
+            int(part)
+            for part in re.search(r"venv --clear --python (\d+)\.(\d+)", source).groups()
+        )
+        if sys.version_info[:2] != managed:
+            raise unittest.SkipTest("the launchers' interpreter probe rejects this Python")
+        cls._build_root()
+        # The launchers run .venv\Scripts\python.exe, so it must be a real interpreter.
+        venv.EnvBuilder(with_pip=False).create(cls.root / ".venv")
+        (cls.root / "stub-bin" / "uv.cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
+
+    def _command(self, launcher, mode):
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        return f'"{comspec}" /d /s /c ""{self.root / "src" / "bin" / launcher}" {mode}"'
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixReadinessCheckCountTests(_ReadinessCheckCountMixin, unittest.TestCase):
+    LAUNCHERS = (("EMAPSSN.sh", "EMAPSSN_Config.py"), ("EMAPSSN_Tools.sh", "EMAPSSN_Tools.py"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls._build_root()
+        # The launchers source the project's install.sh; skip its Linux GUI
+        # library preflight, which depends on the host's packages.
+        (cls.root / "install.sh").write_text(
+            f". {shlex.quote(str(INSTALLER))}\n"
+            "ssn_require_linux_gui_dependencies() { return 0; }\n",
+            encoding="utf-8",
+        )
+        # Accept the interpreter-version probe; run the stand-ins with this Python.
+        python = cls.root / ".venv" / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.write_text(
+            '#!/bin/sh\n[ "$1" = "-c" ] && exit 0\n'
+            f'exec {shlex.quote(sys.executable)} "$@"\n',
+            encoding="utf-8",
+        )
+        uv = cls.root / "stub-bin" / "uv"
+        uv.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        for path in (python, uv):
+            path.chmod(0o755)
+
+    def _command(self, launcher, mode):
+        return ["/bin/bash", str(self.root / "src" / "bin" / launcher), *([mode] if mode else [])]
 
 
 if __name__ == "__main__":
