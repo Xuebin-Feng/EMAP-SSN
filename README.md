@@ -385,6 +385,15 @@ The installer does not install the Linux kernel driver or system ROCm stack.
 Consult the [ROCm 7.14 matrix](https://rocm.docs.amd.com/en/docs-7.14.0/about/release-notes.html)
 for the matching operating system, driver, and hardware requirements.
 
+SSN physics layouts on a GPU use two small kernels that EMAP-SSN compiles when a
+layout first needs them, with the compiler that ships with PyTorch: NVRTC on
+NVIDIA, hiprtc on ROCm. **The ROCm build of these kernels has not been tested on
+AMD hardware.** Before first use, every process checks the kernels against a
+double-precision evaluation of the same physics on a small test problem; if they
+fail to compile or disagree, layouts automatically use the slower PyTorch
+implementation and the layout log says why. Setting `SSN_LAYOUT_GPU_KERNELS=0`
+forces that fallback on any GPU.
+
 #### Intel XPU
 
 | Device family | Supported operating-system combinations |

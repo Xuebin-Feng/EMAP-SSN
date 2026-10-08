@@ -1504,7 +1504,7 @@
                 </p>
                 <ul>
                     <li><strong>NVIDIA GPUs:</strong> Highly recommended. Supports CUDA 13.2 and CUDA 12.6 profiles with full PyTorch acceleration for both embedding generation and physics layout solvers.</li>
-                    <li><strong>AMD GPUs:</strong> Supported via ROCm 7.14 on Windows 11 25H2 (build 26200 or newer) and on Ubuntu Linux.</li>
+                    <li><strong>AMD GPUs:</strong> Supported via ROCm 7.14 on Windows 11 25H2 (build 26200 or newer) and on Ubuntu Linux. The physics layout's GPU kernels are compiled for ROCm at run time but have not been tested on AMD hardware; they are checked on first use, and layouts fall back to the slower PyTorch implementation automatically if the check fails (<code>SSN_LAYOUT_GPU_KERNELS=0</code> forces the fallback).</li>
                     <li><strong>Intel Arc / Core Ultra:</strong> Supported via Intel XPU on Windows 11 and Ubuntu Linux.</li>
                     <li><strong>Apple Silicon (M1/M2/M3/M4):</strong> Supported natively via Metal Performance Shaders (MPS) on macOS 14+.</li>
                     <li><strong>CPU Fallback:</strong> If no accelerator passes tensor validation, the application automatically falls back to multi-threaded CPU execution safely.</li>

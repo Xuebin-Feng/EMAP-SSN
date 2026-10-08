@@ -106,6 +106,43 @@ still change before version 1.0.0.
   small components. Coordinates are bit-identical to the serial kernel on any thread
   count. UMAP layouts with a `LAYOUT_SEED` still run on one core, because umap-learn
   makes seeded runs serial to keep them reproducible.
+- **GPU layout generation is about 50 times faster and fits large components.** On
+  NVIDIA and AMD GPUs the SSN physics step computes repulsion and springs with two
+  kernels that EMAP-SSN compiles the first time a layout uses the GPU, with the compiler
+  that ships with PyTorch (NVRTC on CUDA builds, hiprtc on ROCm builds), so nothing
+  extra is installed. Repulsion no longer builds a table over every pair of nodes, so
+  memory grows with nodes plus springs instead of nodes squared. On the test machine
+  (RTX 4070), a step on the 12,289-node main component of a 13K network took 1.6 ms
+  instead of 85 ms and 0.45 instead of 6.4 GiB, and the whole layout took 13.5 s on the
+  GPU instead of 274 s on the CPU. A 44,127-node component, which needed about 88 GB of
+  pair tables and failed (on Windows only after spilling 36 GiB into system memory),
+  takes 6 ms per step in 1.4 GiB. Compiled kernels are kept per user
+  (`%LOCALAPPDATA%\EMAP-SSN\gpu_kernels`, `~/.cache/emap-ssn/gpu_kernels`);
+  `SSN_LAYOUT_GPU_KERNEL_CACHE` names another folder, and `0` turns the cache off.
+- **GPU layouts change once, then reproduce exactly.** The kernels add every force in a
+  fixed order instead of the previous atomic `index_add_`, so a seeded GPU layout
+  reproduces run to run on the same GPU model, and differs slightly from GPU layouts
+  made before. CPU layouts are unchanged.
+- **The kernels check themselves before first use.** Before a GPU's first layout in each
+  process, both kernels are compared with a double-precision evaluation of the same
+  physics on two small test problems. These cover several tiles and a partial last one,
+  split work, components, inactive nodes, the taper zone, both force caps, and tiles
+  skipped beyond the cutoff. If the kernels fail to compile, load or agree, layouts use
+  the previous PyTorch formulas, now in blocks of at most 16.8 million pairs so they no
+  longer run out of memory, and the log says why. **The ROCm kernels have not been
+  tested on AMD hardware**; this check guards them. `SSN_LAYOUT_GPU_KERNELS=0` forces
+  the fallback on any GPU, and Intel and Apple GPUs always use it. The layout log names
+  the implementation in use
+  (`GPU layout physics on …: runtime-compiled kernels (NVRTC 13.2, sm_89)`).
+- **Auto device selection ranks a whole stage.** The benchmark used to time one step
+  with the setup included, so a GPU's one-time copy of the springs weighed as much as a
+  step. Devices are now ranked by setup time plus a quarter of `MAX_STEPS` steady steps,
+  the shortest stage the plateau test allows. A step is timed over 3 steps for
+  components above 2,000 nodes and over 10 for medium batches, and the table shows
+  setup, step and stage time. On the test machine, Auto picks the GPU for the main
+  components of the 13K and Fungal networks and for medium batches, and keeps batches of
+  small components on the CPU (0.15 vs 0.50 ms per step). The Fungal layout took 3.5 s
+  instead of 29.2 s on the CPU.
 - Neighbor-joining guide trees in `Embedding_MSA.py` and the edge filter of the
   `jaccard` mode of `cluster` and `subcluster` also run in parallel on all but two
   logical CPUs; neighbor-joining bootstrap workers split those threads between them.

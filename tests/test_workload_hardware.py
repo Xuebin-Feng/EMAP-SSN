@@ -6,6 +6,8 @@
 filtering, selection, benchmark ranking) and how the embedding, alignment and
 layout workloads use it."""
 
+from contextlib import redirect_stdout
+import io
 import json
 import pathlib
 from pathlib import Path
@@ -423,8 +425,61 @@ class LayoutHardwareTests(unittest.TestCase):
         self.assertEqual(Hardware_Utils.layout_size_class(2000), "medium")
         self.assertEqual(Hardware_Utils.layout_size_class(2001), "massive")
         self.assertEqual(Hardware_Utils.benchmark_step_count("small"), 20)
-        self.assertEqual(Hardware_Utils.benchmark_step_count("medium"), 5)
-        self.assertEqual(Hardware_Utils.benchmark_step_count("massive"), 1)
+        self.assertEqual(Hardware_Utils.benchmark_step_count("medium"), 10)
+        self.assertEqual(Hardware_Utils.benchmark_step_count("massive"), 3)
+        self.assertEqual(Hardware_Utils.estimated_stage_steps({"MAX_STEPS": 10000}), 2500)
+        self.assertEqual(Hardware_Utils.estimated_stage_steps({"MAX_STEPS": 2}), 1)
+
+    def _rank_with_fake_clock(self, max_steps):
+        """Benchmark a CPU (cheap setup, slow steps) against a GPU (slow setup,
+        fast steps) on a fake clock; return the specs best first and the log."""
+        clock = [0.0]
+        costs = {"cpu": (0.001, 0.060), "cuda:0": (0.5, 0.002)}
+
+        def simulation_class(spec):
+            class FakeSimulation:
+                def __init__(self, *args, **kwargs):
+                    clock[0] += costs[spec][0]
+
+                def step(self, step):
+                    clock[0] += costs[spec][1]
+
+                def get_pos(self):
+                    return None
+            return FakeSimulation
+
+        cpu = Hardware_Utils.DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")
+        gpu = Hardware_Utils.DeviceCandidate("cuda:0", "GPU", torch.device("cpu"), "cuda", 0, True)
+        prepared = Hardware_Utils.PreparedLayoutBatch(
+            global_nodes=np.arange(3), edges=np.array([[0, 1], [1, 2]]),
+            scores=np.ones(2), positions=np.zeros((3, 2), np.float32),
+            component_labels=np.zeros(3, np.int32), box_limits=np.full(3, 10.0, np.float32),
+            node_count=3, is_large_job=False)
+        output = io.StringIO()
+        with mock.patch.object(Hardware_Utils, "get_available_devices", return_value=[cpu, gpu]), \
+                mock.patch.object(Hardware_Utils, "synchronize_device"), \
+                mock.patch.object(Hardware_Utils, "release_device_cache"), \
+                mock.patch.object(Hardware_Utils, "_snapshot_random_state"), \
+                mock.patch.object(Hardware_Utils, "_restore_random_state"), \
+                mock.patch.object(Hardware_Utils.time, "perf_counter", side_effect=lambda: clock[0]), \
+                redirect_stdout(output):
+            ranked = Hardware_Utils.benchmark_layout_devices(
+                prepared, {"MAX_STEPS": max_steps, "SIMILARITY_THRESHOLD": 0.0},
+                selection="auto", size_class="massive", engine_label="SSN",
+                cpu_simulation_class=simulation_class("cpu"),
+                gpu_simulation_class=simulation_class("cuda:0"))
+        return [result.candidate.spec for result in ranked], ranked, output.getvalue()
+
+    def test_benchmark_ranks_devices_by_setup_plus_a_stage_of_steps(self):
+        # 2500 steps: CPU 0.001 + 2500 x 0.060 = 150 s, GPU 0.5 + 2500 x 0.002 = 5.5 s.
+        order, ranked, log = self._rank_with_fake_clock(10000)
+        self.assertEqual(order, ["cuda:0", "cpu"])
+        self.assertAlmostEqual(ranked[0].value, 5.5, places=6)
+        self.assertIn("stage = setup + 2500 steps", log)
+        # A two-step stage: CPU 0.121 s beats the GPU's 0.504 s setup.
+        order, ranked, _ = self._rank_with_fake_clock(8)
+        self.assertEqual(order, ["cpu", "cuda:0"])
+        self.assertAlmostEqual(ranked[0].value, 0.121, places=6)
 
     def test_representative_is_median_cost_in_each_populated_class(self):
         sizes = [100, 300, 500, 1000, 2000, 2001, 3000]

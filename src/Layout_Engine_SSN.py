@@ -33,10 +33,12 @@ try:
     import torch
     try:
         from utilities import Hardware_Acceleration
+        from utilities import Layout_GPU_Kernels
         Hardware_Utils = Hardware_Acceleration
         Layout_Hardware = Hardware_Acceleration
     except ImportError:
         import Hardware_Acceleration as Hardware_Utils
+        import Layout_GPU_Kernels
         Layout_Hardware = Hardware_Utils
     HAS_TORCH = True
 except Exception as e:
@@ -425,130 +427,80 @@ class SSNSimulationCPU:
 
 if HAS_TORCH:
     class SSNSimulationGPU:
+        """The SSN physics step on a torch device.
+
+        CUDA and ROCm devices compute repulsion and springs with runtime-compiled
+        kernels (utilities.Layout_GPU_Kernels): memory grows with nodes plus
+        springs, and a step gives the same result on every run. Other devices,
+        or a GPU whose kernels failed to compile or to pass their self-check,
+        evaluate the same formulas with PyTorch in row blocks of bounded size.
+        """
+
         def __init__(self, pos, springs, comp_labels, box_limit, params, active_mask=None, *, device=None):
             # Production callers always pass an explicit candidate. CPU is a
             # safe compatibility default for direct/unit-test construction.
-            self.device = torch.device("cpu") if device is None else device
+            self.device = torch.device("cpu") if device is None else torch.device(device)
             self.pos = torch.tensor(pos, dtype=torch.float32, device=self.device)
             self.vel = torch.zeros_like(self.pos)
-            self.springs = torch.tensor(springs, dtype=torch.long, device=self.device)
-            self.comp_labels = torch.tensor(comp_labels, dtype=torch.long, device=self.device)
-            active_mask_array = _normalize_active_mask(active_mask, len(pos))
-            self.active_mask = torch.tensor(
-                active_mask_array,
-                dtype=torch.bool,
-                device=self.device
-            )
+            node_count, dimensions = self.pos.shape
+            labels = np.asarray(comp_labels, dtype=np.int64).reshape(-1)
+            active = _normalize_active_mask(active_mask, node_count)
+            self.comp_labels = torch.tensor(labels, dtype=torch.long, device=self.device)
+            self.active_mask = torch.tensor(active, dtype=torch.bool, device=self.device)
             self.box_limits = torch.tensor(
-                _normalize_box_limits(box_limit, len(pos)),
+                _normalize_box_limits(box_limit, node_count),
                 dtype=torch.float32,
                 device=self.device
             )
             self.params = params
             self.cutoff = float(self.params.get('COULOMB_CUTOFF', 15.0))
-        
+            self._active_count = int(active.sum())
+            self._active_rows = self.active_mask.unsqueeze(1)
+            self._limits = self.box_limits.unsqueeze(1)
+            kernels = Layout_GPU_Kernels.layout_kernels(self.device, dimensions)
+            if kernels is not None:
+                self._repulsion = kernels.repulsion_plan(labels, active, node_count)
+                self._springs = kernels.spring_plan(springs, active, node_count)
+            else:
+                self._repulsion = Layout_GPU_Kernels.TorchRepulsion(
+                    self.comp_labels, self.active_mask
+                )
+                self._springs = Layout_GPU_Kernels.TorchSprings(springs, active, self.device)
+            self.uses_kernels = kernels is not None
+
         @torch.no_grad()
         def step(self, current_step):
-            # --- PHYSICS ---
-            delta = self.pos.unsqueeze(1) - self.pos.unsqueeze(0)
-            dist_sq = (delta * delta).sum(dim=2)
-            dist = torch.sqrt(dist_sq)
-            direction_denominator = torch.where(
-                dist_sq > 0.0,
-                dist,
-                torch.ones_like(dist),
-            )
+            acc = self._repulsion.compute(self.pos, self.params)
+            self._springs.add(self.pos, acc, float(self.params.get('SPRING_K', 0.1)))
 
-            pair_mask = (
-                self.active_mask.unsqueeze(1)
-                & self.active_mask.unsqueeze(0)
-                & (self.comp_labels.unsqueeze(1) == self.comp_labels.unsqueeze(0))
-                & (dist_sq > 0.0)
-                & (dist_sq <= self.cutoff * self.cutoff)
-            )
-
-            f_mag = (
-                self.params.get('COULOMB_K', 50.0)
-                / dist.clamp(min=0.5).pow(2)
-            )
-            max_f = self.params.get('MAX_FORCE_LIMIT', 20.0)
-            if max_f > 0.0:
-                f_mag.clamp_(max=max_f)
-            taper_start = self.cutoff * 0.8
-            taper_width = max(self.cutoff * 0.2, 1e-9)
-            taper = (
-                (self.cutoff - dist) / taper_width
-            ).clamp(min=0.0, max=1.0)
-            taper = torch.where(dist > taper_start, taper, 1.0)
-            f_mag = torch.where(pair_mask, f_mag * taper, 0.0)
-
-            repulsion = (
-                f_mag.unsqueeze(2)
-                * (delta / direction_denominator.unsqueeze(2))
-            ).sum(dim=1)
-
-            max_total_repulsion = self.params.get('MAX_TOTAL_REPULSION_FORCE', 0.0)
-            if max_total_repulsion > 0.0:
-                repulsion_norm = repulsion.norm(dim=1, keepdim=True)
-                repulsion_scale = (
-                    max_total_repulsion / repulsion_norm.clamp(min=1e-12)
-                ).clamp(max=1.0)
-                repulsion *= repulsion_scale
-            acc = repulsion
-            
-            if len(self.springs) > 0:
-                idx_a, idx_b = self.springs[:,0], self.springs[:,1]
-                spring_active = self.active_mask[idx_a] & self.active_mask[idx_b]
-                idx_a = idx_a[spring_active]
-                idx_b = idx_b[spring_active]
-                pa, pb = self.pos[idx_a], self.pos[idx_b]
-                d = (pa-pb).norm(dim=1) + 1e-9
-                f = -self.params.get('SPRING_K', 0.1) * d
-                fv = f.unsqueeze(1) * ((pa-pb)/d.unsqueeze(1))
-                acc.index_add_(0, idx_a, fv); acc.index_add_(0, idx_b, -fv)
-            
             damping = self.params.get('DAMPING', 0.5)
             dt = self.params.get('DT', 0.1)
-            
+            # Masks instead of boolean indexing: each indexed update would wait
+            # for the device. Inactive nodes get no acceleration or velocity.
+            active = self._active_rows
             acc -= damping * self.vel
-            acc[~self.active_mask] = 0.0
-            self.vel[~self.active_mask] = 0.0
-            self.vel[self.active_mask] += acc[self.active_mask] * dt
-            old = self.pos.clone()
-            self.pos[self.active_mask] += self.vel[self.active_mask] * dt
-            
+            acc = torch.where(active, acc, 0.0)
+            self.vel = torch.where(active, self.vel + acc * dt, 0.0)
+            old = self.pos
+            moved = torch.where(active, old + self.vel * dt, old)
+
             # --- Boundary Collisions (Match CPU Bouncing) ---
-            # Reverse and dampen velocity for nodes hitting the walls.
-            # Every other tensor op in this class is already rank-agnostic, so
-            # iterating the axes is all that 3D support requires here.
-            for axis in range(self.pos.shape[1]):
-                out_of_bounds = (
-                    self.pos[:, axis].abs() > self.box_limits
-                ) & self.active_mask
-                self.vel[out_of_bounds, axis] *= -0.5
-            
-            # Clamp positions
-            limits = self.box_limits[self.active_mask].unsqueeze(1)
-            active_pos = self.pos[self.active_mask]
-            self.pos[self.active_mask] = torch.maximum(
-                torch.minimum(active_pos, limits),
-                -limits
+            # Reverse and dampen the velocity on every axis that left the box,
+            # then clamp the position back onto the wall.
+            out_of_bounds = (moved.abs() > self._limits) & active
+            self.vel = torch.where(out_of_bounds, self.vel * -0.5, self.vel)
+            self.pos = torch.where(
+                active,
+                torch.maximum(torch.minimum(moved, self._limits), -self._limits),
+                moved,
             )
 
-            if self.active_mask.any():
-                rmsd = (
-                    (self.pos[self.active_mask] - old[self.active_mask])
-                    .norm(dim=1).pow(2).mean().sqrt().item()
-                )
-            else:
-                rmsd = 0.0
-            
-            del delta, dist_sq, dist, direction_denominator
-            del pair_mask, f_mag, taper
-            del repulsion, acc, old, limits, active_pos
-            if max_total_repulsion > 0.0:
-                del repulsion_norm, repulsion_scale
-            return rmsd
+            if not self._active_count:
+                return 0.0
+            step_sq = torch.where(
+                self.active_mask, (self.pos - old).norm(dim=1).pow(2), 0.0
+            )
+            return (step_sq.sum() / self._active_count).sqrt().item()
 
         def get_pos(self): return self.pos.cpu().numpy()
 
@@ -1501,6 +1453,16 @@ def calculate_layout(connectivity, n_nodes, params):
         print(
             f"CPU layout physics: {Numba_Threads.default_thread_count()} "
             f"threads on {Numba_Threads.usable_cpu_count()} logical CPUs."
+        )
+    first_gpu_choices = {
+        plans[0].candidate.spec: plans[0].candidate
+        for plans in device_rankings.values()
+        if not plans[0].candidate.is_cpu
+    }
+    for candidate in first_gpu_choices.values():
+        print(
+            f"GPU layout physics on {candidate.display_name}: "
+            f"{Layout_GPU_Kernels.describe(candidate.device, dimensions)}."
         )
 
     # 3. Simulate jobs sequentially

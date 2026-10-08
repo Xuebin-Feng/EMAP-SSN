@@ -485,9 +485,12 @@ The layout section's `LAYOUT_DIMENSIONS` is `2` (default) or `3`. 3D caches are
 written to separate `_3D`-suffixed folders and record `physics_3d` or `umap_3d` as
 their layout mode; the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
 non-negative integer (default `42`) or `null` for an unseeded run. With a fixed seed,
-UMAP layouts and CPU physics layouts reproduce exactly; GPU physics runs can differ
-slightly. Layout documents exported before these keys existed load with the
-defaults. In the individual-parameter form, pass either key through `parameters`.
+UMAP layouts and CPU physics layouts reproduce exactly, and so do GPU physics layouts
+on the same GPU model while its compiled layout kernels are in use. The PyTorch
+fallback (Intel and Apple GPUs, or a GPU whose kernels are unavailable) can differ
+slightly between runs, and CPU and GPU layouts differ slightly from each other.
+Layout documents exported before these keys existed load with the defaults. In the
+individual-parameter form, pass either key through `parameters`.
 
 ## Viewer sessions
 

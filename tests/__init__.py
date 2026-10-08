@@ -11,6 +11,8 @@ files and shell, whichever subset of modules runs:
 * SSN_VIEWER_SESSION_DIR points at a folder private to this run, so web servers
   started by tests never publish Viewer session descriptors (with live tokens)
   where real MCP clients look for Viewers. The folder is removed at exit.
+* SSN_LAYOUT_GPU_KERNEL_CACHE points compiled GPU kernels into the same private
+  folder, so CUDA tests never write the developer's kernel cache.
 * QT_QPA_PLATFORM defaults to offscreen, so no Qt window appears.
 * Every script in src/tools applies <project>/tools_settings.json to its module
   globals when it is imported. An import hook points each tool import at a
@@ -47,6 +49,7 @@ if not os.environ.get(_ROOT_PROCESS_MARKER):
     os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
     _SESSION_DIRECTORY = tempfile.mkdtemp(prefix="emapssn-test-sessions-")
     os.environ["SSN_VIEWER_SESSION_DIR"] = _SESSION_DIRECTORY
+    os.environ["SSN_LAYOUT_GPU_KERNEL_CACHE"] = os.path.join(_SESSION_DIRECTORY, "gpu_kernels")
     atexit.register(shutil.rmtree, _SESSION_DIRECTORY, ignore_errors=True)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

@@ -354,7 +354,17 @@ def layout_size_class(node_count: int) -> str:
 
 
 def benchmark_step_count(size_class: str) -> int:
-    return {"small": 20, "medium": 5, "massive": 1}[size_class]
+    return {"small": 20, "medium": 10, "massive": 3}[size_class]
+
+
+def estimated_stage_steps(params: dict[str, Any]) -> int:
+    """Steps a layout stage runs at least: its plateau test waits for MAX_STEPS / 4.
+
+    The benchmark ranks devices by setup time plus this many steady steps, so a
+    one-time cost (copying springs to a GPU, building its spring list) weighs as
+    much as it does in a real stage instead of as much as one step.
+    """
+    return max(1, int(params.get("MAX_STEPS", 2000)) // 4)
 
 
 def _edge_pairs(edges: Any) -> np.ndarray:
@@ -690,18 +700,21 @@ def benchmark_layout_devices(
     )
     active_mask = _active_mask(prepared.node_count, final_edges)
     steps = benchmark_step_count(size_class)
+    stage_steps = estimated_stage_steps(params)
     results = []
     baseline_random_state = _snapshot_random_state()
 
     print(
         f"\n{engine_label} layout benchmark ({size_class}, "
-        f"{prepared.node_count} nodes, {steps} steps)"
+        f"{prepared.node_count} nodes; stage = setup + {stage_steps} steps, "
+        f"step timed over {steps})"
     )
-    print("Device/backend                 Lanes   Time (s)   Status")
+    print("Device/backend                 Lanes  Setup (s)  Step (ms)  Stage (s)   Status")
     try:
         for candidate in candidates:
             error = None
             elapsed = None
+            setup = per_step = None
             try:
                 _restore_random_state(baseline_random_state)
                 warmup = _construct_simulation(
@@ -734,11 +747,15 @@ def benchmark_layout_devices(
                     params,
                     active_mask,
                 )
+                synchronize_device(candidate)
+                setup = time.perf_counter() - started
+                started = time.perf_counter()
                 for step in range(steps):
                     simulation.step(step)
                 simulation.get_pos()
                 synchronize_device(candidate)
-                elapsed = time.perf_counter() - started
+                per_step = (time.perf_counter() - started) / steps
+                elapsed = setup + per_step * stage_steps
                 del simulation
             except Exception as failure:
                 error = f"{type(failure).__name__}: {failure}"
@@ -753,10 +770,13 @@ def benchmark_layout_devices(
             )
             results.append(result)
             status = error or "ok"
-            elapsed_text = f"{elapsed:.4f}" if elapsed is not None else "--"
+            columns = (
+                (f"{setup:.4f}", f"{per_step * 1e3:.3f}", f"{elapsed:.3f}")
+                if elapsed is not None else ("--", "--", "--")
+            )
             print(
-                f"{candidate.display_name[:30]:30}  {1:>5}   "
-                f"{elapsed_text:>8}   {status}"
+                f"{candidate.display_name[:30]:30}  {1:>5}  {columns[0]:>9}  "
+                f"{columns[1]:>9}  {columns[2]:>9}   {status}"
             )
     finally:
         _restore_random_state(baseline_random_state)
@@ -823,6 +843,7 @@ __all__ = [
     "PreparedLayoutBatch",
     "layout_size_class",
     "benchmark_step_count",
+    "estimated_stage_steps",
     "prepare_layout_batch",
     "representative_job_indices",
     "manual_layout_rankings",
