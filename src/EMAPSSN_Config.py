@@ -616,8 +616,13 @@ if __name__ == "__main__":
         configure_qt_application_fonts,
         fit_buttons_to_text,
         force_light_palette,
+        choose_language,
         install_translations,
+        installed_language,
+        language_selector_row,
+        LanguageSelector,
         qt_monospace_font,
+        redraw_in_language,
         select_combo_value,
         show_window_in_front,
         startup_language,
@@ -828,7 +833,8 @@ if __name__ == "__main__":
                 self.completed.emit(self.request_id, self.cache_keys, {}, str(error))
 
     class ConfigGUI(QMainWindow):
-        def __init__(self):
+        def __init__(self, carried=None):
+            # carried: what a redraw in another language keeps (language_carry_over).
             super().__init__()
             self.setWindowTitle(CONFIG_DISPLAY_NAME)
             
@@ -934,6 +940,9 @@ if __name__ == "__main__":
             self.stat_display.setStyleSheet("background-color: #f5f5f5;")
             self.right_layout.addWidget(self.stat_label)
             self.right_layout.addWidget(self.stat_display)
+            self.language_selector = LanguageSelector()
+            self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
+            self.right_layout.addLayout(language_selector_row(self.language_selector))
             
             self.main_split.addWidget(self.right_panel)
             self.main_split.setStretchFactor(0, 6) 
@@ -952,8 +961,11 @@ if __name__ == "__main__":
             self._profile_previous_selection = {}
             self._profile_loading = False
             self._initializing_profiles = True
-            self._custom_settings = self._read_custom_settings()
-            self._cache_hash_cache = {}
+            self._custom_settings = (
+                dict(carried["custom_settings"]) if carried else self._read_custom_settings()
+            )
+            self._cache_hash_cache = dict(carried["cache_hashes"]) if carried else {}
+            self._carried_cache_choice = None
             self._cache_hash_request_id = 0
             self._cache_hash_workers = {}
             self._cache_hash_pending_keys = None
@@ -971,7 +983,10 @@ if __name__ == "__main__":
             self._align_label_column()
             self._prepare_responsive_layouts()
             self._initializing_profiles = False
-            self._load_all_custom_profiles()
+            if carried is None:
+                self._load_all_custom_profiles()
+            else:
+                self._restore_carried(carried)
             
             self.cb_fasta.currentTextChanged.connect(self.update_live_validators)
             self.cb_hdf5.currentTextChanged.connect(self.update_live_validators)
@@ -1480,6 +1495,101 @@ if __name__ == "__main__":
                 self._refresh_profile_combo(tab_id)
             self._load_all_custom_profiles()
 
+        def switch_language(self, language, **options):
+            """Redraw this window in language (None for English), keeping all it shows.
+
+            The new window carries over every field as shown, unsaved edits
+            included, and appears at this one's size, position, splitter
+            positions, tabs and scroll positions. Returns the window that
+            shows the language.
+            """
+            if language == installed_language():
+                return self
+            carried = self.language_carry_over()
+            return redraw_in_language(self, language, lambda: type(self)(carried=carried), **options)
+
+        def language_carry_over(self):
+            """What a redraw in another language keeps beyond the view."""
+            hidden = self._scoring_hidden_by_blast
+            blanked = bool(hidden) and self.cb_score_mode.currentIndex() == -1
+            return {
+                "custom_settings": dict(self._custom_settings),
+                "cache_hashes": dict(self._cache_hash_cache),
+                # A BLAST network blanks both scoring modes; carry the choice they hide.
+                "values": {
+                    key: hidden[key] if blanked and key in hidden else self._carried_widget_value(key, widget)
+                    for key, widget in self.inputs.items()
+                },
+                "profiles": {
+                    tab_id: (combo_value(self.profile_selectors[tab_id]), self.profile_name_inputs[tab_id].text())
+                    for tab_id in TAB_PROFILE_SPECS
+                },
+                "cache_choice": {
+                    "new": self._new_cache_selected(),
+                    "data": self.cb_cache_file.currentData(),
+                    "name": self.line_new_cache.text(),
+                },
+                "statistics": self.stat_display.toHtml() if self.stat_display.toPlainText() else "",
+            }
+
+        def _carried_widget_value(self, key, widget):
+            """A field's value as _set_widget_profile_value takes it back."""
+            if isinstance(widget, OptionalNoScrollDoubleSpinBox):
+                return widget.optionalValue()
+            if isinstance(widget, QComboBox):
+                if key == "LAYOUT_DEVICE_SELECTION":
+                    return widget.currentData()
+                if widget.property("persistItemData"):
+                    return combo_value(widget)
+                return widget.currentText()
+            if isinstance(widget, QPushButton) and widget.isCheckable():
+                return widget.isChecked()
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                return widget.value()
+            if isinstance(widget, QLineEdit):
+                return widget.text()
+            if hasattr(widget, "isChecked"):
+                return widget.isChecked()
+            return None
+
+        def _restore_carried(self, carried):
+            """Show what language_carry_over kept, in place of the saved custom profile."""
+            values = carried["values"]
+            # Named profiles come from the saved-config folder, itself perhaps unsaved.
+            self.inputs["SAVED_CONFIG_DIR"].setText(values["SAVED_CONFIG_DIR"])
+            for tab_id in TAB_PROFILE_SPECS:
+                self._refresh_profile_combo(tab_id)
+            for tab_id in ("directories", "inputs_outputs", "visual_effects", "simulation_physics"):
+                selection, new_name = carried["profiles"][tab_id]
+                self._set_profile_selection(tab_id, selection)
+                self._profile_previous_selection[tab_id] = selection
+                # Shown as before, without taking the keyboard focus.
+                name_input = self.profile_name_inputs[tab_id]
+                name_input.setVisible(selection == "(new)")
+                name_input.setText(new_name if selection == "(new)" else "")
+                data = {key: values[key] for key in TAB_PROFILE_SPECS[tab_id]["defaults"]}
+                self._apply_profile_data(tab_id, data, read_only=selection == "(default)")
+            # The cache list fills in once discovery knows the inputs' hashes,
+            # at once if they are carried over, else when hashing finishes.
+            self._carried_cache_choice = carried["cache_choice"]
+            self.update_live_validators()
+            if carried["statistics"]:
+                self.stat_display.setHtml(carried["statistics"])
+
+        def _apply_carried_cache_choice(self):
+            choice, self._carried_cache_choice = self._carried_cache_choice, None
+            if not choice:
+                return
+            if choice["new"]:
+                index = self.cb_cache_file.count() - 1
+            else:
+                index = self.cb_cache_file.findData(choice["data"])
+            if index >= 0:
+                self.cb_cache_file.setCurrentIndex(index)
+            if self._new_cache_selected():
+                self.line_new_cache.setText(choice["name"])
+            self._toggle_new_cache_input()
+
         def closeEvent(self, event):
             self._cache_hash_request_id += 1
             for worker in self._cache_hash_workers.values():
@@ -1859,6 +1969,7 @@ if __name__ == "__main__":
             self.update_live_validators()
 
         def _set_cache_unavailable(self, message, color="gray"):
+            self._carried_cache_choice = None
             self._cache_launch_allowed = False
             self.btn_save_run.setEnabled(False)
             self.current_cache_folder = None
@@ -1996,6 +2107,7 @@ if __name__ == "__main__":
                         print(f"  - {folder}")
                 self._last_duplicate_signature = folders
                 self.cb_cache_file.blockSignals(False)
+                self._carried_cache_choice = None
                 return
 
             self._last_duplicate_signature = None
@@ -2043,6 +2155,7 @@ if __name__ == "__main__":
             self._cache_launch_allowed = True
             self.btn_save_run.setEnabled(True)
             self._toggle_new_cache_input()
+            self._apply_carried_cache_choice()
 
         def _cache_hash_completed(self, request_id, cache_keys, records, error):
             worker = self._cache_hash_workers.pop(request_id, None)
@@ -4111,6 +4224,7 @@ if __name__ == "__main__":
         print(f"Warning: Could not force light palette: {e}")
         app.setStyle("Fusion")
     window = ConfigGUI()
+    window.single_instance = single_instance  # a language redraw hands it on
     if single_instance is not None:
         single_instance.set_activation_callback(
             lambda active_window=window: show_window_in_front(active_window)

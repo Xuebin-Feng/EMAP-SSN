@@ -24,7 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.Desktop_App import PSEUDO_LANGUAGE, clipped_button_text, install_translations
+from desktop.Desktop_App import (
+    PSEUDO_LANGUAGE,
+    SYSTEM_LANGUAGE,
+    LanguageSelector,
+    clipped_button_text,
+    install_translations,
+)
 from utilities.Localization import LANGUAGES_DIR, is_pseudo_translated
 
 
@@ -40,7 +46,9 @@ def visible_texts(window):
     placeholders, spin box units and tooltips, on every tab, shown or not.
     What a user typed or picked (an edit's text, a spin box's value) is
     their data, not the window's text, so it is left out, as is text
-    without a letter, such as a number, an arrow or an emoji alone.
+    without a letter, such as a number, an arrow or an emoji alone. So are
+    the language names in the Language dropdown, which each show their own
+    language on purpose.
     """
     found = []
 
@@ -59,6 +67,8 @@ def visible_texts(window):
                 add(widget, f"tab {index}", widget.tabText(index))
         if isinstance(widget, QComboBox):
             for index in range(widget.count()):
+                if isinstance(widget, LanguageSelector) and widget.itemData(index) != SYSTEM_LANGUAGE:
+                    continue
                 add(widget, f"choice {index}", widget.itemText(index))
         if isinstance(widget, QLineEdit):
             add(widget, "placeholder", widget.placeholderText())

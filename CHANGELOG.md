@@ -77,8 +77,8 @@ still change before version 1.0.0.
   off. The VR Config has the same button.
 - **Translation machinery, with no translations yet.** The Config, Tools and VR Config
   windows and the Viewer can now take their text from Qt translation catalogs in
-  `src/resources/languages/`. No text is marked for translation yet and no language can
-  be chosen, so every window stays English.
+  `src/resources/languages/`. No window text is translated yet, so every window stays
+  English.
   `python src/resources/languages/Update_Translations.py` collects the marked texts,
   including the Viewer's console messages, into the catalogs. It keeps each language's
   translations, compiles the catalogs and checks that translations keep their
@@ -86,6 +86,17 @@ still change before version 1.0.0.
   date. `SSN_PSEUDO_TRANSLATION=1` starts a window in a test-only pseudo-language: every
   text from the catalog shows accented, longer and bracketed, so text never marked for
   translation, or cut off, stands out. See `src/resources/languages/README.md`.
+- **Language option.** Config, VR Config and Tools show a Language dropdown (🌐) at the
+  bottom right. It lists the system's language, English and every language with a
+  compiled catalog, each named in itself. The choice is saved as `LANGUAGE` in a new
+  `app_settings.json` in the project folder and applies to every window. Config, VR
+  Config and Tools redraw in the chosen language at once, at the same size, position
+  and tabs, keeping their splitter and scroll positions and every value entered, saved
+  or not. The Viewer and any dialog take the language when they next open. Simplified
+  Chinese brings a font of its own, Noto Sans SC cut down to GB2312's 7,445 characters
+  plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
+  that language shows. No language ships yet, so for now the dropdown offers English
+  alone.
 
 ### Changed
 

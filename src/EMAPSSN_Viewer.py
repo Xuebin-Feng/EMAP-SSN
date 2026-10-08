@@ -149,9 +149,11 @@ from desktop.Desktop_App import (
     fit_buttons_to_text,
     force_light_palette,
     install_translations,
+    installed_language,
     register_vispy_application_fonts,
     show_window_in_front,
     startup_language,
+    vispy_language_face,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
@@ -599,6 +601,11 @@ class MainViewer:
                 install_translations(qapp, startup_language())
             except Exception as e:
                 print(f"Warning: Could not load translations, so text stays English: {e}")
+            # VisPy draws a text in one face, so a language the core faces
+            # lack, such as Chinese, draws all its text in a face of its own.
+            language_face = vispy_language_face(installed_language())
+            if language_face is not None:
+                self.vispy_ui_face = self.vispy_monospace_face = language_face
         self.canvas.events.key_press.connect(self.on_key_press)
         self.canvas.events.resize.connect(self.on_resize)
         self.canvas.events.mouse_press.connect(self.on_mouse_press)

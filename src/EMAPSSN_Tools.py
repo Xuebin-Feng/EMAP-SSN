@@ -426,7 +426,12 @@ from desktop.Desktop_App import (
     combo_value,
     configure_qt_application_fonts,
     force_light_palette,
+    choose_language,
     install_translations,
+    installed_language,
+    language_selector_row,
+    LanguageSelector,
+    redraw_in_language,
     select_combo_value,
     startup_language,
 )
@@ -1065,11 +1070,23 @@ def _saved_settings_document():
         return {}
 
 
+def _starting_settings_document(window):
+    """The values a Tools window starts from.
+
+    A window redrawn in another language starts from what the window it
+    replaces showed (ToolsGUI(carried=...)); any other starts as saved.
+    """
+    carried = getattr(window, "_carried", None)
+    return carried["document"] if carried else _saved_settings_document()
+
+
 class ToolsGUI(QMainWindow):
     COMMON_TAB_VIEWPORT_MINIMUM_WIDTH = 600
 
-    def __init__(self):
+    def __init__(self, carried=None):
         super().__init__()
+        # carried: what a redraw in another language keeps (language_carry_over).
+        self._carried = carried
         self.setWindowTitle(TOOLS_DISPLAY_NAME)
         self.tool_titles = get_tool_titles()
         
@@ -2062,24 +2079,30 @@ class ToolsGUI(QMainWindow):
         font.setPointSize(10)
         self.script_desc_text.setFont(font)
         self.right_panel.addWidget(self.script_desc_text, 1)
+        self.language_selector = LanguageSelector()
+        self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
+        self.right_panel.addLayout(language_selector_row(self.language_selector))
         
         self.script_data = {} 
         self.tab_paths = [] 
         self._tool_form_layouts = []
 
         self.tip_db = {}
-        self.network_completeness_cache = {}
+        self.network_completeness_cache = dict(carried["network_completeness_cache"]) if carried else {}
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
 
         # An unusable tools_settings.json is left as it is: the fields show their
         # defaults, report_settings_load_error() says so once the window is
         # shown, and Save Directories and Run refuse until the file is fixed.
-        try:
-            read_shared_settings(_PROJECT_ROOT)
-            self.settings_load_error = None
-        except ToolSettingsError as error:
-            self.settings_load_error = error
+        if carried:
+            self.settings_load_error = carried["settings_load_error"]
+        else:
+            try:
+                read_shared_settings(_PROJECT_ROOT)
+                self.settings_load_error = None
+            except ToolSettingsError as error:
+                self.settings_load_error = error
 
         self.load_tools()
         self.create_directories_tab()
@@ -2162,7 +2185,7 @@ class ToolsGUI(QMainWindow):
         dir_defaults = dict(DEFAULT_DIRECTORY_PATHS)
         
         # Saved paths replace the defaults (an unusable file is reported on opening)
-        saved_directories = _saved_settings_document().get("DIRECTORIES", {})
+        saved_directories = _starting_settings_document(self).get("DIRECTORIES", {})
         if isinstance(saved_directories, dict):
             for key in dir_defaults:
                 if key in saved_directories:
@@ -2363,7 +2386,7 @@ class ToolsGUI(QMainWindow):
     ):
         defined_vars = {item["var_name"]: item for item in script_settings_def}
         settings = []
-        saved_values = _saved_settings_document().get(script_name)
+        saved_values = _starting_settings_document(self).get(script_name)
         if not isinstance(saved_values, dict):
             saved_values = {}
         for node in tree.body:
@@ -3705,6 +3728,31 @@ class ToolsGUI(QMainWindow):
         tab_name = TAB_DISPLAY_NAMES.get(tab_key, tab_key.replace("_", " "))
         self.tabs.addTab(scroll, tab_name)
 
+    def switch_language(self, language, **options):
+        """Redraw this window in language (None for English), keeping all it shows.
+
+        The new window starts from every tool's values and the directories
+        as shown, unsaved edits included, as if they had been saved, and
+        appears at this one's size, position, splitter positions, tabs and
+        scroll positions. Returns the window that shows the language.
+        """
+        if language == installed_language():
+            return self
+        carried = self.language_carry_over()
+        return redraw_in_language(self, language, lambda: type(self)(carried=carried), **options)
+
+    def language_carry_over(self):
+        """What a redraw in another language keeps beyond the view."""
+        document = {"DIRECTORIES": self._current_directory_settings()}
+        for script_path, data in self.script_data.items():
+            if data.get("settings"):
+                document[os.path.basename(script_path)] = self._collect_tool_settings(script_path)
+        return {
+            "document": document,
+            "settings_load_error": self.settings_load_error,
+            "network_completeness_cache": dict(self.network_completeness_cache),
+        }
+
     def eventFilter(self, obj, event):
         event_type = event.type()
         routed_events = (
@@ -4153,6 +4201,7 @@ if __name__ == "__main__":
         print(f"Warning: Could not force light palette: {e}")
         app.setStyle("Fusion")
     window = ToolsGUI()
+    window.single_instance = single_instance  # a language redraw hands it on
     if single_instance is not None:
         single_instance.set_activation_callback(
             lambda active_window=window: show_window_in_front(active_window)

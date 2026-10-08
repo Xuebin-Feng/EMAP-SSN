@@ -21,7 +21,22 @@ import weakref
 from PySide6 import QtCore, QtNetwork
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtWidgets import QLayout, QPushButton, QStyle, QStyleOptionButton
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QStyle,
+    QStyleOptionButton,
+    QTabWidget,
+)
+
+from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
 
 from utilities.Localization import (
     CATALOG_NAME,
@@ -299,13 +314,18 @@ def open_in_file_manager(path):
 
 QT_UI_FAMILY = "Noto Sans"
 QT_MONOSPACE_FAMILY = "Noto Sans Mono"
+# Simplified Chinese, which the core faces lack. It is registered only while
+# that language shows (LANGUAGE_FONTS), and the stacks skip it otherwise.
+QT_SIMPLIFIED_CHINESE_FAMILY = "Noto Sans SC"
 VISPY_UI_FACE = "NotoSans"
 VISPY_MONOSPACE_FACE = "NotoSansMono"
+VISPY_SIMPLIFIED_CHINESE_FACE = "NotoSansSC"
 VISPY_FALLBACK_FACE = "OpenSans"
 VISPY_REFERENCE_DPI = 96.0
 
 QT_UI_FAMILIES = (
     QT_UI_FAMILY,
+    QT_SIMPLIFIED_CHINESE_FAMILY,
     "Segoe UI",
     ".AppleSystemUIFont",
     "Helvetica Neue",
@@ -315,6 +335,7 @@ QT_UI_FAMILIES = (
 )
 QT_MONOSPACE_FAMILIES = (
     QT_MONOSPACE_FAMILY,
+    QT_SIMPLIFIED_CHINESE_FAMILY,
     "SFMono-Regular",
     "Menlo",
     "Monaco",
@@ -360,16 +381,57 @@ def _font_files_for_directory(font_dir: Path) -> tuple[str, ...]:
     if manifest_path == FONT_MANIFEST or not font_dir.exists():
         return FONT_FILES
     entries = _manifest_entries(manifest_path)
-    return tuple(relative_path for relative_path, _ in entries)
+    return tuple(
+        relative_path
+        for relative_path, _ in entries
+        if relative_path not in LANGUAGE_FONT_FILES
+    )
 
 
 FONT_MANIFEST_ENTRIES = _manifest_entries(FONT_MANIFEST)
-FONT_FILES = tuple(relative_path for relative_path, _ in FONT_MANIFEST_ENTRIES)
 
 UI_REGULAR_FILE = "noto/NotoSans/NotoSans-Regular.ttf"
 UI_BOLD_FILE = "noto/NotoSans/NotoSans-Bold.ttf"
 MONOSPACE_REGULAR_FILE = "noto/NotoSansMono/NotoSansMono-Regular.ttf"
 MONOSPACE_BOLD_FILE = "noto/NotoSansMono/NotoSansMono-Bold.ttf"
+
+
+@dataclass(frozen=True)
+class LanguageFont:
+    """A bundled font for a language whose script the core faces lack.
+
+    Qt finds the family after the core family in each stack, so it shows
+    only the characters the core lacks. VisPy draws a text in a single face,
+    so the Viewer draws all its text in vispy_face, which has Latin letters
+    too. files holds the regular and bold faces, as the manifest names them.
+    """
+
+    family: str
+    vispy_face: str
+    files: tuple[str, ...]
+
+
+# Registered only while their language shows, so other languages keep the
+# system's fonts for the same characters, as Japanese does for kanji.
+LANGUAGE_FONTS = {
+    "zh_CN": LanguageFont(
+        QT_SIMPLIFIED_CHINESE_FAMILY,
+        VISPY_SIMPLIFIED_CHINESE_FACE,
+        (
+            "noto/NotoSansSC/NotoSansSC-Regular.ttf",
+            "noto/NotoSansSC/NotoSansSC-Bold.ttf",
+        ),
+    ),
+}
+LANGUAGE_FONT_FILES = frozenset(
+    relative_path for font in LANGUAGE_FONTS.values() for relative_path in font.files
+)
+# The core faces, registered at startup: every bundled file but the language fonts.
+FONT_FILES = tuple(
+    relative_path
+    for relative_path, _ in FONT_MANIFEST_ENTRIES
+    if relative_path not in LANGUAGE_FONT_FILES
+)
 
 
 def vispy_points_for_logical_pixels(logical_pixels: float, canvas_dpi: float) -> float:
@@ -583,6 +645,59 @@ def register_vispy_application_fonts(
     )
     _vispy_status_by_dir[resolved_dir] = status
     return status
+
+
+def _add_language_font(
+    language: str | None, font_dir: str | Path = DESKTOP_FONT_DIR
+) -> tuple[int, ...]:
+    """Register the bundled font language needs with Qt, if any.
+
+    Returns the ids that QFontDatabase.removeApplicationFont takes it out by.
+    """
+    from PySide6.QtGui import QFontDatabase
+
+    font = LANGUAGE_FONTS.get(language)
+    if font is None:
+        return ()
+    font_ids: list[int] = []
+    for relative_path in font.files:
+        font_path = Path(font_dir).resolve() / relative_path
+        font_id = (
+            QFontDatabase.addApplicationFont(str(font_path))
+            if font_path.is_file()
+            else -1
+        )
+        if font_id < 0:
+            _warn_once(f"Bundled font could not be registered: {font_path}.")
+        else:
+            font_ids.append(font_id)
+    return tuple(font_ids)
+
+
+def vispy_language_face(
+    language: str | None, font_dir: str | Path = DESKTOP_FONT_DIR
+) -> str | None:
+    """Register and return the VisPy face that draws language.
+
+    None means the core faces draw it. A language font missing its regular
+    or bold file leaves VisPy with the core faces, with a warning.
+    """
+    font = LANGUAGE_FONTS.get(language)
+    if font is None:
+        return None
+    resolved_dir = Path(font_dir).resolve()
+    if not all((resolved_dir / path).is_file() for path in font.files):
+        _warn_once(
+            f"Bundled {font.family} regular/bold faces are incomplete in "
+            f"{resolved_dir}; VisPy will retain the core faces."
+        )
+        return None
+    from vispy.util.fonts import register_vispy_font
+
+    register_vispy_font(
+        str((resolved_dir / font.files[0]).parent), font.vispy_face, False, False
+    )
+    return font.vispy_face
 
 
 # =====================================================================
@@ -1078,15 +1193,19 @@ PSEUDO_TRANSLATION_VARIABLE = "SSN_PSEUDO_TRANSLATION"
 QT_CATALOG_PREFIXES = ("qt", "qtwebengine")
 
 
-def startup_language(environment=None):
-    """The language windows show, or None for English as written.
+def startup_language(environment=None, settings=None, catalog_dir=LANGUAGES_DIR, ui_languages=None):
+    """The language windows start in, or None for English as written.
 
-    SSN_PSEUDO_TRANSLATION=1 picks the test-only pseudo-language. There is
-    no language setting yet, so every other start is English.
+    SSN_PSEUDO_TRANSLATION=1 picks the test-only pseudo-language. Otherwise
+    the saved LANGUAGE setting decides, as resolve_language explains;
+    settings stands in for app_settings.json, and ui_languages for the
+    system's display languages.
     """
     environment = os.environ if environment is None else environment
     value = environment.get(PSEUDO_TRANSLATION_VARIABLE, "").strip().lower()
-    return PSEUDO_LANGUAGE if value in {"1", "true", "yes", "on"} else None
+    if value in {"1", "true", "yes", "on"}:
+        return PSEUDO_LANGUAGE
+    return resolve_language(configured_language(settings), catalog_dir, ui_languages)
 
 
 class CatalogTranslator(QtCore.QTranslator):
@@ -1123,12 +1242,18 @@ class InstalledTranslations:
     language: str
     translators: tuple
     previous_message_translator: object = None
+    catalog_dir: Path = LANGUAGES_DIR
+    font_ids: tuple = ()
 
     def remove(self):
         global _installed_translations
+        from PySide6.QtGui import QFontDatabase
+
         for translator in self.translators:
             QtCore.QCoreApplication.removeTranslator(translator)
         set_translator(self.previous_message_translator)
+        for font_id in self.font_ids:
+            QFontDatabase.removeApplicationFont(font_id)
         if _installed_translations is self:
             _installed_translations = None
 
@@ -1158,7 +1283,8 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
     for it, where Qt has them, then <catalog_dir>/emapssn_<language>.qm,
     which wins where both translate a text. Without that catalog it raises
     LookupError and installs nothing. Message texts (the Viewer's console
-    line) then come from the same catalogs.
+    line) then come from the same catalogs. A language whose script the
+    core fonts lack also registers its bundled font (LANGUAGE_FONTS).
 
     Windows set their text once, as they are built, so call this after the
     QApplication exists and before the first window. A second call replaces
@@ -1185,7 +1311,11 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
     for translator in translators:
         app.installTranslator(translator)
     _installed_translations = InstalledTranslations(
-        language, tuple(translators), set_translator(_translate_message)
+        language,
+        tuple(translators),
+        set_translator(_translate_message),
+        Path(catalog_dir),
+        _add_language_font(language),
     )
     return _installed_translations
 
@@ -1193,6 +1323,267 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
 def installed_language():
     """The language install_translations put in place, or None for English."""
     return None if _installed_translations is None else _installed_translations.language
+
+
+# =====================================================================
+# 8. The Language Option: Setting, Dropdown & Redraw
+# =====================================================================
+
+LANGUAGE_SETTING = "LANGUAGE"
+SYSTEM_LANGUAGE = "system"
+ENGLISH = "en"
+# Chinese is written in two scripts, which QLocale tells apart only by country.
+_LANGUAGE_NAMES = {ENGLISH: "English", "zh_CN": "简体中文", "zh_TW": "繁體中文"}
+_COMPILED_CATALOG = re.compile(rf"^{CATALOG_NAME}_(\w+)\.qm$")
+
+
+def catalog_languages(catalog_dir=LANGUAGES_DIR):
+    """The languages that have a compiled catalog, by code, sorted."""
+    codes = []
+    for path in sorted(Path(catalog_dir).glob(f"{CATALOG_NAME}_*.qm")):
+        match = _COMPILED_CATALOG.match(path.name)
+        if match and match.group(1) != ENGLISH:
+            codes.append(match.group(1))
+    return codes
+
+
+def language_name(code):
+    """A language's name in that language, as the Language dropdown lists it."""
+    if code in _LANGUAGE_NAMES:
+        return _LANGUAGE_NAMES[code]
+    name = QtCore.QLocale(code).nativeLanguageName()
+    return name[:1].upper() + name[1:] if name else code
+
+
+def system_language(available, ui_languages=None):
+    """The first of the system's display languages that EMAP-SSN has, else English.
+
+    ui_languages lists the system's languages in order of preference, as
+    QLocale.system().uiLanguages() does.
+    """
+    if ui_languages is None:
+        ui_languages = QtCore.QLocale.system().uiLanguages()
+    for tag in ui_languages:
+        name = QtCore.QLocale(tag).name()  # language_TERRITORY: zh_CN for zh-Hans-CN
+        for code in (name, name.split("_")[0]):
+            if code == ENGLISH or code in available:
+                return code
+    return ENGLISH
+
+
+def configured_language(settings=None):
+    """The saved LANGUAGE setting: SYSTEM_LANGUAGE, ENGLISH or a language code.
+
+    settings stands in for app_settings.json. A file that can't be read
+    counts as no setting, with a warning, so the windows follow the system.
+    """
+    if settings is None:
+        try:
+            settings = read_app_settings()
+        except AppSettingsError as error:
+            _warn_once(f"{error} The windows follow the system language.")
+            settings = {}
+    value = settings.get(LANGUAGE_SETTING)
+    return value if isinstance(value, str) and value else SYSTEM_LANGUAGE
+
+
+def resolve_language(setting, catalog_dir=LANGUAGES_DIR, ui_languages=None):
+    """The language a setting shows, as install_translations takes it: None for English.
+
+    SYSTEM_LANGUAGE follows the system's display language where EMAP-SSN
+    has a catalog for it. A language whose catalog is gone shows English.
+    """
+    available = catalog_languages(catalog_dir)
+    code = system_language(available, ui_languages) if setting == SYSTEM_LANGUAGE else setting
+    if code == ENGLISH:
+        return None
+    if code not in available:
+        _warn_once(f"There is no catalog for the language {code!r}; the windows show English.")
+        return None
+    return code
+
+
+class LanguageSelector(QComboBox):
+    """The Language dropdown: the system's language, English and every language with a catalog.
+
+    Each language is named in itself, so anyone can find theirs whatever
+    language the window shows. The dropdown starts at the saved setting;
+    choosing another entry emits language_chosen with the new setting, for
+    choose_language to save. show_setting marks a saved choice, and revert
+    goes back to it when saving a new one fails.
+    """
+
+    language_chosen = QtCore.Signal(str)
+
+    def __init__(self, parent=None, *, catalog_dir=LANGUAGES_DIR, ui_languages=None, setting=None):
+        super().__init__(parent)
+        self.setObjectName("languageSelector")
+        available = catalog_languages(catalog_dir)
+        system = language_name(system_language(available, ui_languages))
+        self.addItem(
+            QtCore.QCoreApplication.translate("LanguageSelector", "System default ({language})")
+            .format(language=system),
+            SYSTEM_LANGUAGE,
+        )
+        self.addItem(language_name(ENGLISH), ENGLISH)
+        for code in available:
+            self.addItem(language_name(code), code)
+        self.setToolTip(QtCore.QCoreApplication.translate(
+            "LanguageSelector",
+            "The language of the windows. Config and Tools switch at once; "
+            "other windows use it the next time they open.",
+        ))
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.show_setting(configured_language() if setting is None else setting)
+        self.currentIndexChanged.connect(self._chosen)
+
+    def show_setting(self, setting):
+        """Show setting as the saved choice, without announcing it."""
+        index = self.findData(setting)
+        self.blockSignals(True)
+        try:
+            self.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            self.blockSignals(False)
+        self._saved = self.currentData()
+
+    def setting(self):
+        """The setting the dropdown shows."""
+        return self.currentData()
+
+    def revert(self):
+        """Show the saved choice again, as when saving a new one failed."""
+        self.show_setting(self._saved)
+
+    def _chosen(self, index):
+        self.language_chosen.emit(self.itemData(index))
+
+
+def choose_language(window, setting):
+    """Save setting for every window, then redraw window in the language it names.
+
+    window has a language_selector and a switch_language(language) method.
+    If the setting can't be saved, the dropdown goes back to the saved
+    choice and a message says why. Returns the window that shows the
+    language: the redrawn one, or window itself.
+    """
+    try:
+        save_app_setting(LANGUAGE_SETTING, setting)
+    except (AppSettingsError, OSError) as error:
+        window.language_selector.revert()
+        QMessageBox.critical(
+            window,
+            QtCore.QCoreApplication.translate("LanguageSelector", "Language Not Saved"),
+            QtCore.QCoreApplication.translate(
+                "LanguageSelector", "The language could not be saved, so it stays as it was.\n\n{error}"
+            ).format(error=error),
+        )
+        return window
+    window.language_selector.show_setting(setting)
+    return window.switch_language(resolve_language(setting))
+
+
+def language_selector_row(selector):
+    """A row that ends in the Language dropdown, after a globe."""
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addStretch()
+    globe = QLabel("🌐")
+    globe.setObjectName("languageGlobe")
+    globe.setBuddy(selector)
+    row.addWidget(globe)
+    row.addWidget(selector)
+    return row
+
+
+_SIZE_STATES = Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
+
+
+def capture_view(window):
+    """What a redraw keeps of a window's view: geometry, splitters, tabs and scroll positions."""
+    return {
+        # The size and place of a normal window; a maximized one goes back there too.
+        "geometry": QRect(window.normalGeometry()),
+        "state": window.windowState() & _SIZE_STATES,
+        "splitters": [splitter.saveState() for splitter in window.findChildren(QSplitter)],
+        "tabs": [tabs.currentIndex() for tabs in window.findChildren(QTabWidget)],
+        "scrolls": [
+            (area.horizontalScrollBar().value(), area.verticalScrollBar().value())
+            for area in window.findChildren(QAbstractScrollArea)
+        ],
+    }
+
+
+def _matching(widgets, values):
+    """Pairs of widget and value, or none at all when the window was built differently."""
+    return list(zip(widgets, values)) if len(widgets) == len(values) else []
+
+
+def restore_view(window, view):
+    """Before showing a window built the same way: its geometry, maximized state and tabs.
+
+    setGeometry rather than restoreGeometry, which would move a window that
+    reaches past the screen's edge.
+    """
+    window.setGeometry(view["geometry"])
+    window.setWindowState(view["state"])
+    for tabs, index in _matching(window.findChildren(QTabWidget), view["tabs"]):
+        tabs.setCurrentIndex(index)
+
+
+def restore_view_positions(window, view):
+    """Once the window is laid out at its size: splitter and scroll positions."""
+    for splitter, state in _matching(window.findChildren(QSplitter), view["splitters"]):
+        splitter.restoreState(state)
+    QApplication.processEvents()
+    for area, (horizontal, vertical) in _matching(window.findChildren(QAbstractScrollArea), view["scrolls"]):
+        area.horizontalScrollBar().setValue(horizontal)
+        area.verticalScrollBar().setValue(vertical)
+
+
+# Windows made by a redraw; nothing else would keep them alive.
+_redrawn_windows = []
+
+
+def redraw_in_language(window, language, build, catalog_dir=LANGUAGES_DIR):
+    """Replace window with a copy in language, where the window was and as it was.
+
+    Installs language, then calls build() for the replacement, which must
+    carry over the window's values. The replacement gets the window's size,
+    position, splitter positions, tabs and scroll positions, and the
+    single-instance controller's attention (window.single_instance). It is
+    shown in the window's place before the window closes, so the program
+    never runs without a window. If build() fails, the window and its
+    language stay. Returns the replacement.
+    """
+    app = QApplication.instance()
+    previous = _installed_translations
+    view = capture_view(window)
+    install_translations(app, language, catalog_dir)
+    try:
+        replacement = build()
+    except BaseException:
+        if previous is None:
+            install_translations(app, None)
+        else:
+            install_translations(app, previous.language, previous.catalog_dir)
+        raise
+    restore_view(replacement, view)
+    replacement.show()
+    for _ in range(3):
+        app.processEvents()
+    restore_view_positions(replacement, view)
+    controller = getattr(window, "single_instance", None)
+    replacement.single_instance = controller
+    if controller is not None:
+        controller.set_activation_callback(lambda active=replacement: show_window_in_front(active))
+    replacement.raise_()
+    replacement.activateWindow()
+    _redrawn_windows[:] = [kept for kept in _redrawn_windows if kept is not window] + [replacement]
+    window.hide()
+    window.close()
+    window.deleteLater()
+    return replacement
 
 
 __all__ = [
@@ -1211,8 +1602,10 @@ __all__ = [
     "open_in_file_manager",
     "QT_UI_FAMILY",
     "QT_MONOSPACE_FAMILY",
+    "QT_SIMPLIFIED_CHINESE_FAMILY",
     "VISPY_UI_FACE",
     "VISPY_MONOSPACE_FACE",
+    "VISPY_SIMPLIFIED_CHINESE_FACE",
     "VISPY_FALLBACK_FACE",
     "VISPY_REFERENCE_DPI",
     "QT_UI_FAMILIES",
@@ -1228,6 +1621,9 @@ __all__ = [
     "UI_BOLD_FILE",
     "MONOSPACE_REGULAR_FILE",
     "MONOSPACE_BOLD_FILE",
+    "LanguageFont",
+    "LANGUAGE_FONTS",
+    "LANGUAGE_FONT_FILES",
     "vispy_points_for_logical_pixels",
     "vispy_points_at_reference_dpi",
     "QtFontLoadStatus",
@@ -1236,6 +1632,7 @@ __all__ = [
     "force_light_palette",
     "qt_monospace_font",
     "register_vispy_application_fonts",
+    "vispy_language_face",
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
     "ResponsiveSelectorLayout",
@@ -1260,4 +1657,19 @@ __all__ = [
     "InstalledTranslations",
     "install_translations",
     "installed_language",
+    "LANGUAGE_SETTING",
+    "SYSTEM_LANGUAGE",
+    "ENGLISH",
+    "catalog_languages",
+    "language_name",
+    "system_language",
+    "configured_language",
+    "resolve_language",
+    "LanguageSelector",
+    "choose_language",
+    "language_selector_row",
+    "capture_view",
+    "restore_view",
+    "restore_view_positions",
+    "redraw_in_language",
 ]

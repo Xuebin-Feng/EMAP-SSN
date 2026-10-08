@@ -9,7 +9,28 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-No text is marked for translation yet, so `emapssn.ts` is empty and there is no language catalog. Every window shows English.
+Only the Language dropdown's own texts are marked so far, and there is no language catalog yet, so every window shows English.
+
+## Choose the language
+
+The Language dropdown (🌐) sits at the bottom right of the Config, Tools and VR Config windows. It lists:
+
+- **System default**, which follows the operating system's display language when this folder has a catalog for it, and is English otherwise.
+- **English**.
+- Every language with a compiled catalog here, each named in itself, such as "Deutsch" or "简体中文".
+
+The choice is saved in `app_settings.json` in the project folder, and every window uses it.
+
+- **Config and Tools** redraw at once in the chosen language. They keep their size, position, splitters, tabs, scroll positions and every value entered, saved or not.
+- **The Viewer**, with its web pages, and any other window, such as a dialog, uses the language the next time it opens.
+- **Number formats** keep following the system's regional settings in every language.
+
+The bundled fonts cover Latin, Greek and Cyrillic. Simplified Chinese brings a
+font of its own, loaded only while it shows (see
+`src/resources/fonts/desktop/README.md`). In other scripts, Qt windows fall back
+to the system's fonts. The Viewer's canvas can't, since it draws each text in
+a single face, so a new language in another script needs a bundled font too
+(`LANGUAGE_FONTS` in `src/desktop/Desktop_App.py`).
 
 ## Update the catalogs
 

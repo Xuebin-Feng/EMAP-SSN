@@ -15,7 +15,8 @@ Last reviewed: 2026-09-30
 These upstream distribution files are shipped inside this repository. Their
 license text is included alongside them, and their copyright notices must be
 preserved in any redistribution. Where noted, the project prepends a short
-attribution banner; the underlying upstream body is otherwise unchanged.
+attribution banner, or cuts a font down to the characters it needs; the
+underlying upstream body is otherwise unchanged.
 
 | Component | Version | License | Location | License text |
 |---|---|---|---|---|
@@ -23,7 +24,8 @@ attribution banner; the underlying upstream body is otherwise unchanged.
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex) |
-| [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
+| [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
+| [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` | [`LICENSE.Noto`](src/resources/fonts/LICENSE.Noto) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
   the official npm package `molstar@5.10.1`, whose version is embedded in the
@@ -75,12 +77,22 @@ attribution banner; the underlying upstream body is otherwise unchanged.
 
   The KaTeX fonts are **not** duplicated into `docs/` — they are MIT rather than
   OFL, and the documentation page does not use KaTeX.
+- Noto Sans SC: Copyright 2014-2021 Adobe, with Reserved Font Name 'Source'.
+  Vendored 2026-10-08 from Google Fonts' variable `NotoSansSC[wght].ttf`
+  (version 2.004-H2). Unlike the other bundled files, these are modified: the
+  project keeps its Regular and Bold instances, cut down to the characters of
+  GB2312 plus Latin and punctuation, which takes 17.8 MB to 4,583,760 bytes
+  for both. Qt registers them only while the windows show Simplified Chinese.
+  The recipe and source hashes are in `src/resources/fonts/desktop/README.md`
+  and `src/resources/fonts/LICENSE.fonts`.
 
 The bodies of Mol*, Tabulator, marked, and KaTeX are upstream distribution
 artifacts. Mol* and Tabulator are not byte-for-byte unmodified because this
 project prepends attribution banners so their notices travel with the files if
-copied out. Only `fonts.css` is project-generated rather than an upstream
-artifact; it rewrites remote font URLs to local paths.
+copied out. Only `fonts.css` and the two Noto Sans SC files are
+project-generated rather than upstream artifacts: `fonts.css` rewrites remote
+font URLs to local paths, and the Noto Sans SC files are cut down from Google
+Fonts' variable font.
 
 ## 2. Remotely loaded assets
 

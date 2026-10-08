@@ -342,6 +342,29 @@ class StartupWiringTests(unittest.TestCase):
             after=["create_hud", "QLabel", "QMainWindow", "QPushButton"],
         )
 
+    def test_the_viewer_takes_its_language_face_before_it_draws_any_text(self):
+        # VisPy draws a text in one face, so Chinese needs its face for all of it.
+        tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
+        viewer = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MainViewer")
+        init = next(node for node in viewer.body if isinstance(node, ast.FunctionDef) and node.name == "__init__")
+        faces = [
+            node for node in ast.walk(init)
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "vispy_language_face"
+        ]
+        self.assertEqual(len(faces), 1)
+        self.assertEqual(ast.unparse(faces[0].args[0]), "installed_language()")
+        line, hud = faces[0].lineno, calls_in(init, "create_hud")[0]
+        self.assertLess(calls_in(init, "install_translations")[0], line)
+        self.assertLess(line, hud)
+        assigned = {
+            target.attr
+            for node in ast.walk(init)
+            if isinstance(node, ast.Assign) and line <= node.lineno < hud
+            for target in node.targets
+            if isinstance(target, ast.Attribute)
+        }
+        self.assertLessEqual({"vispy_ui_face", "vispy_monospace_face"}, assigned)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,9 +2,10 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Application fonts (desktop.Desktop_App): the bundled Noto font pack, Qt and
-VisPy font registration, the light palette, DPI-independent VisPy text sizes,
-and the local font assets used by the embedded web pages."""
+"""Application fonts (desktop.Desktop_App): the bundled Noto font pack and its
+Simplified Chinese font, Qt and VisPy font registration, the light palette,
+DPI-independent VisPy text sizes, and the local font assets used by the
+embedded web pages."""
 
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ if str(SRC_DIR) not in sys.path:
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QFont, QFontDatabase, QPalette, QTextLayout  # noqa: E402
+from PySide6.QtGui import QFont, QFontDatabase, QPalette, QRawFont, QTextLayout  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
@@ -43,24 +44,31 @@ from desktop.Desktop_App import (  # noqa: E402
     DESKTOP_FONT_DIR,
     FONT_FILES,
     FONT_MANIFEST_ENTRIES,
+    LANGUAGE_FONT_FILES,
+    LANGUAGE_FONTS,
     MONOSPACE_BOLD_FILE,
     MONOSPACE_QSS_FONT_STACK,
     MONOSPACE_REGULAR_FILE,
+    PSEUDO_LANGUAGE,
     QT_MONOSPACE_FAMILY,
+    QT_SIMPLIFIED_CHINESE_FAMILY,
     QT_UI_FAMILY,
     UI_BOLD_FILE,
     UI_QSS_FONT_STACK,
     UI_REGULAR_FILE,
     VISPY_FALLBACK_FACE,
     VISPY_MONOSPACE_FACE,
+    VISPY_SIMPLIFIED_CHINESE_FACE,
     VISPY_UI_FACE,
     configure_qt_application_fonts,
     force_light_palette,
     qt_monospace_font,
     register_vispy_application_fonts,
+    vispy_language_face,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
+from utilities.Localization import LANGUAGES_DIR, read_catalog  # noqa: E402
 
 
 class VispyTextScalingTests(unittest.TestCase):
@@ -142,18 +150,28 @@ class ApplicationFontTests(unittest.TestCase):
             (255, 255, 255),
         )
 
-    def test_manifest_declares_the_4_68_mib_core_pack_and_hashes_match(self):
+    def test_manifest_declares_the_core_pack_and_the_chinese_font_and_hashes_match(self):
         self.assertEqual(len(FONT_FILES), 8)
-        self.assertEqual(len(FONT_MANIFEST_ENTRIES), 8)
+        self.assertEqual(len(FONT_MANIFEST_ENTRIES), 10)
         bundled_font_files = {
             path.relative_to(DESKTOP_FONT_DIR).as_posix()
             for path in DESKTOP_FONT_DIR.rglob("*")
             if path.suffix.lower() in {".otf", ".ttc", ".ttf"}
         }
-        self.assertEqual(bundled_font_files, set(FONT_FILES))
+        self.assertEqual(
+            bundled_font_files,
+            {relative for relative, _ in FONT_MANIFEST_ENTRIES},
+        )
+        # Startup registers the 4.68 MiB core; the Chinese font waits for its language.
+        self.assertEqual(bundled_font_files - set(FONT_FILES), LANGUAGE_FONT_FILES)
+        self.assertEqual(set(LANGUAGE_FONT_FILES), set(LANGUAGE_FONTS["zh_CN"].files))
         self.assertEqual(
             sum((DESKTOP_FONT_DIR / relative).stat().st_size for relative in FONT_FILES),
             4_908_576,
+        )
+        self.assertEqual(
+            sum((DESKTOP_FONT_DIR / relative).stat().st_size for relative in LANGUAGE_FONT_FILES),
+            4_583_760,
         )
 
         for relative_path, expected_hash in FONT_MANIFEST_ENTRIES:
@@ -359,6 +377,89 @@ class ApplicationFontTests(unittest.TestCase):
         embedded_sources = tools_source + agent_html + meta_html + docs_html
         self.assertNotIn("fonts.googleapis.com", embedded_sources)
         self.assertNotIn("fonts.gstatic.com", embedded_sources)
+
+
+def gb2312_characters():
+    """Every character GB2312 encodes: its 6,763 hanzi, symbols, kana, Greek and Cyrillic."""
+    characters = set()
+    for row in range(0xA1, 0xF8):
+        for cell in range(0xA1, 0xFF):
+            try:
+                characters.add(bytes((row, cell)).decode("gb2312"))
+            except UnicodeDecodeError:
+                pass
+    return characters
+
+
+class SimplifiedChineseFontTests(unittest.TestCase):
+    """The bundled Noto Sans SC, cut down to GB2312: what it covers, and the Viewer's face."""
+
+    @classmethod
+    def setUpClass(cls):
+        QApplication.instance() or QApplication([])
+        cls.font = LANGUAGE_FONTS["zh_CN"]
+
+    def test_regular_and_bold_cover_gb2312_latin_1_and_the_catalog(self):
+        gb2312 = gb2312_characters()
+        self.assertEqual(len(gb2312), 7445)
+        latin = {chr(code) for code in (*range(0x20, 0x7F), *range(0xA0, 0x100))}
+        catalog = set()
+        for path in LANGUAGES_DIR.glob("emapssn_zh_CN.ts"):
+            for message in read_catalog(path):
+                for translation in message.translations:
+                    catalog.update(char for char in translation if not char.isspace())
+
+        for face, style, weight in zip(self.font.files, ("Regular", "Bold"), (400, 700)):
+            with self.subTest(face=face):
+                font = QRawFont(str(DESKTOP_FONT_DIR / face), 12)
+                self.assertEqual(
+                    (font.familyName(), font.styleName(), font.weight()),
+                    (QT_SIMPLIFIED_CHINESE_FAMILY, style, weight),
+                )
+
+                def missing(characters):
+                    # PySide6 misreads a non-ASCII str here, so pass the code point.
+                    return sorted(c for c in characters if not font.supportsCharacter(ord(c)))
+
+                self.assertEqual(missing({"龘"}), ["龘"], "the check can fail: 龘 is not in GB2312")
+                self.assertEqual(missing(gb2312 | latin), [])
+                self.assertEqual(missing(catalog), [], "remake the font with these characters")
+
+    def test_the_viewer_draws_simplified_chinese_in_its_own_face(self):
+        from vispy.util.fonts import _load_glyph
+
+        self.assertEqual(vispy_language_face("zh_CN"), VISPY_SIMPLIFIED_CHINESE_FACE)
+        for language in (None, "en", "de", PSEUDO_LANGUAGE):
+            self.assertIsNone(vispy_language_face(language), language)
+
+        def bitmaps(face, bold):
+            glyphs = {}
+            font = {"face": face, "size": 12, "bold": bold, "italic": False}
+            # 龘 is in no bundled face, so it draws the empty-glyph box.
+            for char in "A中龘":
+                _load_glyph(font, char, glyphs)
+            return {char: glyph["bitmap"].tobytes() for char, glyph in glyphs.items()}
+
+        latin = bitmaps(VISPY_FALLBACK_FACE, False)
+        self.assertEqual(latin["中"], latin["龘"], "the check can fail: a Latin face lacks 中")
+        for bold in (False, True):
+            with self.subTest(bold=bold):
+                chinese = bitmaps(VISPY_SIMPLIFIED_CHINESE_FACE, bold)
+                self.assertNotEqual(chinese["中"], chinese["龘"])
+                self.assertTrue(chinese["A"])
+
+    def test_a_missing_face_file_leaves_the_viewer_its_core_faces_with_a_warning(self):
+        regular = self.font.files[0]
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            target = Path(temporary_dir) / regular
+            target.parent.mkdir(parents=True)
+            shutil.copy2(DESKTOP_FONT_DIR / regular, target)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                face = vispy_language_face("zh_CN", temporary_dir)
+
+        self.assertIsNone(face)
+        self.assertTrue(any("incomplete" in str(warning.message) for warning in caught))
 
 
 if __name__ == "__main__":
