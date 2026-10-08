@@ -52,7 +52,7 @@ except ModuleNotFoundError:
 import sys
 import h5py
 import numpy as np
-from Cache_Manifest import validate_network_schema
+from Cache_Manifest import network_name_label, validate_network_schema
 from utilities.Sequence_Utils import read_fasta, sanitize_header
 
 # ==========================================
@@ -126,8 +126,6 @@ if __name__ != "__main__" and os.path.exists(SETTINGS_FILE):
     except Exception as e:
         print(f"Failed to load user settings: {e}")
 
-import re
-
 FULL_INPUT_NET = None
 FULL_INPUT_FASTA = None
 OUTPUT_NET = None
@@ -159,7 +157,8 @@ def configure_runtime_paths():
     )
 
     network_metadata = validate_network_schema(FULL_INPUT_NET)
-    model_name = re.sub(r'[<>:"/\\|?*]', "_", network_metadata.model_name)
+    # The model, or DIAMOND for an imported DIAMOND network, as in its own name.
+    model_name = network_name_label(FULL_INPUT_NET)
     fasta_base = os.path.splitext(os.path.basename(FULL_INPUT_FASTA))[0]
 
     if network_metadata.network_type == "blast":

@@ -168,16 +168,23 @@ class NetworkExtractionTests(unittest.TestCase):
             whitelist = root / "selected.fasta"
             whitelist.write_text(">A\nAAAA\n", encoding="utf-8")
 
-            for network_type, expected_name in (
-                ("alignment", "selected_[esm2]_network.h5"),
-                ("blast", "selected_[blast]_EValue.h5"),
+            # Imported DIAMOND networks keep model_name blast but carry their
+            # own file's [DIAMOND] label; other searches keep the model name.
+            for network_type, search_program, expected_name in (
+                ("alignment", None, "selected_[esm2]_network.h5"),
+                ("blast", None, "selected_[blast]_EValue.h5"),
+                ("blast", "BLASTP", "selected_[blast]_EValue.h5"),
+                ("blast", "DIAMOND", "selected_[DIAMOND]_EValue.h5"),
             ):
-                with self.subTest(network_type=network_type):
+                with self.subTest(network_type=network_type, search_program=search_program):
                     input_network = root / f"{network_type}.h5"
                     if network_type == "alignment":
                         self._write_alignment_network(input_network)
                     else:
                         self._write_blast_network(input_network)
+                    if search_program is not None:
+                        with h5py.File(input_network, "a") as handle:
+                            handle.attrs["search_program"] = search_program
 
                     network_extraction.INPUT_NET = str(input_network)
                     network_extraction.INPUT_FASTA = str(whitelist)

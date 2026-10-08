@@ -276,6 +276,42 @@ def validate_network_schema(network_source, expected_network_type=None):
     return metadata
 
 
+# What an imported DIAMOND network records as search_program
+# (BLAST_Tabular.DIAMOND_PROGRAM), kept literal so this module imports no tool code.
+DIAMOND_SEARCH_PROGRAM = "DIAMOND"
+
+
+def _derived_name_label(network, metadata):
+    """Bracketed label for names derived from an open network: ``_[label]``.
+
+    DIAMOND imports keep model_name "BLAST", so they load as E-value networks,
+    and record search_program "DIAMOND"; like the imported network file, they
+    are labelled DIAMOND. A missing or unreadable search_program keeps the
+    model_name label, so naming never fails on it.
+    """
+    label = metadata.model_name
+    if metadata.network_type == "blast":
+        try:
+            program = network.attrs.get("search_program")
+            if isinstance(program, bytes):
+                program = program.decode("utf-8", errors="replace")
+            if isinstance(program, str) and program.strip() == DIAMOND_SEARCH_PROGRAM:
+                label = DIAMOND_SEARCH_PROGRAM
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+    return re.sub(r'[<>:"/\\|?*]', "_", label)
+
+
+def network_name_label(network_source):
+    """The ``_[label]`` that files derived from a network carry in their names."""
+    import h5py
+
+    if hasattr(network_source, "attrs"):
+        return _derived_name_label(network_source, read_network_metadata(network_source))
+    with h5py.File(os.fspath(network_source), "r") as network:
+        return _derived_name_label(network, read_network_metadata(network))
+
+
 def _optional_float(value):
     if value is None or str(value).strip() in {"", "None"}:
         return None
@@ -475,14 +511,31 @@ def build_canonical_cache_name(
     top_edge_percent=None,
     similarity_threshold=None,
     layout_dimensions=2,
+    *,
+    legacy_model_label=False,
 ):
-    """Build a human-readable cache name from authoritative network metadata."""
+    """Build a human-readable cache name from authoritative network metadata.
+
+    Folders of DIAMOND imports are labelled [DIAMOND] (see network_name_label).
+    legacy_model_label=True gives the [model_name] label that earlier versions
+    used for every network, so a lookup by name can still find their folders.
+    """
+    import h5py
+
     fasta_base = os.path.splitext(os.path.basename(sequence_path))[0] or "Network"
-    metadata = validate_network_schema(
-        network_path,
-        expected_network_type=str(network_type).lower(),
-    )
-    model_label = re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+    expected_type = str(network_type).lower()
+
+    def label_from(network):
+        metadata = validate_network_schema(network, expected_network_type=expected_type)
+        if legacy_model_label:
+            return re.sub(r'[<>:"/\\|?*]', "_", metadata.model_name)
+        return _derived_name_label(network, metadata)
+
+    if hasattr(network_path, "attrs"):
+        model_label = label_from(network_path)
+    else:
+        with h5py.File(os.fspath(network_path), "r") as network:
+            model_label = label_from(network)
     model_string = f"_[{model_label}]"
 
     suffix = ""

@@ -163,7 +163,7 @@
         "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "FASTA or plain list of headers to keep"}
       },
       "outputs": [
-        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[<model>]_network.h5 (alignment networks) or <INPUT_FASTA stem>_[<model>]_EValue.h5 (E-value networks)", "existing": "replaced"}
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[<model>]_network.h5 (alignment networks) or <INPUT_FASTA stem>_[<model>]_EValue.h5 (E-value networks; [DIAMOND] for imported DIAMOND networks)", "existing": "replaced"}
       ],
       "next": ["start_layout_job"],
       "notes": ["A layout already keeps only the network nodes named in its node FASTA, so extraction is needed only for a standalone smaller network file."]

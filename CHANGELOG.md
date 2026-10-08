@@ -28,8 +28,8 @@ still change before version 1.0.0.
   or threshold, the kept edges, clusters, isolated nodes and largest cluster (about
   20 s for 83.5 million pairs).
 - MCP `emapssn_pipeline(action="get_layout_schema")` documents every layout setting
-  (meaning, built-in default, accepted and Config GUI ranges) with edge-filter
-  guidance, and `export_layout_settings` takes `node_fasta_file`, `input_hdf5` and layout
+  (meaning, built-in default, accepted and Config GUI ranges) with edge-filter guidance,
+  and `export_layout_settings` takes `node_fasta_file`, `input_hdf5` and layout
   `parameters`, so an agent inherits the saved physics settings without writing an
   overlay file. `inspect_file` reports FASTA length quantiles and duplicate sequences,
   and a network's gap penalties, precision or BLAST matrix. An unknown MCP argument
@@ -52,6 +52,8 @@ still change before version 1.0.0.
   like a BLAST+ program line, in the network's `search_program`, `search_version` and
   `search_invocation` attributes and names the network `<name>_[DIAMOND]_EValue.h5`.
   `model_name` stays `BLAST`, so the Viewer still loads it as an E-value network.
+  Layout-cache folders and `Network_Extraction.py` subsets made from it carry the same
+  `[DIAMOND]` label.
 - The BLAST/DIAMOND importer warns when an all-vs-all search was truncated: when a
   recorded DIAMOND command's `--max-target-seqs` (25 by default) was reached or
   `--top` was used, or, for headerless files, when queries share a target count while

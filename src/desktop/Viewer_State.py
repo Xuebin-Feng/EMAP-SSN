@@ -576,10 +576,7 @@ def resolve_selected_cache(settings, *, layout_dimensions=None):
     network_file = getattr(settings, "INPUT_HDF5", "")
     network_type = cache_manifest.validate_network_schema(network_file).network_type
     settings.INPUT_IS_EVALUE = network_type == "blast"
-    canonical_name = cache_manifest.build_canonical_cache_name(
-        fasta_file,
-        network_file,
-        network_type,
+    name_settings = dict(
         alignment_score=getattr(settings, "ALIGNMENT_SCORE", None),
         normalization=getattr(settings, "NORM_MODE", None),
         umap_mode=getattr(settings, "UMAP_MODE", False),
@@ -588,7 +585,19 @@ def resolve_selected_cache(settings, *, layout_dimensions=None):
         similarity_threshold=getattr(settings, "SIMILARITY_THRESHOLD", None),
         layout_dimensions=layout_dimensions,
     )
+    canonical_name = cache_manifest.build_canonical_cache_name(
+        fasta_file, network_file, network_type, **name_settings
+    )
     target_folder = os.path.join(saved_layout_dir, canonical_name)
+    if network_type == "blast" and not os.path.isdir(target_folder):
+        # Caches of DIAMOND networks made before their folders were labelled
+        # [DIAMOND] live under the model_name label, [BLAST].
+        legacy_name = cache_manifest.build_canonical_cache_name(
+            fasta_file, network_file, network_type, legacy_model_label=True, **name_settings
+        )
+        legacy_folder = os.path.join(saved_layout_dir, legacy_name)
+        if os.path.isdir(legacy_folder):
+            target_folder = legacy_folder
 
     selected_cache = getattr(settings, "TARGET_CACHE_FILE", None)
     if (

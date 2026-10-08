@@ -22,7 +22,13 @@ if str(SRC_DIR) not in sys.path:
 
 import Cache_Manifest
 from desktop.Viewer_State import resolve_selected_cache
-from tests.layout_fixtures import make_compatibility, make_manifest  # noqa: E402
+from tests.layout_fixtures import (  # noqa: E402
+    HeadlessSettingsFixture,
+    make_compatibility,
+    make_manifest,
+    settings_document,
+    write_inputs,
+)
 
 
 def write_network(path, model_name, network_type="alignment"):
@@ -368,7 +374,8 @@ class ManifestDiscoveryTests(unittest.TestCase):
 class CanonicalCacheNameTests(unittest.TestCase):
     """build_canonical_cache_name gives the folder that the desktop Viewer and
     opt_vr look up (resolve_selected_cache), so existing caches are found only
-    while these names stay exactly the same."""
+    while these names stay exactly the same. (DIAMOND networks' [DIAMOND] label
+    is the one change; resolve_selected_cache also tries their old [BLAST] name.)"""
 
     def canonical_name(self, model_name, network_type="alignment",
                        sequence_path="d/my set.fasta", **settings):
@@ -424,6 +431,114 @@ class CanonicalCacheNameTests(unittest.TestCase):
                     ),
                     "set_[BLAST]",
                 )
+
+
+def write_blast_network(path, search_program=None):
+    """An empty E-value network, with search_program recorded when given."""
+    write_network(path, "BLAST", "blast")
+    if search_program is not None:
+        with h5py.File(path, "a") as network:
+            network.attrs["search_program"] = search_program
+
+
+class DiamondCacheLabelTests(unittest.TestCase):
+    """Imported DIAMOND networks keep model_name BLAST but name their caches [DIAMOND]."""
+
+    def name(self, search_program, *, legacy=False, network_type="blast"):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "network.h5"
+            if network_type == "blast":
+                write_blast_network(network_path, search_program)
+            else:
+                write_network(network_path, "esm2", "alignment")
+                with h5py.File(network_path, "a") as network:
+                    network.attrs["search_program"] = search_program
+            return Cache_Manifest.build_canonical_cache_name(
+                "set.fasta", network_path, network_type, similarity_threshold=10,
+                legacy_model_label=legacy,
+            )
+
+    def test_only_a_recorded_diamond_search_changes_the_label(self):
+        # h5py reads plain bytes back as str; only fixed-length strings stay bytes.
+        for program, label in (
+            ("DIAMOND", "DIAMOND"), (np.bytes_(b"DIAMOND"), "DIAMOND"), (" DIAMOND ", "DIAMOND"),
+            ("BLASTP", "BLAST"), ("Unknown", "BLAST"), (None, "BLAST"),
+            ("diamond", "BLAST"), (np.int64(7), "BLAST"),
+        ):
+            with self.subTest(program=program):
+                self.assertEqual(self.name(program), f"set_[{label}]_Score10.0")
+
+    def test_legacy_label_and_alignment_networks_keep_the_model_name(self):
+        self.assertEqual(self.name("DIAMOND", legacy=True), "set_[BLAST]_Score10.0")
+        self.assertEqual(self.name("DIAMOND", network_type="alignment"), "set_[esm2]_Score10.0")
+
+    def test_label_helper_reads_paths_and_open_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            network_path = pathlib.Path(temp_dir) / "network.h5"
+            write_blast_network(network_path, "DIAMOND")
+            self.assertEqual(Cache_Manifest.network_name_label(network_path), "DIAMOND")
+            with h5py.File(network_path, "r") as network:
+                self.assertEqual(Cache_Manifest.network_name_label(network), "DIAMOND")
+            write_network(network_path, "esm/c:300m")
+            self.assertEqual(Cache_Manifest.network_name_label(network_path), "esm_c_300m")
+
+    def test_label_matches_what_the_importer_records(self):
+        from utilities.BLAST_Tabular import DIAMOND_PROGRAM, SearchHeader
+        self.assertEqual(Cache_Manifest.DIAMOND_SEARCH_PROGRAM, DIAMOND_PROGRAM)
+        self.assertEqual(SearchHeader(program=DIAMOND_PROGRAM).network_tag, "DIAMOND")
+
+    def test_selection_by_name_still_finds_folders_named_before_the_label(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = pathlib.Path(temp_dir)
+            write_blast_network(root / "network.h5", "DIAMOND")
+            layouts = root / "layouts"
+            settings = SimpleNamespace(
+                SAVED_LAYOUT_DIR=str(layouts), TARGET_CACHE_PATH=None, TARGET_CACHE_FILE=None,
+                NODE_FASTA_FILE=str(root / "set.fasta"), SEQUENCES_FILE="", INPUT_HDF5=str(root / "network.h5"),
+                ALIGNMENT_SCORE="global", NORM_MODE="alignment_length", UMAP_MODE=False, UMAP_NEIGHBORS=15,
+                TOP_EDGE_PERCENT=None, SIMILARITY_THRESHOLD=10.0,
+            )
+
+            def folder(**kwargs):
+                return pathlib.Path(resolve_selected_cache(settings, **kwargs)).parent.name
+
+            self.assertEqual(folder(), "set_[DIAMOND]_Score10.0")
+            (layouts / "set_[BLAST]_Score10.0").mkdir(parents=True)
+            (layouts / "set_[BLAST]_Score10.0_3D").mkdir()
+            self.assertEqual(folder(), "set_[BLAST]_Score10.0")
+            self.assertEqual(folder(layout_dimensions=3), "set_[BLAST]_Score10.0_3D")
+            (layouts / "set_[DIAMOND]_Score10.0").mkdir()
+            self.assertEqual(folder(), "set_[DIAMOND]_Score10.0")
+            self.assertEqual(folder(layout_dimensions=3), "set_[BLAST]_Score10.0_3D")
+
+
+class DiamondCacheReuseTests(HeadlessSettingsFixture, unittest.TestCase):
+    """A layout job finds compatible caches by manifest, whatever their folder is called."""
+
+    def test_new_diamond_caches_get_the_label_and_old_folders_are_reused(self):
+        write_inputs(self.root)
+        network = self.root / "network.h5"
+        network.unlink()
+        with h5py.File(network, "w") as handle:
+            handle.attrs["model_name"] = "BLAST"
+            handle.attrs["search_program"] = "DIAMOND"
+            handle.create_dataset("headers", data=np.asarray(["Alpha_Beta", "Gamma_Delta"], dtype=object),
+                                  dtype=h5py.string_dtype("utf-8"))
+            handle.create_dataset("i", data=np.asarray([0], dtype=np.uint16))
+            handle.create_dataset("j", data=np.asarray([1], dtype=np.uint16))
+            handle.create_dataset("score", data=np.asarray([50.0], dtype=np.float32))
+        document = settings_document(self.root)
+        document["output"]["CACHE_NAME_MODE"] = "auto"
+
+        first = pathlib.Path(self.generate(document).cache_path)
+        self.assertEqual(first.parent.name, "set_[DIAMOND]_Score0.1")
+
+        # A folder made before the label existed holds the same manifest.
+        legacy = first.parent.with_name("set_[BLAST]_Score0.1")
+        first.parent.rename(legacy)
+        second = pathlib.Path(self.generate(document).cache_path)
+        self.assertEqual(second, legacy / "version_01.h5")
+        self.assertFalse(first.parent.exists())
 
 
 class NetworkMetadataTests(unittest.TestCase):
