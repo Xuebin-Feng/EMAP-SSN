@@ -1,0 +1,286 @@
+{
+  "path_rules": [
+    "A relative input name resolves inside that input's directory (inputs.<field>.directory, a DIRECTORIES key); an absolute path is used as given.",
+    "Outputs go to the tool's output directory with the names listed under outputs, even when an input came from another folder (sparse_msa_converter writes beside its input instead).",
+    "Pass directory overrides in the directories argument next to parameters (keys such as FASTA_DIR or EMBED_DIR, listed per tool in required_directories). With parameters, a directory left out uses the user's saved Tools directory (tools_settings.json), else the project default; settings_document and settings_path use project defaults for missing ones. validate_settings reports effective_directories.",
+    "Output names derive from the input filename (its sequence-set name) and the model, so name input FASTA files as you want the results named.",
+    "After a job succeeds, get_job lists output_files: the files it created, modified or deleted in the directories it writes."
+  ],
+  "model_embedding_widths": {
+    "esm2_t6_8m": 320, "esm2_t12_35m": 480, "esm2_t30_150m": 640, "esm2_t33_650m": 1280,
+    "esmc_300m": 960, "esmc_600m": 1152, "esmc_6b": 2560,
+    "prot_bert": 1024, "prost_t5": 1024, "ankh_base": 768, "ankh_large": 1536
+  },
+  "tools": {
+    "sanitize_sequences": {
+      "stage": "prepare sequences",
+      "purpose": "Uppercase residues, trim terminal non-residues, mask invalid residues as X, make headers safe and unique, merge identical sequences (keeping the longest header), and optionally drop sequences by length or by a header substring.",
+      "inputs": {
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA with any headers"}
+      },
+      "outputs": [
+        {"directory": "FASTA_DIR", "name": "<INPUT_FASTA stem>_sanitized.fasta", "when": "OVER_WRITE is false", "existing": "replaced"},
+        {"beside": "INPUT_FASTA", "name": "INPUT_FASTA itself", "when": "OVER_WRITE is true", "existing": "replaced atomically; an empty result is refused"}
+      ],
+      "next": ["generate_embeddings", "align_substitution_matrix", "start_layout_job (as the node FASTA)"],
+      "notes": [
+        "Embedding, BLAST and layout steps apply the same cleanup in memory, but not the length or header filters, so run this tool when sequences must be filtered or when you want the cleaned FASTA as a file.",
+        "MIN_SEQ_LENGTH and MAX_SEQ_LENGTH are inclusive, 0 disables a bound, and they apply only when ENABLE_LENGTH_FILTER is true.",
+        "REMOVE_BY_HEADER_STRING is one case-sensitive substring matched against raw headers. inspect_file reports header_terms (headers mentioning partial, fragment, putative and similar words, by exact spelling) and example headers; to drop a second spelling, run the tool again on its own output."
+      ]
+    },
+    "generate_embeddings": {
+      "stage": "embed sequences",
+      "purpose": "Run a protein language model over every sequence and store one residue-embedding matrix per sequence.",
+      "inputs": {
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA, raw or sanitized (cleaned in memory, no filters)"}
+      },
+      "outputs": [
+        {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<MODEL_NAME>]_embeddings.h5", "existing": "a complete file from the same model, saving mode and sequences is kept and the job ends at once; an incomplete one is resumed; one with another model, SAVING_MODE or changed sequences fails the job unchanged"}
+      ],
+      "next": ["align_similarity_matrix", "embedding_msa (with a network)", "embedding_injection", "embedding_extraction", "embedding_cropping", "embedding_pwa", "embedding_ssearch"],
+      "requirements": "A GPU is strongly recommended. Local models download their weights on first use. esmc_6b runs on a remote API and needs a Biohub token stored beforehand by the user (the job cannot prompt for it). Ankh models need a one-time license acknowledgement made by the user outside MCP: python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID.",
+      "notes": [
+        "get_tool_schema lists each model's availability on this machine under model_availability.",
+        "Use one model for every file you intend to combine: injection, extraction, cropping and network injection reuse the source file's model.",
+        "No model is best for every family. Reuse the model of related existing files when there are any; otherwise a mid-sized local model such as esm2_t33_650m, esmc_300m or esmc_600m is a common starting point, and larger models cost more time and disk.",
+        "File size is about total residues x embedding width x 4 bytes for float32 (2 for float16); model_availability lists each model's width.",
+        "With DEVICE_SELECTION auto the log's first table gives each device's predicted job time (Predicted job (s)); read it with read_log to estimate the run."
+      ]
+    },
+    "align_similarity_matrix": {
+      "stage": "build network (embedding alignment)",
+      "purpose": "Score every sequence pair by dynamic-programming alignment over residue-embedding similarity, storing global and local scores with alignment lengths.",
+      "inputs": {
+        "INPUT_HDF5": {"directory": "EMBED_DIR", "content": "embedding database named <set>_[<model>]_embeddings.h5"}
+      },
+      "outputs": [
+        {"directory": "NETWORK_DIR", "name": "<set>_[<model>]_network.h5 (set and model are read from the embedding filename)", "existing": "kept: the job ends at once with 'Job already done' (output_files stays empty) and does not recompute, even if gap penalties changed; to recompute, give NETWORK_DIR another folder (or move the old network away)"},
+        {"directory": "NETWORK_DIR", "name": "<set>_[<model>]_network_temp/ (batch files)", "existing": "reused to resume an interrupted run; kept after success"}
+      ],
+      "next": ["network_statistics", "start_layout_job", "embedding_msa", "network_injection (later, to add sequences)"],
+      "requirements": "A GPU, when available, computes each pair's residue score matrix; the dynamic-programming alignment itself always runs on CPU workers (WORKERS). Work grows with N(N-1)/2 pairs and sequence length. With auto settings it first benchmarks devices, precisions and execution modes, which can take about a minute and dominates small runs.",
+      "notes": [
+        "Layouts of this network choose ALIGNMENT_SCORE (global or local) and NORM_MODE; scores are normalized alignment scores, not identities.",
+        "EDGE_PREFILTERING skips the least similar pairs (PREFILTER_STRENGTH percent) and leaves the network sparse; keep it off unless the all-pairs cost is too high.",
+        "The log states Total Required pairs and, during the benchmark, each plan's throughput in pairs/s; divide to estimate the run time before committing to a large job."
+      ]
+    },
+    "align_substitution_matrix": {
+      "stage": "build network (BLAST)",
+      "purpose": "Run all-vs-all BLASTP with a substitution matrix and store -log10(E-value) for each pair with a hit.",
+      "inputs": {
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "protein FASTA, raw or sanitized (cleaned in memory)"}
+      },
+      "outputs": [
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EValue.h5", "existing": "replaced"},
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[BLAST]_EValue_temp/ (workspace)", "existing": "resumed when its configuration matches; removed after success"}
+      ],
+      "next": ["network_statistics", "start_layout_job"],
+      "requirements": "blastp and makeblastdb from NCBI BLAST+ (BLASTP_DIR, the PATH or a standard install location). CPU only.",
+      "notes": [
+        "Scores are -log10(E-value); larger means more similar. An E-value of 0 (near-identical pairs) is stored as the cap 300.",
+        "Only pairs with a BLAST hit are stored, so the network is sparse; ALIGNMENT_SCORE and NORM_MODE do not apply to its layouts."
+      ]
+    },
+    "parse_blast_output": {
+      "stage": "build network (import BLAST or DIAMOND results)",
+      "purpose": "Convert tabular BLAST+ or DIAMOND blastp results into an E-value network whose nodes are the records of the FASTA used for the search.",
+      "inputs": {
+        "INPUT_BLAST_TABULAR": {"directory": "NETWORK_DIR", "content": "tabular results: outfmt 6 (12 columns), outfmt 7, or custom columns"},
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "the exact FASTA that was searched; complete headers must match the result headers after sanitization"}
+      },
+      "outputs": [
+        {"directory": "NETWORK_DIR", "name": "<INPUT_BLAST_TABULAR stem>_[BLAST]_EValue.h5, or _[DIAMOND]_EValue.h5 when the file has DIAMOND --header verbose comments", "existing": "replaced only after the new network validates"}
+      ],
+      "next": ["network_statistics", "start_layout_job"],
+      "notes": [
+        "Run DIAMOND all-vs-all with -k 0 (its default keeps only 25 hits per query) and --header verbose; inspect_file warns about truncated searches.",
+        "FASTA records without hits stay in the network as isolated nodes.",
+        "Scores are -log10(E-value); an E-value of 0 is stored as the cap 300."
+      ]
+    },
+    "embedding_cropping": {
+      "stage": "derive embeddings",
+      "purpose": "Make embeddings for domains or fragments by slicing full-length embeddings, keeping full-sequence context instead of embedding fragments alone.",
+      "inputs": {
+        "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "full-length embedding database"},
+        "CROPPED_FASTA": {"directory": "FASTA_DIR", "content": "fragments; each header must exist in INPUT_EMBED and each sequence must be an exact substring of that stored sequence"}
+      },
+      "outputs": [
+        {"directory": "EMBED_DIR", "name": "<CROPPED_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified"}
+      ],
+      "next": ["align_similarity_matrix", "embedding_msa"],
+      "requirements": "CPU only; no model is run."
+    },
+    "embedding_extraction": {
+      "stage": "derive embeddings",
+      "purpose": "Copy the embeddings of a subset of sequences into a new database without running a model.",
+      "inputs": {
+        "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "source embedding database"},
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "FASTA or plain list of headers to keep"}
+      },
+      "outputs": [
+        {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified"}
+      ],
+      "next": ["align_similarity_matrix", "embedding_msa"],
+      "requirements": "CPU only; no model is run."
+    },
+    "embedding_injection": {
+      "stage": "update embeddings with new sequences",
+      "purpose": "Build the embedding database of an expanded sequence set by copying existing embeddings and embedding only the sequences that are new.",
+      "inputs": {
+        "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "existing embedding database (its model is reused)"},
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "the complete new set: every sequence to keep plus the new ones; kept sequences must have the same headers and sequences as in INPUT_EMBED"}
+      },
+      "outputs": [
+        {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified (writing over it is refused)"}
+      ],
+      "next": ["network_injection", "align_similarity_matrix"],
+      "requirements": "Runs the source model for the new sequences only (GPU recommended).",
+      "notes": ["The job fails if a kept header's sequence differs from INPUT_EMBED, so success confirms that the old records match."]
+    },
+    "network_injection": {
+      "stage": "update a network with new sequences",
+      "purpose": "Extend an existing embedding-alignment network to an expanded embedding database, reusing every existing pair score and aligning only pairs that involve new sequences.",
+      "inputs": {
+        "OLD_NETWORK": {"directory": "NETWORK_DIR", "content": "existing network from align_similarity_matrix or an earlier injection"},
+        "NEW_EMBEDDINGS": {"directory": "EMBED_DIR", "content": "expanded embedding database containing the old and new sequences (for example from embedding_injection), same model as OLD_NETWORK"}
+      },
+      "outputs": [
+        {"directory": "NETWORK_DIR", "name": "<NEW_EMBEDDINGS set>_[<model>]_network.h5", "existing": "replaced when its precision matches the old network, otherwise the job fails unchanged; OLD_NETWORK is never modified"},
+        {"directory": "NETWORK_DIR", "name": "<NEW_EMBEDDINGS set>_[<model>]_network_temp/ (batch files)", "existing": "reused to resume"}
+      ],
+      "next": ["network_statistics", "start_layout_job (with the expanded FASTA as node FASTA)"],
+      "requirements": "Like align_similarity_matrix, for the new pairs only. A TF32 source network needs an NVIDIA CUDA device.",
+      "notes": ["Gap penalties and accelerator precision are inherited from OLD_NETWORK (inspect_file shows them), so old and new scores stay comparable."]
+    },
+    "network_extraction": {
+      "stage": "derive a network",
+      "purpose": "Write a smaller network keeping only the listed sequences and the edges between them.",
+      "inputs": {
+        "INPUT_NET": {"directory": "NETWORK_DIR", "content": "alignment or E-value network"},
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "FASTA or plain list of headers to keep"}
+      },
+      "outputs": [
+        {"directory": "NETWORK_DIR", "name": "<INPUT_FASTA stem>_[<model>]_network.h5 (alignment networks) or <INPUT_FASTA stem>_[<model>]_EValue.h5 (E-value networks)", "existing": "replaced"}
+      ],
+      "next": ["start_layout_job"],
+      "notes": ["A layout already keeps only the network nodes named in its node FASTA, so extraction is needed only for a standalone smaller network file."]
+    },
+    "embedding_msa": {
+      "stage": "multiple alignment",
+      "purpose": "Build a multiple sequence alignment by progressive profile alignment of residue embeddings along a guide tree made from network scores.",
+      "inputs": {
+        "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "embedding database"},
+        "INPUT_NETWORK": {"directory": "NETWORK_DIR", "content": "network covering the same sequences (alignment or E-value; missing pairs are imputed)"},
+        "INPUT_FASTA": {"directory": "FASTA_DIR", "content": "optional subset filter, used only when USE_SEQUENCE_FILTER is true"}
+      },
+      "outputs": [
+        {"directory": "MSA_DIR", "name": "<set>_[<model>]_alignment.fasta (set is the INPUT_FASTA stem when filtering, else the embedding set name)", "existing": "replaced"}
+      ],
+      "next": ["sparse_msa_converter (optional, for large alignments)", "Viewer settings alignment.MSA_FILE"],
+      "requirements": "Memory grows with the square of the sequence count (about 16 bytes per pair per UPGMA worker).",
+      "notes": [
+        "An MSA is optional for viewing a network and required for residue-level analysis in the Viewer.",
+        "GAP_OPEN and GAP_EXTEND score the profile alignment only; they are independent of the gap penalties stored in the network.",
+        "ALIGNMENT_SCORE and NORMALIZATION_MODE choose which network scores build the guide tree, like the layout's ALIGNMENT_SCORE and NORM_MODE."
+      ]
+    },
+    "sparse_msa_converter": {
+      "stage": "multiple alignment",
+      "purpose": "Convert aligned FASTA files to compressed sparse HDF5 alignments that the Viewer loads faster.",
+      "inputs": {
+        "INPUT_FASTA": {"directory": "MSA_DIR", "content": "aligned FASTA (equal-length rows); ignored when CONVERT_ALL is true"}
+      },
+      "outputs": [
+        {"beside": "INPUT_FASTA", "name": "<INPUT_FASTA stem>_sparse.h5", "existing": "replaced"},
+        {"directory": "MSA_DIR", "name": "<each *.fasta stem>_sparse.h5", "when": "CONVERT_ALL is true", "existing": "replaced"}
+      ],
+      "next": ["Viewer settings alignment.MSA_FILE"],
+      "notes": ["After converting, the source FASTA is moved into a Full_Alignments subfolder beside it."]
+    },
+    "embedding_pwa": {
+      "stage": "analysis",
+      "purpose": "Align two sequences (stored in an embedding database or typed manually) and optionally write an HTML report.",
+      "inputs": {
+        "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "embedding database supplying stored sequences"}
+      },
+      "outputs": [
+        {"directory": "REPORT_DIR", "name": "PWA_Report_<timestamp>.html", "when": "GENERATE_REPORT is true", "existing": "a new file per run"}
+      ],
+      "next": []
+    },
+    "embedding_ssearch": {
+      "stage": "analysis",
+      "purpose": "Search an embedding database with one query sequence and rank hits by normalized alignment score.",
+      "inputs": {
+        "INPUT_EMBED": {"directory": "EMBED_DIR", "content": "embedding database to search"}
+      },
+      "outputs": [
+        {"directory": "REPORT_DIR", "name": "report files named after OUTPUT_NAME (else the first 20 characters of the query name): .txt and .xlsx, plus Hits_<name>.fasta when GENERATE_FASTA is true", "existing": "replaced"}
+      ],
+      "next": ["embedding_extraction (hit list as a subset)"]
+    }
+  },
+  "workflows": [
+    {
+      "goal": "Embedding-based SSN and layout from a raw FASTA",
+      "steps": [
+        "sanitize_sequences (optional: needed for length or header filters)",
+        "generate_embeddings on the FASTA to analyze",
+        "align_similarity_matrix on the new embedding file",
+        "network_statistics on the network, with that FASTA, to choose an edge filter",
+        "export_layout_settings with node_fasta_file and input_hdf5, then start_layout_job with the exported settings_document"
+      ]
+    },
+    {
+      "goal": "BLAST-based SSN and layout from a raw FASTA",
+      "steps": [
+        "sanitize_sequences (optional)",
+        "align_substitution_matrix (needs BLAST+)",
+        "network_statistics, then export_layout_settings and start_layout_job"
+      ]
+    },
+    {
+      "goal": "SSN from existing BLAST or DIAMOND tabular results",
+      "steps": [
+        "inspect_file on the results (reports DIAMOND hit limits)",
+        "parse_blast_output with the FASTA that was searched",
+        "network_statistics, then export_layout_settings and start_layout_job with that FASTA as node FASTA"
+      ]
+    },
+    {
+      "goal": "Add new sequences to an existing embedding SSN without recomputing it",
+      "steps": [
+        "Have one FASTA with every kept sequence plus the new ones (old records unchanged)",
+        "embedding_injection: INPUT_EMBED = old embeddings, INPUT_FASTA = that FASTA (embeds only the new sequences; writes a new file)",
+        "network_injection: OLD_NETWORK = old network, NEW_EMBEDDINGS = the injection output (aligns only new pairs; writes a new file)",
+        "network_statistics and a layout with the expanded FASTA as node FASTA"
+      ]
+    },
+    {
+      "goal": "Network or layout of a subset of sequences",
+      "steps": [
+        "For a layout only: start_layout_job with the subset FASTA as node FASTA and the full network (nodes not in the FASTA are left out)",
+        "For standalone files: network_extraction and, if embeddings are needed, embedding_extraction"
+      ]
+    },
+    {
+      "goal": "Multiple alignment for residue-level Viewer analysis",
+      "steps": [
+        "embedding_msa with the embeddings and network of the same sequence set",
+        "sparse_msa_converter for large alignments (moves the source FASTA into Full_Alignments)",
+        "Use the alignment as alignment.MSA_FILE in Viewer settings"
+      ]
+    },
+    {
+      "goal": "Domain or fragment network that keeps full-length context",
+      "steps": [
+        "generate_embeddings on the full-length sequences",
+        "embedding_cropping with a FASTA of the fragments (same headers, exact substrings)",
+        "align_similarity_matrix on the cropped embeddings, then a layout with the fragment FASTA"
+      ]
+    }
+  ]
+}

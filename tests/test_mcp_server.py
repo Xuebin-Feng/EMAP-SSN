@@ -524,6 +524,19 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(cache_files), 1)
                 cache_file = cache_files[0]
 
+                # The job reports every artifact it published and a summary of the layout.
+                written = {pathlib.Path(item["path"]).relative_to(cache_file.parent).as_posix(): item["change"]
+                           for item in job["output_files"]}
+                self.assertEqual(written, {"version_00.h5": "created", "cache_manifest.json": "created",
+                                           "nodes.fasta": "created"})
+                self.assertEqual(job["output_locations"]["TARGET_CACHE_PATH"], str(cache_file))
+                self.assertEqual(
+                    {key: job["result"][key] for key in ("nodes", "edges", "clusters", "isolated_nodes",
+                                                         "largest_cluster_nodes", "edge_filter")},
+                    {"nodes": 2, "edges": 1, "clusters": 1, "isolated_nodes": 0, "largest_cluster_nodes": 2,
+                     "edge_filter": {"mode": "similarity_threshold", "value": 0.1}},
+                )
+
                 # 3. Inspect layout cache explicitly
                 inspected = await client.call_tool("emapssn_pipeline", {"action": "inspect_file", "arguments": {
                     "path": str(cache_file),

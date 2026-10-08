@@ -18,76 +18,76 @@ Unknown actions, unexpected arguments and invalid types fail before dispatch.
 
 ## Run a pipeline
 
-Start with `emapssn_pipeline(action="list_tools")` when the appropriate pipeline is unknown. Its
-entries contain stable `tool_id` values, descriptions, and directory contracts.
-A pipeline ID is an argument to MCP tools, not itself an MCP tool name. Pass the
-chosen ID to `emapssn_pipeline(action="get_tool_schema")` for accepted parameters, defaults,
-conditions, and an example. Do not invent IDs, script names, or parameter keys.
+Plan with `emapssn_pipeline(action="list_tools")`: each `tool_id` lists its inputs and
+the directory a relative name resolves in, output names, what happens to an existing
+output, and typical next tools; workflow recipes cover common goals (for example,
+injecting new sequences instead of recomputing). A pipeline ID is an argument to MCP
+tools, not itself an MCP tool name. Pass it to `emapssn_pipeline(action="get_tool_schema")`
+for accepted parameters, defaults, conditions, model availability and an example. Do not
+invent IDs, script names, or parameter keys.
 
-Use `emapssn_pipeline(action="inspect_file")` on known input paths when their contents or format
-need checking. It inspects a selected file; it does not search directories for
-inputs. Use `emapssn_pipeline(action="get_compute_capabilities")` when device availability affects a choice,
-optionally supplying the pipeline ID. This reports runtime metadata without
-benchmarking or executing models; it does not establish that a computation will
-fit in memory or succeed.
+Use `emapssn_pipeline(action="inspect_file")` on known input paths when their contents or
+format need checking; it does not search directories. Use
+`emapssn_pipeline(action="get_compute_capabilities")` when device availability affects a
+choice; it does not establish that a computation will fit in memory or succeed.
 
-Prepare exactly one input form: `parameters`, `settings_document`, or
-`settings_path`. Optional `directories` accompanies `parameters` only. Use native
-JSON numbers and booleans. Call `emapssn_pipeline(action="validate_settings")`, examine `valid` and
-field-specific `errors`, and correct invalid settings before submission. A valid
-preview supplies a normalized `settings_document` suitable for
-`emapssn_pipeline(action="start_job")`. Configuration validation does not check every input file,
-credential, or hardware requirement.
+Prepare exactly one input form: `parameters`, `settings_document`, or `settings_path`.
+Optional `directories` accompanies `parameters` only. Use native JSON numbers and
+booleans. Call `emapssn_pipeline(action="validate_settings")`, examine `valid` and
+field-specific `errors`, and correct invalid settings before submission. A valid preview
+supplies a normalized `settings_document` for `emapssn_pipeline(action="start_job")`.
+Validation does not check every input file, credential, or hardware requirement.
 
-Submit the chosen pipeline with `emapssn_pipeline(action="start_job")`, save its `job_id`, and
-follow it with `emapssn_pipeline(action="get_job")`. Submission means queued or running, not
-completed. Settings can cause output files to be created or overwritten; align
-those choices with the user's request.
+Submit with `emapssn_pipeline(action="start_job")`, save its `job_id`, and follow it with
+`emapssn_pipeline(action="wait_job")`, which returns when the job ends or after at most 50
+seconds; call it again instead of polling. Submission means queued or running, not
+completed. A finished job's `output_files` lists the files it created, modified or
+deleted: take output paths from there. Settings can cause output files to be created or
+overwritten; align those choices with the user's request.
 
 ## Reuse saved settings
 
 For Viewer launches use viewer-control action="export_settings"; for layouts use
-pipeline action="export_layout_settings". Both inherit the relevant `viewer_settings.json` preferences: layout exports
-include simulation/physics; Viewer exports include alignment/display preferences. Execute the full exported JSON with
-only necessary edits. Never construct minimal JSON from schema defaults instead.
-Use `emapssn_pipeline(action="export_tool_settings")` for saved pipeline settings. Exports create files;
-explicit output paths must be unused, while omitted paths are allocated automatically.
+pipeline action="export_layout_settings". Both inherit the relevant `viewer_settings.json`
+preferences: layout exports include simulation/physics; Viewer exports include
+alignment/display preferences. Execute the full exported JSON with only necessary
+edits. Never construct minimal JSON from schema defaults instead. Use
+`emapssn_pipeline(action="export_tool_settings")` for saved pipeline settings. Exports
+create files; explicit output paths must be unused.
 
-When editing JSON, preserve user-defined parameters unless they invalidate the
-job. For a different input file, obtain the existing JSON and replace only that
-field, plus necessary dependent fields. For example, paired embedding and network
-files may need matching sources. Validate compatibility; do not reset unrelated
-settings to defaults or guess dependent files. Explain any required changes.
+When editing JSON, preserve user-defined parameters unless they invalidate the job. For
+a different input file, replace only that field plus necessary dependent fields (paired
+embedding and network files may need matching sources). Do not reset unrelated settings
+or guess dependent files. Explain any required changes.
 
-When reporting calculations or generations, always list the effective parameters
-and input files actually used, including preserved values and applied defaults,
-from the executed settings rather than just the requested edits.
+When reporting calculations or generations, always list the effective parameters and
+input files actually used, including preserved values and applied defaults, from the
+executed settings rather than just the requested edits.
 
-Review the exported settings, change the intended fields, then validate and
-execute using the resulting document or path. Exporting does not execute a job.
-An exported layout cache filename is a preview, not a reservation. Viewer exports
-may select the newest compatible cache: verify that it is the user's intended
-cache. Supplied execution documents are not silently refreshed from personal
-settings. Do not assume a settings file's directory is the base for relative
-input paths; follow the relevant tool's path and directory rules.
+Exporting does not execute a job, and an exported layout cache filename is a preview,
+not a reservation. Viewer exports may select the newest compatible cache: verify it is
+the intended one. Execution documents are not silently refreshed from personal settings.
+Relative input paths follow each tool's directory rules, not the settings file's folder.
 
 ## Calculate a layout
 
-First call `emapssn_pipeline(action="export_layout_settings")`. Preserve the exported
-simulation and physics values (including forces, timestep, convergence, step
-limit, and packing) unless changes are required. Pass the edited document/path to
-`emapssn_pipeline(action="start_layout_job")`; individual arguments can substitute built-in defaults. Layout
-JSON differs from pipeline parameters and the sectioned Viewer document.
+Choose the edge filter from evidence: `emapssn_pipeline(action="network_statistics")`
+scores a network as the layout will (pass the node FASTA, ALIGNMENT_SCORE and NORM_MODE)
+and reports kept edges, clusters and isolated nodes per cutoff. Prefer the user's
+criterion when given. `emapssn_pipeline(action="get_layout_schema")` explains every field.
 
-Provide the node FASTA and network HDF5, choose physics or UMAP, and use scientific
-settings consistent with the network. layout.LAYOUT_DIMENSIONS is 2 (desktop Viewer)
-or 3; layout.LAYOUT_SEED is a non-negative integer, default 42, or null (unseeded).
-Ask for missing scientific choices when they cannot be established from the user's
-request or inspected metadata. The
-start operation validates before enqueueing; there is no separate layout
-validation tool. Resolve export errors instead of bypassing saved preferences.
-Track the returned job using the shared job tools. After success, inspect the
-actual output cache and use its identity and matching inputs to prepare Viewer
+Then call `emapssn_pipeline(action="export_layout_settings")` with node_fasta_file,
+input_hdf5 and the filter in parameters. Keep the exported simulation and physics values
+unless changes are required, and pass the document to
+`emapssn_pipeline(action="start_layout_job")`; individual arguments substitute built-in
+defaults. Layout JSON differs from pipeline and Viewer JSON. Resolve export errors instead of bypassing saved preferences.
+
+layout.LAYOUT_DIMENSIONS is 2 (desktop Viewer) or 3; layout.LAYOUT_SEED is a
+non-negative integer, default 42, or null (unseeded). Ask for missing scientific choices
+when they cannot be established from the request or inspected metadata. The start
+operation validates before enqueueing; there is no separate layout validator. The
+finished job's `result` reports nodes, edges, effective threshold, clusters and isolated
+nodes. Inspect the cache and use its identity and matching inputs to prepare Viewer
 settings. Do not assume a layout job opens a Viewer.
 
 ## Open and inspect a Viewer
@@ -166,8 +166,8 @@ launch reports an error; an existing GUI/CLI Viewer can still be connected.
 
 Pipeline and layout jobs share a FIFO queue owned by this server. Use
 `emapssn_pipeline(action="list_jobs")` to recover job IDs, and `emapssn_pipeline(action="get_job")` for status,
-`failure_message`, and output locations. Backend exit cancels its jobs. Poll at
-reasonable intervals; report completion only after `succeeded`, and inspect
+`failure_message`, and output locations. Backend exit cancels its jobs. Wait with
+wait_job; report completion only after `succeeded`, and inspect
 relevant outputs before making scientific claims. On failure, read both streams
 with `emapssn_pipeline(action="read_log")`, correct the cause, and avoid blindly resubmitting.
 `emapssn_pipeline(action="cancel_job")` stops queued or running work; check the returned status.

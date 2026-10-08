@@ -150,7 +150,24 @@ def resolve_saved_directory(key, project_root):
     return resolve_directory_value(values, key, project_root)
 
 
-def config_export_document(kind, project_root, *, settings_path=None):
+def overlay_edits(overlay, kind):
+    """Decode a partial settings document into the fields it actually sets.
+
+    decode_document fills optional keys (AUTO_DT, LAYOUT_SEED, ...) with their
+    defaults; an overlay that leaves them out must keep the saved values instead.
+    """
+    from desktop.Viewer_State import optional_keys, sections
+    edits = decode_document(overlay, kind, partial=True)
+    supplied = {key for section in sections(kind) if isinstance(overlay.get(section), dict)
+                for key in overlay[section]}
+    for key in optional_keys(kind):
+        if key not in supplied:
+            edits.pop(key, None)
+    return edits
+
+
+def config_export_document(kind, project_root, *, settings_path=None, overlay=None):
+    """Saved Config preferences, then the settings_path overlay, then ``overlay``."""
     from desktop.Viewer_State import (
         DEFAULTS,
         DIRECTORY_PROFILE_DEFAULTS,
@@ -171,11 +188,12 @@ def config_export_document(kind, project_root, *, settings_path=None):
     for key, legacy in LEGACY_DEFAULT_DIRECTORY_PATHS.items():
         if os.path.normpath(str(values[key])) == os.path.normpath(legacy):
             values[key] = DIRECTORY_PROFILE_DEFAULTS[key]
-    overlay = read_object(absolute_path(settings_path, project_root)) if settings_path else {}
     edits = {}
     if settings_path is not None:
-        edits = decode_document(overlay, kind, partial=True)
-        values.update(edits)
+        edits.update(overlay_edits(read_object(absolute_path(settings_path, project_root)), kind))
+    if overlay is not None:
+        edits.update(overlay_edits(overlay, kind))
+    values.update(edits)
     if kind == "viewer" and values.get("TARGET_CACHE_PATH"):
         document = validate_viewer_document(encode_document("viewer", values), project_root)
         return document, document["directories"]["SETTING_EXPORT_DIR"]
@@ -219,12 +237,48 @@ def config_export_document(kind, project_root, *, settings_path=None):
     return document, values["SETTING_EXPORT_DIR"]
 
 
-def export_config_settings(kind, project_root, output_path=None, settings_path=None):
-    document, directory = config_export_document(kind, project_root, settings_path=settings_path)
+def export_config_settings(kind, project_root, output_path=None, settings_path=None, overlay=None):
+    document, directory = config_export_document(kind, project_root, settings_path=settings_path,
+                                                 overlay=overlay)
     result = write_export(document, project_root, directory, f"{kind}-settings", output_path)
     section = document["output"] if kind == "layout" else document["inputs"]
     result.update(cache_path=section["TARGET_CACHE_PATH"], cache_filename=Path(section["TARGET_CACHE_PATH"]).name)
     return result
+
+
+def layout_summary(generated, settings):
+    """Describe a finished layout so callers can report it without opening the cache."""
+    from mcp_server.pipeline.Network_Statistics import component_summary
+    import numpy as np
+
+    nodes = len(generated.full_headers)
+    edges = np.asarray(generated.edges).reshape(-1, 2)
+    scores = np.asarray(generated.edge_scores, dtype=np.float64)
+    kept = set(generated.full_headers)
+    kept_ids = {header.split()[0] for header in generated.full_headers if header.split()}
+    missing = sum(
+        1 for header, _sequence in generated.fasta_records
+        if header not in kept and (not header.split() or header.split()[0] not in kept_ids)
+    )
+    if settings.UMAP_MODE:
+        edge_filter = {"mode": "umap_neighbors", "value": settings.UMAP_NEIGHBORS}
+    elif settings.TOP_EDGE_PERCENT is not None:
+        edge_filter = {"mode": "top_edge_percent", "value": settings.TOP_EDGE_PERCENT}
+    else:
+        edge_filter = {"mode": "similarity_threshold", "value": settings.SIMILARITY_THRESHOLD}
+    threshold = generated.effective_similarity_threshold
+    return {
+        "layout_mode": "umap" if settings.UMAP_MODE else "physics",
+        "layout_dimensions": int(settings.LAYOUT_DIMENSIONS),
+        "nodes": nodes,
+        "fasta_records": len(generated.fasta_records),
+        "fasta_records_missing_from_network": missing,
+        "edges": int(len(edges)),
+        "edge_filter": edge_filter,
+        "effective_similarity_threshold": None if settings.UMAP_MODE or threshold is None else float(threshold),
+        "kept_score_range": [float(scores.min()), float(scores.max())] if len(scores) else None,
+        **component_summary(nodes, edges[:, 0], edges[:, 1]),
+    }
 
 
 def main(application, argv=None):
@@ -261,7 +315,11 @@ def main(application, argv=None):
             result = {"TARGET_CACHE_PATH": generated.cache_path, "CACHE_FILENAME": Path(generated.cache_path).name,
                       "SAVED_LAYOUT_DIR": settings.SAVED_LAYOUT_DIR}
             if args.result:
-                write_json_document(args.result, result)
+                try:
+                    summary = layout_summary(generated, settings)
+                except Exception as error:  # the cache is published either way
+                    summary = {"error": f"Layout summary unavailable: {error}"}
+                write_json_document(args.result, {**result, "summary": summary})
                 write_json_document(str(args.result) + ".settings.json", settings.to_document(project_root=root))
             print(json.dumps(result))
         else:

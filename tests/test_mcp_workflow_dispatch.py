@@ -114,13 +114,21 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_split_exports_delegate_correct_kind(self):
         with mock.patch("utilities.Headless_Settings.export_config_settings",
                         return_value={"exported": True}) as export:
-            for workflow, action, kind in [
-                ("emapssn_pipeline", "export_layout_settings", "layout"),
-                ("emapssn_viewer_control", "export_settings", "viewer"),
+            for workflow, action, expected in [
+                # A layout export without inline inputs or fields passes no overlay.
+                ("emapssn_pipeline", "export_layout_settings", ("layout", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json", None)),
+                ("emapssn_viewer_control", "export_settings", ("viewer", pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json")),
             ]:
                 result = await dispatch(workflow, action, {"output_path": "out.json", "settings_path": "overlay.json"}, None)
                 self.assertEqual(result, {"exported": True})
-                export.assert_called_with(kind, pipeline_ops._PROJECT_ROOT, "out.json", "overlay.json")
+                export.assert_called_with(*expected)
+            await dispatch("emapssn_pipeline", "export_layout_settings", {
+                "node_fasta_file": "nodes.fasta", "input_hdf5": "net.h5",
+                "parameters": {"top_edge_percent": 5, "dt": 0.002}}, None)
+            overlay = export.call_args.args[4]
+            self.assertEqual(overlay, {"schema_version": 2, "kind": "layout",
+                                       "inputs": {"NODE_FASTA_FILE": "nodes.fasta", "INPUT_HDF5": "net.h5"},
+                                       "network": {"TOP_EDGE_PERCENT": 5}, "simulation": {"DT": 0.002}})
 
     async def test_viewer_export_reports_saved_state_of_each_cache(self):
         # Export picks the newest cache, which may lack the clusters a saved

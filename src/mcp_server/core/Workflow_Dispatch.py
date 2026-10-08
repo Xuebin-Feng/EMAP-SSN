@@ -15,9 +15,9 @@ import mcp_server.pipeline.Pipeline_Operations as pipeline_ops
 import mcp_server.viewer.Viewer_Operations as viewer_ops
 
 PipelineAction = Literal[
-    "help", "describe", "list_tools", "get_tool_schema", "get_compute_capabilities",
-    "inspect_file", "export_tool_settings", "export_layout_settings", "validate_settings",
-    "start_job", "start_layout_job", "list_jobs", "get_job", "read_log", "cancel_job",
+    "help", "describe", "list_tools", "get_tool_schema", "get_layout_schema", "get_compute_capabilities",
+    "inspect_file", "network_statistics", "export_tool_settings", "export_layout_settings", "validate_settings",
+    "start_job", "start_layout_job", "list_jobs", "get_job", "wait_job", "read_log", "cancel_job",
 ]
 ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
 ViewerControlAction = Literal[
@@ -63,17 +63,20 @@ class Action:
 
 _SPECS = {
     "emapssn_pipeline": {
-        "list_tools": (pipeline_ops, "list_pipeline_tools", "Read pipeline catalog and shared queue capacity.", {}),
-        "get_tool_schema": (pipeline_ops, "get_pipeline_tool_schema", "Read one pipeline's settings contract.", {"tool_id": "sanitize_sequences"}),
+        "list_tools": (pipeline_ops, "list_pipeline_tools", "Read the pipeline catalog: each tool's inputs, output names, next steps, workflow recipes and path rules.", {}),
+        "get_tool_schema": (pipeline_ops, "get_pipeline_tool_schema", "Read one pipeline's settings contract, inputs, outputs and (for embeddings) model availability.", {"tool_id": "sanitize_sequences"}),
+        "get_layout_schema": (pipeline_ops, "get_layout_schema", "Read the layout settings contract: field meanings, defaults, ranges and edge-filter guidance.", {}),
         "get_compute_capabilities": (pipeline_ops, "get_compute_capabilities", "Read runtime device metadata without computation benchmarks.", {}),
         "inspect_file": (pipeline_ops, "inspect_pipeline_file", "Read a selected file without modifying it.", {"path": "input.fasta"}),
+        "network_statistics": (pipeline_ops, "network_statistics", "Read a network's score distribution and the edges, clusters and isolated nodes each layout edge filter would give.", {"input_hdf5": "network.h5", "node_fasta_file": "nodes.fasta"}),
         "export_tool_settings": (pipeline_ops, "export_pipeline_settings", "Create a settings file from saved pipeline preferences.", {"tool_id": "sanitize_sequences"}),
-        "export_layout_settings": (pipeline_ops, "export_layout_settings", "Create a layout settings file inheriting saved Config preferences; does not reserve a cache name.", {}),
+        "export_layout_settings": (pipeline_ops, "export_layout_settings", "Create a layout settings file inheriting saved Config preferences, with optional inputs and field changes; does not reserve a cache name.", {"node_fasta_file": "nodes.fasta", "input_hdf5": "network.h5", "parameters": {"TOP_EDGE_PERCENT": 5}}),
         "validate_settings": (pipeline_ops, "validate_pipeline_settings", "Validate pipeline settings without submitting a job or writing files; not a layout validator.", {"tool_id": "sanitize_sequences", "parameters": {}}),
         "start_job": (pipeline_ops, "start_pipeline_job", "Enqueue a pipeline; may create or overwrite files according to settings.", {"tool_id": "sanitize_sequences", "settings_path": "pipeline.json"}),
         "start_layout_job": (pipeline_ops, "start_layout_job", "Validate and enqueue layout-cache generation in the shared pipeline queue; writes cache artifacts, does not launch a Viewer.", {"settings_path": "layout.json"}),
         "list_jobs": (pipeline_ops, "list_pipeline_jobs", "Read recent server-owned pipeline and layout jobs.", {}),
-        "get_job": (pipeline_ops, "get_pipeline_job", "Read pipeline or layout job status and output locations.", {"job_id": "job-id"}),
+        "get_job": (pipeline_ops, "get_pipeline_job", "Read pipeline or layout job status, output files and output locations.", {"job_id": "job-id"}),
+        "wait_job": (pipeline_ops, "wait_pipeline_job", "Wait for a job instead of polling: returns when it ends, or after timeout_seconds (at most 50) still running, so call again; includes output files and the latest log line.", {"job_id": "job-id", "timeout_seconds": 30}),
         "read_log": (pipeline_ops, "read_pipeline_log", "Read a bounded byte page of a pipeline or layout log.", {"job_id": "job-id", "stream": "stdout"}),
         "cancel_job": (pipeline_ops, "cancel_pipeline_job", "Cancel queued work or terminate a running job; does not undo artifact writes.", {"job_id": "job-id"}),
     },
@@ -158,7 +161,22 @@ def _validate(model, arguments):
     try:
         return model.model_validate(arguments).model_dump()
     except ValidationError as error:
-        raise ToolError(str(error)) from error
+        message = str(error)
+        unknown = [str(item["loc"][0]) for item in error.errors()
+                   if item["type"] == "extra_forbidden" and item["loc"]]
+        if unknown:
+            accepted = list(model.model_fields)
+            message += (f"\nUnknown argument(s): {', '.join(unknown)}. "
+                        f"Accepted arguments: {', '.join(accepted) or 'none'}.")
+            renamed = {key: name for key in unknown for name in accepted
+                       if key.lower() == name.lower() and key != name}
+            if renamed:
+                message += " Names are case-sensitive: " + "; ".join(
+                    f"use {name} for {key}" for key, name in renamed.items()) + "."
+            if "parameters" in accepted and set(unknown) - set(renamed):
+                message += " Put settings fields such as " + ", ".join(
+                    sorted(set(unknown) - set(renamed))[:3]) + " inside the parameters object."
+        raise ToolError(message) from error
 
 
 async def dispatch(workflow: str, action: str, arguments: dict[str, Any], ctx) -> dict[str, Any]:

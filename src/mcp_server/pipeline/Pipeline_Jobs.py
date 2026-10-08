@@ -21,6 +21,7 @@ import sys
 import tempfile
 import uuid
 
+from mcp_server.pipeline.Pipeline_Guide import watched_directories
 from tools.tool_helpers.Tool_Pipeline import (
     ToolInvocation,
     prepare_headless_invocation,
@@ -38,6 +39,11 @@ JOB_STATUSES = (
     "cancelling",
     "cancelled",
 )
+# Longest single wait: some clients end a tool call that runs about a minute.
+MAX_WAIT_SECONDS = 50.0
+OUTPUT_FILE_LIMIT = 100
+_LATEST_OUTPUT_BYTES = 4096
+_LATEST_OUTPUT_CHARACTERS = 300
 
 
 class PipelineJobError(RuntimeError):
@@ -50,6 +56,73 @@ class PipelineQueueFullError(PipelineJobError):
 
 def _utc_now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def directory_snapshot(directories, depth=1):
+    """Map every regular file inside ``directories`` to its size and mtime.
+
+    ``depth`` 1 reads each directory itself, 2 also its immediate subfolders.
+    Staged ``.partial`` files and hidden (dot) files such as locks are skipped;
+    unreadable directories count as empty.
+    """
+    snapshot = {}
+    for directory in directories:
+        try:
+            entries = os.scandir(directory)
+        except OSError:
+            continue
+        with entries:
+            for entry in entries:
+                if entry.name.endswith(".partial") or entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir():
+                        if depth > 1:
+                            snapshot.update(directory_snapshot([entry.path], depth - 1))
+                        continue
+                    if not entry.is_file():
+                        continue
+                    stat = entry.stat()
+                except OSError:
+                    continue
+                key = os.path.normcase(os.path.abspath(entry.path))
+                snapshot[key] = (os.path.abspath(entry.path), stat.st_size, stat.st_mtime_ns)
+    return snapshot
+
+
+def changed_files(before, after):
+    """Files created, modified or deleted between two directory snapshots."""
+    changes = []
+    for key, (path, size, mtime) in after.items():
+        previous = before.get(key)
+        if previous is None:
+            changes.append({"path": path, "change": "created", "size_bytes": size})
+        elif previous[1:] != (size, mtime):
+            changes.append({"path": path, "change": "modified", "size_bytes": size})
+    for key, (path, _size, _mtime) in before.items():
+        if key not in after:
+            changes.append({"path": path, "change": "deleted", "size_bytes": None})
+    return sorted(changes, key=lambda item: os.path.normcase(item["path"]))
+
+
+def latest_line(path):
+    """The last non-empty line of a log, as a terminal would show it now.
+
+    Progress bars redraw with carriage returns, so those end a line too.
+    """
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - _LATEST_OUTPUT_BYTES))
+            tail = handle.read()
+    except OSError:
+        return None
+    text = tail.decode("utf-8", errors="replace")
+    for line in reversed(text.replace("\r", "\n").split("\n")):
+        if line.strip():
+            return line.strip()[:_LATEST_OUTPUT_CHARACTERS]
+    return None
 
 
 @dataclass
@@ -67,6 +140,13 @@ class PipelineJob:
     exit_code: int | None = None
     failure_message: str | None = None
     cancellation_requested: bool = False
+    # Directories whose files are compared before and after the process runs;
+    # depth 2 also covers their subfolders (layout caches live one level down).
+    watched_directories: tuple[str, ...] = ()
+    watch_depth: int = 1
+    output_files: list[dict] = field(default_factory=list)
+    output_files_omitted: int = 0
+    result: dict | None = None
     completion: asyncio.Event = field(
         default_factory=asyncio.Event,
         repr=False,
@@ -175,6 +255,7 @@ class PipelineJobManager:
                 self.project_root,
                 output_only=True,
             )
+            watched = self._watched_directories(invocation, output_locations)
             stdout_path = os.path.join(job_directory, "stdout.log")
             stderr_path = os.path.join(job_directory, "stderr.log")
             for path in (stdout_path, stderr_path):
@@ -193,6 +274,7 @@ class PipelineJobManager:
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 output_locations=output_locations,
+                watched_directories=watched,
             )
         except Exception:
             self._remove_job_directory(job_directory)
@@ -212,6 +294,21 @@ class PipelineJobManager:
             payload = self._job_payload_locked(job)
             self._wake.set()
             return payload
+
+    def _watched_directories(self, invocation, output_locations):
+        """Output folders plus any input folder the tool writes beside."""
+        folders = list(output_locations.values())
+        try:
+            with open(invocation.settings_path, "r", encoding="utf-8") as handle:
+                document = json.load(handle)
+            folders.extend(watched_directories(invocation.tool.tool_id, document, self.project_root))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        unique = []
+        for folder in folders:
+            if os.path.normcase(folder) not in map(os.path.normcase, unique):
+                unique.append(folder)
+        return tuple(unique)
 
     async def submit_layout_job(self, settings_source):
         await self.start()
@@ -308,6 +405,8 @@ class PipelineJobManager:
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
                 output_locations=output_locations,
+                watched_directories=(layout_settings.SAVED_LAYOUT_DIR,),
+                watch_depth=2,
             )
         except Exception:
             self._remove_job_directory(job_directory)
@@ -342,7 +441,22 @@ class PipelineJobManager:
     async def get_job(self, job_id):
         async with self._lock:
             job = self._require_job_locked(job_id)
-            return self._job_payload_locked(job)
+            payload = self._job_payload_locked(job)
+        payload["latest_output"] = await asyncio.to_thread(
+            lambda: {"stdout": latest_line(payload["stdout_log"]),
+                     "stderr": latest_line(payload["stderr_log"])}
+        )
+        return payload
+
+    async def wait(self, job_id, *, timeout):
+        """Return the job once it ends, or its current state after ``timeout`` seconds."""
+        async with self._lock:
+            completion = self._require_job_locked(job_id).completion
+        try:
+            await asyncio.wait_for(completion.wait(), timeout=max(0.0, float(timeout)))
+        except TimeoutError:
+            pass
+        return await self.get_job(job_id)
 
     async def read_log(self, job_id, stream, *, offset=0, limit=65536):
         if stream not in {"stdout", "stderr"}:
@@ -473,6 +587,10 @@ class PipelineJobManager:
             process = None
             evicted_directories = []
             try:
+                files_before = (
+                    await asyncio.to_thread(directory_snapshot, job.watched_directories, job.watch_depth)
+                    if job.watched_directories else {}
+                )
                 with open(job.stdout_path, "ab", buffering=0) as stdout_handle, open(
                     job.stderr_path,
                     "ab",
@@ -497,20 +615,34 @@ class PipelineJobManager:
                     if cancel_now:
                         await self._terminate_process_tree(process)
                     return_code = await process.wait()
+                output_files = []
+                if job.watched_directories:
+                    files_after = await asyncio.to_thread(
+                        directory_snapshot, job.watched_directories, job.watch_depth
+                    )
+                    output_files = changed_files(files_before, files_after)
+                result_problem = None
                 if return_code == 0 and job.tool_id == "generate_layout_cache":
-                    result_path = os.path.join(os.path.dirname(job.invocation.settings_path), "layout-result.json")
-                    with open(result_path, encoding="utf-8") as handle:
-                        layout_result = json.load(handle)
-                    for key in ("TARGET_CACHE_PATH", "CACHE_FILENAME", "SAVED_LAYOUT_DIR"):
-                        if not isinstance(layout_result.get(key), str) or not layout_result[key]:
-                            raise PipelineJobError(f"Layout result is missing {key}.")
-                    job.output_locations.update(layout_result)
-                    job.output_locations["EXECUTED_SETTINGS"] = result_path + ".settings.json"
+                    try:
+                        cache = self._read_layout_result(job)
+                        listed = {os.path.normcase(item["path"]) for item in output_files}
+                        if os.path.normcase(cache["path"]) not in listed:
+                            output_files.insert(0, cache)
+                    except (OSError, ValueError, PipelineJobError) as error:
+                        result_problem = str(error)
                 async with self._lock:
                     job.exit_code = return_code
                     job.finished_at = _utc_now()
+                    job.output_files = output_files[:OUTPUT_FILE_LIMIT]
+                    job.output_files_omitted = max(0, len(output_files) - OUTPUT_FILE_LIMIT)
                     if job.cancellation_requested:
                         job.status = "cancelled"
+                    elif result_problem is not None:
+                        job.status = "failed"
+                        job.failure_message = (
+                            "The layout process exited with code 0, but its result "
+                            f"could not be read: {result_problem}"
+                        )
                     elif return_code == 0:
                         job.status = "succeeded"
                     else:
@@ -552,6 +684,30 @@ class PipelineJobManager:
                 for directory in evicted_directories:
                     await asyncio.to_thread(self._remove_job_directory, directory)
 
+    @staticmethod
+    def _read_layout_result(job):
+        """Record a finished layout's paths and summary; return its cache file entry."""
+        result_path = os.path.join(os.path.dirname(job.invocation.settings_path), "layout-result.json")
+        with open(result_path, encoding="utf-8") as handle:
+            layout_result = json.load(handle)
+        if not isinstance(layout_result, dict):
+            raise PipelineJobError("Layout result is not a JSON object.")
+        summary = layout_result.pop("summary", None)
+        for key in ("TARGET_CACHE_PATH", "CACHE_FILENAME", "SAVED_LAYOUT_DIR"):
+            if not isinstance(layout_result.get(key), str) or not layout_result[key]:
+                raise PipelineJobError(f"Layout result is missing {key}.")
+        job.output_locations.update(
+            {key: value for key, value in layout_result.items() if isinstance(value, str)}
+        )
+        job.output_locations["EXECUTED_SETTINGS"] = result_path + ".settings.json"
+        job.result = summary if isinstance(summary, dict) else None
+        cache_path = layout_result["TARGET_CACHE_PATH"]
+        try:
+            size = os.path.getsize(cache_path)
+        except OSError:
+            size = None
+        return {"path": os.path.abspath(cache_path), "change": "created", "size_bytes": size}
+
     def _job_payload_locked(self, job):
         queue_position = None
         if job.status == "queued":
@@ -574,6 +730,9 @@ class PipelineJobManager:
             "stdout_log": job.stdout_path,
             "stderr_log": job.stderr_path,
             "output_locations": dict(job.output_locations),
+            "output_files": [dict(item) for item in job.output_files],
+            "output_files_omitted": job.output_files_omitted,
+            "result": json.loads(json.dumps(job.result)) if job.result is not None else None,
         }
 
     def _require_job_locked(self, job_id):
@@ -726,8 +885,12 @@ class PipelineJobManager:
 
 __all__ = [
     "JOB_STATUSES",
+    "MAX_WAIT_SECONDS",
     "PipelineJobError",
     "PipelineJobManager",
     "PipelineQueueFullError",
     "TERMINAL_JOB_STATUSES",
+    "changed_files",
+    "directory_snapshot",
+    "latest_line",
 ]

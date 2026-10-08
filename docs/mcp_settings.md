@@ -1,4 +1,4 @@
-# MCP settings (server 0.12.0, pipeline settings schema 1)
+# MCP settings (server 0.13.0, pipeline settings schema 1)
 
 ## Three workflow tools (breaking migration)
 
@@ -25,9 +25,9 @@ the cache name and the output folder have their own arguments (`node_fasta_file`
 ```
 
 Layout generation remains separate from pipeline IDs but shares their job queue.
-The cache workflow is pipeline `export_layout_settings` → `start_layout_job` →
-`get_job` / `read_log` → `inspect_file`, followed by viewer-control
-`export_settings` → `validate_settings` → `start_session`.
+The cache workflow is pipeline `network_statistics` → `export_layout_settings` →
+`start_layout_job` → `wait_job` / `read_log` → `inspect_file`, followed by
+viewer-control `export_settings` → `validate_settings` → `start_session`.
 The two export actions do not accept `kind`. Existing action result payloads,
 node limits, file contracts, queue ownership and connection isolation are preserved.
 Viewer-data is read-only; the other entry points can write files or change state.
@@ -357,6 +357,62 @@ Structural inspection does not validate numerical values, edge ordering or
 uniqueness, CSR pointer values, or future runtime success. It remains optional:
 queued jobs may depend on files that preceding jobs have not yet produced.
 
+## Planning, waiting and job results (server 0.13.0)
+
+These additions let an agent plan and run calculations without reading tool
+source code:
+
+- `list_tools` returns, for every `tool_id`, its stage, purpose, inputs (with the
+  `DIRECTORIES` key a relative name resolves in), output file names with what
+  happens to an existing output, requirements, typical next tools and notes. The
+  catalog also carries workflow recipes (embedding SSN, BLAST SSN, imported
+  BLAST/DIAMOND results, adding sequences by injection, subsets, MSA, fragments),
+  path rules, and a `layout` entry naming the layout actions. The knowledge lives in
+  `src/mcp_server/pipeline/Pipeline_Guide.json`.
+- `get_tool_schema` repeats that tool's planning entry. For `generate_embeddings` and
+  `embedding_pwa` it adds `model_availability`: per model, local or remote
+  execution, whether an MCP job can use it, and the user action a job cannot do for
+  itself (storing a Biohub token, accepting a weights license). Credentials are
+  checked for presence only, never read.
+- `wait_job` (`job_id`, `timeout_seconds` up to 50, default 30) returns as soon as
+  the job ends, or its current state when the timeout passes; call it again
+  instead of polling `get_job`. Other calls are served while it waits.
+- Job results add `output_files`: the files the job created, modified or deleted
+  in the folders it writes (its output directories, any input folder it writes
+  beside, and for layouts the cache folder below `SAVED_LAYOUT_DIR`). Staged
+  `.partial` and hidden lock files are ignored. An empty list after success means
+  nothing was written there, for example when an existing network was kept.
+  `get_job` and `wait_job` add `latest_output`, the last stdout and stderr line
+  (progress bars included). Layout jobs add `result`: nodes, FASTA records missing
+  from the network, edges, the edge filter and effective threshold, the kept score
+  range, clusters, isolated nodes and the largest cluster.
+- `network_statistics` (`input_hdf5`, optional `node_fasta_file`, `alignment_score`,
+  `norm_mode`, `thresholds`, `top_edge_percents`) scores a network exactly as a
+  layout job would for those nodes and settings, and returns the score
+  distribution plus, for a series of `TOP_EDGE_PERCENT` values and any given
+  thresholds, the equivalent `SIMILARITY_THRESHOLD`, kept edges, clusters, isolated
+  nodes and largest cluster. It runs in a child process with a 50 s limit (about
+  20 s for an 83.5-million-pair network); larger networks get an error suggesting
+  `TOP_EDGE_PERCENT`.
+- `get_layout_schema` returns every layout document field with its meaning, type,
+  built-in default, accepted range and Config GUI range, the rules
+  `start_layout_job` enforces, and edge-filter guidance. Its defaults are the
+  values individual `start_layout_job` arguments fall back to.
+- `export_layout_settings` accepts `node_fasta_file`, `input_hdf5` and a
+  `parameters` object of layout fields, applied after the saved Config
+  preferences and any `settings_path` overlay, so an agent can inherit saved
+  physics without writing an overlay file. An export with no inputs selected says
+  to pass them.
+- `inspect_file` reports raw sequence-length quantiles for FASTA files and, for
+  networks, the BLAST matrix or the gap penalties and accelerator precision.
+- An unknown argument error lists the accepted arguments, maps wrong-case names
+  (`NODE_FASTA_FILE` → `node_fasta_file`) and points settings fields to
+  `parameters`. `read_log` defaults `stream` to `stdout`.
+
+Partial layout overlays (through `settings_path` or the new arguments) no longer
+reset optional fields they leave out: a saved `AUTO_DT: true` used to come back
+`false` after any overlay that did not set it.
+
 ## Preview and submit
 
 Call `emapssn_pipeline(action="validate_settings")` with:
@@ -386,9 +442,10 @@ settings. Directories differ by input form: with `parameters`, an omitted, blank
 or null directory takes the project's saved Tools directory (`DIRECTORIES` in
 `tools_settings.json`) and falls back to the built-in project default only when
 none is saved; `settings_document` and `settings_path` use the built-in defaults.
-Relative directories resolve against the server's project root. Input filenames
-retain the individual tool's directory semantics; discovery does not assert that
-input files exist.
+Relative directories resolve against the server's project root. A relative input
+filename resolves inside the directory its tool names for it (`inputs.<field>.directory`
+in `get_tool_schema`); absolute paths are used as given. Discovery does not assert
+that input files exist.
 
 Exactly one of `parameters`, `settings_document`, or `settings_path` is required.
 An empty `parameters` object counts as a supplied form. `directories` can only
@@ -456,8 +513,9 @@ uses `auto`, `cpu`, `mps`, `cuda:N`, or `xpu:N`, with availability checked at ru
 MCP MSA jobs force `SHOW_REGRESSION_PLOT` to `false` after validating its supplied
 type and report any override. GUI exports preserve the user's plotting preference.
 Headless sanitization prints the same 50-bin length distribution as a text table
-without creating a figure. Queue ownership, cancellation, subprocess logging, and
-output-directory reporting are unchanged.
+without creating a figure. Queue ownership, cancellation and subprocess logging
+are unchanged; jobs report their output directories and, once finished, the
+files they wrote (`output_files`).
 
 ## Layout cache generation
 
@@ -477,7 +535,8 @@ recent pipeline and layout jobs this server owns.
 The worker routes through headless Config to `Layout_Cache_Generator.py`. It
 publishes an HDF5 coordinate cache, a compatible-folder manifest and a canonical
 sanitized FASTA backup under `SAVED_LAYOUT_DIR`. Use the actual cache path in the
-completed job's `output_locations` rather than reconstructing it from the preview.
+completed job's `output_locations` rather than reconstructing it from the preview;
+`output_files` lists the published files and `result` summarizes the layout.
 The existing individual-parameter and `settings_document` forms remain supported;
 omitting `cache_filename` in the individual-parameter form now selects automatic naming.
 

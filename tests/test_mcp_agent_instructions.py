@@ -72,7 +72,7 @@ class GuideProtocolTests(unittest.IsolatedAsyncioTestCase):
             # Every standalone tool reference in the prose must also resolve.
             identifiers = set(re.findall(r"`([a-z]+_[a-z_]+)`", expected))
             fields = {"tool_id", "settings_document", "settings_path", "job_id",
-                      "failure_message", "next_offset"}
+                      "failure_message", "next_offset", "output_files"}
             self.assertFalse(identifiers - names - fields)
             action_references = re.findall(r'(emapssn_[a-z_]+)\(action="([a-z_]+)"\)', expected)
             self.assertTrue(action_references)

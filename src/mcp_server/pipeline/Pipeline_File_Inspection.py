@@ -3,6 +3,7 @@
 """Read-only structural inspection; numeric HDF5 payloads are never scanned."""
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -16,6 +17,11 @@ MAX_FINDINGS = 50
 MAX_TEXT_LINE = 1024 * 1024
 MAX_METADATA_RECORDS = 100000
 MAX_JSON_BYTES = 8 * 1024 * 1024
+# Header words that often mark incomplete or uncertain records; counted per exact
+# spelling because the sanitize tool's header filter is case-sensitive.
+HEADER_TERMS = ("partial", "fragment", "truncated", "putative", "hypothetical",
+                "uncharacterized", "low quality")
+HEADER_EXAMPLES = 3
 
 
 class InspectionLimit(Exception):
@@ -158,11 +164,17 @@ class Inspector:
                                                     observed=edges, expected=expected)
         self.report["metadata"].update(sequence_count=n, edge_count=edges, network_type=metadata.network_type,
                                          model_name=metadata.model_name[:256])
-        for name in ("search_program", "search_version", "search_invocation"):
+        for name in ("search_program", "search_version", "search_invocation", "matrix", "matmul_precision"):
             if name in hf.attrs:
                 value = hf.attrs[name]
                 self.require(isinstance(value, (str, bytes)), f"{name} must be a string.")
                 self.report["metadata"][name] = (value.decode("utf-8") if isinstance(value, bytes) else value)[:1024]
+        if "gap_penalties" in hf.attrs:
+            import numpy as np
+            gaps = np.asarray(hf.attrs["gap_penalties"], dtype=np.float64).ravel()
+            if gaps.shape == (2,) and np.isfinite(gaps).all():
+                # Stored as [LOCAL_GAP_P, GLOBAL_GAP_P]; network_injection reuses them.
+                self.report["metadata"]["gap_penalties"] = {"local": float(gaps[0]), "global": float(gaps[1])}
         if "import_warnings" in hf.attrs:
             value = hf.attrs["import_warnings"]
             warnings = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
@@ -291,10 +303,21 @@ class Inspector:
     def fasta(self, aligned):
         count, length, first_length, active = 0, 0, None, False
         issues = 0
+        lengths = []
+        # Identical sequences are merged by every tool's cleanup; count them up front.
+        digests, residues = set(), []
+        duplicates = 0
+        header_terms, examples = {}, []
         def finish():
-            nonlocal count, first_length
+            nonlocal count, first_length, duplicates
             if not active: return
             count += 1
+            lengths.append(length)
+            digest = hashlib.sha1("".join(residues).upper().encode("utf-8")).digest()
+            residues.clear()
+            if length and digest in digests:
+                duplicates += 1
+            digests.add(digest)
             if not length: self.finding("warning", f"FASTA record {count} has an empty sequence; sanitization may remove it.")
             if first_length is None: first_length = length
             if aligned and length != first_length: self.finding("error", f"Aligned FASTA record {count} has a different length.")
@@ -306,15 +329,41 @@ class Inspector:
                 finish()
                 if not stripped[1:].strip(): self.finding("warning", f"Empty header on line {number}.")
                 active, length = True, 0
+                if not aligned:
+                    header = stripped[1:].strip()
+                    if len(examples) < HEADER_EXAMPLES:
+                        examples.append(header[:200])
+                    lowered = header.lower()
+                    for term in HEADER_TERMS:
+                        start = lowered.find(term)
+                        spellings = set()
+                        while start >= 0:
+                            spellings.add(header[start:start + len(term)])
+                            start = lowered.find(term, start + 1)
+                        for spelling in spellings:
+                            header_terms[spelling] = header_terms.get(spelling, 0) + 1
             else:
                 self.require(active, f"Sequence text precedes the first header on line {number}.")
                 length += len(stripped)
+                if not aligned:
+                    residues.append(stripped)
                 if set(stripped) - set("ACDEFGHIKLMNPQRSTVWYXBZJUO-."):
                     issues += 1
         finish()
         self.require(count > 0, "No FASTA records found.")
-        if issues: self.finding("warning", f"{issues} sequence lines contain lowercase or nonstandard characters; inspect sanitization behavior for the selected tool.")
+        if issues: self.finding("warning", f"{issues} sequence lines contain lowercase or nonstandard characters; the tools' cleanup uppercases residues, trims terminal non-residues and masks other invalid characters as X.")
         self.report["metadata"].update(sequence_count=count)
+        if not aligned:
+            # Records repeating an earlier sequence (ignoring case); cleanup keeps one of each.
+            self.report["metadata"]["duplicate_sequences"] = duplicates
+            # Headers containing each term, keyed by its exact spelling there.
+            self.report["metadata"]["header_terms"] = dict(sorted(header_terms.items()))
+            self.report["metadata"]["header_examples"] = examples
+            ordered = sorted(lengths)
+            def at(fraction): return ordered[min(len(ordered) - 1, int(fraction * (len(ordered) - 1) + 0.5))]
+            # Raw lengths (gap and stop characters included) before any sanitization.
+            self.report["metadata"]["sequence_lengths"] = {
+                "min": ordered[0], "p5": at(0.05), "median": at(0.5), "p95": at(0.95), "max": ordered[-1]}
         if aligned: self.report["metadata"]["alignment_length"] = first_length
         self.report["checks_performed"].append("FASTA record structure" + (" and equal aligned lengths" if aligned else ""))
         self.report["checks_omitted"].append("FASTA has no reliable generation completion marker; raw sequences were not altered.")

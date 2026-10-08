@@ -8,6 +8,32 @@ still change before version 1.0.0.
 
 ### Added
 
+- **MCP planning knowledge.** `emapssn_pipeline(action="list_tools")` describes each
+  pipeline tool's stage, inputs (with the directory a relative name resolves in),
+  output file names, what happens to an existing output, requirements and typical next
+  tools, plus workflow recipes (embedding SSN, BLAST SSN, imported BLAST or DIAMOND
+  results, adding sequences by injection, subsets, MSA, fragments) and path rules, so
+  an agent can plan a multi-step calculation without reading tool source.
+  `get_tool_schema` repeats the tool's entry and, for embedding models, reports which
+  models an MCP job can use on this machine and what the user must do first for the
+  others (store a Biohub token, accept a weights license).
+- MCP `emapssn_pipeline(action="wait_job")` waits up to 50 s for a job instead of
+  polling. Job results list the files a job created, modified or deleted
+  (`output_files`) and its latest stdout and stderr line (`latest_output`); layout
+  jobs add a `result` summary of nodes, edges, effective threshold, clusters, isolated
+  nodes and the largest cluster.
+- MCP `emapssn_pipeline(action="network_statistics")` previews layout edge filters. It
+  scores a network exactly as a layout job would for the chosen nodes, score mode and
+  normalization, and reports the score distribution and, for each `TOP_EDGE_PERCENT`
+  or threshold, the kept edges, clusters, isolated nodes and largest cluster (about
+  20 s for 83.5 million pairs).
+- MCP `emapssn_pipeline(action="get_layout_schema")` documents every layout setting
+  (meaning, built-in default, accepted and Config GUI ranges) with edge-filter
+  guidance, and `export_layout_settings` takes `node_fasta_file`, `input_hdf5` and layout
+  `parameters`, so an agent inherits the saved physics settings without writing an
+  overlay file. `inspect_file` reports FASTA length quantiles and duplicate sequences,
+  and a network's gap penalties, precision or BLAST matrix. An unknown MCP argument
+  error names the accepted arguments. MCP server version 0.13.0.
 - MCP `emapssn_viewer_control(action="wait_session")` keeps waiting for a Viewer launch
   and connects when it is ready. `start_session` takes an optional `ready_timeout`
   (default 45 s, at most 600), and `close_session` accepts the launch's `launch_id`,

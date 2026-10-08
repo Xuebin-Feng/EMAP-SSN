@@ -14,7 +14,11 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from tools.tool_helpers.Model_Plugins import discover_model_execution_modes
+from tools.tool_helpers.Model_Plugins import (
+    discover_model_execution_modes,
+    discover_model_usage_terms,
+    is_model_license_accepted,
+)
 from utilities.Sequence_Utils import sanitize_sequence
 from tools.tool_helpers.Tool_Pipeline import (
     DEFAULT_DIRECTORY_PATHS,
@@ -118,6 +122,43 @@ def _parameter_schema(tool_id, project_root, *, execution=True):
     return schema
 
 
+def model_availability(project_root):
+    """Whether each embedding model can run in an MCP job on this machine.
+
+    Jobs cannot prompt, so a remote model needs stored credentials and a model
+    with separately licensed weights needs an earlier acknowledgement. Only
+    the presence of credentials is checked; they are never read.
+    """
+    plugin_dir = os.path.join(project_root, "src", "resources", "pLM_models")
+    modes = discover_model_execution_modes(plugin_dir)
+    terms = discover_model_usage_terms(plugin_dir)
+    credentials = (
+        os.path.isfile(os.path.join(project_root, "src", "resources", "Biohub_API.json"))
+        or bool(os.environ.get("ESM_API_KEY", "").strip())
+    )
+    from mcp_server.pipeline.Pipeline_Guide import embedding_width
+    report = {}
+    for model, mode in modes.items():
+        entry = {"execution": mode, "embedding_width": embedding_width(model),
+                 "usable_in_mcp_jobs": True, "action_needed": None}
+        if mode == "remote_api":
+            entry["credentials_stored"] = credentials
+            if not credentials:
+                entry.update(usable_in_mcp_jobs=False, action_needed=(
+                    "The user must store a Biohub API token first (run Generate_Embeddings.py with "
+                    "this model in a terminal once, or set ESM_API_KEY for the MCP server)."))
+        model_terms = terms.get(model)
+        if model_terms and model_terms.get("requires_acknowledgement"):
+            accepted = is_model_license_accepted(model, model_terms)
+            entry.update(weights_license=model_terms["license_id"], license_acknowledged=accepted)
+            if not accepted:
+                entry.update(usable_in_mcp_jobs=False, action_needed=(
+                    "The user must accept the weights license once: python src/tools/Generate_Embeddings.py "
+                    f"--accept-model-license {model}"))
+        report[model] = entry
+    return report
+
+
 def get_pipeline_schema(tool_id, project_root):
     spec = get_tool_spec(tool_id)
     schema = _parameter_schema(tool_id, project_root)
@@ -129,11 +170,18 @@ def get_pipeline_schema(tool_id, project_root):
         example = {"MANUAL_REF_SEQ": True, "REF_SEQUENCE": "ACDE", "MANUAL_TAR_SEQ": True, "TAR_SEQUENCE": "ACDF"}
     elif tool_id == "parse_blast_output":
         example["INPUT_BLAST_TABULAR"] = "example.tsv"
+    from mcp_server.pipeline.Pipeline_Guide import tool_guide
+    guide = tool_guide(tool_id)
+    extra = {}
+    if any(prop.get("x-choice-provider") == "plm_models" for prop in schema["properties"].values()):
+        extra["model_availability"] = model_availability(project_root)
     return {"schema_version": SCHEMA_VERSION, "tool_id": tool_id,
-            "description": DESCRIPTIONS[tool_id], "parameters_schema": schema,
+            "description": DESCRIPTIONS[tool_id], **guide, **extra, "parameters_schema": schema,
             "directories_schema": {"type": "object", "additionalProperties": False, "properties": {
                 key: {"type": ["string", "null"], "default": DEFAULT_DIRECTORY_PATHS[key],
-                      "description": "Project-relative or absolute directory; omitted, null, or blank uses the project default."}
+                      "description": "Project-relative or absolute directory. Omitted, null or blank uses the "
+                                     "user's saved Tools directory (tools_settings.json), else this default; "
+                                     "validate_settings reports the effective directory."}
                 for key in spec.required_directories}},
             "headless_behavior": {"SHOW_REGRESSION_PLOT": False} if tool_id == "embedding_msa" else
                 ({"length_distribution": "50-bin text table; no figure"} if tool_id == "sanitize_sequences" else {}),
@@ -142,7 +190,8 @@ def get_pipeline_schema(tool_id, project_root):
                 "Tiled execution cannot select CPU; explicit TF32 cannot select a non-CUDA device.",
                 "Local alignment scores cannot use alignment_length normalization.",
                 "Configuration validation does not check file existence, credentials, or hardware readiness.",
-                "Relative directories resolve against the project root; input filenames retain each tool's directory semantics."],
+                "Relative directories resolve against the project root. A relative input filename resolves inside "
+                "the directory named in inputs.<field>.directory; an absolute path is used as given."],
             "example": {"tool_id": tool_id, "parameters": example}}
 
 

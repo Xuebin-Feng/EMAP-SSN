@@ -1,0 +1,48 @@
+{
+  "fields": {
+    "NODE_FASTA_FILE": {"type": "string", "description": "FASTA whose records become the layout's nodes. Only network nodes named in it are laid out (matched by full sanitized header or its first word); usually the FASTA the network was built from. Pass absolute paths: a relative one resolves under the project's Input_Files/Sequence_Sets when it exists there, else under the project root, never under the user's saved Config directories."},
+    "INPUT_HDF5": {"type": "string", "description": "Network file from align_similarity_matrix, network_injection, network_extraction, align_substitution_matrix or parse_blast_output. Pass an absolute path: a relative one resolves under the project's Input_Files/Networks_EValues when it exists there, else under the project root."},
+    "ALIGNMENT_SCORE": {"type": ["string", "null"], "enum": ["global", "local", null], "default": "global", "description": "Embedding-alignment networks only (ignored for E-value networks): global (Needleman-Wunsch, full-length similarity) or local (Smith-Waterman, best matching region; suits multi-domain proteins)."},
+    "NORM_MODE": {"type": ["string", "null"], "enum": ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence", null], "default": "alignment_length", "description": "Embedding-alignment networks only: divisor applied to the raw alignment score. local scores cannot use alignment_length. longer_sequence penalizes length differences most; shorter_sequence lets a fragment score highly against a longer relative."},
+    "SIMILARITY_THRESHOLD": {"type": ["number", "null"], "default": null, "description": "Physics layouts: keep edges whose score is at least this value. Units depend on the network: the normalized alignment score for embedding networks, -log10(E-value) for E-value networks. Ignored when TOP_EDGE_PERCENT is set or UMAP_MODE is true."},
+    "TOP_EDGE_PERCENT": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "default": null, "description": "Physics layouts: keep the best N percent of all possible pairs among the laid-out nodes (N(N-1)/2, not the stored pairs); the cutoff becomes the Nth-best score. Overrides SIMILARITY_THRESHOLD."},
+    "UMAP_MODE": {"type": "boolean", "default": false, "description": "true computes coordinates with UMAP from each node's strongest edges instead of the physics simulation; edge filters are then ignored."},
+    "UMAP_NEIGHBORS": {"type": "integer", "minimum": 2, "gui_range": [2, 500], "default": 15, "description": "UMAP only: other nodes per neighborhood. Smaller values emphasize local subclusters, larger values global structure."},
+    "UMAP_MIN_DIST": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.1, "description": "UMAP only: minimum spacing of points; lower packs clusters tighter."},
+    "LAYOUT_DIMENSIONS": {"type": "integer", "enum": [2, 3], "default": 2, "description": "2 for the desktop Viewer; 3 only for the optional VR viewer (stored in a separate _3D cache folder)."},
+    "LAYOUT_SEED": {"type": ["integer", "null"], "minimum": 0, "default": 42, "description": "Random seed for reproducible coordinates; null gives an unseeded run."},
+    "LAYOUT_DEVICE_SELECTION": {"type": "string", "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$", "default": "auto", "description": "Compute device for the physics simulation. auto first runs a short benchmark (seconds for small networks) and may pick a different backend per component-size class."},
+    "DT": {"type": "number", "minimum": 0, "default": 0.005, "description": "Integration time step. Smaller is more stable but needs more steps; unused when AUTO_DT is true."},
+    "AUTO_DT": {"type": "boolean", "default": false, "description": "true gives each simulation stage the largest stable time step computed from its springs and repulsion; DT is then ignored."},
+    "MAX_STEPS": {"type": "integer", "minimum": 1, "default": 10000, "description": "Upper limit of simulation steps per stage; simulations usually stop earlier on convergence."},
+    "RMSD_THRESHOLD": {"type": "number", "minimum": 0, "default": 0.005, "description": "Stop when the mean node displacement per step falls below this value."},
+    "PERCENTAGE_DROP_THRESHOLD": {"type": "number", "minimum": 0, "default": 0.1, "description": "After a quarter of MAX_STEPS, stop when the averaged RMSD fell by less than this percentage over the last RMSD_WINDOW steps; 0 disables it."},
+    "RMSD_WINDOW": {"type": "integer", "minimum": 1, "gui_range": [10, 1000], "default": 50, "description": "Steps over which the RMSD plateau test is averaged."},
+    "ENABLE_PROGRESSIVE_SIMULATION": {"type": "boolean", "default": false, "description": "Large components only (over 2,000 nodes): anneal by lowering the similarity threshold in stages, which helps dense components untangle into subclusters."},
+    "SPRING_K": {"type": "number", "minimum": 0, "gui_range": [1, 20], "default": 5.0, "description": "Attraction of every kept edge (all edges pull equally; scores only decide which edges are kept)."},
+    "COULOMB_K": {"type": "number", "minimum": 0, "gui_range": [1, 30], "default": 10.0, "description": "Repulsion between nodes of the same component; larger values spread clusters out."},
+    "COULOMB_CUTOFF": {"type": "number", "minimum": 0, "gui_range": [1, 100], "default": 30.0, "description": "Distance beyond which repulsion is ignored; lower is faster."},
+    "DAMPING": {"type": "number", "minimum": 0, "gui_range": [0.1, 2], "default": 0.9, "description": "Velocity damping; higher values settle oscillations faster."},
+    "MAX_FORCE_LIMIT": {"type": "number", "minimum": 0, "default": 20.0, "description": "Cap on each pairwise force (hidden in the Config GUI; keep the default)."},
+    "MAX_TOTAL_REPULSION_FORCE": {"type": "number", "minimum": 0, "default": 0.0, "description": "Cap on the summed repulsion per node; 0 disables the cap (hidden in the Config GUI; keep the default)."},
+    "PACKING_GEOMETRY": {"type": "string", "enum": ["Square", "Circle"], "default": "Square", "description": "Arrangement of separate components around the largest one."},
+    "PACKING_GRID_SIZE": {"type": "number", "exclusiveMinimum": 0, "gui_range": [1, 200], "default": 10.0, "description": "Grid cell used to pack components; smaller packs tighter but slower."},
+    "BOX_SCALE": {"type": "number", "exclusiveMinimum": 0, "default": 2.0, "description": "Initial simulation box scale (hidden in the Config GUI; raise it only if the log asks for more room)."},
+    "PACKING_PADDING": {"type": "number", "minimum": 0, "default": 10.0, "description": "Clearance kept between packed components (hidden in the Config GUI)."},
+    "SAVED_LAYOUT_DIR": {"type": "string", "description": "Root folder of layout caches; each input/filter combination gets its own subfolder with a cache_manifest.json. Default: the user's saved Config directory, else Cache_Files/Saved_Layouts."},
+    "TARGET_CACHE_PATH": {"type": ["string", "null"], "description": "Set by export and by the finished job; a layout job always publishes a new cache file."},
+    "CACHE_FILENAME": {"type": "string", "description": "Cache file name; with CACHE_NAME_MODE auto the next free version_NN.h5 is chosen when the job runs."},
+    "CACHE_NAME_MODE": {"type": "string", "enum": ["auto", "explicit"], "description": "auto picks the next free version; explicit uses CACHE_FILENAME and fails if that file exists."}
+  },
+  "rules": [
+    "A physics layout needs SIMILARITY_THRESHOLD or TOP_EDGE_PERCENT; TOP_EDGE_PERCENT wins when both are set, and UMAP ignores both.",
+    "Embedding-alignment networks need ALIGNMENT_SCORE and NORM_MODE; local scores cannot use alignment_length.",
+    "A layout job never overwrites a cache; caches with the same inputs and edge filter share a folder as version_00.h5, version_01.h5, ...",
+    "gui_range is the Config GUI's slider range; the job accepts any value meeting the minimum and maximum."
+  ],
+  "choosing_an_edge_filter": [
+    "Call network_statistics with the network, the node FASTA and the intended ALIGNMENT_SCORE and NORM_MODE before choosing a threshold. It returns the score distribution and, for a range of cutoffs, the kept edges, clusters, isolated nodes and largest cluster.",
+    "A cutoff that leaves one cluster holding nearly every node shows little substructure, while one that isolates most nodes shows little relationship; intermediate cutoffs usually separate subfamilies. Prefer the user's scientific criterion when given; on an E-value network an E-value cutoff converts as SIMILARITY_THRESHOLD = -log10(E), so 1e-20 becomes 20.",
+    "TOP_EDGE_PERCENT adapts to any score scale and is a reasonable first choice when no statistics are available; report the effective threshold from the job result."
+  ]
+}

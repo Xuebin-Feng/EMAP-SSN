@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -26,7 +28,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from mcp_server.core.App_Context import AppContext, _context
-from mcp_server.pipeline.Pipeline_Jobs import PipelineJobError
+from mcp_server.pipeline.Pipeline_Guide import path_rules, tool_guide, workflows
+from mcp_server.pipeline.Pipeline_Jobs import MAX_WAIT_SECONDS, PipelineJobError
 from mcp_server.pipeline.Pipeline_Settings import (
     DESCRIPTIONS,
     PipelineSettingsError,
@@ -34,6 +37,19 @@ from mcp_server.pipeline.Pipeline_Settings import (
     normalize_pipeline_settings,
 )
 from tools.tool_helpers.Tool_Pipeline import list_tool_specs
+
+_LAYOUT_CONTRACT = json.loads(
+    Path(__file__).with_name("Layout_Settings_Contract.json").read_text(encoding="utf-8")
+)
+
+
+def layout_defaults() -> dict[str, Any]:
+    """Built-in layout values that start_layout_job's individual arguments fall back to.
+
+    Tests pin these to start_layout_job's literal payload and to the engine.
+    """
+    return {key: deepcopy(field["default"]) for key, field in _LAYOUT_CONTRACT["fields"].items()
+            if "default" in field}
 
 
 class PipelineToolInfo(BaseModel):
@@ -43,12 +59,28 @@ class PipelineToolInfo(BaseModel):
     settings_section: str
     required_directories: list[str]
     output_directories: list[str]
+    stage: str
+    purpose: str
+    inputs: dict[str, dict[str, Any]]
+    outputs: list[dict[str, Any]]
+    next: list[str]
+    requirements: str | None
+    notes: list[str]
 
 
 class PipelineCatalog(BaseModel):
     tools: list[PipelineToolInfo]
+    layout: dict[str, Any]
+    workflows: list[dict[str, Any]]
+    path_rules: list[str]
     max_running: int
     max_pending: int
+
+
+class OutputFile(BaseModel):
+    path: str
+    change: Literal["created", "modified", "deleted"]
+    size_bytes: int | None
 
 
 class PipelineJobInfo(BaseModel):
@@ -73,6 +105,13 @@ class PipelineJobInfo(BaseModel):
     stdout_log: str
     stderr_log: str
     output_locations: dict[str, str]
+    output_files: list[OutputFile] = Field(default_factory=list, description=(
+        "Files the job created, modified or deleted in the folders it writes; empty while it runs."))
+    output_files_omitted: int = 0
+    result: dict[str, Any] | None = Field(default=None, description=(
+        "Layout jobs: node, edge, cluster and threshold summary of the published cache."))
+    latest_output: dict[str, str | None] | None = Field(default=None, description=(
+        "Last line of stdout and stderr (progress), from get_job and wait_job."))
 
 
 class PipelineJobList(BaseModel):
@@ -105,8 +144,17 @@ _LAYOUT_RESERVED_KEYS = {
 }
 
 
-def _layout_overrides(parameters: Any) -> dict[str, Any]:
-    """Validate start_layout_job's `parameters` and return them upper-cased.
+# export_layout_settings takes the inputs as arguments; cache naming and the
+# layout root are ordinary export fields there.
+_EXPORT_RESERVED_KEYS = {
+    "NODE_FASTA_FILE": "the node_fasta_file argument",
+    "INPUT_HDF5": "the input_hdf5 argument",
+    "TARGET_CACHE_PATH": None,
+}
+
+
+def _layout_overrides(parameters: Any, reserved: dict[str, str | None] = _LAYOUT_RESERVED_KEYS) -> dict[str, Any]:
+    """Validate a layout `parameters` object and return it upper-cased.
 
     Keys match the layout document's fields case-insensitively. Anything else
     is rejected, with the closest field name as a hint, instead of being
@@ -118,15 +166,15 @@ def _layout_overrides(parameters: Any) -> dict[str, Any]:
     if not isinstance(parameters, dict):
         raise ToolError("parameters must be an object of layout fields.")
     allowed = {key for keys in sections("layout").values() for key in keys}
-    allowed -= set(_LAYOUT_RESERVED_KEYS)
+    allowed -= set(reserved)
     overrides: dict[str, Any] = {}
     problems: list[str] = []
     for key, value in parameters.items():
         name = str(key).upper()
         if name in overrides:
             problems.append(f"'{key}' is given twice")
-        elif name in _LAYOUT_RESERVED_KEYS:
-            use = _LAYOUT_RESERVED_KEYS[name]
+        elif name in reserved:
+            use = reserved[name]
             problems.append(
                 f"'{key}' is not a layout override; "
                 + (f"use {use}" if use else "a layout job always publishes a new cache")
@@ -148,10 +196,12 @@ def _layout_overrides(parameters: Any) -> dict[str, Any]:
 
 
 def list_pipeline_tools() -> PipelineCatalog:
-    """Choose a pipeline when its ID is unknown. Returns tool_id values,
-    descriptions, directory contracts, and queue capacity. These IDs are arguments,
-    not MCP tool names. Next call get_pipeline_tool_schema with the chosen tool_id.
-    Layout calculation uses start_layout_job separately.
+    """Plan which pipelines to run and in what order. Returns each tool_id with
+    its stage, inputs (and the directory a relative name resolves in), output
+    file names, overwrite behavior and typical next steps, plus workflow recipes
+    and path rules. These IDs are arguments, not MCP tool names. Next call
+    get_pipeline_tool_schema with the chosen tool_id. Layout calculation uses
+    start_layout_job separately; its jobs report tool_id generate_layout_cache.
     """
     return PipelineCatalog(
         tools=[
@@ -162,9 +212,20 @@ def list_pipeline_tools() -> PipelineCatalog:
                 settings_section=spec.settings_section,
                 required_directories=list(spec.required_directories),
                 output_directories=list(spec.output_directories),
+                **tool_guide(spec.tool_id),
             )
             for spec in list_tool_specs()
         ],
+        layout={
+            "actions": ["network_statistics", "get_layout_schema", "export_layout_settings", "start_layout_job"],
+            "job_tool_id": "generate_layout_cache",
+            "inputs": "A node FASTA and a network file from any network-building tool.",
+            "outputs": "A new cache <SAVED_LAYOUT_DIR>/<inputs and filter>/version_NN.h5 with a cache_manifest.json "
+                       "and a FASTA backup; existing caches are never overwritten.",
+            "next": "Viewer settings (emapssn_viewer_control export_settings) to open the cache.",
+        },
+        workflows=workflows(),
+        path_rules=path_rules(),
         max_running=1,
         max_pending=16,
     )
@@ -192,7 +253,12 @@ async def inspect_pipeline_file(
 ) -> dict[str, Any]:
     """Check a known input before execution, or an output after job success.
     Inspect a selected file read-only without scanning numerical HDF5 payloads.
-    Relative paths use the project root. Plain BLAST text may require file_type.
+    A FASTA report gives raw length quantiles, duplicate sequences, header
+    annotation terms (partial, fragment, ... by exact spelling) and example
+    headers; a network report gives its type, model, pair coverage and gap
+    penalties, precision or BLAST matrix; an embedding report gives the model
+    and feature_dimension. Relative paths use the project root (not a tool's
+    input directory). Plain BLAST text may require file_type.
     Optional tool_id/parameters supplies inspection context (e.g. BLAST columns).
     Structure, generation completion, and pair coverage are separate conclusions;
     valid structure is not proof of numerical correctness or job readiness.
@@ -264,8 +330,10 @@ async def start_pipeline_job(
     settings_document, or settings_path. Optional directories goes with parameters.
     Use validate_pipeline_settings for a preview; invalid requests never queue.
     Returns job_id and current status, not completed outputs. Next use
-    get_pipeline_job and read_pipeline_log. Files may be created or overwritten
-    according to settings; backend exit cancels this server's jobs.
+    wait_pipeline_job (or get_pipeline_job) and read_pipeline_log. Files may be
+    created or overwritten according to settings (get_pipeline_tool_schema lists
+    each output and what happens to an existing one); backend exit cancels this
+    server's jobs.
     """
     preview = normalize_pipeline_settings(
         tool_id, _PROJECT_ROOT, parameters=parameters, directories=directories,
@@ -336,9 +404,11 @@ async def start_layout_job(
     ] = None,
 ) -> PipelineJobInfo:
     """Calculate a layout using full JSON from export_config_settings(kind='layout').
-    Export first to inherit saved simulation and physics settings, then change
-    only requested fields and required dependencies. Individual arguments can
-    replace omitted preferences with built-in defaults; use the exported document.
+    Choose the edge filter with network_statistics first. Export with
+    node_fasta_file and input_hdf5 to inherit saved simulation and physics
+    settings, change only requested fields and required dependencies, then pass
+    the exported settings_document here. Individual arguments replace omitted
+    preferences with built-in defaults (see get_layout_schema).
     Validate and enqueue into the shared pipeline FIFO queue; this is separate
     from the pipeline IDs in list_pipeline_tools and has no standalone validator.
     Calculates node coordinates via iterative force-directed physics or UMAP dimension
@@ -348,9 +418,9 @@ async def start_layout_job(
     Supply either individual parameters, settings_document, or settings_path.
     With individual arguments, omitted settings use built-in defaults, SAVED_LAYOUT_DIR
     comes from the saved viewer_settings.json, and parameters keys must be layout fields.
-    Follow the returned job_id with get_pipeline_job and read_pipeline_log;
-    after success inspect the cache before preparing complete Viewer settings.
-    This operation does not launch a Viewer.
+    Follow the returned job_id with wait_pipeline_job; its result reports nodes,
+    edges, the effective threshold, clusters and isolated nodes, and
+    output_locations.TARGET_CACHE_PATH the cache. This does not launch a Viewer.
     """
     from Layout_Cache_Generator import LayoutGenerationSettings, LayoutGenerationError
 
@@ -388,6 +458,8 @@ async def start_layout_job(
             except ValueError as error:
                 raise ToolError(str(error)) from error
 
+        # Literal defaults: tests compare every hard-coded layout default in the
+        # source tree, and get_layout_schema's contract must match these.
         payload: dict[str, Any] = {
             "NODE_FASTA_FILE": str(node_fasta_file).strip(),
             "INPUT_HDF5": str(input_hdf5).strip(),
@@ -456,9 +528,12 @@ async def get_pipeline_job(
     ctx: Context[AppContext],
 ) -> PipelineJobInfo:
     """Follow a job_id returned by either start tool or list_pipeline_jobs.
-    Returns status, failure_message, and output locations. Queued/running is not
-    success; wait for a terminal status. On failure use read_pipeline_log for both
-    streams; after succeeded use inspect_pipeline_file on relevant output files.
+    Returns status, failure_message, output locations and, once finished, the
+    output_files the job created, modified or deleted (none means nothing was
+    written, for example because an existing result was kept). Queued/running is
+    not success; prefer wait_pipeline_job to repeated calls. On failure use
+    read_pipeline_log for both streams; after succeeded use inspect_pipeline_file
+    on relevant output files.
     """
     try:
         return _job_info(await _context(ctx).jobs.get_job(job_id))
@@ -466,10 +541,27 @@ async def get_pipeline_job(
         raise ToolError(str(error)) from error
 
 
+async def wait_pipeline_job(
+    job_id: str,
+    ctx: Context[AppContext],
+    timeout_seconds: Annotated[float, Field(ge=0, le=MAX_WAIT_SECONDS, description=(
+        "Seconds to wait for the job to finish before returning its current state"))] = 30.0,
+) -> PipelineJobInfo:
+    """Wait for a pipeline or layout job instead of polling get_pipeline_job.
+    Returns as soon as the job reaches succeeded, failed or cancelled, or after
+    timeout_seconds (at most 50) with the job still queued or running; call it
+    again to keep waiting. latest_output shows the newest log line as progress.
+    """
+    try:
+        return _job_info(await _context(ctx).jobs.wait(job_id, timeout=timeout_seconds))
+    except PipelineJobError as error:
+        raise ToolError(str(error)) from error
+
+
 async def read_pipeline_log(
     job_id: str,
-    stream: Literal["stdout", "stderr"],
     ctx: Context[AppContext],
+    stream: Literal["stdout", "stderr"] = "stdout",
     offset: Annotated[int, Field(ge=0, description="Byte offset; use the previous page's next_offset to continue")] = 0,
     limit: Annotated[int, Field(ge=1, le=262144, description="Maximum bytes to read from the selected stream")] = 65536,
 ) -> PipelineLogPage:
@@ -519,21 +611,129 @@ async def export_pipeline_settings(tool_id: str, output_path: str | None = None)
         raise ToolError(str(error)) from error
 
 
-async def export_layout_settings(output_path: str | None = None, settings_path: str | None = None) -> dict[str, Any]:
+async def export_layout_settings(
+    node_fasta_file: Annotated[str | None, Field(description=(
+        "Node FASTA for this layout (absolute path recommended); replaces the saved selection"))] = None,
+    input_hdf5: Annotated[str | None, Field(description=(
+        "Network file for this layout (absolute path recommended); replaces the saved selection"))] = None,
+    parameters: Annotated[dict[str, Any] | None, Field(description=(
+        "Layout fields to change, e.g. {'TOP_EDGE_PERCENT': 5}; see get_layout_schema"))] = None,
+    output_path: str | None = None,
+    settings_path: str | None = None,
+) -> dict[str, Any]:
     """Export inherited layout settings before start_layout_job.
-    Preserve saved simulation and physics preferences by editing the full export.
-    settings_path optionally supplies an edited JSON overlay; output_path names
-    the new export and must not exist. Omitted output paths are unique. Automatic
-    cache naming is a preview, not a reservation. Export does not enqueue work.
+    The export starts from the user's saved Config preferences (simulation,
+    physics, packing, saved inputs), then applies settings_path (an edited JSON
+    overlay), then node_fasta_file, input_hdf5 and parameters. Pass the inputs
+    when the saved Config has none or holds other files. Execute the returned
+    settings_document with start_layout_job. output_path names the new export
+    and must not exist; omitted paths are unique. Automatic cache naming is a
+    preview, not a reservation. Export does not enqueue work.
     """
+    from desktop.Viewer_State import sections
     from utilities.Headless_Settings import export_config_settings as export
+
+    flat = {}
+    if parameters:
+        flat.update(_layout_overrides(parameters, _EXPORT_RESERVED_KEYS))
+    for key, value in (("NODE_FASTA_FILE", node_fasta_file), ("INPUT_HDF5", input_hdf5)):
+        if value is not None:
+            if not str(value).strip():
+                raise ToolError(f"{key.lower()} must be a nonempty path.")
+            flat[key] = str(value).strip()
+    overlay = None
+    if flat:
+        overlay = {"schema_version": 2, "kind": "layout"}
+        for section, keys in sections("layout").items():
+            values = {key: flat[key] for key in keys if key in flat}
+            if values:
+                overlay[section] = values
     try:
-        return await asyncio.to_thread(export, "layout", _PROJECT_ROOT, output_path, settings_path)
+        return await asyncio.to_thread(export, "layout", _PROJECT_ROOT, output_path, settings_path, overlay)
     except (ValueError, TypeError, KeyError, OSError) as error:
+        message = str(error)
+        if message.startswith(("NODE_FASTA_FILE:", "INPUT_HDF5:")) and "required nonempty path" in message:
+            message = (
+                f"{message} The saved Config settings select no {message.split(':')[0]}; "
+                "pass node_fasta_file and input_hdf5 to export_layout_settings."
+            )
+        raise ToolError(message) from error
+
+
+def get_layout_schema() -> dict[str, Any]:
+    """Read the layout settings contract before choosing layout parameters.
+    Returns every field of the sectioned layout document with its meaning,
+    type, built-in default, accepted range and Config GUI range, plus the
+    rules start_layout_job enforces and how to choose an edge filter.
+    export_layout_settings inherits the user's saved values; individual
+    start_layout_job arguments fall back to these built-in defaults.
+    """
+    from desktop.Viewer_State import sections
+
+    fields = _LAYOUT_CONTRACT["fields"]
+    return {
+        "schema_version": 2,
+        "kind": "layout",
+        "sections": {section: list(keys) for section, keys in sections("layout").items()},
+        "fields": {
+            key: {"section": section, **fields[key]}
+            for section, keys in sections("layout").items() for key in keys
+        },
+        "rules": list(_LAYOUT_CONTRACT["rules"]),
+        "choosing_an_edge_filter": list(_LAYOUT_CONTRACT["choosing_an_edge_filter"]),
+    }
+
+
+async def network_statistics(
+    input_hdf5: Annotated[str, Field(description=(
+        "Network HDF5 file, as for start_layout_job (absolute, or relative to the project root)"))],
+    node_fasta_file: Annotated[str | None, Field(description=(
+        "Node FASTA the layout will use; only its nodes are counted. Omit to use every network node"))] = None,
+    alignment_score: Annotated[Literal["global", "local"], Field(description=(
+        "Embedding-alignment networks: score the layout will use (ignored for E-value networks)"))] = "global",
+    norm_mode: Annotated[
+        Literal["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"],
+        Field(description="Embedding-alignment networks: normalization the layout will use"),
+    ] = "alignment_length",
+    thresholds: Annotated[list[float] | None, Field(max_length=10, description=(
+        "Extra SIMILARITY_THRESHOLD values to evaluate"))] = None,
+    top_edge_percents: Annotated[list[float] | None, Field(max_length=19, description=(
+        "TOP_EDGE_PERCENT values to evaluate instead of the default series (0.1 to 50)"))] = None,
+) -> dict[str, Any]:
+    """Choose a layout edge filter from evidence instead of guessing.
+    Scores the network exactly as start_layout_job would for these nodes and
+    settings, and returns the score distribution plus, for a series of
+    TOP_EDGE_PERCENT values and any given thresholds, the equivalent
+    SIMILARITY_THRESHOLD, kept edges, clusters, isolated nodes and largest
+    cluster. Read-only; networks too large to score within about 50 seconds
+    return an error suggesting TOP_EDGE_PERCENT.
+    """
+    from mcp_server.pipeline.Network_Statistics import NetworkStatisticsError, network_statistics as run
+
+    def resolve(value):
+        path = os.path.expanduser(os.fspath(value))
+        return os.path.abspath(path if os.path.isabs(path) else os.path.join(_PROJECT_ROOT, path))
+
+    for name, values in (("thresholds", thresholds), ("top_edge_percents", top_edge_percents)):
+        for value in values or ():
+            if not math.isfinite(value) or (name == "top_edge_percents" and not 0 < value <= 100):
+                raise ToolError(f"{name} values must be finite" + (" and in (0, 100]." if name == "top_edge_percents" else "."))
+    request = {
+        "network_path": resolve(input_hdf5),
+        "fasta_path": resolve(node_fasta_file) if node_fasta_file else None,
+        "alignment_score": alignment_score,
+        "norm_mode": norm_mode,
+        "thresholds": list(thresholds or ()),
+        "top_edge_percents": list(top_edge_percents) if top_edge_percents else None,
+    }
+    try:
+        return await asyncio.to_thread(run, request)
+    except NetworkStatisticsError as error:
         raise ToolError(str(error)) from error
 
 
 __all__ = [
+    "OutputFile",
     "PipelineCatalog",
     "PipelineJobInfo",
     "PipelineJobList",
@@ -543,13 +743,16 @@ __all__ = [
     "export_layout_settings",
     "export_pipeline_settings",
     "get_compute_capabilities",
+    "get_layout_schema",
     "get_pipeline_job",
     "get_pipeline_tool_schema",
     "inspect_pipeline_file",
     "list_pipeline_jobs",
     "list_pipeline_tools",
+    "network_statistics",
     "read_pipeline_log",
     "start_layout_job",
     "start_pipeline_job",
     "validate_pipeline_settings",
+    "wait_pipeline_job",
 ]
