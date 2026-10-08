@@ -13,12 +13,11 @@ of skipping the first column laid such components out on lambda3/lambda4.
 
 Components of ``LOBPCG_MIN_NODES`` or more nodes are solved with SciPy's
 LOBPCG, constrained away from sqrt(degree), with the Laplacian products on
-Numba threads. Where the optional pyamg package is installed, LOBPCG is first
-preconditioned with an algebraic multigrid V-cycle (``amg_preconditioner``).
-Without pyamg, with SSN_SPECTRAL_AMG=0, or when that solve fails or is
-rejected, LOBPCG runs unpreconditioned from the same start block, exactly as
-it did before pyamg was supported. A result that misses the residual or
-orthogonality check falls back to ARPACK, and smaller components keep ARPACK.
+Numba threads, and preconditioned with an algebraic multigrid V-cycle
+(``amg_preconditioner``). With SSN_SPECTRAL_AMG=0, or when that solve fails or
+is rejected, LOBPCG runs unpreconditioned from the same start block, exactly as
+it did before the preconditioner was added. A result that misses the residual
+or orthogonality check falls back to ARPACK, and smaller components keep ARPACK.
 ``asinh_scaled`` then spreads each axis, so a few outlying nodes no longer
 squeeze the rest of a component into a dot.
 """
@@ -72,26 +71,18 @@ TRIVIAL_COSINE = 0.9
 # A central 90% range below this share of the full range is numerically empty.
 EMPTY_CENTRE_SHARE = 1e-6
 
-# Setting SSN_SPECTRAL_AMG=0 skips the AMG preconditioner even where pyamg is
-# installed, so such a machine can reproduce layouts made without it.
+# Setting SSN_SPECTRAL_AMG=0 skips the AMG preconditioner, so the layouts made
+# by plain LOBPCG can still be reproduced.
 AMG_SWITCH_VARIABLE = "SSN_SPECTRAL_AMG"
 _OFF_VALUES = {"0", "off", "false", "no"}
-# Coarsening stops at this many rows (pyamg's default is 10), and the
-# coarsest level is solved densely, which stays cheap at this size.
+# Coarsening stops at this many rows, and the coarsest level is solved
+# densely, which stays cheap at this size.
 AMG_MAX_COARSE = 500
 # A coarsest level this much larger than AMG_MAX_COARSE means coarsening
 # stalled; solving it densely would cost too much, so AMG is not used.
 AMG_COARSEST_LIMIT = 4 * AMG_MAX_COARSE
-# Aggregates follow the Laplacian's sparsity pattern: pyamg's strength=None
-# reads the pattern only, as its threshold-free strength measure would, but
-# without building a same-size copy of the matrix. The prolongator is left
-# unsmoothed: on the 44K network, smoothing it cost 4-5 s and up to 2 GiB of
-# setup, and LOBPCG then needed 128 iterations in 3D instead of 56. pyamg's
-# default smoothing would also estimate a spectral radius from NumPy's global
-# random generator, and its default candidate improvement would copy the
-# matrix; sqrt(degree) is the exact null vector already.
-AMG_STRENGTH = None
-AMG_SMOOTHING = None
+# Levels at most, the finest included.
+AMG_MAX_LEVELS = 10
 
 
 def normalized_laplacian(local_edges, scores, node_count):
@@ -149,6 +140,56 @@ def _absolute_row_sums(indptr, data, result):
         result[row] = total
 
 
+@njit(cache=True)
+def _standard_aggregation(indptr, indices):
+    """Group a symmetric sparsity pattern's nodes into aggregates, serially.
+
+    The greedy passes of pyamg's standard aggregation: in node order, a node
+    whose neighbours are all still free starts an aggregate with all of them;
+    then every node left over joins the aggregate of its first neighbour from
+    that first pass, which always exists. A node without neighbours, which pyamg
+    leaves out, becomes an aggregate of its own, numbered after the others.
+    Returns each node's aggregate and the number of aggregates.
+    """
+    n = len(indptr) - 1
+    first_pass = np.zeros(n, dtype=np.int64)    # 1-based aggregate, 0 while free
+    roots = 0
+    for i in range(n):
+        if first_pass[i] != 0:
+            continue
+        has_neighbours = False
+        all_free = True
+        for position in range(indptr[i], indptr[i + 1]):
+            j = indices[position]
+            if j != i:
+                has_neighbours = True
+                if first_pass[j] != 0:
+                    all_free = False
+                    break
+        if has_neighbours and all_free:
+            roots += 1
+            first_pass[i] = roots
+            for position in range(indptr[i], indptr[i + 1]):
+                first_pass[indices[position]] = roots
+    aggregate = np.empty(n, dtype=np.int64)
+    count = roots
+    for i in range(n):
+        if first_pass[i] != 0:
+            aggregate[i] = first_pass[i] - 1
+            continue
+        joined = 0
+        for position in range(indptr[i], indptr[i + 1]):
+            if first_pass[indices[position]] != 0:
+                joined = first_pass[indices[position]]
+                break
+        if joined != 0:
+            aggregate[i] = joined - 1
+        else:
+            aggregate[i] = count
+            count += 1
+    return aggregate, count
+
+
 def laplacian_operator(csr):
     """A LinearOperator for products with ``csr`` on Numba threads.
 
@@ -187,17 +228,9 @@ def _inverse_absolute_row_sums(csr):
     return 1.0 / sums
 
 
-def amg_module():
-    """Return (pyamg, None), or (None, why LOBPCG runs without AMG)."""
-    if os.environ.get(AMG_SWITCH_VARIABLE, "").strip().lower() in _OFF_VALUES:
-        return None, f"disabled by {AMG_SWITCH_VARIABLE}"
-    try:
-        import pyamg
-    except ImportError:
-        return None, "pyamg is not installed"
-    except Exception as error:
-        return None, f"pyamg failed to import ({type(error).__name__}: {error})"
-    return pyamg, None
+def amg_disabled():
+    """True when SSN_SPECTRAL_AMG asks for LOBPCG without the preconditioner."""
+    return os.environ.get(AMG_SWITCH_VARIABLE, "").strip().lower() in _OFF_VALUES
 
 
 class _BlockVCycle:
@@ -239,54 +272,97 @@ class _BlockVCycle:
         return solution
 
 
-def amg_preconditioner(pyamg, csr, root_degree):
+def _tentative_prolongator(aggregate, count, candidate):
+    """The prolongator T and the coarse candidate for ``candidate``.
+
+    T[i, aggregate[i]] = candidate[i] / |candidate over that aggregate|, so T
+    has orthonormal columns and T @ coarse = candidate, the coarse candidate
+    being those norms.
+    """
+    import scipy.sparse as sp
+
+    norms = np.sqrt(np.bincount(aggregate, weights=candidate * candidate, minlength=count))
+    if not (norms > 0.0).all():
+        raise RuntimeError("an aggregate has no weight in sqrt(degree)")
+    nodes = len(aggregate)
+    prolongator = sp.csr_matrix(
+        (candidate / norms[aggregate], aggregate, np.arange(nodes + 1)), shape=(nodes, count))
+    return prolongator, norms
+
+
+def aggregation_levels(csr, candidate):
+    """The aggregation hierarchy for ``csr`` with near-null vector ``candidate``.
+
+    Returns ([(matrix, prolongator, restriction)] for every level above the
+    coarsest, the coarsest matrix, its candidate). Each coarse matrix is the
+    Galerkin product restriction @ matrix @ prolongator, with the restriction
+    stored as CSR and the indices sorted, so the next aggregation reads a
+    canonical pattern.
+    """
+    levels = []
+    matrix = csr
+    while matrix.shape[0] > AMG_MAX_COARSE and len(levels) < AMG_MAX_LEVELS - 1:
+        aggregate, count = _standard_aggregation(matrix.indptr, matrix.indices)
+        if count >= matrix.shape[0]:
+            break
+        prolongator, coarse_candidate = _tentative_prolongator(aggregate, count, candidate)
+        restriction = prolongator.T.tocsr()
+        coarse = (restriction @ matrix @ prolongator).tocsr()
+        coarse.sort_indices()
+        levels.append((matrix, prolongator, restriction))
+        matrix, candidate = coarse, coarse_candidate
+    if matrix.shape[0] > AMG_COARSEST_LIMIT:
+        raise RuntimeError(f"coarsening stalled at {matrix.shape[0]:,} rows")
+    return levels, matrix, candidate
+
+
+def amg_preconditioner(csr, root_degree):
     """A symmetric multigrid V-cycle for ``csr``, applied to whole blocks at once.
 
-    pyamg builds an aggregation hierarchy with sqrt(degree) as the near-null
-    space; the settings above draw no random numbers. The cycle runs here
-    rather than in pyamg, whose preconditioner treats one column at a time with
-    serial Gauss-Seidel sweeps and two extra residual products: on the 44K
-    network that was slower than LOBPCG without a preconditioner. Products with
-    the finest level run on Numba threads.
+    The hierarchy aggregates the Laplacian's own sparsity pattern, with
+    sqrt(degree) as the near-null vector and unsmoothed prolongators; nothing
+    in it is random. Smoothing the prolongators cost 4-5 s and up to 2 GiB of
+    setup on the 44K network, and LOBPCG then needed 128 iterations in 3D
+    instead of 56. The cycle treats the whole block at once: pyamg's own
+    preconditioner, one column at a time with serial Gauss-Seidel sweeps, was
+    slower there than LOBPCG without a preconditioner.
     """
-    from scipy.linalg import pinvh
     from scipy.sparse.linalg import LinearOperator
 
-    hierarchy = pyamg.smoothed_aggregation_solver(
-        csr, B=root_degree.reshape(-1, 1).astype(np.float64), symmetry="symmetric",
-        strength=AMG_STRENGTH, smooth=AMG_SMOOTHING, improve_candidates=None,
-        max_coarse=AMG_MAX_COARSE, keep=False,
-    )
-    levels = hierarchy.levels
-    if levels[-1].A.shape[0] > AMG_COARSEST_LIMIT:
-        raise RuntimeError(f"coarsening stalled at {levels[-1].A.shape[0]:,} rows")
-    # Every level but the coarsest; none when the matrix itself is small enough.
-    finer = [csr if depth == 0 else level.A.tocsr() for depth, level in enumerate(levels[:-1])]
-    # The coarsest level's null space is sqrt(degree)'s coarse image, which pyamg
-    # carries down as that level's B. Its eigenvalue is zero only up to rounding,
-    # so a plain pseudo-inverse could amplify that rounding enormously; shifting
-    # the direction to 1 before inverting and projecting it out afterwards gives
-    # the inverse on the remaining directions exactly, at any coarsest size.
-    candidate = np.asarray(levels[-1].B, dtype=np.float64)[:, 0]
-    unit = candidate / np.linalg.norm(candidate)
-    outside = np.eye(len(unit)) - np.outer(unit, unit)
-    coarsest = outside @ pinvh(levels[-1].A.toarray() + np.outer(unit, unit)) @ outside
+    levels, coarsest_matrix, candidate = aggregation_levels(csr, root_degree.astype(np.float64))
     cycle = _BlockVCycle(
-        products=[laplacian_operator(matrix) for matrix in finer],
-        weights=[_inverse_absolute_row_sums(matrix)[:, None] for matrix in finer],
-        prolongators=[level.P.tocsr() for level in levels[:-1]],
-        restrictions=[level.R.tocsr() for level in levels[:-1]],
-        coarsest=coarsest,
+        products=[laplacian_operator(matrix) for matrix, _, _ in levels],
+        weights=[_inverse_absolute_row_sums(matrix)[:, None] for matrix, _, _ in levels],
+        prolongators=[prolongator for _, prolongator, _ in levels],
+        restrictions=[restriction for _, _, restriction in levels],
+        coarsest=_deflated_inverse(coarsest_matrix.toarray(), candidate),
     )
     return LinearOperator(csr.shape, matvec=cycle, matmat=cycle, dtype=np.float64)
 
 
-def _lobpcg_axes(csr, root_degree, dimensions, start, amg=None):
+def _deflated_inverse(matrix, candidate):
+    """The inverse of the dense ``matrix`` on the directions orthogonal to
+    ``candidate``, its null vector.
+
+    On the coarsest level the candidate is sqrt(degree)'s coarse image, whose
+    eigenvalue is zero only up to rounding, so a plain pseudo-inverse could
+    amplify that rounding enormously. Shifting the direction to 1 before
+    inverting and projecting it out afterwards gives the inverse on the
+    remaining directions exactly, however large that rounding is.
+    """
+    from scipy.linalg import pinvh
+
+    unit = candidate / np.linalg.norm(candidate)
+    outside = np.eye(len(unit)) - np.outer(unit, unit)
+    return outside @ pinvh(matrix + np.outer(unit, unit)) @ outside
+
+
+def _lobpcg_axes(csr, root_degree, dimensions, start, amg=False):
     """Return (axes, None), or (None, reason) when the result can't be trusted.
 
-    ``amg`` is the pyamg module when LOBPCG should be preconditioned. LOBPCG
-    overwrites ``start``. Nothing else refers to the preconditioner, so it and
-    its hierarchy are freed as soon as this returns.
+    With ``amg``, LOBPCG is preconditioned. LOBPCG overwrites ``start``.
+    Nothing else refers to the preconditioner, so it and its hierarchy are
+    freed as soon as this returns.
     """
     try:
         from scipy.sparse.linalg import lobpcg
@@ -297,7 +373,7 @@ def _lobpcg_axes(csr, root_degree, dimensions, start, amg=None):
             # LOBPCG reports missed tolerances itself; the checks below decide.
             warnings.simplefilter("ignore")
             with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
-                preconditioner = None if amg is None else amg_preconditioner(amg, csr, root_degree)
+                preconditioner = amg_preconditioner(csr, root_degree) if amg else None
                 values, vectors = lobpcg(
                     operator, start, M=preconditioner, Y=constraint, tol=LOBPCG_TOLERANCE,
                     maxiter=LOBPCG_MAX_ITERATIONS, largest=False,
@@ -351,13 +427,14 @@ def spectral_axes(
     csr = laplacian.tocsr()
     del laplacian
     start = (draw or np.random.standard_normal)((node_count, dimensions + LOBPCG_EXTRA_VECTORS))
-    amg, reason = amg_module()
-    if amg is not None:
-        axes, failure = _lobpcg_axes(csr, root_degree, dimensions, start.copy(), amg=amg)
+    reason = None
+    if amg_disabled():
+        reason = f"disabled by {AMG_SWITCH_VARIABLE}"
+    else:
+        axes, failure = _lobpcg_axes(csr, root_degree, dimensions, start.copy(), amg=True)
         if axes is not None:
             if verbose:
-                print(f"  > Spectral start ({node_count:,} nodes): LOBPCG with an AMG "
-                      f"preconditioner (pyamg {amg.__version__}).")
+                print(f"  > Spectral start ({node_count:,} nodes): LOBPCG with an AMG preconditioner.")
             return axes
         if verbose:
             print(f"  > LOBPCG with the AMG preconditioner {failure}; retrying without it.")
@@ -404,13 +481,13 @@ __all__ = [
     "AMG_SWITCH_VARIABLE",
     "AMG_MAX_COARSE",
     "AMG_COARSEST_LIMIT",
-    "AMG_STRENGTH",
-    "AMG_SMOOTHING",
+    "AMG_MAX_LEVELS",
     "NUMBA_AVAILABLE",
     "normalized_laplacian",
     "intended_axes",
     "laplacian_operator",
-    "amg_module",
+    "amg_disabled",
+    "aggregation_levels",
     "amg_preconditioner",
     "spectral_axes",
     "asinh_scaled",

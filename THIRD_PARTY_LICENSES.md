@@ -159,7 +159,6 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | numpy, scipy, pandas, scikit-learn | BSD-3-Clause |
 | networkx, vispy, httpx, h5py, markdown, psutil | BSD-3-Clause |
 | numba | BSD-2-Clause |
-| pyamg 5.3.0 (optional at runtime: preconditions the layout's spectral start when installed) | MIT (Copyright (c) 2008-2015 PyAMG Developers) |
 | umap-learn | BSD-3-Clause |
 | matplotlib | Matplotlib License (PSF-based, BSD-compatible) |
 | logomaker, markov-clustering, openpyxl, jsonschema | MIT |

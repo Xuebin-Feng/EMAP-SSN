@@ -227,6 +227,29 @@ still change before version 1.0.0.
   batch that contains one, because a batch shares one simulation; packing may also move
   unchanged components. Grid starts (2–3 nodes, up to 4 in 3D) are unchanged, and so are
   batches made only of them.
+- **Large components get their spectral start several times faster.** For components of
+  2,000 or more nodes, LOBPCG is now preconditioned with an algebraic multigrid V-cycle,
+  with no new dependency. Nodes are grouped by the greedy aggregation that pyamg's
+  smoothed-aggregation solver uses, ported to Numba; it gives identical aggregates.
+  √degree is the near-null space. Each level is smoothed with l1-Jacobi, and a coarsest
+  level of at most 500 rows is solved densely with √degree's direction removed. The
+  finest-level products run on all but two logical CPUs, and every product works row by
+  row, so the result does not depend on the thread count. The hierarchy draws no random
+  numbers and is freed as soon as the solve returns. On the test machine the 44K
+  network's 34,302-node component now solves in about 8 s, instead of 20–31 s in 2D and
+  25–52 s in 3D, over three seeds. Inside its whole 2D layout the spectral start took 16
+  s instead of 23 s, at the same 14.2 GiB peak memory. On synthetic SSN-like components
+  of 99,000 and 199,000 nodes, the solve took 25 s instead of 68 s and 36 s instead of
+  154 s. With verbose output, the layout log names the solver used for each component of
+  2,000+ nodes, and the reason for any fallback.
+- **Seeded layouts of large components come from the preconditioned solve.** Every
+  component of 2,000 or more nodes, and every batch that contains one, starts from the
+  AMG-preconditioned solver's eigenvectors. These match plain LOBPCG's to its tolerance
+  but not bit for bit, and they are the same on every installation. With
+  `SSN_SPECTRAL_AMG=0` (or `off`, `false`, `no`), or when the AMG-preconditioned solve
+  fails or misses the residual or orthogonality check, LOBPCG runs unpreconditioned from
+  the same start block, and the layout is bit for bit the one an unpreconditioned solve
+  gives.
 - Neighbor-joining guide trees in `Embedding_MSA.py` and the edge filter of the
   `jaccard` mode of `cluster` and `subcluster` also run in parallel on all but two
   logical CPUs; neighbor-joining bootstrap workers split those threads between them.
