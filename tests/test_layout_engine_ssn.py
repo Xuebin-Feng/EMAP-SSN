@@ -2,12 +2,15 @@
 repulsion against an independent reference, the cutoff taper, the pair and
 total force caps, per-component boundaries), component batching, progressive
 placement, CPU/torch/CUDA agreement, and LAYOUT_SEED determinism of
-calculate_layout."""
+calculate_layout, including Auto's hand-off of benchmarked batches to their
+jobs."""
+import hashlib
 import io
 import os
 import sys
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from unittest import mock
 
 import numpy as np
 
@@ -699,6 +702,117 @@ class DeterministicLayoutTests(unittest.TestCase):
             positions_3d[:, 2], np.zeros(count, dtype=np.float32)
         )
         self.assertEqual(rmsd_2d, rmsd_3d)
+
+
+class BenchmarkHandOffTests(unittest.TestCase):
+    """Auto prepares one job per size class to benchmark the devices, then
+    hands that batch and the job's random stream to the job, so each spectral
+    layout is solved once and the layout equals a run without the benchmark."""
+
+    PARAMS = {
+        **BASE_LAYOUT_PARAMS,
+        "MAX_STEPS": 40,
+        "RMSD_WINDOW": 10,
+        "LAYOUT_SEED": 5,
+    }
+
+    @staticmethod
+    def _connectivity():
+        """Components of 2,200 nodes (massive: its progressive stages place
+        new nodes with the job's stream), 700 and 600 (two medium jobs, only
+        the first benchmarked) and six of 60 (one small batch). Each is made
+        of clusters joined by three links, which keeps the spectral solve quick."""
+        rng = np.random.default_rng(11)
+        blocks = []
+        start = 0
+        for size, clusters in ((2200, 4), (700, 2), (600, 2)) + ((60, 1),) * 6:
+            groups = np.array_split(np.arange(start, start + size), clusters)
+            for group in groups:
+                blocks.append(np.column_stack((group, np.roll(group, -1))))
+                blocks.append(rng.choice(group, size=(2 * len(group), 2)))
+            for left, right in zip(groups, groups[1:]):
+                blocks.append(np.column_stack((rng.choice(left, 3), rng.choice(right, 3))))
+            start += size
+        edges = np.vstack(blocks)
+        edges = edges[edges[:, 0] != edges[:, 1]]
+        scores = rng.uniform(0.3, 1.0, len(edges))
+        return np.column_stack((edges, scores)), start
+
+    @staticmethod
+    def _candidate(spec):
+        torch = ssn_engine.torch
+        if spec == "cpu":
+            return ssn_engine.Layout_Hardware.DeviceCandidate(
+                "cpu", "CPU", torch.device("cpu"), "cpu")
+        return ssn_engine.Layout_Hardware.DeviceCandidate(
+            spec, "GPU", torch.device(spec), "cuda", 0, True)
+
+    @staticmethod
+    def _hidden_accelerators():
+        """The benchmark snapshots every visible accelerator's random state,
+        which would create a CUDA/XPU context in the CPU-only runs."""
+        stack = ExitStack()
+        torch = ssn_engine.torch
+        for backend in (torch.cuda, torch.xpu, torch.backends.mps):
+            stack.enter_context(
+                mock.patch.object(backend, "is_available", return_value=False))
+        return stack
+
+    def _layout(self, selection, candidate):
+        connectivity, n_nodes = self._connectivity()
+        output = io.StringIO()
+        with mock.patch.object(
+            ssn_engine.Layout_Hardware, "get_available_devices", return_value=[candidate]
+        ), redirect_stdout(output), redirect_stderr(io.StringIO()):
+            positions, _ = ssn_engine.calculate_layout(
+                connectivity, n_nodes,
+                {**self.PARAMS, "LAYOUT_DEVICE_SELECTION": selection},
+            )
+        return np.ascontiguousarray(positions), output.getvalue()
+
+    def _assert_hand_off_keeps_the_layout(self, candidate):
+        # A manual device skips the benchmark, so every job prepares itself.
+        without, _ = self._layout(candidate.spec, candidate)
+        handed_off, log = self._layout("auto", candidate)
+        self.assertIn("SSN layout benchmark (massive, 2200 nodes", log)
+        np.testing.assert_array_equal(handed_off, without)
+        self.assertEqual(
+            hashlib.sha256(handed_off.tobytes()).hexdigest(),
+            hashlib.sha256(without.tobytes()).hexdigest(),
+        )
+
+    def test_hand_off_keeps_the_seeded_cpu_layout(self):
+        with self._hidden_accelerators():
+            self._assert_hand_off_keeps_the_layout(self._candidate("cpu"))
+
+    @unittest.skipUnless(CUDA_AVAILABLE, "CUDA is not available")
+    def test_hand_off_keeps_the_seeded_cuda_layout(self):
+        self._assert_hand_off_keeps_the_layout(self._candidate("cuda:0"))
+
+    def test_each_job_is_prepared_and_its_spectral_layout_solved_once(self):
+        import scipy.sparse.linalg
+
+        hardware = ssn_engine.Layout_Hardware
+        prepare, eigsh = hardware.prepare_layout_batch, scipy.sparse.linalg.eigsh
+        prepared_jobs, solved = [], []
+
+        def counted_prepare(batch_components, *args, **kwargs):
+            prepared_jobs.append(tuple(int(component[0]) for component in batch_components))
+            return prepare(batch_components, *args, **kwargs)
+
+        def counted_eigsh(matrix, *args, **kwargs):
+            solved.append(matrix.shape[0])
+            return eigsh(matrix, *args, **kwargs)
+
+        with self._hidden_accelerators(), mock.patch.object(
+            hardware, "prepare_layout_batch", side_effect=counted_prepare
+        ), mock.patch.object(scipy.sparse.linalg, "eigsh", side_effect=counted_eigsh):
+            _, log = self._layout("auto", self._candidate("cpu"))
+
+        self.assertEqual(len(prepared_jobs), 4)
+        self.assertEqual(len(set(prepared_jobs)), 4)
+        self.assertEqual(sorted(solved), [60] * 6 + [600, 700, 2200])
+        self.assertEqual(log.count("Calculating Spectral Layout for sub-component"), 9)
 
 
 if __name__ == "__main__":

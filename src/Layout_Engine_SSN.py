@@ -1421,12 +1421,21 @@ def calculate_layout(connectivity, n_nodes, params):
     device_rankings = Layout_Hardware.manual_layout_rankings(
         jobs, device_selection
     )
+    # Job index -> (prepared batch, its Generator) for the jobs that Auto
+    # already prepared to benchmark them.
+    prepared_jobs = {}
     if device_rankings is None:
         representative_indices = Layout_Hardware.representative_job_indices(
             jobs,
             node_to_comp_idx,
             comp_edges,
         )
+        # Each representative is prepared with its own job's stream and then
+        # handed to that job, so its spectral layout is solved only once.
+        job_generators = {
+            job_idx: _job_generator(layout_seed, job_idx)
+            for job_idx in representative_indices.values()
+        }
         representative_batches = Layout_Hardware.prepare_representative_batches(
             jobs,
             representative_indices,
@@ -1434,6 +1443,7 @@ def calculate_layout(connectivity, n_nodes, params):
             comp_edges,
             comp_scores,
             params,
+            job_generators=job_generators,
         )
         gpu_simulation_class = SSNSimulationGPU if HAS_TORCH else None
         device_rankings = {
@@ -1448,6 +1458,12 @@ def calculate_layout(connectivity, n_nodes, params):
             )
             for size_class, prepared in representative_batches.items()
         }
+        prepared_jobs = {
+            job_idx: (representative_batches[size_class], job_generators[job_idx])
+            for size_class, job_idx in representative_indices.items()
+        }
+        # Only prepared_jobs holds the batches now, so each is freed after its job.
+        del representative_batches
 
     if any(plans[0].candidate.is_cpu for plans in device_rankings.values()):
         print(
@@ -1467,15 +1483,19 @@ def calculate_layout(connectivity, n_nodes, params):
 
     # 3. Simulate jobs sequentially
     for job_idx, batch_comps in enumerate(jobs):
-        job_rng = _job_generator(layout_seed, job_idx)
-        prepared_batch = Layout_Hardware.prepare_layout_batch(
-            batch_comps,
-            node_to_comp_idx,
-            comp_edges,
-            comp_scores,
-            params,
-            rng=job_rng,
-        )
+        handed_off = prepared_jobs.pop(job_idx, None)
+        if handed_off is None:
+            job_rng = _job_generator(layout_seed, job_idx)
+            prepared_batch = Layout_Hardware.prepare_layout_batch(
+                batch_comps,
+                node_to_comp_idx,
+                comp_edges,
+                comp_scores,
+                params,
+                rng=job_rng,
+            )
+        else:
+            prepared_batch, job_rng = handed_off
         n_batch_nodes = prepared_batch.node_count
         is_large_job = prepared_batch.is_large_job
         batch_global_nodes = prepared_batch.global_nodes

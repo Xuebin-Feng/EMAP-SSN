@@ -806,8 +806,17 @@ def prepare_representative_batches(
     component_edges: dict[int, np.ndarray],
     component_scores: dict[int, np.ndarray],
     params: dict[str, Any],
+    *,
+    job_generators: dict[int, np.random.Generator],
 ) -> dict[str, PreparedLayoutBatch]:
-    """Prepare benchmark copies while leaving NumPy/Torch random state intact."""
+    """Prepare each class's representative job exactly as the job itself would.
+
+    ``job_generators`` maps a job index to that job's own Generator, which the
+    preparation advances. The caller hands the batch and its Generator on to
+    the job, so the spectral layout is solved once and the job's layout is the
+    one it would have prepared itself. Benchmarking only reads the batch.
+    NumPy/Torch global random state is left intact.
+    """
     random_state = _snapshot_random_state()
     try:
         return {
@@ -817,8 +826,7 @@ def prepare_representative_batches(
                 component_edges,
                 component_scores,
                 params,
-                add_noise=True,
-                verbose=False,
+                rng=job_generators[index],
             )
             for size_class, index in representative_indices.items()
         }

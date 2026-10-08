@@ -502,8 +502,18 @@ class LayoutHardwareTests(unittest.TestCase):
         )
         self.assertEqual(selected, {"small": 1, "medium": 3, "massive": 6})
 
-    def test_representative_preparation_preserves_numpy_random_state(self):
-        jobs = [[[0, 1]]]
+    def test_representative_is_prepared_as_its_job_would_be(self):
+        # A six-node ring is big enough for the spectral layout, so preparing
+        # it draws the eigensolver's start vector and then the position noise.
+        ring = [(node, (node + 1) % 6) for node in range(6)]
+        inputs = dict(
+            node_to_component={node: 0 for node in range(6)},
+            component_edges={0: ring},
+            component_scores={0: [1.0] * 6},
+            params={"BOX_SCALE": 1.0},
+        )
+        jobs = [[list(range(6))]]
+        job_stream = np.random.default_rng([3, 0])
         before = np.random.get_state()
         # Hide the accelerators: snapshotting their RNG state would otherwise
         # create a CUDA/XPU context on the developer's GPU.
@@ -514,16 +524,56 @@ class LayoutHardwareTests(unittest.TestCase):
             prepared = Hardware_Utils.prepare_representative_batches(
                 jobs=jobs,
                 representative_indices={"small": 0},
-                node_to_component={0: 0, 1: 0},
-                component_edges={0: [(0, 1)]},
-                component_scores={0: [1.0]},
-                params={"BOX_SCALE": 1.0},
+                job_generators={0: job_stream},
+                **inputs,
             )
         after = np.random.get_state()
         self.assertEqual(before[0], after[0])
         np.testing.assert_array_equal(before[1], after[1])
         self.assertEqual(before[2:], after[2:])
-        self.assertEqual(prepared["small"].positions.shape, (2, 2))
+
+        # The job takes over this batch and stream instead of preparing its own,
+        # so both must be exactly what its own preparation would have left.
+        own_stream = np.random.default_rng([3, 0])
+        own = Hardware_Utils.prepare_layout_batch(jobs[0], rng=own_stream, **inputs)
+        for field in ("positions", "edges", "scores", "component_labels",
+                      "box_limits", "global_nodes"):
+            np.testing.assert_array_equal(
+                getattr(prepared["small"], field), getattr(own, field), err_msg=field)
+        self.assertEqual(job_stream.bit_generator.state, own_stream.bit_generator.state)
+
+    def test_benchmark_only_reads_the_prepared_batch(self):
+        """Auto hands the benchmarked batch to its job, so a benchmark that
+        stepped the batch's own arrays would change that job's layout."""
+        import Layout_Engine_SSN as ssn_layout
+
+        rng = np.random.default_rng(4)
+        count = 80
+        ring = np.column_stack((np.arange(count), (np.arange(count) + 1) % count))
+        prepared = Hardware_Utils.PreparedLayoutBatch(
+            global_nodes=np.arange(count), edges=ring.astype(np.int32),
+            scores=rng.uniform(0.5, 1.0, count),
+            positions=(rng.standard_normal((count, 2)) * 5.0).astype(np.float32),
+            component_labels=np.zeros(count, np.int32),
+            box_limits=np.full(count, 30.0, np.float32),
+            node_count=count, is_large_job=False)
+        fields = ("positions", "edges", "scores", "component_labels",
+                  "box_limits", "global_nodes")
+        before = {field: getattr(prepared, field).copy() for field in fields}
+        candidates = [Hardware_Utils.DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")]
+        if ssn_layout.HAS_TORCH and torch.cuda.is_available():
+            candidates.append(Hardware_Utils.DeviceCandidate(
+                "cuda:0", "GPU", torch.device("cuda:0"), "cuda", 0, True))
+        with mock.patch.object(Hardware_Utils, "get_available_devices", return_value=candidates), \
+                redirect_stdout(io.StringIO()):
+            ranked = Hardware_Utils.benchmark_layout_devices(
+                prepared, {"MAX_STEPS": 100, "SIMILARITY_THRESHOLD": 0.0, "DT": 0.01},
+                selection="auto", size_class="small", engine_label="SSN",
+                cpu_simulation_class=ssn_layout.SSNSimulationCPU,
+                gpu_simulation_class=getattr(ssn_layout, "SSNSimulationGPU", None))
+        self.assertEqual(len(ranked), len(candidates))
+        for field in fields:
+            np.testing.assert_array_equal(getattr(prepared, field), before[field], err_msg=field)
 
     def test_gpu_constructors_accept_an_explicit_device(self):
         import inspect

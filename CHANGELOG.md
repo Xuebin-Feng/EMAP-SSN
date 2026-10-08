@@ -143,6 +143,14 @@ still change before version 1.0.0.
   components of the 13K and Fungal networks and for medium batches, and keeps batches of
   small components on the CPU (0.15 vs 0.50 ms per step). The Fungal layout took 3.5 s
   instead of 29.2 s on the CPU.
+- **Auto solves each spectral start once.** To benchmark the devices, Auto prepares one
+  job of each size class, spectral starting layout included, and that job then prepared
+  it again. The job now takes over the benchmarked batch with its own random stream, so
+  seeded layouts are unchanged and the benchmark only reads the batch. On the test
+  machine the 44K network's layout took 695 s instead of 919 s, solving the spectral
+  layout of its 34,302-node component once (5 to 7 minutes) instead of twice, with 0.4
+  GiB less peak memory; the 13K network took 15.3 s instead of 22.5 s, with identical
+  positions.
 - Neighbor-joining guide trees in `Embedding_MSA.py` and the edge filter of the
   `jaccard` mode of `cluster` and `subcluster` also run in parallel on all but two
   logical CPUs; neighbor-joining bootstrap workers split those threads between them.
