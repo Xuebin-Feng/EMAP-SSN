@@ -793,13 +793,18 @@ if __name__ == "__main__":
             super().mousePressEvent(event)
 
     class CacheHashWorker(QThread):
-        completed = Signal(int, object, str)
+        completed = Signal(int, object, object, str)
 
-        def __init__(self, request_id, sequence_path, network_path, cached_records=None):
+        def __init__(
+            self, request_id, sequence_path, network_path, cache_keys, cached_records=None
+        ):
             super().__init__()
             self.request_id = request_id
             self.sequence_path = sequence_path
             self.network_path = network_path
+            # The inputs' file keys when hashing was requested. The result is
+            # cached under them, whatever is selected or on disk when it ends.
+            self.cache_keys = cache_keys
             self.cached_records = cached_records or {}
 
         def run(self):
@@ -818,9 +823,9 @@ if __name__ == "__main__":
                 records["network_type"] = cache_manifest.validate_network_schema(
                     self.network_path
                 ).network_type
-                self.completed.emit(self.request_id, records, "")
+                self.completed.emit(self.request_id, self.cache_keys, records, "")
             except Exception as error:
-                self.completed.emit(self.request_id, {}, str(error))
+                self.completed.emit(self.request_id, self.cache_keys, {}, str(error))
 
     class ConfigGUI(QMainWindow):
         def __init__(self):
@@ -2039,7 +2044,7 @@ if __name__ == "__main__":
             self.btn_save_run.setEnabled(True)
             self._toggle_new_cache_input()
 
-        def _cache_hash_completed(self, request_id, records, error):
+        def _cache_hash_completed(self, request_id, cache_keys, records, error):
             worker = self._cache_hash_workers.pop(request_id, None)
             if worker is not None:
                 worker.deleteLater()
@@ -2049,25 +2054,19 @@ if __name__ == "__main__":
             if error:
                 self._set_cache_unavailable(f"Cache hashing failed: {error}", "#d32f2f")
                 return
-            sequence_path, network_path = self._cache_paths_from_inputs()
-            try:
-                self._cache_hash_cache[cache_manifest.file_cache_key(sequence_path)] = records["sequence"]
-                self._cache_hash_cache[cache_manifest.file_cache_key(network_path)] = records["network"]
-            except (OSError, TypeError):
-                self.update_live_validators()
-                return
+            sequence_key, network_key = cache_keys
+            self._cache_hash_cache[sequence_key] = records["sequence"]
+            self._cache_hash_cache[network_key] = records["network"]
             self._apply_cache_discovery(records)
 
         def _request_cache_discovery(self):
             sequence_path, network_path = self._cache_paths_from_inputs()
             if not sequence_path or not network_path:
-                self._cache_hash_request_id += 1
-                self._cache_hash_pending_keys = None
+                self._cancel_cache_hashing()
                 self._set_cache_unavailable("Target Cache: Missing FASTA or HDF5")
                 return
             if not os.path.isfile(sequence_path) or not os.path.isfile(network_path):
-                self._cache_hash_request_id += 1
-                self._cache_hash_pending_keys = None
+                self._cancel_cache_hashing()
                 self._set_cache_unavailable("Target Cache: Selected input file is missing", "#d32f2f")
                 return
 
@@ -2075,8 +2074,7 @@ if __name__ == "__main__":
                 sequence_key = cache_manifest.file_cache_key(sequence_path)
                 network_key = cache_manifest.file_cache_key(network_path)
             except OSError as error:
-                self._cache_hash_request_id += 1
-                self._cache_hash_pending_keys = None
+                self._cancel_cache_hashing()
                 self._set_cache_unavailable(f"Cache input error: {error}", "#d32f2f")
                 return
 
@@ -2085,6 +2083,9 @@ if __name__ == "__main__":
                 "network": self._cache_hash_cache.get(network_key),
             }
             if all(cached_records.values()):
+                # A worker still hashing earlier inputs would otherwise report
+                # as current and replace what is shown for these.
+                self._cancel_cache_hashing()
                 try:
                     cached_records["network_type"] = (
                         cache_manifest.validate_network_schema(network_path).network_type
@@ -2100,9 +2101,7 @@ if __name__ == "__main__":
             if self._cache_hash_pending_keys == pending_keys:
                 return
 
-            for active_worker in self._cache_hash_workers.values():
-                active_worker.requestInterruption()
-            self._cache_hash_request_id += 1
+            self._cancel_cache_hashing()
             request_id = self._cache_hash_request_id
             self._cache_hash_pending_keys = pending_keys
             self._set_cache_unavailable("Checking input files…")
@@ -2110,11 +2109,19 @@ if __name__ == "__main__":
                 request_id,
                 sequence_path,
                 network_path,
+                pending_keys,
                 cached_records=cached_records,
             )
             self._cache_hash_workers[request_id] = worker
             worker.completed.connect(self._cache_hash_completed)
             worker.start()
+
+        def _cancel_cache_hashing(self):
+            """Stop any input hashing still running and ignore its result."""
+            self._cache_hash_request_id += 1
+            self._cache_hash_pending_keys = None
+            for worker in self._cache_hash_workers.values():
+                worker.requestInterruption()
 
         def create_inputs_tab(self):
             tab = QWidget()

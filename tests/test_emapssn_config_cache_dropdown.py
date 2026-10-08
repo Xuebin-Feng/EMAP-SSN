@@ -6,6 +6,9 @@ import tempfile
 import unittest
 from unittest import mock
 
+import h5py
+import numpy as np
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -1573,6 +1576,219 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             combo.setCurrentIndex(original_index)
             combo.blockSignals(False)
             self.window._toggle_new_cache_input()
+
+
+class CacheDiscoveryRaceTests(unittest.TestCase):
+    """Hashing left running for earlier inputs never decides the target cache.
+
+    Discovery hashes the selected FASTA and network in a CacheHashWorker,
+    unless both hashes are cached already; then it applies them at once. That
+    synchronous path used to leave the running worker's request current, so
+    the worker's late result was cached under the newly selected files and
+    shown for them. Here each worker hashes only when a test finishes it, on
+    the test's thread, so every interleaving is deterministic.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from utilities import Hardware_Acceleration as Hardware_Utils  # noqa: F401 - load torch before PySide6
+        from PySide6.QtWidgets import QApplication
+        from tests.config_gui_loader import load_config_namespace
+
+        cls.namespace = load_config_namespace()
+        cls.cache_manifest = cls.namespace["cache_manifest"]
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from tests.config_gui_loader import open_config_window
+
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        root = pathlib.Path(home.name)
+        self._defer_hashing()
+        self.window = open_config_window(self.namespace["ConfigGUI"], root)
+        self.addCleanup(self._close_window)
+
+        # Two FASTA files share one BLAST network, and each pair has its own
+        # compatible layout folder, so the tracker names the hashes it used.
+        self.work = root / "work"
+        self.work.mkdir()
+        (self.work / "a.fasta").write_text(">a1\nMKTAYIAK\n>a2\nMKTAYIAR\n", encoding="utf-8")
+        (self.work / "b.fasta").write_text(">b1\nMSDNELKQ\n>b2\nMSDNELKE\n", encoding="utf-8")
+        with h5py.File(self.work / "network.h5", "w") as network:
+            network.attrs["model_name"] = "BLAST"
+            network.create_dataset("headers", data=[b"a1", b"a2"])
+            network.create_dataset("i", data=np.asarray([0], dtype=np.uint16))
+            network.create_dataset("j", data=np.asarray([1], dtype=np.uint16))
+            network.create_dataset("score", data=np.asarray([1e-30]))
+        layouts = root / "layouts"
+        self.layout_folders = {
+            name: self._write_layout_folder(layouts, name)
+            for name in ("a.fasta", "b.fasta")
+        }
+        self.window.inputs["SAVED_LAYOUT_DIR"].setText(str(layouts))
+        self.window.inputs["FASTA_DIR"].setText(str(self.work))
+        self.window.inputs["HDF5_DIR"].setText(str(self.work))
+        self.window.cb_hdf5.setCurrentText("network.h5")
+
+    def _defer_hashing(self):
+        """Replace CacheHashWorker with one that hashes only when _finish() runs it."""
+        self.workers, self.interrupted = [], set()
+        workers, interrupted = self.workers, self.interrupted
+
+        class DeferredHashWorker(self.namespace["CacheHashWorker"]):
+            def start(self):
+                workers.append(self)
+
+            # A thread that never started ignores requestInterruption(), so
+            # keep the request where run() looks for it.
+            def requestInterruption(self):
+                interrupted.add(self.request_id)
+
+            def isInterruptionRequested(self):
+                return self.request_id in interrupted
+
+        patcher = mock.patch.dict(self.namespace, {"CacheHashWorker": DeferredHashWorker})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _write_layout_folder(self, layouts, fasta_name):
+        """Write a layout folder whose manifest matches this FASTA with the network."""
+        sequence = self.cache_manifest.fingerprint_file(self.work / fasta_name)
+        network = self.cache_manifest.fingerprint_file(self.work / "network.h5")
+        compatibility = self.cache_manifest.build_compatibility(
+            sequence["sha256"],
+            network["sha256"],
+            "blast",
+            **self.window._cache_setting_values(),
+        )
+        folder = layouts / f"{pathlib.Path(fasta_name).stem}_layout"
+        self.cache_manifest.write_manifest_atomic(
+            folder, self.cache_manifest.build_manifest(sequence, network, compatibility)
+        )
+        return folder
+
+    def _close_window(self):
+        self.window.close()
+        self.window.deleteLater()
+        self.app.processEvents()
+
+    def _select(self, fasta_name):
+        self.window.cb_fasta.setCurrentText(fasta_name)
+        self.assertEqual(self.window.cb_fasta.currentText(), fasta_name)
+
+    def _finish(self, worker):
+        """Hash and report on this thread, as the worker's own thread would."""
+        worker.run()
+        self.app.processEvents()
+
+    def _tracker(self):
+        return self.window.lbl_cache_tracker.text()
+
+    def _shown(self, fasta_name):
+        return f"Compatible Folder: {self.layout_folders[fasta_name].name}"
+
+    def test_hashing_left_running_for_earlier_inputs_never_overrides_cached_ones(self):
+        """a.fasta is still being hashed when b.fasta, already hashed, is chosen again."""
+        self._select("b.fasta")
+        self._finish(self.workers[-1])
+        self.assertEqual(self._tracker(), self._shown("b.fasta"))
+
+        self._select("a.fasta")
+        hashing_a = self.workers[-1]
+        request_a = hashing_a.request_id
+        self.assertEqual(self._tracker(), "Checking input files…")
+        self._select("b.fasta")
+        self.assertEqual(self._tracker(), self._shown("b.fasta"))
+
+        self._finish(hashing_a)
+        self.assertEqual(self._tracker(), self._shown("b.fasta"))
+        self.assertEqual(
+            pathlib.Path(self.window.current_cache_folder),
+            self.layout_folders["b.fasta"],
+        )
+        # Nor was a.fasta's hash cached for b.fasta: the next refresh agrees.
+        self.window.update_live_validators()
+        self.assertEqual(self._tracker(), self._shown("b.fasta"))
+        # The worker was told to stop, not left to hash for nothing.
+        self.assertIn(request_a, self.interrupted)
+
+    def test_inputs_whose_hashing_was_dropped_are_hashed_again(self):
+        self._select("b.fasta")
+        self._finish(self.workers[-1])
+        self._select("a.fasta")
+        dropped = self.workers[-1]
+        self._select("b.fasta")
+        self._select("a.fasta")
+        # The dropped worker's result will be ignored, so a.fasta needs another.
+        self.assertEqual(self._tracker(), "Checking input files…")
+        self.assertEqual(len(self.workers), 3)
+
+        self._finish(dropped)
+        self.assertEqual(self._tracker(), "Checking input files…")
+        self._finish(self.workers[-1])
+        self.assertEqual(self._tracker(), self._shown("a.fasta"))
+
+    def test_a_file_rewritten_while_it_is_hashed_is_hashed_again(self):
+        """Hashes are cached for the files as they were when hashing began,
+        never for whatever is on disk when the result arrives."""
+        a_fasta = self.work / "a.fasta"
+        fingerprint_file = self.cache_manifest.fingerprint_file
+
+        def fingerprint_then_rewrite(path, **options):
+            record = fingerprint_file(path, **options)
+            if os.path.basename(path) == "a.fasta":
+                # Replaced right after it was read: it now holds b.fasta's sequences.
+                a_fasta.write_bytes((self.work / "b.fasta").read_bytes())
+                modified = a_fasta.stat().st_mtime_ns + 5_000_000_000
+                os.utime(a_fasta, ns=(modified, modified))
+            return record
+
+        self._select("a.fasta")
+        with mock.patch.object(
+            self.cache_manifest, "fingerprint_file", side_effect=fingerprint_then_rewrite
+        ):
+            self._finish(self.workers[-1])
+        self.window.update_live_validators()  # as the next change in the window would
+        self.assertEqual(self._tracker(), "Checking input files…")
+        self.assertEqual(len(self.workers), 2)
+        self._finish(self.workers[-1])
+        self.assertEqual(self._tracker(), self._shown("b.fasta"))
+
+    def test_giving_up_on_the_selected_inputs_stops_their_hashing(self):
+        """However discovery gives up on the selected inputs, it stops the
+        worker hashing them and ignores that worker's result."""
+        window = self.window
+
+        def clear_the_selection():
+            window.cb_fasta.setCurrentText("")
+
+        def fail_to_read_the_inputs():
+            with mock.patch.object(
+                self.cache_manifest, "file_cache_key", side_effect=OSError("access denied")
+            ):
+                window.update_live_validators()
+
+        def choose_inputs_that_need_hashing():
+            window.cb_fasta.setCurrentText("b.fasta")
+
+        def remove_the_network():
+            (self.work / "network.h5").unlink()
+            window.update_live_validators()
+
+        for fasta_name, give_up, message in (
+            ("a.fasta", clear_the_selection, "Target Cache: Missing FASTA or HDF5"),
+            ("b.fasta", fail_to_read_the_inputs, "Cache input error: access denied"),
+            ("a.fasta", choose_inputs_that_need_hashing, "Checking input files…"),
+            ("a.fasta", remove_the_network, "Target Cache: Selected input file is missing"),
+        ):
+            with self.subTest(give_up.__name__):
+                self._select(fasta_name)
+                hashing = self.workers[-1]
+                give_up()
+                self.assertIn(hashing.request_id, self.interrupted)
+                self._finish(hashing)
+                self.assertEqual(self._tracker(), message)
 
 
 if __name__ == "__main__":

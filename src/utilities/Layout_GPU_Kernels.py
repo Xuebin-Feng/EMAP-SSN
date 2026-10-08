@@ -774,7 +774,7 @@ def _self_check_problem(dims):
     each other. A tenth of the nodes are inactive, and the node order
     interleaves the components.
     """
-    rng = np.random.default_rng(20261007)
+    rng = np.random.default_rng(42)
     offset = np.zeros(dims)
     offset[0] = 100.0
     blocks = [rng.normal(0.0, 0.35, (220, dims)), rng.normal(0.0, 6.0, (180, dims)),
@@ -804,7 +804,7 @@ def _tile_gap_problem(dims):
     and nothing else may be. The blobs are far apart along the first axis only,
     so the Morton sort keeps each one contiguous.
     """
-    rng = np.random.default_rng(20261008)
+    rng = np.random.default_rng(42)
     blocks = []
     for centre in (0.0, 12.0, 200.0, 212.0):
         block = rng.normal(0.0, 0.5, (TILE, dims))

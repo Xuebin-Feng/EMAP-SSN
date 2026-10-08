@@ -49,6 +49,12 @@ openpyxl==3.1.5
 pandas==3.0.6
 scikit-learn==1.9.1
 scipy==1.18.1
+# pyamg (MIT, CPU-only) is optional at runtime. Where it can be imported,
+# utilities/Spectral_Start.py preconditions the layout's LOBPCG spectral start
+# with a multigrid V-cycle on its aggregation hierarchy; without it, LOBPCG
+# runs unpreconditioned. pyamg 5.3.0 has cp313 wheels for Windows x64, Linux
+# x86_64 (manylinux_2_24) and macOS arm64, and needs only numpy and scipy.
+pyamg==5.3.0
 # Required for Transformers' sentencepiece-backed tokenizer conversion, not
 # optional. Transformers 5.x rebuilt T5Tokenizer on the Rust `tokenizers`
 # backend, so a model that ships only `spiece.model` and no `tokenizer.json`

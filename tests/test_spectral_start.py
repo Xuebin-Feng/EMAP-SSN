@@ -1,16 +1,26 @@
 """utilities.Spectral_Start: the spectral start's axes (the eigenvectors after
-the trivial one, from LOBPCG or ARPACK), its fallbacks, its determinism, the
-asinh spread of each axis, and the threaded Laplacian product."""
+the trivial one, from LOBPCG, AMG-preconditioned LOBPCG or ARPACK), its
+fallbacks, its determinism, the asinh spread of each axis, and the threaded
+Laplacian product.
+
+pyamg is optional. Tests marked as needing it skip without it; the others fake
+it, or hide it the way a missing package is hidden (sys.modules["pyamg"] = None).
+"""
+import contextlib
+import gc
 import io
 import os
 import platform
 import sys
+import types
 import unittest
+import weakref
 from contextlib import redirect_stdout
 from unittest import mock
 
 import numpy as np
 import scipy.linalg
+import scipy.sparse as sp
 import scipy.sparse.linalg
 
 
@@ -21,6 +31,46 @@ if SRC_DIR not in sys.path:
 
 from utilities import Hardware_Acceleration as Layout_Hardware  # noqa: E402
 from utilities import Spectral_Start  # noqa: E402
+
+try:
+    import pyamg
+except ImportError:
+    pyamg = None
+
+_ABSENT = object()
+
+
+@contextlib.contextmanager
+def pyamg_as(module):
+    """Make ``import pyamg`` give ``module``; None fails like a missing package.
+
+    Only the one entry is swapped and restored: mock.patch.dict(sys.modules)
+    would also drop every module first imported inside it."""
+    saved = sys.modules.get("pyamg", _ABSENT)
+    sys.modules["pyamg"] = module
+    try:
+        yield
+    finally:
+        if saved is _ABSENT:
+            sys.modules.pop("pyamg", None)
+        else:
+            sys.modules["pyamg"] = saved
+
+
+def amg_switched_off():
+    return mock.patch.dict(os.environ, {Spectral_Start.AMG_SWITCH_VARIABLE: "0"})
+
+
+def fake_pyamg(failure=None):
+    """A stand-in pyamg whose hierarchy setup raises ``failure``."""
+    module = types.ModuleType("pyamg")
+    module.__version__ = "0.0-test"
+
+    def smoothed_aggregation_solver(*args, **kwargs):
+        raise failure or AssertionError("the fake pyamg was asked for a hierarchy")
+
+    module.smoothed_aggregation_solver = smoothed_aggregation_solver
+    return module
 
 
 def clustered_graph(sizes, seed=3, links=3, chords=2):
@@ -67,6 +117,35 @@ def solve(dimensions, seed=7, graph=GRAPH, verbose=False):
     return axes, output.getvalue()
 
 
+def first_block(seed=5, nodes=GRAPH[2], width=6):
+    """The start block a solve draws first from ``default_rng(seed)``."""
+    return np.random.default_rng(seed).standard_normal((nodes, width))
+
+
+class LobpcgRecorder:
+    """Stands in for scipy's lobpcg: records each call's start block (LOBPCG
+    overwrites it) and whether it was preconditioned, then runs the real
+    solver. With ``reject_preconditioned``, a preconditioned solve's result is
+    spoiled so that the residual check rejects it."""
+
+    def __init__(self, reject_preconditioned=False):
+        self.calls = []
+        self.reject_preconditioned = reject_preconditioned
+        self.real = scipy.sparse.linalg.lobpcg
+
+    def __call__(self, operator, start, **kwargs):
+        preconditioned = kwargs.get("M") is not None
+        self.calls.append((start.copy(), preconditioned))
+        values, vectors = self.real(operator, start, **kwargs)
+        if preconditioned and self.reject_preconditioned:
+            vectors = vectors.copy()
+            vectors[:, 0] += np.random.default_rng(0).normal(0.0, 1e-3, len(vectors))
+        return values, vectors
+
+    def preconditioned(self):
+        return [preconditioned for _, preconditioned in self.calls]
+
+
 class IntendedAxesTests(unittest.TestCase):
     def test_the_trivial_vector_is_dropped_wherever_the_solver_returns_it(self):
         for dimensions in (2, 3):
@@ -106,7 +185,7 @@ class SolverAgreementTests(unittest.TestCase):
 
     def test_lobpcg_matches_dense_eigh(self):
         for dimensions in (2, 3):
-            with mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100), \
+            with amg_switched_off(), mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100), \
                     mock.patch.object(scipy.sparse.linalg, "lobpcg",
                                       wraps=scipy.sparse.linalg.lobpcg) as lobpcg, \
                     mock.patch.object(scipy.sparse.linalg, "eigsh",
@@ -129,7 +208,7 @@ class SolverAgreementTests(unittest.TestCase):
 
     def test_a_large_components_batch_starts_from_lobpcg(self):
         edges, scores, nodes = GRAPH
-        with mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100), \
+        with amg_switched_off(), mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100), \
                 mock.patch.object(scipy.sparse.linalg, "lobpcg",
                                   wraps=scipy.sparse.linalg.lobpcg) as lobpcg, \
                 redirect_stdout(io.StringIO()):
@@ -139,7 +218,7 @@ class SolverAgreementTests(unittest.TestCase):
         self.assertEqual(lobpcg.call_count, 1)
 
     def test_a_component_of_exactly_the_lobpcg_size_uses_lobpcg(self):
-        with mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", GRAPH[2]), \
+        with amg_switched_off(), mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", GRAPH[2]), \
                 mock.patch.object(scipy.sparse.linalg, "lobpcg",
                                   wraps=scipy.sparse.linalg.lobpcg) as lobpcg:
             solve(2)
@@ -181,7 +260,7 @@ class FallbackTests(unittest.TestCase):
         }
         _, vectors, _ = dense_pairs(*GRAPH, 2)
         for name, patch in cases.items():
-            with self.subTest(name), patch, \
+            with self.subTest(name), patch, amg_switched_off(), \
                     mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100), \
                     mock.patch.object(scipy.sparse.linalg, "eigsh",
                                       wraps=scipy.sparse.linalg.eigsh) as eigsh:
@@ -206,6 +285,21 @@ class DeterminismTests(unittest.TestCase):
                 second, _ = solve(2)
             np.testing.assert_array_equal(first, second)
 
+    def test_the_axes_do_not_depend_on_the_thread_count(self):
+        # Every threaded step (the Laplacian products, the l1 row sums) is a
+        # row-wise gather: one thread adds each output row in storage order.
+        modes = [("plain", amg_switched_off())]
+        if pyamg is not None:
+            modes.append(("AMG", mock.patch.object(Spectral_Start, "AMG_MAX_COARSE", 40)))
+        for name, mode in modes:
+            with self.subTest(name), mode, \
+                    mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100):
+                default, _ = solve(2)
+                with mock.patch.object(Spectral_Start.Numba_Threads, "default_thread_count",
+                                       return_value=1):
+                    single, _ = solve(2)
+                np.testing.assert_array_equal(single, default)
+
     def test_the_fallback_continues_the_same_stream(self):
         with mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100), \
                 mock.patch.object(scipy.sparse.linalg, "lobpcg",
@@ -217,6 +311,243 @@ class DeterminismTests(unittest.TestCase):
         rng.standard_normal((GRAPH[2], 6))              # LOBPCG's start block
         np.testing.assert_array_equal(eigsh.call_args.kwargs["v0"],
                                       rng.standard_normal(GRAPH[2]))
+
+
+class AmgFallbackTests(unittest.TestCase):
+    """Without pyamg, with SSN_SPECTRAL_AMG=0, or when the AMG-preconditioned
+    solve fails or is rejected, plain LOBPCG runs from the same start block:
+    the same bits as a machine without pyamg. Runs with or without pyamg."""
+
+    def setUp(self):
+        patcher = mock.patch.object(Spectral_Start, "LOBPCG_MIN_NODES", 100)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def without_pyamg(seed=5):
+        with pyamg_as(None):
+            return solve(2, seed=seed)[0]
+
+    def test_without_pyamg_lobpcg_runs_unpreconditioned_from_the_first_block(self):
+        recorder = LobpcgRecorder()
+        with pyamg_as(None), mock.patch.object(scipy.sparse.linalg, "lobpcg", side_effect=recorder):
+            axes, log = solve(2, seed=5, verbose=True)
+        self.assertEqual(recorder.preconditioned(), [False])
+        np.testing.assert_array_equal(recorder.calls[0][0], first_block())
+        self.assertIn("LOBPCG without a preconditioner (pyamg is not installed).", log)
+        laplacian, root_degree = Spectral_Start.normalized_laplacian(*GRAPH)
+        expected, _ = Spectral_Start._lobpcg_axes(laplacian.tocsr(), root_degree, 2, first_block())
+        np.testing.assert_array_equal(axes, expected)
+
+    def test_the_switch_turns_amg_off_where_pyamg_is_installed(self):
+        stand_in = fake_pyamg()      # fails the test if asked for a hierarchy
+        for value in ("0", "off", "False", " no "):
+            with self.subTest(value=value), pyamg_as(stand_in), \
+                    mock.patch.dict(os.environ, {Spectral_Start.AMG_SWITCH_VARIABLE: value}):
+                self.assertEqual(Spectral_Start.amg_module(),
+                                 (None, "disabled by SSN_SPECTRAL_AMG"))
+                axes, log = solve(2, seed=5, verbose=True)
+                self.assertIn("LOBPCG without a preconditioner (disabled by SSN_SPECTRAL_AMG).", log)
+                np.testing.assert_array_equal(axes, self.without_pyamg())
+        for value in ("", "1", "on"):
+            with self.subTest(value=value), pyamg_as(stand_in), \
+                    mock.patch.dict(os.environ, {Spectral_Start.AMG_SWITCH_VARIABLE: value}):
+                self.assertEqual(Spectral_Start.amg_module(), (stand_in, None))
+
+    def test_a_broken_pyamg_install_is_reported_not_raised(self):
+        real_import = __import__
+
+        def broken(name, *args, **kwargs):
+            if name == "pyamg":
+                raise OSError("DLL load failed")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=broken):
+            self.assertEqual(Spectral_Start.amg_module(),
+                             (None, "pyamg failed to import (OSError: DLL load failed)"))
+
+    def test_a_failing_amg_setup_retries_plain_lobpcg_with_the_same_block(self):
+        recorder = LobpcgRecorder()
+        with pyamg_as(fake_pyamg(MemoryError("hierarchy"))), \
+                mock.patch.object(scipy.sparse.linalg, "lobpcg", side_effect=recorder):
+            axes, log = solve(2, seed=5, verbose=True)
+        self.assertEqual(recorder.preconditioned(), [False])
+        np.testing.assert_array_equal(recorder.calls[0][0], first_block())
+        self.assertIn("LOBPCG with the AMG preconditioner failed (MemoryError: hierarchy); "
+                      "retrying without it.", log)
+        self.assertIn("LOBPCG without a preconditioner.", log)
+        np.testing.assert_array_equal(axes, self.without_pyamg())
+
+    def test_a_rejected_amg_result_retries_plain_lobpcg_with_the_same_block(self):
+        recorder = LobpcgRecorder(reject_preconditioned=True)
+        identity = scipy.sparse.linalg.aslinearoperator(sp.identity(GRAPH[2]))
+        with pyamg_as(fake_pyamg()), \
+                mock.patch.object(Spectral_Start, "amg_preconditioner", return_value=identity), \
+                mock.patch.object(scipy.sparse.linalg, "lobpcg", side_effect=recorder):
+            axes, log = solve(2, seed=5, verbose=True)
+        self.assertEqual(recorder.preconditioned(), [True, False])
+        for start, _ in recorder.calls:     # the retry gets the block untouched
+            np.testing.assert_array_equal(start, first_block())
+        self.assertIn("LOBPCG with the AMG preconditioner did not converge", log)
+        np.testing.assert_array_equal(axes, self.without_pyamg())
+
+    def test_arpack_still_comes_last_and_continues_the_stream(self):
+        with pyamg_as(fake_pyamg(RuntimeError("no hierarchy"))), \
+                mock.patch.object(scipy.sparse.linalg, "lobpcg",
+                                  side_effect=RuntimeError("diverged")), \
+                mock.patch.object(scipy.sparse.linalg, "eigsh",
+                                  wraps=scipy.sparse.linalg.eigsh) as eigsh:
+            _, log = solve(2, seed=11, verbose=True)
+        rng = np.random.default_rng(11)
+        rng.standard_normal((GRAPH[2], 6))              # the one start block
+        self.assertEqual(eigsh.call_count, 1)
+        np.testing.assert_array_equal(eigsh.call_args.kwargs["v0"], rng.standard_normal(GRAPH[2]))
+        self.assertLess(log.index("retrying without it"), log.index("using ARPACK instead"))
+
+
+@unittest.skipIf(pyamg is None, "pyamg is not installed")
+class AmgSolveTests(unittest.TestCase):
+    """LOBPCG preconditioned with the V-cycle on pyamg's hierarchy. The test
+    graph is coarsened over several levels, as a large component would be."""
+
+    def setUp(self):
+        for name, value in (("LOBPCG_MIN_NODES", 100), ("AMG_MAX_COARSE", 40)):
+            patcher = mock.patch.object(Spectral_Start, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_amg_lobpcg_matches_dense_eigh(self):
+        depths = []
+        real = pyamg.smoothed_aggregation_solver
+
+        def counted(*args, **kwargs):
+            hierarchy = real(*args, **kwargs)
+            depths.append(len(hierarchy.levels))
+            return hierarchy
+
+        for dimensions in (2, 3):
+            recorder = LobpcgRecorder()
+            with mock.patch.object(pyamg, "smoothed_aggregation_solver", side_effect=counted), \
+                    mock.patch.object(scipy.sparse.linalg, "lobpcg", side_effect=recorder), \
+                    mock.patch.object(scipy.sparse.linalg, "eigsh",
+                                      side_effect=AssertionError("ARPACK ran")):
+                axes, log = solve(dimensions, verbose=True)
+            self.assertEqual(recorder.preconditioned(), [True])
+            self.assertIn(f"LOBPCG with an AMG preconditioner (pyamg {pyamg.__version__}).", log)
+            _, vectors, _ = dense_pairs(*GRAPH, dimensions)
+            for value in cosines(axes, vectors[:, 1:dimensions + 1]):
+                self.assertGreater(value, 1 - 1e-8)
+        self.assertTrue(all(depth >= 3 for depth in depths), depths)
+
+    def test_the_v_cycle_contracts_the_error_off_sqrt_degree(self):
+        # The error after one cycle, I - M L, shrinks every direction but
+        # sqrt(degree): by about 0.91 here, against 0.999 for the smoothing
+        # alone. With a one-row coarsest level, that row is sqrt(degree)'s
+        # image, so its inverse is all rounding unless that direction is removed.
+        laplacian, root_degree = Spectral_Start.normalized_laplacian(*GRAPH)
+        csr = laplacian.tocsr()
+        unit = root_degree / np.linalg.norm(root_degree)
+        outside = np.eye(GRAPH[2]) - np.outer(unit, unit)
+        for coarse_rows in (40, 1):
+            with self.subTest(coarse_rows=coarse_rows), \
+                    mock.patch.object(Spectral_Start, "AMG_MAX_COARSE", coarse_rows):
+                preconditioner = Spectral_Start.amg_preconditioner(pyamg, csr, root_degree)
+                error = outside @ (np.eye(GRAPH[2]) - preconditioner @ csr.toarray()) @ outside
+                self.assertLess(max(abs(np.linalg.eigvals(error))), 0.95)
+
+    def test_a_single_level_is_the_pseudo_inverse_off_sqrt_degree(self):
+        # Checked against its definition: numpy.linalg.pinv is no reference here,
+        # as its cutoff keeps sqrt(degree)'s rounding-level singular value
+        # (|L x - b| about 0.02 and x . sqrt(degree) about 9 on this graph).
+        laplacian, root_degree = Spectral_Start.normalized_laplacian(*GRAPH)
+        with mock.patch.object(Spectral_Start, "AMG_MAX_COARSE", GRAPH[2]):
+            preconditioner = Spectral_Start.amg_preconditioner(pyamg, laplacian.tocsr(), root_degree)
+        unit = root_degree / np.linalg.norm(root_degree)
+        block = np.random.default_rng(8).standard_normal((GRAPH[2], 3))
+        block -= np.outer(unit, unit @ block)
+        solved = preconditioner @ block
+        np.testing.assert_allclose(laplacian @ solved, block, rtol=0, atol=1e-9)
+        self.assertLess(np.abs(unit @ solved).max(), 1e-9)
+
+    def test_a_matrix_small_enough_to_be_the_coarsest_level_is_solved_densely(self):
+        recorder = LobpcgRecorder()
+        with mock.patch.object(Spectral_Start, "AMG_MAX_COARSE", GRAPH[2]), \
+                mock.patch.object(scipy.sparse.linalg, "lobpcg", side_effect=recorder):
+            axes, _ = solve(2)
+        self.assertEqual(recorder.preconditioned(), [True])
+        _, vectors, _ = dense_pairs(*GRAPH, 2)
+        for value in cosines(axes, vectors[:, 1:3]):
+            self.assertGreater(value, 1 - 1e-8)
+
+    def test_the_hierarchy_is_built_without_random_numbers_or_matrix_copies(self):
+        with mock.patch.object(pyamg, "smoothed_aggregation_solver",
+                               wraps=pyamg.smoothed_aggregation_solver) as built:
+            solve(2)
+        options = built.call_args.kwargs
+        self.assertEqual({key: options[key] for key in
+                          ("strength", "smooth", "improve_candidates", "max_coarse")},
+                         {"strength": None, "smooth": None, "improve_candidates": None,
+                          "max_coarse": 40})
+        _, _, root_degree = dense_pairs(*GRAPH, 2)
+        np.testing.assert_array_equal(options["B"][:, 0], root_degree)
+
+    def test_the_v_cycle_is_symmetric_and_positive_off_sqrt_degree(self):
+        laplacian, root_degree = Spectral_Start.normalized_laplacian(*GRAPH)
+        preconditioner = Spectral_Start.amg_preconditioner(pyamg, laplacian.tocsr(), root_degree)
+        rng = np.random.default_rng(3)
+        left, right = rng.standard_normal((GRAPH[2], 3)), rng.standard_normal((GRAPH[2], 3))
+        np.testing.assert_allclose(left.T @ (preconditioner @ right),
+                                   (preconditioner @ left).T @ right, rtol=1e-10, atol=1e-12)
+        unit = root_degree / np.linalg.norm(root_degree)
+        block = right - np.outer(unit, unit @ right)
+        self.assertTrue((np.einsum("ij,ij->j", block, preconditioner @ block) > 0).all())
+        # One vector and a block take the same path (BLAS may round them differently).
+        np.testing.assert_allclose(preconditioner @ right[:, 0], (preconditioner @ right)[:, 0],
+                                   rtol=1e-12, atol=1e-14)
+
+    def test_amg_starts_are_reproducible_and_leave_numpys_generator_alone(self):
+        np.random.seed(1)
+        before = np.random.get_state()
+        first, _ = solve(2)
+        after = np.random.get_state()
+        self.assertEqual((before[0],) + before[2:], (after[0],) + after[2:])
+        np.testing.assert_array_equal(before[1], after[1])
+        np.random.seed(2)
+        second, _ = solve(2)
+        np.testing.assert_array_equal(first, second)
+
+    def test_stalled_coarsening_falls_back_to_plain_lobpcg(self):
+        recorder = LobpcgRecorder()
+        with mock.patch.object(Spectral_Start, "AMG_COARSEST_LIMIT", 1), \
+                mock.patch.object(scipy.sparse.linalg, "lobpcg", side_effect=recorder):
+            axes, log = solve(2, seed=5, verbose=True)
+        self.assertEqual(recorder.preconditioned(), [False])
+        self.assertIn("coarsening stalled", log)
+        np.testing.assert_array_equal(axes, AmgFallbackTests.without_pyamg())
+
+    def test_the_hierarchy_and_preconditioner_are_released_before_returning(self):
+        hierarchies, preconditioners = [], []
+        real_hierarchy, real_preconditioner = (pyamg.smoothed_aggregation_solver,
+                                               Spectral_Start.amg_preconditioner)
+
+        def tracked_hierarchy(*args, **kwargs):
+            hierarchy = real_hierarchy(*args, **kwargs)
+            hierarchies.append(weakref.ref(hierarchy))
+            return hierarchy
+
+        def tracked_preconditioner(*args, **kwargs):
+            operator = real_preconditioner(*args, **kwargs)
+            preconditioners.append(weakref.ref(operator))
+            return operator
+
+        with mock.patch.object(pyamg, "smoothed_aggregation_solver", side_effect=tracked_hierarchy), \
+                mock.patch.object(Spectral_Start, "amg_preconditioner",
+                                  side_effect=tracked_preconditioner):
+            solve(2)
+        # Released by reference counting as the solve returns: no gc.collect().
+        self.assertEqual([len(hierarchies), len(preconditioners)], [1, 1])
+        self.assertIsNone(hierarchies[0]())
+        self.assertIsNone(preconditioners[0]())
 
 
 class AsinhScalingTests(unittest.TestCase):
@@ -331,6 +662,18 @@ class ProductTests(unittest.TestCase):
                                   side_effect=AssertionError("the Numba loop ran")):
             operator = Spectral_Start.laplacian_operator(csr)
             np.testing.assert_array_equal(operator @ block, csr @ block)
+
+    def test_l1_jacobi_weights_are_inverse_absolute_row_sums(self):
+        laplacian, _ = Spectral_Start.normalized_laplacian(*GRAPH)
+        csr = laplacian.tocsr()
+        expected = 1.0 / np.asarray(abs(csr).sum(axis=1)).ravel()
+        np.testing.assert_allclose(Spectral_Start._inverse_absolute_row_sums(csr), expected,
+                                   rtol=1e-15, atol=0)
+        with mock.patch.object(Spectral_Start, "NUMBA_AVAILABLE", False), \
+                mock.patch.object(Spectral_Start, "_absolute_row_sums",
+                                  side_effect=AssertionError("the Numba loop ran")):
+            np.testing.assert_allclose(Spectral_Start._inverse_absolute_row_sums(csr), expected,
+                                       rtol=1e-15, atol=0)
 
 
 if __name__ == "__main__":

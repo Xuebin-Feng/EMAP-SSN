@@ -563,6 +563,16 @@ still change before version 1.0.0.
   Occupancy % and Alignment Offset fields stack, the Alignment Offset field stayed
   100 px wide instead of reaching the right edge like the others. It now does; in a
   wide window it keeps its 100 px beside the other two.
+- Config and VR Config could point the Target Cache, and so Save & Run, at the layout
+  folder of inputs that were no longer selected. When other inputs were chosen while the
+  selected FASTA or network was still being checked, and those inputs had been checked
+  before, their folder showed at once; but the earlier check went on, and when it
+  finished it replaced that folder with the one for its own inputs. Its result was also
+  kept for the newly selected files, so the wrong folder came back whenever they were
+  selected again, until Config was restarted. Choosing other inputs now stops the
+  earlier check and ignores its result, and a file that changes while it is being
+  checked is checked again at the next change in the window instead of keeping the
+  result for its earlier content.
 - `Network_Extraction.py` left whitelist sequences out of the sub-network. It read the
   whitelist FASTA as plain UTF-8, so a file saved with a byte-order mark, as Windows
   Notepad can write, lost its first record without any message. It also compared
