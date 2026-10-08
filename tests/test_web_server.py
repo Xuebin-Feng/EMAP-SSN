@@ -383,6 +383,24 @@ class StaticRouteContainmentTests(unittest.TestCase):
                 self.assertNotIn(withheld, body)
                 self.assertEqual(reply_status, status)
 
+    def make_link(self, link, target, junction=False):
+        """Point ``link`` at ``target``; it is removed before the fixture folder.
+
+        Windows lets only administrators and Developer Mode create symbolic
+        links, so the test is skipped without that privilege. Junctions need
+        none.
+        """
+        if junction:
+            import _winapi
+            _winapi.CreateJunction(str(target), str(link))
+        else:
+            try:
+                os.symlink(target, link, target_is_directory=target.is_dir())
+            except OSError as error:
+                self.skipTest(f'this account cannot create symbolic links: {error}')
+        # On Windows rmdir removes a folder link or junction, never its target.
+        self.addCleanup(os.rmdir if os.name == 'nt' and target.is_dir() else os.unlink, link)
+
     def test_route_serves_files_inside_its_directory(self):
         self.assertEqual(self.get('/files/ok.txt'), (200, b'served'))
 
@@ -431,6 +449,33 @@ class StaticRouteContainmentTests(unittest.TestCase):
         # Windows opens NUL in any folder as the \\.\nul device, which lies on
         # no drive.
         self.assert_replies({'/files/nul': 403, '/files/sub/NUL': 403}, self.SECRET)
+
+    def test_links_out_of_the_directory_are_refused(self):
+        root = self.secret.parent
+        self.make_link(root / 'files' / 'file-link.txt', root / 'files_secret.txt')
+        self.make_link(root / 'files' / 'folder-link', root / 'files-private')
+        self.assert_replies({
+            '/files/file-link.txt': 403,
+            '/files/folder-link/key.txt': 403,
+        }, self.SECRET)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows junctions')
+    def test_junctions_out_of_the_directory_are_refused(self):
+        root = self.secret.parent
+        self.make_link(root / 'files' / 'junction', root / 'files-private', junction=True)
+        self.assert_replies({'/files/junction/key.txt': 403}, self.SECRET)
+
+    def test_a_route_directory_reached_through_a_link_is_served(self):
+        # Such as a cache folder moved to another drive and linked back.
+        root = self.secret.parent
+        self.make_link(root / 'linked', root / 'files', junction=os.name == 'nt')
+        self.server.static_routes['/linked/'] = str(root / 'linked')
+        self.assertEqual(self.get('/linked/ok.txt'), (200, b'served'))
+
+    def test_links_that_stay_inside_the_directory_are_served(self):
+        files = self.secret.parent / 'files'
+        self.make_link(files / 'alias.txt', files / 'ok.txt')
+        self.assertEqual(self.get('/files/alias.txt'), (200, b'served'))
 
     def test_names_are_not_percent_decoded(self):
         # %2e%2e is looked up as a literal name inside the route directory.

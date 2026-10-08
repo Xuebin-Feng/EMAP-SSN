@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from collections.abc import Callable, Mapping
 from urllib.parse import urlparse
 
@@ -85,8 +86,38 @@ def validate_api_settings(settings: Mapping) -> dict[str, str]:
     }
 
 
+# A write saves to a temporary sibling, .<name>.<random>.tmp, and renames it
+# over the settings file. Only a hard kill in between leaves the sibling
+# behind; a write takes milliseconds, so one older than this belongs to no
+# write in progress.
+_STALE_TEMPORARY_SECONDS = 60
+
+
+def _remove_stale_temporaries(path):
+    """Delete temporary siblings of path that an interrupted write left behind.
+
+    They hold the API token, so they are removed unread.
+    """
+    directory = os.path.dirname(os.path.abspath(path))
+    prefix = f".{os.path.basename(path)}."
+    cutoff = time.time() - _STALE_TEMPORARY_SECONDS
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return
+    for entry in entries:
+        if not (entry.name.startswith(prefix) and entry.name.endswith(".tmp")):
+            continue
+        try:
+            if entry.is_file(follow_symlinks=False) and entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                os.unlink(entry.path)
+        except OSError:
+            pass
+
+
 def read_api_settings(path=API_SETTINGS_FILE) -> dict[str, str] | None:
     """Read one settings file, returning ``None`` only when it is absent."""
+    _remove_stale_temporaries(path)
     if not os.path.exists(path):
         return None
     try:
@@ -107,6 +138,7 @@ def write_api_settings(settings: Mapping, path=API_SETTINGS_FILE) -> dict[str, s
     normalized = validate_api_settings(settings)
     directory = os.path.dirname(os.path.abspath(path))
     os.makedirs(directory, exist_ok=True)
+    _remove_stale_temporaries(path)
 
     descriptor = None
     temporary_path = None

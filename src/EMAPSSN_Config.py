@@ -30,6 +30,7 @@ import math
 import os
 import re
 import tempfile
+import time
 from types import SimpleNamespace
 import traceback
 from pathlib import Path
@@ -334,9 +335,33 @@ def _validate_profile_name(name, existing_names=()):
     return normalized
 
 
+# A save writes a temporary sibling, .<name>.<random>.partial, and renames it
+# into place. Only a hard kill in between leaves the sibling behind; a save
+# takes milliseconds, so one older than this belongs to no save in progress.
+_STALE_PARTIAL_SECONDS = 60
+
+
+def _remove_stale_partials(path):
+    """Delete temporary siblings of path that an interrupted save left behind."""
+    prefix, cutoff = f".{path.name}.", time.time() - _STALE_PARTIAL_SECONDS
+    try:
+        entries = list(os.scandir(path.parent))
+    except OSError:
+        return
+    for entry in entries:
+        if not (entry.name.startswith(prefix) and entry.name.endswith(".partial")):
+            continue
+        try:
+            if entry.is_file(follow_symlinks=False) and entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                os.unlink(entry.path)
+        except OSError:
+            pass
+
+
 def _atomic_write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _remove_stale_partials(path)
     descriptor, temporary_path = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".partial", dir=str(path.parent)
     )

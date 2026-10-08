@@ -6,21 +6,39 @@
 _normalize_profile_data coerces and validates a saved or custom profile, and
 how _custom_profile_data falls back to the defaults. Both read only their
 arguments and the window's _custom_settings, so the tests call them on the
-loaded class with a stand-in window instead of building one."""
+loaded class with a stand-in window instead of building one. Also how
+_atomic_write_json, which saves profiles and exports, replaces a file whole and
+clears temporary copies an interrupted save left behind."""
 
+import functools
 import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest import mock
 
 from tests.config_gui_loader import load_config_namespace
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@functools.lru_cache(maxsize=None)
+def config_namespace():
+    """EMAPSSN_Config's module namespace, loaded once for this module's tests."""
+    with redirect_stdout(io.StringIO()):
+        return load_config_namespace()
 
 
 class ProfileNormalizationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        with redirect_stdout(io.StringIO()):
-            namespace = load_config_namespace()
+        namespace = config_namespace()
         cls.gui = namespace["ConfigGUI"]
         cls.defaults = {
             tab_id: spec["defaults"]
@@ -144,6 +162,55 @@ class ProfileNormalizationTests(unittest.TestCase):
             "Invalid custom settings for visual_effects; using defaults: "
             "invalid value for NODE_SIZE: expected an integer\n",
         )
+
+
+class AtomicWriteTests(unittest.TestCase):
+    """_atomic_write_json clears the temporary copies an interrupted save left."""
+
+    def interrupted_save(self, target):
+        """Stop a save as a hard kill or Ctrl+C would, before the rename; return its copy."""
+        class Killed(BaseException):
+            pass
+
+        before = set(target.parent.iterdir())
+        with mock.patch.object(os, "replace", side_effect=Killed), self.assertRaises(Killed):
+            config_namespace()["_atomic_write_json"](target, {"NODE_SIZE": 11})
+        [leftover] = set(target.parent.iterdir()) - before
+        return leftover
+
+    def test_a_save_removes_stale_temporary_copies_but_not_recent_ones(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "viewer_settings.json"
+            stale = self.interrupted_save(target)
+            recent = self.interrupted_save(target)
+            # Another file's copy is not this save's to remove, however old.
+            other = Path(folder) / ".layout_settings.json.1234.partial"
+            other.write_text("{", encoding="utf-8")
+            old = time.time() - 2 * config_namespace()["_STALE_PARTIAL_SECONDS"]
+            for path in (stale, other):
+                os.utime(path, (old, old))
+
+            config_namespace()["_atomic_write_json"](target, {"NODE_SIZE": 12})
+
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"NODE_SIZE": 12})
+            self.assertEqual(
+                sorted(path.name for path in Path(folder).iterdir()),
+                sorted([target.name, recent.name, other.name]),
+            )
+
+    def test_an_interrupted_save_copy_cannot_be_committed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            name = self.interrupted_save(Path(folder) / "viewer_settings.json").name
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(ROOT), "check-ignore", "--no-index", "--quiet", "--", name],
+                capture_output=True,
+            )
+        except OSError:
+            self.skipTest("git is not installed")
+        if result.returncode not in (0, 1):
+            self.skipTest("not a git checkout")
+        self.assertEqual(result.returncode, 0, f"{name} is not git-ignored")
 
 
 if __name__ == "__main__":

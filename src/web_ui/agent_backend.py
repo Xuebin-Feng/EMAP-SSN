@@ -30,6 +30,7 @@ import urllib.error
 import gc
 import re
 import tempfile
+import time
 import uuid
 
 # src/ directory so we can resolve sibling packages regardless of cwd.
@@ -57,13 +58,49 @@ def _is_card_list(cards):
     return isinstance(cards, list) and all(isinstance(card, dict) for card in cards)
 
 
+# A save writes the new cards to a temporary sibling, .model_card.json.<random>
+# .partial, and renames it over model_card.json. Only a hard kill in between
+# leaves that sibling behind; a save takes milliseconds, so one older than
+# this belongs to no save in progress.
+_STALE_PARTIAL_SECONDS = 60
+
+
+def _partial_prefix(path):
+    return f".{os.path.basename(path)}."
+
+
+def _remove_stale_partials(path):
+    """Delete temporary siblings of path that an interrupted save left behind.
+
+    They hold the cards, API keys included, so they go unread. .gitignore
+    keeps them out of commits until then.
+    """
+    directory, prefix = os.path.dirname(path), _partial_prefix(path)
+    cutoff = time.time() - _STALE_PARTIAL_SECONDS
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return
+    for entry in entries:
+        if not (entry.name.startswith(prefix) and entry.name.endswith(".partial")):
+            continue
+        try:
+            if entry.is_file(follow_symlinks=False) and entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                os.unlink(entry.path)
+        except OSError:
+            pass
+
+
 def _read_model_card_document(path):
     """Return the saved document, or None when there is no file yet.
 
     A file that cannot be read, is not valid JSON, or is not an object whose
     "cards" (when present) is a list of objects raises ModelCardsError. Its
     cards and API keys may still be recoverable, so nothing replaces it.
+    Stale temporary files of an interrupted save are removed first.
     """
+    _remove_stale_partials(path)
+
     def unusable(problem):
         return ModelCardsError(
             f"{path} {problem}. The file was left unchanged: correct it, or "
@@ -115,7 +152,7 @@ def save_model_cards(cards):
     document = _read_model_card_document(path) or {}
     document["cards"] = cards
     descriptor, partial_path = tempfile.mkstemp(
-        prefix=f".{os.path.basename(path)}.", suffix=".partial", dir=os.path.dirname(path)
+        prefix=_partial_prefix(path), suffix=".partial", dir=os.path.dirname(path)
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as f:

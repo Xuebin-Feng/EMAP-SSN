@@ -168,7 +168,9 @@ class JobProcessTreeTests(unittest.IsolatedAsyncioTestCase):
 
     async def _assert_all_ended(self, processes, started):
         remaining = TERMINATION_GRACE + 5.0 - (time.monotonic() - started)
-        survivors = await asyncio.to_thread(_survivors, processes, max(remaining, 0.0))
+        # Waiting until the processes end by themselves is not stopping them.
+        self.assertGreater(remaining, 0.0, "Stopping the job outlasted its grace period by 5 s.")
+        survivors = await asyncio.to_thread(_survivors, processes, remaining)
         self.assertEqual(
             [],
             [_describe(process) for process in survivors],

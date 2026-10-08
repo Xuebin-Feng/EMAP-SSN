@@ -12,6 +12,7 @@ import ntpath
 import os
 import pathlib
 import posixpath
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -35,6 +36,7 @@ from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     load_tool_settings,
     project_directory_defaults,
     read_settings_document,
+    read_shared_settings,
     save_shared_directories,
     save_shared_tool_settings,
     select_settings_path,
@@ -459,6 +461,18 @@ class SharedToolSettingsTests(unittest.TestCase):
             "Generate_Embeddings.py": {"MODEL_NAME": "esm2_t6_8m", "BATCH_SIZE": 4},
         })
 
+    def test_reading_keeps_saved_values_and_loading_fills_directories(self):
+        saved = {"DIRECTORIES": {"FASTA_DIR": "", "MSA_DIR": "custom"}, "Embedding_MSA.py": {}}
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(read_shared_settings(root), {})
+            self.write_shared(root, json.dumps(saved))
+
+            self.assertEqual(read_shared_settings(root), saved)
+            self.assertEqual(
+                load_shared_settings(root)["DIRECTORIES"],
+                {**DEFAULT_DIRECTORY_PATHS, "MSA_DIR": "custom"},
+            )
+
     def test_saving_directories_replaces_only_that_section(self):
         with tempfile.TemporaryDirectory() as root:
             path = self.write_shared(root, json.dumps({
@@ -497,10 +511,11 @@ class SharedToolSettingsTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as root:
                 path = pathlib.Path(root) / "tools_settings.json"
                 path.write_bytes(content)
-                with self.subTest(label, load=True), self.assertRaisesRegex(
-                    ToolSettingsError, reason
-                ):
-                    load_shared_settings(root)
+                for read in (read_shared_settings, load_shared_settings):
+                    with self.subTest(label, read=read.__name__), self.assertRaisesRegex(
+                        ToolSettingsError, reason
+                    ):
+                        read(root)
                 for writer, save in self.saves(root).items():
                     with self.subTest(label, writer=writer):
                         with self.assertRaisesRegex(ToolSettingsError, "tools_settings.json"):
@@ -522,6 +537,27 @@ class SharedToolSettingsTests(unittest.TestCase):
                     self.saves(root)[writer]()
                 self.assertEqual(path.read_text(encoding="utf-8"), original)
                 self.assertEqual(os.listdir(root), ["tools_settings.json"])
+
+    def test_an_interrupted_save_copy_cannot_be_committed(self):
+        class Killed(BaseException):
+            pass
+
+        # A hard kill between writing the copy and the rename leaves the copy.
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.object(os, "replace", side_effect=Killed), \
+                    mock.patch.object(os, "unlink"), self.assertRaises(Killed):
+                self.saves(root)["tool section"]()
+            [leftover] = os.listdir(root)
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(PROJECT_ROOT), "check-ignore", "--no-index", "--quiet", "--", leftover],
+                capture_output=True,
+            )
+        except OSError:
+            self.skipTest("git is not installed")
+        if result.returncode not in (0, 1):
+            self.skipTest("not a git checkout")
+        self.assertEqual(result.returncode, 0, f"{leftover} is not git-ignored")
 
 
 class PortableExportDirectoryTests(unittest.TestCase):

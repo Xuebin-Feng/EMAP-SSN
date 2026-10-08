@@ -9,6 +9,7 @@ the Directories tab, settings export, hardware-dependent precision and
 execution options, the host-cache control and the model dropdown.
 """
 
+import ast
 import json
 import os
 import pathlib
@@ -1331,6 +1332,75 @@ class SharedSettingsSaveTests(unittest.TestCase):
                 message = critical.call_args.args[2]
                 self.assertIn(str(settings), message)
                 self.assertIn("not started", message)
+
+
+class SettingsLoadReportTests(unittest.TestCase):
+    """Opening the window reports a tools_settings.json it cannot load, and keeps it."""
+
+    def open_tools(self, content):
+        """Open the Tools window over a scratch project whose settings file holds content."""
+        import EMAPSSN_Tools
+        from PySide6.QtWidgets import QTextBrowser
+
+        app = QApplication.instance() or QApplication([])
+        settings = isolated_tools_project(self) / "tools_settings.json"
+        settings.write_text(content, encoding="utf-8")
+        patcher = mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        window = EMAPSSN_Tools.ToolsGUI()
+
+        def close():
+            window.close()
+            window.deleteLater()
+            app.processEvents()
+
+        self.addCleanup(close)
+        return EMAPSSN_Tools, window, settings
+
+    def test_an_unreadable_file_is_reported_when_the_window_opens(self):
+        for content in SharedSettingsSaveTests.UNREADABLE:
+            with self.subTest(content=content):
+                tools, window, settings = self.open_tools(content)
+                self.assertEqual(
+                    window.dir_inputs["FASTA_DIR"].text(), DEFAULT_DIRECTORY_PATHS["FASTA_DIR"]
+                )
+                with mock.patch.object(tools.QMessageBox, "warning") as warning:
+                    window.report_settings_load_error()
+
+                warning.assert_called_once()
+                message = warning.call_args.args[2]
+                self.assertIn(str(settings), message)
+                self.assertIn("left unchanged", message)
+                self.assertEqual(settings.read_text(encoding="utf-8"), content)
+
+    def test_saved_values_are_shown_and_nothing_is_reported(self):
+        tools, window, _ = self.open_tools(json.dumps({
+            "DIRECTORIES": {"FASTA_DIR": "custom_sequences", "MSA_DIR": ""},
+            "Generate_Embeddings.py": {"SAVING_MODE": "float16"},
+        }))
+        self.assertEqual(window.dir_inputs["FASTA_DIR"].text(), "custom_sequences")
+        # A path saved blank stays blank rather than showing the default.
+        self.assertEqual(window.dir_inputs["MSA_DIR"].text(), "")
+        saving_mode = next(
+            data["inputs"]["SAVING_MODE"]["widget"] for path, data in window.script_data.items()
+            if pathlib.Path(path).name == "Generate_Embeddings.py"
+        )
+        self.assertEqual(saving_mode.currentText(), "float16")
+        with mock.patch.object(tools.QMessageBox, "warning") as warning:
+            window.report_settings_load_error()
+        warning.assert_not_called()
+
+    def test_the_launched_window_reports_once_it_is_shown(self):
+        tree = ast.parse((SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8"))
+        launch = next(
+            node for node in tree.body
+            if isinstance(node, ast.If) and ast.unparse(node.test) == "__name__ == '__main__'"
+            and any(ast.unparse(call) == "ToolsGUI()" for call in ast.walk(node) if isinstance(call, ast.Call))
+        )
+        lines = {ast.unparse(node): node.lineno for node in ast.walk(launch) if isinstance(node, ast.Call)}
+        self.assertLess(lines["show_window_in_front(window)"], lines["window.report_settings_load_error()"])
+        self.assertLess(lines["window.report_settings_load_error()"], lines["app.exec()"])
 
 
 if __name__ == "__main__":

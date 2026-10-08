@@ -14,6 +14,13 @@ src/resources/Biohub_API.json
 src/resources/agent/model_card.json
 src/resources/pLM_models/ankh_license.json
 
+# Temporary copies of the files above that an interrupted save can leave
+# beside them; the model card's and the Biohub token's hold API keys.
+.viewer_settings.json.*.partial
+tools_settings.json.*.partial
+src/resources/.Biohub_API.json.*.tmp
+src/resources/agent/.model_card.json.*.partial
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

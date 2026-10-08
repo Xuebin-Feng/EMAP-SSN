@@ -2,8 +2,10 @@
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -138,6 +140,50 @@ class BiohubAPITests(unittest.TestCase):
                     self.shared_path,
                 )
         self.assertEqual(list(self.root.glob(".Biohub_API.json.*.tmp")), [])
+
+    def interrupted_write(self):
+        """Stop a write as a hard kill would, before the rename; return the
+        temporary copy it leaves behind, token included."""
+        class Killed(BaseException):
+            pass
+
+        before = set(self.root.iterdir())
+        with mock.patch.object(Biohub_API.os, "replace", side_effect=Killed), \
+                mock.patch.object(Biohub_API.os, "unlink"), self.assertRaises(Killed):
+            Biohub_API.write_api_settings({"ESM_API_TOKEN": "secret-token"}, self.shared_path)
+        [leftover] = set(self.root.iterdir()) - before
+        return leftover
+
+    def test_an_interrupted_write_leaves_its_copy_only_until_it_is_stale(self):
+        Biohub_API.write_api_settings({"ESM_API_TOKEN": "kept-token"}, self.shared_path)
+        stale = self.interrupted_write()
+        recent = self.interrupted_write()
+        old = time.time() - 2 * Biohub_API._STALE_TEMPORARY_SECONDS
+        os.utime(stale, (old, old))
+
+        with mock.patch("builtins.open", wraps=open) as opened:
+            settings = Biohub_API.read_api_settings(self.shared_path)
+        self.assertEqual(settings["ESM_API_TOKEN"], "kept-token")
+        self.assertFalse(stale.exists())
+        self.assertTrue(recent.exists())
+        self.assertNotIn(stale.name, str(opened.call_args_list))
+
+        os.utime(recent, (old, old))
+        Biohub_API.write_api_settings({"ESM_API_TOKEN": "new-token"}, self.shared_path)
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["Biohub_API.json"])
+
+    def test_an_interrupted_write_copy_cannot_be_committed(self):
+        relative = f"src/resources/{self.interrupted_write().name}"
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(PROJECT_ROOT), "check-ignore", "--no-index", "--quiet", "--", relative],
+                capture_output=True,
+            )
+        except OSError:
+            self.skipTest("git is not installed")
+        if result.returncode not in (0, 1):
+            self.skipTest("not a git checkout")
+        self.assertEqual(result.returncode, 0, f"{relative} is not git-ignored")
 
 
 if __name__ == "__main__":

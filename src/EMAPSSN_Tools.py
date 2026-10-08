@@ -88,6 +88,7 @@ from tools.tool_helpers.Tool_Pipeline import (
     load_shared_settings,
     prepare_exported_invocation,
     prepare_gui_invocation,
+    read_shared_settings,
     save_shared_directories,
     save_shared_tool_settings,
     write_json_document,
@@ -1031,8 +1032,21 @@ def render_markdown_with_math(text):
     # Restore display math
     for i, math_str in enumerate(block_math):
         html = html.replace(f"<!--BLOCK_MATH_{i}-->", math_str)
-        
+
     return html
+
+
+def _saved_settings_document():
+    """tools_settings.json as saved, or {} when it is missing or unusable.
+
+    ToolsGUI reports an unusable file when its window opens (see
+    report_settings_load_error), so the fields fall back to their defaults.
+    """
+    try:
+        return read_shared_settings(_PROJECT_ROOT)
+    except ToolSettingsError:
+        return {}
+
 
 class ToolsGUI(QMainWindow):
     COMMON_TAB_VIEWPORT_MINIMUM_WIDTH = 600
@@ -2040,13 +2054,35 @@ class ToolsGUI(QMainWindow):
         self.network_completeness_cache = {}
         
         self.tabs.currentChanged.connect(self.on_tab_changed)
-        
+
+        # An unusable tools_settings.json is left as it is: the fields show their
+        # defaults, report_settings_load_error() says so once the window is
+        # shown, and Save Directories and Run refuse until the file is fixed.
+        try:
+            read_shared_settings(_PROJECT_ROOT)
+            self.settings_load_error = None
+        except ToolSettingsError as error:
+            self.settings_load_error = error
+
         self.load_tools()
         self.create_directories_tab()
         self._prepare_responsive_controls()
         self._align_all_tool_cards()
         self._harmonize_tab_page_widths()
         self._route_native_tooltips_to_tip_panel()
+
+    def report_settings_load_error(self):
+        """Warn, once the window is shown, that tools_settings.json is unusable."""
+        if self.settings_load_error is None:
+            return
+        QMessageBox.warning(
+            self,
+            "Tools Settings Not Loaded",
+            f"{self.settings_load_error}\n\nThe window shows the default values, "
+            "and the file was left unchanged. Saving directories and running "
+            "tools will not work until you correct the file, or delete it to "
+            "start over from the default settings.",
+        )
 
     def _route_native_tooltips_to_tip_panel(self):
         """Route every native widget tooltip through the shared help panel."""
@@ -2110,20 +2146,13 @@ class ToolsGUI(QMainWindow):
         self.directory_open_buttons = {}
         dir_defaults = dict(DEFAULT_DIRECTORY_PATHS)
         
-        # Load existing paths from JSON if available
-        import json
-        settings_file = os.path.join(_PROJECT_ROOT, "tools_settings.json")
-        if os.path.exists(settings_file):
-            try:
-                with open(settings_file, "r", encoding="utf-8") as f:
-                    j_data = json.load(f)
-                    saved_directories = j_data.get("DIRECTORIES", {})
-                    if isinstance(saved_directories, dict):
-                        for key in dir_defaults:
-                            if key in saved_directories:
-                                dir_defaults[key] = saved_directories[key]
-            except: pass
-            
+        # Saved paths replace the defaults (an unusable file is reported on opening)
+        saved_directories = _saved_settings_document().get("DIRECTORIES", {})
+        if isinstance(saved_directories, dict):
+            for key in dir_defaults:
+                if key in saved_directories:
+                    dir_defaults[key] = saved_directories[key]
+
         dir_tips = {
             "FASTA_DIR": "Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets.",
             "MSA_DIR": "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).",
@@ -2319,6 +2348,9 @@ class ToolsGUI(QMainWindow):
     ):
         defined_vars = {item["var_name"]: item for item in script_settings_def}
         settings = []
+        saved_values = _saved_settings_document().get(script_name)
+        if not isinstance(saved_values, dict):
+            saved_values = {}
         for node in tree.body:
             if isinstance(node, ast.Assign):
                 for target in node.targets:
@@ -2333,18 +2365,10 @@ class ToolsGUI(QMainWindow):
                             
                         actual_val = default_val
                         
-                        # Then, try to overwrite it with the nested JSON value if it exists
-                        settings_path = os.path.join(
-                            _PROJECT_ROOT, "tools_settings.json"
-                        )
-                        if os.path.exists(settings_path):
-                            try:
-                                with open(settings_path, "r", encoding="utf-8") as f:
-                                    j_data = json.load(f)
-                                    if script_name in j_data and target.id in j_data[script_name]:
-                                        actual_val = j_data[script_name][target.id]
-                            except: pass
-                            
+                        # Then overwrite it with the saved value, if there is one
+                        if target.id in saved_values:
+                            actual_val = saved_values[target.id]
+
                         # Dynamic default fallbacks for GUI fields if empty or containing expressions
                         if target.id == "SAFE_TEMP_DIR" and (actual_val is None or str(actual_val).strip() == "" or "os.path" in str(actual_val)):
                             actual_val = os.path.normpath(os.path.join(os.path.expanduser("~"), "Alignment_TEMP"))
@@ -4137,4 +4161,5 @@ if __name__ == "__main__":
             lambda active_window=window: show_window_in_front(active_window)
         )
     show_window_in_front(window)
+    window.report_settings_load_error()
     sys.exit(app.exec())

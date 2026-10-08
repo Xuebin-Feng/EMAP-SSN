@@ -4,14 +4,17 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 import urllib.error
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'src'))
 from web_ui import agent_backend as agent
 
 
@@ -176,6 +179,60 @@ class ModelCardTests(unittest.TestCase):
         [event] = events
         self.assertEqual(event['type'], 'model_cards_error')
         self.assertIn('No space left on device', event['error'])
+
+    def interrupted_save(self):
+        """Stop a save as a hard kill would, between writing its copy and the
+        rename, and return the copy it leaves behind (API keys included)."""
+        class Killed(BaseException):
+            pass
+
+        created = []
+        mkstemp = tempfile.mkstemp
+
+        def recording_mkstemp(*args, **kwargs):
+            descriptor, name = mkstemp(*args, **kwargs)
+            created.append(Path(name))
+            return descriptor, name
+
+        with mock.patch.object(tempfile, 'mkstemp', recording_mkstemp), \
+                mock.patch.object(os, 'replace', side_effect=Killed), \
+                mock.patch.object(os, 'unlink'), self.assertRaises(Killed):
+            agent.save_model_cards([{'id': 'new', 'name': 'Local', 'api_key': 'sk-SECRET'}])
+        [leftover] = created
+        self.assertTrue(leftover.is_file())
+        return leftover
+
+    def test_an_interrupted_save_leaves_its_copy_only_until_it_is_stale(self):
+        self.path.write_text(json.dumps(self.SAVED), encoding='utf-8')
+        leftover = self.interrupted_save()
+
+        # A recent copy may belong to a save still in progress, so it stays.
+        self.assertEqual(agent.load_model_cards(), self.SAVED['cards'])
+        self.assertTrue(leftover.exists())
+
+        stale = time.time() - 2 * agent._STALE_PARTIAL_SECONDS
+        os.utime(leftover, (stale, stale))
+        with mock.patch('builtins.open', wraps=open) as opened:
+            self.assertEqual(agent.load_model_cards(), self.SAVED['cards'])
+        self.assertFalse(leftover.exists())
+        self.assertNotIn(leftover.name, str(opened.call_args_list))
+
+        leftover = self.interrupted_save()
+        os.utime(leftover, (stale, stale))
+        events, _ = self.save({'cards': [{'id': 'new', 'name': 'Local'}], 'save_id': 's5'})
+        self.assertEqual(events, [{'type': 'model_cards_saved', 'save_id': 's5'}])
+        self.assertEqual(os.listdir(self.folder), ['model_card.json'])
+
+    def test_an_interrupted_save_copy_cannot_be_committed(self):
+        relative = f'src/resources/agent/{self.interrupted_save().name}'
+        try:
+            result = subprocess.run(['git', '-C', str(ROOT), 'check-ignore', '--no-index', '--quiet', '--', relative],
+                                    capture_output=True)
+        except OSError:
+            self.skipTest('git is not installed')
+        if result.returncode not in (0, 1):
+            self.skipTest('not a git checkout')
+        self.assertEqual(result.returncode, 0, f'{relative} is not git-ignored')
 
     def test_agent_command_reports_an_unusable_file_when_it_needs_the_cards(self):
         from commands import agent as agent_command

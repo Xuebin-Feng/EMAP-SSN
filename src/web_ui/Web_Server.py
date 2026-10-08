@@ -296,22 +296,28 @@ def contained_path(directory, relative):
     absolute to ntpath.isabs on Python 3.13. Names that only start with two
     dots stay servable; ESMFold writes ``..x.pdb`` for the node "..x". The
     joined path must then lie inside ``directory`` component by component,
-    because as a string ``<directory>_secret.txt`` starts with it too.
+    because as a string ``<directory>_secret.txt`` starts with it too. It
+    must do so as written and again with links and junctions resolved on
+    both sides: a link inside ``directory`` may not lead out of it, while a
+    ``directory`` that is itself a link still serves its files. A link
+    swapped in between this check and the file's opening is not caught.
     """
     normalized = os.path.normpath(relative)
     drive, tail = os.path.splitdrive(normalized)
     # normpath has already turned os.altsep into os.sep.
     if drive or tail.startswith(os.sep) or os.pardir in tail.split(os.sep):
         return None
-    root = os.path.normcase(os.path.abspath(directory))
     # abspath resolves the path the way Windows opens it, so NUL in any
     # folder becomes the \\.\nul device, which is on no drive.
     candidate = os.path.abspath(os.path.join(directory, normalized))
-    try:
-        inside = os.path.commonpath([root, os.path.normcase(candidate)]) == root
-    except ValueError:  # Different drives, such as that device's.
-        return None
-    return candidate if inside else None
+    for resolve in (os.path.abspath, os.path.realpath):
+        root = os.path.normcase(resolve(directory))
+        try:
+            if os.path.commonpath([root, os.path.normcase(resolve(candidate))]) != root:
+                return None
+        except ValueError:  # Different drives, such as that device's.
+            return None
+    return candidate
 
 
 class WebServerHandler(http.server.BaseHTTPRequestHandler):

@@ -414,20 +414,19 @@ def write_json_document(path, document, *, atomic=True, trailing_newline=False):
     return target
 
 
-def load_shared_settings(project_root):
-    """Load the GUI's shared document and fill its missing directories.
+def read_shared_settings(project_root):
+    """Return the GUI's shared document as saved; a missing file counts as empty.
 
-    A missing file counts as an empty document. A file that cannot be read,
-    is not valid JSON or does not hold a JSON object raises ToolSettingsError:
-    saving over it would discard every section it holds, so callers report
-    the error and leave the file alone.
+    A file that cannot be read, is not valid JSON or does not hold a JSON
+    object raises ToolSettingsError: saving over it would discard every
+    section it holds, so callers report the error and leave the file alone.
     """
     settings_path = default_settings_path(project_root)
     try:
         with open(settings_path, "r", encoding="utf-8") as handle:
             loaded = json.load(handle)
     except FileNotFoundError:
-        loaded = {}
+        return {}
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ToolSettingsError(
             f"Could not read settings file '{settings_path}': {error}"
@@ -436,7 +435,15 @@ def load_shared_settings(project_root):
         raise ToolSettingsError(
             f"Settings file '{settings_path}' must contain a JSON object."
         )
-    document = dict(loaded)
+    return dict(loaded)
+
+
+def load_shared_settings(project_root):
+    """Read the GUI's shared document and fill its missing directories.
+
+    Raises ToolSettingsError like read_shared_settings.
+    """
+    document = read_shared_settings(project_root)
     fill_missing_directory_defaults(document)
     return document
 
@@ -821,6 +828,7 @@ __all__ = [
     "get_tool_spec_for_script",
     "build_settings_document",
     "write_json_document",
+    "read_shared_settings",
     "load_shared_settings",
     "save_shared_tool_settings",
     "save_shared_directories",

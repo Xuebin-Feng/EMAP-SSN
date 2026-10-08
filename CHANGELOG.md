@@ -147,6 +147,20 @@ still change before version 1.0.0.
   14 px between their text and each end, and a switch keeps one size in both states.
   In English the label column is 174 px, the ON/OFF switches 51 px and the Viewer's
   sidebar 137 px.
+- `label` no longer opens the network file when it queues a report. It refused to run
+  when that file had been moved, deleted or replaced after the Viewer loaded it,
+  although the analysis uses only the loaded data. The workbook still names the
+  configured network file.
+- In Viewer selection expressions, numeric `!=` no longer selects nodes that have no
+  value, like the other comparisons and ranges. `{GRAVY!=0}` used to include every node
+  without a GRAVY (a sequence with no scored residue, or an empty cell in an imported
+  column). `!{GRAVY=0}` still selects all other nodes, those included. Text `!=` is
+  unchanged: it selects every node the containment test rejects, blank values included.
+- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT now gets the ROCm backend, like
+  the RX 7600, whose gfx1102 chip it shares. AMD's ROCm 7.14 support list names only the
+  RX 7600, so the 7600 XT ran on the CPU; Linux already recognized it from the ROCm
+  runtime. On such a PC, the first launch after updating installs ROCm and keeps it if
+  it passes validation; other PCs are unaffected.
 
 ### Fixed
 
@@ -161,8 +175,14 @@ still change before version 1.0.0.
   of an alignment with several `WORKERS`. The server ended only the process it had
   launched, which in a virtual environment is the `python.exe` redirector. The tool's
   interpreter stopped with it, but the interpreter's own child processes did not. The
-  job's whole process tree is now ended; on Linux and macOS, the job's process group
-  already was.
+  job's whole process tree is now ended.
+- On Linux and macOS, cancelling an MCP pipeline job, or closing the MCP server while
+  one ran, left a process of the job running if it ignored the stop signal (SIGTERM):
+  the job's main process stopped, and the forced stop (SIGKILL) followed only when the
+  main process itself outlived the grace period. Every process of the job now gets the
+  rest of the grace period, and any still running after it is killed. A process that
+  cleans up on SIGTERM still finishes first; multiprocessing's resource tracker, for
+  example, removes a cancelled pool's semaphores from `/dev/shm`.
 - Embedding MSA and embedding search (SSEARCH), run through MCP or a settings file,
   accepted local scores with `alignment_length` normalization, dividing each local
   score by its own alignment length; the Tools window, the Viewer and layout generation
@@ -178,6 +198,13 @@ still change before version 1.0.0.
   with the local gap penalty, for any text but `global`, such as `Global`, while its
   report printed that text as the mode. All three tools now stop with a configuration
   error that names the setting, before opening their inputs.
+- Embedding search (SSEARCH), run with a hand-written settings file, divided every score
+  by its alignment length when `NORM_MODE` was not one of `alignment_length`,
+  `shorter_sequence`, `longer_sequence` and `average_sequence`, such as
+  `Longer_Sequence`, while its reports printed that text as the mode. It now stops with
+  a configuration error that names the setting, before opening its inputs. Embedding MSA
+  refused an unknown `NORMALIZATION_MODE` only after loading the network, and accepted
+  one with a BLAST network; it now refuses it before opening its inputs too.
 - Embedding MSA kept its noise-perturbed guide-tree cache (a memory-mapped distance
   matrix of about 4 bytes per sequence pair, 3.9 GB for 44,000 sequences) in the
   project's default `Input_Files/Multiple_Alignments` folder whenever it ran through
@@ -235,9 +262,26 @@ still change before version 1.0.0.
   as UTF-8, so even `é` came back as `�`. Config and Tools now write UTF-8 to files and
   pipes, whatever started them, as the Viewer does, and escape characters a terminal's
   encoding lacks instead of failing.
+- On Windows, a layout generator run on its own
+  (`python src/Layout_Cache_Generator.py <settings.json>`) with its output redirected to
+  a file or a pipe stopped with "'charmap' codec can't encode character" when it printed
+  a path with a character outside the Windows ANSI code page (cp1252 on most Western
+  systems). With the FASTA file in a `Projekt-α` folder, it ended before saving its
+  cache. It now writes UTF-8 to files and pipes, as Config, Tools and the Viewer do.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
+- A network whose `model_name` attribute was not valid UTF-8 was accepted when the
+  attribute was a variable-length string, h5py's default for text: h5py reads the
+  invalid bytes as placeholder characters, which then reached cache names. Such a
+  network is now refused with the "not valid UTF-8" error that a fixed-length attribute
+  already got.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
   that headless Viewers cannot render on Windows and that normal mode can.
+- `read_command_output` returned an empty page that never advanced when its `limit` was
+  smaller than the next character. With a limit of 1 to 3 bytes, a character such as
+  `é`, `名` or `🧬` gave no text, a `next_offset` equal to `offset` and `eof` false, so a
+  client reading page by page looped forever. The limit is now 4 to 32,768 bytes, enough
+  for any UTF-8 character. MCP clients were unaffected: their schema already required at
+  least 4.
 - On Windows, an ESM3 structure run started through MCP or the web agent could report
   a saved structure as failed (`[WinError 5] Access is denied`) when it updated its
   status file while the Viewer, or another program, was reading it. When this hit the
@@ -253,6 +297,20 @@ still change before version 1.0.0.
   keep only http(s) and relative URLs. The bundled pages are also served with a
   Content-Security-Policy that runs only their own scripts; images from other hosts in
   a reply are no longer loaded.
+- An agent model card with a blank Model and a URL ending in the chat endpoint, such as
+  `http://localhost:1234/v1/chat/completions`, kept the model name `default`: the Viewer
+  asked for the server's model list at `…/v1/chat/completions/models`, which servers
+  answer with 404, instead of `…/v1/models`. With a trailing slash
+  (`…/chat/completions/`), every chat request also went to
+  `…/chat/completions/chat/completions`. Both forms now behave like the `…/v1` base URL.
+- The Viewer's web server no longer serves files from outside a route's folder. On
+  Windows, rooted (`\Users\…`) and drive-relative (`C:..\…`) request paths reached files
+  and folders beside a route folder whose names begin with its name, such as
+  `Predicted_Structures_old` beside `Predicted_Structures`. On every platform, symbolic
+  links and junctions inside a route folder were followed wherever they pointed. Such
+  requests now get 403. A route folder that is itself a link keeps working, and a file
+  whose name only starts with two dots, such as the `..x.pdb` structure of node `..x`,
+  is now served.
 - A hand-edited layout cache could make `export` write outside its folder, in both the
   desktop and VR viewers. The viewers restore a cache's group labels and last clustering
   parameters unchecked, and `export` names files after the labels and the cluster folder
@@ -277,6 +335,9 @@ still change before version 1.0.0.
   compatible accelerator), and when an existing network could not be read or was
   computed at a precision the settings exclude. These now exit with code 1; "Job
   already done" still exits with code 0.
+- `Align_Substitution_Matrix.py` (BLAST all-vs-all) exited with code 0 when no input
+  FASTA was selected, so MCP reported a job that wrote nothing as succeeded. It now
+  exits with code 1.
 - Embedding MSA ran out of memory on large complete networks. Filtering stored every
   edge as a Python tuple (about 130 bytes each), so a 44,127-sequence network with
   973.6 million edges needed about 150 GB and stopped with `MemoryError` on a 96 GB
@@ -374,6 +435,10 @@ still change before version 1.0.0.
   with or without a byte-order mark, each entry is sanitized like a network header,
   and an ID ends at `_` as it does at a space. A list in another encoding is refused
   with a message, and the terminal lists the entries that matched no node.
+- In Viewer selection expressions, quotes around a text value with a `*` or `?` wildcard
+  became part of the pattern, so `{Organism="*coli"}` matched no node and
+  `{Organism!="*coli"}` selected every node. Quotes are now ignored with a wildcard, as
+  they already were without one.
 - The Config and VR Config accepted a saved profile named "(custom)", "(default)" or
   "(new)". The profile selector listed it under the same text as the built-in entry
   and could not tell the two apart. These names are now reserved like "custom",
@@ -389,6 +454,26 @@ still change before version 1.0.0.
   Saving now keeps the choice the fields showed before they went blank, or that of a
   profile loaded since. Selecting an alignment network again restores that choice
   instead of resetting it to global and alignment_length.
+- Saving settings could wipe saved data. A `tools_settings.json` with one syntax error,
+  such as a trailing comma, counted as empty: **Save Directories** then kept only the
+  directories, and a tool's **Save & Run** only that tool's section, deleting every
+  other tool's settings while reporting success, and a failed write could leave the file
+  empty. The agent panel replaced every saved model card and API key with the three
+  local defaults when a save request had no `cards` list, or when it was opened while
+  `model_card.json` could not be read. Both files are now refused with the parse error
+  and left unchanged, saves replace them atomically, and the agent panel shows "Saved"
+  only once the Viewer confirms the save.
+- A save interrupted by a crash or a forced stop could leave a temporary copy beside
+  `model_card.json` or the Biohub API token file, both holding API keys, or beside
+  `tools_settings.json`, `viewer_settings.json` or the VR Config's
+  `viewer_settings_vr.json`, and git offered the copy for commit. These copies are now
+  git-ignored. The next save or load of the model cards or the Biohub token, and the
+  next save of either Config window's settings, removes copies more than a minute old
+  without reading them.
+- The Tools window opened over an unreadable `tools_settings.json` showing default
+  values without a word; the problem came to light only when **Save Directories** or
+  **Save & Run** refused. It now warns when the window opens, with the parse error's
+  line and column, and leaves the file unchanged.
 - On Linux, GPU detection gave a GPU the kernel driver of a device `lspci` lists
   after it, usually the GPU's own HDMI audio function, so the detection report
   showed `snd_hda_intel` as the driver of an NVIDIA or AMD card. An Intel Arc GPU
@@ -399,6 +484,11 @@ still change before version 1.0.0.
   of the saved hardware profile, the first launch after updating on Linux with an AMD
   or Intel GPU, or an NVIDIA GPU without a working `nvidia-smi`, re-validates the
   installed PyTorch backend once without reinstalling it.
+- A hand-edited or damaged `ssn_backend.json` (the installer's state file in `.venv`)
+  whose `schema` was not a number, such as `null`, `"abc"` or `NaN`, made every device
+  lookup fail with `TypeError`, `ValueError` or `OverflowError`: the GUI's device
+  options, embedding, alignment and layout generation. Such a file now counts as
+  unvalidated, as an unreadable one already did, and every visible device is offered.
 
 ### Removed
 
