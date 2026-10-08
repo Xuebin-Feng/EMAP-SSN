@@ -3,10 +3,13 @@
 one_node_viewer() is a one-node viewer whose update methods are mocks, so a test
 can check what a command changed and which updates it asked for. add_alignment()
 gives a viewer_fixtures.Viewer a three-row C/K/C alignment and a Length column.
-reported_outcomes() records which outcome a command reported.
+reported_outcomes() records which outcome a command reported. network_viewer()
+and BARBELL_EDGES give the clustering commands a small network, and
+run_command() runs a command quietly and returns its outcomes and output.
 """
+import io
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -59,6 +62,44 @@ def reported_outcomes():
     with mock.patch.object(Command_Engine, "command_succeeded") as succeeded, \
             mock.patch.object(Command_Engine, "command_failed") as failed:
         yield succeeded, failed
+
+
+def run_command(command, viewer, args):
+    """Run a command module quietly; return (succeeded, failed, printed text)."""
+    output = io.StringIO()
+    with reported_outcomes() as (succeeded, failed), redirect_stdout(output):
+        command.run(viewer, args)
+    return succeeded, failed, output.getvalue()
+
+
+# Two triangles, 0-1-2 and 3-4-5, joined by the bridge 2-3. The Jaccard index
+# of an edge (neighbours shared by its endpoints / all their neighbours) is 1/3
+# for 0-1 and 4-5, 1/4 for the four triangle edges that touch the bridge, and
+# 0 for the bridge, whose endpoints share no neighbour.
+BARBELL_EDGES = ((0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5))
+
+
+def network_viewer(n_nodes, edges, edge_scores=None, cluster_labels=None):
+    """A viewer holding an n_nodes network for the cluster and subcluster commands.
+
+    edges become the (E, 2) int32 array the Viewer loads, shape (0, 2) without
+    edges. edge_scores, when given, become viewer.edge_scores; cluster_labels
+    make a clustered viewer whose nodes are in no group yet.
+    """
+    viewer = SimpleNamespace(
+        n_nodes=n_nodes,
+        edges=np.array(edges, dtype=np.int32).reshape(-1, 2),
+        console_text=SimpleNamespace(text=""),
+        current_colors=np.zeros((n_nodes, 4)),
+        _save_state=mock.Mock(),
+        update_nodes=mock.Mock(),
+    )
+    if edge_scores is not None:
+        viewer.edge_scores = np.asarray(edge_scores, dtype=np.float32)
+    if cluster_labels is not None:
+        viewer.cluster_labels = np.asarray(cluster_labels)
+        viewer.group_labels = [set() for _ in range(n_nodes)]
+    return viewer
 
 
 def add_alignment(viewer):

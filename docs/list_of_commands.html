@@ -778,7 +778,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>4. External File Cross-Referencing (<code>@Filename@</code>)</span></div>
                     <div class="collapsible-content">
-                        <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory. The file must be UTF-8 text; entries that match no node are listed in the terminal.</p>
+                        <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory. The name must be a plain file name in that directory: a name with a folder, <code>..</code>, a drive such as <code>C:</code> or a network share is refused, and the command changes nothing. The file must be UTF-8 text; entries that match no node are listed in the terminal.</p>
                         <ul>
                             <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case; a FASTA file contributes its <code>&gt;</code> header lines. Each line is first cleaned up as headers were when the network was built (runs of spaces become one <code>_</code>, square brackets become parentheses), so a header copied from the original FASTA still matches. <code>.txt</code> is appended when the name ends in neither <code>.txt</code> nor <code>.fasta</code>.</li>
                             <li><strong>NCBI Extraction:</strong> <code>@[NCBI]my_targets.txt@</code> automatically scans the text file for standard NCBI accession codes (e.g., <code>WP_01234.1</code>) and matches the network headers containing those codes, ignoring surrounding text.</li>
@@ -1148,7 +1148,7 @@
                     <div class="collapsible-header">MCL (Markov Clustering)</div>
                     <div class="collapsible-content">
                         <p><strong>Mechanism:</strong> Simulates random walks through the network, assuming that a random walker stays within a dense cluster rather than crossing a sparse boundary. Uses similarity scores as transition probabilities. Requires <code>markov_clustering</code> and <code>networkx</code>.</p>
-                        <p><strong>Parameter:</strong> <em>Inflation</em> (Default: 2.0). Controls boundary granularity. Higher values (e.g. 4.0, 6.0) generally produce tighter, more numerous clusters.</p>
+                        <p><strong>Parameter:</strong> <em>Inflation</em> (Default: 2.0), from 1.1 to 10.0 inclusive; a value outside this range is refused before anything changes. Controls boundary granularity. Higher values (e.g. 4.0, 6.0) generally produce tighter, more numerous clusters.</p>
                         <p><strong>Usage:</strong> <code>cluster mcl 2.0 10</code></p>
                     </div>
                 </div>
@@ -1188,7 +1188,7 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. The terminal report uses the same highly saturated subcluster palette.</p>
+                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. The terminal report uses the same highly saturated subcluster palette.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -1200,7 +1200,7 @@
                 <div class="subheading">Modes &amp; Parameters</div>
                 <ul>
                     <li><strong><code>leiden</code> (Default):</strong> Leiden Community Detection. PARAM_1 represents Resolution (Default: 1.0).</li>
-                    <li><strong><code>mcl</code>:</strong> Markov Clustering Algorithm. PARAM_1 represents Inflation (Default: 2.0).</li>
+                    <li><strong><code>mcl</code>:</strong> Markov Clustering Algorithm. PARAM_1 represents Inflation, from 1.1 to 10.0 inclusive (Default: 2.0).</li>
                     <li><strong><code>jaccard</code>:</strong> Topology Jaccard filtering. PARAM_1 represents Threshold (Default: 0.2).</li>
                 </ul>
                 <div class="subheading">Examples</div>

@@ -639,6 +639,75 @@ class HeaderListFileTests(unittest.TestCase):
         np.testing.assert_array_equal(mask, [True, False, False, False])
         self.assertIn("  α-amylase".encode("utf-8"), pipe.buffer.getvalue())
 
+    def test_list_names_that_are_paths_are_refused_before_any_file_access(self):
+        # The web agent and MCP clients write expressions too. A path makes
+        # os.path.join drop the header-list folder, and on Windows merely
+        # checking whether \\host\share\name exists offers the user's
+        # credentials to that host.
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        secret = os.path.join(outside.name, "secret.txt")
+        with open(secret, "w", encoding="utf-8") as handle:
+            handle.write("Alpha\n")
+        os.mkdir(os.path.join(self.header_dir, "sub"))
+        self.write_list(os.path.join("sub", "nested.txt"), "Alpha\n")
+        names = (
+            secret,  # absolute
+            "C:secret.txt",  # relative to drive C's current folder
+            "\\secret.txt",  # the current drive's root
+            "\\\\host\\share\\secret.txt",
+            "..",
+            "..\\secret.txt",
+            "../secret.txt",
+            "sub\\nested.txt",
+            "sub/nested.txt",
+            "[NCBI]..\\secret.txt",
+        )
+        refusal = "must be a plain file name in the header list folder"
+        # Stand-ins, so that a regression cannot reach a real share either.
+        isfile = mock.Mock(return_value=False)
+        opener = mock.Mock(side_effect=AssertionError("a header list was opened"))
+        with mock.patch("os.path.isfile", isfile), \
+                mock.patch.object(Command_Engine, "open", opener, create=True):
+            for name in names:
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(Command_Engine.SelectionContextError, refusal):
+                        Command_Engine.evaluate_file_mask(self.HEADERS, name)
+                    with self.assertRaisesRegex(Command_Engine.SelectionContextError, refusal):
+                        Command_Engine.parse_advanced_expression(
+                            f"@{name}@",
+                            np.full(4, -1, dtype=int),
+                            np.array([], dtype=int),
+                            self.HEADERS,
+                        )
+        isfile.assert_not_called()
+        opener.assert_not_called()
+        self.assertEqual(self.output.getvalue(), "")
+
+        with self.assertRaises(Command_Engine.SelectionContextError) as caught:
+            Command_Engine.evaluate_file_mask(self.HEADERS, "\\\\host\\share\\secret.txt")
+        self.assertEqual(
+            str(caught.exception),
+            "Selection file '\\\\host\\share\\secret.txt' must be a plain file name in "
+            "the header list folder.\n"
+            "Filename must not include a directory or path separators.\n"
+            f"Header list folder: {self.header_dir}",
+        )
+
+    def test_plain_names_still_read_from_the_header_list_folder(self):
+        # .txt is appended unless the name ends in .txt or .fasta.
+        self.write_list("v1.2_hits.txt", "Alpha\n")
+        self.write_list("v1.2_hits.fasta", ">beta_7\nMKVL\n")
+        for name, expected in (
+            ("v1.2_hits", [True, False, False, False]),
+            ("  v1.2_hits.txt ", [True, False, False, False]),
+            ("v1.2_hits.fasta", [False, False, True, False]),
+        ):
+            with self.subTest(name=name):
+                np.testing.assert_array_equal(
+                    Command_Engine.evaluate_file_mask(self.HEADERS, name), expected
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

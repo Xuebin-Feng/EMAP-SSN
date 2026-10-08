@@ -25,7 +25,7 @@ EXPRESSION = ('Boolean node selection: quoted headers, #LABEL#, @file@, $sele$, 
               'parentheses, e.g. K(-1) or {GRAVY=(-1)-0}.')
 CLUSTER_MODE = argument('mode', 'Default leiden. Leiden requires graspologic-native; MCL requires markov_clustering, networkx and scipy.',
                         choice('leiden'), choice('mcl'), choice('jaccard'))
-CLUSTER_PARAMETER = argument('parameter', 'Optional number: Leiden resolution defaults to 1.0; MCL inflation to 2.0; Jaccard threshold to 0.2.')
+CLUSTER_PARAMETER = argument('parameter', 'Optional number: Leiden resolution defaults to 1.0; MCL inflation to 2.0, within 1.1 to 10.0; Jaccard threshold to 0.2.')
 MIN_SIZE = argument('min_size', 'Optional integer, default 10. Smaller subsets become noise.')
 
 COMMAND_METADATA = {
@@ -109,7 +109,7 @@ COMMAND_METADATA = {
         argument('property', 'Required bare {PROPERTY_NAME} selector for a numerical metadata column; arguments may occur in any order.'),
         argument('expression', EXPRESSION + ' Defaults to all visible nodes.'),
         argument('color_scheme', 'Optional installed Matplotlib colormap name, default coolwarm; unknown names fall back to coolwarm with a warning. A token that is also a valid selection expression is read as the expression.')),
-    'subcluster': entry('Subcluster a topology cluster into custom group labels while retaining original cluster membership.',
+    'subcluster': entry('Subcluster a topology cluster into custom group labels, numbered by size, while retaining original cluster membership.',
         argument('action', 'clear removes the generated subcluster_N_M group labels, keeps custom groups with lookalike names such as subcluster_0_2, and leaves colors unchanged.', choice('clear')),
         argument('cluster_name', 'Required existing topology cluster name such as cluster_2 when not clearing.'),
         CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),

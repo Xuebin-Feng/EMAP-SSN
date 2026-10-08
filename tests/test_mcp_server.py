@@ -432,6 +432,27 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((pathlib.Path(temp) / "input_sanitized.fasta").read_text(),
                                  ">a\nAC\n>b\nACDEF\n")
 
+    async def test_start_job_reports_an_unreadable_tools_settings_file(self):
+        # A job given no MSA_DIR used to run on the default directory instead.
+        from mcp_server.pipeline import Pipeline_Operations
+
+        content = '{"DIRECTORIES": {"MSA_DIR": "custom"},}'
+        with tempfile.TemporaryDirectory() as temp:
+            settings = pathlib.Path(temp) / "tools_settings.json"
+            settings.write_text(content, encoding="utf-8")
+            with mock.patch.object(Pipeline_Operations, "_PROJECT_ROOT", temp):
+                async with Client(mcp, read_timeout_seconds=10) as client:
+                    rejected = await client.call_tool("emapssn_pipeline", {"action": "start_job", "arguments": {
+                        "tool_id": "sparse_msa_converter", "parameters": {"CONVERT_ALL": True}}})
+                    listed = await client.call_tool("emapssn_pipeline", {"action": "list_jobs", "arguments": {}})
+
+            self.assertTrue(rejected.is_error)
+            self.assertIn(str(settings), rejected.content[0].text)
+            self.assertRegex(rejected.content[0].text, r"directories: .*line 1 column \d+")
+            self.assertEqual(listed.structured_content["jobs"], [])
+            self.assertEqual(settings.read_text(encoding="utf-8"), content)
+            self.assertEqual(os.listdir(temp), ["tools_settings.json"])
+
     async def test_start_layout_job_and_inspection(self):
         with tempfile.TemporaryDirectory() as temp:
             temp_path = pathlib.Path(temp)

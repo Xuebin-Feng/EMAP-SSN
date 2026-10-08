@@ -25,6 +25,10 @@ try:
     import commands.group as group_cmd
 except ImportError:
     import group as group_cmd
+try:
+    import commands.cluster as cluster_cmd
+except ImportError:
+    import cluster as cluster_cmd
 
 if sys.platform == 'win32':
     os.system('')
@@ -67,11 +71,13 @@ def print_help():
            subcluster help
 
     Description:
-      Performs subclustering on a specific topology cluster, creating custom group labels 
+      Performs subclustering on a specific topology cluster, creating custom group labels
       named 'subcluster_N_M' (where N is the original cluster ID, and M is the subcluster ID).
-      Unlike main clusters, these are saved as custom group labels so nodes can keep their 
+      Unlike main clusters, these are saved as custom group labels so nodes can keep their
       original cluster identities. Nodes in the target cluster are recolored by subcluster;
       nodes below MIN_SIZE are gray. 'subcluster clear' removes labels but leaves colors as-is.
+      Subclusters are numbered by size, so subcluster_N_1 is the largest; equal sizes are
+      ordered by their lowest member node index.
 
     Arguments:
       <CLUSTER_NAME>    - Name of the cluster to subcluster (e.g., cluster_2, cluster_5).
@@ -81,7 +87,7 @@ def print_help():
 
     Modes:
       leiden (Default)  - Leiden Community Detection. PARAM_1: Resolution (Default: 1.0)
-      mcl               - Markov Clustering Algorithm. PARAM_1: Inflation (Default: 2.0)
+      mcl               - Markov Clustering Algorithm. PARAM_1: Inflation, 1.1 - 10.0 (Default: 2.0)
       jaccard           - Topology Jaccard filtering. PARAM_1: Threshold (Default: 0.2)
 
     [MIN_SIZE]          - (Optional) Minimum size of subclusters to keep (Default: 10).
@@ -182,7 +188,7 @@ def run(viewer, args):
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
                     return
         else:
-            # Fallback to default Jaccard logic if first argument is a number
+            # A bare number is the resolution of the default mode, Leiden.
             try: param1 = float(sub_args[0])
             except ValueError:
                 print(f"Error: Unknown mode or invalid number '{sub_args[0]}'")
@@ -200,6 +206,13 @@ def run(viewer, args):
         if mode == "jaccard": param1 = 0.2
         elif mode == "mcl": param1 = 2.0
         elif mode == "leiden": param1 = 1.0
+
+    if mode == "mcl":
+        inflation_error = cluster_cmd.mcl_inflation_error(param1)
+        if inflation_error:
+            Command_Engine.print_help(viewer, inflation_error, report_message=False)
+            Command_Engine.command_failed(viewer, inflation_error)
+            return
 
     if hasattr(viewer, 'console_text'):
         Command_Engine.show_status(viewer, f"Subclustering cluster_{cluster_id} ({mode.upper()})...")
@@ -361,6 +374,9 @@ def run(viewer, args):
         local_labels = network_clustering.leiden_partition(
             n_sub, local_edges, local_edge_scores, resolution, min_sz, seed=42
         )
+
+    # Number subclusters by size in every mode, as cluster numbers clusters.
+    local_labels = cluster_cmd.renumber_clusters_by_size(local_labels)
 
     # --- 4. Update Viewer State ---
     viewer._save_state()

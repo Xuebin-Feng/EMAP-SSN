@@ -6,7 +6,9 @@ tools_settings.json and its directory defaults), the tool entry points, and the
 portable directory form of exported settings (utilities.Headless_Settings).
 """
 import ast
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
+import io
 import json
 import ntpath
 import os
@@ -186,8 +188,61 @@ class ToolSettingsLoaderTests(unittest.TestCase):
             )
         self.assertEqual(document, {})
 
+    def test_an_unreadable_shared_file_stops_the_tool_and_is_kept(self):
+        # Such a file used to print a warning and leave the tool on its defaults.
+        unreadable = {
+            "corrupt": ('{"Example.py": {"COUNT": "3"},}', r"line 1 column \d+"),
+            "empty": ("", r"line 1 column 1 "),
+            "not an object": ('[{"Example.py": {"COUNT": "3"}}]', "must contain a JSON object"),
+        }
+        for label, (content, reason) in unreadable.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as root, \
+                    mock.patch.dict(os.environ):
+                os.environ.pop("SSN_TOOL_SETTINGS_FILE", None)
+                path = pathlib.Path(root) / "tools_settings.json"
+                path.write_text(content, encoding="utf-8")
+                namespace = {"COUNT": 1}
+                errors = io.StringIO()
+                with redirect_stderr(errors), self.assertRaises(SystemExit) as stopped:
+                    load_tool_settings(namespace, "/x/tools/Example.py", root, [])
+
+                self.assertEqual(stopped.exception.code, 2)
+                self.assertIn(str(path), errors.getvalue())
+                self.assertRegex(errors.getvalue(), reason)
+                self.assertEqual(namespace, {"COUNT": 1})
+                self.assertNotIn("SSN_TOOL_SETTINGS_FILE", os.environ)
+                self.assertEqual(path.read_text(encoding="utf-8"), content)
+
 
 class ToolEntryPointTests(unittest.TestCase):
+    def test_a_script_run_stops_on_an_unreadable_shared_file_before_its_inputs(self):
+        # Tools only ever run as scripts: exec one as main() would start, in a
+        # stand-in project whose tools_settings.json is written afterwards.
+        tool = SRC_DIR / "tools" / "Sanitize_Sequences.py"
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(os.environ):
+            for name in ("SSN_TOOL_SETTINGS_SCRIPT", "SSN_TOOL_SETTINGS_FILE"):
+                os.environ.pop(name, None)
+            project = pathlib.Path(temp) / "project"
+            namespace = {"__name__": "sanitize_as_script",
+                         "__file__": str(project / "src" / "tools" / tool.name)}
+            exec(compile(tool.read_text(encoding="utf-8"), str(tool), "exec"), namespace)
+            project.mkdir()
+            settings = project / "tools_settings.json"
+            content = '{"Sanitize_Sequences.py": {"INPUT_FASTA": "input.fasta"},}'
+            settings.write_text(content, encoding="utf-8")
+
+            output, errors = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors), \
+                    self.assertRaises(SystemExit) as stopped:
+                namespace["main"]([])
+
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertIn(str(settings), errors.getvalue())
+            self.assertRegex(errors.getvalue(), r"line 1 column \d+")
+            self.assertNotIn("Reading from", output.getvalue())
+            self.assertEqual(os.listdir(project), ["tools_settings.json"])
+            self.assertEqual(settings.read_text(encoding="utf-8"), content)
+
     def test_every_registered_tool_exposes_main_and_uses_shared_loader(self):
         for filename in EXPECTED_TOOLS:
             with self.subTest(tool=filename):

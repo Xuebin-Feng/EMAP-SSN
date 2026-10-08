@@ -89,6 +89,14 @@ still change before version 1.0.0.
   MCP clients issue these commands too, and on Windows a network-share name makes the
   system offer the user's credentials to that host. `meta download` writes `.csv` and
   `.xlsx` only; other extensions are refused before anything is written.
+- **Header lists stay in their folder too.** An `@file@` name in a selection expression
+  must be a plain file name in the header-list folder (`HEADER_LIST_DIR`), whether the
+  command comes from the console, the web agent, an MCP client or the VR viewer. A name
+  with a directory, `..`, a drive (`C:`), a rooted path (`\x`), a network share
+  (`\\host\share`) or a `:` stream suffix is refused before any file is checked or
+  opened, and the command changes nothing. Such names used to read files anywhere, and
+  on Windows even checking whether a network-share file exists offers the user's
+  credentials to that host.
 - **CPU layout generation uses several cores.** The SSN physics kernel computes
   repulsion in parallel on all but two logical CPUs, as the `logo` command already
   did (set `NUMBA_NUM_THREADS` to choose the count). It also visits only pairs within
@@ -156,6 +164,9 @@ still change before version 1.0.0.
   without a GRAVY (a sequence with no scored residue, or an empty cell in an imported
   column). `!{GRAVY=0}` still selects all other nodes, those included. Text `!=` is
   unchanged: it selects every node the containment test rejects, blank values included.
+- `subcluster` numbers subclusters by size, as `cluster` numbers clusters:
+  `subcluster_N_1` is the largest, and equal sizes are ordered by their lowest member
+  node. They used to be numbered in the order they were found.
 - On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT now gets the ROCm backend, like
   the RX 7600, whose gfx1102 chip it shares. AMD's ROCm 7.14 support list names only the
   RX 7600, so the 7600 XT ran on the CPU; Linux already recognized it from the ROCm
@@ -250,7 +261,7 @@ still change before version 1.0.0.
   (`select "café"` ran as `select "caf"`, which also selects "caffeine") or became
   `�` in a request from MCP or the agent page. Scripts now print UTF-8 whatever the
   Viewer's environment says, and a byte that is still not UTF-8 shows as `�` instead
-  of disappearing.
+  of disappearing. The VR viewer's `run` does the same.
 - The `run` command misread `.txt` command files saved in common Windows encodings.
   With a UTF-8 byte-order mark (a Notepad option, and PowerShell 5.1's
   `Set-Content -Encoding UTF8`), the first command failed as unknown. A UTF-16 file
@@ -459,6 +470,10 @@ still change before version 1.0.0.
 - `label` reported each failure to MCP clients twice, once with and once without the
   `Error:` prefix, for example when an argument was invalid or no clusters or groups
   existed. Each failure is now reported once, as the console shows it.
+- `cluster mcl` and `subcluster mcl` check the inflation against its documented range,
+  1.1 to 10.0, before anything changes, and the error names that range. A value outside
+  it used to reach the clustering library and fail with its bare "Invalid inflation
+  parameter".
 - The Config and VR Config could not save while a BLAST network was selected: **Save**
   reported "invalid value for ALIGNMENT_SCORE" and **Save & Run** stopped before
   launching. A BLAST network blanks the Alignment Score Mode and Normalization Mode
@@ -486,6 +501,12 @@ still change before version 1.0.0.
   values without a word; the problem came to light only when **Save Directories** or
   **Save & Run** refused. It now warns when the window opens, with the parse error's
   line and column, and leaves the file unchanged.
+- A tool run from the command line without a settings file, while `tools_settings.json`
+  could not be read (invalid JSON, empty, or not a JSON object), printed a warning and
+  ran on its built-in defaults; an MCP job given parameters without every directory
+  likewise ran on the default directories. Both now stop before opening any input,
+  naming the file and the parse error's line and column, and leave the file unchanged. A
+  missing `tools_settings.json` still means the defaults.
 - On Linux, GPU detection gave a GPU the kernel driver of a device `lspci` lists
   after it, usually the GPU's own HDMI audio function, so the detection report
   showed `snd_hda_intel` as the driver of an NVIDIA or AMD card. An Intel Arc GPU

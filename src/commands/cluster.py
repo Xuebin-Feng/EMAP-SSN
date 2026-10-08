@@ -91,6 +91,19 @@ def renumber_clusters_by_size(labels):
     return renumbered
 
 
+# The documented MCL inflation range, bounds included; subcluster shares it.
+MCL_INFLATION_RANGE = (1.1, 10.0)
+
+
+def mcl_inflation_error(inflation):
+    """Return the error for an MCL inflation outside its range, or None."""
+    low, high = MCL_INFLATION_RANGE
+    # Written so that nan, which compares false, is refused too.
+    if low <= inflation <= high:
+        return None
+    return f"Error: MCL inflation must be between {low} and {high}; got {inflation}."
+
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -208,7 +221,7 @@ def run(viewer, args):
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
                     return
         else:
-            # Fallback to default Jaccard logic if first argument is a number
+            # A bare number is the resolution of the default mode, Leiden.
             try: param1 = float(args[0])
             except ValueError:
                 print(f"Error: Unknown mode or invalid number '{args[0]}'")
@@ -226,6 +239,13 @@ def run(viewer, args):
         if mode == "jaccard": param1 = 0.2
         elif mode == "mcl": param1 = 2.0
         elif mode == "leiden": param1 = 1.0
+
+    if mode == "mcl":
+        inflation_error = mcl_inflation_error(param1)
+        if inflation_error:
+            Command_Engine.print_help(viewer, inflation_error, report_message=False)
+            Command_Engine.command_failed(viewer, inflation_error)
+            return
 
     n_nodes = viewer.n_nodes
     edges = np.array(viewer.edges, dtype=np.int32)

@@ -122,8 +122,17 @@ def select_settings_path(script_name, project_root, argv=None):
     return default_settings_path(project_root), False
 
 
+_SHARED_SETTINGS_ADVICE = " Correct it, or delete it to run with the default settings."
+
+
 def read_settings_document(settings_path, script_name, *, explicit):
-    """Read and validate a shared or exported tool settings document."""
+    """Read and validate a shared or exported tool settings document.
+
+    Without the shared file (explicit=False) a tool runs on its defaults. A
+    file that exists but cannot be read, is not valid JSON or does not hold
+    a JSON object raises ToolSettingsError, so the tool stops before opening
+    its inputs instead of running on the defaults in its place.
+    """
     path = Path(settings_path)
     if not path.is_file():
         if explicit:
@@ -134,12 +143,14 @@ def read_settings_document(settings_path, script_name, *, explicit):
         with path.open("r", encoding="utf-8") as settings_handle:
             document = json.load(settings_handle)
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        if explicit:
-            raise ToolSettingsError(
-                f"Could not read settings file '{path}': {error}"
-            ) from error
-        print(f"Failed to load user settings: {error}")
-        return {}
+        message = f"Could not read settings file '{path}': {error}"
+        raise ToolSettingsError(
+            message if explicit else f"{message}.{_SHARED_SETTINGS_ADVICE}"
+        ) from error
+    if not explicit and not isinstance(document, MutableMapping):
+        raise ToolSettingsError(
+            f"Settings file '{path}' must contain a JSON object.{_SHARED_SETTINGS_ADVICE}"
+        )
 
     return validate_settings_document(
         document,
@@ -158,11 +169,7 @@ def validate_settings_document(
 ):
     """Validate and copy an in-memory tool settings document."""
     if not isinstance(document, MutableMapping):
-        message = f"{source_label} must contain a JSON object."
-        if explicit:
-            raise ToolSettingsError(message)
-        print(f"Failed to load user settings: {message}")
-        return {}
+        raise ToolSettingsError(f"{source_label} must contain a JSON object.")
 
     directories = document.get("DIRECTORIES", {})
     tool_settings = document.get(script_name)

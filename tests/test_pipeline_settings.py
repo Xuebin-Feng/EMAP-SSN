@@ -127,6 +127,49 @@ class PipelineSettingsTests(unittest.TestCase):
             self.assertEqual(result["effective_directories"]["MSA_DIR"], str(custom_msa_dir))
             self.assertFalse((root / "Input_Files").exists())
 
+            (root / "tools_settings.json").unlink()
+            result = normalize_pipeline_settings(
+                "sparse_msa_converter", root, parameters={"CONVERT_ALL": True},
+            )
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertEqual(
+                result["effective_directories"]["MSA_DIR"],
+                str(root / "Input_Files" / "Multiple_Alignments"),
+            )
+
+    def test_an_unreadable_saved_file_fails_instead_of_using_default_directories(self):
+        # Such a file used to count as no saved directories, so jobs ran on the defaults.
+        unreadable = {
+            "corrupt": ('{"DIRECTORIES": {"MSA_DIR": "custom"},}', r"line 1 column \d+"),
+            "empty": ("", r"line 1 column 1 "),
+            "not an object": ('[{"MSA_DIR": "custom"}]', "must contain a JSON object"),
+        }
+        for label, (content, reason) in unreadable.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                settings = root / "tools_settings.json"
+                settings.write_text(content, encoding="utf-8")
+
+                result = normalize_pipeline_settings(
+                    "sparse_msa_converter", root, parameters={"CONVERT_ALL": "yes"},
+                )
+                self.assertFalse(result["valid"])
+                self.assertIsNone(result["settings_document"])
+                errors = {error["field"]: error["message"] for error in result["errors"]}
+                self.assertIn(str(settings), errors["directories"])
+                self.assertRegex(errors["directories"], reason)
+                # Other problems are still reported with it.
+                self.assertIn("parameters.CONVERT_ALL", errors)
+
+                # The file is not needed when every directory is given.
+                given = normalize_pipeline_settings(
+                    "sparse_msa_converter", root, parameters={"CONVERT_ALL": True},
+                    directories={"MSA_DIR": str(root / "msa")},
+                )
+                self.assertTrue(given["valid"], given["errors"])
+                self.assertEqual(settings.read_text(encoding="utf-8"), content)
+                self.assertEqual(os.listdir(root), ["tools_settings.json"])
+
     def test_conditional_requirements_and_combinations(self):
         cases = [
             ("embedding_msa", {"USE_SEQUENCE_FILTER": True}),

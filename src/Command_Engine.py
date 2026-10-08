@@ -157,7 +157,16 @@ def _format_available(values, label):
 
 
 def _selection_file_path(target):
-    """Resolve an @file@ selection target to its configured header-list path."""
+    r"""Resolve an @file@ selection target to its configured header-list path.
+
+    The name must be a plain file name (utilities.Output_Names), for the
+    console, the web agent, MCP clients and VR alike: a path would make
+    os.path.join drop the header-list folder. It is refused before anything
+    touches the filesystem, because on Windows even checking whether
+    \\host\share\name exists offers the user's credentials to that host.
+    """
+    from utilities.Output_Names import validate_output_basename
+
     file_name = target.strip()
     if file_name.lower().startswith('[ncbi]'):
         file_name = file_name[6:]
@@ -169,6 +178,14 @@ def _selection_file_path(target):
         'HEADER_LIST_DIR',
         os.path.join("Input_Files", "Header_Lists"),
     )
+    try:
+        file_name = validate_output_basename(file_name)
+    except ValueError as error:
+        raise SelectionContextError(
+            f"Selection file '{file_name}' must be a plain file name in the header list folder.\n"
+            f"{error}\n"
+            f"Header list folder: {header_dir}"
+        ) from error
     if file_name.lower().endswith(('.fasta', '.txt')):
         return os.path.join(header_dir, file_name), header_dir
     return os.path.join(header_dir, file_name + ".txt"), header_dir
