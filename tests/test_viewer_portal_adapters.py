@@ -91,7 +91,8 @@ class AgentAdapterTests(PortalFixture, unittest.TestCase):
         v._agent_generation = 1
         v._agent_busy = True
         with mock.patch.object(agent, 'start_refinement_worker') as refine:
-            agent.on_web_worker_finished(v, 'test', 'Command: select "one"\nCommand: unknown_command\nCommand: select "two"', '', '{}', '', 1)
+            # A command the catalog does not know would wait for approval.
+            agent.on_web_worker_finished(v, 'test', 'Command: select "one"\nCommand: select {Missing=1}\nCommand: select "two"', '', '{}', '', 1)
             refine.assert_not_called()
             result = self.finish(v._agent_request_id)
             self.assertEqual(result['status'], 'failed')
@@ -99,6 +100,26 @@ class AgentAdapterTests(PortalFixture, unittest.TestCase):
             feedback = json.loads(refine.call_args.args[4])
             self.assertEqual(feedback['result']['status'], 'failed')
             self.assertEqual(v.selected_indices, [0])
+
+    def test_a_command_that_writes_waits_for_the_agent_page(self):
+        from web_ui import agent_backend as agent
+        v = self.viewer
+        v._agent_generation = 1
+        with mock.patch.object(agent, 'start_refinement_worker') as refine:
+            agent.on_web_worker_finished(v, 'test', 'Command: select "one"\nCommand: save mine.h5', '', '{}', '', 1)
+            request_id = v._agent_request_id
+            for _ in range(200):
+                if self.portal.get(request_id)['status'] == 'awaiting_user_input':
+                    break
+                self.app.processEvents()
+            waiting = self.portal.get(request_id)['commands'][1]
+            self.assertEqual((waiting['command'], waiting['status'], waiting['approval']),
+                             ('save mine.h5', 'awaiting_user_input', 'pending'))
+            refine.assert_not_called()
+            agent.handle_decide_agent_command(v, {'request_id': request_id, 'command_id': waiting['command_id'], 'run': False})
+            self.assertEqual(self.finish(request_id)['status'], 'cancelled')
+            refine.assert_called_once()
+            self.assertEqual(json.loads(refine.call_args.args[4])['result']['commands'][1]['status'], 'cancelled')
 
     def test_stale_agent_callback_cannot_submit(self):
         from web_ui import agent_backend as agent

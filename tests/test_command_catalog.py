@@ -1,8 +1,9 @@
 """Static Viewer command catalog (desktop.Command_Metadata, desktop.Viewer_Inspection.command_catalog).
 
 Covers the catalog's argument metadata and finite choices, which must be literal
-tokens of each command's parser, and the syntax and help text it extracts from
-the command sources without importing or executing any handler.
+tokens of each command's parser, the syntax and help text it extracts from the
+command sources without importing or executing any handler, and the policy for
+commands in Agent replies.
 """
 import ast
 from pathlib import Path
@@ -12,8 +13,13 @@ from unittest import mock
 
 COMMANDS_DIR = Path(__file__).resolve().parents[1] / 'src' / 'commands'
 sys.path.insert(0, str(COMMANDS_DIR.parent))
-from desktop.Command_Metadata import COMMAND_METADATA, get_command_metadata  # noqa: E402
+from desktop.Command_Metadata import AGENT_POLICY, COMMAND_METADATA, agent_policy, get_command_metadata  # noqa: E402
 from desktop.Viewer_Inspection import command_catalog, _command_syntax  # noqa: E402
+
+
+def string_literals(command):
+    source = (COMMANDS_DIR / (command + '.py')).read_text(encoding='utf-8')
+    return {n.value for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
 
 
 class MetadataTests(unittest.TestCase):
@@ -101,6 +107,37 @@ reset hide
         )
         self.assertIn('label [TARGET] [key value] [<key 2> <value 2> ...] [NAME]',
                       command_catalog('label')['commands'][0]['syntax'])
+
+
+class AgentPolicyTests(unittest.TestCase):
+    """How a command in an Agent reply is handled; Viewer_Command_Portal applies it."""
+
+    def test_every_command_has_a_policy_in_the_catalog(self):
+        self.assertEqual(set(AGENT_POLICY), set(COMMAND_METADATA))
+        for entry in command_catalog()['commands']:
+            with self.subTest(command=entry['command']):
+                rule = entry['agent_policy']
+                self.assertEqual(rule, AGENT_POLICY[entry['command']])
+                self.assertTrue({rule['default'], *rule['first_argument'].values()} <= {'run', 'approve', 'refuse'})
+                # Keywords are the command's own parser literals.
+                self.assertTrue(set(rule['first_argument']) - {''} <= string_literals(entry['command']))
+
+    def test_commands_that_write_run_or_spend_wait_and_agent_is_refused(self):
+        cases = {
+            'run': ['select "a"', 'select invert', 'color "a" red', 'zoom 10', 'hide single', 'cluster',
+                    'subcluster cluster_1', 'group "a" g1', 'spectrum {GRAVY}', 'query [1-3]', 'reset colors',
+                    'undo', 'redo', 'offset 2', 'reference P12', 'label reset', 'meta', 'meta show GRAVY',
+                    'meta delete GRAVY', 'meta HELP'],
+            'approve': ['select save picked.txt', 'SELECT Save picked.fasta', 'save', 'save x.h5', 'print svg',
+                        'export clusters', 'logo [1-3]', 'label', 'label clusters 40 98', 'esmfold',
+                        'esmfold large multi', 'run', 'alignment msa.fasta', 'meta upload a.csv',
+                        'meta download', 'meta table.csv', 'unknown_command'],
+            'refuse': ['agent', 'agent off', 'agent <Local>', 'agent "hello"', 'AGENT help'],
+        }
+        for expected, commands in cases.items():
+            for command in commands:
+                with self.subTest(command=command):
+                    self.assertEqual(agent_policy(command), expected)
 
 
 if __name__ == '__main__':

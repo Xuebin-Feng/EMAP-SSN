@@ -296,6 +296,19 @@
             border-color: var(--primary-hover);
         }
 
+        .command-approval {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .command-approval code {
+            font-family: var(--font-mono);
+            overflow-wrap: anywhere;
+        }
+
         /* ── Chat log ────────────────────────────────────── */
         #chat-log {
             flex: 1;
@@ -794,16 +807,22 @@
         let modelCardsLoadError = null;
         let cardsSaveId = null;
         let cardsSavedTimer = null;
+        // The cards as the Viewer last confirmed saving them, and those sent
+        // to it by save_id: a model is activated from its saved card.
+        let savedCardsJson = null;
+        const sentCards = new Map();
         let prevLlmLoaded = null;
         let prevLlmModelName = null;
         let prevLlmBackend = null;
 
 
 
+        // The ids of agent_backend's defaults, which it uses while no cards are
+        // saved, so these can be activated before their first save completes.
         const DEFAULT_CARDS = [
-            { id: uid(), name: "Ollama (Local)",    url: "http://localhost:11434/v1", model: "qwen2.5:1.5b", api_key: "", temperature: 0.0 },
-            { id: uid(), name: "LM Studio (Local)", url: "http://localhost:1234/v1",  model: "",             api_key: "", temperature: 0.0 },
-            { id: uid(), name: "Llama.cpp (Local)", url: "http://localhost:8080/v1",  model: "",             api_key: "", temperature: 0.0 }
+            { id: "ollama",   name: "Ollama (Local)",    url: "http://localhost:11434/v1", model: "qwen2.5:1.5b", api_key: "", temperature: 0.0 },
+            { id: "lmstudio", name: "LM Studio (Local)", url: "http://localhost:1234/v1",  model: "",             api_key: "", temperature: 0.0 },
+            { id: "llamacpp", name: "Llama.cpp (Local)", url: "http://localhost:8080/v1",  model: "",             api_key: "", temperature: 0.0 }
         ];
 
         function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -878,6 +897,10 @@
                     "to start over from the default cards, then reload this page.";
             }
             modelCards = savedCards && savedCards.length > 0 ? savedCards : deepClone(DEFAULT_CARDS);
+            if (savedCards && savedCards.length > 0) savedCardsJson = JSON.stringify(savedCards);
+            // Models are activated by id; a hand-written card without one can
+            // be activated once it is saved with the id given here.
+            modelCards.forEach(card => { if (!card.id) card.id = uid(); });
             if (savedCards && savedCards.length === 0) saveModelCards();
             populateDropdown();
             renderCardsPanel();
@@ -910,7 +933,18 @@
             }
             const saveId = uid();
             if (fromSaveButton) cardsSaveId = saveId;
+            sentCards.set(saveId, JSON.stringify(modelCards));
             sendAction({ action: "save_model_cards", cards: modelCards, save_id: saveId });
+        }
+
+        // The Viewer activates the saved card with this id, never the card as
+        // edited here, so say so when the two differ.
+        function activateCard(card) {
+            sendAction({ action: "set_backend", card_id: card.id });
+            const saved = JSON.parse(savedCardsJson || "[]").find(c => c.id === card.id);
+            if (saved && JSON.stringify(saved) !== JSON.stringify(card)) {
+                appendSystemMsg(`Using the saved settings of "${card.name || "this model"}": press 💾 Save to use the edits made here.`);
+            }
         }
 
         function showCardsSaved() {
@@ -1221,12 +1255,12 @@
                     const idx = parseInt(modelSel.value);
                     const card = isNaN(idx) ? null : modelCards[idx];
                     if (card) {
-                        sendAction({ action: "set_backend", card: card });
+                        activateCard(card);
                     } else {
                         toggleInput.checked = false; // revert if no card
                     }
                 } else {
-                    sendAction({ action: "set_backend", card: null });
+                    sendAction({ action: "set_backend", card_id: null });
                 }
             });
 
@@ -1234,7 +1268,7 @@
                 if (agentActive) {
                     const idx = parseInt(modelSel.value);
                     const card = isNaN(idx) ? null : modelCards[idx];
-                    if (card) sendAction({ action: "set_backend", card: card });
+                    if (card) activateCard(card);
                 }
             });
 
@@ -1270,7 +1304,9 @@
         }
 
         let activeCommandRequest = null;
-        function showCommandStatus(status) {
+        // A command from the agent's reply that writes or imports files, runs
+        // programs or spends credit waits here until the user runs or discards it.
+        function showCommandStatus(status, commands = []) {
             let element = document.getElementById('command-request-status');
             if (!element) {
                 element = document.createElement('div');
@@ -1278,6 +1314,26 @@
                 document.getElementById('chat-log').appendChild(element);
             }
             element.textContent = `Viewer commands: ${status.replaceAll('_', ' ')}`;
+            const waiting = commands.find(c => c.approval === 'pending' && c.status === 'awaiting_user_input');
+            if (!waiting) return;
+            const requestId = activeCommandRequest;
+            const row = document.createElement('div');
+            row.className = 'command-approval';
+            const command = document.createElement('code');
+            command.textContent = waiting.command;
+            row.append('The agent wants to run ', command);
+            for (const [label, run] of [['Run', true], ['Discard', false]]) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = run ? 'btn btn-primary' : 'btn';
+                button.textContent = label;
+                button.addEventListener('click', () => {
+                    row.querySelectorAll('button').forEach(b => { b.disabled = true; });
+                    sendAction({ action: 'decide_agent_command', request_id: requestId, command_id: waiting.command_id, run });
+                });
+                row.append(button);
+            }
+            element.append(row);
         }
         function handleServerEvent(event) {
             if (event.submission_id && event.submission_id !== pendingSubmission?.submission_id) return;
@@ -1297,7 +1353,7 @@
                             : "Agent is inactive. Select a model and press the toggle button to activate.");
                     }
                     reconcileSubmission(event.data.llm_history || []);
-                    if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status);
+                    if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status, event.data.agent_command_request.commands);
                     // Rendering the history cleared the chat log, which is where
                     // a model_card.json problem found at page load is shown.
                     if (modelCardsLoadError) {
@@ -1310,7 +1366,10 @@
                     showCommandStatus(event.status);
                     break;
                 case "command_request_updated":
-                    if (event.request_id === activeCommandRequest) showCommandStatus(event.status);
+                    if (event.request_id === activeCommandRequest) showCommandStatus(event.status, event.commands);
+                    break;
+                case "agent_command_error":
+                    appendErrorMsg(event.error, true);
                     break;
                 case "agent_capture": {
                     finishCapture(event);
@@ -1322,6 +1381,7 @@
                 case "backend_state":
                     if (pendingSubmission) finishSubmission({submission_id: pendingSubmission.submission_id}, true);
                     updateLLMState(event, false);
+                    if (event.error) appendErrorMsg(event.error);
                     break;
                 case "agent_thinking":
                     setAgentThinking(event.model_name);
@@ -1337,6 +1397,10 @@
                     enableInput(true);
                     break;
                 case "model_cards_saved":
+                    if (sentCards.has(event.save_id)) {
+                        savedCardsJson = sentCards.get(event.save_id);
+                        sentCards.delete(event.save_id);
+                    }
                     if (event.save_id && event.save_id === cardsSaveId) {
                         cardsSaveId = null;
                         showCardsSaved();

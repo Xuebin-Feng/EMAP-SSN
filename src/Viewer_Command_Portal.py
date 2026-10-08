@@ -21,6 +21,13 @@ from PySide6 import QtCore
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'skipped'}
 CURRENT = ContextVar('viewer_command_context', default=None)
+# Commands from these sources are checked against the catalog's agent policy
+# (desktop.Command_Metadata) before they run. A command needing approval waits
+# in awaiting_user_input until decide() runs or discards it, and a refused one
+# fails without running. Commands a run script emits are the user's own.
+REVIEWED_SOURCES = {'web_agent'}
+APPROVAL = {'run': None, 'approve': 'pending', 'refuse': 'refused'}
+REFUSED = 'Agent replies cannot run this command; type it in the Viewer terminal instead.'
 
 
 def now():
@@ -189,11 +196,15 @@ class ViewerCommandPortal(QtCore.QObject):
             return self.get(request_id)
         if len(self.queue) >= 100:
             raise ValueError('Viewer command queue is full; retry later with the same submission_id')
+        records = [self.new_command(c.strip()) for c in commands]
+        if source in REVIEWED_SOURCES:
+            from desktop.Command_Metadata import agent_policy
+            for record in records:
+                record['approval'] = APPROVAL[agent_policy(record['command'])]
         request_id = uuid.uuid4().hex
         self.requests[request_id] = dict(request_id=request_id, submission_id=submission_id,
             session_id=getattr(self.viewer, 'inspection_session_id', None), source=source,
-            status='queued', submitted_at=now(), finished_at=None,
-            commands=[self.new_command(c.strip()) for c in commands])
+            status='queued', submitted_at=now(), finished_at=None, commands=records)
         self.submissions[submission_id] = (signature, request_id)
         with self.output_lock:
             self.output[request_id] = {s: {'data': b'', 'base': 0} for s in ('stdout', 'stderr')}
@@ -206,14 +217,20 @@ class ViewerCommandPortal(QtCore.QObject):
         if record['status'] in TERMINAL:
             return True
         if not record['dispatched']:
+            if record.get('approval') == 'pending':
+                record['status'] = 'awaiting_user_input'
+                return False
             import Command_Engine
             record.update(status='running', started_at=now(), dispatched=True)
             context = ExecutionContext(self, request_id, record)
-            with bind(context):
-                try:
-                    Command_Engine.execute_command(self.viewer, record['command'])
-                except Exception as error:
-                    context.report('failed', str(error))
+            if record.get('approval') == 'refused':
+                context.report('failed', REFUSED)
+            else:
+                with bind(context):
+                    try:
+                        Command_Engine.execute_command(self.viewer, record['command'])
+                    except Exception as error:
+                        context.report('failed', str(error))
             if record['outcome'] is None:
                 context.report('failed', 'Command handler did not report an explicit outcome.')
             self.publish(request_id)
@@ -268,12 +285,40 @@ class ViewerCommandPortal(QtCore.QObject):
         self.publish(request_id)
         self.pump()
 
+    def decide(self, request_id, command_id, run):
+        """Run or discard the command a reviewed request is waiting to run."""
+        request_id = self._resolve_request(request_id)
+        if not isinstance(run, bool):
+            raise ValueError('run must be true or false')
+        record = next((c for c in self.requests[request_id]['commands'] if c['command_id'] == command_id), None)
+        if record is None or record.get('approval') != 'pending' or record['status'] != 'awaiting_user_input':
+            raise ValueError('That command is not waiting to be run or discarded.')
+        if run:
+            record.update(approval='approved', status='queued')
+        else:
+            self._discard(request_id, record)
+        self.changed.emit(request_id)
+
+    def discard_pending(self, request_id):
+        """Discard every command of a request that still waits for approval."""
+        request_id = self._resolve_request(request_id)
+        records = [c for c in self.requests[request_id]['commands'] if c.get('approval') == 'pending']
+        for record in records:
+            self._discard(request_id, record)
+        if records:
+            self.changed.emit(request_id)
+
+    def _discard(self, request_id, record):
+        record.update(approval='discarded', status='cancelled', finished_at=now())
+        ExecutionContext(self, request_id, record).report('cancelled', 'Discarded in the Agent page.')
+
     def publish(self, request_id):
         request = self.requests.get(request_id)
         if request and hasattr(self.viewer, 'broadcast_event'):
             self.viewer.broadcast_event({'type': 'command_request_updated',
                 'request_id': request_id, 'status': request['status'],
-                'commands': [{'command': c['command'], 'status': c['status']} for c in request['commands']]})
+                'commands': [{'command_id': c['command_id'], 'command': c['command'], 'status': c['status'],
+                              'approval': c.get('approval')} for c in request['commands']]})
 
     def _resolve_request(self, request_id=None, submission_id=None):
         if (request_id is None) == (submission_id is None):

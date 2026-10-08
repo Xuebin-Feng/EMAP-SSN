@@ -161,6 +161,18 @@ still change before version 1.0.0.
   RX 7600, so the 7600 XT ran on the CPU; Linux already recognized it from the ROCm
   runtime. On such a PC, the first launch after updating installs ROCm and keeps it if
   it passes validation; other PCs are unaffected.
+- Commands in an Agent reply no longer all run automatically. Commands that only change
+  the view or the session's in-memory state still do. `save`, `select save`, `print`,
+  `export`, `logo`, `label` (except `label reset`), `esmfold`, `run`, `alignment`, and
+  `meta` uploads, downloads and file imports wait in the Agent page until you press
+  **Run** or **Discard**; discarding one skips the rest of that reply. While one waits,
+  later commands, including MCP requests, queue behind it, as they do behind a file
+  dialog. A reply's `agent` lines are refused. Commands typed in the Viewer or sent
+  through MCP are unaffected, and `get_command_catalog` reports each command's
+  `agent_policy`.
+- The Agent page switches only to a saved model card, named by its id, so a request can
+  no longer point the agent at an unsaved server. Edits to a card take effect once
+  saved, and the page says so when the model being switched on has unsaved edits.
 
 ### Fixed
 

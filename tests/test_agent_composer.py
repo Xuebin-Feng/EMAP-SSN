@@ -301,7 +301,9 @@ class ModelCardFixtureHandler(FixtureHandler):
 
 
 class ModelCardPageTests(unittest.TestCase):
-    """The page never saves its cards over a model_card.json it could not load."""
+    """What the page sends the Viewer: it never saves its cards over a model_card.json
+    it could not load, activates a model by its saved card's id, and runs or
+    discards an agent's command only when the user presses Run or Discard."""
     DEFAULT_NAMES = ['Ollama (Local)', 'LM Studio (Local)', 'Llama.cpp (Local)']
     js = ComposerTests.js
     wait_for = ComposerTests.wait_for
@@ -400,6 +402,9 @@ class ModelCardPageTests(unittest.TestCase):
                 [save] = state['actions']
                 self.assertEqual(save['action'], 'save_model_cards')
                 self.assertEqual([card['name'] for card in save['cards']], self.DEFAULT_NAMES)
+                # agent_backend's defaults have these ids, so they activate
+                # before this save completes.
+                self.assertEqual([card['id'] for card in save['cards']], ['ollama', 'lmstudio', 'llamacpp'])
                 self.assertTrue(save['save_id'])
                 self.assertEqual(state['errors'], [])
 
@@ -420,6 +425,85 @@ class ModelCardPageTests(unittest.TestCase):
         self.js("handleServerEvent({type:'model_cards_error',save_id:'x',error:'Model cards were not saved: disk full'})")
         self.assertEqual(self.state()['errors'], ['Error: Model cards were not saved: disk full'])
         self.assertTrue(self.js("document.getElementById('thinking-bubble') !== null"))
+
+    def system_messages(self):
+        return json.loads(self.js("JSON.stringify(Array.from(document.querySelectorAll('#chat-log .msg-system'), e => e.textContent))"))
+
+    def test_a_model_is_activated_by_its_saved_card_id(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1'}]}).encode())
+        toggle = "document.getElementById('agent-toggle-input').click()"
+        self.js(toggle)
+        self.js(toggle)
+        self.assertEqual(self.state()['actions'], [{'action': 'set_backend', 'card_id': 'mine'},
+                                                   {'action': 'set_backend', 'card_id': None}])
+        self.assertEqual(self.system_messages(), [])
+
+        # The Viewer uses the saved card, so unsaved edits are pointed out.
+        self.js("modelCards[0].url = 'http://other.example/v1'")
+        self.js(toggle)
+        self.assertEqual(self.state()['actions'][-1], {'action': 'set_backend', 'card_id': 'mine'})
+        self.assertEqual(len(self.system_messages()), 1)
+        self.assertIn('Using the saved settings of "My API"', self.system_messages()[0])
+        self.js(toggle)
+        self.js("document.getElementById('save-cards-btn').click()")
+        save = self.state()['actions'][-1]
+        self.js(f"handleServerEvent({{type:'model_cards_saved',save_id:{json.dumps(save['save_id'])}}})")
+        self.js(toggle)
+        self.assertEqual(len(self.system_messages()), 1)
+
+        # The Viewer refuses a card it has not saved.
+        self.js("handleServerEvent({type:'backend_state', llm_loaded:false, error:'This model is not saved yet.'})")
+        self.assertEqual(self.state()['errors'], ['Error: This model is not saved yet.'])
+        self.assertFalse(self.js("document.getElementById('agent-toggle-input').checked"))
+
+    def test_a_card_saved_without_an_id_is_given_one(self):
+        # A hand-written file; the Viewer can activate the card once it is saved.
+        self.open_page(json.dumps({'cards': [{'name': 'Hand-written', 'url': 'http://localhost:1234/v1'}]}).encode())
+        self.js("document.getElementById('agent-toggle-input').click()")
+        [action] = self.state()['actions']
+        self.assertEqual(action['action'], 'set_backend')
+        self.assertIsInstance(action.get('card_id'), str)
+        self.assertEqual(self.js('modelCards[0].id'), action['card_id'])
+
+    def test_a_command_waiting_for_approval_is_run_or_discarded(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
+        waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',
+                   'status': 'awaiting_user_input', 'approval': 'pending'}
+
+        def update(request_id, *commands):
+            event = {'type': 'command_request_updated', 'request_id': request_id,
+                     'status': 'awaiting_user_input', 'commands': list(commands)}
+            self.js(f'handleServerEvent({json.dumps(event)})')
+
+        def approval():
+            return json.loads(self.js("""JSON.stringify(Array.from(document.querySelectorAll('.command-approval'), row => ({
+                text: row.textContent, images: row.querySelectorAll('img').length,
+                buttons: Array.from(row.querySelectorAll('button'), b => [b.textContent, b.disabled])})))"""))
+
+        self.js("handleServerEvent({type:'agent_command_request', request_id:'r1', status:'queued'})")
+        update('another request', waiting)
+        self.assertEqual(approval(), [])
+        done = {'command_id': 'c0', 'command': 'select "a"', 'status': 'succeeded', 'approval': None}
+        update('r1', done, waiting)
+        [row] = approval()
+        # The command is the model's text: shown, never parsed as markup.
+        self.assertIn('save <img src=x onerror=alert(1)>.h5', row['text'])
+        self.assertEqual(row['images'], 0)
+        self.assertEqual(row['buttons'], [['Run', False], ['Discard', False]])
+
+        self.js("document.querySelector('.command-approval .btn-primary').click()")
+        self.assertEqual(self.state()['actions'][-1], {'action': 'decide_agent_command', 'request_id': 'r1', 'command_id': 'c1', 'run': True})
+        self.assertEqual(approval()[0]['buttons'], [['Run', True], ['Discard', True]])
+
+        update('r1', done, {**waiting, 'command_id': 'c2', 'command': 'print'})
+        self.js("document.querySelectorAll('.command-approval button')[1].click()")
+        self.assertEqual(self.state()['actions'][-1], {'action': 'decide_agent_command', 'request_id': 'r1', 'command_id': 'c2', 'run': False})
+
+        # A page opened while a command waits shows it from the Viewer's state.
+        init = {'type': 'init', 'data': {'llm_loaded': True, 'llm_history': [], 'agent_request_id': 'r1',
+                'agent_command_request': {'request_id': 'r1', 'status': 'awaiting_user_input', 'commands': [waiting]}}}
+        self.js(f'handleServerEvent({json.dumps(init)})')
+        self.assertEqual([button for button, _ in approval()[0]['buttons']], ['Run', 'Discard'])
 
 
 if __name__ == '__main__':

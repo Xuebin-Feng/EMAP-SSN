@@ -468,6 +468,15 @@ def get_viewer_session_context(viewer):
 
 
 def _invalidate_agent_turn(viewer):
+    # A command the abandoned turn left waiting for approval would otherwise
+    # hold the Viewer's command queue.
+    request_id = getattr(viewer, '_agent_request_id', None)
+    portal = getattr(viewer, 'command_portal', None)
+    if request_id and portal is not None:
+        try:
+            portal.discard_pending(request_id)
+        except ValueError:  # Evicted from the portal's history.
+            pass
     viewer._agent_generation = getattr(viewer, '_agent_generation', 0) + 1
     viewer._agent_busy = False
     viewer._agent_request_id = None
@@ -748,18 +757,41 @@ def handle_agent_query(viewer, data):
     run_web_agent_query(viewer, query, data.get('attachments'), data.get('submission_id'))
 
 def handle_set_backend(viewer, data):
-    card = data.get("card")
-    if card:
-        activate_agent_from_card(viewer, card, quiet=True)
-    else:
+    """Activate the saved model card data["card_id"] names; no id deactivates.
+
+    Only saved cards are activated, so a request cannot point the agent at a
+    server the user never saved; edits on the Agent page apply once saved.
+    """
+    card_id = data.get("card_id")
+    error = None
+    if card_id is None and data.get("card") is None:
         deactivate_agent(viewer, quiet=True)
-        
-    viewer.broadcast_event({
+    else:
+        card = None
+        if not isinstance(card_id, str):
+            # An Agent page opened before cards were activated by id.
+            error = "Reload the Agent page to switch models."
+        else:
+            try:
+                card = next((c for c in load_model_cards() if c.get("id") == card_id), None)
+            except ModelCardsError as e:
+                error = f"Model cards could not be loaded: {e}"
+            if card is None and error is None:
+                error = "This model is not saved yet: press 💾 Save in ⚙ Models, then switch the agent on again."
+        if card is None:
+            deactivate_agent(viewer, quiet=True)
+        else:
+            activate_agent_from_card(viewer, card, quiet=True)
+
+    event = {
         "type": "backend_state",
         "llm_loaded": getattr(viewer, 'llm_loaded', False),
         "llm_backend": getattr(viewer, 'llm_backend', None),
         "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown")
-    })
+    }
+    if error:
+        event["error"] = error
+    viewer.broadcast_event(event)
 
 def handle_save_model_cards(viewer, data):
     """Save the Agent page's cards and tell the page whether they were saved."""
@@ -783,6 +815,14 @@ def handle_check_model_cards(viewer, data):
         _read_model_card_document(_model_card_path())
     except ModelCardsError as e:
         viewer.broadcast_event({"type": "model_cards_error", "error": f"Model cards could not be loaded: {e}"})
+
+def handle_decide_agent_command(viewer, data):
+    """Run or discard a command an Agent reply left waiting for approval."""
+    from Viewer_Command_Portal import get_portal
+    try:
+        get_portal(viewer).decide(data.get("request_id"), data.get("command_id"), data.get("run"))
+    except ValueError as e:
+        viewer.broadcast_event({"type": "agent_command_error", "error": str(e)})
 
 def handle_clear_history(viewer, data):
     _invalidate_agent_turn(viewer)
@@ -827,6 +867,9 @@ def register_backend(registry, viewer):
         except ValueError as error:
             viewer.broadcast_event({'type': 'agent_capture', 'error': str(error), 'capture_token': data.get('capture_token')})
     registry.register_action('agent', 'capture_view', capture)
+    registry.register_action(
+        "agent", "decide_agent_command", lambda data: handle_decide_agent_command(viewer, data)
+    )
     registry.register_static_route(
         "agent",
         "/agent_resource/",

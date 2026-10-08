@@ -127,6 +127,62 @@ for name, metadata in COMMAND_METADATA.items():
         choice('help', '-h', '-?' if name in {'export', 'label'} else '--help')))
 
 
+def policy(default, first_argument=None):
+    """How a command in an Agent reply is handled, by its lower-case first
+    argument ('' when there is none): 'run' at once, 'approve' only after the
+    user presses Run in the Agent page, or 'refuse'."""
+    return {'default': default, 'first_argument': dict(first_argument or {})}
+
+
+# Commands that change only the view or the session's in-memory state run.
+# Ones that write or import files, launch processes or dialogs, or spend
+# Biohub credit wait for approval, and the agent may not reconfigure itself.
+AGENT_POLICY = {
+    'agent': policy('refuse'),
+    'alignment': policy('approve'),
+    'cluster': policy('run'),
+    'color': policy('run'),
+    'esmfold': policy('approve'),
+    'export': policy('approve'),
+    'group': policy('run'),
+    'hide': policy('run'),
+    'label': policy('approve', {'reset': 'run'}),
+    'logo': policy('approve'),
+    # A bare filename imports a file, like upload.
+    'meta': policy('approve', dict.fromkeys(
+        ('', 'show', 'display', 'delete', 'remove', 'clear', 'help', '-h', '--help', '--register-only'), 'run')),
+    'offset': policy('run'),
+    'print': policy('approve'),
+    'query': policy('run'),
+    'redo': policy('run'),
+    'reference': policy('run'),
+    'reset': policy('run'),
+    'run': policy('approve'),
+    'save': policy('approve'),
+    'select': policy('run', {'save': 'approve'}),
+    'spectrum': policy('run'),
+    'subcluster': policy('run'),
+    'undo': policy('run'),
+    'zoom': policy('run'),
+}
+for name, metadata in COMMAND_METADATA.items():
+    metadata['agent_policy'] = AGENT_POLICY[name]
+
+
+def agent_policy(command):
+    """'run', 'approve' or 'refuse' for one command line in an Agent reply.
+
+    The command name is read the way Command_Engine dispatches it. A name the
+    catalog does not know waits for approval, so a command added without a
+    policy never runs unreviewed.
+    """
+    words = command.split()
+    rule = AGENT_POLICY.get(words[0].lower() if words else '')
+    if rule is None:
+        return 'approve'
+    return rule['first_argument'].get(words[1].lower() if len(words) > 1 else '', rule['default'])
+
+
 def get_command_metadata(name):
     """Return independent response data so callers cannot mutate the catalog."""
     return deepcopy(COMMAND_METADATA[name])

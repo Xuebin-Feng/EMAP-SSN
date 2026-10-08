@@ -1,4 +1,5 @@
-"""In-Viewer agent backend (web_ui/agent_backend): model-card activation, loading and saving."""
+"""In-Viewer agent backend (web_ui/agent_backend): model-card activation, loading and saving,
+activation by saved card id, and running or discarding commands an Agent reply left waiting."""
 from contextlib import redirect_stdout
 import io
 import json
@@ -271,3 +272,104 @@ class ModelCardTests(unittest.TestCase):
             self.assertFalse(agent.activate_agent(SimpleNamespace(llm_loaded=False)))
         activate.assert_not_called()
         self.assertIn('must contain a JSON object', print_help.call_args.args[1])
+
+
+class SetBackendTests(unittest.TestCase):
+    """The Agent page activates only a saved model card, named by its id.
+
+    A request's own card fields never take effect, so no request can point the
+    agent at a server the user did not save. _SRC_DIR points at a temporary tree.
+    """
+    SAVED = {'cards': [{'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1',
+                        'model': 'big', 'api_key': 'sk-SECRET'}]}
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        folder = Path(directory.name, 'resources', 'agent')
+        folder.mkdir(parents=True)
+        self.path = folder / 'model_card.json'
+        # Activating a card without a model name probes its server, so none answers.
+        for patcher in (mock.patch.object(agent, '_SRC_DIR', directory.name),
+                        mock.patch.object(agent.urllib.request, 'urlopen', side_effect=urllib.error.URLError('offline'))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def set_backend(self, data, viewer=None):
+        """Run the Agent page's set_backend action; return the viewer and its backend_state event."""
+        viewer = viewer or SimpleNamespace()
+        viewer.events = []
+        viewer.broadcast_event = viewer.events.append
+        with redirect_stdout(io.StringIO()):
+            agent.handle_set_backend(viewer, {'action': 'set_backend', **data})
+        return viewer, [e for e in viewer.events if e['type'] == 'backend_state'][-1]
+
+    def test_a_saved_card_is_activated_by_its_id(self):
+        self.path.write_text(json.dumps(self.SAVED), encoding='utf-8')
+        viewer, event = self.set_backend({'card_id': 'mine', 'card': {
+            'id': 'mine', 'url': 'http://attacker.example/v1', 'model': 'theirs', 'api_key': ''}})
+        self.assertEqual((viewer.llm_url, viewer.llm_model_name, viewer.llm_api_key),
+                         ('https://api.example/v1', 'big', 'sk-SECRET'))
+        self.assertTrue(event['llm_loaded'])
+        self.assertNotIn('error', event)
+
+    def test_without_saved_cards_a_default_card_is_activated_by_its_id(self):
+        viewer, event = self.set_backend({'card_id': 'ollama'})
+        self.assertEqual((viewer.llm_url, event['llm_loaded']), ('http://localhost:11434/v1', True))
+
+    def test_a_card_that_is_not_saved_is_never_activated(self):
+        self.path.write_text(json.dumps(self.SAVED), encoding='utf-8')
+        cases = {
+            'unsaved id': ({'card_id': 'new'}, 'not saved yet'),
+            'a card from an older page': ({'card': {'url': 'http://attacker.example/v1'}}, 'Reload the Agent page'),
+            'an id that is not text': ({'card_id': 7}, 'Reload the Agent page'),
+        }
+        for label, (data, error) in cases.items():
+            with self.subTest(label):
+                viewer, _ = self.set_backend({'card_id': 'mine'})
+                viewer, event = self.set_backend(data, viewer)
+                self.assertFalse(event['llm_loaded'])
+                self.assertIn(error, event['error'])
+                self.assertFalse(hasattr(viewer, 'llm_url'))
+
+    def test_an_unusable_file_is_reported(self):
+        self.path.write_text('{"cards": [', encoding='utf-8')
+        _, event = self.set_backend({'card_id': 'mine'})
+        self.assertFalse(event['llm_loaded'])
+        self.assertIn('Model cards could not be loaded', event['error'])
+
+    def test_no_id_deactivates(self):
+        self.path.write_text(json.dumps(self.SAVED), encoding='utf-8')
+        viewer, _ = self.set_backend({'card_id': 'mine'})
+        viewer, event = self.set_backend({'card_id': None}, viewer)
+        self.assertFalse(event['llm_loaded'])
+        self.assertNotIn('error', event)
+
+
+class AgentCommandApprovalTests(unittest.TestCase):
+    """The page's Run or Discard reaches the portal; an abandoned turn discards its waiting commands."""
+
+    def test_the_decision_reaches_the_portal_and_a_refusal_is_shown(self):
+        portal = mock.Mock()
+        viewer = SimpleNamespace(events=[], command_portal=portal)
+        viewer.broadcast_event = viewer.events.append
+        agent.handle_decide_agent_command(viewer, {'action': 'decide_agent_command', 'request_id': 'r', 'command_id': 'c', 'run': True})
+        portal.decide.assert_called_once_with('r', 'c', True)
+        self.assertEqual(viewer.events, [])
+
+        portal.decide.side_effect = ValueError('That command is not waiting to be run or discarded.')
+        agent.handle_decide_agent_command(viewer, {'request_id': 'r', 'command_id': 'c', 'run': False})
+        self.assertEqual(viewer.events, [{'type': 'agent_command_error', 'error': 'That command is not waiting to be run or discarded.'}])
+
+    def test_an_abandoned_turn_discards_its_waiting_commands(self):
+        portal = mock.Mock()
+        viewer = SimpleNamespace(command_portal=portal, _agent_request_id='r1', llm_loaded=False)
+        agent.deactivate_agent(viewer, quiet=True)
+        portal.discard_pending.assert_called_once_with('r1')
+        self.assertIsNone(viewer._agent_request_id)
+
+        # A request already evicted from the portal's history is no error.
+        portal.discard_pending.side_effect = ValueError('evicted')
+        viewer._agent_request_id = 'r2'
+        agent.deactivate_agent(viewer, quiet=True)
+        self.assertIsNone(viewer._agent_request_id)

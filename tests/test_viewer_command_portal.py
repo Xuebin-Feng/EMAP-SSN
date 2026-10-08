@@ -1,8 +1,8 @@
 """Viewer command portal (Viewer_Command_Portal) and command worker tracking (Viewer_Worker_Tracking).
 
 Covers equivalence with manual commands, completion, isolation, retries and
-lookups, bounded feedback, submission limits, shutdown, and failures of
-detached workers and command scripts.
+lookups, bounded feedback, submission limits, shutdown, the review of commands
+from Agent replies, and failures of detached workers and command scripts.
 """
 import importlib
 import io
@@ -29,8 +29,8 @@ from Viewer_Visual_State import edge_stages, capture_view
 from desktop.Command_Metadata import get_command_metadata
 
 
-def fake_test_command(run):
-    """Resolve the command `test` to a module whose run() is ``run``.
+def fake_test_command(run, command='test'):
+    """Resolve ``command`` (by default `test`) to a module whose run() is ``run``.
 
     Every other import_module call, including the real command modules the
     Command_Engine imports for the commands that follow, is left unchanged.
@@ -38,7 +38,7 @@ def fake_test_command(run):
     real_import = importlib.import_module
 
     def import_module(name, package=None):
-        if name == 'commands.test':
+        if name == f'commands.{command}':
             return SimpleNamespace(run=run)
         return real_import(name, package)
     return mock.patch('importlib.import_module', side_effect=import_module)
@@ -361,6 +361,111 @@ class PortalLimitTests(PortalFixture, unittest.TestCase):
                 self.portal.read_output(request_id, offset=1, limit=limit)
         page = self.portal.read_output(request_id, offset=1, limit=4)
         self.assertEqual((page['text'], page['offset'], page['next_offset'], page['eof']), ('\u540db', 1, 5, True))
+
+
+class AgentReviewTests(PortalFixture, unittest.TestCase):
+    """An Agent reply's commands run, wait for the user's Run or Discard, or are
+    refused, as the catalog's agent policy says; other sources are not reviewed."""
+
+    def stand_in(self, command):
+        """Replace ``command`` with one that records its arguments and succeeds."""
+        calls = []
+        def run(viewer, args):
+            calls.append(args)
+            ce.command_succeeded(viewer, f'{command} stand-in ran.')
+        patcher = fake_test_command(run, command)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    def wait_until(self, request_id, status):
+        deadline = time.monotonic() + 10
+        while (request := self.portal.get(request_id))['status'] != status:
+            if time.monotonic() >= deadline:
+                self.fail(f'The request never reached {status!r}: {request}')
+            self.app.processEvents()
+            time.sleep(.005)
+        return request
+
+    def test_view_commands_run_at_once(self):
+        r = self.portal.submit('view', ['select "one"', 'color "one" red'], source='web_agent')
+        result = self.finish(r['request_id'])
+        self.assertEqual(result['status'], 'succeeded', result)
+        self.assertEqual(self.viewer.selected_indices, [0])
+        self.assertEqual([c['approval'] for c in result['commands']], [None, None])
+
+    def test_a_command_needing_approval_waits_then_runs(self):
+        saves = self.stand_in('save')
+        r = self.portal.submit('approve', ['select "one"', 'save x.h5', 'select "two"'], source='web_agent')
+        waiting = self.wait_until(r['request_id'], 'awaiting_user_input')
+        self.assertEqual([(c['status'], c['approval']) for c in waiting['commands']],
+                         [('succeeded', None), ('awaiting_user_input', 'pending'), ('queued', None)])
+        # The Agent page shows its Run and Discard buttons from this event.
+        published = [e for e in self.viewer.events if e.get('type') == 'command_request_updated']
+        self.assertEqual(published[-1]['commands'][1], {
+            'command_id': waiting['commands'][1]['command_id'], 'command': 'save x.h5',
+            'status': 'awaiting_user_input', 'approval': 'pending'})
+        for _ in range(20):
+            self.app.processEvents()
+            time.sleep(.005)
+        self.assertEqual((saves, self.viewer.selected_indices), ([], [0]))
+
+        self.portal.decide(r['request_id'], waiting['commands'][1]['command_id'], True)
+        result = self.finish(r['request_id'])
+        self.assertEqual(result['status'], 'succeeded', result)
+        self.assertEqual((saves, self.viewer.selected_indices), ([['x.h5']], [1]))
+        self.assertEqual(result['commands'][1]['approval'], 'approved')
+
+    def test_a_discarded_command_is_cancelled_and_the_rest_skipped(self):
+        saves = self.stand_in('save')
+        r = self.portal.submit('discard', ['save x.h5', 'select "two"'], source='web_agent')
+        waiting = self.wait_until(r['request_id'], 'awaiting_user_input')
+        self.portal.decide(r['request_id'], waiting['commands'][0]['command_id'], False)
+        result = self.finish(r['request_id'])
+        self.assertEqual(result['status'], 'cancelled', result)
+        self.assertEqual([c['status'] for c in result['commands']], ['cancelled', 'skipped'])
+        self.assertEqual(result['commands'][0]['messages'][-1]['text'], 'Discarded in the Agent page.')
+        self.assertEqual((saves, self.viewer.selected_indices), ([], []))
+
+    def test_agent_commands_are_refused_without_running(self):
+        calls = self.stand_in('agent')
+        for command in ('agent off', 'agent <Local>', 'agent'):
+            with self.subTest(command=command):
+                result = self.finish(self.portal.submit(command, [command, 'select "one"'], source='web_agent')['request_id'])
+                self.assertEqual([c['status'] for c in result['commands']], ['failed', 'skipped'])
+                self.assertIn('Agent replies cannot run this command', result['commands'][0]['messages'][-1]['text'])
+        self.assertEqual((calls, self.viewer.selected_indices), ([], []))
+
+    def test_other_sources_are_not_reviewed(self):
+        saves = self.stand_in('save')
+        result = self.finish(self.portal.submit('mcp', 'save x.h5')['request_id'])
+        self.assertEqual(result['status'], 'succeeded', result)
+        self.assertEqual(saves, [['x.h5']])
+        self.assertNotIn('approval', result['commands'][0])
+
+    def test_only_the_command_that_is_waiting_can_be_decided(self):
+        self.stand_in('save')
+        r = self.portal.submit('decide', ['save a.h5', 'save b.h5'], source='web_agent')
+        first, second = (c['command_id'] for c in self.wait_until(r['request_id'], 'awaiting_user_input')['commands'])
+        for request_id, command_id, run in ((r['request_id'], second, True),  # not reached yet
+                                            (r['request_id'], first, 'yes'),
+                                            ('unknown', first, True)):
+            with self.subTest(command_id=command_id, run=run), self.assertRaises(ValueError):
+                self.portal.decide(request_id, command_id, run)
+        self.portal.decide(r['request_id'], first, True)
+        with self.assertRaises(ValueError):
+            self.portal.decide(r['request_id'], first, True)
+
+    def test_discarding_an_abandoned_turn_releases_the_queue(self):
+        saves = self.stand_in('save')
+        r = self.portal.submit('abandoned', ['save a.h5', 'print', 'select "one"'], source='web_agent')
+        self.wait_until(r['request_id'], 'awaiting_user_input')
+        later = self.portal.submit('later', 'select "two"')
+        self.portal.discard_pending(r['request_id'])
+        result = self.finish(r['request_id'])
+        self.assertEqual([c['status'] for c in result['commands']], ['cancelled', 'cancelled', 'skipped'])
+        self.assertEqual(self.finish(later['request_id'])['status'], 'succeeded')
+        self.assertEqual((saves, self.viewer.selected_indices), ([], [1]))
 
 
 class WorkerTrackingTests(PortalFixture, unittest.TestCase):
