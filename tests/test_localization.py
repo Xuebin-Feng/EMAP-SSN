@@ -8,6 +8,10 @@ The console line on the Viewer canvas is the one place a Message is translated.
 The terminal and the command portal (MCP clients, the agent page) keep its
 English text. These tests install a stand-in translator that marks every
 template, so text that skips or wrongly takes the translation is visible.
+
+utilities.Localization also holds the Qt-free half of the translation
+machinery, tested here: the pseudo-language's text, the placeholders a
+translation must keep, and reading a catalog.
 """
 
 import ast
@@ -15,6 +19,7 @@ import contextlib
 import io
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -25,7 +30,15 @@ if str(SRC) not in sys.path:
 
 import Command_Engine
 from utilities import Localization
-from utilities.Localization import Message, display_text
+from utilities.Localization import (
+    CatalogMessage,
+    Message,
+    display_text,
+    fill_ins,
+    is_pseudo_translated,
+    pseudo_translate,
+    read_catalog,
+)
 
 
 def mark(template):
@@ -56,6 +69,16 @@ class MessageTests(unittest.TestCase):
         self.addCleanup(Localization.set_translator, previous)
         self.assertEqual(display_text("Already formatted."), "Already formatted.")
         self.assertEqual(display_text(Message("Done.")), "«Done.»")
+
+    def test_a_translation_that_cannot_be_filled_in_shows_the_english_sentence(self):
+        message = Message("Found {count} nodes.", count=3)
+        for broken in ("{total} Knoten gefunden.", "{0} Knoten gefunden.", "{count Knoten gefunden."):
+            with self.subTest(translation=broken):
+                previous = Localization.set_translator(lambda template, shown=broken: shown)
+                try:
+                    self.assertEqual(message.display(), "Found 3 nodes.")
+                finally:
+                    Localization.set_translator(previous)
 
 
 class ConsoleLineTests(unittest.TestCase):
@@ -142,6 +165,119 @@ class ConsoleLineWriteGuardTests(unittest.TestCase):
             "Write the Viewer's console line through Command_Engine.show_status, "
             "the one place its text is translated.",
         )
+
+
+class PseudoTranslationTests(unittest.TestCase):
+    def test_letters_take_accents_vowels_double_and_the_text_is_bracketed(self):
+        self.assertEqual(pseudo_translate("Save"), "[Šååṽéé]")
+        self.assertEqual(pseudo_translate("OK"), "[ÖÖĶ]")
+        self.assertEqual(pseudo_translate("Consistency Check"), "[Çööñšîîšţééñçý Çĥééçķ]")
+        letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        self.assertFalse(set(letters) & set(pseudo_translate(letters)), "every letter changes")
+
+    def test_what_the_program_fills_in_or_reads_back_stays_as_written(self):
+        cases = {
+            "{count} nodes saved to {name}.": ["{count}", "{name}"],
+            "Mean {value:.2f}, as {label!r} at {0}": ["{value:.2f}", "{label!r}", "{0}"],
+            "Use {{braces}} literally": ["{{", "}}"],
+            "%n position(s)": ["%n"],
+            "%1 of %2 and %L3": ["%1", "%2", "%L3"],
+            "%s at %(rate).1f%% done": ["%s", "%(rate).1f", "%%"],
+            "<b>Bold</b> and <a href='https://x.org/a'>a link</a>": ["<b>", "</b>", "<a href='https://x.org/a'>", "</a>"],
+            "Fish &amp; chips &#169; &#xA9;": ["&amp;", "&#169;", "&#xA9;"],
+            "Save && Run": ["&&"],
+            "See https://example.org/page now": ["https://example.org/page"],
+            "FASTA files (*.fasta *.fa);;All files (*)": ["*.fasta", "*.fa", "*"],
+        }
+        for text, kept in cases.items():
+            with self.subTest(text=text):
+                pseudo = pseudo_translate(text)
+                for piece in kept:
+                    self.assertIn(piece, pseudo)
+                self.assertEqual(fill_ins(pseudo), fill_ins(text))
+                self.assertTrue(is_pseudo_translated(pseudo))
+        template = pseudo_translate("{count} nodes saved to {name}.")
+        self.assertEqual(template.format(count=3, name="out.svg"), "[3 ñööđééš šååṽééđ ţöö out.svg.]")
+
+    def test_text_grows_about_as_much_as_a_translation(self):
+        labels = [
+            "Save & Run", "Export", "Consistency Check", "Similarity Threshold:",
+            "Node Color", "Pick", "ON", "OFF", "Save Directories", "Layout Device",
+            "Embedding Model", "Alignment Reference", "Show Labels", "Exit",
+        ]
+        growth = [len(pseudo_translate(label)) - 2 - len(label) for label in labels]
+        self.assertTrue(all(extra > 0 for extra in growth), growth)
+        self.assertGreaterEqual(sum(growth) / sum(map(len, labels)), 0.3)
+
+    def test_spaces_stay_outside_the_brackets(self):
+        self.assertEqual(pseudo_translate("  Name: "), "  [Ñååṁéé:] ")
+        self.assertEqual(pseudo_translate("Line one\nLine two"), "[Ļîîñéé ööñéé\nĻîîñéé ţŵöö]")
+        for blank in ("", "   ", "\n"):
+            self.assertEqual(pseudo_translate(blank), blank)
+
+    def test_only_whole_bracketed_text_counts_as_pseudo_translated(self):
+        self.assertTrue(is_pseudo_translated(" [Šååṽéé] "))
+        self.assertFalse(is_pseudo_translated("Save"))
+        self.assertFalse(is_pseudo_translated("[Šååṽéé]: 3"), "text added after the catalog's")
+        self.assertFalse(is_pseudo_translated(""))
+
+
+class FillInTests(unittest.TestCase):
+    def test_lists_the_placeholders_a_translation_must_keep(self):
+        self.assertEqual(fill_ins("{total} of {count}"), ["{count}", "{total}"])
+        self.assertEqual(fill_ins("{{literal}} and {0:>4}"), ["{0:>4}"])
+        self.assertEqual(fill_ins("%n file(s), %1 and %L2"), ["%1", "%L2", "%n"])
+        self.assertEqual(fill_ins("%s is 100%% and %(name)d"), ["%(name)d", "%s"])
+        self.assertEqual(fill_ins("<b>Bold</b> &amp; *.fasta"), [])
+
+
+class CatalogReadingTests(unittest.TestCase):
+    CATALOG = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" language="de" sourcelanguage="en">
+<context>
+    <name>Panel</name>
+    <message>
+        <location filename="../panel.py" line="+7"/>
+        <source>Save</source>
+        <translation>Speichern</translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <comment>a file</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n file(s)</source>
+        <translation>
+            <numerusform>%n Datei</numerusform>
+            <numerusform>%n Dateien</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>Message</name>
+    <message>
+        <source>Saved {name} &amp; more &lt;now&gt;.</source>
+        <translation type="vanished">{name} gespeichert.</translation>
+    </message>
+</context>
+</TS>
+"""
+
+    def test_reads_every_message_with_its_context_comment_forms_and_status(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "emapssn_de.ts"
+            path.write_text(self.CATALOG, encoding="utf-8")
+            messages = read_catalog(path)
+        self.assertEqual(messages, [
+            CatalogMessage("Panel", "Save", "", False, ("Speichern",), ""),
+            CatalogMessage("Panel", "Open", "a file", False, ("",), "unfinished"),
+            CatalogMessage("Panel", "%n file(s)", "", True, ("%n Datei", "%n Dateien"), ""),
+            CatalogMessage("Message", "Saved {name} & more <now>.", "", False,
+                           ("{name} gespeichert.",), "vanished"),
+        ])
+        self.assertEqual(messages[1].key, ("Panel", "Open", "a file"))
 
 
 if __name__ == "__main__":

@@ -426,7 +426,9 @@ from desktop.Desktop_App import (
     combo_value,
     configure_qt_application_fonts,
     force_light_palette,
+    install_translations,
     select_combo_value,
+    startup_language,
 )
 
 
@@ -4096,6 +4098,10 @@ if __name__ == "__main__":
     existing_qt_application = QApplication.instance()
     app = existing_qt_application or QApplication(sys.argv)
     app.setApplicationVersion(APPLICATION_VERSION)
+    try:
+        install_translations(app, startup_language())
+    except Exception as e:
+        print(f"Warning: Could not load translations, so text stays English: {e}")
     single_instance = None
     if existing_qt_application is None:
         single_instance = SingleInstanceController("SSN_Tools", app)

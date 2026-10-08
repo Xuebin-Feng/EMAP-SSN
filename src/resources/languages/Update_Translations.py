@@ -1,0 +1,361 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
+"""Update EMAP-SSN's translation catalogs from the code.
+
+    python src/resources/languages/Update_Translations.py            update and compile
+    python src/resources/languages/Update_Translations.py --add de   start a German catalog
+    python src/resources/languages/Update_Translations.py --check    change nothing; fail if stale
+
+The update collects every text marked for translation in src:
+
+* self.tr("..."), QCoreApplication.translate("Context", "...") and
+  QT_TRANSLATE_NOOP("Context", "..."), which Qt's lupdate finds;
+* the English template of every Message("...", ...), the Viewer's console
+  line, filed under the "Message" context. lupdate can't read a Message, so
+  in a temporary copy of the code each one gets a QT_TRANSLATE_NOOP on the
+  same line, and translators still see the real file and line.
+
+It rewrites emapssn.ts, the list of every text, and merges the texts into
+each language's catalog, emapssn_<language>.ts, keeping its translations. A
+text that left the code stays there, marked obsolete, in case it comes back.
+Then it compiles each language's catalog into emapssn_<language>.qm, the
+file the program loads, and checks that every translation keeps its
+text's placeholders, such as {count}.
+
+--check changes nothing. It exits with 1 if emapssn.ts no longer lists the
+code's texts, if a compiled catalog no longer matches its .ts file, or if a
+translation lost a placeholder. The test suite runs it, so a text marked
+without running the update fails the tests.
+"""
+
+import argparse
+import ast
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+LANGUAGES_DIR = Path(__file__).resolve().parent
+SRC_DIR = LANGUAGES_DIR.parents[1]
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from utilities.Localization import (  # noqa: E402
+    CATALOG_NAME,
+    MESSAGE_CONTEXT,
+    fill_ins,
+    read_catalog,
+)
+
+LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(?:_[A-Z][a-z]{3})?(?:_[A-Z]{2})?$")
+_LANGUAGE_CATALOG = re.compile(rf"^{CATALOG_NAME}_(?P<language>\w+)\.ts$")
+_MARKER_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+# lupdate's own progress lines; anything else it prints is worth showing.
+_LUPDATE_PROGRESS = re.compile(
+    r"^\s*(Scanning directory|Updating|Found \d+ source text|Removed \d+ obsolete)"
+)
+
+
+def qt_tool(name):
+    """The path of one of Qt's translation tools, as PySide6 ships it."""
+    import PySide6
+
+    folder = Path(PySide6.__file__).resolve().parent
+    for candidate in (folder / f"{name}.exe", folder / name):
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"Qt's {name} is not in {folder}. Reinstall PySide6.")
+
+
+def message_marker(template):
+    """QT_TRANSLATE_NOOP("Message", template) as one line of Python, then ", "."""
+    literal = "".join(_MARKER_ESCAPES.get(character, character) for character in template)
+    return f'QT_TRANSLATE_NOOP("{MESSAGE_CONTEXT}", "{literal}"), '
+
+
+# The argument that holds the text, for each way of marking one.
+_TEXT_ARGUMENT = {"tr": 0, "QT_TR_NOOP": 0, "translate": 1, "QT_TRANSLATE_NOOP": 1}
+
+
+def _called_name(node):
+    function = node.func
+    if isinstance(function, ast.Name):
+        return function.id
+    if isinstance(function, ast.Attribute):
+        return function.attr
+    return None
+
+
+def _is_plain_string(node):
+    return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+
+def _is_filled_in_string(node):
+    """An f-string, or a string filled in with % or .format() or joined with +."""
+    if isinstance(node, ast.JoinedStr):
+        return True
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Mod, ast.Add)):
+        return any(_is_plain_string(side) or _is_filled_in_string(side) for side in (node.left, node.right))
+    return (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format" and _is_plain_string(node.func.value)
+    )
+
+
+def prepare_source(text, filename):
+    """lupdate's view of one source file, and the problems in its marked texts.
+
+    Returns the text with a message_marker inserted right after the "(" of
+    each Message(...) call, and a list of problems: a Message whose template
+    isn't a plain string, and a text filled in before tr() or translate()
+    gets it, both of which no catalog can list. The markers add no lines, so
+    every text keeps its line number.
+    """
+    try:
+        tree = ast.parse(text, filename)
+    except SyntaxError as error:
+        return text, [
+            f"{filename}:{error.lineno}: not valid Python, so its texts were not collected: {error.msg}"
+        ]
+    lines = text.splitlines(keepends=True)
+    insertions, problems = [], []
+
+    def problem(node, explanation):
+        problems.append((node.lineno, f"{filename}:{node.lineno}: {explanation}"))
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _called_name(node)
+        position = _TEXT_ARGUMENT.get(name)
+        if position is not None and len(node.args) > position and _is_filled_in_string(node.args[position]):
+            problem(node, f"{name}() gets a text that is already filled in, which no catalog can "
+                          "list. Pass the plain text and fill in the values after translating.")
+        if name != "Message":
+            continue
+        template = node.args[0] if node.args else None
+        if not _is_plain_string(template):
+            problem(node, "Message needs its English template as a plain string, not an f-string "
+                          "or a variable, so the catalog can list it.")
+            continue
+        row = node.func.end_lineno - 1
+        line = lines[row]
+        start = len(line.encode("utf-8")[: node.func.end_col_offset].decode("utf-8"))
+        column = line.find("(", start)
+        if column < 0 or line[start:column].strip():
+            problem(node, "put Message's opening parenthesis on the same line as its name.")
+            continue
+        insertions.append((row, column + 1, message_marker(template.value)))
+    for row, column, marker in sorted(insertions, reverse=True):
+        lines[row] = lines[row][:column] + marker + lines[row][column:]
+    return "".join(lines), [explanation for _, explanation in sorted(problems)]
+
+
+def stage_sources(source_dir, stage_dir, skip=None):
+    """Copy the .py files under source_dir into stage_dir, marking Message templates.
+
+    Files in the folder skip (relative to source_dir), such as this command's
+    own, are left out. Returns the problems found.
+    """
+    source_dir, stage_dir = Path(source_dir), Path(stage_dir)
+    skipped = Path(skip).parts if skip else None
+    problems = []
+    for path in sorted(source_dir.rglob("*.py")):
+        relative = path.relative_to(source_dir)
+        if relative.parts[: len(skipped or ())] == skipped or any(
+            part == "__pycache__" or part.startswith(".") for part in relative.parts
+        ):
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        if any(word in text for word in ("Message", "tr(", "translate(", "QT_TR")):
+            text, found = prepare_source(text, relative.as_posix())
+            problems.extend(found)
+        target = stage_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    return problems
+
+
+def run_qt_tool(name, arguments):
+    """Run lupdate or lrelease. Returns what it printed beyond its progress lines."""
+    result = subprocess.run(
+        [str(qt_tool(name)), *map(str, arguments)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    printed = [
+        line for line in (result.stdout + result.stderr).splitlines()
+        if line.strip() and not _LUPDATE_PROGRESS.match(line)
+    ]
+    if result.returncode != 0:
+        raise RuntimeError(f"{name} failed with exit code {result.returncode}:\n" + "\n".join(printed))
+    return printed
+
+
+def language_catalogs(languages_dir):
+    """{language: path} of every emapssn_<language>.ts in languages_dir."""
+    catalogs = {}
+    for path in sorted(Path(languages_dir).glob(f"{CATALOG_NAME}_*.ts")):
+        match = _LANGUAGE_CATALOG.match(path.name)
+        if match and LANGUAGE_CODE.match(match.group("language")):
+            catalogs[match.group("language")] = path
+    return catalogs
+
+
+def placeholder_problems(catalog):
+    """Translations in catalog that dropped or added a placeholder.
+
+    A plural form may leave out %n, as in "one file". Texts that left the
+    code are not compiled, so they are not checked.
+    """
+    problems = []
+    for message in filter(_is_live, read_catalog(catalog)):
+        counts = ("%n", "%Ln") if message.numerus else ()
+        expected = [fill_in for fill_in in fill_ins(message.source) if fill_in not in counts]
+        for translation in message.translations:
+            found = [fill_in for fill_in in fill_ins(translation) if fill_in not in counts]
+            if translation and found != expected:
+                problems.append(
+                    f"{Path(catalog).name}: [{message.context}] {message.source!r} is translated as "
+                    f"{translation!r}, whose placeholders {found} differ from {expected}."
+                )
+    return problems
+
+
+def _texts(catalog):
+    return {
+        (message.context, message.source, message.comment, message.numerus)
+        for message in read_catalog(catalog)
+    }
+
+
+def _same_file(first, second):
+    first, second = Path(first), Path(second)
+    return first.is_file() and second.is_file() and first.read_bytes() == second.read_bytes()
+
+
+def _is_live(message):
+    """Whether a catalog's message is still in the code; lrelease leaves the others out."""
+    return message.status not in ("vanished", "obsolete")
+
+
+def update_catalogs(source_dir=SRC_DIR, languages_dir=LANGUAGES_DIR, add=(), check=False, report=print):
+    """Bring the catalogs in languages_dir up to date with the code in source_dir.
+
+    add starts catalogs for new languages. With check, nothing changes.
+    Returns 0, or 1 when something needs fixing; report gets every line to show.
+    """
+    source_dir, languages_dir = Path(source_dir).resolve(), Path(languages_dir).resolve()
+    template = languages_dir / f"{CATALOG_NAME}.ts"
+    languages = language_catalogs(languages_dir)
+    problems = []
+    for language in add:
+        if not LANGUAGE_CODE.match(language):
+            raise ValueError(f"{language!r} is not a language code such as de, pt_BR or zh_CN.")
+        languages.setdefault(language, languages_dir / f"{CATALOG_NAME}_{language}.ts")
+
+    with tempfile.TemporaryDirectory(prefix="emapssn-catalogs-") as temporary:
+        # lupdate records each text's file relative to its catalog, so the
+        # copy keeps the catalogs where they are in the real tree.
+        stage = Path(temporary) / source_dir.name
+        stage_languages = stage / languages_dir.relative_to(source_dir)
+        stage_languages.mkdir(parents=True)
+        problems += stage_sources(source_dir, stage, skip=languages_dir.relative_to(source_dir))
+
+        fresh_template = stage_languages / template.name
+        for line in run_qt_tool("lupdate", [
+            "-extensions", "py", "-source-language", "en", "-locations", "none", "-no-obsolete",
+            stage, "-ts", fresh_template,
+        ]):
+            report(f"lupdate: {line}")
+        texts = _texts(fresh_template)
+        messages = sum(1 for context, *_ in texts if context == MESSAGE_CONTEXT)
+        count = f"{len(texts)} texts, {messages} of them console messages"
+        if check:
+            listed = _texts(template) if template.is_file() else set()
+            for context, source, _, _ in sorted(texts - listed):
+                problems.append(f"{template.name} lacks [{context}] {source!r}: run the update.")
+            for context, source, _, _ in sorted(listed - texts):
+                problems.append(
+                    f"{template.name} still lists [{context}] {source!r}, "
+                    "which the code no longer has: run the update."
+                )
+            if texts == listed:
+                report(f"{template.name} lists the code's {count}.")
+        elif not _same_file(fresh_template, template):
+            shutil.copyfile(fresh_template, template)
+            report(f"Updated {template.name}: {count}.")
+        else:
+            report(f"{template.name} is up to date: {count}.")
+
+        if languages and not check:
+            staged = {}
+            for language, catalog in languages.items():
+                staged[language] = stage_languages / catalog.name
+                if catalog.is_file():
+                    shutil.copyfile(catalog, staged[language])
+                else:
+                    # lupdate would guess the language from the file name
+                    # (de_DE for de); a new catalog names it exactly.
+                    staged[language].write_text(
+                        '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE TS>\n'
+                        f'<TS version="2.1" language="{language}" sourcelanguage="en">\n</TS>\n',
+                        encoding="utf-8", newline="\n",
+                    )
+            for line in run_qt_tool("lupdate", [
+                "-extensions", "py", "-source-language", "en", "-locations", "relative",
+                stage, "-ts", *staged.values(),
+            ]):
+                report(f"lupdate: {line}")
+            for language, catalog in languages.items():
+                if not _same_file(staged[language], catalog):
+                    shutil.copyfile(staged[language], catalog)
+                    report(f"Updated {catalog.name}.")
+
+        for language, catalog in languages.items():
+            if not catalog.is_file():
+                continue
+            problems += placeholder_problems(catalog)
+            compiled = catalog.with_suffix(".qm")
+            fresh = stage_languages / compiled.name
+            run_qt_tool("lrelease", [catalog, "-qm", fresh])
+            if not _same_file(fresh, compiled):
+                if check:
+                    problems.append(f"{compiled.name} does not match {catalog.name}: run the update.")
+                else:
+                    shutil.copyfile(fresh, compiled)
+                    report(f"Compiled {compiled.name}.")
+            live = list(filter(_is_live, read_catalog(catalog)))
+            done = sum(1 for message in live if message.status == "" and any(message.translations))
+            report(f"{catalog.name}: {done} of {len(live)} texts translated.")
+
+    for problem in problems:
+        report(problem)
+    return 1 if problems else 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Update EMAP-SSN's translation catalogs from the code, and compile them.",
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="change nothing; exit with 1 if a catalog is out of date",
+    )
+    parser.add_argument(
+        "--add", metavar="LANGUAGE", action="append", default=[],
+        help="start a catalog for LANGUAGE, such as de, pt_BR or zh_CN",
+    )
+    arguments = parser.parse_args(argv)
+    if arguments.check and arguments.add:
+        parser.error("--add changes the catalogs, so it can't be combined with --check")
+    return update_catalogs(add=arguments.add, check=arguments.check)
+
+
+if __name__ == "__main__":
+    from utilities.Output_Streams import configure_output_streams
+
+    configure_output_streams()  # Texts may hold any character; Windows pipes can't.
+    sys.exit(main())

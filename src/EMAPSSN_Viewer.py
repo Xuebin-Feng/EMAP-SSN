@@ -148,8 +148,10 @@ from desktop.Desktop_App import (
     configure_qt_application_fonts,
     fit_buttons_to_text,
     force_light_palette,
+    install_translations,
     register_vispy_application_fonts,
     show_window_in_front,
+    startup_language,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
@@ -593,6 +595,10 @@ class MainViewer:
                 self.vispy_monospace_face = vispy_font_status.monospace_face
             except Exception as e:
                 print(f"Warning: Could not configure bundled application fonts: {e}")
+            try:
+                install_translations(qapp, startup_language())
+            except Exception as e:
+                print(f"Warning: Could not load translations, so text stays English: {e}")
         self.canvas.events.key_press.connect(self.on_key_press)
         self.canvas.events.resize.connect(self.on_resize)
         self.canvas.events.mouse_press.connect(self.on_mouse_press)

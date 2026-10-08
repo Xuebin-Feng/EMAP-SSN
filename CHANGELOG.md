@@ -47,6 +47,17 @@ still change before version 1.0.0.
   at 0.0097 to 0.0148 and the batch of small components at 0.083, with the same run
   time and edge lengths as `DT` 0.01. Layout documents without `AUTO_DT` load with it
   off. The VR Config has the same button.
+- **Translation machinery, with no translations yet.** The Config, Tools and VR Config
+  windows and the Viewer can now take their text from Qt translation catalogs in
+  `src/resources/languages/`. No text is marked for translation yet and no language can
+  be chosen, so every window stays English.
+  `python src/resources/languages/Update_Translations.py` collects the marked texts,
+  including the Viewer's console messages, into the catalogs. It keeps each language's
+  translations, compiles the catalogs and checks that translations keep their
+  placeholders. With `--check` it changes nothing and fails while a catalog is out of
+  date. `SSN_PSEUDO_TRANSLATION=1` starts a window in a test-only pseudo-language: every
+  text from the catalog shows accented, longer and bracketed, so text never marked for
+  translation, or cut off, stands out. See `src/resources/languages/README.md`.
 
 ### Changed
 

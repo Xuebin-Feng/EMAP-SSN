@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Consolidated Desktop Qt application presentation, windowing, fonts, and layouts."""
+"""Consolidated Desktop Qt application presentation, windowing, fonts, layouts and translations."""
 
 from __future__ import annotations
 
@@ -22,6 +22,15 @@ from PySide6 import QtCore, QtNetwork
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import QLayout, QPushButton, QStyle, QStyleOptionButton
+
+from utilities.Localization import (
+    CATALOG_NAME,
+    LANGUAGES_DIR,
+    MESSAGE_CONTEXT,
+    pseudo_translate,
+    read_catalog,
+    set_translator,
+)
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
@@ -1058,6 +1067,134 @@ class ToggleSwitch(QPushButton):
         self.setStyleSheet(TOGGLE_ON_STYLESHEET if checked else TOGGLE_OFF_STYLESHEET)
 
 
+# =====================================================================
+# 7. Translations: Catalogs, the Pseudo-Language & Startup Loading
+# =====================================================================
+
+PSEUDO_LANGUAGE = "pseudo"
+PSEUDO_TRANSLATION_VARIABLE = "SSN_PSEUDO_TRANSLATION"
+# Qt's own catalogs: "qt" covers its core modules' text (standard buttons,
+# context menus, file and colour dialogs), "qtwebengine" the web pages' menus.
+QT_CATALOG_PREFIXES = ("qt", "qtwebengine")
+
+
+def startup_language(environment=None):
+    """The language windows show, or None for English as written.
+
+    SSN_PSEUDO_TRANSLATION=1 picks the test-only pseudo-language. There is
+    no language setting yet, so every other start is English.
+    """
+    environment = os.environ if environment is None else environment
+    value = environment.get(PSEUDO_TRANSLATION_VARIABLE, "").strip().lower()
+    return PSEUDO_LANGUAGE if value in {"1", "true", "yes", "on"} else None
+
+
+class CatalogTranslator(QtCore.QTranslator):
+    """A translator that answers from a table, and only for the texts in it."""
+
+    def __init__(self, table, parent=None):
+        super().__init__(parent)
+        self._table = dict(table)
+
+    def translate(self, context, source_text, disambiguation=None, n=-1):
+        # None lets Qt ask the next translator, or show the English text.
+        return self._table.get((context, source_text, disambiguation or ""))
+
+    def isEmpty(self):
+        return not self._table
+
+
+def pseudo_translator(template):
+    """The pseudo-language: every text in the template catalog, pseudo-translated.
+
+    A text missing from the catalog stays English, as it would in a real
+    language. So does a text built at run time, such as an f-string passed
+    to tr(), which no catalog can list.
+    """
+    return CatalogTranslator(
+        (message.key, pseudo_translate(message.source)) for message in read_catalog(template)
+    )
+
+
+@dataclass
+class InstalledTranslations:
+    """What install_translations put in place; remove() takes it out again."""
+
+    language: str
+    translators: tuple
+    previous_message_translator: object = None
+
+    def remove(self):
+        global _installed_translations
+        for translator in self.translators:
+            QtCore.QCoreApplication.removeTranslator(translator)
+        set_translator(self.previous_message_translator)
+        if _installed_translations is self:
+            _installed_translations = None
+
+
+# QCoreApplication does not own its translators, so this keeps them alive.
+_installed_translations: InstalledTranslations | None = None
+
+
+def _translate_message(template):
+    return QtCore.QCoreApplication.translate(MESSAGE_CONTEXT, template)
+
+
+def _load_catalog(prefix, language, directory):
+    """A translator holding <directory>/<prefix>_<language>.qm, or None."""
+    translator = QtCore.QTranslator()
+    if translator.load(QtCore.QLocale(language), prefix, "_", str(directory)):
+        return translator
+    return None
+
+
+def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
+    """Show the windows built after this call in language.
+
+    None or "en" keeps every text English as written and installs nothing.
+    PSEUDO_LANGUAGE installs the test-only pseudo-language made from
+    <catalog_dir>/emapssn.ts. Any other language loads Qt's own catalogs
+    for it, where Qt has them, then <catalog_dir>/emapssn_<language>.qm,
+    which wins where both translate a text. Without that catalog it raises
+    LookupError and installs nothing. Message texts (the Viewer's console
+    line) then come from the same catalogs.
+
+    Windows set their text once, as they are built, so call this after the
+    QApplication exists and before the first window. A second call replaces
+    the first. Returns the InstalledTranslations, or None for English.
+    """
+    global _installed_translations
+    if _installed_translations is not None:
+        _installed_translations.remove()
+    if language in (None, "", "en"):
+        return None
+    if language == PSEUDO_LANGUAGE:
+        translators = [pseudo_translator(Path(catalog_dir) / f"{CATALOG_NAME}.ts")]
+    else:
+        ours = _load_catalog(CATALOG_NAME, language, catalog_dir)
+        if ours is None:
+            raise LookupError(f"No {CATALOG_NAME} catalog for language {language!r} in {catalog_dir}.")
+        qt_directory = QtCore.QLibraryInfo.path(QtCore.QLibraryInfo.LibraryPath.TranslationsPath)
+        translators = [
+            translator
+            for prefix in QT_CATALOG_PREFIXES
+            if (translator := _load_catalog(prefix, language, qt_directory)) is not None
+        ]
+        translators.append(ours)  # Installed last, so Qt asks it first.
+    for translator in translators:
+        app.installTranslator(translator)
+    _installed_translations = InstalledTranslations(
+        language, tuple(translators), set_translator(_translate_message)
+    )
+    return _installed_translations
+
+
+def installed_language():
+    """The language install_translations put in place, or None for English."""
+    return None if _installed_translations is None else _installed_translations.language
+
+
 __all__ = [
     "PRODUCT_NAME",
     "APPLICATION_VERSION",
@@ -1114,4 +1251,13 @@ __all__ = [
     "TOGGLE_ON_STYLESHEET",
     "TOGGLE_OFF_STYLESHEET",
     "ToggleSwitch",
+    "PSEUDO_LANGUAGE",
+    "PSEUDO_TRANSLATION_VARIABLE",
+    "QT_CATALOG_PREFIXES",
+    "startup_language",
+    "CatalogTranslator",
+    "pseudo_translator",
+    "InstalledTranslations",
+    "install_translations",
+    "installed_language",
 ]
