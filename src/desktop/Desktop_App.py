@@ -21,7 +21,7 @@ import weakref
 from PySide6 import QtCore, QtNetwork
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QFont, QFontMetrics
-from PySide6.QtWidgets import QLayout, QPushButton
+from PySide6.QtWidgets import QLayout, QPushButton, QStyle, QStyleOptionButton
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
@@ -978,18 +978,46 @@ def select_combo_value(combo, value):
 BUTTON_TEXT_PADDING = 14
 
 
+def shown_button_text(text):
+    """A button shows "&&" as "&" and drops the "&" marking a shortcut key."""
+    return re.sub("&(.)", r"\1", text)
+
+
 def text_button_width(texts, font, padding=BUTTON_TEXT_PADDING):
     """Return the width that shows the widest of ``texts`` in ``font``, padded."""
     metrics = QFontMetrics(font)
-    return max(metrics.horizontalAdvance(text) for text in texts) + 2 * padding
+    widest = max(metrics.horizontalAdvance(shown_button_text(text)) for text in texts)
+    return widest + 2 * padding
+
+
+def clipped_button_text(button):
+    """Return how many pixels of the button's text its style has no room for.
+
+    A style can keep a frame or stylesheet padding inside the button, so the
+    room left for the text is narrower than the button.
+    """
+    option = QStyleOptionButton()
+    button.initStyleOption(option)
+    room = button.style().subElementRect(
+        QStyle.SubElement.SE_PushButtonContents, option, button
+    ).width()
+    text = shown_button_text(button.text())
+    return max(0, button.fontMetrics().horizontalAdvance(text) - room)
 
 
 def fit_buttons_to_text(*buttons, padding=BUTTON_TEXT_PADDING):
-    """Give ``buttons`` one fixed width: their widest text plus ``padding`` at each end."""
+    """Give ``buttons`` one fixed width: their widest text plus ``padding`` at each end.
+
+    Should a style keep more room inside a button than the padding, the
+    width grows by what it would clip, so no text is ever cut off.
+    """
     width = 0
     for button in buttons:
         button.ensurePolished()  # A stylesheet may set the font the text is drawn in.
         width = max(width, text_button_width([button.text()], button.font(), padding))
+    for button in buttons:
+        button.setFixedWidth(width)
+    width += max(clipped_button_text(button) for button in buttons)
     for button in buttons:
         button.setFixedWidth(width)
     return width
@@ -1078,7 +1106,9 @@ __all__ = [
     "combo_value",
     "select_combo_value",
     "BUTTON_TEXT_PADDING",
+    "shown_button_text",
     "text_button_width",
+    "clipped_button_text",
     "fit_buttons_to_text",
     "TOGGLE_SWITCH_HEIGHT",
     "TOGGLE_ON_STYLESHEET",

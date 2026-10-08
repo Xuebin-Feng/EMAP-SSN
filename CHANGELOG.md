@@ -200,6 +200,13 @@ still change before version 1.0.0.
   14 px between their text and each end, and a switch keeps one size in both states.
   In English the label column is 174 px, the ON/OFF switches 51 px and the Viewer's
   sidebar 137 px.
+- **Tools window cards have a left and a right section.** The left section holds a
+  card's **Save & Run** and **Export** buttons and its field labels, and is as wide as
+  the widest of these across all tabs; the title and the fields start one spacing
+  after it. The buttons, and **Save Directories**, fit their text with 14 px at each
+  end. **Export Setting** is now **Export**, in the same font as **Save & Run**, and
+  its tooltip says the JSON file goes to the Setting Export Directory and that the
+  tool does not run.
 - `label` no longer opens the network file when it queues a report. It refused to run
   when that file had been moved, deleted or replaced after the Viewer loaded it,
   although the analysis uses only the loaded data. The workbook still names the

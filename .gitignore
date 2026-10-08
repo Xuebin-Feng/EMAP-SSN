@@ -3,10 +3,11 @@ Analysis_Results/
 Input_Files/
 Embeddings/
 Cache_Files/
-/temp/
 msa_benchmark/
+temp/
 
 # User-specified files
+Agent.md
 viewer_settings.json
 tools_settings.json
 mcp_config.json

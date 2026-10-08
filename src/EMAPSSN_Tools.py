@@ -100,6 +100,7 @@ from desktop.Desktop_App import (
     TOOLS_DISPLAY_NAME,
     ToggleSwitch,
     configure_linux_qt_desktop_identity,
+    fit_buttons_to_text,
     show_window_in_front,
 )
 from Cache_Manifest import (
@@ -131,6 +132,20 @@ PRIMARY_TITLE_STYLE = (
     "font-weight: bold; font-size: 18px; margin-top: 5px; margin-bottom: 5px; "
     "color: #2C3E50; border-bottom: 1px solid #3498DB; padding-bottom: 8px;"
 )
+
+
+def action_button_stylesheet(color):
+    """A card's header buttons share one font and height.
+
+    fit_buttons_to_text gives each its width, its text plus padding at each
+    end, so the stylesheet adds no horizontal padding of its own.
+    """
+    return (
+        f"background-color: {color}; color: white; font-weight: bold; "
+        "padding: 10px 0px;"
+    )
+
+
 COMPACT_ROW_GROUPS = {
     "Sanitize_Sequences.py": [
         ("MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"),
@@ -2117,10 +2132,8 @@ class ToolsGUI(QMainWindow):
 
         btn_save = QPushButton("Save Directories")
         btn_save.setObjectName("saveDirectoriesButton")
-        btn_save.setStyleSheet(
-            "background-color: #4CAF50; color: white; "
-            "font-weight: bold; padding: 10px 16px;"
-        )
+        btn_save.setStyleSheet(action_button_stylesheet("#4CAF50"))
+        fit_buttons_to_text(btn_save)
         btn_save.clicked.connect(self.save_directories)
 
         directory_actions = QWidget()
@@ -3426,32 +3439,29 @@ class ToolsGUI(QMainWindow):
             "Save the current tool settings to the shared settings file "
             "and run this tool."
         )
-        btn_run.setStyleSheet(
-            "background-color: #4CAF50; color: white; "
-            "font-weight: bold; padding: 10px 16px;"
-        )
-        original_button_height = btn_run.sizeHint().height()
+        btn_run.setStyleSheet(action_button_stylesheet("#4CAF50"))
         btn_run.clicked.connect(
             lambda checked, sp=script_path: self.save_and_run(sp)
         )
 
-        btn_export = QPushButton("Export\nSetting")
+        btn_export = QPushButton("Export")
         btn_export.setObjectName("exportSettingButton")
         btn_export.setAccessibleName("Export Settings")
         btn_export.setToolTip(
-            "Export the current tool settings to a standalone JSON file "
-            "for command-line execution."
+            "Export this tool's current settings, with the directories, to a "
+            "standalone JSON file in the Setting Export Directory, and show the "
+            "command that runs the tool from it. The shared settings file is not "
+            "changed, and the tool does not run."
         )
-        btn_export.setStyleSheet(
-            "background-color: #3498DB; color: white; "
-            "font-weight: bold; font-size: 10px; padding: 1px 8px;"
-        )
+        btn_export.setStyleSheet(action_button_stylesheet("#3498DB"))
         btn_export.clicked.connect(
             lambda checked, sp=script_path: self.export_settings(sp)
         )
 
-        button_height = max(original_button_height, btn_export.sizeHint().height())
+        # Each button is as wide as its own text; both share one height.
+        button_height = btn_run.sizeHint().height()
         for button in (btn_run, btn_export):
+            fit_buttons_to_text(button)
             button.setFixedHeight(button_height)
 
         button_row = QWidget()
@@ -3461,6 +3471,7 @@ class ToolsGUI(QMainWindow):
         button_layout.setSpacing(10)
         button_layout.addWidget(btn_run)
         button_layout.addWidget(btn_export)
+        button_layout.addStretch()
         button_row.setProperty("originalSingleButtonHeight", button_height)
 
         header_layout.addWidget(
@@ -3472,10 +3483,10 @@ class ToolsGUI(QMainWindow):
         return header
 
     @staticmethod
-    def _align_form_label_columns(form_layouts):
+    def _align_form_label_columns(form_layouts, minimum_width=0):
         label_widgets = []
         matched_trailing_labels = []
-        shared_width = 0
+        shared_width = minimum_width
 
         for form_layout in form_layouts:
             for row in range(form_layout.rowCount()):
@@ -3519,28 +3530,9 @@ class ToolsGUI(QMainWindow):
         return shared_width
 
     @staticmethod
-    def _align_tool_card_headers(form_layouts, shared_label_width):
-        if not form_layouts:
-            return 0
-
-        horizontal_spacing = max(
-            max(0, form_layout.horizontalSpacing())
-            for form_layout in form_layouts
-        )
-        title_start_x = shared_label_width + horizontal_spacing
-        action_gap = 10
-        full_button_width = max(1, (title_start_x - action_gap) // 2)
-        run_button_width = full_button_width
-        export_button_width = max(1, round(full_button_width * 0.6))
-        trailing_space = max(
-            0,
-            title_start_x
-            - (run_button_width + export_button_width + action_gap),
-        )
-
+    def _tool_card_action_rows(form_layouts):
+        """Yield each card header's row of action buttons."""
         for form_layout in form_layouts:
-            form_layout.setHorizontalSpacing(horizontal_spacing)
-            header = None
             for row in range(form_layout.rowCount()):
                 spanning_item = form_layout.itemAt(
                     row,
@@ -3551,60 +3543,59 @@ class ToolsGUI(QMainWindow):
                     and spanning_item.widget() is not None
                     and spanning_item.widget().objectName() == "toolHeader"
                 ):
-                    header = spanning_item.widget()
+                    action_row = spanning_item.widget().layout().itemAt(0).widget()
+                    if action_row is not None:
+                        yield action_row
                     break
-            if header is None:
-                continue
 
-            header_layout = header.layout()
-            header_layout.setSpacing(0)
-            action_widget = header_layout.itemAt(0).widget()
-            if action_widget is None:
-                continue
+    @staticmethod
+    def _align_tool_card_headers(form_layouts, left_width):
+        """Start each card's title where its fields start.
 
-            button_height = int(
-                action_widget.property("originalSingleButtonHeight") or 0
-            )
-            action_widget.setFixedSize(title_start_x, button_height)
+        Every card has a left section, holding the header's action buttons and
+        the field labels, and a right section, holding the title and the
+        fields. The right section starts the forms' horizontal spacing after
+        the left section, so the action row spans both.
+        """
+        if not form_layouts:
+            return 0
 
-            if action_widget.objectName() == "toolActionButtons":
-                action_layout = action_widget.layout()
-                action_layout.setContentsMargins(0, 0, trailing_space, 0)
-                action_layout.setSpacing(action_gap)
-                for button in action_widget.findChildren(
-                    QPushButton,
-                    options=Qt.FindChildOption.FindDirectChildrenOnly,
-                ):
-                    width = (
-                        run_button_width
-                        if button.objectName() == "saveRunButton"
-                        else export_button_width
-                    )
-                    button.setFixedSize(width, button_height)
-            elif action_widget.objectName() == "directoryActionButtons":
-                save_button = action_widget.findChild(
-                    QPushButton,
-                    "saveDirectoriesButton",
-                    Qt.FindChildOption.FindDirectChildrenOnly,
-                )
-                if save_button is not None:
-                    save_button.setFixedSize(
-                        round(full_button_width * 1.5),
-                        button_height,
-                    )
-
+        horizontal_spacing = max(
+            max(0, form_layout.horizontalSpacing())
+            for form_layout in form_layouts
+        )
+        title_start_x = left_width + horizontal_spacing
+        for form_layout in form_layouts:
+            form_layout.setHorizontalSpacing(horizontal_spacing)
+        for action_row in ToolsGUI._tool_card_action_rows(form_layouts):
+            header = action_row.parentWidget()
+            header.layout().setSpacing(0)
+            button_height = int(action_row.property("originalSingleButtonHeight") or 0)
+            action_row.setFixedSize(title_start_x, button_height)
             header.setProperty("sharedTitleStartX", title_start_x)
 
         return title_start_x
 
+    @staticmethod
+    def _align_tool_cards(form_layouts):
+        """Size every card's left section by its widest element across all tabs.
+
+        That element is a field label or a header's row of action buttons,
+        which keep the widths of their texts. Returns the left section's width
+        and the x at which the right section starts.
+        """
+        action_width = max(
+            (row.sizeHint().width()
+             for row in ToolsGUI._tool_card_action_rows(form_layouts)),
+            default=0,
+        )
+        left_width = ToolsGUI._align_form_label_columns(
+            form_layouts, minimum_width=action_width
+        )
+        return left_width, ToolsGUI._align_tool_card_headers(form_layouts, left_width)
+
     def _align_all_tool_cards(self):
-        shared_label_width = self._align_form_label_columns(
-            self._tool_form_layouts
-        )
-        self._align_tool_card_headers(
-            self._tool_form_layouts,
-            shared_label_width,
-        )
+        self._align_tool_cards(self._tool_form_layouts)
 
     def _harmonize_tab_page_widths(self):
         scroll_pages = [

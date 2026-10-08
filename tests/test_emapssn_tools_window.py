@@ -809,15 +809,14 @@ class ToolExportGuiTests(unittest.TestCase):
             )
             self.assertEqual(content_page.minimumWidth(), 0)
 
-    def test_tool_headers_align_with_shared_field_start(self):
+    def test_tool_cards_split_into_a_left_and_a_right_section(self):
+        """A card's left section holds its action buttons and field labels and is
+        as wide as the widest such element across all cards; the title and the
+        fields start one horizontal spacing after it."""
         from PySide6.QtCore import QPoint
-        from PySide6.QtWidgets import (
-            QBoxLayout,
-            QFormLayout,
-            QFrame,
-            QLabel,
-            QLineEdit,
-            QPushButton,
+        from PySide6.QtWidgets import QFrame, QLabel, QLineEdit, QPushButton
+        from desktop.Desktop_App import (
+            BUTTON_TEXT_PADDING, clipped_button_text, text_button_width,
         )
 
         fake_window = SimpleNamespace(
@@ -825,123 +824,101 @@ class ToolExportGuiTests(unittest.TestCase):
             save_and_run=lambda script_path: None,
             export_settings=lambda script_path: None,
         )
-        cards = []
-        layouts = []
-        fields = []
-        headers = []
-        for label_text in (
-            "Short:",
-            "Normalized Noise Scale (0 to 0.1):",
-        ):
-            card = QFrame()
-            layout = QFormLayout(card)
-            layout.setHorizontalSpacing(30)
-            header = self.tools_gui_class._create_tool_header(
-                fake_window,
-                "Sanitize_Sequences.py",
-                str(SRC_DIR / "tools" / "Sanitize_Sequences.py"),
-            )
-            field = QLineEdit()
-            layout.addRow(header)
-            layout.addRow(QLabel(label_text), field)
-            cards.append(card)
-            layouts.append(layout)
-            fields.append(field)
-            headers.append(header)
 
-        shared_label_width = self.tools_gui_class._align_form_label_columns(layouts)
-        title_start_x = self.tools_gui_class._align_tool_card_headers(
-            layouts,
-            shared_label_width,
-        )
+        def natural_width(text):
+            return QLabel(text).sizeHint().width()
 
-        try:
-            for card in cards:
-                card.resize(1000, 100)
-                card.show()
-            self.app.processEvents()
-
-            field_positions = {
-                field.mapTo(card, QPoint(0, 0)).x()
-                for card, field in zip(cards, fields)
-            }
-            title_positions = {
-                header.findChild(QLabel, "toolTitle")
-                .mapTo(card, QPoint(0, 0))
-                .x()
-                for card, header in zip(cards, headers)
-            }
-            self.assertEqual(len(field_positions), 1)
-            self.assertEqual(title_positions, field_positions)
-
-            for header in headers:
-                buttons = {
-                    button.objectName(): button
-                    for button in header.findChildren(QPushButton)
-                }
-                run_button = buttons["saveRunButton"]
-                export_button = buttons["exportSettingButton"]
-                button_row = run_button.parentWidget()
-                self.assertEqual(run_button.height(), export_button.height())
-                self.assertEqual(run_button.height(), button_row.height())
-                self.assertEqual(button_row.width(), title_start_x)
-                self.assertEqual(button_row.layout().spacing(), 10)
-                self.assertEqual(
-                    button_row.layout().direction(),
-                    QBoxLayout.Direction.LeftToRight,
-                )
-                full_button_width = (
-                    button_row.width() - button_row.layout().spacing()
-                ) // 2
-                self.assertEqual(
-                    run_button.width(),
-                    full_button_width,
-                )
-                self.assertEqual(
-                    export_button.width(),
-                    round(full_button_width * 0.6),
-                )
-                self.assertEqual(
-                    run_button.width()
-                    + export_button.width()
-                    + button_row.layout().spacing()
-                    + button_row.layout().contentsMargins().right(),
-                    button_row.width(),
-                )
-                self.assertGreater(
-                    button_row.layout().contentsMargins().right(),
-                    0,
-                )
-                self.assertEqual(export_button.text(), "Export\nSetting")
-                self.assertEqual(
-                    export_button.accessibleName(),
-                    "Export Settings",
-                )
-                self.assertIn("shared settings file", run_button.toolTip())
-                self.assertIn("standalone JSON file", export_button.toolTip())
-                self.assertNotIn("\n", run_button.text())
-                export_lines = export_button.text().splitlines()
-                self.assertEqual(export_lines, ["Export", "Setting"])
-                self.assertLessEqual(
-                    max(
-                        export_button.fontMetrics().horizontalAdvance(line)
-                        for line in export_lines
+        # A long label widens the section; with short labels the buttons do.
+        for label_texts in (("Short:", "Normalized Noise Scale (0 to 0.1):"),
+                            ("A:", "B:")):
+            with self.subTest(labels=label_texts):
+                cards, layouts, fields, headers = [], [], [], []
+                for label_text in label_texts:
+                    card = QFrame()
+                    layout = QFormLayout(card)
+                    layout.setHorizontalSpacing(30)
+                    header = self.tools_gui_class._create_tool_header(
+                        fake_window,
+                        "Sanitize_Sequences.py",
+                        str(SRC_DIR / "tools" / "Sanitize_Sequences.py"),
                     )
-                    + 16,
-                    export_button.width(),
-                )
-                self.assertLessEqual(
-                    (export_button.fontMetrics().height() * len(export_lines))
-                    + 2,
-                    export_button.height(),
-                )
-        finally:
-            for card in cards:
-                card.close()
+                    field = QLineEdit()
+                    layout.addRow(header)
+                    layout.addRow(QLabel(label_text), field)
+                    cards.append(card)
+                    layouts.append(layout)
+                    fields.append(field)
+                    headers.append(header)
 
-    def test_directory_save_button_is_one_and_a_half_times_wide_and_left_aligned(self):
+                left_width, title_start_x = self.tools_gui_class._align_tool_cards(layouts)
+                try:
+                    for card in cards:
+                        card.resize(1000, 100)
+                        card.show()
+                    self.app.processEvents()
+
+                    buttons = {button.objectName(): button
+                               for button in headers[0].findChildren(QPushButton)}
+                    run_button = buttons["saveRunButton"]
+                    export_button = buttons["exportSettingButton"]
+                    action_width = run_button.width() + 10 + export_button.width()
+                    widest = max([action_width]
+                                 + [natural_width(text) for text in label_texts])
+                    self.assertEqual(left_width, widest)
+                    self.assertEqual(title_start_x, left_width + 30)
+
+                    field_positions = {
+                        field.mapTo(card, QPoint(0, 0)).x()
+                        for card, field in zip(cards, fields)
+                    }
+                    title_positions = {
+                        header.findChild(QLabel, "toolTitle").mapTo(card, QPoint(0, 0)).x()
+                        for card, header in zip(cards, headers)
+                    }
+                    self.assertEqual(len(field_positions), 1)
+                    self.assertEqual(title_positions, field_positions)
+
+                    for header in headers:
+                        buttons = {button.objectName(): button
+                                   for button in header.findChildren(QPushButton)}
+                        run_button = buttons["saveRunButton"]
+                        export_button = buttons["exportSettingButton"]
+                        button_row = run_button.parentWidget()
+                        self.assertEqual(button_row.width(), title_start_x)
+                        self.assertEqual(run_button.x(), 0)
+                        self.assertEqual(
+                            export_button.x(), run_button.width() + button_row.layout().spacing()
+                        )
+                        for button in (run_button, export_button):
+                            self.assertEqual(
+                                button.width(),
+                                text_button_width([button.text()], button.font()),
+                            )
+                            self.assertTrue(button.font().bold())
+                            self.assertEqual(clipped_button_text(button), 0)
+                        self.assertEqual(run_button.height(), export_button.height())
+                        self.assertEqual(run_button.font().pointSizeF(),
+                                         export_button.font().pointSizeF())
+                        # "Save && Run" shows as "Save & Run".
+                        self.assertEqual(
+                            run_button.width()
+                            - run_button.fontMetrics().horizontalAdvance("Save & Run"),
+                            2 * BUTTON_TEXT_PADDING,
+                        )
+                        self.assertEqual(export_button.text(), "Export")
+                        self.assertEqual(export_button.accessibleName(), "Export Settings")
+                        self.assertIn("shared settings file", run_button.toolTip())
+                        for phrase in ("standalone JSON file", "Setting Export Directory",
+                                       "does not run"):
+                            self.assertIn(phrase, export_button.toolTip())
+                finally:
+                    for card in cards:
+                        card.close()
+
+    def test_directory_save_button_fits_its_text_and_is_left_aligned(self):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QLabel, QPushButton, QTabWidget, QWidget
+        from desktop.Desktop_App import BUTTON_TEXT_PADDING, clipped_button_text
 
         isolated_tools_project(self)
         fake_window = QWidget()
@@ -960,19 +937,20 @@ class ToolExportGuiTests(unittest.TestCase):
         # The "Alignment Report Directory:" row.
         field = fake_window.dir_inputs["REPORT_DIR"]
 
-        shared_label_width = self.tools_gui_class._align_form_label_columns([layout])
-        title_start_x = self.tools_gui_class._align_tool_card_headers(
-            [layout],
-            shared_label_width,
-        )
-        former_width = max(1, (title_start_x - 10) // 2)
+        _left_width, title_start_x = self.tools_gui_class._align_tool_cards([layout])
 
         try:
             fake_window.tabs.resize(1100, 600)
             fake_window.tabs.show()
             self.app.processEvents()
 
-            self.assertEqual(save_button.width(), round(former_width * 1.5))
+            self.assertEqual(
+                save_button.width()
+                - save_button.fontMetrics().horizontalAdvance(save_button.text()),
+                2 * BUTTON_TEXT_PADDING,
+            )
+            self.assertEqual(clipped_button_text(save_button), 0)
+            self.assertEqual(actions.width(), title_start_x)
             self.assertEqual(
                 save_button.mapTo(card, QPoint(0, 0)).x(),
                 actions.mapTo(card, QPoint(0, 0)).x(),
@@ -980,10 +958,6 @@ class ToolExportGuiTests(unittest.TestCase):
             self.assertEqual(
                 title.mapTo(card, QPoint(0, 0)).x(),
                 field.mapTo(card, QPoint(0, 0)).x(),
-            )
-            self.assertGreaterEqual(
-                save_button.width(),
-                save_button.fontMetrics().horizontalAdvance(save_button.text()) + 32,
             )
         finally:
             fake_window.tabs.close()
