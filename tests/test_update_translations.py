@@ -41,11 +41,12 @@ CHOICES = [QT_TRANSLATE_NOOP("Choices", "Circle"), QT_TRANSLATE_NOOP("Choices", 
 
 
 class Panel(QWidget):
-    def build(self, count, choice):
+    def build(self, count, choice, folders):
         self.save = QLabel(self.tr("Save"))
-        self.files = QLabel(self.tr("%n file(s)", "", count))
+        self.files = QLabel(QCoreApplication.translate("Panel", "%n file(s)", None, count))
         self.shared = QLabel(QCoreApplication.translate("Config", "Shared sentence"))
         self.choice = QLabel(QCoreApplication.translate("Choices", choice))
+        self.folders = QLabel(QCoreApplication.translate("Config", "%n folder(s)", None, len(folders)))
 '''
 
 COMMANDS = '''from utilities.Localization import Message
@@ -61,12 +62,13 @@ def execute(viewer, count, name):
     escaped = Message("Tab\\there, a \\"quote\\", a back\\\\slash and\\na new line {count}", count=count)
     wide = Message("🤖 Agent and α-amylase {name}", name=name)
     nested = Message("Outer {inner}", inner=Message("Inner {count}", count=count))
-    return saved, joined, escaped, wide, nested
+    removed = Message("Removed %n group(s) from {name}.", n=count, name=name)
+    return saved, joined, escaped, wide, nested, removed
 '''
 
 EXPECTED_TEXTS = {
     ("Choices", "Circle"), ("Choices", "Square"),
-    ("Config", "Shared sentence"),
+    ("Config", "Shared sentence"), ("Config", "%n folder(s)"),
     ("Panel", "Save"), ("Panel", "%n file(s)"),
     (MESSAGE_CONTEXT, "Saved {count} nodes to {name}."),
     (MESSAGE_CONTEXT, "Two literals joined: {name}"),
@@ -74,7 +76,9 @@ EXPECTED_TEXTS = {
     (MESSAGE_CONTEXT, "🤖 Agent and α-amylase {name}"),
     (MESSAGE_CONTEXT, "Outer {inner}"),
     (MESSAGE_CONTEXT, "Inner {count}"),
+    (MESSAGE_CONTEXT, "Removed %n group(s) from {name}."),
 }
+COUNTED_TEXTS = {"%n file(s)", "%n folder(s)", "Removed %n group(s) from {name}."}
 
 
 def texts(catalog):
@@ -126,6 +130,68 @@ class PrepareSourceTests(unittest.TestCase):
             'QT_TRANSLATE_NOOP("Message", "Tab\\t\\"q\\" back\\\\slash\\nnew"), ',
         )
 
+    def test_a_counted_template_is_shown_to_lupdate_with_a_count(self):
+        marker = Update_Translations.message_marker
+        self.assertEqual(
+            marker("Removed %n group(s).", counted=True),
+            'QCoreApplication.translate("Message", "Removed %n group(s).", None, 0), ',
+        )
+        prepared, problems = prepare_source(
+            'def show(viewer, groups):\n    return Message("Removed %n group(s).", n=len(groups))\n', "show.py"
+        )
+        self.assertEqual(problems, [])
+        self.assertIn(f'Message({marker("Removed %n group(s).", counted=True)}"Removed', prepared)
+
+    def test_the_count_of_a_counted_translate_is_shown_to_lupdate_as_written(self):
+        text = (
+            "def build(self, folders, rows):\n"
+            "    a = QCoreApplication.translate(\"Config\", \"%n 🧬 folder(s)\", None, len(folders))\n"
+            "    b = QCoreApplication.translate(\n"
+            "        \"Config\", \"%n row(s) in {name}\", None,\n"
+            "        sum(\n"
+            "            1 for row in rows\n"
+            "        ), ).format(name=Message(\"Inner\"))\n"
+            "    c = QCoreApplication.translate(\"Config\", \"%n cell(s)\", None, 3)\n"
+            "    d = translate(\"Config\", \"%n file(s)\", None, len(folders))\n"
+        )
+        prepared, problems = prepare_source(text, "build.py")
+        self.assertEqual(problems, [])
+        # What follows a count stays on its line, so every text keeps its line number.
+        self.assertEqual(prepared.splitlines(), [
+            "def build(self, folders, rows):",
+            "    a = QCoreApplication.translate(\"Config\", \"%n 🧬 folder(s)\", None, 0)",
+            "    b = QCoreApplication.translate(",
+            "        \"Config\", \"%n row(s) in {name}\", None,",
+            "        0",
+            "",
+            f", ).format(name=Message({Update_Translations.message_marker('Inner')}\"Inner\"))",
+            "    c = QCoreApplication.translate(\"Config\", \"%n cell(s)\", None, 3)",
+            "    d = translate(\"Config\", \"%n file(s)\", None, 0)",
+        ])
+
+    def test_texts_lupdate_would_drop_or_miscount_are_refused(self):
+        text = (
+            "def build(self, n, values):\n"
+            "    self.tr(\"%n file(s)\", n=n)\n"
+            "    QCoreApplication.translate(\"Panel\", \"Save\", disambiguation=None)\n"
+            "    self.tr(\"%n file(s)\")\n"
+            "    QCoreApplication.translate(\"Panel\", \"%n file(s)\", None)\n"
+            "    QT_TRANSLATE_NOOP(\"Panel\", \"%n file(s)\")\n"
+            "    self.tr(\"%n files\", \"\", n)\n"
+            "    QCoreApplication.translate(\"Panel\", \"Step %n\", None, n)\n"
+            "    Message(\"Removed %n group(s).\", count=n)\n"
+            "    Message(\"Removed %n groups.\", n=n)\n"
+            "    Message(\"Removed %n group(s).\", **values)\n"
+        )
+        _, problems = prepare_source(text, "build.py")
+        self.assertEqual([problem.split(":")[1] for problem in problems],
+                         ["2", "3", "4", "5", "6", "7", "8", "9", "10"])
+        self.assertIn("names its arguments", problems[0])
+        self.assertIn("but no count", problems[2])
+        self.assertIn("only Desktop_App's translate() shows its English plural", problems[5])
+        self.assertIn("without an English plural ending", problems[6])
+        self.assertIn("needs the count as n=", problems[7])
+
     def test_texts_filled_in_before_translation_are_refused(self):
         text = (
             "def build(self, n, value, choice):\n"
@@ -145,7 +211,7 @@ class PrepareSourceTests(unittest.TestCase):
         text = (
             "def build(self, choice, table):\n"
             "    self.tr(\"Save\")\n"
-            "    self.tr(\"%n file(s)\", \"\", 3)\n"
+            "    QCoreApplication.translate(\"Panel\", \"%n file(s)\", None, 3)\n"
             "    QCoreApplication.translate(\"Choices\", choice)\n"
             "    \"abc\".translate(table)\n"
             "    b\"abc\".translate(table, b\"a\")\n"
@@ -183,9 +249,9 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertEqual(self.update(), 0, self.lines)
         self.assertEqual(texts(self.translations / "emapssn.ts"), EXPECTED_TEXTS)
         numerus = {message.source for message in read_catalog(self.translations / "emapssn.ts") if message.numerus}
-        self.assertEqual(numerus, {"%n file(s)"})
+        self.assertEqual(numerus, COUNTED_TEXTS)
         self.assertEqual({path: data for path, data in self.snapshot().items() if path.suffix == ".py"}, code)
-        self.assertIn("Updated emapssn.ts: 11 texts, 6 of them console messages.", self.lines)
+        self.assertIn("Updated emapssn.ts: 13 texts, 7 of them console messages.", self.lines)
         self.assertNotIn("location", (self.translations / "emapssn.ts").read_text(encoding="utf-8"))
 
     def test_a_language_keeps_its_translations_through_updates(self):
@@ -197,7 +263,7 @@ class UpdateCommandTests(unittest.TestCase):
         translate_in(german, "Save", "Speichern")
         translate_in(german, "Saved {count} nodes to {name}.", "{count} Knoten in {name} gespeichert.")
         self.assertEqual(self.update(), 0, self.lines)
-        self.assertIn("emapssn_de.ts: 2 of 11 texts translated.", self.lines)
+        self.assertIn("emapssn_de.ts: 2 of 13 texts translated.", self.lines)
 
         # A text that leaves the code leaves the list; its translation is kept.
         panel = self.src / "panel.py"
@@ -220,7 +286,7 @@ class UpdateCommandTests(unittest.TestCase):
     def test_check_finds_a_stale_template_and_changes_nothing(self):
         self.assertEqual(self.update(add=["de"]), 0, self.lines)
         self.assertEqual(self.update(check=True), 0, self.lines)
-        self.assertIn("emapssn.ts lists the code's 11 texts, 6 of them console messages.", self.lines)
+        self.assertIn("emapssn.ts lists the code's 13 texts, 7 of them console messages.", self.lines)
         commands = self.src / "commands" / "demo.py"
         commands.write_text(
             commands.read_text(encoding="utf-8") + '\n\ndef later():\n    return Message("A new text.")\n',

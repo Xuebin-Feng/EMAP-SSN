@@ -97,6 +97,16 @@ still change before version 1.0.0.
   plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
   that language shows. No language ships yet, so for now the dropdown offers English
   alone.
+- **The Config window is ready to translate.** Every text it shows comes from the
+  catalog: labels, tips, dropdown choices, the statistics and consistency reports,
+  messages and errors. Its errors still print in English in the terminal. Counted texts
+  name their count with `%n` and mark their English plural endings, as in
+  `%n file(s)`, so English shows "1 file" and "2 files", and a translation gives each
+  plural form its language has. Some Config messages now read as correct English, such
+  as "Created profile:" for one new profile, and "The network lacks 3 sequences." The
+  score histogram draws its title and legend in the window's language, Simplified
+  Chinese with the bundled font. The update command also refuses calls whose text or
+  count Qt's `lupdate` would miss: arguments passed by name, and a counted `tr()`.
 
 ### Changed
 

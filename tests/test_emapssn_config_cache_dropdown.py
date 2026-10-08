@@ -1422,8 +1422,12 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertTrue(created.exists())
                 self.assertEqual(selector.currentText(), "publication")
                 self.assertTrue(name_input.isHidden())
-                self.assertIn("Created profile(s): Visual Effects:", self.window.tip_panel.text())
+                self.assertIn("Created profile: Visual Effects:", self.window.tip_panel.text())
                 self.assertIn("publication", self.window.tip_panel.text())
+                self.assertIn(
+                    "Created profiles: Visual Effects: 'a', Directories: 'b'.",
+                    self.window._save_success_message([("visual_effects", "a"), ("directories", "b")], []),
+                )
 
                 selector.setCurrentText("(new)")
                 name_input.setText("publication")

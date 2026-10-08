@@ -46,13 +46,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.Desktop_App import fit_buttons_to_text
-from utilities.Localization import is_pseudo_translated, pseudo_translate
-from tests.translation_fixtures import cut_off_texts, pseudo_language, visible_texts
+from PySide6.QtGui import QTextDocumentFragment
+
+from desktop.Desktop_App import ToggleSwitch, fit_buttons_to_text, mark_name_item
+from utilities.Localization import display_text, is_pseudo_translated, pseudo_translate
+from tests.translation_fixtures import cut_off_texts, outside_the_catalog, pseudo_language, visible_texts
 
 # Windows whose every text comes from a catalog. Marking a window's text
 # (language step 6) moves it here.
-FULLY_MARKED = frozenset()
+FULLY_MARKED = frozenset({"Config"})
 
 
 def flush(app):
@@ -85,17 +87,21 @@ class VisibleTextTests(WindowTestCase):
         tabs = QTabWidget()
         tabs.addTab(QWidget(), "A tab")
         choices = QComboBox()
-        choices.addItems(["A choice", "42"])
+        choices.addItems(["A choice", "42", "NVIDIA GeForce [cuda:0]"])
+        mark_name_item(choices, 2)
         edit = QLineEdit("typed by the user")
         edit.setPlaceholderText("A placeholder")
         spin = QSpinBox()
         spin.setSuffix(" nodes")
+        rich = QLabel('<div style="line-height: 120%;">A rich label &amp; more</div>')
+        switch = ToggleSwitch("Shown when on", "Shown when off")
         for widget in (label, QPushButton("A button"), QCheckBox("A check box"), group, tabs,
-                       choices, edit, spin, QLabel("12.5"), QPushButton("📁"), QPushButton(">>")):
+                       choices, edit, spin, QLabel("12.5"), QPushButton("📁"), QPushButton(">>"), rich, switch):
             layout.addWidget(widget)
         self.assertEqual(sorted(text for _, text in visible_texts(window)), sorted([
             "Window title", "A label", "A tooltip", "A button", "A check box", "A group",
-            "A tab", "A choice", "A placeholder", " nodes",
+            "A tab", "A choice", "A placeholder", " nodes", "A rich label & more",
+            "Shown when off", "Shown when on",
         ]))
 
 
@@ -129,7 +135,18 @@ class WindowTextTests(WindowTestCase):
             self.assertEqual(unmarked, [], f"{name} shows text not marked for translation")
         else:
             self.assertTrue(unmarked, f"Every text in {name} is marked now: add it to FULLY_MARKED.")
-        self.assertEqual(cut_off_texts(window), [], f"{name} cuts translated text off")
+        self.assertEqual(self.cut_off_on_every_tab(window), [], f"{name} cuts translated text off")
+
+    def cut_off_on_every_tab(self, window):
+        """cut_off_texts(window), with each tab of each tab widget shown in turn."""
+        found = cut_off_texts(window)
+        for tabs in window.findChildren(QTabWidget):
+            for index in range(tabs.count()):
+                if tabs.isTabVisible(index):
+                    tabs.setCurrentIndex(index)
+                    flush(self.app)
+                    found += [text for text in cut_off_texts(window) if text not in found]
+        return found
 
     def test_config_window(self):
         from tests.config_gui_loader import load_config_namespace, open_config_window
@@ -166,6 +183,111 @@ class WindowTextTests(WindowTestCase):
                 plugin.activate(viewer)
         self.assertEqual(len(viewer.sidebar_buttons), 3)
         self.check("Viewer side panel", self.show(viewer.main_window))
+
+
+class ConfigRunTimeTextTests(WindowTestCase):
+    """Text the Config window shows after it opens: tips, reports, messages and errors.
+
+    Each is checked under the pseudo-language: what is left once every
+    bracketed, translated piece is taken out came from no catalog. A value
+    filled into a translated text, such as a file name, is inside its piece.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from tests.config_gui_loader import load_config_namespace
+
+        cls.namespace = load_config_namespace()
+
+    def setUp(self):
+        from tests.config_gui_loader import open_config_window
+
+        pseudo_language(self, self.app)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.window = open_config_window(self.namespace["ConfigGUI"], folder.name)
+        self.addCleanup(self.window.deleteLater)
+
+    def assert_translated(self, text):
+        self.assertTrue(text)
+        self.assertEqual(outside_the_catalog(text), "", text)
+
+    def test_every_tip(self):
+        self.assertGreater(len(self.window.tip_db_keys), 50)
+        for key, tip in self.window.tip_db_keys.items():
+            with self.subTest(key=key):
+                self.assertTrue(is_pseudo_translated(tip), tip)
+
+    def test_the_save_message(self):
+        self.assert_translated(self.window._save_success_message(
+            [("visual_effects", "mine"), ("directories", "shared")], ["simulation_physics"]
+        ))
+
+    def test_profile_errors(self):
+        validate = self.namespace["_validate_profile_name"]
+        for name, existing in (("", ()), ("(new)", ()), ("name.", ()), ("a/b", ()), ("con", ()),
+                               ("taken", ("taken",))):
+            with self.subTest(name=name), self.assertRaises(ValueError) as caught:
+                validate(name, existing)
+            self.assert_translated(display_text(caught.exception))
+        for tab_id, data in (("visual_effects", []), ("visual_effects", {"BOGUS": 1}),
+                             ("visual_effects", {"NODE_SIZE": 10.5}), ("visual_effects", {"TEXT_COLOR": "nocolor"}),
+                             ("visual_effects", {"NODE_SIZE": 1e999}), ("simulation_physics", {"PACKING_GEOMETRY": "Hex"}),
+                             ("inputs_outputs", {"ALIGNMENT_SCORE": "local", "NORM_MODE": "alignment_length"})):
+            with self.subTest(data=data), self.assertRaises(ValueError) as caught:
+                self.window._normalize_profile_data(tab_id, data)
+            self.assert_translated(display_text(caught.exception))
+
+    def write_inputs(self, network_headers):
+        import h5py
+        import numpy
+
+        (self.folder / "subset.fasta").write_text(
+            ">WP_1_alpha\nMKTA\n>WP_2_beta\nMSEQ\n>Other\nMAAA\n", encoding="utf-8"
+        )
+        with h5py.File(self.folder / "network.h5", "w") as hf:
+            hf.create_dataset("headers", data=[header.encode() for header in network_headers])
+            hf.create_dataset("score", data=numpy.asarray([4.0], dtype=numpy.float32))
+            hf.create_dataset("i", data=numpy.asarray([0], dtype=numpy.int64))
+            hf.create_dataset("j", data=numpy.asarray([1], dtype=numpy.int64))
+        (self.folder / "alignment.fasta").write_text(">WP_1_alpha\nMKTA\n", encoding="utf-8")
+        for key in ("FASTA_DIR", "HDF5_DIR", "MSA_DIR"):
+            self.window.inputs[key].blockSignals(True)
+            self.window.inputs[key].setText(str(self.folder))
+            self.window.inputs[key].blockSignals(False)
+        for combo, name in ((self.window.cb_fasta, "subset.fasta"), (self.window.cb_hdf5, "network.h5"),
+                            (self.window.cb_msa, "alignment.fasta")):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(name)
+            combo.blockSignals(False)
+
+    def test_the_consistency_check_report(self):
+        self.write_inputs(["WP_1_alpha", "WP_2_beta"])
+        self.window.line_ref.setText("WP_*")
+        self.window.run_consistency_check()
+        report = QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText()
+        # Every part of the report: the network and MSA checks with their
+        # missing headers, then the reference and the headers it ties with.
+        self.assertEqual(report.count("\n\n"), 2, report)
+        for header in ("Other", "WP_2_beta", "WP_1_alpha"):
+            self.assertIn(header, report)
+        self.assert_translated(report)
+
+    def test_the_statistics_report(self):
+        from types import SimpleNamespace
+
+        self.write_inputs(["WP_1_alpha", "WP_2_beta", "Other"])
+        cache_manifest = self.window.run_statistics.__globals__["cache_manifest"]
+        blast = SimpleNamespace(network_type="blast", model_name="BLAST")
+        with mock.patch.object(cache_manifest, "validate_network_schema", return_value=blast):
+            self.window.run_statistics()
+        report = self.window.stat_display.toPlainText()
+        self.assertGreater(len(report.splitlines()), 10, report)
+        self.assert_translated(report)
+        self.assert_translated(QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText())
 
 
 if __name__ == "__main__":

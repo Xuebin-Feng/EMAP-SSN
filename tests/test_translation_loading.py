@@ -5,11 +5,13 @@
 """Loading translations (Desktop_App section 7): what a window shows in a language.
 
 A window shows its text in the language installed before it is built.
-English installs nothing. The pseudo-language is made from the template
+English installs no catalog. The pseudo-language is made from the template
 catalog, so a text the catalog doesn't list stays English, as it would in a
 real language. A real language loads Qt's own catalogs, then EMAP-SSN's,
 which wins where both translate a text. The Viewer's console messages come
-from the same catalogs, while their recorded text stays English.
+from the same catalogs, while their recorded text stays English. Windows
+mark their text with Desktop_App.translate, which shows a counted text no
+catalog translates in its English plural, whatever is installed.
 
 These tests write small catalogs to a temporary folder and compile them with
 Qt's lrelease. The last class checks that every window installs the
@@ -46,12 +48,14 @@ from desktop.Desktop_App import (
     install_translations,
     installed_language,
     startup_language,
+    translate,
 )
 from utilities import Localization
 from utilities.Localization import MESSAGE_CONTEXT, Message, pseudo_translate
 import Update_Translations
 
 SAVED = "Saved {count} nodes to {name}."
+REMOVED = "Removed %n group(s) from {name}."
 
 TEMPLATE = f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
@@ -68,6 +72,12 @@ TEMPLATE = f"""<?xml version="1.0" encoding="utf-8"?>
     <message>
         <source>{SAVED}</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>{REMOVED}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -99,6 +109,13 @@ GERMAN = f"""<?xml version="1.0" encoding="utf-8"?>
     <message>
         <source>{SAVED}</source>
         <translation>{{count}} Knoten in {{name}} gespeichert.</translation>
+    </message>
+    <message numerus="yes">
+        <source>{REMOVED}</source>
+        <translation>
+            <numerusform>%n Gruppe aus {{name}} entfernt.</numerusform>
+            <numerusform>%n Gruppen aus {{name}} entfernt.</numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -138,7 +155,7 @@ def button_texts(*buttons):
     return sorted(button.text() for button in box.buttons())
 
 
-def mark(template):
+def mark(template, n=-1):
     return f"«{template}»"
 
 
@@ -167,6 +184,8 @@ class TranslationTestCase(unittest.TestCase):
         self.assertEqual(QCoreApplication.translate("Config", "Shared sentence"), "Shared sentence")
         self.assertEqual(Message(SAVED, count=3, name="a.svg").display(), "Saved 3 nodes to a.svg.")
         self.assertEqual(button_texts(QDialogButtonBox.StandardButton.Cancel), ["Cancel"])
+        self.assertEqual([translate("Panel", "%n file(s)", None, count) for count in (1, 3)], ["1 file", "3 files"])
+        self.assertEqual(Message(REMOVED, n=1, name="a.h5").display(), "Removed 1 group from a.h5.")
 
 
 class StartupLanguageTests(unittest.TestCase):
@@ -179,7 +198,7 @@ class StartupLanguageTests(unittest.TestCase):
 
 
 class EnglishTests(TranslationTestCase):
-    def test_english_installs_nothing(self):
+    def test_english_installs_no_catalog(self):
         for language in (None, "", "en"):
             with self.subTest(language=language):
                 self.assertIsNone(install_translations(self.app, language, catalog_dir=self.folder))
@@ -224,6 +243,10 @@ class PseudoLanguageTests(TranslationTestCase):
         self.assertEqual(viewer.console_text.text, "[Šååṽééđ 3 ñööđééš ţöö out.svg.]")
         Command_Engine.show_status(viewer, Message("A template the catalog lacks."))
         self.assertEqual(viewer.console_text.text, "A template the catalog lacks.")
+        counted = Message(REMOVED, n=2, name="a.h5")
+        self.assertEqual(counted.display(), pseudo_translate(REMOVED).replace("%n", "2").format(name="a.h5"))
+        self.assertEqual(str(counted), "Removed 2 groups from a.h5.")
+        self.assertEqual(translate("Panel", "%n file(s)", None, 1), "[1 ƒîîļéé(š)]")
 
     def test_remove_restores_english_and_the_previous_message_translator(self):
         self.installed.remove()
@@ -265,6 +288,16 @@ class LanguageTests(TranslationTestCase):
         self.assertEqual(str(message), "Saved 3 nodes to a.svg.")
         installed.remove()
         self.assert_english()
+
+    def test_counted_texts_take_the_languages_plural_forms_or_else_english_ones(self):
+        install_translations(self.app, "de", catalog_dir=self.folder)
+        self.assertEqual([translate("Panel", "%n file(s)", None, count) for count in (1, 3)], ["1 Datei", "3 Dateien"])
+        self.assertEqual(translate("Panel", "%n folder(s)", None, 3), "3 folders", "German lacks it: English")
+        self.assertEqual(translate("Panel", "Save"), "Speichern")
+        for count, german in ((1, "1 Gruppe aus a.h5 entfernt."), (4, "4 Gruppen aus a.h5 entfernt.")):
+            with self.subTest(count=count):
+                self.assertEqual(Message(REMOVED, n=count, name="a.h5").display(), german)
+        self.assertEqual(str(Message(REMOVED, n=1, name="a.h5")), "Removed 1 group from a.h5.")
 
     def test_qts_own_text_comes_from_qts_catalog_and_ours_wins_where_both_translate(self):
         if not self.qt_has_german:

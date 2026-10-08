@@ -42,6 +42,8 @@ from utilities.Localization import (
     CATALOG_NAME,
     LANGUAGES_DIR,
     MESSAGE_CONTEXT,
+    QT_TRANSLATE_NOOP,
+    english_plural,
     pseudo_translate,
     read_catalog,
     set_translator,
@@ -60,9 +62,11 @@ PRODUCT_LONG_NAME = (
     f"{PRODUCT_NAME}: Embedding- and Multiple-Alignment-integrated Protein "
     "Sequence Similarity Network Platform"
 )
-CONFIG_DISPLAY_NAME = f"{PRODUCT_NAME} Configuration"
-VIEWER_DISPLAY_NAME = f"{PRODUCT_NAME} Viewer"
-TOOLS_DISPLAY_NAME = f"{PRODUCT_NAME} Tools"
+# Each window's name, in English. A window shows it translated under its
+# own context: QCoreApplication.translate("Config", CONFIG_DISPLAY_NAME).
+CONFIG_DISPLAY_NAME = QT_TRANSLATE_NOOP("Config", "EMAP-SSN Configuration")
+VIEWER_DISPLAY_NAME = QT_TRANSLATE_NOOP("Viewer", "EMAP-SSN Viewer")
+TOOLS_DISPLAY_NAME = QT_TRANSLATE_NOOP("Tools", "EMAP-SSN Tools")
 
 TOOLS_DESKTOP_FILE_NAME = "emapssn_tools"
 VIEWER_DESKTOP_FILE_NAME = "emapssn"
@@ -700,6 +704,36 @@ def vispy_language_face(
     return font.vispy_face
 
 
+def matplotlib_language_families(
+    language: str | None, font_dir: str | Path = DESKTOP_FONT_DIR
+) -> list[str] | None:
+    """Register language's bundled font with matplotlib; return the families for its text.
+
+    A figure draws text in these families, matplotlib's own sans-serif
+    first, so the bundled font supplies only the characters it lacks.
+    Passing them to each text, rather than changing matplotlib's settings,
+    leaves every other figure as it was. None means matplotlib's own fonts
+    draw the language. A missing font file leaves them, with a warning.
+    """
+    font = LANGUAGE_FONTS.get(language)
+    if font is None:
+        return None
+    paths = [Path(font_dir).resolve() / relative_path for relative_path in font.files]
+    if not all(path.is_file() for path in paths):
+        _warn_once(
+            f"Bundled {font.family} faces are incomplete in {Path(font_dir).resolve()}; "
+            "figures keep matplotlib's fonts."
+        )
+        return None
+    from matplotlib import font_manager
+
+    registered = {Path(entry.fname).resolve() for entry in font_manager.fontManager.ttflist}
+    for path in paths:
+        if path not in registered:
+            font_manager.fontManager.addfont(str(path))
+    return ["sans-serif", font.family]
+
+
 # =====================================================================
 # 4. Responsive Layouts (Height-for-Width & Wrapping Flows)
 # =====================================================================
@@ -1092,6 +1126,16 @@ def select_combo_value(combo, value):
     return index >= 0
 
 
+# True on an item that shows a name from outside the program, such as a
+# device's, which a translation leaves as it is.
+NAME_ITEM_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+def mark_name_item(combo, index):
+    """Mark item index of combo as showing an outside name (NAME_ITEM_ROLE)."""
+    combo.setItemData(index, True, NAME_ITEM_ROLE)
+
+
 # =====================================================================
 # 6. Buttons Sized by Their Text
 # =====================================================================
@@ -1159,7 +1203,7 @@ TOGGLE_OFF_STYLESHEET = (
 
 
 class ToggleSwitch(QPushButton):
-    """A checkable pill that reads ``on_text`` or ``off_text``.
+    """A checkable pill that reads ``on_text`` or ``off_text``, "ON" and "OFF" by default.
 
     Its width fits the longer of the two texts, so toggling never resizes it.
     Each toggle swaps the whole stylesheet, as the per-window copies this
@@ -1167,8 +1211,12 @@ class ToggleSwitch(QPushButton):
     until the next toggle.
     """
 
-    def __init__(self, on_text="ON", off_text="OFF", parent=None):
+    def __init__(self, on_text=None, off_text=None, parent=None):
         super().__init__(parent)
+        if on_text is None:
+            on_text = QtCore.QCoreApplication.translate("ToggleSwitch", "ON")
+        if off_text is None:
+            off_text = QtCore.QCoreApplication.translate("ToggleSwitch", "OFF")
         self._texts = (off_text, on_text)
         self.setCheckable(True)
         bold = QFont(self.font())
@@ -1176,6 +1224,10 @@ class ToggleSwitch(QPushButton):
         self.setFixedSize(text_button_width(self._texts, bold), TOGGLE_SWITCH_HEIGHT)
         self.toggled.connect(self._show_state)
         self._show_state(False)
+
+    def state_texts(self):
+        """The texts it reads off and on, whichever shows now."""
+        return self._texts
 
     def _show_state(self, checked):
         self.setText(self._texts[bool(checked)])
@@ -1235,6 +1287,19 @@ def pseudo_translator(template):
     )
 
 
+def translate(context, text, disambiguation=None, n=-1):
+    """The text a window shows for text: QCoreApplication.translate, with English plurals.
+
+    Windows mark their text with it, as translate("Config", "Save"). A
+    counted text (n is the count) that no catalog translates reads as
+    English writes it for n: "%n file(s)" shows "1 file" or "2 files"
+    (Localization.english_plural), whatever is installed. Pass the
+    arguments in order, which lupdate needs to see them.
+    """
+    shown = QtCore.QCoreApplication.translate(context, text, disambiguation, n)
+    return shown if n is None or n < 0 else english_plural(shown, n)
+
+
 @dataclass
 class InstalledTranslations:
     """What install_translations put in place; remove() takes it out again."""
@@ -1262,8 +1327,8 @@ class InstalledTranslations:
 _installed_translations: InstalledTranslations | None = None
 
 
-def _translate_message(template):
-    return QtCore.QCoreApplication.translate(MESSAGE_CONTEXT, template)
+def _translate_message(template, n=-1):
+    return translate(MESSAGE_CONTEXT, template, None, n)
 
 
 def _load_catalog(prefix, language, directory):
@@ -1633,12 +1698,15 @@ __all__ = [
     "qt_monospace_font",
     "register_vispy_application_fonts",
     "vispy_language_face",
+    "matplotlib_language_families",
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
     "ResponsiveSelectorLayout",
     "add_combo_options",
     "combo_value",
     "select_combo_value",
+    "NAME_ITEM_ROLE",
+    "mark_name_item",
     "BUTTON_TEXT_PADDING",
     "shown_button_text",
     "text_button_width",
@@ -1654,6 +1722,7 @@ __all__ = [
     "startup_language",
     "CatalogTranslator",
     "pseudo_translator",
+    "translate",
     "InstalledTranslations",
     "install_translations",
     "installed_language",

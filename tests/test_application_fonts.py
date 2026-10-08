@@ -62,6 +62,7 @@ from desktop.Desktop_App import (  # noqa: E402
     VISPY_UI_FACE,
     configure_qt_application_fonts,
     force_light_palette,
+    matplotlib_language_families,
     qt_monospace_font,
     register_vispy_application_fonts,
     vispy_language_face,
@@ -460,6 +461,47 @@ class SimplifiedChineseFontTests(unittest.TestCase):
 
         self.assertIsNone(face)
         self.assertTrue(any("incomplete" in str(warning.message) for warning in caught))
+
+    def test_figures_draw_simplified_chinese_with_the_bundled_font_after_their_own(self):
+        import io
+
+        from matplotlib import font_manager
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        for language in (None, "en", "de", PSEUDO_LANGUAGE):
+            self.assertIsNone(matplotlib_language_families(language), language)
+        families = matplotlib_language_families("zh_CN")
+        self.assertEqual(families, ["sans-serif", QT_SIMPLIFIED_CHINESE_FAMILY])
+        matplotlib_language_families("zh_CN")
+        registered = [Path(entry.fname).resolve() for entry in font_manager.fontManager.ttflist]
+        for face in self.font.files:
+            self.assertEqual(registered.count((DESKTOP_FONT_DIR / face).resolve()), 1, "registered once")
+
+        def missing_glyphs(**font):
+            figure = Figure()
+            figure.add_subplot(111).set_title("分数分布 Score", **font)
+            FigureCanvasAgg(figure)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                figure.savefig(io.BytesIO(), format="png")
+            return [str(warning.message) for warning in caught if "missing from font" in str(warning.message)]
+
+        self.assertTrue(missing_glyphs(), "the check can fail: matplotlib's own font lacks 分")
+        self.assertEqual(missing_glyphs(family=families), [])
+
+    def test_a_missing_face_file_leaves_figures_their_own_fonts_with_a_warning(self):
+        regular = self.font.files[0]
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            target = Path(temporary_dir) / regular
+            target.parent.mkdir(parents=True)
+            shutil.copy2(DESKTOP_FONT_DIR / regular, target)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                families = matplotlib_language_families("zh_CN", temporary_dir)
+
+        self.assertIsNone(families)
+        self.assertTrue(any("figures keep matplotlib's fonts" in str(warning.message) for warning in caught))
 
 
 if __name__ == "__main__":

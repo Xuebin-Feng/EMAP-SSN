@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-Only the Language dropdown's own texts are marked so far, and there is no language catalog yet, so every window shows English.
+The Config window's texts are marked; the other windows' follow. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -70,16 +70,26 @@ The update reports any translation that changes a placeholder.
 
 ## Mark text in the code
 
+Each window files its texts under one context, which translators see as a group: `Config` (shared with VR Config), `Tools` and `Viewer`. `translate` comes from `desktop.Desktop_App`.
+
 | Text | How to mark it |
 |---|---|
-| A widget's text | `self.tr("Save")` |
-| Text shared by windows, or outside a widget | `QCoreApplication.translate("Config", "Save")` |
-| A counted text | `self.tr("%n file(s)", "", count)` |
-| A message on the Viewer's console line | `Message("Saved {count} nodes to {name}.", count=count, name=name)` |
+| A window's text | `translate("Config", "Save")` |
+| A counted text | `translate("Config", "%n file(s)", None, count)` |
+| Text in a table made before any window, such as a module's labels | `QT_TRANSLATE_NOOP("Config", "Save")` where it is written, and `translate("Config", label)` where it shows |
+| A message on the Viewer's console line | `Message("Saved {name}.", name=name)` |
+| A counted message on the console line | `Message("Removed %n group(s) from {name}.", n=count, name=name)` |
+| Text from code without Qt that a window shows, such as an error | `ValueError(Message("Enter a profile name."))`, shown with `display_text(error)` |
 
-A `Message` keeps its English text for the terminal, the logs and MCP clients. Only the Viewer's console line shows the translation.
+A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. `QT_TRANSLATE_NOOP` and `Message` come from `utilities.Localization`, which code without Qt can import.
 
-Pass a whole sentence as one plain string, and fill in the values after translating it. Don't write `self.tr(f"Saved {count}")`, and don't add text to a translated one, as in `self.tr("Saved") + ":"`. The update refuses texts that no catalog can list.
+Pass a whole sentence as one plain string, and fill in the values after translating it. Don't write `translate("Config", f"Saved {count}")`, and don't add text to a translated one, as in `translate("Config", "Saved") + ":"`. Pass the arguments in order, without names. The update refuses texts that no catalog can list, and calls whose text or count Qt's lupdate would miss. A text that two places show alike in English but a language may not, such as a column called "Count" and the verb, takes a comment telling them apart: `translate("Config", "Count", "statistics column")`.
+
+### Counted texts
+
+A counted text holds `%n`, which shows the count, and marks its English plural endings in brackets right after the word, as in `%n file(s)` or `%n match(es)`. English shows "1 file" and "2 files", in the windows, on the console line and in the terminal. A translation gives one form per plural form of its language, in Qt Linguist. A counted text that a language hasn't translated yet shows in English. Count with `translate`, not `self.tr`, which would show "1 file(s)".
+
+Rephrase a sentence whose other words change with the count, such as "%n file(s) is ready", so that only the marked endings do: "Ready: %n file(s)".
 
 ## Find text that is not marked
 

@@ -75,6 +75,19 @@ class ScoreHistogramFigureTests(unittest.TestCase):
 
         self.assertEqual(figure.axes[0].get_title(), "Score Distribution (E-Value)")
 
+    def test_the_title_and_legend_take_the_font_families_given(self):
+        families = ["sans-serif", "Noto Sans SC"]
+        for given, expected in ((None, ["sans-serif"]), (families, families)):
+            with self.subTest(font_families=given):
+                figure = build_score_histogram_figure(
+                    np.asarray([1.0, 2.0, 3.0]), 2.0, is_evalue=True, norm_mode="ignored",
+                    font_families=given,
+                )
+                self.addCleanup(figure.clear)
+                axes = figure.axes[0]
+                self.assertEqual(axes.title.get_fontfamily(), expected)
+                self.assertEqual(axes.get_legend().get_texts()[0].get_fontfamily(), expected)
+
 
 class ViewerHandoffTests(unittest.TestCase):
     def test_handoff_uses_shared_terminal_launcher_contract(self):

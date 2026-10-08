@@ -10,6 +10,10 @@ clients and the agent page) and the tests. message.display() is what a window
 shows: the template passes through the installed translator first. Until a
 translator is installed, both are the same text.
 
+A counted text holds %n, Qt's count, and marks its English plural endings,
+as in "%n file(s)": English shows "1 file" and "2 files" (english_plural),
+and a translation gives each plural form its language has.
+
 Translations live in Qt catalogs in src/resources/languages: emapssn.ts lists
 every text the program can show, and emapssn_<language>.ts holds one
 language's translations. Update_Translations.py in the same folder collects the
@@ -24,6 +28,7 @@ Nothing here imports Qt, so the VR viewer process can use it as well.
 """
 
 from dataclasses import dataclass
+import operator
 from pathlib import Path
 import re
 from xml.etree import ElementTree
@@ -40,31 +45,78 @@ _translator = None
 
 
 def set_translator(translator):
-    """Install translator(template) -> shown template, or None to remove it.
+    """Install translator(template, n) -> shown template, or None to remove it.
 
-    Returns the translator it replaces, so a caller can restore it.
+    n is the count of a counted template, whose shown form has %n filled
+    in, and -1 for any other template. Returns the translator it replaces,
+    so a caller can restore it.
     """
     global _translator
     previous, _translator = _translator, translator
     return previous
 
 
-def translate(template):
-    """Return the shown form of an English template."""
-    return template if _translator is None else _translator(template)
+def translate(template, n=-1):
+    """Return the shown form of an English template, counted by n (-1 for none)."""
+    return english_text(template, n) if _translator is None else _translator(template, n)
+
+
+# ---------------------------------------------------------------------
+# English plurals
+# ---------------------------------------------------------------------
+
+# A plural ending marked right after its word, as in "file(s)" or "match(es)".
+_PLURAL_ENDING = re.compile(r"(?<=[^\W\d_])\((e?s)\)")
+
+
+def has_plural_ending(text):
+    """Whether text marks an English plural ending, as "%n file(s)" does."""
+    return _PLURAL_ENDING.search(text) is not None
+
+
+def english_plural(text, n):
+    """text with its marked plural endings as English writes them for the count n.
+
+    A count of one drops each ending, and any other count keeps it without
+    its brackets: "%n file(s)" reads "%n file" for one and "%n files"
+    otherwise, and "%n match(es)" works alike. A negative n counts nothing
+    and leaves text as it is. %n itself stays, for Qt or english_text to
+    fill in.
+    """
+    if n < 0:
+        return text
+    return _PLURAL_ENDING.sub("" if n == 1 else r"\1", text)
+
+
+def english_text(template, n=-1):
+    """The English shown for template counted by n: its plural endings chosen and %n filled in."""
+    return template if n < 0 else english_plural(template, n).replace("%n", str(n))
 
 
 class Message:
-    """An English template and the values that fill it."""
+    """An English template and the values that fill it.
+
+    A counted message's template holds %n, Qt's count, and the value n is
+    the count: Message("Removed %n group(s).", n=2) reads "Removed 2
+    groups." The template marks its plural endings, as english_plural
+    explains, and a translation takes the form its language uses for n.
+    """
 
     __slots__ = ("template", "values")
 
     def __init__(self, template, **values):
+        if "%n" in template and "n" in values:
+            values["n"] = operator.index(values["n"])  # A count is a whole number, such as len().
         self.template = template
         self.values = values
 
+    @property
+    def count(self):
+        """n for a counted message, and -1 for any other."""
+        return self.values.get("n", -1) if "%n" in self.template else -1
+
     def __str__(self):
-        return self.template.format(**self.values)
+        return english_text(self.template, self.count).format(**self.values)
 
     def __repr__(self):
         return f"Message({self.template!r}, **{self.values!r})"
@@ -72,19 +124,40 @@ class Message:
     def display(self):
         """The sentence a window shows: the translated template, filled in.
 
-        A translation whose placeholders don't match the template's would
-        fail to fill in; the English sentence is shown instead, so the
-        message is never lost.
+        A value that is itself a Message, or an error raised with one, is
+        shown translated too. A translation whose placeholders don't match
+        the template's would fail to fill in; the English sentence is shown
+        instead, so the message is never lost.
         """
+        values = {
+            key: display_text(value) if isinstance(value, (Message, BaseException)) else value
+            for key, value in self.values.items()
+        }
         try:
-            return translate(self.template).format(**self.values)
+            return translate(self.template, self.count).format(**values)
         except (KeyError, IndexError, ValueError):
             return str(self)
 
 
 def display_text(message):
-    """What a window shows for message: a Message's display text, or the text itself."""
+    """What a window shows for message: a Message's display text, or the text itself.
+
+    An error raised with a Message, as in ValueError(Message(...)), shows
+    that Message, while str(error) stays English for the terminal.
+    """
+    if isinstance(message, BaseException) and len(message.args) == 1:
+        message = message.args[0]
     return message.display() if isinstance(message, Message) else str(message)
+
+
+def QT_TRANSLATE_NOOP(context, text):
+    """Mark text for the catalog under context, and return it as it is.
+
+    Qt's function of this name, for code that must not import Qt, such as a
+    module's table of labels: the catalog lists the text, and the window
+    translates it where it shows it, with QCoreApplication.translate(context, text).
+    """
+    return text
 
 
 # ---------------------------------------------------------------------

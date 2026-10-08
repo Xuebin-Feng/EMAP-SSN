@@ -34,16 +34,52 @@ from utilities.Localization import (
     CatalogMessage,
     Message,
     display_text,
+    english_plural,
+    english_text,
     fill_ins,
+    has_plural_ending,
     is_pseudo_translated,
     pseudo_translate,
     read_catalog,
 )
 
 
-def mark(template):
-    """A stand-in translation that keeps the template's placeholders."""
-    return f"«{template}»"
+def mark(template, n=-1):
+    """A stand-in translation that keeps the template's placeholders and fills in %n, as Qt does."""
+    shown = f"«{template}»"
+    return shown if n < 0 else shown.replace("%n", str(n))
+
+
+class EnglishPluralTests(unittest.TestCase):
+    def test_one_drops_the_marked_endings_and_any_other_count_keeps_them(self):
+        cases = {
+            "%n file(s)": ("%n file", "%n files"),
+            "%n match(es) in %n box(es)": ("%n match in %n box", "%n matches in %n boxes"),
+            "Removed %n group(s) from {total} nodes.": (
+                "Removed %n group from {total} nodes.", "Removed %n groups from {total} nodes."
+            ),
+            "Écrit %n fichier(s)": ("Écrit %n fichier", "Écrit %n fichiers"),
+        }
+        for text, (one, other) in cases.items():
+            with self.subTest(text=text):
+                self.assertTrue(has_plural_ending(text))
+                self.assertEqual(english_plural(text, 1), one)
+                for count in (0, 2, 11, 1001):
+                    self.assertEqual(english_plural(text, count), other)
+
+    def test_only_an_ending_marked_right_after_its_word_counts(self):
+        for text in ("Time (s)", "(s) first", "Step 2(s)", "%n file(x)", "%n file_(s)", "%n files"):
+            with self.subTest(text=text):
+                self.assertFalse(has_plural_ending(text))
+                self.assertEqual(english_plural(text, 1), text)
+
+    def test_a_negative_count_counts_nothing(self):
+        self.assertEqual(english_plural("%n file(s)", -1), "%n file(s)")
+        self.assertEqual(english_text("%n file(s)"), "%n file(s)")
+
+    def test_english_text_also_fills_in_the_count(self):
+        self.assertEqual(english_text("%n file(s), %n in all", 1), "1 file, 1 in all")
+        self.assertEqual(english_text("%n file(s)", 0), "0 files")
 
 
 class MessageTests(unittest.TestCase):
@@ -70,15 +106,66 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(display_text("Already formatted."), "Already formatted.")
         self.assertEqual(display_text(Message("Done.")), "«Done.»")
 
+    def test_an_error_raised_with_a_message_shows_it_and_prints_english(self):
+        previous = Localization.set_translator(mark)
+        self.addCleanup(Localization.set_translator, previous)
+        error = ValueError(Message("'{name}' is reserved.", name="con"))
+        self.assertEqual(display_text(error), "«'con' is reserved.»")
+        self.assertEqual(str(error), "'con' is reserved.")
+        self.assertEqual(display_text(ValueError("plain")), "plain")
+        self.assertEqual(display_text(KeyError("a", "b")), "('a', 'b')", "an error with several values shows them all")
+
+    def test_messages_and_errors_inside_a_message_show_translated_too(self):
+        previous = Localization.set_translator(mark)
+        self.addCleanup(Localization.set_translator, previous)
+        inner = ValueError(Message("expected an integer"))
+        outer = Message("invalid value for {key}: {error}", key="NODE_SIZE", error=inner)
+        self.assertEqual(outer.display(), "«invalid value for NODE_SIZE: «expected an integer»»")
+        self.assertEqual(str(outer), "invalid value for NODE_SIZE: expected an integer")
+        nested = Message("Outer {inner}", inner=Message("Inner {count}", count=2))
+        self.assertEqual(nested.display(), "«Outer «Inner 2»»")
+        self.assertEqual(str(nested), "Outer Inner 2")
+
+    def test_qt_translate_noop_marks_text_and_returns_it(self):
+        self.assertEqual(Localization.QT_TRANSLATE_NOOP("Config", "Input File Directory:"), "Input File Directory:")
+
     def test_a_translation_that_cannot_be_filled_in_shows_the_english_sentence(self):
         message = Message("Found {count} nodes.", count=3)
         for broken in ("{total} Knoten gefunden.", "{0} Knoten gefunden.", "{count Knoten gefunden."):
             with self.subTest(translation=broken):
-                previous = Localization.set_translator(lambda template, shown=broken: shown)
+                previous = Localization.set_translator(lambda template, n, shown=broken: shown)
                 try:
                     self.assertEqual(message.display(), "Found 3 nodes.")
                 finally:
                     Localization.set_translator(previous)
+
+    def test_a_counted_message_is_english_with_its_plural_and_counted_where_translated(self):
+        for count, english in ((1, "Removed 1 group from 9 nodes."), (2, "Removed 2 groups from 9 nodes.")):
+            with self.subTest(count=count):
+                message = Message("Removed %n group(s) from {total} nodes.", n=count, total=9)
+                self.assertEqual(message.count, count)
+                self.assertEqual(str(message), english)
+                self.assertEqual(message.display(), english)
+        asked = []
+        previous = Localization.set_translator(lambda template, n: asked.append(n) or mark(template, n))
+        self.addCleanup(Localization.set_translator, previous)
+        message = Message("Removed %n group(s) from {total} nodes.", n=2, total=9)
+        self.assertEqual(message.display(), "«Removed 2 group(s) from 9 nodes.»")
+        self.assertEqual(str(message), "Removed 2 groups from 9 nodes.")
+        self.assertEqual(Message("Found {count} nodes.", count=3).display(), "«Found 3 nodes.»")
+        self.assertEqual(asked, [2, -1], "a translator gets the count of a counted template only")
+
+    def test_only_a_template_with_percent_n_is_counted(self):
+        plain = Message("Node {n} of {total}.", n=1, total=4)
+        self.assertEqual((plain.count, str(plain)), (-1, "Node 1 of 4."))
+
+    def test_a_count_is_a_whole_number(self):
+        import numpy
+
+        message = Message("Kept %n node(s).", n=numpy.int64(1))
+        self.assertEqual((str(message), type(message.values["n"])), ("Kept 1 node.", int))
+        with self.assertRaises(TypeError):
+            Message("Kept %n node(s).", n=1.5)
 
 
 class ConsoleLineTests(unittest.TestCase):

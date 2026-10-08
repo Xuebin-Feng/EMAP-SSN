@@ -17,6 +17,14 @@ The update collects every text marked for translation in src:
   in a temporary copy of the code each one gets a QT_TRANSLATE_NOOP on the
   same line, and translators still see the real file and line.
 
+A counted text, such as translate("Config", "%n file(s)", None, count),
+needs a plural form per language. lupdate sees the count of translate()
+only when it is a number as written, and drops the text when it is a call
+such as len(files), so the temporary copy writes 0 in its place. lupdate
+also drops or miscounts a text whose call names its arguments, and a
+counted tr() would show English as "1 file(s)", so the update refuses
+those.
+
 It rewrites emapssn.ts, the list of every text, and merges the texts into
 each language's catalog, emapssn_<language>.ts, keeping its translations. A
 text that left the code stays there, marked obsolete, in case it comes back.
@@ -48,6 +56,7 @@ from utilities.Localization import (  # noqa: E402
     CATALOG_NAME,
     MESSAGE_CONTEXT,
     fill_ins,
+    has_plural_ending,
     read_catalog,
 )
 
@@ -71,14 +80,22 @@ def qt_tool(name):
     raise FileNotFoundError(f"Qt's {name} is not in {folder}. Reinstall PySide6.")
 
 
-def message_marker(template):
-    """QT_TRANSLATE_NOOP("Message", template) as one line of Python, then ", "."""
+def message_marker(template, counted=False):
+    """The Message template as lupdate reads it, on one line of Python, then ", ".
+
+    QT_TRANSLATE_NOOP("Message", template), or for a counted template,
+    whose plural forms need a count, translate("Message", template, None, 0).
+    """
     literal = "".join(_MARKER_ESCAPES.get(character, character) for character in template)
+    if counted:
+        return f'QCoreApplication.translate("{MESSAGE_CONTEXT}", "{literal}", None, 0), '
     return f'QT_TRANSLATE_NOOP("{MESSAGE_CONTEXT}", "{literal}"), '
 
 
-# The argument that holds the text, for each way of marking one.
+# The argument that holds the text, for each way of marking one, and the
+# argument that holds a counted text's count.
 _TEXT_ARGUMENT = {"tr": 0, "QT_TR_NOOP": 0, "translate": 1, "QT_TRANSLATE_NOOP": 1}
+_COUNT_ARGUMENT = {"tr": 2, "translate": 3}
 
 
 def _called_name(node):
@@ -106,14 +123,31 @@ def _is_filled_in_string(node):
     )
 
 
+def _is_count_as_written(node):
+    return isinstance(node, ast.Constant) and type(node.value) is int
+
+
+def _column(line, offset):
+    """The character column of ast's offset, which counts UTF-8 bytes, in line."""
+    return len(line.encode("utf-8")[:offset].decode("utf-8"))
+
+
+_PLURAL_ADVICE = ('Mark its English plural ending, as in "%n file(s)" or "%n match(es)", '
+                  'so English shows "1 file" and "2 files".')
+
+
 def prepare_source(text, filename):
     """lupdate's view of one source file, and the problems in its marked texts.
 
-    Returns the text with a message_marker inserted right after the "(" of
-    each Message(...) call, and a list of problems: a Message whose template
-    isn't a plain string, and a text filled in before tr() or translate()
-    gets it, both of which no catalog can list. The markers add no lines, so
-    every text keeps its line number.
+    Returns the text as lupdate should read it, and a list of problems. In
+    that text, each Message(...) call has a message_marker right after its
+    "(", and the count of each counted translate() is 0, which lupdate
+    sees as a count where it would miss a call such as len(files). The
+    problems are texts no catalog can list or lupdate would get wrong: a
+    Message whose template isn't a plain string, a text filled in before
+    tr() or translate() gets it, a call that names its arguments, and a
+    text with %n that is not counted, or counted without an English plural
+    ending. The changes add no lines, so every text keeps its line number.
     """
     try:
         tree = ast.parse(text, filename)
@@ -122,36 +156,75 @@ def prepare_source(text, filename):
             f"{filename}:{error.lineno}: not valid Python, so its texts were not collected: {error.msg}"
         ]
     lines = text.splitlines(keepends=True)
-    insertions, problems = [], []
+    edits, problems = [], []  # Each edit: row, column, end row, end column, new text.
 
     def problem(node, explanation):
         problems.append((node.lineno, f"{filename}:{node.lineno}: {explanation}"))
+
+    def check_message(node):
+        template = node.args[0] if node.args else None
+        if not _is_plain_string(template):
+            problem(node, "Message needs its English template as a plain string, not an f-string "
+                          "or a variable, so the catalog can list it.")
+            return
+        counted = "%n" in template.value
+        if counted and not {keyword.arg for keyword in node.keywords} & {"n", None}:
+            problem(node, "Message's template holds %n, Qt's count, so it needs the count as n=, "
+                          'as in Message("Removed %n group(s).", n=count).')
+        if counted and not has_plural_ending(template.value):
+            problem(node, f"Message counts a template without an English plural ending. {_PLURAL_ADVICE}")
+        row = node.func.end_lineno - 1
+        line = lines[row]
+        start = _column(line, node.func.end_col_offset)
+        column = line.find("(", start)
+        if column < 0 or line[start:column].strip():
+            problem(node, "put Message's opening parenthesis on the same line as its name.")
+            return
+        edits.append((row, column + 1, row, column + 1, message_marker(template.value, counted)))
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         name = _called_name(node)
+        if name == "Message":
+            check_message(node)
+            continue
         position = _TEXT_ARGUMENT.get(name)
-        if position is not None and len(node.args) > position and _is_filled_in_string(node.args[position]):
+        if position is None or len(node.args) <= position:
+            continue
+        source = node.args[position]
+        if _is_filled_in_string(source):
             problem(node, f"{name}() gets a text that is already filled in, which no catalog can "
                           "list. Pass the plain text and fill in the values after translating.")
-        if name != "Message":
             continue
-        template = node.args[0] if node.args else None
-        if not _is_plain_string(template):
-            problem(node, "Message needs its English template as a plain string, not an f-string "
-                          "or a variable, so the catalog can list it.")
+        if not _is_plain_string(source):
+            continue  # A text chosen at run time, such as translate("Shapes", shape), or str.translate().
+        if node.keywords:
+            problem(node, f"{name}() names its arguments, so lupdate would drop the text or miss "
+                          'its count. Pass them in order, as in self.tr("%n file(s)", "", count).')
             continue
-        row = node.func.end_lineno - 1
-        line = lines[row]
-        start = len(line.encode("utf-8")[: node.func.end_col_offset].decode("utf-8"))
-        column = line.find("(", start)
-        if column < 0 or line[start:column].strip():
-            problem(node, "put Message's opening parenthesis on the same line as its name.")
+        count = _COUNT_ARGUMENT.get(name)
+        counted = count is not None and len(node.args) > count
+        if counted and name == "tr":
+            problem(node, "tr() counts a text, but only Desktop_App's translate() shows its English "
+                          'plural. Write translate("Context", "%n file(s)", None, count).')
             continue
-        insertions.append((row, column + 1, message_marker(template.value)))
-    for row, column, marker in sorted(insertions, reverse=True):
-        lines[row] = lines[row][:column] + marker + lines[row][column:]
+        if "%n" in source.value and not counted:
+            problem(node, f"{name}() gets a text with %n, Qt's count, but no count, so %n would "
+                          'show as written. Pass the count, as in self.tr("%n file(s)", "", count).')
+        if counted and not has_plural_ending(source.value):
+            problem(node, f"{name}() counts a text without an English plural ending. {_PLURAL_ADVICE}")
+        if counted and name == "translate" and not _is_count_as_written(node.args[count]):
+            argument = node.args[count]
+            row, end_row = argument.lineno - 1, argument.end_lineno - 1
+            edits.append((
+                row, _column(lines[row], argument.col_offset),
+                end_row, _column(lines[end_row], argument.end_col_offset), "0",
+            ))
+    for row, column, end_row, end_column, new in sorted(edits, reverse=True):
+        # Newlines in place of the lines replaced keep every later line's number.
+        lines[row] = lines[row][:column] + new + "\n" * (end_row - row) + lines[end_row][end_column:]
+        del lines[row + 1:end_row + 1]
     return "".join(lines), [explanation for _, explanation in sorted(problems)]
 
 
