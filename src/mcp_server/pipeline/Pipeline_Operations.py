@@ -43,6 +43,22 @@ _LAYOUT_CONTRACT = json.loads(
 )
 
 
+# Shown in list_tools: agents copy call shapes they have seen, and the layout
+# actions name their inputs differently from pipeline parameters.
+LAYOUT_CALL_EXAMPLES = [
+    {"action": "network_statistics", "arguments": {
+        "input_hdf5": "<network .h5>", "node_fasta_file": "<node FASTA>",
+        "alignment_score": "global", "norm_mode": "alignment_length", "thresholds": [40]}},
+    {"action": "export_layout_settings", "arguments": {
+        "node_fasta_file": "<node FASTA>", "input_hdf5": "<network .h5>",
+        "parameters": {"TOP_EDGE_PERCENT": 5, "SAVED_LAYOUT_DIR": "<folder for layout caches>"}}},
+    {"action": "start_layout_job", "arguments": {
+        "settings_document": {"schema_version": 2, "kind": "layout",
+                              "...": "the settings_document returned by export_layout_settings"}}},
+    {"action": "wait_job", "arguments": {"job_id": "<job_id returned by start_layout_job>"}},
+]
+
+
 def layout_defaults() -> dict[str, Any]:
     """Built-in layout values that start_layout_job's individual arguments fall back to.
 
@@ -223,6 +239,7 @@ def list_pipeline_tools() -> PipelineCatalog:
             "outputs": "A new cache <SAVED_LAYOUT_DIR>/<inputs and filter>/version_NN.h5 with a cache_manifest.json "
                        "and a FASTA backup; existing caches are never overwritten.",
             "next": "Viewer settings (emapssn_viewer_control export_settings) to open the cache.",
+            "examples": LAYOUT_CALL_EXAMPLES,
         },
         workflows=workflows(),
         path_rules=path_rules(),
@@ -696,7 +713,8 @@ async def network_statistics(
         Field(description="Embedding-alignment networks: normalization the layout will use"),
     ] = "alignment_length",
     thresholds: Annotated[list[float] | None, Field(max_length=10, description=(
-        "Extra SIMILARITY_THRESHOLD values to evaluate"))] = None,
+        "SIMILARITY_THRESHOLD values to evaluate as well, such as the user's own cutoff; an E-value "
+        "cutoff on an E-value network is -log10(E), so 1e-40 is 40"))] = None,
     top_edge_percents: Annotated[list[float] | None, Field(max_length=19, description=(
         "TOP_EDGE_PERCENT values to evaluate instead of the default series (0.1 to 50)"))] = None,
 ) -> dict[str, Any]:

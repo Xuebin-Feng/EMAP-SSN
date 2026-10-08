@@ -77,6 +77,14 @@ class PipelineGuideTests(unittest.TestCase):
         for workflow in Pipeline_Guide.workflows():
             self.assertTrue(workflow["goal"] and workflow["steps"])
 
+    def test_layout_call_examples_match_the_action_arguments(self):
+        from mcp_server.core.Workflow_Dispatch import REGISTRY
+        from mcp_server.pipeline.Pipeline_Operations import LAYOUT_CALL_EXAMPLES, list_pipeline_tools
+        self.assertEqual(list_pipeline_tools().layout["examples"], LAYOUT_CALL_EXAMPLES)
+        for example in LAYOUT_CALL_EXAMPLES:
+            with self.subTest(action=example["action"]):
+                REGISTRY["emapssn_pipeline"][example["action"]].model.model_validate(example["arguments"])
+
     def test_every_bundled_model_has_an_embedding_width(self):
         from tools.tool_helpers.Model_Plugins import discover_model_execution_modes
         models = discover_model_execution_modes(str(SRC / "resources" / "pLM_models"))
