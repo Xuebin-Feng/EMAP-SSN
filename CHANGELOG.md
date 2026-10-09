@@ -805,6 +805,14 @@ still change before version 1.0.0.
   lookup fail with `TypeError`, `ValueError` or `OverflowError`: the GUI's device
   options, embedding, alignment and layout generation. Such a file now counts as
   unvalidated, as an unreadable one already did, and every visible device is offered.
+- The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
+  wider than the default 1200 × 800 window in English, so its end ran under the
+  sidebar's toggle and past the window's edge. It now wraps between actions to end
+  before the toggle, at any window size, with the sidebar shown or hidden, and the
+  command line below it moves down by the rows it gains.
+- The statistics report in Config and VR Config cut its hint off after "Select Fasta
+  subset and HDF5" at the window's default size, in every language: Qt shows only the
+  first line of a text box's placeholder. The hint now wraps to the report's width.
 
 ### Removed
 

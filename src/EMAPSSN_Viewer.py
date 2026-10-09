@@ -224,6 +224,46 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
     return "\n".join(lines)
 
 
+# What separates the actions the HUD's instruction line lists.
+HUD_INSTRUCTION_SEPARATOR = " | "
+
+
+def _wrap_instructions_for_display(text, max_width, measure_width):
+    """Wrap the HUD's instruction line between the actions it lists.
+
+    Actions are packed onto rows no wider than max_width, and the separator
+    at a break is dropped. Only an action wider than max_width on its own
+    breaks inside, as the console line does.
+    """
+    rows = []
+    for action in text.split(HUD_INSTRUCTION_SEPARATOR):
+        if rows and measure_width(rows[-1] + HUD_INSTRUCTION_SEPARATOR + action) <= max_width:
+            rows[-1] += HUD_INSTRUCTION_SEPARATOR + action
+        else:
+            rows.append(action)
+    return "\n".join(
+        _wrap_console_text_for_display(row, max_width, measure_width) for row in rows
+    )
+
+
+def _vispy_text_width_pixels(text_visual, text):
+    """Measure one rendered row in logical pixels using VisPy's own glyph metrics."""
+    if not text or not hasattr(text_visual, '_font'):
+        return 0.0
+
+    font = text_visual._font
+    n_pix = (text_visual.font_size / 72.0) * text_visual.transforms.dpi
+    ratio = 1.0 / getattr(font, 'ratio', 4.0)
+    width_val = 0.0
+    previous = None
+    for char in text:
+        glyph = font[char]
+        kerning = glyph['kerning'].get(previous, 0.0) * ratio
+        width_val += glyph['advance'] * ratio + kerning
+        previous = char
+    return (width_val / 64.0) * n_pix
+
+
 def _vispy_text_line_height_pixels(text_visual):
     """Return VisPy's rendered multiline advance in logical pixels."""
     n_pix = (text_visual.font_size / 72.0) * text_visual.transforms.dpi
@@ -482,6 +522,7 @@ class MainViewer:
             "instr_y": 10.0,             # Vertical coordinate from top edge (baseline)
             "instr_anchor_x": "left",    # Horizontal text alignment: 'left', 'center', 'right'
             "instr_anchor_y": "bottom",  # Vertical text alignment: 'top', 'middle', 'bottom'
+            "instr_right_padding": 10.0, # Gap left before the sidebar toggle; a longer line wraps
             
             # 2. Command Line Text (" Cmd: <input> ")
             "console_text_x": 30.0,      # Horizontal coordinate from left edge
@@ -974,6 +1015,48 @@ class MainViewer:
             if visual is not None:
                 visual.font_size = hud_font_size
 
+    def update_instruction_layout(self):
+        """Wrap the instruction line into the room left of the sidebar toggle.
+
+        In English the line is wider than a default-size window. Its rows
+        break between actions, and update_console_background moves the
+        command line down by the rows the wrapping adds.
+        """
+        text_visual = getattr(self, 'instr_text', None)
+        if text_visual is None:
+            return
+
+        cfg_hud = self.hud_layout
+        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
+        panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
+        right_edge = self.canvas.size[0] - panel_width
+        toggle = getattr(self, 'toggle_sidebar_btn', None)
+        if toggle is not None and toggle.isVisible():
+            # The toggle sits in the instructions' top margin, so they end before it.
+            right_edge = min(right_edge, toggle.x())
+        available_width = max(
+            1.0,
+            right_edge - cfg_hud.get("instr_right_padding", 10.0) - cfg_hud["instr_x"],
+        )
+
+        logical_text = getattr(self, '_instruction_logical_text', text_visual.text or "")
+        layout_key = (logical_text, available_width, text_visual.font_size)
+        if layout_key == getattr(self, '_instruction_layout_key', None):
+            return
+        self._instruction_layout_key = layout_key
+
+        rendered_text = _wrap_instructions_for_display(
+            logical_text,
+            available_width,
+            lambda text: _vispy_text_width_pixels(text_visual, text),
+        )
+        if text_visual.text != rendered_text:
+            text_visual.text = rendered_text
+        added_rows = rendered_text.count('\n')
+        self._instruction_extra_height = (
+            added_rows * _vispy_text_line_height_pixels(text_visual) if added_rows else 0.0
+        )
+
     def update_console_background(self):
         """Wrap the console visually and size its background to the rendered rows."""
         if not hasattr(self, 'console_bg') or not hasattr(self, 'console_text'):
@@ -983,24 +1066,7 @@ class MainViewer:
         text_visual = self.console_text
 
         def measure_text_width(text):
-            """Measure one rendered row using VisPy's own glyph metrics."""
-            if not text or not hasattr(text_visual, '_font'):
-                return 0.0
-
-            font = text_visual._font
-            dpi = text_visual.transforms.dpi
-            font_size = text_visual.font_size
-            n_pix = (font_size / 72.0) * dpi
-            ratio = 1.0 / getattr(font, 'ratio', 4.0)
-            width_val = 0.0
-            prev = None
-            for char in text:
-                glyph = font[char]
-                kerning = glyph['kerning'].get(prev, 0.0) * ratio
-                x_move = glyph['advance'] * ratio + kerning
-                width_val += x_move
-                prev = char
-            return (width_val / 64.0) * n_pix
+            return _vispy_text_width_pixels(text_visual, text)
 
         left_edge = cfg_hud["console_bg_left_offset"]
         left_gap = cfg_hud["console_text_x"] - cfg_hud["console_bg_left_offset"]
@@ -1053,7 +1119,9 @@ class MainViewer:
         height = base_height + extra_height
         radius = cfg_hud["console_bg_radius"]
         center_x = left_edge + width / 2.0
-        text_y = cfg_hud["console_text_y"]
+        # The rows the instruction line wraps onto push the command line down.
+        text_y = cfg_hud["console_text_y"] + getattr(self, '_instruction_extra_height', 0.0)
+        text_visual.pos = (cfg_hud["console_text_x"], text_y)
         text_anchor_y = cfg_hud.get("console_text_anchor_y", "bottom")
         if text_anchor_y == "top":
             single_line_center_y = text_y + font_line_height / 2.0
@@ -1091,22 +1159,7 @@ class MainViewer:
         text_visual = self.background_job_status_text
 
         def measure_text_width(text):
-            if not text or not hasattr(text_visual, '_font'):
-                return 0.0
-
-            font = text_visual._font
-            dpi = text_visual.transforms.dpi
-            font_size = text_visual.font_size
-            n_pix = (font_size / 72.0) * dpi
-            ratio = 1.0 / getattr(font, 'ratio', 4.0)
-            width_val = 0.0
-            previous = None
-            for char in text:
-                glyph = font[char]
-                kerning = glyph['kerning'].get(previous, 0.0) * ratio
-                width_val += glyph['advance'] * ratio + kerning
-                previous = char
-            return (width_val / 64.0) * n_pix
+            return _vispy_text_width_pixels(text_visual, text)
 
         panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
         panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
@@ -2008,6 +2061,8 @@ class MainViewer:
             anchor_x=cfg_hud["instr_anchor_x"], 
             parent=self.canvas.scene
         )
+        # The line as written; update_instruction_layout shows it wrapped.
+        self._instruction_logical_text = self.instr_text.text
         
         self.console_bg = scene.visuals.Rectangle(
             center=(
@@ -2470,8 +2525,10 @@ class MainViewer:
 
             self.tooltip.pos = screen_pos[:2] + [15, -15]
 
-        # Keep the one-line console value visually wrapped as the canvas or
-        # sidebar width changes.
+        # Keep the instruction line and the one-line console value visually
+        # wrapped as the canvas or sidebar width changes. The console follows
+        # the instructions' last row, so they wrap first.
+        self.update_instruction_layout()
         self.update_console_background()
 
         # 4. Update any registered HUD displays
@@ -2632,12 +2689,14 @@ class MainViewer:
         # Resize events already run after VisPy has updated the canvas size and
         # scene transforms. Refresh the HUD synchronously so pixel-anchored
         # text follows the window instead of waiting for a Qt-backed timer,
-        # which can be starved during interactive window resizing.
-        self._update_hud_elements()
+        # which can be starved during interactive window resizing. The Qt
+        # overlays move first: the instruction line ends before the sidebar
+        # toggle's new position.
         if hasattr(self, 'slider_overlay'):
             self.position_slider_overlay()
         if hasattr(self, 'reposition_expand_btn'):
             self.reposition_expand_btn()
+        self._update_hud_elements()
 
     def reposition_expand_btn(self):
         if hasattr(self, 'canvas'):

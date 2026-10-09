@@ -517,6 +517,118 @@ class ResponsiveConfigTests(unittest.TestCase):
                                 self.assertGreaterEqual(label.width(),
                                                         self.natural_width(label))
 
+    def test_statistics_hint_wraps_inside_the_report(self):
+        """At the window's default size the hint shown before the first report
+        is wider than the report; it wraps there, in the report's font."""
+        from PySide6.QtGui import QFontMetrics
+        from PySide6.QtWidgets import QLabel, QTextEdit
+        report = self.window.stat_display
+        hint = report.findChild(QLabel, "wrappedPlaceholder")
+        margin = int(report.document().documentMargin())
+        self.assertTrue(hint.isVisible())
+        self.assertEqual(hint.text(), report.placeholderText())
+        self.assertEqual(QTextEdit.placeholderText(report), "")
+        self.assertEqual(hint.font().family(), report.viewport().font().family())
+        self.assertEqual(hint.geometry(),
+                         report.viewport().rect().adjusted(margin, margin, -margin, -margin))
+        self.assertGreater(QFontMetrics(hint.font()).horizontalAdvance(hint.text()), hint.width())
+        self.assertLessEqual(hint.heightForWidth(hint.width()), hint.height())
+
+        report.setPlainText("====== Network Statistics ======")
+        self.assertFalse(hint.isVisible())
+
+
+class WrappedPlaceholderTests(unittest.TestCase):
+    """Desktop_App.WrappedPlaceholderTextEdit, the Config's statistics report:
+    Qt shows only the first line of a QTextEdit's placeholder, so this box
+    shows it word-wrapped instead."""
+
+    HINT = "Select Fasta subset and HDF5 Network file, then click compute."
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def flush(self):
+        for _ in range(4):
+            self.app.processEvents()
+
+    def show(self, widget, width):
+        self.addCleanup(widget.deleteLater)
+        self.addCleanup(widget.close)
+        widget.resize(width, 200)
+        widget.show()
+        self.flush()
+
+    def make_box(self):
+        from desktop.Desktop_App import WrappedPlaceholderTextEdit
+        box = WrappedPlaceholderTextEdit()
+        box.setPlaceholderText(self.HINT)
+        return box
+
+    @staticmethod
+    def hint(box):
+        from PySide6.QtWidgets import QLabel
+        return box.findChild(QLabel, "wrappedPlaceholder")
+
+    def assert_hint_fills_the_viewport(self, box):
+        margin = int(box.document().documentMargin())
+        self.assertEqual(self.hint(box).geometry(),
+                         box.viewport().rect().adjusted(margin, margin, -margin, -margin))
+
+    def test_the_hint_wraps_where_qt_draws_a_placeholder(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QFontMetrics, QPalette
+        from PySide6.QtWidgets import QTextEdit
+        box = self.make_box()
+        self.show(box, 180)
+        hint = self.hint(box)
+        self.assertTrue(hint.isVisible())
+        self.assert_hint_fills_the_viewport(box)
+        self.assertGreater(QFontMetrics(hint.font()).horizontalAdvance(self.HINT), hint.width())
+        self.assertGreater(hint.heightForWidth(hint.width()), QFontMetrics(hint.font()).height())
+        self.assertLessEqual(hint.heightForWidth(hint.width()), hint.height())
+        self.assertEqual(hint.foregroundRole(), QPalette.ColorRole.PlaceholderText)
+        self.assertTrue(hint.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+        # Qt's own placeholder stays empty, so the hint isn't drawn twice.
+        self.assertEqual(box.placeholderText(), self.HINT)
+        self.assertEqual(QTextEdit.placeholderText(box), "")
+
+    def test_the_hint_shows_only_while_the_box_is_empty(self):
+        box = self.make_box()
+        self.show(box, 300)
+        for fill, shown in ((lambda: box.setPlainText("A report"), False), (box.clear, True),
+                            (lambda: box.setHtml("<b>A report</b>"), False), (box.clear, True),
+                            (lambda: box.setPlaceholderText(""), False)):
+            fill()
+            self.flush()
+            with self.subTest(text=box.toPlainText(), placeholder=box.placeholderText()):
+                self.assertEqual(self.hint(box).isVisible(), shown)
+
+    def test_the_hint_follows_the_box_size(self):
+        box = self.make_box()
+        self.show(box, 300)
+        for width in (180, 520, 240):
+            box.resize(width, 160)
+            self.flush()
+            with self.subTest(width=width):
+                self.assert_hint_fills_the_viewport(box)
+
+    def test_the_hint_keeps_the_box_font_when_the_box_moves_into_a_layout(self):
+        # In the Config's order: Qt resets a styled box's child labels to the
+        # application font when the box moves into its panel's layout.
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
+        from desktop.Desktop_App import qt_monospace_font
+        box = self.make_box()
+        box.setFont(qt_monospace_font(box.font()))
+        box.setStyleSheet("background-color: #f5f5f5;")
+        panel = QWidget()
+        QVBoxLayout(panel).addWidget(box)
+        self.show(panel, 300)
+        self.assertEqual(self.hint(box).font().family(), qt_monospace_font().family())
+        self.assertEqual(self.hint(box).font(), box.viewport().font())
+
 
 if __name__ == "__main__":
     unittest.main()

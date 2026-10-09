@@ -467,7 +467,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+67"/>
+        <location filename="../../desktop/Desktop_App.py" line="+68"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -528,23 +528,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3212"/>
+        <location line="+3213"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3211"/>
+        <location line="-3212"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3723"/>
+        <location line="+3724"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3715"/>
+        <location line="-3716"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -559,7 +559,7 @@
         <translation type="unfinished">（新建）</translation>
     </message>
     <message>
-        <location line="+477"/>
+        <location line="+478"/>
         <source>Score Histogram</source>
         <translation type="unfinished">分数直方图</translation>
     </message>
@@ -1789,7 +1789,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+1441"/>
+        <location filename="../../desktop/Desktop_App.py" line="+1518"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -3366,7 +3366,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Config.py" line="-4024"/>
+        <location filename="../../EMAPSSN_Config.py" line="-4025"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3411,7 +3411,7 @@ Command-line usage:
         <translation type="unfinished">分数分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+676"/>
+        <location line="+677"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -3471,12 +3471,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="+924"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="+965"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+644"/>
+        <location line="+656"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -3496,7 +3496,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+714"/>
+        <location line="+716"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3537,7 +3537,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+263"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -3939,7 +3939,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../web_ui/Web_Server.py" line="+643"/>
+        <location filename="../../web_ui/Web_Server.py" line="+647"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -4269,12 +4269,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1150"/>
+        <location line="-1227"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Tools.py" line="+119"/>
+        <location filename="../../EMAPSSN_Tools.py" line="+120"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -4494,14 +4494,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+888"/>
+        <location line="+900"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均嵌入余弦距离与网络分数之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-757"/>
+        <location line="-768"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -4568,7 +4568,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+262"/>
+        <location line="+273"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
@@ -6215,17 +6215,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="-2161"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="-2179"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+1130"/>
+        <location line="+1142"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+451"/>
+        <location line="+453"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>

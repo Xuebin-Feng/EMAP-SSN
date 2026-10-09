@@ -620,7 +620,7 @@ if __name__ == "__main__":
         QStackedWidget,
         QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
         QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
-        QComboBox, QPushButton, QMessageBox, QTextEdit,
+        QComboBox, QPushButton, QMessageBox,
         QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
         QStyle, QStyleOptionSlider, QFileDialog, QColorDialog, QSizePolicy,
         QFrame, QScrollArea,
@@ -631,6 +631,7 @@ if __name__ == "__main__":
         ResponsiveSelectorLayout,
         SingleInstanceController,
         ToggleSwitch,
+        WrappedPlaceholderTextEdit,
         add_combo_options,
         combo_value,
         configure_qt_application_fonts,
@@ -960,7 +961,7 @@ if __name__ == "__main__":
             self.right_layout.setContentsMargins(0, 0, 0, 0)
             self.stat_label = QLabel(translate("Config", "Network Statistics Report"))
             self.stat_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-            self.stat_display = QTextEdit()
+            self.stat_display = WrappedPlaceholderTextEdit()
             self.stat_display.setReadOnly(True)
             self.stat_display.setPlaceholderText(translate(
                 "Config", "Select Fasta subset and HDF5 Network file, then click compute."

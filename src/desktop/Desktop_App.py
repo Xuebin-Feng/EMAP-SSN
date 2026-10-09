@@ -20,7 +20,7 @@ import weakref
 
 from PySide6 import QtCore, QtNetwork
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QFont, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionButton,
     QTabWidget,
+    QTextEdit,
 )
 
 from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
@@ -1120,6 +1121,55 @@ class ResponsiveSelectorLayout(ResponsiveFlowLayout):
         return height
 
 
+class WrappedPlaceholderTextEdit(QTextEdit):
+    """A QTextEdit whose placeholder wraps to the box's width.
+
+    Qt shows only the first line of a QTextEdit's placeholder, so a hint
+    wider than the box is cut off, in any language. This box leaves Qt's
+    placeholder empty and shows the text in a word-wrapped label instead,
+    where Qt would draw it, while the document is empty.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._placeholder = QLabel(self.viewport())
+        self._placeholder.setObjectName("wrappedPlaceholder")
+        self._placeholder.setWordWrap(True)
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._placeholder.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+        self._placeholder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._placeholder.hide()
+        self.textChanged.connect(self._show_placeholder)
+
+    def placeholderText(self):
+        return self._placeholder.text()
+
+    def setPlaceholderText(self, text):
+        self._placeholder.setText(text)
+        self._show_placeholder()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            # Qt draws a placeholder in the box's font. An inherited font
+            # doesn't last: when a box with a stylesheet moves into a layout,
+            # Qt resets the label to the application font, so the Config's
+            # monospace report font is given to the label outright.
+            self._placeholder.setFont(self.font())
+
+    def resizeEvent(self, event):
+        # A scroll area gets its viewport's resizes here, scroll bars coming
+        # and going included.
+        super().resizeEvent(event)
+        margin = int(self.document().documentMargin())
+        self._placeholder.setGeometry(
+            self.viewport().rect().adjusted(margin, margin, -margin, -margin)
+        )
+
+    def _show_placeholder(self):
+        self._placeholder.setVisible(bool(self._placeholder.text()) and self.document().isEmpty())
+
+
 # =====================================================================
 # 5. Combo Boxes Storing Values Apart from Their Labels
 # =====================================================================
@@ -1751,6 +1801,7 @@ __all__ = [
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
     "ResponsiveSelectorLayout",
+    "WrappedPlaceholderTextEdit",
     "add_combo_options",
     "combo_value",
     "select_combo_value",
