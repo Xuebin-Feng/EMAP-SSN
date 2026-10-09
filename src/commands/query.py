@@ -250,6 +250,7 @@ def parse_query_positions(position_spec, valid_labels):
 
     parsed_args = [part.strip() for part in text.split(',') if part.strip()]
     expanded_positions = []
+    seen_positions = set()
     max_val = valid_labels[-1][0] if valid_labels else (0, 0)
 
     def parse_to_tuple(value):
@@ -266,17 +267,54 @@ def parse_query_positions(position_spec, valid_labels):
                 [parse_to_tuple(range_match.group(1)), parse_to_tuple(range_match.group(2))]
             )
             for value, label in valid_labels:
-                if start_value <= value <= end_value and label not in expanded_positions:
+                if start_value <= value <= end_value and label not in seen_positions:
+                    seen_positions.add(label)
                     expanded_positions.append(label)
             continue
 
         normalized = normalize_displayed_position_atom(part, allow_end=True)
         if normalized in {"E", "END"} and valid_labels:
             normalized = valid_labels[-1][1]
-        if normalized not in expanded_positions:
+        if normalized not in seen_positions:
+            seen_positions.add(normalized)
             expanded_positions.append(normalized)
 
     return expanded_positions
+
+
+def _subset_column_counts(matrix, target_rows):
+    """Return column(col_idx) -> (n_gaps, [(code, count), ...]) for the target rows.
+
+    One O(nnz) pass replaces a sparse matrix[target_rows, col] slice per column
+    (each of which is itself O(nnz of the subset)). Residue codes come in the
+    order Counter(dense_col[dense_col != 0]) would list them: first occurrence in
+    target_rows order, so tie-ordering in the printed tables is unchanged.
+    """
+    from scipy import sparse
+
+    n_rows = len(target_rows)
+    if sparse.issparse(matrix):
+        subset = sparse.csc_matrix(matrix[target_rows])
+        subset.sort_indices()
+        indptr, data = subset.indptr, subset.data
+    else:
+        dense = np.asarray(matrix)[target_rows]
+        indptr = data = None
+
+    def column(col_idx):
+        if data is None:
+            values = dense[:, col_idx]
+        else:
+            values = data[indptr[col_idx]:indptr[col_idx + 1]]
+        residues = values[values != 0]
+        if residues.size == 0:
+            return n_rows - residues.size, []
+        counts = np.bincount(residues)
+        codes, first = np.unique(residues, return_index=True)
+        ordered = codes[np.argsort(first, kind="stable")]
+        return n_rows - residues.size, [(code, int(counts[code])) for code in ordered.tolist()]
+
+    return column
 
 def print_help():
     print("""
@@ -526,21 +564,15 @@ def run(viewer, args):
         all_gap_fracs = np.zeros(n_cols, dtype=float)
         all_aa_fracs = {} # aa_char -> 1D numpy array of length n_cols
 
+        column_counts = _subset_column_counts(viewer.alignment.aln.matrix, target_rows)
         for idx, pos_label in enumerate(ordered_pos_labels):
             col_idx = label_to_col[pos_label]
-            sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
-            if hasattr(sliced, 'toarray'):
-                dense_col = sliced.toarray().flatten()
-            else:
-                dense_col = np.array(sliced).flatten()
-            n_gaps = np.sum(dense_col == 0)
-            residues = dense_col[dense_col != 0]
-            counts = Counter(residues)
+            n_gaps, residue_counts = column_counts(col_idx)
 
             gap_frac = n_gaps / n_seqs if n_seqs > 0 else 0.0
             all_gap_fracs[idx] = gap_frac
 
-            for aa_int, count in counts.items():
+            for aa_int, count in residue_counts:
                 aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X').upper()
                 if aa_char not in all_aa_fracs:
                     all_aa_fracs[aa_char] = np.zeros(n_cols, dtype=float)
@@ -623,6 +655,7 @@ def run(viewer, args):
         return
 
     # Query the Matrix
+    column_counts = _subset_column_counts(viewer.alignment.aln.matrix, target_rows)
     for pos in expanded_positions:
         if pos not in (getattr(viewer, 'alignment', None).label_to_col if getattr(viewer, 'alignment', None) else {}):
             print(f"Pos {pos: >5}: [Not found in active alignment mapping]")
@@ -631,19 +664,10 @@ def run(viewer, args):
         col_idx = viewer.alignment.label_to_col[pos]
         found_count += 1
 
-        # Slicing specific rows returns a dense matrix or array
-        sliced = viewer.alignment.aln.matrix[target_rows, col_idx]
-        if hasattr(sliced, 'toarray'):
-            dense_col = sliced.toarray().flatten()
-        else:
-            dense_col = np.array(sliced).flatten()
-
-        n_gaps = np.sum(dense_col == 0)
-        residues = dense_col[dense_col != 0]
-        counts = Counter(residues)
+        n_gaps, residue_counts = column_counts(col_idx)
 
         aa_counts = {}
-        for aa_int, count in counts.items():
+        for aa_int, count in residue_counts:
             aa_char = viewer.alignment.aln.int_to_aa.get(aa_int, 'X')
             aa_counts[aa_char] = aa_counts.get(aa_char, 0) + count
 
