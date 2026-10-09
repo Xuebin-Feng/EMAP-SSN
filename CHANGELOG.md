@@ -114,6 +114,11 @@ still change before version 1.0.0.
   tool help pages in `src/tools/tool_descriptions/` stay English. The update command
   now also refuses a text whose lines a backslash joins, which `lupdate` reads with a
   line break the code never shows.
+- **The Viewer's window is ready to translate.** Its title, the sidebar's buttons and
+  toggle, the metadata spreadsheet's file dialogs, and the messages shown when a browser
+  page opens come from the catalog. MCP clients still read the window's title in English.
+  The canvas text (the console line and the HUD) follows. Exporting metadata now picks
+  CSV or Excel by the chosen filter's file pattern, which every language keeps.
 
 ### Changed
 

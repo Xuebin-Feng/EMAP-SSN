@@ -1119,6 +1119,22 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Metadata UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This Viewer instance&apos;s web server is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Model: {model}
 Weights license: {license}
 Restriction: {restriction}
@@ -1134,6 +1150,34 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>{model} [separate terms]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{page} is already open in your browser.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{page} is already being opened in your browser.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{page} unavailable: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not open {page}: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not open {page}: {url}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{page} opened at {url}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESMFold Mol* UI</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2535,6 +2579,58 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     <name>Viewer</name>
     <message>
         <source>EMAP-SSN Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle sidebar panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🤖 Agent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open AI Agent Chat Console in browser</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Browser Page Already Open</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Fold View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open ESMFold &amp; Mol* structure viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import Metadata Spreadsheet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Excel/CSV Files (*.xlsx *.xls *.csv)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export Metadata Spreadsheet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CSV Files (*.csv)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Excel Files (*.xlsx)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📊 Meta Data</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open Metadata Spreadsheet in browser</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

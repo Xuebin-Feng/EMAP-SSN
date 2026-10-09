@@ -16,6 +16,8 @@
 import os
 import json
 import EMAPSSN_Config as cfg
+from desktop.Desktop_App import translate
+from utilities.Localization import Message
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
 
@@ -62,9 +64,9 @@ def activate(viewer):
     if hasattr(viewer, 'add_sidebar_button'):
         viewer.add_sidebar_button(
             "fold_view_btn",
-            "🧬 Fold View",
+            translate("Viewer", "🧬 Fold View"),
             lambda: open_esmfold_ui(viewer),
-            "Open ESMFold & Mol* structure viewer"
+            translate("Viewer", "Open ESMFold & Mol* structure viewer")
         )
 
 
@@ -79,7 +81,7 @@ def open_esmfold_ui(viewer, *, show_existing_dialog=True):
     """Opens the local Mol* page in the user's default browser."""
     return viewer._open_web_ui(
         "/esmfold.html",
-        "ESMFold Mol* UI",
+        Message("ESMFold Mol* UI"),
         "esmfold",
         show_existing_dialog=show_existing_dialog,
     )

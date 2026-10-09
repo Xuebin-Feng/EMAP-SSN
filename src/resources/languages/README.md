@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked; the Viewer's and VR Config's follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so is the Viewer's window: its title, sidebar and dialogs. The Viewer's canvas text and VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -83,9 +83,11 @@ Each window files its texts under one context, which translators see as a group:
 
 A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. `QT_TRANSLATE_NOOP` and `Message` come from `utilities.Localization`, which code without Qt can import.
 
+A value that is text to translate too, such as a page's name in a message, is a `Message` itself: `Message("{page} opened at {url}", page=Message("Agent UI"), url=url)`. The pseudo-language check can't see an untranslated value, which shows inside the translated text's brackets, so a test checks such a value on its own.
+
 Pass a whole sentence as one plain string, and fill in the values after translating it. Don't write `translate("Config", f"Saved {count}")`, and don't add text to a translated one, as in `translate("Config", "Saved") + ":"`. Pass the arguments in order, without names. The update refuses texts that no catalog can list, and calls whose text or count Qt's lupdate would miss, such as a text whose lines a backslash joins. A text that two places show alike in English but a language may not, such as a column called "Count" and the verb, takes a comment telling them apart: `translate("Config", "Count", "statistics column")`.
 
-Keep markup that is not language out of the text where you can: compose Markdown such as `## {heading}` in the code and translate the heading. A dropdown translates its labels, never the values it stores. A choice that shows a name, such as a file, a device or `BLOSUM62`, is marked with `mark_name_item` instead.
+Keep markup that is not language out of the text where you can: compose Markdown such as `## {heading}` in the code and translate the heading. A dropdown translates its labels, never the values it stores. A choice that shows a name, such as a file, a device or `BLOSUM62`, is marked with `mark_name_item` instead. Code never reads a translated text to decide what to do: a file dialog's chosen filter tells the format by its pattern, such as `*.csv`, which every language keeps.
 
 ### Counted texts
 

@@ -20,6 +20,9 @@ import webbrowser
 
 from PySide6.QtWidgets import QMessageBox
 
+from desktop.Desktop_App import translate
+from utilities.Localization import Message, display_text
+
 
 PENDING_OPEN_SECONDS = 10.0
 
@@ -39,8 +42,8 @@ def _report_existing_page(viewer, message, show_dialog):
     if show_dialog:
         QMessageBox.information(
             getattr(viewer, "main_window", None),
-            "Browser Page Already Open",
-            message,
+            translate("Viewer", "Browser Page Already Open"),
+            display_text(message),
         )
 
 
@@ -60,7 +63,10 @@ def open_browser_page(
     *,
     show_existing_dialog=True,
 ):
-    """Open one bundled page unless that client is connected or opening."""
+    """Open one bundled page unless that client is connected or opening.
+
+    label names the page in the messages; a Message shows translated.
+    """
     pending = _pending_opens(viewer)
     now = time.monotonic()
 
@@ -70,7 +76,7 @@ def open_browser_page(
         pending.pop(client_id, None)
         _report_existing_page(
             viewer,
-            f"{label} is already open in your browser.",
+            Message("{page} is already open in your browser.", page=label),
             show_existing_dialog,
         )
         return False
@@ -79,7 +85,7 @@ def open_browser_page(
     if pending_deadline > now:
         _report_existing_page(
             viewer,
-            f"{label} is already being opened in your browser.",
+            Message("{page} is already being opened in your browser.", page=label),
             show_existing_dialog,
         )
         return False
@@ -88,7 +94,7 @@ def open_browser_page(
     try:
         url = viewer.get_web_url(path)
     except RuntimeError as error:
-        _set_console_message(viewer, f"{label} unavailable: {error}")
+        _set_console_message(viewer, Message("{page} unavailable: {error}", page=label, error=error))
         return False
 
     pending[client_id] = now + PENDING_OPEN_SECONDS
@@ -96,13 +102,13 @@ def open_browser_page(
         opened = bool(webbrowser.open(url, new=2))
     except Exception as error:
         pending.pop(client_id, None)
-        _set_console_message(viewer, f"Could not open {label}: {error}")
+        _set_console_message(viewer, Message("Could not open {page}: {error}", page=label, error=error))
         return False
 
     if not opened:
         pending.pop(client_id, None)
-        _set_console_message(viewer, f"Could not open {label}: {url}")
+        _set_console_message(viewer, Message("Could not open {page}: {url}", page=label, url=url))
         return False
 
-    _set_console_message(viewer, f"{label} opened at {url}")
+    _set_console_message(viewer, Message("{page} opened at {url}", page=label, url=url))
     return True

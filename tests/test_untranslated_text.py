@@ -11,9 +11,10 @@ Until a window's text is marked, all of it shows that way. Once none is
 left, the window joins FULLY_MARKED, and from then on a new unmarked text
 fails its test. Text that is translated must also show whole.
 
-The Viewer is covered by its side panel, which its web plugins fill.
-Its canvas text (the HUD and the console line) isn't Qt widgets; the
-console line's Message texts are checked in test_translation_loading.
+The Viewer is covered by its window: the title, the sidebar its web
+plugins fill, and the sidebar's toggle. Its canvas text (the HUD and the
+console line) isn't Qt widgets; the console line's Message texts are
+checked in test_translation_loading.
 """
 
 import contextlib
@@ -37,7 +38,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
-    QMainWindow,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -54,12 +54,37 @@ from tests.translation_fixtures import cut_off_texts, outside_the_catalog, pseud
 
 # Windows whose every text comes from a catalog. Marking a window's text
 # (language step 6) moves it here.
-FULLY_MARKED = frozenset({"Config", "Tools"})
+FULLY_MARKED = frozenset({"Config", "Tools", "Viewer window"})
 
 
 def flush(app):
     for _ in range(3):
         app.processEvents()
+
+
+def open_viewer_window(test_case):
+    """A Viewer's main window, built as the Viewer builds it, around a stand-in canvas.
+
+    Its sidebar holds the buttons the web plugins add. No network is loaded,
+    so the canvas draws nothing.
+    """
+    from types import SimpleNamespace
+
+    from EMAPSSN_Viewer import MainViewer
+    from web_ui import agent_backend, esmfold_backend, meta_backend
+
+    viewer = MainViewer.__new__(MainViewer)
+    viewer.canvas = SimpleNamespace(native=QWidget(), size=(1800, 1000))
+    viewer._build_main_window()
+    test_case.addCleanup(viewer.main_window.deleteLater)
+    # The real one also moves the slider and the HUD, which need a network.
+    viewer.set_sidebar_visible = lambda visible: None
+    with contextlib.redirect_stdout(io.StringIO()):
+        for plugin in (agent_backend, esmfold_backend, meta_backend):
+            plugin.activate(viewer)
+    test_case.assertEqual(len(viewer.sidebar_buttons), 3)
+    viewer.reposition_expand_btn()
+    return viewer
 
 
 class WindowTestCase(unittest.TestCase):
@@ -167,24 +192,9 @@ class WindowTextTests(WindowTestCase):
             window = EMAPSSN_Tools.ToolsGUI()
         self.check("Tools", self.show(window))
 
-    def test_viewer_side_panel(self):
-        from EMAPSSN_Viewer import MainViewer
-        from web_ui import agent_backend, esmfold_backend, meta_backend
-
-        viewer = MainViewer.__new__(MainViewer)
-        viewer.main_window = QMainWindow()
-        viewer.right_panel = QWidget()
-        viewer.right_panel.setObjectName("rightPanel")
-        viewer.main_window.setCentralWidget(viewer.right_panel)
-        viewer.right_panel_layout = QVBoxLayout(viewer.right_panel)
-        viewer.right_panel_layout.addStretch()
-        viewer.set_sidebar_visible = lambda visible: None
-        viewer.open_agent_ui = viewer.open_metadata_ui = lambda: None
-        with contextlib.redirect_stdout(io.StringIO()):
-            for plugin in (agent_backend, esmfold_backend, meta_backend):
-                plugin.activate(viewer)
-        self.assertEqual(len(viewer.sidebar_buttons), 3)
-        self.check("Viewer side panel", self.show(viewer.main_window))
+    def test_viewer_window(self):
+        viewer = open_viewer_window(self)
+        self.check("Viewer window", self.show(viewer.main_window))
 
 
 class ConfigRunTimeTextTests(WindowTestCase):
@@ -420,6 +430,160 @@ class ToolsRunTimeTextTests(WindowTestCase):
         headings = self.tools.get_tool_titles()
         self.assertEqual(len(headings), 14)
         self.assertEqual(self.tools.TOOL_TITLES, headings)
+
+
+class ViewerRunTimeTextTests(WindowTestCase):
+    """Text the Viewer's window shows after it opens: its dialogs and the
+    messages that opening a browser page puts on the console line."""
+
+    def setUp(self):
+        pseudo_language(self, self.app)
+
+    def assert_translated(self, text):
+        self.assertTrue(text)
+        self.assertEqual(outside_the_catalog(text), "", text)
+
+    def test_the_title_shows_translated_and_mcp_reads_it_in_english(self):
+        from desktop.Viewer_Inspection import english_window_title
+
+        viewer = open_viewer_window(self)
+        alias = viewer.inspection_session_alias
+        title = viewer.main_window.windowTitle()
+        self.assertTrue(title.endswith(f" [{alias}]"), title)
+        self.assertNotIn("Viewer", title)
+        self.assert_translated(title)
+        self.assertEqual(english_window_title(viewer), f"EMAP-SSN Viewer [{alias}]")
+
+    def test_the_browser_page_messages(self):
+        from types import SimpleNamespace
+
+        from EMAPSSN_Viewer import MainViewer
+        from web_ui import Browser_Page, Web_Server, esmfold_backend
+
+        class WebServer:
+            def __init__(self, connected):
+                self.connected = connected
+
+            def has_event_client(self, client_id):
+                return client_id in self.connected
+
+        def viewer_with(connected=(), url="http://127.0.0.1:49123"):
+            viewer = MainViewer.__new__(MainViewer)
+            viewer.console_text = SimpleNamespace(text="")
+            viewer.main_window = None
+            viewer.update_console_background = lambda: None
+            viewer.web_server = WebServer(set(connected))
+            viewer.web_server_url = url
+            return viewer
+
+        dialogs = []
+        shown = []
+
+        def show(viewer):
+            shown.append(viewer.console_text.text)
+
+        with mock.patch.object(Browser_Page.QMessageBox, "information",
+                               side_effect=lambda parent, title, text: dialogs.extend([title, text])), \
+                mock.patch.object(Web_Server, "is_running", return_value=True):
+            for open_page in (MainViewer.open_agent_ui, MainViewer.open_metadata_ui, esmfold_backend.open_esmfold_ui):
+                viewer = viewer_with()
+                with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True):
+                    self.assertTrue(open_page(viewer))
+                    show(viewer)  # Opened.
+                    self.assertFalse(open_page(viewer))
+                    show(viewer)  # Still being opened.
+            viewer = viewer_with(connected={"agent"})
+            self.assertFalse(viewer.open_agent_ui())
+            show(viewer)  # Already open.
+            viewer = viewer_with(url=None)
+            self.assertFalse(viewer.open_agent_ui())
+            show(viewer)  # The web server is unavailable.
+            for outcome in ({"return_value": False}, {"side_effect": OSError(5)}):
+                viewer = viewer_with()
+                with mock.patch.object(Browser_Page.webbrowser, "open", **outcome):
+                    self.assertFalse(viewer.open_agent_ui())
+                show(viewer)  # Could not open it.
+        with mock.patch.object(Web_Server, "is_running", return_value=False), \
+                mock.patch.object(Web_Server, "ensure_server", side_effect=OSError(98)):
+            viewer = viewer_with()
+            self.assertFalse(viewer.open_agent_ui())
+            show(viewer)  # The web server could not start again.
+        self.assertEqual(len(shown), 11, shown)
+        self.assertEqual(len(dialogs), 8, dialogs)
+        for text in shown + dialogs:
+            with self.subTest(text=text):
+                self.assert_translated(text)
+
+    def test_the_parts_filled_into_the_browser_page_messages(self):
+        # A value filled into a translated text shows inside its brackets, so
+        # the page's name and the web server's errors are checked on their own.
+        from types import SimpleNamespace
+
+        from EMAPSSN_Viewer import MainViewer
+        from web_ui import Web_Server, esmfold_backend
+
+        for open_page in (MainViewer.open_agent_ui, MainViewer.open_metadata_ui, esmfold_backend.open_esmfold_ui):
+            viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False))
+            open_page(viewer)
+            name = display_text(viewer._open_web_ui.call_args.args[1])
+            with self.subTest(name=name):
+                self.assertTrue(is_pseudo_translated(name), name)
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.web_server, viewer.web_server_url = object(), None
+        for running in (True, False):
+            with mock.patch.object(Web_Server, "is_running", return_value=running), \
+                    mock.patch.object(Web_Server, "ensure_server", side_effect=OSError(98)), \
+                    self.assertRaises(RuntimeError) as caught:
+                viewer.get_web_url("/agent.html")
+            with self.subTest(running=running):
+                self.assert_translated(display_text(caught.exception))
+
+    def test_the_metadata_file_dialogs(self):
+        from types import SimpleNamespace
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QDialog, QFileDialog
+
+        from web_ui import meta_backend
+
+        texts = []
+
+        class RecordingFileDialog:
+            """Stands in for the modal QFileDialog and keeps the texts it was given."""
+
+            FileMode, AcceptMode = QFileDialog.FileMode, QFileDialog.AcceptMode
+
+            def __init__(self, parent):
+                pass
+
+            def setWindowTitle(self, text):
+                texts.append(text)
+
+            setNameFilter = setWindowTitle
+
+            def setNameFilters(self, filters):
+                texts.extend(filters)
+
+            def windowFlags(self):
+                return Qt.WindowType.Dialog
+
+            def exec(self):
+                return QDialog.DialogCode.Rejected  # Cancelled.
+
+            def __getattr__(self, name):
+                return lambda *args: None
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        viewer = SimpleNamespace(main_window=mock.Mock())
+        with mock.patch.object(meta_backend.QtWidgets, "QFileDialog", RecordingFileDialog), \
+                mock.patch.object(meta_backend.cfg, "METADATA_DIR", folder.name, create=True):
+            meta_backend.handle_import_metadata(viewer, {})
+            meta_backend.handle_export_metadata(viewer, {})
+        self.assertEqual(len(texts), 5, texts)
+        for text in texts:
+            with self.subTest(text=text):
+                self.assert_translated(text)
 
 
 if __name__ == "__main__":

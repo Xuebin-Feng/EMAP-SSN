@@ -372,10 +372,12 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
 
                 viewer._open_web_ui.assert_called_once_with(
                     "/esmfold.html",
-                    "ESMFold Mol* UI",
+                    mock.ANY,
                     "esmfold",
                     show_existing_dialog=show_existing_dialog,
                 )
+                # The page's name, which the messages show translated.
+                self.assertEqual(str(viewer._open_web_ui.call_args.args[1]), "ESMFold Mol* UI")
 
     def test_fold_view_sidebar_uses_default_modal_behavior(self):
         viewer = SimpleNamespace(add_sidebar_button=mock.Mock())

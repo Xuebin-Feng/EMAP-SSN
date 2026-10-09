@@ -1,8 +1,10 @@
 """Metadata web backend (src/web_ui/meta_backend.py): the node selection and
-highlight actions the Metadata UI sends to the Viewer."""
+highlight actions the Metadata UI sends to the Viewer, and the format its
+export dialog saves in."""
 
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -82,6 +84,62 @@ class MetadataHighlightActionTests(unittest.TestCase):
             {"type": "highlight_row", "index": 1}
         )
         self.assertIsNone(viewer.left_click_highlight_indices)
+
+
+class MetadataExportFormatTests(unittest.TestCase):
+    """The export dialog's chosen filter gives the file its format by its
+    pattern, which every language keeps, not by its name, which a language
+    translates."""
+
+    def export(self, chosen_file, chosen_filter):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QDialog, QFileDialog
+        from web_ui import meta_backend
+
+        class ChosenFileDialog:
+            """Stands in for the modal QFileDialog, with a file and a filter chosen."""
+
+            FileMode, AcceptMode = QFileDialog.FileMode, QFileDialog.AcceptMode
+
+            def __init__(self, parent):
+                pass
+
+            def windowFlags(self):
+                return Qt.WindowType.Dialog
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def selectedFiles(self):
+                return [chosen_file]
+
+            def selectedNameFilter(self):
+                return chosen_filter
+
+            def __getattr__(self, name):
+                return lambda *args: None
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        with mock.patch.object(meta_backend.QtWidgets, "QFileDialog", ChosenFileDialog), \
+                mock.patch.object(meta_backend.cfg, "METADATA_DIR", folder.name, create=True), \
+                mock.patch.object(meta_backend, "download_metadata") as download:
+            meta_backend.handle_export_metadata(SimpleNamespace(main_window=mock.Mock()), {})
+        download.assert_called_once()
+        return download.call_args.args[1]
+
+    def test_the_filters_pattern_gives_the_extension(self):
+        for chosen_file, chosen_filter, saved in (
+            ("table", "CSV Files (*.csv)", "table.csv"),
+            ("table", "Excel Files (*.xlsx)", "table.xlsx"),
+            # Filters as a language may name them.
+            ("table", "Valeurs séparées (*.csv)", "table.csv"),
+            ("table", "Classeur (*.xlsx)", "table.xlsx"),
+            ("table.xls", "Classeur (*.xlsx)", "table.xls"),
+            ("table.csv", "Valeurs séparées (*.csv)", "table.csv"),
+        ):
+            with self.subTest(chosen_filter=chosen_filter, chosen_file=chosen_file):
+                self.assertEqual(self.export(chosen_file, chosen_filter), saved)
 
 
 if __name__ == "__main__":

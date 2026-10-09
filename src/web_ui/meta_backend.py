@@ -18,6 +18,7 @@ import numpy as np
 from PySide6 import QtWidgets, QtCore
 import Command_Engine
 import EMAPSSN_Config as cfg
+from desktop.Desktop_App import translate
 from web_ui.Plugin_Manager import ensure_registry
 # The metadata data model lives in Metadata_Core so the headless VR front
 # end can use it too; re-exported here so this module's own callers and
@@ -113,9 +114,9 @@ def handle_import_metadata(viewer, data):
         os.makedirs(abs_meta_dir, exist_ok=True)
         
         dialog = QtWidgets.QFileDialog(parent_widget)
-        dialog.setWindowTitle("Import Metadata Spreadsheet")
+        dialog.setWindowTitle(translate("Viewer", "Import Metadata Spreadsheet"))
         dialog.setDirectory(abs_meta_dir)
-        dialog.setNameFilter("Excel/CSV Files (*.xlsx *.xls *.csv)")
+        dialog.setNameFilter(translate("Viewer", "Excel/CSV Files (*.xlsx *.xls *.csv)"))
         dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFile)
         
         # Bring to front of browser window
@@ -151,10 +152,13 @@ def handle_export_metadata(viewer, data):
         default_path = os.path.join(abs_meta_dir, "metadata_export.csv")
         
         dialog = QtWidgets.QFileDialog(parent_widget)
-        dialog.setWindowTitle("Export Metadata Spreadsheet")
+        dialog.setWindowTitle(translate("Viewer", "Export Metadata Spreadsheet"))
         dialog.setDirectory(abs_meta_dir)
         dialog.selectFile(default_path)
-        dialog.setNameFilter("CSV Files (*.csv);;Excel Files (*.xlsx)")
+        dialog.setNameFilters([
+            translate("Viewer", "CSV Files (*.csv)"),
+            translate("Viewer", "Excel Files (*.xlsx)"),
+        ])
         dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
         
         dialog.setWindowFlags(dialog.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint)
@@ -165,10 +169,11 @@ def handle_export_metadata(viewer, data):
             selected = dialog.selectedFiles()
             if selected:
                 filepath = selected[0]
+                # A filter's pattern stays as written in every language; its name may not.
                 selected_filter = dialog.selectedNameFilter()
-                if "Excel" in selected_filter and not filepath.lower().endswith(('.xlsx', '.xls')):
+                if "*.xlsx" in selected_filter and not filepath.lower().endswith(('.xlsx', '.xls')):
                     filepath += ".xlsx"
-                elif "CSV" in selected_filter and not filepath.lower().endswith('.csv'):
+                elif "*.csv" in selected_filter and not filepath.lower().endswith('.csv'):
                     filepath += ".csv"
                 download_metadata(viewer, filepath)
     except Exception as e:
@@ -267,9 +272,9 @@ def activate(viewer):
     if hasattr(viewer, 'add_sidebar_button'):
         viewer.add_sidebar_button(
             name="metaDataBtn",
-            label="📊 Meta Data",
+            label=translate("Viewer", "📊 Meta Data"),
             callback=viewer.open_metadata_ui,
-            tooltip="Open Metadata Spreadsheet in browser"
+            tooltip=translate("Viewer", "Open Metadata Spreadsheet in browser")
         )
         if not hasattr(viewer, 'sidebar_buttons_to_persist'):
             viewer.sidebar_buttons_to_persist = []

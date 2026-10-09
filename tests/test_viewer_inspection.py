@@ -56,6 +56,18 @@ class ViewerInspectionTests(unittest.TestCase):
         self.assertIsNone(summary["inputs"]["node_fasta"])
         self.assertEqual(summary["clusters"]["count"], 2)
         self.assertEqual(summary["groups"]["count"], 2)
+        self.assertIsNone(summary["window_title"])
+
+    def test_the_window_title_is_reported_in_english(self):
+        # The window shows its title in the chosen language; MCP clients read it in English.
+        self.viewer.main_window = SimpleNamespace(windowTitle=lambda: "EMAP-SSN 查看器 [3FA9C1D2]")
+        self.viewer.inspection_window_title = "EMAP-SSN Viewer [3FA9C1D2]"
+        self.assertEqual(self.service.get_summary()["window_title"], "EMAP-SSN Viewer [3FA9C1D2]")
+        snapshot = self.service.capture_snapshot()
+        self.assertEqual(
+            self.service.snapshots.execute("get_summary", snapshot)["window_title"],
+            "EMAP-SSN Viewer [3FA9C1D2]",
+        )
 
 
 class SnapshotTests(SnapshotFixture, unittest.TestCase):

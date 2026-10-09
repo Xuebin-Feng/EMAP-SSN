@@ -40,6 +40,7 @@ if _SRC_DIR not in sys.path:
 
 import Command_Engine
 from PySide6 import QtCore
+from desktop.Desktop_App import translate
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
 from web_ui.agent_images import validate_attachments, message_content, history_messages
@@ -883,9 +884,9 @@ def activate(viewer):
     if hasattr(viewer, "add_sidebar_button"):
         viewer.add_sidebar_button(
             name="agentBtn",
-            label="🤖 Agent",
+            label=translate("Viewer", "🤖 Agent"),
             callback=viewer.open_agent_ui,
-            tooltip="Open AI Agent Chat Console in browser"
+            tooltip=translate("Viewer", "Open AI Agent Chat Console in browser")
         )
 
 

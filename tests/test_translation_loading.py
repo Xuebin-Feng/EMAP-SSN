@@ -369,10 +369,13 @@ class StartupWiringTests(unittest.TestCase):
     def test_viewer_installs_as_soon_as_its_canvas_has_created_the_application(self):
         tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
         viewer = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MainViewer")
-        init = next(node for node in viewer.body if isinstance(node, ast.FunctionDef) and node.name == "__init__")
+        methods = {node.name: node for node in viewer.body if isinstance(node, ast.FunctionDef)}
+        # The main window, with the sidebar and its toggle, is built in _build_main_window.
+        for widget in ("QMainWindow", "QPushButton"):
+            self.assertTrue(calls_in(methods["_build_main_window"], widget), widget)
         self.assert_installed_between(
-            init, before=["SceneCanvas", "instance"],
-            after=["create_hud", "QLabel", "QMainWindow", "QPushButton"],
+            methods["__init__"], before=["SceneCanvas", "instance"],
+            after=["create_hud", "QLabel", "_build_main_window"],
         )
 
     def test_the_viewer_takes_its_language_face_before_it_draws_any_text(self):

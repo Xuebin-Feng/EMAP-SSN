@@ -138,6 +138,7 @@ from Background_Job_Scheduler import BackgroundJobScheduler
 from utilities.Sequence_Utils import (
     load_sanitized_fasta,
 )
+from utilities.Localization import Message
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
     UI_QSS_FONT_STACK,
@@ -153,6 +154,7 @@ from desktop.Desktop_App import (
     register_vispy_application_fonts,
     show_window_in_front,
     startup_language,
+    translate,
     vispy_language_face,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
@@ -790,12 +792,53 @@ class MainViewer:
         self.slider_overlay.show()
         
         # --- 6. Set up MainWindow & WebServer ---
+        self._build_main_window()
+        
+        # Initialize thread-safe QtCommunicator for server commands
+        from web_ui import Web_Server
+        self.communicator = Web_Server.QtCommunicator(self)
+        self.viewer_inspection = ViewerInspectionService(self, cfg)
+        
+        # Discover bundled web plugins before the server begins accepting requests.
+        self.web_server = None
+        self.web_server_url = None
+        self.web_plugin_manager = None
+        try:
+            from web_ui.Plugin_Manager import WebPluginManager
+            self.web_plugin_manager = WebPluginManager(self)
+            self.web_plugin_manager.discover_and_register()
+        except Exception as error:
+            print(f"Web plugin discovery failed: {error}")
+
+        # Initialize background WebServer
+        self.start_web_server()
+        
+        # Run persistent sidebar button registration commands
+        if getattr(self, 'sidebar_buttons_to_persist', None):
+            for cmd_name in self.sidebar_buttons_to_persist:
+                self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
+        
+        # Ensure the side panel is hidden at startup
+        self.set_sidebar_visible(False)
+        
+        if not self.headless:
+            show_window_in_front(self.main_window)
+            QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
+        
+        self._hud_timer.start()
+        print("\nViewer Ready. Press [ENTER] to type commands.")
+
+    def _build_main_window(self):
+        """Set up the main window around the canvas: its title, the sidebar and the sidebar's toggle."""
         # The sidebar's width until its buttons size it (_fit_sidebar_to_buttons).
         self._panel_w = 180
         self.main_window = QtWidgets.QMainWindow()
         from utilities.Viewer_Sessions import ensure_viewer_identity
         ensure_viewer_identity(self)
-        self.main_window.setWindowTitle(f"{VIEWER_DISPLAY_NAME} [{self.inspection_session_alias}]")
+        alias = self.inspection_session_alias
+        # MCP reports the title in English (Viewer_Inspection); the window shows it translated.
+        self.inspection_window_title = f"{VIEWER_DISPLAY_NAME} [{alias}]"
+        self.main_window.setWindowTitle(f"{translate('Viewer', VIEWER_DISPLAY_NAME)} [{alias}]")
         
         # Set Window Icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.ico")
@@ -825,7 +868,7 @@ class MainViewer:
         # Single floating toggle button on the canvas.native to collapse/expand sidebar
         self.toggle_sidebar_btn = QtWidgets.QPushButton(">>", self.canvas.native)
         self.toggle_sidebar_btn.setObjectName("toggleSidebarBtn")
-        self.toggle_sidebar_btn.setToolTip("Toggle sidebar panel")
+        self.toggle_sidebar_btn.setToolTip(translate("Viewer", "Toggle sidebar panel"))
         self.toggle_sidebar_btn.setFixedWidth(30)
         self.toggle_sidebar_btn.setFixedHeight(30)
         self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
@@ -873,40 +916,6 @@ class MainViewer:
                 background-color: #e2f0fe;
             }
         """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
-        
-        # Initialize thread-safe QtCommunicator for server commands
-        from web_ui import Web_Server
-        self.communicator = Web_Server.QtCommunicator(self)
-        self.viewer_inspection = ViewerInspectionService(self, cfg)
-        
-        # Discover bundled web plugins before the server begins accepting requests.
-        self.web_server = None
-        self.web_server_url = None
-        self.web_plugin_manager = None
-        try:
-            from web_ui.Plugin_Manager import WebPluginManager
-            self.web_plugin_manager = WebPluginManager(self)
-            self.web_plugin_manager.discover_and_register()
-        except Exception as error:
-            print(f"Web plugin discovery failed: {error}")
-
-        # Initialize background WebServer
-        self.start_web_server()
-        
-        # Run persistent sidebar button registration commands
-        if getattr(self, 'sidebar_buttons_to_persist', None):
-            for cmd_name in self.sidebar_buttons_to_persist:
-                self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
-        
-        # Ensure the side panel is hidden at startup
-        self.set_sidebar_visible(False)
-        
-        if not self.headless:
-            show_window_in_front(self.main_window)
-            QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
-        
-        self._hud_timer.start()
-        print("\nViewer Ready. Press [ENTER] to type commands.")
 
     def _update_console_text(self):
         """Helper to render the command line with a visible cursor."""
@@ -2670,10 +2679,10 @@ class MainViewer:
                 self._update_hud_elements()
 
     def open_metadata_ui(self):
-        return self._open_web_ui("/meta.html", "Metadata UI", "meta")
+        return self._open_web_ui("/meta.html", Message("Metadata UI"), "meta")
 
     def open_agent_ui(self):
-        return self._open_web_ui("/agent.html", "Agent UI", "agent")
+        return self._open_web_ui("/agent.html", Message("Agent UI"), "agent")
 
     def _open_web_ui(
         self,
@@ -2695,7 +2704,7 @@ class MainViewer:
         """Return a URL served by this Viewer instance."""
         self.ensure_web_server()
         if not self.web_server_url:
-            raise RuntimeError("This Viewer instance's web server is unavailable.")
+            raise RuntimeError(Message("This Viewer instance's web server is unavailable."))
         return f"{self.web_server_url}/{str(path).lstrip('/')}"
 
     def add_sidebar_button(self, name, label, callback, tooltip=None):
@@ -2759,7 +2768,7 @@ class MainViewer:
             self.web_server = None
             self.web_server_url = None
             raise RuntimeError(
-                f"This Viewer instance's web server is unavailable: {error}"
+                Message("This Viewer instance's web server is unavailable: {error}", error=error)
             ) from error
         port = int(self.web_server.server_address[1])
         self.web_server_url = f"http://{Web_Server.LOOPBACK_HOST}:{port}"

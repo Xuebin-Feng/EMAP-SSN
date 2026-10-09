@@ -62,6 +62,17 @@ def record_value(value):
     return json_value(value)
 
 
+def english_window_title(viewer):
+    """The title MCP reports for the Viewer's window, or None without a window.
+
+    It is English in every language: the window shows its title translated,
+    and keeps the English one as inspection_window_title.
+    """
+    if getattr(viewer, "main_window", None) is None:
+        return None
+    return getattr(viewer, "inspection_window_title", None)
+
+
 def encoded(value):
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
 
@@ -121,7 +132,7 @@ class SnapshotStore:
             data['overview'] = {'session_id': getattr(v, 'inspection_session_id', None),
                 'captured_at': datetime.now(timezone.utc).isoformat(), 'node_count': n,
                 'inputs': data.pop('inputs'), 'loaded_edge_count': len(getattr(v, 'edges', ())),
-                'window_title': v.main_window.windowTitle() if getattr(v, 'main_window', None) is not None else None,
+                'window_title': english_window_title(v),
                 'active_threshold': json_value(getattr(v, 'current_slider_threshold', getattr(service._configuration, 'SIMILARITY_THRESHOLD', None))),
                 'threshold_comparison': '>= on viewer edge_scores',
                 'visible_node_count': sum(bool(x) for x in data['visible']), 'selected_node_count': len(data['selected']),
@@ -511,7 +522,7 @@ class ViewerInspectionService:
             "inputs": self._input_paths(),
             "session_id": getattr(viewer, "inspection_session_id", None),
             "session_alias": getattr(viewer, "inspection_session_alias", None),
-            "window_title": viewer.main_window.windowTitle() if getattr(viewer, "main_window", None) is not None else None,
+            "window_title": english_window_title(viewer),
             "node_count": node_count,
             "edge_count": edge_count,
             "visible_node_count": sum(visible),
@@ -542,6 +553,7 @@ __all__ = [
     "ViewerInspectionError",
     "ViewerInspectionService",
     "encoded",
+    "english_window_title",
     "json_value",
     "record_value",
     "size_of",
