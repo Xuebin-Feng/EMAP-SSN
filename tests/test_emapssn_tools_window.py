@@ -1385,6 +1385,8 @@ class FolderDropdownTests(unittest.TestCase):
     Directories tab exists, the directory comes from the saved settings, or in a
     language redraw from the ones carried over. A relative directory is relative to
     the project root, not the working directory, and a blank one means the default.
+    A saved file no longer in its folder shows as unavailable, as a removed model
+    does, and Save & Run refuses it.
     """
 
     # One file dropdown per directory: tool, field, directory key, extension.
@@ -1411,23 +1413,30 @@ class FolderDropdownTests(unittest.TestCase):
     def saved_name(key, extension):
         return f"saved_{key.lower()}{extension}"
 
-    def open_tools(self, directories=None, carried=None):
-        """Open the Tools window, saving directories first if they are given.
+    def save_settings(self, directories, missing=()):
+        """Save directories, and for each field the file saved in its folder.
 
         directories maps each key to (its saved value, the folder it leads to).
-        Each folder holds its field's saved file and a file listed before it.
+        Each folder holds a file listed first and its field's saved file,
+        unless its key is in missing.
         """
+        document = {"DIRECTORIES": {key: saved for key, (saved, _) in directories.items()}}
+        for script, field, key, extension in self.FIELDS:
+            folder = directories[key][1]
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / ("a_listed_first" + extension)).touch()
+            if key not in missing:
+                (folder / self.saved_name(key, extension)).touch()
+            document[script] = {field: self.saved_name(key, extension)}
+        (self.root / "tools_settings.json").write_text(json.dumps(document), encoding="utf-8")
+        return document
+
+    def open_tools(self, directories=None, carried=None, missing=()):
+        """Open the Tools window, saving directories first if they are given (save_settings)."""
         import EMAPSSN_Tools
 
         if directories is not None:
-            document = {"DIRECTORIES": {key: saved for key, (saved, _) in directories.items()}}
-            for script, field, key, extension in self.FIELDS:
-                folder = directories[key][1]
-                folder.mkdir(parents=True, exist_ok=True)
-                for name in ("a_listed_first" + extension, self.saved_name(key, extension)):
-                    (folder / name).touch()
-                document[script] = {field: self.saved_name(key, extension)}
-            (self.root / "tools_settings.json").write_text(json.dumps(document), encoding="utf-8")
+            self.save_settings(directories, missing)
         window = EMAPSSN_Tools.ToolsGUI(carried=carried)
 
         def close():
@@ -1513,6 +1522,99 @@ class FolderDropdownTests(unittest.TestCase):
         _, combo = self.dropdown(replacement, "Sanitize_Sequences.py", "INPUT_FASTA")
         self.assertEqual(combo.currentText(), "picked.fasta")
         self.assertEqual(replacement.language_carry_over()["document"], carried["document"])
+
+    def saved_elsewhere(self):
+        """Directories saved under <root>/saved, one folder for each key."""
+        return {
+            key: (str(self.root / "saved" / key.lower()), self.root / "saved" / key.lower())
+            for _, _, key, _ in self.FIELDS
+        }
+
+    def run_tool(self, window, path):
+        """Save & Run the tool; return (critical, launch, settings before, settings after)."""
+        import EMAPSSN_Tools
+
+        settings = self.root / "tools_settings.json"
+        before = settings.read_text(encoding="utf-8")
+        with mock.patch.object(EMAPSSN_Tools.QMessageBox, "critical") as critical, \
+                mock.patch.object(EMAPSSN_Tools.QMessageBox, "information"), \
+                mock.patch.object(EMAPSSN_Tools, "launch_in_terminal") as launch, \
+                mock.patch("builtins.print"):
+            window.save_and_run(path)
+        return critical, launch, before, settings.read_text(encoding="utf-8")
+
+    def test_a_saved_file_no_longer_in_its_folder_shows_as_unavailable(self):
+        directories = self.saved_elsewhere()
+        window = self.open_tools(directories, missing={"FASTA_DIR"})
+        path, combo = self.dropdown(window, "Sanitize_Sequences.py", "INPUT_FASTA")
+        missing = self.saved_name("FASTA_DIR", ".fasta")
+        unavailable = f"Unavailable saved file [{missing}]"
+
+        # It shows instead of the folder's first file, which stays listed, and
+        # is what the tool would run on; opening the dropdown keeps it.
+        for _ in range(2):
+            self.assertEqual(combo.currentText(), unavailable)
+            listed = [combo.itemText(index) for index in range(combo.count())]
+            self.assertEqual(listed, ["a_listed_first.fasta", unavailable])
+            self.assertEqual(window._collect_tool_settings(path)["INPUT_FASTA"], missing)
+            combo.populate()
+        redrawn = self.open_tools(carried=window.language_carry_over())
+        self.assertEqual(
+            self.dropdown(redrawn, "Sanitize_Sequences.py", "INPUT_FASTA")[1].currentText(), unavailable
+        )
+
+        # Save & Run refuses it, as it does a removed model, and saves and starts nothing.
+        critical, launch, before, after = self.run_tool(window, path)
+        critical.assert_called_once()
+        folder = os.path.normpath(directories["FASTA_DIR"][0])
+        self.assertIn(f"'{missing}' is no longer in {folder}.", critical.call_args.args[2])
+        launch.assert_not_called()
+        self.assertEqual(after, before)
+
+        # Choosing another file drops it the next time the dropdown opens.
+        combo.setCurrentIndex(combo.findText("a_listed_first.fasta"))
+        combo.populate()
+        self.assertEqual(combo.findText(unavailable), -1)
+        self.assertEqual(window._collect_tool_settings(path)["INPUT_FASTA"], "a_listed_first.fasta")
+
+    def test_a_missing_file_put_back_runs_and_is_selected_when_the_dropdown_opens(self):
+        directories = self.saved_elsewhere()
+        window = self.open_tools(directories, missing={"FASTA_DIR"})
+        path, combo = self.dropdown(window, "Sanitize_Sequences.py", "INPUT_FASTA")
+        missing = self.saved_name("FASTA_DIR", ".fasta")
+        (directories["FASTA_DIR"][1] / missing).touch()
+
+        critical, launch, _, after = self.run_tool(window, path)
+        critical.assert_not_called()
+        launch.assert_called_once()
+        self.assertEqual(json.loads(after)["Sanitize_Sequences.py"]["INPUT_FASTA"], missing)
+
+        combo.populate()
+        listed = [combo.itemText(index) for index in range(combo.count())]
+        self.assertEqual(sorted(listed), sorted(["a_listed_first.fasta", missing]))
+        self.assertEqual(combo.currentText(), missing)
+
+    def test_only_a_saved_file_that_does_not_exist_shows_as_unavailable(self):
+        # The tools also find a file saved by its full path, which no folder lists.
+        full_path = self.root / "elsewhere" / "by_full_path.fasta"
+        full_path.parent.mkdir()
+        full_path.touch()
+        document = self.save_settings(self.saved_elsewhere())
+        document["Sanitize_Sequences.py"]["INPUT_FASTA"] = str(full_path)
+        (self.root / "tools_settings.json").write_text(json.dumps(document), encoding="utf-8")
+
+        window = self.open_tools()
+
+        path, combo = self.dropdown(window, "Sanitize_Sequences.py", "INPUT_FASTA")
+        self.assertEqual(combo.currentText(), str(full_path))
+        self.assertIsNone(combo.missing_file())
+        self.assertEqual(window._collect_tool_settings(path)["INPUT_FASTA"], str(full_path))
+        # A tool's own default is not a saved file: Embedding_SSEARCH.py defaults
+        # to a sample embedding set, and its dropdown shows only the folder's files.
+        _, combo = self.dropdown(window, "Embedding_SSEARCH.py", "INPUT_EMBED")
+        listed = sorted(combo.itemText(index) for index in range(combo.count()))
+        self.assertEqual(listed, sorted(["a_listed_first.h5", self.saved_name("EMBED_DIR", ".h5")]))
+        self.assertIn(combo.currentText(), listed)
 
 
 if __name__ == "__main__":

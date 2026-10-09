@@ -19,6 +19,7 @@ checked in test_translation_loading.
 
 import contextlib
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -425,6 +426,33 @@ class ToolsRunTimeTextTests(WindowTestCase):
         combos = [combo for combo in self.window.findChildren(QComboBox) if combo.findText("my_sequences.fasta") >= 0]
         self.assertTrue(combos)
         self.assertNotIn("my_sequences.fasta", [text for _, text in visible_texts(self.window)])
+
+    def test_a_saved_file_missing_from_its_folder_and_its_refusal(self):
+        settings = Path(self.tools._PROJECT_ROOT) / "tools_settings.json"
+        # A file the tools find by its full path shows as a name, though no folder lists it.
+        full_path = settings.parent / "elsewhere" / "by_full_path.fasta"
+        full_path.parent.mkdir()
+        full_path.write_text(">a\nMK\n", encoding="utf-8")
+        document = json.loads(settings.read_text(encoding="utf-8"))
+        document["Sanitize_Sequences.py"] = {"INPUT_FASTA": "gone.fasta"}
+        document["Generate_Embeddings.py"] = {"INPUT_FASTA": str(full_path)}
+        settings.write_text(json.dumps(document), encoding="utf-8")
+        window = self.tools.ToolsGUI()
+        self.addCleanup(window.deleteLater)
+        path, data = next(
+            (path, data) for path, data in window.script_data.items() if Path(path).name == "Sanitize_Sequences.py"
+        )
+
+        shown = data["inputs"]["INPUT_FASTA"]["widget"].combo.currentText()
+        self.assertIn("gone.fasta", shown)
+        self.assert_translated(shown)
+        self.assertNotIn(str(full_path), [text for _, text in visible_texts(window)])
+        with mock.patch.object(self.tools.QMessageBox, "critical") as critical:
+            window.save_and_run(path)
+        title, message = critical.call_args.args[1:]
+        self.assert_translated(title)
+        self.assertIn("gone.fasta", message)
+        self.assert_translated(message)
 
     def test_card_titles_are_the_headings_of_the_tool_help_files(self):
         headings = self.tools.get_tool_titles()

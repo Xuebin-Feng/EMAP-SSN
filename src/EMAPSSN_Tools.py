@@ -1024,6 +1024,8 @@ class DynamicComboBox(QComboBox):
     def populate(self):
         current_text = self.currentText()
         current_index = self.currentIndex()
+        # A saved file the folder doesn't list stays selected (see select_file).
+        kept_file = self.currentData()
         signals_were_blocked = self.blockSignals(True)
         try:
             self.clear()
@@ -1042,7 +1044,9 @@ class DynamicComboBox(QComboBox):
             self.addItems(options)
             for index in range(self.count()):
                 mark_name_item(self, index)  # File names, which no language translates.
-            if current_text:
+            if kept_file:
+                self.select_file(kept_file)
+            elif current_text:
                 idx = self.findText(current_text)
                 if idx >= 0:
                     self.setCurrentIndex(idx)
@@ -1056,6 +1060,32 @@ class DynamicComboBox(QComboBox):
                 self.currentIndexChanged.emit(refreshed_index)
             if refreshed_text != current_text:
                 self.currentTextChanged.emit(refreshed_text)
+
+    def select_file(self, name):
+        """Select the saved file name, adding it when the folder doesn't list it.
+
+        An added file that exists, such as one saved by its full path, shows as
+        it is. One that no longer exists shows as unavailable, as a removed
+        model does, instead of the folder's first file taking its place unseen.
+        The added item holds the file as its data, and stays selected when the
+        dropdown lists its folder again.
+        """
+        index = self.findText(name)
+        if index < 0:
+            if os.path.isfile(os.path.join(self.folder, name)):
+                self.addItem(name, name)
+                mark_name_item(self, self.count() - 1)
+            else:
+                self.addItem(translate("Tools", "Unavailable saved file [{file}]").format(file=name), name)
+            index = self.count() - 1
+        self.setCurrentIndex(index)
+
+    def missing_file(self):
+        """The selected saved file if it is not in the folder, else None."""
+        kept_file = self.currentData()
+        if kept_file and not os.path.isfile(os.path.join(self.folder, kept_file)):
+            return kept_file
+        return None
 
     def showPopup(self):
         self.populate()
@@ -1162,6 +1192,18 @@ def _dropdown_folder(window, dir_key):
     if not os.path.isabs(directory):
         directory = os.path.join(_PROJECT_ROOT, directory)
     return os.path.normpath(directory)
+
+
+def _missing_saved_file(window, script_path):
+    """(file, folder) of a saved file a tool's dropdown shows as unavailable, or None."""
+    inputs = getattr(window, "script_data", {}).get(script_path, {}).get("inputs", {})
+    for entry in inputs.values():
+        if entry["type"] == "dropdown_from_folder":
+            combo = entry["widget"].combo
+            missing = combo.missing_file()
+            if missing:
+                return missing, combo.folder
+    return None
 
 
 class ToolsGUI(QMainWindow):
@@ -2833,8 +2875,12 @@ class ToolsGUI(QMainWindow):
                 # Initial population
                 combo.populate()
                 clean_val = str(actual_val).replace('"','')
-                idx = combo.findText(clean_val)
-                if idx >= 0: combo.setCurrentIndex(idx)
+                if var_name in saved_values and isinstance(actual_val, str) and clean_val.strip():
+                    # A saved file stays selected, even one its folder doesn't list.
+                    combo.select_file(clean_val)
+                else:
+                    idx = combo.findText(clean_val)
+                    if idx >= 0: combo.setCurrentIndex(idx)
                 
                 # Add the folder button
                 btn = QPushButton("📂")
@@ -3148,7 +3194,8 @@ class ToolsGUI(QMainWindow):
                 net_combo = net_input['widget'].combo
 
                 def selected_network_path():
-                    filename = net_combo.currentText().strip()
+                    # A kept saved file holds its name as data (DynamicComboBox.select_file).
+                    filename = (net_combo.currentData() or net_combo.currentText()).strip()
                     if not filename:
                         return None
                     return os.path.join(_dropdown_folder(self, "NETWORK_DIR"), filename)
@@ -3930,7 +3977,8 @@ class ToolsGUI(QMainWindow):
             
             if w_type in ["dropdown", "dropdown_from_folder", "device_dropdown"]:
                 if w_type == "dropdown_from_folder":
-                    val = widget.combo.currentText()
+                    # A kept saved file, shown as itself or as unavailable, is its data.
+                    val = widget.combo.currentData() or widget.combo.currentText()
                 elif w_type == "device_dropdown":
                     val = widget.currentData()
                 else:
@@ -4085,6 +4133,18 @@ class ToolsGUI(QMainWindow):
             return
         tool_spec = get_tool_spec_for_script(script_path)
         script_name = tool_spec.script_name
+        missing_file = _missing_saved_file(self, script_path)
+        if missing_file:
+            # A saved file shown as "Unavailable saved file" in its dropdown;
+            # the script would stop on it anyway.
+            QMessageBox.critical(
+                self,
+                translate("Tools", "Unavailable Saved File"),
+                translate(
+                    "Tools", "'{file}' is no longer in {folder}. Choose another file before running."
+                ).format(file=missing_file[0], folder=missing_file[1]),
+            )
+            return
         selected_model = None
         if script_name == "Generate_Embeddings.py":
             selected_model = new_settings.get("MODEL_NAME")

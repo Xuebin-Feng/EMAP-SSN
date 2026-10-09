@@ -706,6 +706,13 @@ still change before version 1.0.0.
   directory is found from the EMAP-SSN folder, as the tools find it, rather than from
   the folder the window was started in; a blank one lists the default folder; and the
   📂 button beside a dropdown opens the folder it lists.
+- A file saved for a Tools dropdown that was no longer in its folder, deleted or moved,
+  was replaced without a word by the folder's first file, which **Save & Run** then
+  saved and ran. It now shows as "Unavailable saved file [name]", as a removed model
+  does, and stays selected when the dropdown is opened again; **Save & Run** refuses it
+  until another file is chosen or the file is back. A file saved by its full path,
+  which the tools find though no folder lists it, now shows as it is instead of the
+  folder's first file.
 - A tool run from the command line without a settings file, while `tools_settings.json`
   could not be read (invalid JSON, empty, or not a JSON object), printed a warning and
   ran on its built-in defaults; an MCP job given parameters without every directory

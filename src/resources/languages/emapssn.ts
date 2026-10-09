@@ -1450,6 +1450,10 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Unavailable saved file [{file}]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Sequence Set (.fasta): The raw FASTA sequence database to clean.
 Uppercases residues, trims terminal non-residues, masks invalid characters with &apos;X&apos;, and deduplicates headers.</source>
         <translation type="unfinished"></translation>
@@ -2514,6 +2518,14 @@ Command-line usage:
         <source>{error}
 
 The file was left unchanged and the tool was not started. Correct the file, or delete it to start over from the default settings, then run the tool again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unavailable Saved File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{file}&apos; is no longer in {folder}. Choose another file before running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
