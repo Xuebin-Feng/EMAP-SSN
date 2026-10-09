@@ -29,3 +29,7 @@ src/resources/languages/*.qm  binary
 # their exact bytes in checkouts and source archives on every platform.
 src/resources/esmfold/molstar.js  -text
 src/resources/esmfold/molstar.css -text
+
+# The benchmark's sequence sets have recorded SHA-256 values. Keep their exact
+# bytes, with LF line ends, in checkouts and source archives on every platform.
+src/resources/benchmark/*.fasta -text

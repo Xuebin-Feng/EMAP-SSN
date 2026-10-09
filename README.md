@@ -709,8 +709,9 @@ License, and [NOTICE](NOTICE) for required attributions.
 
 ### Third-party components
 
-This repository bundles Mol*, Tabulator, marked, KaTeX, and the Noto fonts,
-depends on Python packages under a range of licenses, and can load
+This repository bundles Mol*, Tabulator, marked, KaTeX, the Noto fonts, and
+the benchmark's protein sequences from UniProt (CC BY 4.0), depends on Python
+packages under a range of licenses, and can load
 protein-language-model weights governed by their own terms. A full inventory, including which components are redistributed
 and which are merely required at runtime, is in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

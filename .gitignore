@@ -24,6 +24,11 @@ tools_settings.json.*.partial
 src/resources/.Biohub_API.json.*.tmp
 src/resources/agent/.model_card.json.*.partial
 
+# Benchmark reports: kept beside the benchmark, never deleted, and specific to
+# the machine that ran them. The benchmark's temp/ folder is ignored above.
+src/resources/benchmark/Benchmark_Report_*.txt
+src/resources/benchmark/Benchmark_Report_*.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
