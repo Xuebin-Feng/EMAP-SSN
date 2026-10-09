@@ -160,7 +160,7 @@ class GroupCommandTests(unittest.TestCase):
         failed.assert_not_called()
         self.assertEqual(
             succeeded.call_args.args[1],
-            "Removed 1 group(s) from 1 total node instances.",
+            "Removed 1 group from 1 total node instance.",
         )
 
 

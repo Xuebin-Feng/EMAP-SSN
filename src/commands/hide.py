@@ -16,18 +16,22 @@
 import Command_Engine
 import numpy as np
 import EMAPSSN_Config as cfg
+from utilities.Localization import JoinedMessage, Message
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = ("Usage: hide [EXPRESSION / single / free]\n\n"
-               "Description:\n"
-               "  Without arguments: Immediately hides all currently selected nodes and their connected edges.\n"
-               "  With 'single' or 'free': Hides all visible nodes that have no active edges at the current similarity threshold.\n"
-               "  With EXPRESSION: Hides all visible nodes matching the logical expression.\n\n"
-               "Validation:\n"
-               "  Referenced clusters, groups, alignment positions, metadata properties, and files must exist.\n"
-               "  An invalid reference aborts without hiding nodes; a valid expression may match zero nodes.\n\n"
-               "To unhide nodes, use the `reset hide` command.")
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="hide [EXPRESSION / single / free]"),
+            "Description:\n"
+            "  Without arguments: Immediately hides all currently selected nodes and their connected edges.\n"
+            "  With 'single' or 'free': Hides all visible nodes that have no active edges at the current similarity threshold.\n"
+            "  With EXPRESSION: Hides all visible nodes matching the logical expression.\n\n"
+            "Validation:\n"
+            "  Referenced clusters, groups, alignment positions, metadata properties, and files must exist.\n"
+            "  An invalid reference aborts without hiding nodes; a valid expression may match zero nodes.\n\n"
+            "To unhide nodes, use the `reset hide` command.",
+        ], separator="\n\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
@@ -61,7 +65,7 @@ def run(viewer, args):
         num_hidden = np.sum(single_nodes_mask)
         
         if num_hidden == 0:
-            msg = "No single/free nodes found to hide at the current edge threshold."
+            msg = Message("No single/free nodes found to hide at the current edge threshold.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -80,7 +84,7 @@ def run(viewer, args):
         viewer.update_selection_visual()
         viewer.update_edges()
         
-        msg = f"Hidden {num_hidden} single/free nodes."
+        msg = Message("Hidden %n single/free node(s).", n=num_hidden)
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -105,7 +109,7 @@ def run(viewer, args):
                 selection_mask=Command_Engine.get_selected_mask(viewer),
             )
         except Exception as e:
-            Command_Engine.report_selection_error(viewer, expr, e, "Hide")
+            Command_Engine.report_selection_error(viewer, expr, e, Message("Hide"))
             return
 
         newly_hidden = mask & viewer.visible_mask
@@ -113,7 +117,7 @@ def run(viewer, args):
 
         # Nothing to hide is not an error, but it must not add an undo step.
         if num_hidden == 0:
-            msg = f"No visible nodes matched '{expr}' to hide."
+            msg = Message("No visible nodes matched '{expression}' to hide.", expression=expr)
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -132,13 +136,13 @@ def run(viewer, args):
         viewer.update_selection_visual()
         viewer.update_edges()
         
-        msg = f"Hidden {num_hidden} nodes matching expression."
+        msg = Message("Hidden %n node(s) matching expression.", n=num_hidden)
         Command_Engine.print_help(viewer, msg)
         
     else:
         # Default to hiding selected nodes
         if not getattr(viewer, 'selected_indices', []):
-            msg = "Error: No nodes currently selected."
+            msg = Message("Error: No nodes currently selected.")
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -155,6 +159,6 @@ def run(viewer, args):
         viewer.update_selection_visual()
         viewer.update_edges()
         
-        msg = f"Hidden {num_hidden} selected nodes."
+        msg = Message("Hidden %n selected node(s).", n=num_hidden)
         Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)

@@ -1271,6 +1271,40 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Invalid scale &apos;{scale}&apos;. A scale is a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, scale with trailing x, or shape.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No valid assignments found.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n node(s) ({properties})</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Applied: {stats}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No nodes matched criteria.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Unknown esmfold keyword: {keyword}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1325,6 +1359,212 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Error: Export refused {source}: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Legacy export group:NAME syntax is no longer supported. Use export #NAME#.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unrecognized export target &apos;{target}&apos;. Use clusters, groups, or #LABEL#.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Export all-target modes cannot be combined with specific #LABEL# targets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Export accepts only one all-target mode: clusters or groups.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Run &apos;cluster&apos; first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No groups defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No in-memory sequence set is available for export.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>clustering parameters ({mode}, {minimum})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>group label &apos;{group}&apos;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No valid subsets found to export.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Exported %n file(s) ({sequences}).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n sequence(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>No groups are currently defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Listed %n group(s) in console.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: Please specify one or more groups to remove (e.g., &apos;group remove group1 group2&apos;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Group(s) not found: {groups}. Nothing was removed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Group(s) not found: {groups}. No groups are currently defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Removed %n group(s) from {instances}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n total node instance(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: Arguments must be in pairs of [expression] [group_name].</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group name &apos;{name}&apos; is a reserved keyword. Skipping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group name &apos;{name}&apos; conflicts with an existing topology cluster. Skipping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group name &apos;{name}&apos; is reserved for subclusters. Skipping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group name &apos;{name}&apos; contains invalid characters. Skipping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n node(s) -&gt; &apos;{group}&apos;</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Groups Applied: {applied} ({skipped} skipped)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Groups Applied: {applied}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Skipped: {warning}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No nodes matched criteria for grouping.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Usage: {syntax}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No single/free nodes found to hide at the current edge threshold.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Hidden %n single/free node(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No visible nodes matched &apos;{expression}&apos; to hide.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Hidden %n node(s) matching expression.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: No nodes currently selected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Hidden %n selected node(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Deleted metadata columns: {columns}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Usage: {syntax} OR {other_syntax}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata display cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Please specify a valid property name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata display enabled for property: &apos;{property}&apos;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Please specify a file path or filename to upload.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Metadata file &apos;{file}&apos; not found (checked absolute, relative, and {folder}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Current Alignment Offset: {offset}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1350,10 +1590,6 @@ Command-line usage:
     </message>
     <message>
         <source>Alignment Offset set to {offset}. Position numbering updated.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Usage: {syntax}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1428,6 +1664,174 @@ Command-line usage:
     </message>
     <message>
         <source>Error saving layout state: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n node(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: Select command requires an expression or invert/save action.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Please provide a filename to save (e.g., &apos;select save top_nodes.txt&apos; or &apos;my_seqs.fasta&apos;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Warning: No nodes are currently selected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>no in-memory sequence set is available; use a .txt filename to save the headers instead</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved %n sequence(s) to {path} ({missing} missing from the loaded sequences)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved %n sequence(s) to {path}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved %n header(s) to {path}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error saving file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;save&apos; must come first. Use &apos;select save &lt;FILENAME&gt;&apos; to save the current selection; to save new matches, select them first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Select accepts exactly one whitespace-free Boolean expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;invert&apos; does not take expressions. Use &apos;!EXPR&apos; instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Inverted selection. Selected {selected}, Un-selected {unselected}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No logic expression provided.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selected {selected}, Un-selected {unselected}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Added %n node(s) to selection (current total: {total}).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Removed %n node(s) from selection (remaining: {remaining}).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Nothing to filter: No nodes are currently selected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filtered selection: Kept {kept}, removed {removed}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unsupported selection mode &apos;{mode}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Spectrum coloring applied to %n node(s) using property &apos;{property}&apos; {range} with scheme &apos;{scheme}&apos;.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n node(s) with invalid values colored gray.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>[Warning: &apos;{scheme}&apos; not found, using coolwarm]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Missing arguments for spectrum coloring.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Legacy spectrum prefixes are no longer supported. Use &apos;{syntax}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Spectrum accepts exactly one {syntax}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Spectrum accepts at most one Boolean expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Spectrum accepts at most one color scheme.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Spectrum</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unrecognized extra spectrum argument &apos;{argument}&apos;. Only one color scheme may be supplied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Target property must be specified as {syntax}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No metadata loaded in the viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Property &apos;{property}&apos; not found. Available properties: {available}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Property &apos;{property}&apos; is not numerical (type is &apos;{type}&apos;). Spectrum coloring requires a numerical property.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No nodes matched the selection criteria (only visible nodes are colored).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Warning: No valid numerical values found in &apos;{property}&apos; for the selected nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(min: {min}, max: {max})</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1751,6 +2155,18 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Filename cannot be empty.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filename must not include a directory or path separators.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filename contains unsupported characters: &apos;{file}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The file was left unchanged: correct it, or delete it to start over from the default cards.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1821,10 +2237,6 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>ESMFold Mol* UI</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Deleted metadata columns: {columns}.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3262,6 +3674,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>ESMFold Launch Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>N/A</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

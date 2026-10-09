@@ -19,6 +19,7 @@ import re
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Desktop_App import open_in_file_manager
+from utilities.Localization import Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import write_fasta_atomic
 
@@ -54,12 +55,12 @@ def _refused_output_name(viewer, name, source):
     cache restores whatever labels and parameters it carries, and os.path.join
     drops the export folder for an absolute name or climbs out of it through
     '..'. The name checked is the one written, so a group named '..' still
-    exports as '...fasta'.
+    exports as '...fasta'. `source` is a Message, such as "group label 'x'".
     """
     try:
         validate_output_basename(name)
     except ValueError as error:
-        msg = f"Error: Export refused {source}: {error}"
+        msg = Message("Error: Export refused {source}: {error}", source=source, error=error)
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_failed(viewer, msg)
         return True
@@ -98,7 +99,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '-?']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -111,12 +112,9 @@ def run(viewer, args):
     for arg in args:
         arg_lower = arg.lower()
         if arg_lower.startswith("group:"):
-            Command_Engine.print_help(
-                viewer,
-                "Error: Legacy export group:NAME syntax is no longer supported. "
-                "Use export #NAME#.",
-            )
-            Command_Engine.command_failed(viewer, 'Error: Legacy export group:NAME syntax is no longer supported. Use export #NAME#.')
+            msg = Message("Error: Legacy export group:NAME syntax is no longer supported. Use export #NAME#.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
         if arg_lower == "clusters":
             mode_tokens.append("clusters")
@@ -128,25 +126,20 @@ def run(viewer, args):
         if label_match:
             label_tokens.append(label_match.group(1))
             continue
-        Command_Engine.print_help(
-            viewer,
-            f"Error: Unrecognized export target '{arg}'. Use clusters, groups, or #LABEL#.",
-        )
-        Command_Engine.command_failed(viewer, f"Error: Unrecognized export target '{arg}'. Use clusters, groups, or #LABEL#.")
+        msg = Message("Error: Unrecognized export target '{target}'. Use clusters, groups, or #LABEL#.", target=arg)
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     if mode_tokens and label_tokens:
-        Command_Engine.print_help(
-            viewer,
-            "Error: Export all-target modes cannot be combined with specific #LABEL# targets.",
-        )
-        Command_Engine.command_failed(viewer, 'Error: Export all-target modes cannot be combined with specific #LABEL# targets.')
+        msg = Message("Error: Export all-target modes cannot be combined with specific #LABEL# targets.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
     if len(mode_tokens) > 1:
-        Command_Engine.print_help(
-            viewer, "Error: Export accepts only one all-target mode: clusters or groups."
-        )
-        Command_Engine.command_failed(viewer, 'Error: Export accepts only one all-target mode: clusters or groups.')
+        msg = Message("Error: Export accepts only one all-target mode: clusters or groups.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
     if mode_tokens:
         target_mode = mode_tokens[0]
@@ -171,21 +164,23 @@ def run(viewer, args):
                     specific_targets.append(resolved)
         except Command_Engine.SelectionExpressionError as error:
             Command_Engine.report_selection_error(
-                viewer, " ".join(f"#{label}#" for label in label_tokens), error, "Export"
+                viewer, " ".join(f"#{label}#" for label in label_tokens), error, Message("Export")
             )
             return
 
     # --- Validations ---
     if target_mode == "clusters" and getattr(viewer, 'cluster_labels', None) is None:
-        Command_Engine.show_status(viewer, "Error: Run 'cluster' first.")
-        Command_Engine.command_failed(viewer, viewer.console_text.text)
+        msg = Message("Error: Run 'cluster' first.")
+        Command_Engine.show_status(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         print("Error: Run 'cluster' first to export clusters.")
         Command_Engine.command_failed(viewer, "Error: Run 'cluster' first to export clusters.")
         return
         
     if target_mode == "groups" and getattr(viewer, 'group_labels', None) is None:
-        Command_Engine.show_status(viewer, "Error: No groups defined.")
-        Command_Engine.command_failed(viewer, viewer.console_text.text)
+        msg = Message("Error: No groups defined.")
+        Command_Engine.show_status(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         print("Error: No groups defined. Use the 'group' command first.")
         Command_Engine.command_failed(viewer, "Error: No groups defined. Use the 'group' command first.")
         return
@@ -193,7 +188,7 @@ def run(viewer, args):
     # --- 2. Load Canonical Records Already Held by the Viewer ---
     source_records = _get_in_memory_sequence_records(viewer)
     if not source_records:
-        msg = "Error: No in-memory sequence set is available for export."
+        msg = Message("Error: No in-memory sequence set is available for export.")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.show_status(viewer, msg)
         print(msg)
@@ -250,7 +245,7 @@ def run(viewer, args):
                 lvl2_name = f"{c_mode_param}_Min{c_min_param}"
             if _refused_output_name(
                 viewer, lvl2_name,
-                f"clustering parameters ({c_mode_param}, {c_min_param})",
+                Message("clustering parameters ({mode}, {minimum})", mode=c_mode_param, minimum=c_min_param),
             ):
                 return
         else:
@@ -296,7 +291,7 @@ def run(viewer, args):
             for g_name in viewer.group_labels[i]:
                 file_name = f"{g_name}.fasta"
                 if file_name not in file_map:
-                    if _refused_output_name(viewer, file_name, f"group label '{g_name}'"):
+                    if _refused_output_name(viewer, file_name, Message("group label '{group}'", group=g_name)):
                         return
                     file_map[file_name] = []
                 file_map[file_name].append(record)
@@ -310,7 +305,7 @@ def run(viewer, args):
                 filename = "Noise.fasta"
             else:
                 filename = f"{target.name}.fasta"
-                if _refused_output_name(viewer, filename, f"group label '{target.name}'"):
+                if _refused_output_name(viewer, filename, Message("group label '{group}'", group=target.name)):
                     return
             target_mask = Command_Engine.evaluate_label_mask(
                 viewer.full_headers,
@@ -330,7 +325,7 @@ def run(viewer, args):
         print(f"Warning: {missing_count} viewer nodes were not found in the original FASTA file.")
 
     if not file_map:
-        msg = "No valid subsets found to export."
+        msg = Message("No valid subsets found to export.")
         Command_Engine.show_status(viewer, msg)
         print(msg)
         Command_Engine.command_succeeded(viewer, msg)
@@ -358,7 +353,11 @@ def run(viewer, args):
             print(f"Failed to write {filename}: {e}")
             Command_Engine.command_failed(viewer, f'Failed to write {filename}: {e}')
 
-    msg = f"Exported {files_written} files ({seqs_written} sequences)."
+    msg = Message(
+        "Exported %n file(s) ({sequences}).",
+        n=files_written,
+        sequences=Message("%n sequence(s)", n=seqs_written),
+    )
     Command_Engine.show_status(viewer, msg)
     print(f"\nSuccess! {msg}")
     

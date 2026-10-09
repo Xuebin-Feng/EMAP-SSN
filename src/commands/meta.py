@@ -24,6 +24,8 @@ import re
 import pandas as pd
 import Command_Engine
 import EMAPSSN_Config as cfg
+from desktop.Desktop_App import translate
+from utilities.Localization import Message
 from web_ui.meta_backend import (
     MetadataColumnDeleteError,
     delete_metadata_columns,
@@ -110,7 +112,7 @@ def run(viewer, args):
     if first_arg in ['help', '-h', '--help']:
         print_help(meta_dir)
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -120,7 +122,7 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, "Missing metadata command arguments")
             Command_Engine.print_help(
                 viewer,
-                f"Usage: meta {first_arg} <property_name> [property_name ...]",
+                Message("Usage: {syntax}", syntax=f"meta {first_arg} <property_name> [property_name ...]"),
             )
             return
         try:
@@ -128,20 +130,27 @@ def run(viewer, args):
                 viewer, args[1:], broadcast=False
             )
         except MetadataColumnDeleteError as error:
-            Command_Engine.print_help(viewer, f"Error: {error}")
-            Command_Engine.command_failed(viewer, f'Error: {error}')
+            msg = Message("Error: {error}", error=error)
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
-        Command_Engine.print_help(
-            viewer, "Deleted metadata columns: " + ", ".join(deleted) + "."
-        )
-        Command_Engine.command_succeeded(viewer, "Deleted metadata columns: " + ", ".join(deleted) + ".")
+        msg = Message("Deleted metadata columns: {columns}.", columns=", ".join(deleted))
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # 5. Display/Show Property Check
     if first_arg in ['display', 'show']:
         if len(args) < 2:
             Command_Engine.command_failed(viewer, "Missing metadata command arguments")
-            Command_Engine.print_help(viewer, "Usage: meta show <property_name> OR meta show clear/off")
+            Command_Engine.print_help(
+                viewer,
+                Message(
+                    "Usage: {syntax} OR {other_syntax}",
+                    syntax="meta show <property_name>",
+                    other_syntax="meta show clear/off",
+                ),
+            )
             return
 
         prop_name = " ".join(args[1:]).strip()
@@ -149,13 +158,15 @@ def run(viewer, args):
             if 'meta_display' in viewer.hud_displays:
                 viewer.hud_displays['meta_display'].hide()
             viewer.meta_display_prop = None
-            Command_Engine.print_help(viewer, "Metadata display cleared.")
-            Command_Engine.command_succeeded(viewer, 'Metadata display cleared.')
+            msg = Message("Metadata display cleared.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer, msg)
             return
 
         if not prop_name:
-            Command_Engine.print_help(viewer, "Error: Please specify a valid property name.")
-            Command_Engine.command_failed(viewer, 'Error: Please specify a valid property name.')
+            msg = Message("Error: Please specify a valid property name.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
 
         available_props = list(viewer.metadata.keys()) if getattr(viewer, 'metadata', None) else []
@@ -192,11 +203,12 @@ def run(viewer, args):
                         val_str = (
                             format_metadata_value(val).strip()
                             if pd.notna(val) and val is not None
-                            else "N/A"
+                            else translate("Viewer", "N/A")
                         )
                         self.show(f"{p_name}: {val_str}")
                     else:
-                        self.show(f"{p_name}: N/A")
+                        not_available = translate("Viewer", "N/A")
+                        self.show(f"{p_name}: {not_available}")
 
             viewer.hud_displays['meta_display'] = MetaHUDDisplay(viewer)
 
@@ -207,13 +219,15 @@ def run(viewer, args):
             val_str = (
                 format_metadata_value(val).strip()
                 if pd.notna(val) and val is not None
-                else "N/A"
+                else translate("Viewer", "N/A")
             )
             display.show(f"{resolved_prop}: {val_str}")
         else:
             display.show(f"{resolved_prop}: -")
 
-        Command_Engine.print_help(viewer, f"Metadata display enabled for property: '{resolved_prop}'")
+        Command_Engine.print_help(
+            viewer, Message("Metadata display enabled for property: '{property}'", property=resolved_prop)
+        )
         Command_Engine.command_succeeded(viewer, f"Metadata display enabled for property: {resolved_prop!r}")
         return
 
@@ -222,8 +236,9 @@ def run(viewer, args):
         try:
             filepath = metadata_download_path(meta_dir, " ".join(args[1:]).strip())
         except ValueError as error:
-            Command_Engine.print_help(viewer, f"Error: {error}")
-            Command_Engine.command_failed(viewer, f"Error: {error}")
+            msg = Message("Error: {error}", error=error)
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
 
         download_metadata(viewer, filepath)
@@ -234,8 +249,9 @@ def run(viewer, args):
     if first_arg in ['upload', 'import']:
         upload_args = args[1:]
         if not upload_args:
-            Command_Engine.print_help(viewer, "Error: Please specify a file path or filename to upload.")
-            Command_Engine.command_failed(viewer, 'Error: Please specify a file path or filename to upload.')
+            msg = Message("Error: Please specify a file path or filename to upload.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
 
     file_paths = []
@@ -259,8 +275,13 @@ def run(viewer, args):
                         found = True
                         break
                 if not found:
-                    Command_Engine.print_help(viewer, f"Error: Metadata file '{path}' not found (checked absolute, relative, and {meta_dir}).")
-                    Command_Engine.command_failed(viewer, f"Error: Metadata file '{path}' not found (checked absolute, relative, and {meta_dir}).")
+                    msg = Message(
+                        "Error: Metadata file '{file}' not found (checked absolute, relative, and {folder}).",
+                        file=path,
+                        folder=meta_dir,
+                    )
+                    Command_Engine.print_help(viewer, msg)
+                    Command_Engine.command_failed(viewer, msg)
                     return
 
     upload_metadata(viewer, file_paths)

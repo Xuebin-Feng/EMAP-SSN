@@ -37,7 +37,7 @@ class SelectSaveTests(unittest.TestCase):
                 with mock.patch.object(select.Command_Engine, "command_failed") as failed:
                     select.run(viewer, args)
                 failed.assert_called_once()
-                self.assertIn("'save' must come first", failed.call_args.args[1])
+                self.assertIn("'save' must come first", str(failed.call_args.args[1]))
                 self.assertEqual(viewer.selected_indices, [2])
                 self.assertEqual(os.listdir(self.header_dir), [])
 
@@ -71,7 +71,7 @@ class SelectSaveTests(unittest.TestCase):
                     with mock.patch.object(select.Command_Engine, "command_failed") as failed:
                         select.run(viewer, ['save', name])
                     failed.assert_called_once()
-                    self.assertRegex(failed.call_args.args[1],
+                    self.assertRegex(str(failed.call_args.args[1]),
                                      "path separators|unsupported characters")
         self.assertEqual(os.listdir(outside), [])
         self.assertEqual(os.listdir(root), ["outside"])
@@ -117,7 +117,7 @@ class SelectSaveTests(unittest.TestCase):
                 mock.patch.object(select.Command_Engine, "command_failed") as failed:
             select.run(viewer, ['save', 'picked.fasta'])
         failed.assert_called_once()
-        self.assertIn("no in-memory sequence set", failed.call_args.args[1])
+        self.assertIn("no in-memory sequence set", str(failed.call_args.args[1]))
         self.assertEqual(os.listdir(self.header_dir), [])
 
     def test_modes_still_work_before_and_after_the_expression(self):
@@ -179,7 +179,7 @@ class SelectModeTests(unittest.TestCase):
                     self.assertEqual(viewer.selected_indices, [1])
                     self.assertEqual(
                         viewer.console_text.text,
-                        "Filtered selection: Kept 1 nodes, removed 1 nodes.",
+                        "Filtered selection: Kept 1 node, removed 1 node.",
                     )
 
     def test_keep_without_a_selection_selects_nothing(self):
@@ -202,7 +202,7 @@ class SelectModeTests(unittest.TestCase):
                 with mock.patch.object(select.Command_Engine, "command_failed") as failed:
                     select.run(viewer, args)
                 failed.assert_called_once()
-                self.assertIn(message, failed.call_args.args[1])
+                self.assertIn(message, str(failed.call_args.args[1]))
                 self.assertEqual(viewer.selected_indices, [1])
 
 

@@ -20,7 +20,7 @@ if SRC_DIR not in sys.path:
 
 import EMAPSSN_Config as cfg
 from commands import export as export_command
-from tests.command_fixtures import one_node_viewer
+from tests.command_fixtures import one_node_viewer, reported_outcomes
 
 
 class ExportCommandTests(unittest.TestCase):
@@ -219,8 +219,7 @@ class ExportBranchTests(unittest.TestCase):
     def export(self, viewer, *args):
         engine = export_command.Command_Engine
         with mock.patch.object(engine, "command_artifact"), \
-                mock.patch.object(engine, "command_succeeded") as succeeded, \
-                mock.patch.object(engine, "command_failed") as failed, \
+                reported_outcomes() as (succeeded, failed), \
                 redirect_stdout(io.StringIO()):
             export_command.run(viewer, list(args))
         return succeeded, failed

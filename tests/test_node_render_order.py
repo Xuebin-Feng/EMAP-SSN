@@ -500,7 +500,7 @@ class CommandPromotionTests(unittest.TestCase):
         )
         self.assertEqual(
             viewer.console_text.text,
-            "Applied: 1 nodes (red, 2.0x, triangle_up)",
+            "Applied: 1 node (red, 2.0x, triangle_up)",
         )
 
     def test_spectrum_promotes_gradient_and_gray_nodes_together(self):

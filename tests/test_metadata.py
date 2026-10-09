@@ -237,7 +237,7 @@ class MetadataCliDeletionTests(unittest.TestCase):
         ) as print_help:
             meta_command.run(SimpleNamespace(), ["delete"])
 
-        self.assertIn("Usage: meta delete", print_help.call_args.args[1])
+        self.assertIn("Usage: meta delete", str(print_help.call_args.args[1]))
 
 
 class MetadataWebMarkupTests(unittest.TestCase):

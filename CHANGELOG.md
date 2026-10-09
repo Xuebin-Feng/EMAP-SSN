@@ -138,6 +138,14 @@ still change before version 1.0.0.
   and MCP replies keep the English: these commands no longer report what the console
   line shows as their failure. Some counts now read correctly for one, as in
   "Batch execution completed: 1 command run."
+- **Seven more commands' console messages are ready to translate.** color, export,
+  group, hide, meta, select and spectrum take their console messages and the first
+  line of their help from the catalog, and meta's HUD display shows "N/A" in the
+  windows' language. So do the errors of a file name that is a path or holds an
+  unsupported character, wherever a command shows them. The terminal and MCP replies
+  keep the English; color, export, select and spectrum no longer report what the
+  console line shows as their failure. Counts read correctly for one, as in
+  "Applied: 1 node (red)" and "Removed 1 group from 3 total node instances."
 
 ### Changed
 

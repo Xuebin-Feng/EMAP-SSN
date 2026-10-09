@@ -73,7 +73,7 @@ class CysteineColorTests(unittest.TestCase):
                 with mock.patch.object(color.Command_Engine, 'command_failed') as failed:
                     color.run(viewer, ['red', token, 'C53', 'blue', '2x'])
                 failed.assert_called_once()
-                self.assertIn(f"Invalid scale '{token}'", failed.call_args.args[1])
+                self.assertIn(f"Invalid scale '{token}'", str(failed.call_args.args[1]))
                 np.testing.assert_array_equal(viewer.current_sizes, np.ones(3))
                 np.testing.assert_array_equal(viewer.current_colors, np.ones((3, 4)))
                 self.assertEqual(viewer.saved, 0)

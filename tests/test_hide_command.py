@@ -99,7 +99,7 @@ class HideCommandTests(unittest.TestCase):
         viewer._save_state.assert_called_once_with()
         viewer.update_edges.assert_called_once_with()
         failed.assert_not_called()
-        self.assertEqual(succeeded.call_args.args[1], "Hidden 1 nodes matching expression.")
+        self.assertEqual(succeeded.call_args.args[1], "Hidden 1 node matching expression.")
 
     def test_hide_without_arguments_hides_the_selection(self):
         viewer = graph_viewer([True, True, True], [], [], selected=[0, 2])
@@ -130,13 +130,13 @@ class HideCommandTests(unittest.TestCase):
         # Edges 0-1 (score 0.9) and 2-3 (score 0.3); node 4 has no edge.
         edges, scores = [(0, 1), (2, 3)], [0.9, 0.3]
         cases = [
-            (0.5, [True] * 5, [True, True, False, False, False], 3),
+            (0.5, [True] * 5, [True, True, False, False, False], "Hidden 3 single/free nodes."),
             # An edge scoring exactly the threshold stays active.
-            (0.3, [True] * 5, [True, True, True, True, False], 1),
+            (0.3, [True] * 5, [True, True, True, True, False], "Hidden 1 single/free node."),
             # An edge to a hidden node is not active.
-            (0.3, [True, False, True, True, True], [False, False, True, True, False], 2),
+            (0.3, [True, False, True, True, True], [False, False, True, True, False], "Hidden 2 single/free nodes."),
         ]
-        for threshold, visible, expected, count in cases:
+        for threshold, visible, expected, message in cases:
             with self.subTest(threshold=threshold, visible=visible):
                 viewer = graph_viewer(visible, edges, scores, selected=[0, 4])
                 viewer.current_slider_threshold = threshold
@@ -152,9 +152,7 @@ class HideCommandTests(unittest.TestCase):
                 viewer.update_selection_visual.assert_called_once_with()
                 viewer.update_edges.assert_called_once_with()
                 failed.assert_not_called()
-                succeeded.assert_called_once_with(
-                    viewer, f"Hidden {count} single/free nodes."
-                )
+                succeeded.assert_called_once_with(viewer, message)
 
     def test_hide_free_without_a_slider_uses_the_configured_threshold(self):
         viewer = graph_viewer([True] * 5, [(0, 1), (2, 3)], [0.9, 0.3])
@@ -172,7 +170,7 @@ class HideCommandTests(unittest.TestCase):
         succeeded, _failed = run_hide(viewer, ["single"])
 
         np.testing.assert_array_equal(viewer.visible_mask, [True, True, False])
-        succeeded.assert_called_once_with(viewer, "Hidden 1 single/free nodes.")
+        succeeded.assert_called_once_with(viewer, "Hidden 1 single/free node.")
 
     def test_hide_single_with_nothing_to_hide_adds_no_undo_step(self):
         # Node 2 is single but already hidden.

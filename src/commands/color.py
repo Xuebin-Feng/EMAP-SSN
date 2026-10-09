@@ -19,6 +19,7 @@ import numpy as np
 import matplotlib.colors as mcolors
 import EMAPSSN_Config as cfg
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 
 def print_help():
     print("""
@@ -79,7 +80,11 @@ def run(viewer, args):
         return
 
     if not args:
-        msg = "Error: Color command requires at least one property (color, scale, or shape) or expression.\nUsage: color [EXPR_1] [COLOR_1] [SCALEx_1] [SHAPE_1]"
+        # The console line shows the first line; the usage is for the terminal.
+        msg = JoinedMessage([
+            Message("Error: Color command requires at least one property (color, scale, or shape) or expression."),
+            "Usage: color [EXPR_1] [COLOR_1] [SCALEx_1] [SHAPE_1]",
+        ], separator="\n")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -87,7 +92,7 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -141,9 +146,10 @@ def run(viewer, args):
                 # float() also accepts '-2', 'nan', 'inf' and '1e400' (inf).
                 # Nothing has been applied yet, so rejecting here is atomic.
                 if not math.isfinite(scale) or scale < 0:
-                    msg = (
-                        f"Error: Invalid scale '{arg}'. A scale is a finite, "
-                        "non-negative number followed by x, e.g. 2x, 0.5x or 0x."
+                    msg = Message(
+                        "Error: Invalid scale '{scale}'. A scale is a finite, "
+                        "non-negative number followed by x, e.g. 2x, 0.5x or 0x.",
+                        scale=arg,
                     )
                     Command_Engine.print_help(viewer, msg)
                     Command_Engine.command_failed(viewer, msg)
@@ -184,23 +190,25 @@ def run(viewer, args):
 
         if classification.kind == Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION:
             Command_Engine.report_selection_error(
-                viewer, arg, classification.error, "Color"
+                viewer, arg, classification.error, Message("Color")
             )
             return
-        Command_Engine.print_help(
-            viewer,
-            f"Error: Unrecognized color argument '{arg}'. Expected a Boolean "
+        msg = Message(
+            "Error: Unrecognized color argument '{argument}'. Expected a Boolean "
             "expression, color, scale with trailing x, or shape.",
+            argument=arg,
         )
-        Command_Engine.command_failed(viewer, f"Error: Unrecognized color argument '{arg}'. Expected a Boolean expression, color, scale with trailing x, or shape.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     if current_expr or current_color or current_scale is not None or current_shape:
         push_assignment()
         
     if not assignments:
-        Command_Engine.show_status(viewer, "Error: No valid assignments found.")
-        Command_Engine.command_failed(viewer, viewer.console_text.text)
+        msg = Message("Error: No valid assignments found.")
+        Command_Engine.show_status(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
@@ -225,7 +233,7 @@ def run(viewer, args):
                 selection_mask=Command_Engine.get_selected_mask(viewer),
             )
         except Exception as e:
-            Command_Engine.report_selection_error(viewer, expr, e, "Color")
+            Command_Engine.report_selection_error(viewer, expr, e, Message("Color"))
             return
 
         # Hidden nodes are outside the command's target domain, even when the
@@ -266,15 +274,16 @@ def run(viewer, args):
         if scale_val is not None:
             labels.append(f"{scale_val}x")
         if shape_val: labels.append(shape_val)
-        stats.append(f"{count} nodes ({', '.join(labels)})")
+        stats.append(Message("%n node(s) ({properties})", n=count, properties=', '.join(labels)))
             
     if total_modified > 0:
         viewer.promote_nodes(modified_nodes)
         viewer.update_nodes()
-        msg = f"Applied: {'; '.join(stats)}"
+        msg = Message("Applied: {stats}", stats=JoinedMessage(stats, separator="; "))
         Command_Engine.show_status(viewer, msg)
         print(f"\nSuccess! {msg}")
     else:
-        Command_Engine.show_status(viewer, "No nodes matched criteria.")
+        msg = Message("No nodes matched criteria.")
+        Command_Engine.show_status(viewer, msg)
         print("\nNo nodes matched your criteria.")
-    Command_Engine.command_succeeded(viewer, msg if total_modified > 0 else "No nodes matched criteria.")
+    Command_Engine.command_succeeded(viewer, msg)

@@ -16,6 +16,7 @@
 import re
 import numpy as np
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 
 
 _RESERVED_GROUP_NAMES = {
@@ -110,14 +111,14 @@ def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- LIST COMMAND ---
     if args[0].lower() == 'list':
         if getattr(viewer, 'group_labels', None) is None:
-            msg = "No groups are currently defined."
+            msg = Message("No groups are currently defined.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -128,7 +129,7 @@ def run(viewer, args):
                 group_counts[g] = group_counts.get(g, 0) + 1
                 
         if not group_counts:
-            msg = "No groups are currently defined."
+            msg = Message("No groups are currently defined.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -151,7 +152,7 @@ def run(viewer, args):
             print(f"| {disp_name:<20} | {c_count:>10} | {c_pct:>9.2f}% |")
         print(f"{'='*52}\n")
         
-        msg = f"Listed {len(sorted_groups)} groups in console."
+        msg = Message("Listed %n group(s) in console.", n=len(sorted_groups))
         Command_Engine.show_status(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -159,7 +160,7 @@ def run(viewer, args):
     # --- REMOVE / DELETE COMMAND ---
     if args[0].lower() in ['remove', 'delete']:
         if len(args) < 2:
-            msg = "Error: Please specify one or more groups to remove (e.g., 'group remove group1 group2')."
+            msg = Message("Error: Please specify one or more groups to remove (e.g., 'group remove group1 group2').")
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -173,10 +174,15 @@ def run(viewer, args):
         missing = [g for g in groups_to_remove if g not in existing_groups]
         if missing:
             if existing_groups:
-                msg = (f"Error: Group(s) not found: {', '.join(missing)}. Nothing was removed.\n"
-                       f"Existing groups: {', '.join(sorted(existing_groups))}.")
+                # The console line shows the first line; the existing groups are for the terminal.
+                msg = JoinedMessage([
+                    Message("Error: Group(s) not found: {groups}. Nothing was removed.", groups=', '.join(missing)),
+                    f"Existing groups: {', '.join(sorted(existing_groups))}.",
+                ], separator="\n")
             else:
-                msg = f"Error: Group(s) not found: {', '.join(missing)}. No groups are currently defined."
+                msg = Message(
+                    "Error: Group(s) not found: {groups}. No groups are currently defined.", groups=', '.join(missing)
+                )
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -193,7 +199,11 @@ def run(viewer, args):
                     total_removed += 1
 
         viewer.update_nodes()
-        msg = f"Removed {len(groups_to_remove)} group(s) from {total_removed} total node instances."
+        msg = Message(
+            "Removed %n group(s) from {instances}.",
+            n=len(groups_to_remove),
+            instances=Message("%n total node instance(s)", n=total_removed),
+        )
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -204,7 +214,7 @@ def run(viewer, args):
         
     # Handle other odd number of arguments
     elif len(args) % 2 != 0:
-        msg = "Error: Arguments must be in pairs of [expression] [group_name]."
+        msg = Message("Error: Arguments must be in pairs of [expression] [group_name].")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -235,7 +245,7 @@ def run(viewer, args):
         name = raw_name.lower()
         if name in _RESERVED_GROUP_NAMES:
             Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
-            msg = f"Group name '{raw_name}' is a reserved keyword. Skipping."
+            msg = Message("Group name '{name}' is a reserved keyword. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
@@ -249,19 +259,19 @@ def run(viewer, args):
             )
         ):
             Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
-            msg = f"Group name '{raw_name}' conflicts with an existing topology cluster. Skipping."
+            msg = Message("Group name '{name}' conflicts with an existing topology cluster. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
         if is_generated_subcluster_name(name):
             Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
-            msg = f"Group name '{raw_name}' is reserved for subclusters. Skipping."
+            msg = Message("Group name '{name}' is reserved for subclusters. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
         if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
             Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
-            msg = f"Group name '{raw_name}' contains invalid characters. Skipping."
+            msg = Message("Group name '{name}' contains invalid characters. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
@@ -286,7 +296,7 @@ def run(viewer, args):
 
             evaluated_pairs.append((name, mask, count))
         except Exception as e:
-            Command_Engine.report_selection_error(viewer, expr, e, "Group")
+            Command_Engine.report_selection_error(viewer, expr, e, Message("Group"))
             return
 
     if any(count > 0 for _, _, count in evaluated_pairs):
@@ -300,24 +310,24 @@ def run(viewer, args):
             for idx in np.where(mask)[0]:
                 viewer.group_labels[idx].add(name)
             total_modified += count
-            stats.append(f"{count} nodes -> '{name}'")
+            stats.append(Message("%n node(s) -> '{group}'", n=count, group=name))
             
     if total_modified > 0:
         viewer.update_nodes()
-        applied = '; '.join(stats)
+        applied = JoinedMessage(stats, separator="; ")
         if warnings_issued:
-            msg = f"Groups Applied: {applied} ({len(warnings_issued)} skipped)"
+            msg = Message("Groups Applied: {applied} ({skipped} skipped)", applied=applied, skipped=len(warnings_issued))
         else:
-            msg = f"Groups Applied: {applied}"
+            msg = Message("Groups Applied: {applied}", applied=applied)
         Command_Engine.show_status(viewer, msg)
         print(f"\nSuccess! {msg}")
     elif warnings_issued:
         # If nothing was modified but we had warnings, show the first warning on the HUD
-        msg = f"Skipped: {warnings_issued[0]}"
+        msg = Message("Skipped: {warning}", warning=warnings_issued[0])
         Command_Engine.show_status(viewer, msg)
         print(f"\nOperation skipped or aborted due to warnings.")
     else:
-        msg = "No nodes matched criteria for grouping."
+        msg = Message("No nodes matched criteria for grouping.")
         Command_Engine.show_status(viewer, msg)
         print("\nNo nodes matched your criteria.")
     Command_Engine.command_succeeded(viewer, msg)

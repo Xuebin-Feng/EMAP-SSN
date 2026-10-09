@@ -21,6 +21,7 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.cm as cm
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 
 
 if sys.platform == "win32" and not globals().get("_WINDOWS_ANSI_ENABLED", False):
@@ -55,6 +56,22 @@ def _terminal_range_text(vmin, vmax, cmap):
     min_text = _terminal_endpoint_text("min", vmin, cmap(min_position))
     max_text = _terminal_endpoint_text("max", vmax, cmap(max_position))
     return f"({min_text}, {max_text})"
+
+
+def _applied_message(count, property_name, range_text, scheme_name, invalid_count, scheme_found):
+    """The report of a spectrum coloring; the console line and the terminal differ only in range_text."""
+    parts = [Message(
+        "Spectrum coloring applied to %n node(s) using property '{property}' {range} with scheme '{scheme}'.",
+        n=count,
+        property=property_name,
+        range=range_text,
+        scheme=scheme_name,
+    )]
+    if invalid_count:
+        parts.append(Message("%n node(s) with invalid values colored gray.", n=invalid_count))
+    if not scheme_found:
+        parts.insert(0, Message("[Warning: '{scheme}' not found, using coolwarm]", scheme=scheme_name))
+    return JoinedMessage(parts)
 
 def print_help():
     print("""
@@ -143,8 +160,9 @@ def run(viewer, args):
     if not args:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Error: Missing arguments for spectrum coloring.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            msg = Message("Error: Missing arguments for spectrum coloring.")
+            Command_Engine.show_status(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
         return
 
     # Parse command-specific roles before Boolean-expression classification.
@@ -158,25 +176,25 @@ def run(viewer, args):
         if arg_lower in ['help', '-h', '--help']:
             print_help()
             if hasattr(viewer, 'console_text'):
-                Command_Engine.show_status(viewer, "Help information printed to the terminal")
+                Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
             Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
             return
         if arg_lower.startswith(('prop:', 'property:', 'scheme:', 'color:')):
-            Command_Engine.print_help(
-                viewer,
-                "Error: Legacy spectrum prefixes are no longer supported. Use "
-                "'spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]'.",
+            # The syntax is a value, so it stays English and its braces are not a placeholder.
+            msg = Message(
+                "Error: Legacy spectrum prefixes are no longer supported. Use '{syntax}'.",
+                syntax="spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]",
             )
-            Command_Engine.command_failed(viewer, "Error: Legacy spectrum prefixes are no longer supported. Use 'spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]'.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
 
         property_match = re.fullmatch(r'\{([a-zA-Z0-9_\-.]+)\}', arg)
         if property_match:
             if prop_name is not None:
-                Command_Engine.print_help(
-                    viewer, "Error: Spectrum accepts exactly one {PROPERTY_NAME}."
-                )
-                Command_Engine.command_failed(viewer, 'Error: Spectrum accepts exactly one {PROPERTY_NAME}.')
+                msg = Message("Error: Spectrum accepts exactly one {syntax}.", syntax="{PROPERTY_NAME}")
+                Command_Engine.print_help(viewer, msg)
+                Command_Engine.command_failed(viewer, msg)
                 return
             prop_name = property_match.group(1)
             continue
@@ -184,19 +202,17 @@ def run(viewer, args):
         classification = Command_Engine.classify_selection_expression(arg)
         if classification.kind == Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
             if expr is not None:
-                Command_Engine.print_help(
-                    viewer, "Error: Spectrum accepts at most one Boolean expression."
-                )
-                Command_Engine.command_failed(viewer, 'Error: Spectrum accepts at most one Boolean expression.')
+                msg = Message("Error: Spectrum accepts at most one Boolean expression.")
+                Command_Engine.print_help(viewer, msg)
+                Command_Engine.command_failed(viewer, msg)
                 return
             expr = arg
             continue
         if is_registered_colormap(arg):
             if scheme_supplied:
-                Command_Engine.print_help(
-                    viewer, "Error: Spectrum accepts at most one color scheme."
-                )
-                Command_Engine.command_failed(viewer, 'Error: Spectrum accepts at most one color scheme.')
+                msg = Message("Error: Spectrum accepts at most one color scheme.")
+                Command_Engine.print_help(viewer, msg)
+                Command_Engine.command_failed(viewer, msg)
                 return
             scheme_name = arg
             scheme_supplied = True
@@ -204,31 +220,32 @@ def run(viewer, args):
 
         if classification.kind == Command_Engine.SelectionClassificationKind.MALFORMED_EXPRESSION:
             Command_Engine.report_selection_error(
-                viewer, arg, classification.error, "Spectrum"
+                viewer, arg, classification.error, Message("Spectrum")
             )
             return
         if scheme_supplied:
-            Command_Engine.print_help(
-                viewer,
-                f"Error: Unrecognized extra spectrum argument '{arg}'. Only one "
+            msg = Message(
+                "Error: Unrecognized extra spectrum argument '{argument}'. Only one "
                 "color scheme may be supplied.",
+                argument=arg,
             )
-            Command_Engine.command_failed(viewer, f"Error: Unrecognized extra spectrum argument '{arg}'. Only one color scheme may be supplied.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
         scheme_name = arg
         scheme_supplied = True
 
     if not prop_name:
         print_help()
-        Command_Engine.print_help(
-            viewer, "Error: Target property must be specified as {PROPERTY_NAME}."
-        )
-        Command_Engine.command_failed(viewer, 'Error: Target property must be specified as {PROPERTY_NAME}.')
+        msg = Message("Error: Target property must be specified as {syntax}.", syntax="{PROPERTY_NAME}")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     if not getattr(viewer, 'metadata', None):
-        Command_Engine.print_help(viewer, "Error: No metadata loaded in the viewer.")
-        Command_Engine.command_failed(viewer, 'Error: No metadata loaded in the viewer.')
+        msg = Message("Error: No metadata loaded in the viewer.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     # Resolve property case-insensitively
@@ -239,15 +256,25 @@ def run(viewer, args):
             break
 
     if not matched_key:
-        available = ", ".join(viewer.metadata.keys())
-        Command_Engine.print_help(viewer, f"Error: Property '{prop_name}' not found. Available properties: {available}")
-        Command_Engine.command_failed(viewer, f"Error: Property '{prop_name}' not found. Available properties: {available}")
+        msg = Message(
+            "Error: Property '{property}' not found. Available properties: {available}",
+            property=prop_name,
+            available=", ".join(viewer.metadata.keys()),
+        )
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     prop_data = viewer.metadata[matched_key]
     if prop_data["type"] != "number":
-        Command_Engine.print_help(viewer, f"Error: Property '{matched_key}' is not numerical (type is '{prop_data['type']}'). Spectrum coloring requires a numerical property.")
-        Command_Engine.command_failed(viewer, f"Error: Property '{matched_key}' is not numerical (type is '{prop_data['type']}'). Spectrum coloring requires a numerical property.")
+        msg = Message(
+            "Error: Property '{property}' is not numerical (type is '{type}'). "
+            "Spectrum coloring requires a numerical property.",
+            property=matched_key,
+            type=prop_data['type'],
+        )
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     # Determine mask
@@ -262,7 +289,7 @@ def run(viewer, args):
                 selection_mask=Command_Engine.get_selected_mask(viewer),
             )
         except Exception as e:
-            Command_Engine.report_selection_error(viewer, expr, e, "Spectrum")
+            Command_Engine.report_selection_error(viewer, expr, e, Message("Spectrum"))
             return
     else:
         mask = np.ones(viewer.n_nodes, dtype=bool)
@@ -271,8 +298,9 @@ def run(viewer, args):
     mask = mask & viewer.visible_mask
 
     if np.sum(mask) == 0:
-        Command_Engine.print_help(viewer, "No nodes matched the selection criteria (only visible nodes are colored).")
-        Command_Engine.command_succeeded(viewer, 'No nodes matched the selection criteria (only visible nodes are colored).')
+        msg = Message("No nodes matched the selection criteria (only visible nodes are colored).")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
     # Extract values and handle coercion to floats safely
@@ -293,7 +321,10 @@ def run(viewer, args):
     valid_vals = target_vals[valid_mask]
 
     if len(valid_vals) == 0:
-        Command_Engine.print_help(viewer, f"Warning: No valid numerical values found in '{matched_key}' for the selected nodes.")
+        Command_Engine.print_help(
+            viewer,
+            Message("Warning: No valid numerical values found in '{property}' for the selected nodes.", property=matched_key),
+        )
         Command_Engine.command_succeeded(viewer, f"No valid numerical values found in {matched_key!r} for the selected nodes.")
         return
 
@@ -334,27 +365,15 @@ def run(viewer, args):
     except Exception as e:
         print(f"Warning: Failed to automatically enable metadata display: {e}")
     
-    message_prefix = (
-        f"Spectrum coloring applied to {np.sum(full_valid_mask)} nodes using "
-        f"property '{matched_key}'"
+    count = int(np.sum(full_valid_mask))
+    invalid_count = int(np.sum(nan_mask))
+    msg = _applied_message(
+        count, matched_key, Message("(min: {min}, max: {max})", min=vmin, max=vmax),
+        scheme_name, invalid_count, cmap_ok,
     )
-    message_suffix = f"with scheme '{scheme_name}'."
-    msg = f"{message_prefix} (min: {vmin}, max: {vmax}) {message_suffix}"
-    terminal_msg = (
-        f"{message_prefix} {_terminal_range_text(vmin, vmax, cmap)} "
-        f"{message_suffix}"
+    terminal_msg = _applied_message(
+        count, matched_key, _terminal_range_text(vmin, vmax, cmap), scheme_name, invalid_count, cmap_ok
     )
-    if np.any(nan_mask):
-        invalid_values_msg = (
-            f" {np.sum(nan_mask)} nodes with invalid values colored gray."
-        )
-        msg += invalid_values_msg
-        terminal_msg += invalid_values_msg
-    
-    if not cmap_ok:
-        warning = f"[Warning: '{scheme_name}' not found, using coolwarm] "
-        msg = warning + msg
-        terminal_msg = warning + terminal_msg
     
     Command_Engine.print_help(viewer, msg, terminal_msg=terminal_msg, report_message=False)
     Command_Engine.command_succeeded(viewer, msg)

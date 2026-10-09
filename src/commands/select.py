@@ -17,7 +17,14 @@ import os
 import numpy as np
 import EMAPSSN_Config as cfg
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
+
+
+def _nodes(count):
+    """'1 node' or '2 nodes', for a message that holds more than one count."""
+    return Message("%n node(s)", n=count)
+
 
 def print_help():
     print("""
@@ -78,7 +85,11 @@ def print_help():
 
 def run(viewer, args):
     if not args:
-        msg = "Error: Select command requires an expression or invert/save action.\nUsage: select [MODE] <EXPRESSION>"
+        # The console line shows the first line; the usage is for the terminal.
+        msg = JoinedMessage([
+            Message("Error: Select command requires an expression or invert/save action."),
+            "Usage: select [MODE] <EXPRESSION>",
+        ], separator="\n")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -86,13 +97,13 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     if args[0].lower() == "save":
         if len(args) < 2:
-            msg = "Error: Please provide a filename to save (e.g., 'select save top_nodes.txt' or 'my_seqs.fasta')."
+            msg = Message("Error: Please provide a filename to save (e.g., 'select save top_nodes.txt' or 'my_seqs.fasta').")
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -102,7 +113,7 @@ def run(viewer, args):
         try:
             filename = validate_output_basename(args[1])
         except ValueError as error:
-            msg = f"Error: {error}"
+            msg = Message("Error: {error}", error=error)
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -123,7 +134,7 @@ def run(viewer, args):
         
         selected_indices = getattr(viewer, 'selected_indices', [])
         if not selected_indices:
-            msg = "Warning: No nodes are currently selected."
+            msg = Message("Warning: No nodes are currently selected.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -139,10 +150,10 @@ def run(viewer, args):
                 # re-read missed every record whose header sanitizing changed.
                 source_records = _get_in_memory_sequence_records(viewer)
                 if not source_records:
-                    raise ValueError(
+                    raise ValueError(Message(
                         "no in-memory sequence set is available; use a .txt "
                         "filename to save the headers instead"
-                    )
+                    ))
 
                 headers_to_save = []
                 sequences_to_save = []
@@ -158,22 +169,24 @@ def run(viewer, args):
 
                 write_fasta_atomic(save_path, headers_to_save, sequences_to_save)
                 if missing_count > 0:
-                    msg = (
-                        f"Saved {len(headers_to_save)} sequences to {save_path} "
-                        f"({missing_count} missing from the loaded sequences)"
+                    msg = Message(
+                        "Saved %n sequence(s) to {path} ({missing} missing from the loaded sequences)",
+                        n=len(headers_to_save),
+                        path=save_path,
+                        missing=missing_count,
                     )
                 else:
-                    msg = f"Saved {len(headers_to_save)} sequences to {save_path}"
+                    msg = Message("Saved %n sequence(s) to {path}", n=len(headers_to_save), path=save_path)
             else:
                 with open(save_path, "w", encoding="utf-8", newline="\n") as f:
                     for idx in selected_indices:
                         f.write(f"{viewer.full_headers[idx]}\n")
-                msg = f"Saved {len(selected_indices)} headers to {save_path}"
+                msg = Message("Saved %n header(s) to {path}", n=len(selected_indices), path=save_path)
                 
             Command_Engine.command_artifact(viewer, save_path)
             Command_Engine.print_help(viewer, msg)
         except Exception as e:
-            msg = f"Error saving file: {e}"
+            msg = Message("Error saving file: {error}", error=e)
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -183,7 +196,7 @@ def run(viewer, args):
     # 'save' is only an action on the current selection, never a mode that
     # follows an expression.
     if any(arg.lower() == "save" for arg in args[1:]):
-        msg = (
+        msg = Message(
             "Error: 'save' must come first. Use 'select save <FILENAME>' to save the "
             "current selection; to save new matches, select them first."
         )
@@ -211,11 +224,9 @@ def run(viewer, args):
             expr_args.append(arg)
 
     if len(expr_args) > 1:
-        Command_Engine.print_help(
-            viewer,
-            "Error: Select accepts exactly one whitespace-free Boolean expression.",
-        )
-        Command_Engine.command_failed(viewer, 'Error: Select accepts exactly one whitespace-free Boolean expression.')
+        msg = Message("Error: Select accepts exactly one whitespace-free Boolean expression.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
     expr = expr_args[0] if expr_args else None
 
@@ -223,15 +234,15 @@ def run(viewer, args):
         classification = Command_Engine.classify_selection_expression(expr)
         if classification.kind != Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
             error = classification.error or Command_Engine.SelectionExpressionError(
-                f"'{expr}' is not a Boolean selection expression."
+                Message("'{expression}' is not a Boolean selection expression.", expression=expr)
             )
-            Command_Engine.report_selection_error(viewer, expr, error, "Selection")
+            Command_Engine.report_selection_error(viewer, expr, error, Message("Selection"))
             return
 
     # --- Strict Invert Mode ---
     if mode == "invert":
         if expr:
-            msg = "Error: 'invert' does not take expressions. Use '!EXPR' instead."
+            msg = Message("Error: 'invert' does not take expressions. Use '!EXPR' instead.")
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -246,15 +257,20 @@ def run(viewer, args):
         
         new_selected = len(final_selection)
         un_selected = len(current_selection)
-        msg = f"Inverted selection. Selected {new_selected} nodes, Un-selected {un_selected} nodes."
+        msg = Message(
+            "Inverted selection. Selected {selected}, Un-selected {unselected}.",
+            selected=_nodes(new_selected),
+            unselected=_nodes(un_selected),
+        )
         
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
 
     if not expr:
-        Command_Engine.show_status(viewer, "Error: No logic expression provided.")
-        Command_Engine.command_failed(viewer, viewer.console_text.text)
+        msg = Message("Error: No logic expression provided.")
+        Command_Engine.show_status(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         print("\nError: Please provide a valid boolean expression.")
         Command_Engine.command_failed(viewer, '\nError: Please provide a valid boolean expression.')
         return
@@ -276,7 +292,7 @@ def run(viewer, args):
         visible_indices = set(np.where(viewer.visible_mask)[0].tolist())
         new_indices = set(np.where(mask)[0].tolist()).intersection(visible_indices)
     except Exception as e:
-        Command_Engine.report_selection_error(viewer, expr, e, "Selection")
+        Command_Engine.report_selection_error(viewer, expr, e, Message("Selection"))
         return
 
     current_selection = set(getattr(viewer, 'selected_indices', []))
@@ -284,31 +300,47 @@ def run(viewer, args):
     if mode == "change":
         final_selection = new_indices
         unselected_count = len(current_selection.difference(final_selection))
-        msg = f"Selected {len(final_selection)} nodes, Un-selected {unselected_count} nodes."
+        msg = Message(
+            "Selected {selected}, Un-selected {unselected}.",
+            selected=_nodes(len(final_selection)),
+            unselected=_nodes(unselected_count),
+        )
         
     elif mode in ["add", "plus", "include"]:
         final_selection = current_selection.union(new_indices)
         added_count = len(final_selection.difference(current_selection))
-        msg = f"Added {added_count} nodes to selection (current total: {len(final_selection)} nodes)."
+        msg = Message(
+            "Added %n node(s) to selection (current total: {total}).",
+            n=added_count,
+            total=_nodes(len(final_selection)),
+        )
         
     elif mode in ["subtract", "minus", "remove"]:
         final_selection = current_selection.difference(new_indices)
         removed_count = len(current_selection.difference(final_selection))
-        msg = f"Removed {removed_count} nodes from selection (remaining: {len(final_selection)})."
+        msg = Message(
+            "Removed %n node(s) from selection (remaining: {remaining}).",
+            n=removed_count,
+            remaining=len(final_selection),
+        )
 
     # ---> NEW LOGIC: The Filter/Keep Mode <---
     elif mode in ["filter", "keep", "intersect"]:
         if not current_selection:
-            msg = "Nothing to filter: No nodes are currently selected."
+            msg = Message("Nothing to filter: No nodes are currently selected.")
             final_selection = set()
         else:
             final_selection = current_selection.intersection(new_indices)
             removed_count = len(current_selection) - len(final_selection)
-            msg = f"Filtered selection: Kept {len(final_selection)} nodes, removed {removed_count} nodes."
+            msg = Message(
+                "Filtered selection: Kept {kept}, removed {removed}.",
+                kept=_nodes(len(final_selection)),
+                removed=_nodes(removed_count),
+            )
 
     else:
         # Every keyword in mode_map must have a branch above.
-        msg = f"Error: Unsupported selection mode '{mode}'."
+        msg = Message("Error: Unsupported selection mode '{mode}'.", mode=mode)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return

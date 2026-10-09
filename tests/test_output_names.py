@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import Metadata_Core  # noqa: E402
 from commands import export as export_command, logo, meta as meta_command  # noqa: E402
 from utilities.Output_Names import validate_output_basename  # noqa: E402
+from tests.command_fixtures import reported_outcomes  # noqa: E402
 
 
 class OutputBasenameTests(unittest.TestCase):
@@ -141,8 +142,7 @@ class MetaDownloadCommandTests(unittest.TestCase):
         engine = meta_command.Command_Engine
         with mock.patch.object(engine, "print_help"), \
                 mock.patch.object(engine, "command_artifact"), \
-                mock.patch.object(engine, "command_succeeded") as succeeded, \
-                mock.patch.object(engine, "command_failed") as failed:
+                reported_outcomes() as (succeeded, failed):
             meta_command.run(self.viewer, ["download", *names])
         return succeeded, failed
 
@@ -230,8 +230,7 @@ class ExportCacheNameTests(unittest.TestCase):
     def export(self, viewer, *args):
         engine = export_command.Command_Engine
         with mock.patch.object(engine, "command_artifact"), \
-                mock.patch.object(engine, "command_succeeded") as succeeded, \
-                mock.patch.object(engine, "command_failed") as failed, \
+                reported_outcomes() as (succeeded, failed), \
                 redirect_stdout(io.StringIO()):
             export_command.run(viewer, list(args))
         return succeeded, failed

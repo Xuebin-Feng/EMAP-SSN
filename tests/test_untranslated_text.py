@@ -77,13 +77,20 @@ CANVAS_MARKED = frozenset({
     "Metadata_Core.py",
     "commands/agent.py",
     "commands/alignment.py",
+    "commands/color.py",
     "commands/esmfold.py",
+    "commands/export.py",
+    "commands/group.py",
+    "commands/hide.py",
+    "commands/meta.py",
     "commands/offset.py",
     "commands/redo.py",
     "commands/reference.py",
     "commands/reset.py",
     "commands/run.py",
     "commands/save.py",
+    "commands/select.py",
+    "commands/spectrum.py",
     "commands/undo.py",
     "commands/zoom.py",
     "web_ui/Browser_Page.py",
@@ -831,6 +838,10 @@ class ViewerCanvasTextTests(WindowTestCase):
         # JoinedMessage, whose parts the code alone can't show.
         import importlib
 
+        import EMAPSSN_Config
+
+        folder = tempfile.mkdtemp()  # meta makes its metadata folder first.
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
         commands = sorted(name for name in CANVAS_MARKED if name.startswith("commands/"))
         self.assertTrue(commands)
         for relative in commands:
@@ -838,7 +849,8 @@ class ViewerCanvasTextTests(WindowTestCase):
             viewer = mock.MagicMock()
             viewer.console_text.text = ""
             with self.subTest(command=relative), contextlib.redirect_stdout(io.StringIO()), \
-                    mock.patch.object(module, "register", create=True):
+                    mock.patch.object(module, "register", create=True), \
+                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True):
                 module.run(viewer, ["help"])
                 shown = viewer.console_text.text
                 self.assertTrue(shown)
@@ -867,6 +879,158 @@ class ViewerCanvasTextTests(WindowTestCase):
                 shown = viewer.console_text.text
                 self.assertTrue(shown)
                 self.assert_translated(shown, "123")
+
+    def command_viewer(self, **attributes):
+        """Two nodes, with headers "101" and "102", and what the selection commands use."""
+        from types import SimpleNamespace
+
+        import numpy
+
+        viewer = SimpleNamespace(
+            full_headers=["101", "102"], n_nodes=2, alignment=None, metadata=None,
+            cluster_labels=None, group_labels=None, selected_indices=[],
+            visible_mask=numpy.array([True, True]), current_colors=numpy.ones((2, 4)),
+            current_sizes=numpy.ones(2), console_text=SimpleNamespace(text=""),
+            _save_state=lambda: None, update_nodes=lambda: None, promote_nodes=lambda mask: None,
+            update_selection_visual=lambda: None,
+        )
+        vars(viewer).update(attributes)
+        return viewer
+
+    def test_command_reports_put_together_from_counted_parts(self):
+        # "Applied: 1 node (red)" joins counted parts, a group report may hold
+        # a skipped warning, and select counts each of its two numbers.
+        from commands import color, group, select
+
+        cases = (
+            (color, ['"101"', "red"], {}, ("red",)),
+            (group, ['"101"', "7"], {}, ("7",)),
+            (group, ['"101"', "7", '"102"', "noise"], {}, ("7",)),
+            (group, ['"101"', "noise"], {}, ("noise",)),
+            (group, ["remove", "8"], {"group_labels": [{"7"}, set()]}, ("8",)),
+            (group, ["remove", "7"], {"group_labels": [{"7"}, set()]}, ()),
+            (select, ["invert"], {"selected_indices": [0]}, ()),
+            (select, ['"101"'], {"selected_indices": [1]}, ()),
+            (select, ["add", '"101"'], {"selected_indices": [1]}, ()),
+            (select, ["keep", '"101"'], {"selected_indices": [0, 1]}, ()),
+        )
+        for module, args, attributes, values in cases:
+            viewer = self.command_viewer(**attributes)
+            with self.subTest(command=module.__name__, args=args), contextlib.redirect_stdout(io.StringIO()):
+                module.run(viewer, args)
+                self.assert_translated(viewer.console_text.text, *values)
+
+    def test_command_errors_that_hold_another_message(self):
+        # An error filled into an error, such as the output-name check's, and a
+        # first line in a JoinedMessage.
+        import EMAPSSN_Config
+        from commands import color, export, meta, select
+        from utilities.Localization import Message
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        viewer = self.command_viewer()
+        with contextlib.redirect_stdout(io.StringIO()):
+            export._refused_output_name(viewer, "../1", Message("group label '{group}'", group="1"))
+        self.assert_translated(viewer.console_text.text)
+        cases = (
+            (color, [], {}, ()),
+            (select, [], {}, ()),
+            (select, ["9"], {}, ("9",)),
+            (select, ["save", "../1.txt"], {"selected_indices": [0]}, ()),
+            (select, ["save", "1.fasta"], {"selected_indices": [0]}, ()),
+            (meta, ["download", "../1.csv"], {}, ()),
+            (meta, ["delete", "9"], {"metadata": {"1": {}}}, ("9",)),
+            (meta, ["show"], {}, ("meta show <property_name>", "meta show clear/off")),
+        )
+        for module, args, attributes, values in cases:
+            viewer = self.command_viewer(**attributes)
+            with self.subTest(command=module.__name__, args=args), contextlib.redirect_stdout(io.StringIO()), \
+                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+                    mock.patch.object(EMAPSSN_Config, "HEADER_LIST_DIR", folder, create=True):
+                module.run(viewer, args)
+                self.assert_translated(viewer.console_text.text, *values)
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_export_refusing_a_name_that_is_a_path(self):
+        # What export refused, a group label or the clustering parameters, is a message of its own.
+        from types import SimpleNamespace
+
+        import numpy
+
+        import EMAPSSN_Config
+        from commands import export
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        network = SimpleNamespace(model_name="1", network_type="blast")
+        with mock.patch.object(EMAPSSN_Config, "NODE_FASTA_FILE", os.path.join(folder, "1.fasta"), create=True), \
+                mock.patch.object(EMAPSSN_Config, "INPUT_HDF5", "1.h5", create=True), \
+                mock.patch.object(EMAPSSN_Config, "TOP_EDGE_PERCENT", None, create=True), \
+                mock.patch.object(EMAPSSN_Config, "SIMILARITY_THRESHOLD", 0.5, create=True), \
+                mock.patch.object(export, "SEQUENCE_EXPORT_DIRECTORY", folder), \
+                mock.patch.object(export.cache_manifest, "validate_network_schema", return_value=network), \
+                mock.patch.object(export, "open_in_file_manager"):
+            for args, attributes in (
+                (["groups"], {"group_labels": [{"../1"}, set()]}),
+                (["clusters"], {"last_cluster_params": ("../1", 2)}),
+            ):
+                viewer = self.command_viewer(**{
+                    "cluster_labels": numpy.array([0, 0]), "group_labels": [set(), set()],
+                    "_selected_fasta_records": [("101", "ACD"), ("102", "EFG")], **attributes,
+                })
+                with self.subTest(args=args), contextlib.redirect_stdout(io.StringIO()):
+                    export.run(viewer, args)
+                    self.assertIn("../1", viewer.console_text.text)
+                    self.assert_translated(viewer.console_text.text, "../1")
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_the_metadata_display_on_the_hud(self):
+        # A node without a value shows "N/A" on a HUD visual, not on the console line.
+        from types import SimpleNamespace
+
+        import EMAPSSN_Config
+        import EMAPSSN_Viewer
+        from commands import meta
+
+        class Visual(SimpleNamespace):
+            """Stands in for a VisPy visual and keeps what it was given."""
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        viewer = self.command_viewer(
+            metadata={"9": {"type": "number", "values": [None, 5.0]}}, hud_displays={}, selected_node_idx=0,
+            canvas=SimpleNamespace(size=(1200, 800), scene=None), vispy_ui_face="Noto Sans",
+            _hud_font_size_points=lambda: 10, _status_hud_position=lambda index, size: (0, 0),
+        )
+        with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+                mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Text", Visual), \
+                contextlib.redirect_stdout(io.StringIO()):
+            meta.run(viewer, ["show", "9"])
+            display = viewer.hud_displays["meta_display"]
+            self.assert_translated(display.text_visual.text, "9")
+            self.assert_translated(viewer.console_text.text, "9")
+            display.on_node_clicked(0)
+            self.assert_translated(display.text_visual.text, "9")
+            viewer.meta_display_prop = "8"  # Not in the metadata.
+            display.on_node_clicked(0)
+            self.assert_translated(display.text_visual.text, "8")
+
+    def test_the_spectrum_report(self):
+        # The report joins counted sentences around the range and scheme it fills in.
+        import EMAPSSN_Config
+        from commands import spectrum
+        from utilities.Localization import Message
+
+        report = spectrum._applied_message(1, "9", Message("(min: {min}, max: {max})", min=1.5, max=2.5), "8", 2, False)
+        self.assert_translated(display_text(report), "9", "8", "1.5", "2.5")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        viewer = self.command_viewer(metadata={"9": {"type": "number", "values": [1.5, float("nan")]}})
+        with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            spectrum.run(viewer, ["{9}"])
+        self.assert_translated(viewer.console_text.text, "9", "1.5", "coolwarm")
 
     def test_the_metadata_upload_summary_and_its_errors(self):
         from types import SimpleNamespace

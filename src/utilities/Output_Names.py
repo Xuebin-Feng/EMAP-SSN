@@ -12,6 +12,8 @@ and MCP clients alike, so a name is accepted only when it cannot be a path.
 """
 import re
 
+from utilities.Localization import Message
+
 # Characters Windows does not allow in a file name. ':' would also select an
 # NTFS alternate data stream ("name.txt:stream"), hidden inside another file.
 _UNSUPPORTED_CHARACTERS = re.compile(r'[<>:"|?*\x00-\x1f]')
@@ -21,13 +23,14 @@ def validate_output_basename(filename):
     """Return ``filename`` without surrounding whitespace if it is a plain name.
 
     Raises ValueError for an empty name, ``.`` or ``..``, a path separator, or a
-    character Windows does not allow in file names.
+    character Windows does not allow in file names. The error holds a Message:
+    str(error) is English, and a window shows it translated.
     """
     filename = str(filename).strip()
     if not filename:
-        raise ValueError("Filename cannot be empty.")
+        raise ValueError(Message("Filename cannot be empty."))
     if filename in {".", ".."} or "/" in filename or "\\" in filename:
-        raise ValueError("Filename must not include a directory or path separators.")
+        raise ValueError(Message("Filename must not include a directory or path separators."))
     if _UNSUPPORTED_CHARACTERS.search(filename):
-        raise ValueError(f"Filename contains unsupported characters: '{filename}'.")
+        raise ValueError(Message("Filename contains unsupported characters: '{file}'.", file=filename))
     return filename

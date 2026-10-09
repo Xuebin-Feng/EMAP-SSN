@@ -57,11 +57,11 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
 
     def test_visual_summaries_and_no_matches(self):
         for command, expected in [
-            ('color "one" red', '1 nodes'),
+            ('color "one" red', 'Applied: 1 node (red)'),
             ('color "absent" red', 'No nodes matched'),
             ('select "one"', 'Selected 1'),
             ('hide "two"', 'Hidden 1'),
-            ('group "one" example', '1 nodes'),
+            ('group "one" example', "Groups Applied: 1 node -> 'example'"),
             ('group "absent" example', 'No nodes matched'),
             ('group list', 'Listed 1'),
             ('cluster list', 'Listed 2'),
