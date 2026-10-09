@@ -13,6 +13,7 @@ the Tools window on a copy of the real ones.
 """
 
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -159,14 +160,16 @@ class ToolsHelpPageTests(unittest.TestCase):
         german = self.shown_help(window, "de")
         self.assertIn("Deutsche Hilfe.", german)
         self.assertNotIn("Translation of", german)
-        for language in (None, "zh_CN"):
-            with self.subTest(language=language):
-                shown = self.shown_help(window, language)
-                self.assertNotIn("Deutsche Hilfe.", shown)
-                self.assertIn("Embedding Multiple Sequence Alignment", shown)
-        # Once the English page changes, it shows until the translation catches up.
+        self.assertIn("Embedding Multiple Sequence Alignment", self.shown_help(window, None))
+        chinese = self.shown_help(window, "zh_CN")
+        self.assertIn("嵌入多序列比对", chinese, "the shipped Simplified Chinese page")
+        for shown in (self.shown_help(window, None), chinese):
+            self.assertNotIn("Deutsche Hilfe.", shown)
+        # Once the English page changes, it shows until the translations catch up.
         english.write_text(english.read_text(encoding="utf-8") + "\nOne more line.\n", encoding="utf-8")
-        self.assertIn("One more line.", self.shown_help(window, "de"))
+        for language in ("de", "zh_CN"):
+            with self.subTest(language=language):
+                self.assertIn("One more line.", self.shown_help(window, language))
 
     def test_tool_titles_come_from_the_english_pages(self):
         titles = self.tools.get_tool_titles()
@@ -177,6 +180,83 @@ class ToolsHelpPageTests(unittest.TestCase):
             Help_Pages.translation_marker(english) + "\n# 🧬 嵌入多序列比对 (`Embedding_MSA.py`)\n", encoding="utf-8"
         )
         self.assertEqual(self.tools.get_tool_titles(), titles)
+
+
+def page_structure(text):
+    """What a help page's translation keeps of its English page.
+
+    Its outline (heading levels in order), code spans and blocks, table
+    rows, links, math and HTML tags: the words change, nothing else does.
+    """
+    lines = text.splitlines()
+    displayed = re.findall(r"\$\$.*?\$\$", text, re.S)
+    inline = re.findall(r"\$[^$\n]+\$", re.sub(r"\$\$.*?\$\$", "", text, flags=re.S))
+    return {
+        "outline": [len(match.group(1)) for line in lines if (match := re.match(r"(#{1,6}) ", line))],
+        "code": sorted(re.findall(r"`[^`\n]+`", text)),
+        "code blocks": text.count("```"),
+        "table rows": sum(1 for line in lines if line.lstrip().startswith("|")),
+        "links": sorted(re.findall(r"\]\(([^)\s]+)\)", text)),
+        "math": sorted(displayed) + sorted(inline),
+        "markup": sorted(re.findall(r"</?[a-z]+\b[^>]*>", text)),
+    }
+
+
+class TranslatedHelpPageTests(unittest.TestCase):
+    """The translated help pages that ship: current, and their English pages' structure."""
+
+    def test_each_translation_keeps_its_pages_structure(self):
+        translations = sorted(page for page in Help_Pages.HELP_PAGES_DIR.glob("*.md") if Help_Pages.is_translation(page))
+        self.assertTrue(translations)
+        self.assertEqual(Help_Pages.stale_translations(), [])
+        for translation in translations:
+            name, language = translation.name.split(".")[:2]
+            english = translation.with_name(f"{name}.md")
+            with self.subTest(page=translation.name):
+                shown = Help_Pages.help_page_text(english, language)
+                self.assertNotEqual(shown, english.read_text(encoding="utf-8"), "Tools shows the translation")
+                expected, found = page_structure(english.read_text(encoding="utf-8")), page_structure(shown)
+                for part in expected:
+                    self.assertEqual(found[part], expected[part], part)
+
+    def test_a_tools_heading_reads_as_its_card_title(self):
+        from utilities.Localization import LANGUAGES_DIR, read_catalog
+
+        heading = re.compile(r"^# (.+) \(`([\w.]+\.py)`\)$", re.M)
+        for translation in sorted(Help_Pages.HELP_PAGES_DIR.glob("*.md")):
+            if not Help_Pages.is_translation(translation):
+                continue
+            name, language = translation.name.split(".")[:2]
+            titles = {message.source: message.translations[0] for message in read_catalog(
+                LANGUAGES_DIR / f"emapssn_{language}.ts") if message.context == "Tools" and message.translations}
+            english = (Help_Pages.HELP_PAGES_DIR / f"{name}.md").read_text(encoding="utf-8")
+            with self.subTest(page=translation.name):
+                expected = [(titles[title], script) for title, script in heading.findall(english)]
+                self.assertEqual(heading.findall(translation.read_text(encoding="utf-8")), expected)
+
+
+class HelpPanelPageTests(unittest.TestCase):
+    """The page around the help: a language with a bundled font draws its script in it."""
+
+    def test_the_page_names_its_language_and_brings_its_font(self):
+        import EMAPSSN_Tools
+        from desktop.Desktop_App import LANGUAGE_FONTS, language_web_font_css
+
+        page = EMAPSSN_Tools.ResponsiveTextBrowser.page_html
+        chinese = page("<p>帮助</p>", "zh_CN")
+        self.assertIn('<html lang="zh-CN">', chinese)
+        self.assertIn("<p>帮助</p>", chinese)
+        fonts = language_web_font_css("zh_CN", "fonts/desktop/")
+        self.assertIn(fonts, chinese)
+        # Relative to the panel's baseUrl, src/resources/.
+        for path in LANGUAGE_FONTS["zh_CN"].files:
+            self.assertIn(f"url('fonts/desktop/{path}')", fonts)
+            self.assertTrue((Path(EMAPSSN_Tools._SRC_DIR) / "resources" / "fonts" / "desktop" / path).is_file())
+        for language in (None, "pseudo"):
+            with self.subTest(language=language):
+                shown = page("<p>Help</p>", language)
+                self.assertIn("<html>", shown)
+                self.assertNotIn("@font-face", shown)
 
 
 if __name__ == "__main__":

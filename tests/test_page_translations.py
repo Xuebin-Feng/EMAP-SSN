@@ -48,6 +48,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineScript
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
 
+from desktop.Desktop_App import install_translations, language_web_font_css
 from utilities.Localization import Message, display_text, pseudo_translate
 from web_ui import Page_Texts
 from web_ui.Page_Texts import (
@@ -178,6 +179,22 @@ class TranslatedFileTests(unittest.TestCase):
         self.assertEqual([language_tag(code) for code in ("zh_CN", "de", "pt_BR", "sr_Latn_RS", "pseudo", None)],
                          ["zh-CN", "de", "pt-BR", "sr-Latn-RS", None, None])
 
+    def test_a_language_with_a_bundled_font_brings_it_to_the_page(self):
+        page = SRC / "web_ui" / "agent.html"
+        body = page.read_bytes()
+        styles = "@font-face { font-family: 'Noto Sans'; src: url('/fonts/x.ttf'); }"
+        shown = translated_file(page, body, "zh_CN", lambda context, text: text, styles=styles).decode("utf-8")
+        head, end, _ = shown.partition("</head>")
+        self.assertTrue(end and head.endswith(f"<style>\n{styles}\n</style>\n"), head[-200:])
+        self.assertEqual(shown.count(styles), 1)
+        # Only a page in a real language: not English, the pseudo-language or a script.
+        self.assertEqual(translated_file(page, body, None, pseudo, styles=styles), body)
+        self.assertNotIn(styles, translated_file(page, body, "pseudo", pseudo, styles=styles).decode("utf-8"))
+        script = SRC / "resources" / "agent" / "attachments.js"
+        self.assertNotIn(
+            styles, translated_file(script, script.read_bytes(), "zh_CN", lambda c, t: t, styles=styles).decode("utf-8")
+        )
+
     def test_every_page_file_reads_without_problems(self):
         for relative in PAGE_CONTEXTS:
             path = SRC / relative
@@ -250,6 +267,10 @@ class PageHandler(FixtureHandler):
         "/meta_resource/tabulator.min.js": SRC / "resources" / "meta" / "tabulator.min.js",
         "/meta_resource/tabulator.min.css": SRC / "resources" / "meta" / "tabulator.min.css",
         "/fonts/fonts.css": SRC / "resources" / "fonts" / "fonts.css",
+        "/fonts/desktop/noto/NotoSansSC/NotoSansSC-Regular.ttf":
+            SRC / "resources" / "fonts" / "desktop" / "noto" / "NotoSansSC" / "NotoSansSC-Regular.ttf",
+        "/fonts/desktop/noto/NotoSansSC/NotoSansSC-Bold.ttf":
+            SRC / "resources" / "fonts" / "desktop" / "noto" / "NotoSansSC" / "NotoSansSC-Bold.ttf",
         "/esmfold.html": SRC / "web_ui" / "esmfold.html",
     }
 
@@ -311,6 +332,18 @@ class ServedPageTests(unittest.TestCase):
                                      content_security_policy(file.name, body))
         self.assertEqual({path for path, file in PageHandler.files.items() if page_context(file)},
                          set(SERVED_TEXTS))
+
+    def test_a_chinese_page_names_the_bundled_chinese_font(self):
+        server = start_server(self, PageHandler)
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        fonts = language_web_font_css("zh_CN", "/fonts/desktop/")
+        self.assertIn("url('/fonts/desktop/noto/NotoSansSC/NotoSansSC-Regular.ttf')", fonts)
+        for path in ("/agent.html", "/meta.html"):
+            with self.subTest(path=path):
+                body = request(server, "GET", path)[1].decode("utf-8")
+                self.assertIn('<html lang="zh-CN">', body)
+                self.assertIn(f"<style>\n{fonts}\n</style>\n</head>", body)
 
     def test_a_page_that_cannot_be_translated_comes_in_english(self):
         page = SRC / "web_ui" / "agent.html"
@@ -577,6 +610,27 @@ class AgentPageTests(WebPageTestCase):
         response, body = request(self.server, "GET", "/esmfold.html")
         self.assertEqual(body, (SRC / "web_ui" / "esmfold.html").read_bytes())
         self.assertNotIn("web_ui/esmfold.html", PAGE_CONTEXTS)
+
+
+class ChinesePageFontTests(WebPageTestCase):
+    """A page served in Simplified Chinese draws its Chinese in the bundled Noto Sans SC."""
+
+    def setUp(self):
+        super().setUp()
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+
+    def test_the_agent_page_loads_the_bundled_chinese_font(self):
+        PageHandler.body = (200, json.dumps(CARDS).encode())
+        self.load("/agent.html", "document.getElementById('capture-viewer-btn').onclick !== null")
+        self.assertEqual(self.js("document.documentElement.lang"), "zh-CN")
+        # The faces Desktop_App.language_web_font_css adds load once Chinese shows,
+        # the regular one for the page's ordinary text.
+        chinese = "[...document.fonts].filter(face => face.unicodeRange.toUpperCase().includes('4E00-9FFF'))"
+        self.wait_for(f"{chinese}.some(face => face.weight === '400' && face.status === 'loaded')")
+        faces = json.loads(self.js(f"JSON.stringify({chinese}.map(face => [face.family, face.weight, face.status]))"))
+        self.assertIn(["Noto Sans SC", "400", "loaded"],
+                      [[family.strip('"'), weight, status] for family, weight, status in faces])
 
 
 class MetadataPageTests(WebPageTestCase):

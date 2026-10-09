@@ -540,7 +540,10 @@ def update_catalogs(
                     report(f"Compiled {compiled.name}.")
             live = list(filter(_is_live, read_catalog(catalog)))
             done = sum(1 for message in live if message.status == "" and any(message.translations))
-            report(f"{catalog.name}: {done} of {len(live)} texts translated.")
+            # Drafts are compiled and shown too, until a reviewer marks them finished.
+            drafted = sum(1 for message in live if message.status == "unfinished" and any(message.translations))
+            report(f"{catalog.name}: {done} of {len(live)} texts translated"
+                   + (f"; {drafted} more drafted, awaiting review." if drafted else "."))
 
     for line in help_page_reports(source_dir):
         report(line)

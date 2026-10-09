@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
 
-from desktop.Desktop_App import installed_language, translate
+from desktop.Desktop_App import installed_language, language_web_font_css, translate
 from desktop.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
@@ -283,11 +283,15 @@ def page_in_viewer_language(filepath, body):
     """body, the bytes of a file to serve, in the Viewer's language.
 
     A bundled page and its scripts come with their marked texts translated
-    (web_ui/Page_Texts.py); any other file comes as it is. A page that can't
-    be translated comes in English, with a warning.
+    (web_ui/Page_Texts.py), and a page with the language's bundled font, if
+    it has one; any other file comes as it is. A page that can't be
+    translated comes in English, with a warning.
     """
+    language = installed_language()
     try:
-        return translated_file(filepath, body, installed_language(), translate)
+        return translated_file(
+            filepath, body, language, translate, styles=language_web_font_css(language, "/fonts/desktop/")
+        )
     except Exception as error:
         print(f"Warning: Could not show {os.path.basename(filepath)} in the Viewer's language: {error}")
         return body

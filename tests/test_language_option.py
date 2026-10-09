@@ -143,7 +143,7 @@ class LanguageTestCase(unittest.TestCase):
 class LanguageSettingTests(LanguageTestCase):
     def test_the_languages_are_those_with_a_compiled_catalog(self):
         self.assertEqual(catalog_languages(self.catalogs), ["de", "zh_CN"])
-        self.assertEqual(catalog_languages(Desktop_App.LANGUAGES_DIR), [])
+        self.assertEqual(catalog_languages(Desktop_App.LANGUAGES_DIR), ["zh_CN"], "Simplified Chinese ships")
 
     def test_each_language_is_named_in_itself(self):
         names = {code: language_name(code) for code in ("en", "de", "fr", "ja", "zh_CN", "zh_TW")}
@@ -189,7 +189,11 @@ class LanguageSettingTests(LanguageTestCase):
         self.assertEqual(
             startup_language({"SSN_PSEUDO_TRANSLATION": "1"}, catalog_dir=self.catalogs), PSEUDO_LANGUAGE
         )
-        self.assertIsNone(startup_language({}), "no catalog ships yet, so the program shows English")
+        self.assertEqual(startup_language({}), "zh_CN", "the shipped Simplified Chinese catalog")
+        self.settings.write_text(json.dumps({"LANGUAGE": "ja"}), encoding="utf-8")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.assertIsNone(startup_language({}), "no Japanese catalog ships, so the program shows English")
 
 
 class LanguageSelectorTests(LanguageTestCase):

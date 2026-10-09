@@ -191,11 +191,15 @@ class TranslationTestCase(unittest.TestCase):
 
 class StartupLanguageTests(unittest.TestCase):
     def test_english_unless_the_pseudo_language_is_asked_for(self):
-        self.assertIsNone(startup_language({}))
+        # No saved setting on an English system, whatever this machine's own language.
+        def start(environment):
+            return startup_language(environment, settings={}, ui_languages=["en-US"])
+
+        self.assertIsNone(start({}))
         for value in ("1", "true", "Yes", " on "):
-            self.assertEqual(startup_language({PSEUDO_TRANSLATION_VARIABLE: value}), PSEUDO_LANGUAGE)
+            self.assertEqual(start({PSEUDO_TRANSLATION_VARIABLE: value}), PSEUDO_LANGUAGE)
         for value in ("", "0", "false", "no", "de"):
-            self.assertIsNone(startup_language({PSEUDO_TRANSLATION_VARIABLE: value}))
+            self.assertIsNone(start({PSEUDO_TRANSLATION_VARIABLE: value}))
 
 
 class EnglishTests(TranslationTestCase):

@@ -13,6 +13,7 @@ import gc
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -65,10 +66,12 @@ from desktop.Desktop_App import (  # noqa: E402
     matplotlib_language_families,
     qt_monospace_font,
     register_vispy_application_fonts,
+    language_web_font_css,
     vispy_language_face,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
+from utilities.Help_Pages import HELP_PAGES_DIR  # noqa: E402
 from utilities.Localization import LANGUAGES_DIR, read_catalog  # noqa: E402
 
 
@@ -392,6 +395,20 @@ def gb2312_characters():
     return characters
 
 
+def characters_added(pairs):
+    """The characters each (English, translation) pair's translation adds: what the font must draw.
+
+    A translation keeps the English's emoji and symbols (🧬, ⚙), which the
+    system's fonts draw in every language, as they do in English.
+    """
+    return {
+        char
+        for source, translation in pairs
+        for char in translation
+        if not char.isspace() and char not in source
+    }
+
+
 class SimplifiedChineseFontTests(unittest.TestCase):
     """The bundled Noto Sans SC, cut down to GB2312: what it covers, and the Viewer's face."""
 
@@ -404,11 +421,19 @@ class SimplifiedChineseFontTests(unittest.TestCase):
         gb2312 = gb2312_characters()
         self.assertEqual(len(gb2312), 7445)
         latin = {chr(code) for code in (*range(0x20, 0x7F), *range(0xA0, 0x100))}
-        catalog = set()
-        for path in LANGUAGES_DIR.glob("emapssn_zh_CN.ts"):
-            for message in read_catalog(path):
-                for translation in message.translations:
-                    catalog.update(char for char in translation if not char.isspace())
+        pairs = [
+            (message.source, translation)
+            for path in LANGUAGES_DIR.glob("emapssn_zh_CN.ts")
+            for message in read_catalog(path)
+            for translation in message.translations
+        ]
+        pairs += [
+            (page.with_name(page.name.replace(".zh_CN.md", ".md")).read_text(encoding="utf-8"),
+             page.read_text(encoding="utf-8"))
+            for page in HELP_PAGES_DIR.glob("*.zh_CN.md")
+        ]
+        catalog = characters_added(pairs)
+        self.assertEqual(characters_added([("⚙ Save", "⚙ 保存")]), {"保", "存"}, "the English's own symbols aside")
 
         for face, style, weight in zip(self.font.files, ("Regular", "Bold"), (400, 700)):
             with self.subTest(face=face):
@@ -425,6 +450,32 @@ class SimplifiedChineseFontTests(unittest.TestCase):
                 self.assertEqual(missing({"龘"}), ["龘"], "the check can fail: 龘 is not in GB2312")
                 self.assertEqual(missing(gb2312 | latin), [])
                 self.assertEqual(missing(catalog), [], "remake the font with these characters")
+
+    def test_the_browser_views_draw_chinese_in_the_bundled_font(self):
+        css = language_web_font_css("zh_CN", "/fonts/desktop/")
+        faces = re.findall(r"@font-face \{([^}]*)\}", css)
+        self.assertEqual(
+            [(re.search(r"font-family: '([^']+)'", face).group(1), re.search(r"font-weight: (\d+)", face).group(1),
+              re.search(r"url\('([^']+)'\)", face).group(1)) for face in faces],
+            [(QT_SIMPLIFIED_CHINESE_FAMILY, weight, "/fonts/desktop/" + path)
+             for weight, path in zip(("400", "700"), self.font.files)],
+        )
+        self.assertTrue(all(f"unicode-range: {self.font.web_range};" in face for face in faces))
+        self.assertIn("U+4E00-9FFF", self.font.web_range)
+        self.assertNotIn("U+0000", self.font.web_range, "Latin keeps the core faces")
+        for language in (None, "en", "de", PSEUDO_LANGUAGE):
+            self.assertEqual(language_web_font_css(language, "/fonts/desktop/"), "", language)
+
+        # Each stack names the family right after the core one, as the Qt stacks
+        # (and so the Tools help panel's) do; without its rules it is skipped.
+        stacks = [UI_QSS_FONT_STACK, MONOSPACE_QSS_FONT_STACK]
+        for page in ("agent.html", "meta.html"):
+            html = (SRC_DIR / "web_ui" / page).read_text(encoding="utf-8")
+            found = re.findall(r"(?:font-family|--font-family|--font-mono):\s*('Noto Sans[^']*'[^;\"]*)", html)
+            self.assertGreaterEqual(len(found), 1, page)
+            stacks += found
+        for stack in stacks:
+            self.assertEqual([name.strip() for name in stack.split(",")][1], f"'{QT_SIMPLIFIED_CHINESE_FAMILY}'", stack)
 
     def test_the_viewer_draws_simplified_chinese_in_its_own_face(self):
         from vispy.util.fonts import _load_glyph

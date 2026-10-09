@@ -444,6 +444,7 @@ def translated_source(source, suffix, translate):
 
 _LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(?:_[A-Z][a-z]{3})?(?:_[A-Z]{2})?$")
 _HTML_LANG = re.compile(r"""(<html\b[^>]*?\slang\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE)
+_HEAD_END = re.compile(r"</head\s*>", re.IGNORECASE)
 
 
 def language_tag(language):
@@ -460,12 +461,13 @@ def page_context(path):
     return PAGE_CONTEXTS.get(relative)
 
 
-def translated_file(path, body, language, translate):
+def translated_file(path, body, language, translate, styles=""):
     """The bytes to serve for the file at path, whose own bytes are body.
 
     A page's file comes in language: translate(context, text) gives each
-    text's translation, and <html lang> names a real language. Any other
-    file, and any file for language None (English), comes as it is.
+    text's translation, and <html lang> names a real language. styles, CSS
+    such as the language's fonts, goes at the end of such a page's head.
+    Any other file, and any file for language None (English), comes as it is.
     """
     context = page_context(path)
     if context is None or not language:
@@ -475,4 +477,6 @@ def translated_file(path, body, language, translate):
     tag = language_tag(language)
     if suffix == ".html" and tag:
         shown = _HTML_LANG.sub(lambda match: f'{match.group(1)}"{tag}"', shown, count=1)
+        if styles:
+            shown = _HEAD_END.sub(lambda match: f"<style>\n{styles}\n</style>\n{match.group(0)}", shown, count=1)
     return shown.encode("utf-8")

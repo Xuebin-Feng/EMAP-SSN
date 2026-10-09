@@ -95,8 +95,7 @@ still change before version 1.0.0.
   or not. The Viewer and any dialog take the language when they next open. Simplified
   Chinese brings a font of its own, Noto Sans SC cut down to GB2312's 7,445 characters
   plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
-  that language shows. No language ships yet, so for now the dropdown offers English
-  alone.
+  that language shows.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts
@@ -186,6 +185,15 @@ still change before version 1.0.0.
   Tools window shows it in its language while that line matches, and the English page
   once the English changes, until the translation is brought up to date; the catalog
   update lists those. Card titles still come from the English pages.
+- **Simplified Chinese (简体中文), drafted and awaiting review.** The 🌐 dropdown offers
+  简体中文, and "System default" picks it on a Simplified Chinese system. Every text of
+  the windows, the Viewer's canvas and the two browser pages, VR Config's own texts and
+  the five tool help pages are drafted in Chinese with one glossary. The drafts show
+  until a native speaker reviews them in Qt Linguist, and the catalog update counts them
+  apart ("0 of 1124 texts translated; 1124 more drafted, awaiting review."). The
+  browser views draw Chinese in the bundled Noto Sans SC too: a page served in Chinese,
+  and the Tools help panel, carry its @font-face rules, and their font stacks name it
+  after Noto Sans, as the windows' stacks do.
 
 ### Changed
 

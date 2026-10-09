@@ -74,6 +74,7 @@ from Embedding_Alignment_Engine import (
 from utilities import Help_Pages
 from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
+from web_ui.Page_Texts import language_tag
 from tools.tool_helpers.Model_Plugins import (
     discover_model_execution_modes,
     discover_model_usage_terms,
@@ -495,6 +496,7 @@ from desktop.Desktop_App import (
     install_translations,
     installed_language,
     language_selector_row,
+    language_web_font_css,
     LanguageSelector,
     redraw_in_language,
     select_combo_value,
@@ -712,7 +714,12 @@ class ResponsiveTextBrowser(QWebEngineView):
     def setFont(self, font):
         pass
         
-    def setHtml(self, html_content, baseUrl=None):
+    @staticmethod
+    def page_html(html_content, language):
+        """The help panel's page around html_content, in language's bundled font, if it has one.
+
+        Its links are relative to src/resources/, the baseUrl setHtml gives it.
+        """
         github_style = """
         body {
             font-family: __UI_FONT_STACK__;
@@ -821,13 +828,16 @@ class ResponsiveTextBrowser(QWebEngineView):
             "__MONOSPACE_FONT_STACK__", MONOSPACE_QSS_FONT_STACK
         )
         
-        full_html = f"""
+        # A language with a bundled font draws its script in it; English stays as it was.
+        tag = language_tag(language)
+        return f"""
         <!DOCTYPE html>
-        <html>
+        <html{f' lang="{tag}"' if tag else ''}>
         <head>
             <meta charset="utf-8">
             <link rel="stylesheet" href="fonts/fonts.css">
             <style>
+                {language_web_font_css(language, "fonts/desktop/")}
                 {github_style}
             </style>
             <!-- KaTeX is vendored under src/resources so math renders offline.
@@ -850,6 +860,9 @@ class ResponsiveTextBrowser(QWebEngineView):
         </body>
         </html>
         """
+
+    def setHtml(self, html_content, baseUrl=None):
+        full_html = self.page_html(html_content, installed_language())
         # The vendored KaTeX assets are referenced relatively, so the page needs a
         # baseUrl pointing at src/resources/. Without one, setHtml() resolves
         # against about:blank and the relative paths silently fail to load.

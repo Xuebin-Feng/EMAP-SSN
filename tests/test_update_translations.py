@@ -138,6 +138,17 @@ def translate_in(catalog, source, translation):
     catalog.write_text(text, encoding="utf-8")
 
 
+def draft_in(catalog, source, translation):
+    """Draft source's translation in a .ts file, left unfinished for a reviewer."""
+    text = catalog.read_text(encoding="utf-8")
+    pattern = re.compile(
+        r"(<source>" + re.escape(source) + r'</source>\s*<translation type="unfinished">)</translation>'
+    )
+    text, count = pattern.subn(lambda match: f"{match.group(1)}{translation}</translation>", text)
+    assert count == 1, (source, count)
+    catalog.write_text(text, encoding="utf-8")
+
+
 class PrepareSourceTests(unittest.TestCase):
     def test_each_message_template_is_shown_to_lupdate_on_its_own_line(self):
         text = (
@@ -348,6 +359,10 @@ class UpdateCommandTests(unittest.TestCase):
         translate_in(german, "Saved {count} nodes to {name}.", "{count} Knoten in {name} gespeichert.")
         self.assertEqual(self.update(), 0, self.lines)
         self.assertIn("emapssn_de.ts: 2 of 13 texts translated.", self.lines)
+        # A draft is compiled and counted apart, until a reviewer finishes it.
+        draft_in(german, "Circle", "Kreis")
+        self.assertEqual(self.update(), 0, self.lines)
+        self.assertIn("emapssn_de.ts: 2 of 13 texts translated; 1 more drafted, awaiting review.", self.lines)
 
         # A text that leaves the code leaves the list; its translation is kept.
         panel = self.src / "panel.py"

@@ -408,11 +408,14 @@ class LanguageFont:
     only the characters the core lacks. VisPy draws a text in a single face,
     so the Viewer draws all its text in vispy_face, which has Latin letters
     too. files holds the regular and bold faces, as the manifest names them.
+    web_range is the CSS unicode-range of the script's characters, which
+    the browser views draw in it (language_web_font_css).
     """
 
     family: str
     vispy_face: str
     files: tuple[str, ...]
+    web_range: str = ""
 
 
 # Registered only while their language shows, so other languages keep the
@@ -425,6 +428,9 @@ LANGUAGE_FONTS = {
             "noto/NotoSansSC/NotoSansSC-Regular.ttf",
             "noto/NotoSansSC/NotoSansSC-Bold.ttf",
         ),
+        # CJK punctuation, kana, bopomofo, enclosed CJK, ideographs and
+        # full-width forms; Latin, Greek and Cyrillic keep the core faces.
+        "U+3000-303F, U+3040-30FF, U+3100-312F, U+3200-33FF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF",
     ),
 }
 LANGUAGE_FONT_FILES = frozenset(
@@ -732,6 +738,28 @@ def matplotlib_language_families(
         if path not in registered:
             font_manager.fontManager.addfont(str(path))
     return ["sans-serif", font.family]
+
+
+def language_web_font_css(language: str | None, url_prefix: str) -> str:
+    """@font-face rules that let a browser view draw language in its bundled font, or "".
+
+    They declare the language font's family, with its regular (400) and
+    bold (700) faces, for its script's characters (LanguageFont.web_range).
+    The browser views' font stacks name that family after the core one, as
+    the Qt stacks do, so it draws only what the core lacks. Added only for
+    this language, the rules leave other languages with the system's fonts.
+    url_prefix leads to the desktop font folder: "/fonts/desktop/" on the
+    Viewer's web server, or a path relative to a page's base URL.
+    """
+    font = LANGUAGE_FONTS.get(language)
+    if font is None or not font.web_range:
+        return ""
+    return "\n".join(
+        f"@font-face {{ font-family: '{font.family}'; font-style: normal; font-weight: {weight}; "
+        f"font-display: swap; src: url('{url_prefix}{path}') format('truetype'); "
+        f"unicode-range: {font.web_range}; }}"
+        for weight, path in zip((400, 700), font.files)
+    )
 
 
 # =====================================================================
@@ -1719,6 +1747,7 @@ __all__ = [
     "register_vispy_application_fonts",
     "vispy_language_face",
     "matplotlib_language_families",
+    "language_web_font_css",
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
     "ResponsiveSelectorLayout",

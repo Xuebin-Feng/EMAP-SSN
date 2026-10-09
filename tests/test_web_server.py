@@ -132,6 +132,16 @@ class PagePolicyOverHTTPTests(unittest.TestCase):
                 script_src = directives(response.getheader('Content-Security-Policy'))['script-src']
                 self.assertEqual("'unsafe-eval'" in script_src, page == 'esmfold.html')
 
+    def test_the_bundled_chinese_font_is_served_for_chinese_pages(self):
+        # A page served in Simplified Chinese names this file (Desktop_App.language_web_font_css).
+        for name in ('NotoSansSC-Regular.ttf', 'NotoSansSC-Bold.ttf'):
+            with self.subTest(name=name):
+                response, body = self.get(f'/fonts/desktop/noto/NotoSansSC/{name}')
+                self.assertEqual(response.status, 200)
+                self.assertTrue(response.getheader('Content-Type').startswith('font/ttf'))
+                self.assertEqual(body, (SRC_DIR / 'resources' / 'fonts' / 'desktop' / 'noto' / 'NotoSansSC' / name)
+                                 .read_bytes())
+
     def test_route_served_pages_get_a_policy_too(self):
         response, _body = self.get('/files/page.html')
         self.assertEqual(response.status, 200)

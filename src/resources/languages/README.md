@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent and metadata pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are translated as whole pages, and none is yet. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent and metadata pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are translated as whole pages. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. The first language is Simplified Chinese (`zh_CN`): every text and every help page is drafted, and a native speaker's review is pending (see "Review a language").
 
 ## Choose the language
 
@@ -27,7 +27,9 @@ The choice is saved in `app_settings.json` in the project folder, and every wind
 
 The bundled fonts cover Latin, Greek and Cyrillic. Simplified Chinese brings a
 font of its own, loaded only while it shows (see
-`src/resources/fonts/desktop/README.md`). In other scripts, Qt windows fall back
+`src/resources/fonts/desktop/README.md`): the Qt windows, the Viewer's canvas
+and the browser views (the Agent and metadata pages and the Tools help panel)
+all draw Chinese in it. In other scripts, Qt windows fall back
 to the system's fonts. The Viewer's canvas can't, since it draws each text in
 a single face, so a new language in another script needs a bundled font too
 (`LANGUAGE_FONTS` in `src/desktop/Desktop_App.py`).
@@ -77,6 +79,32 @@ A translation must keep these parts exactly as the English text has them:
 - file patterns such as `*.fasta`
 
 The update reports any translation that changes a placeholder.
+
+## Review a language
+
+A draft is a translation left unfinished, as Qt Linguist marks it. lrelease
+compiles it all the same, so the windows show the drafts until a reviewer
+changes them, and the update counts them apart:
+
+```
+emapssn_zh_CN.ts: 0 of 1124 texts translated; 1124 more drafted, awaiting review.
+```
+
+To review, open the language's two catalogs in Qt Linguist, correct each text
+as needed, mark it finished, save, and run both updates to compile:
+
+```
+pyside6-linguist src/resources/languages/emapssn_zh_CN.ts opt_vr/src/resources/languages/emapssn_vr_zh_CN.ts
+python src/resources/languages/Update_Translations.py
+python opt_vr/src/resources/languages/Update_Translations_VR.py
+```
+
+A help page's translation is reviewed in its own file, such as
+`src/tools/tool_descriptions/Embedding_MSA.zh_CN.md`. Keep its first line as it
+is. `tests/test_tool_help_pages.py` checks that each translation keeps its
+English page's headings, code, tables, links and math, and
+`tests/test_application_fonts.py` that the bundled font has every character a
+translation adds.
 
 ## Mark text in the code
 
