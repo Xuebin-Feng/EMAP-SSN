@@ -210,7 +210,7 @@ class QueryPositionBreakdownTests(unittest.TestCase):
                 "Pos     7: [Not found in active alignment mapping]",
             ],
         )
-        self.assertEqual(viewer.console_text.text, "Queried 1 position(s). Check terminal.")
+        self.assertEqual(viewer.console_text.text, "Queried 1 position. Check terminal.")
 
     def test_residues_under_one_percent_are_omitted(self):
         headers = [f"s{index}" for index in range(101)]

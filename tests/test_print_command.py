@@ -309,7 +309,7 @@ class PrintOutputNameTests(unittest.TestCase):
                     capture.assert_not_called()
                     export_svg.assert_not_called()
                     save.assert_not_called()
-                    self.assertIn("path separators", failed.call_args.args[1])
+                    self.assertIn("path separators", str(failed.call_args.args[1]))
                     self.assertTrue(viewer.instr_text.visible)
             self.assertEqual(os.listdir(root), ["Saved_Images"])
             self.assertEqual(os.listdir(save_dir), [])
@@ -431,7 +431,8 @@ class PrintSvgOutcomeTests(unittest.TestCase):
         viewer, engine, open_folder, written, _ = self.run_svg_print([False] * 4)
 
         self.assertEqual(written, [])
-        engine.command_failed.assert_called_once_with(viewer, "Error: No visible nodes to export.")
+        engine.command_failed.assert_called_once()
+        self.assertEqual(str(engine.command_failed.call_args.args[1]), "Error: No visible nodes to export.")
         engine.command_succeeded.assert_not_called()
         engine.command_artifact.assert_not_called()
         open_folder.assert_not_called()

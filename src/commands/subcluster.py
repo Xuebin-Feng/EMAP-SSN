@@ -18,6 +18,7 @@ import numpy as np
 import re
 import os
 from utilities import Network_Kernels as network_clustering
+from utilities.Localization import Message
 import sys
 import colorsys
 import math
@@ -105,15 +106,16 @@ def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- CLEAR COMMAND ---
     if args[0].lower() == 'clear':
         if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
-            Command_Engine.print_help(viewer, "No groups are currently defined.")
-            Command_Engine.command_succeeded(viewer, 'No groups are currently defined.')
+            msg = Message("No groups are currently defined.")
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_succeeded(viewer, msg)
             return
             
         generated = [
@@ -124,7 +126,7 @@ def run(viewer, args):
 
         # Nothing to clear is not an error, but it must not add an undo step.
         if total_removed == 0:
-            msg = "No subcluster groups to clear."
+            msg = Message("No subcluster groups to clear.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -137,7 +139,7 @@ def run(viewer, args):
 
         viewer.update_nodes()
         
-        msg = f"Cleared all subcluster groups (removed {total_removed} label instances)."
+        msg = Message("Cleared all subcluster groups (removed %n label instance(s)).", n=total_removed)
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -146,23 +148,29 @@ def run(viewer, args):
     match = re.match(r'^cluster_(\d+)$', args[0].lower())
     if not match:
         print_help()
-        Command_Engine.print_help(viewer, f"Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{args[0]}').")
-        Command_Engine.command_failed(viewer, f"Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{args[0]}').")
+        msg = Message(
+            "Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{argument}').",
+            argument=args[0],
+        )
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
         
     cluster_id = int(match.group(1))
 
     if getattr(viewer, 'cluster_labels', None) is None:
-        Command_Engine.print_help(viewer, "Error: No clusters are currently defined. Run 'cluster' first.")
-        Command_Engine.command_failed(viewer, "Error: No clusters are currently defined. Run 'cluster' first.")
+        msg = Message("Error: No clusters are currently defined. Run 'cluster' first.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     target_mask = (viewer.cluster_labels == cluster_id)
     subgraph_nodes = np.where(target_mask)[0]
 
     if len(subgraph_nodes) == 0:
-        Command_Engine.print_help(viewer, f"Error: Cluster {cluster_id} is empty or does not exist.")
-        Command_Engine.command_failed(viewer, f'Error: Cluster {cluster_id} is empty or does not exist.')
+        msg = Message("Error: Cluster {cluster} is empty or does not exist.", cluster=cluster_id)
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     # --- 2. Parse Other Parameters ---
@@ -215,7 +223,9 @@ def run(viewer, args):
             return
 
     if hasattr(viewer, 'console_text'):
-        Command_Engine.show_status(viewer, f"Subclustering cluster_{cluster_id} ({mode.upper()})...")
+        Command_Engine.show_status(
+            viewer, Message("Subclustering {cluster} ({mode})...", cluster=f"cluster_{cluster_id}", mode=mode.upper())
+        )
     print(f"Running {mode.upper()} Subclustering for cluster_{cluster_id} (Param={param1}, MinSize={min_sz})...")
 
     # --- 3. Extract Subgraph Edges ---
@@ -223,8 +233,11 @@ def run(viewer, args):
     inside = target_mask[edges[:, 0]] & target_mask[edges[:, 1]]
 
     if not inside.any():
-        Command_Engine.print_help(viewer, f"Error: No edges exist within cluster_{cluster_id} to perform subclustering.")
-        Command_Engine.command_failed(viewer, f'Error: No edges exist within cluster_{cluster_id} to perform subclustering.')
+        msg = Message(
+            "Error: No edges exist within {cluster} to perform subclustering.", cluster=f"cluster_{cluster_id}"
+        )
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     global_to_local = np.full(len(target_mask), -1, dtype=np.int32)
@@ -246,8 +259,9 @@ def run(viewer, args):
         if not network_clustering.NUMBA_AVAILABLE:
             print("Error: Numba required for topology clustering.")
             Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
-            Command_Engine.show_status(viewer, "Error: Numba library missing.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            status = Message("Error: Numba library missing.")
+            Command_Engine.show_status(viewer, status)
+            Command_Engine.command_failed(viewer, status)
             return
 
         # Connected components of the edges the Jaccard filter keeps.
@@ -264,7 +278,7 @@ def run(viewer, args):
             import markov_clustering as mc
             import scipy.sparse as sp
         except ImportError:
-            msg = "Missing libraries! Run: pip install markov_clustering networkx scipy"
+            msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
@@ -303,7 +317,7 @@ def run(viewer, args):
         try:
             import graspologic_native  # noqa: F401  (availability check)
         except ImportError:
-            msg = "Missing library! Run: pip install graspologic-native"
+            msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
@@ -390,7 +404,12 @@ def run(viewer, args):
         print(f"| {sub_name_padded} | {count:>10} | {pct:>9.2f}% |")
     print(f"{'='*54}\n")
 
-    msg = f"Done! Found {n_subclusters} subclusters in cluster_{cluster_id} via {mode.upper()}."
+    msg = Message(
+        "Done! Found %n subcluster(s) in {cluster} via {mode}.",
+        n=n_subclusters,
+        cluster=f"cluster_{cluster_id}",
+        mode=mode.upper(),
+    )
     if hasattr(viewer, 'console_text'):
         Command_Engine.show_status(viewer, msg)
     print(msg)

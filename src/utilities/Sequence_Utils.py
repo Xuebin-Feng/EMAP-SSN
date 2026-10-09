@@ -14,6 +14,8 @@ import re
 import sys
 import tempfile
 
+from utilities.Localization import Message
+
 # =====================================================================
 # 1. Lexical Rules for Alignment-Position Arguments
 # =====================================================================
@@ -34,19 +36,28 @@ _BARE_NEGATIVE_POSITION_RE = re.compile(
 
 
 def reject_bare_negative_positions(value):
-    """Reject the first bare negative position found in a position argument."""
+    """Reject the first bare negative position found in a position argument.
+
+    The ValueError holds a Message: str(error) is English, and a window shows
+    it translated.
+    """
     text = str(value).strip()
     match = _BARE_NEGATIVE_POSITION_RE.search(text)
     if match:
         position = match.group(1)
-        raise ValueError(
-            f"Negative position '{position}' must be written as '({position})'. "
-            "Parentheses are required around negative positions."
-        )
+        raise ValueError(Message(
+            "Negative position '{position}' must be written as '({position})'. "
+            "Parentheses are required around negative positions.",
+            position=position,
+        ))
 
 
 def normalize_displayed_position_atom(value, *, allow_end=False):
-    """Return the alignment-label form of one user-facing position atom."""
+    """Return the alignment-label form of one user-facing position atom.
+
+    An invalid atom raises ValueError holding a Message, as
+    reject_bare_negative_positions does.
+    """
     text = str(value).strip()
     upper_text = text.upper()
     if allow_end and upper_text in {"E", "END"}:
@@ -60,13 +71,17 @@ def normalize_displayed_position_atom(value, *, allow_end=False):
     if _NONNEGATIVE_POSITION_RE.fullmatch(text):
         return text.removeprefix('+')
 
-    expected = "a non-negative integer or insertion label"
     if allow_end:
-        expected += ", E, or END"
-    raise ValueError(
-        f"Invalid position label '{value}'; expected {expected}, or a negative "
-        "position enclosed in parentheses."
-    )
+        raise ValueError(Message(
+            "Invalid position label '{value}'; expected a non-negative integer or insertion "
+            "label, E, or END, or a negative position enclosed in parentheses.",
+            value=value,
+        ))
+    raise ValueError(Message(
+        "Invalid position label '{value}'; expected a non-negative integer or insertion "
+        "label, or a negative position enclosed in parentheses.",
+        value=value,
+    ))
 
 
 def format_alignment_offset_display(alignment, configured_offset):

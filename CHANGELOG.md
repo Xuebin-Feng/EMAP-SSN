@@ -146,6 +146,12 @@ still change before version 1.0.0.
   keep the English; color, export, select and spectrum no longer report what the
   console line shows as their failure. Counts read correctly for one, as in
   "Applied: 1 node (red)" and "Removed 1 group from 3 total node instances."
+- **print, query, cluster and subcluster's console messages are ready to translate,**
+  and so are the errors of a position written wrongly (a bare negative position or an
+  unknown label), of a frequency search, and of a full print capture that the window
+  spoiled. query, cluster and subcluster no longer report what the console line shows
+  as their failure. Counts read correctly for one, as in "Done! Found 1 cluster via
+  LEIDEN." and "Queried 1 position. Check terminal."
 
 ### Changed
 

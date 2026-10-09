@@ -29,6 +29,7 @@ from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import open_in_file_manager
+from utilities.Localization import Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages
 
@@ -351,7 +352,10 @@ def _process_events_without_input():
 
 
 class _CaptureInterrupted(RuntimeError):
-    """Something a full capture depends on changed between its tiles."""
+    """Something a full capture depends on changed between its tiles.
+
+    It is raised with a Message, which the console line shows translated.
+    """
 
 
 class _CaptureEvents:
@@ -403,16 +407,16 @@ class _CaptureEvents:
         self._changed = False
         _process_events_without_input()
         if _capture_geometry(self._viewer) != self._geometry:
-            raise _CaptureInterrupted(
+            raise _CaptureInterrupted(Message(
                 "the Viewer window was resized during the capture, so nothing "
                 "was saved. Run print again."
-            )
+            ))
         # A camera move updates every visual too, and only that is harmless.
         if self._changed and camera.rect == live_rect:
-            raise _CaptureInterrupted(
+            raise _CaptureInterrupted(Message(
                 "the network display changed during the capture, so nothing "
                 "was saved. Run print again."
-            )
+            ))
         self._next_pause = time.perf_counter() + CAPTURE_EVENT_INTERVAL_S
 
     def close(self):
@@ -474,7 +478,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -497,14 +501,14 @@ def run(viewer, args):
     # SVG Constraints
     if is_svg:
         if is_transparent or is_full:
-            msg = "Error: 'SVG' export is not compatible with 'transparent' or 'full'."
+            msg = Message("Error: 'SVG' export is not compatible with 'transparent' or 'full'.")
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
             return
             
         if len(args) > 2:
-            msg = "Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg')."
+            msg = Message("Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg').")
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
@@ -520,7 +524,7 @@ def run(viewer, args):
         try:
             filename = validate_output_basename("_".join(args))
         except ValueError as error:
-            msg = f"Error: {error}"
+            msg = Message("Error: {error}", error=error)
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
@@ -544,7 +548,7 @@ def run(viewer, args):
     try:
         if is_svg:
             if not _export_svg(viewer, filepath):
-                msg = "Error: No visible nodes to export."
+                msg = Message("Error: No visible nodes to export.")
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
                 Command_Engine.show_status(viewer, msg)
@@ -555,7 +559,7 @@ def run(viewer, args):
             
             vis = viewer.visible_mask
             if not np.any(vis):
-                msg = "Error: No visible nodes to export."
+                msg = Message("Error: No visible nodes to export.")
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
                 Command_Engine.show_status(viewer, msg)
@@ -683,11 +687,12 @@ def run(viewer, args):
         if is_transparent and not is_svg: msg_type = "transparent " + msg_type
         if is_full and not is_svg: msg_type = "full stitched " + msg_type
             
-        msg = f"Successfully saved {msg_type}: {filepath}"
+        # The terminal and MCP clients get the full English report; the console line a short one.
+        saved = f"Successfully saved {msg_type}: {filepath}"
         Command_Engine.command_artifact(viewer, filepath)
-        print(f"\n{msg}")
+        print(f"\n{saved}")
         
-        Command_Engine.show_status(viewer, f"Saved {image_format}: {filename}")
+        Command_Engine.show_status(viewer, Message("Saved {format}: {file}", format=image_format, file=filename))
         
         # Open the save folder in the system file explorer
         open_in_file_manager(save_dir)
@@ -697,12 +702,12 @@ def run(viewer, args):
         if not interrupted:
             import traceback
             traceback.print_exc()
-        error_msg = f"Failed to save {image_format}: {e}"
+        error_msg = Message("Failed to save {format}: {error}", format=image_format, error=e)
         Command_Engine.command_failed(viewer, error_msg)
         print(f"\n{error_msg}")
         Command_Engine.show_status(
             viewer,
-            error_msg if interrupted else f"Error saving {image_format}. Check console.",
+            error_msg if interrupted else Message("Error saving {format}. Check console.", format=image_format),
         )
         return
 
@@ -710,4 +715,4 @@ def run(viewer, args):
         if events is not None:
             events.close()
         viewer.canvas.update()
-    Command_Engine.command_succeeded(viewer, msg)
+    Command_Engine.command_succeeded(viewer, saved)

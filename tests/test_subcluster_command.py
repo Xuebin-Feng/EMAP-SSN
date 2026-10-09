@@ -145,9 +145,10 @@ class JaccardAndMCLSubclusterTests(unittest.TestCase):
         viewer, succeeded, failed, _output = self.subcluster(["cluster_1", *args])
         failed.assert_not_called()
         self.assert_groups(viewer, members)
+        noun = "subcluster" if len(members) == 1 else "subclusters"
         succeeded.assert_called_once_with(
             viewer,
-            f"Done! Found {len(members)} subclusters in cluster_1 via {mode}.",
+            f"Done! Found {len(members)} {noun} in cluster_1 via {mode}.",
         )
         viewer._save_state.assert_called_once_with()
         grouped = set().union(*members.values()) if members else set()

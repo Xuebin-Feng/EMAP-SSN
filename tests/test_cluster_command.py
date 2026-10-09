@@ -148,8 +148,9 @@ class JaccardAndMCLModeTests(unittest.TestCase):
                     (f"JACCARD_{float(threshold)}", int(min_size)),
                 )
                 clusters = len(set(labels) - {-1})
+                noun = "cluster" if clusters == 1 else "clusters"
                 succeeded.assert_called_once_with(
-                    viewer, f"Done! Found {clusters} clusters via JACCARD."
+                    viewer, f"Done! Found {clusters} {noun} via JACCARD."
                 )
                 viewer._save_state.assert_called_once_with()
 

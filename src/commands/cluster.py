@@ -17,6 +17,7 @@ import Command_Engine
 import numpy as np
 import matplotlib.pyplot as plt
 from utilities import Network_Kernels as network_clustering
+from utilities.Localization import Message
 import sys
 import os
 import colorsys
@@ -96,12 +97,15 @@ MCL_INFLATION_RANGE = (1.1, 10.0)
 
 
 def mcl_inflation_error(inflation):
-    """Return the error for an MCL inflation outside its range, or None."""
+    """Return the error Message for an MCL inflation outside its range, or None."""
     low, high = MCL_INFLATION_RANGE
     # Written so that nan, which compares false, is refused too.
     if low <= inflation <= high:
         return None
-    return f"Error: MCL inflation must be between {low} and {high}; got {inflation}."
+    return Message(
+        "Error: MCL inflation must be between {low} and {high}; got {inflation}.",
+        low=low, high=high, inflation=inflation,
+    )
 
 
 def print_help():
@@ -151,14 +155,14 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     # --- LIST COMMAND ---
     if args and args[0].lower() == 'list':
         if getattr(viewer, 'cluster_labels', None) is None:
-            msg = "No clusters are currently defined."
+            msg = Message("No clusters are currently defined.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
             return
@@ -194,7 +198,7 @@ def run(viewer, args):
             print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |")
         print(f"{'='*54}\n")
         
-        msg = f"Listed {len(sorted_clusters)} clusters in console."
+        msg = Message("Listed %n cluster(s) in console.", n=len(sorted_clusters))
         Command_Engine.show_status(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -251,7 +255,7 @@ def run(viewer, args):
     edges = np.array(viewer.edges, dtype=np.int32)
     labels = np.full(n_nodes, -1, dtype=int)
     
-    Command_Engine.show_status(viewer, f"Clustering ({mode.upper()})...")
+    Command_Engine.show_status(viewer, Message("Clustering ({mode})...", mode=mode.upper()))
     print(f"Running {mode.upper()} Clustering (Param={param1}, MinSize={min_sz})...")
 
     # =======================================================
@@ -262,8 +266,9 @@ def run(viewer, args):
         if not network_clustering.NUMBA_AVAILABLE:
             print("Error: Numba required for topology clustering.")
             Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
-            Command_Engine.show_status(viewer, "Error: Numba library missing.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            status = Message("Error: Numba library missing.")
+            Command_Engine.show_status(viewer, status)
+            Command_Engine.command_failed(viewer, status)
             return
 
         # Connected components of the edges the Jaccard filter keeps.
@@ -281,7 +286,7 @@ def run(viewer, args):
             import networkx as nx
             import scipy.sparse as sp
         except ImportError:
-            msg = "Missing libraries! Run: pip install markov_clustering networkx scipy"
+            msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
@@ -322,7 +327,7 @@ def run(viewer, args):
         try:
             import graspologic_native  # noqa: F401  (availability check)
         except ImportError:
-            msg = "Missing library! Run: pip install graspologic-native"
+            msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
@@ -398,7 +403,7 @@ def run(viewer, args):
     print(f"{'='*54}\n")
     
     n_clusters = len(sorted_clusters)
-    msg = f"Done! Found {n_clusters} clusters via {mode.upper()}."
+    msg = Message("Done! Found %n cluster(s) via {mode}.", n=n_clusters, mode=mode.upper())
     Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)

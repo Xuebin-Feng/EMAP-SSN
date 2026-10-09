@@ -1271,6 +1271,42 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No clusters are currently defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Listed %n cluster(s) in console.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Clustering ({mode})...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Numba library missing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing libraries! Run: {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing library! Run: {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Done! Found %n cluster(s) via {mode}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
         <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1593,6 +1629,102 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the network display changed during the capture, so nothing was saved. Run print again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;SVG&apos; export is not compatible with &apos;transparent&apos; or &apos;full&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Maximum of 2 keywords allowed when using &apos;SVG&apos; (e.g., &apos;print [filename] svg&apos;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No visible nodes to export.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved {format}: {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to save {format}: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error saving {format}. Check console.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid frequency Boolean expression. Ensure operators and parentheses are complete.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Frequency logic did not resolve to one value per alignment position.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Query command requires a POSITIONS or LOGIC_ARGUMENT parameter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No alignment loaded in the viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected MSA contains no aligned rows for the current network. Query analysis is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No bracketed argument provided. Use [...] syntax (e.g., [10-20] or [K&gt;10%]).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No selection found. Defaulting to ALL nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No sequences matched the expression &apos;{expression}&apos;. Aborting query.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No valid alignment columns mapped.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Individual frequency arguments must be enclosed in ()</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error parsing position logic &apos;[{logic}]&apos;: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Found %n matching position(s). Check terminal.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Queried %n position(s). Check terminal.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>No valid positions queried.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Current Reference: {reference}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1833,6 +1965,42 @@ Command-line usage:
     <message>
         <source>(min: {min}, max: {max})</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No subcluster groups to clear.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Cleared all subcluster groups (removed %n label instance(s)).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No clusters are currently defined. Run &apos;cluster&apos; first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Cluster {cluster} is empty or does not exist.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Subclustering {cluster} ({mode})...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No edges exist within {cluster} to perform subclustering.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Done! Found %n subcluster(s) in {cluster} via {mode}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>Error: Zoom width must be a valid number.</source>
@@ -2164,6 +2332,18 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>Filename contains unsupported characters: &apos;{file}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Negative position &apos;{position}&apos; must be written as &apos;({position})&apos;. Parentheses are required around negative positions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid position label &apos;{value}&apos;; expected a non-negative integer or insertion label, E, or END, or a negative position enclosed in parentheses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid position label &apos;{value}&apos;; expected a non-negative integer or insertion label, or a negative position enclosed in parentheses.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

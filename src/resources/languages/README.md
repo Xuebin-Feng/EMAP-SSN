@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. Of the commands' own console messages, those of agent, alignment, color, esmfold, export, group, hide, meta, offset, redo, reference, reset, run, save, select, spectrum, undo and zoom are marked; the other commands' and VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. Of the commands' own console messages, all but label's and logo's are marked; theirs and VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -117,7 +117,7 @@ Every text from the catalog shows accented, longer and bracketed, like `[Šåå�
 - Text still in plain English was never marked.
 - Text without its closing bracket is cut off.
 
-`tests/test_untranslated_text.py` runs this check for each window. The text on the Viewer's canvas isn't Qt widgets, so the test reads each file's code instead. A file whose every text on the canvas is marked is listed in `CANVAS_MARKED`, and from then on a new unmarked one fails.
+`tests/test_untranslated_text.py` runs this check for each window. The text on the Viewer's canvas isn't Qt widgets, so the test reads each file's code instead. A file whose every text on the canvas is marked is listed in `CANVAS_MARKED`, and from then on a new unmarked one fails. The check follows a name through its whole function, so text that only the terminal or MCP clients get, such as print's full report, goes in a variable of its own, not in one the console line shows.
 
 ## What stays English
 

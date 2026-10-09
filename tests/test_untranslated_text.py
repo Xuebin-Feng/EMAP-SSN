@@ -77,6 +77,7 @@ CANVAS_MARKED = frozenset({
     "Metadata_Core.py",
     "commands/agent.py",
     "commands/alignment.py",
+    "commands/cluster.py",
     "commands/color.py",
     "commands/esmfold.py",
     "commands/export.py",
@@ -84,6 +85,8 @@ CANVAS_MARKED = frozenset({
     "commands/hide.py",
     "commands/meta.py",
     "commands/offset.py",
+    "commands/print.py",
+    "commands/query.py",
     "commands/redo.py",
     "commands/reference.py",
     "commands/reset.py",
@@ -91,6 +94,7 @@ CANVAS_MARKED = frozenset({
     "commands/save.py",
     "commands/select.py",
     "commands/spectrum.py",
+    "commands/subcluster.py",
     "commands/undo.py",
     "commands/zoom.py",
     "web_ui/Browser_Page.py",
@@ -840,7 +844,7 @@ class ViewerCanvasTextTests(WindowTestCase):
 
         import EMAPSSN_Config
 
-        folder = tempfile.mkdtemp()  # meta makes its metadata folder first.
+        folder = tempfile.mkdtemp()  # meta and print make their folders first.
         self.addCleanup(__import__("shutil").rmtree, folder, True)
         commands = sorted(name for name in CANVAS_MARKED if name.startswith("commands/"))
         self.assertTrue(commands)
@@ -850,7 +854,8 @@ class ViewerCanvasTextTests(WindowTestCase):
             viewer.console_text.text = ""
             with self.subTest(command=relative), contextlib.redirect_stdout(io.StringIO()), \
                     mock.patch.object(module, "register", create=True), \
-                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True):
+                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+                    mock.patch.object(EMAPSSN_Config, "resolve_directory_path", lambda value, *rest: folder):
                 module.run(viewer, ["help"])
                 shown = viewer.console_text.text
                 self.assertTrue(shown)
@@ -924,7 +929,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         # An error filled into an error, such as the output-name check's, and a
         # first line in a JoinedMessage.
         import EMAPSSN_Config
-        from commands import color, export, meta, select
+        from commands import color, export, meta, query, select
         from utilities.Localization import Message
 
         folder = tempfile.mkdtemp()
@@ -935,6 +940,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         self.assert_translated(viewer.console_text.text)
         cases = (
             (color, [], {}, ()),
+            (query, [], {}, ()),
             (select, [], {}, ()),
             (select, ["9"], {}, ("9",)),
             (select, ["save", "../1.txt"], {"selected_indices": [0]}, ()),
@@ -1031,6 +1037,66 @@ class ViewerCanvasTextTests(WindowTestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             spectrum.run(viewer, ["{9}"])
         self.assert_translated(viewer.console_text.text, "9", "1.5", "coolwarm")
+
+    def test_errors_of_position_and_frequency_arguments(self):
+        # query and logo fill these errors into their own messages, as cluster
+        # and subcluster do the MCL inflation error.
+        from commands import cluster, query
+        from utilities import Sequence_Utils
+
+        failing = (
+            lambda: Sequence_Utils.reject_bare_negative_positions("-1"),
+            lambda: Sequence_Utils.normalize_displayed_position_atom("1-"),
+            lambda: Sequence_Utils.normalize_displayed_position_atom("1-", allow_end=True),
+            lambda: query.parse_query_positions("[-1]", []),
+            lambda: query._normalize_frequency_target("(K)"),
+            lambda: query._FrequencyLogicParser("M_0 &", {"M_0": True}).parse(),
+        )
+        for call in failing:
+            with self.assertRaises(ValueError) as caught:
+                call()
+            with self.subTest(error=str(caught.exception)):
+                self.assert_translated(display_text(caught.exception), "(K)")
+        self.assert_translated(display_text(cluster.mcl_inflation_error(99)))
+
+    def test_print_failures(self):
+        # A capture the window spoiled says why, inside "Failed to save {format}: {error}".
+        import importlib
+        from types import SimpleNamespace
+
+        import EMAPSSN_Config
+
+        print_command = importlib.import_module("commands.print")
+        viewer = SimpleNamespace(
+            canvas=SimpleNamespace(
+                size=(10, 10), physical_size=(10, 10), scene=None, bgcolor="white", update=lambda: None,
+            ),
+            view=SimpleNamespace(camera=SimpleNamespace(rect=(0, 0, 1, 1), aspect=None)),
+            console_text=SimpleNamespace(text=""), hud_displays={},
+        )
+        events = print_command._CaptureEvents(viewer, [])
+        failures = []
+        events._next_pause = 0
+        viewer.canvas.size = (20, 20)  # The window was resized.
+        with self.assertRaises(print_command._CaptureInterrupted) as caught:
+            events.pause_if_due()
+        failures.append(caught.exception)
+        viewer.canvas.size = (10, 10)
+        events._next_pause = 0
+        with mock.patch.object(print_command, "_process_events_without_input", side_effect=events._mark_changed), \
+                self.assertRaises(print_command._CaptureInterrupted) as caught:
+            events.pause_if_due()  # Something redrew the network.
+        failures.append(caught.exception)
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        for error in failures + [RuntimeError("9")]:
+            with self.subTest(error=str(error)), contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()), \
+                    mock.patch.object(EMAPSSN_Config, "resolve_directory_path", lambda value, *rest: folder), \
+                    mock.patch.object(print_command, "_render_capture", side_effect=error):
+                print_command.run(viewer, ["1"])
+                self.assert_translated(viewer.console_text.text, "PNG", "9")
+        self.assertEqual(os.listdir(folder), [])
 
     def test_the_metadata_upload_summary_and_its_errors(self):
         from types import SimpleNamespace
