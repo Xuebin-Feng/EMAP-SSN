@@ -35,6 +35,11 @@ Then it compiles each language's catalog into emapssn_<language>.qm, the
 file the program loads, and checks that every translation keeps its
 text's placeholders, such as {count}.
 
+It also lists the translated tool help pages, <name>.<language>.md beside
+src/tools/tool_descriptions/<name>.md, whose English page changed since:
+Tools shows those in English until they are brought up to date
+(utilities/Help_Pages.py). That is a note, not a failure.
+
 --check changes nothing. It exits with 1 if emapssn.ts no longer lists the
 code's texts, if a compiled catalog no longer matches its .ts file, or if a
 translation lost a placeholder. The test suite runs it, so a text marked
@@ -356,6 +361,27 @@ def stage_pages(source_dir, stage_dir):
     return problems
 
 
+def help_page_reports(source_dir):
+    """A line for each translated tool help page under source_dir that Tools shows in English.
+
+    Help_Pages.help_page_text shows a translation only while its first line
+    matches its English page, so these need bringing up to date. They are
+    reported, not refused: the window shows the English page meanwhile.
+    """
+    from utilities import Help_Pages
+
+    lines = []
+    for translation, page in Help_Pages.stale_translations(Path(source_dir) / "tools" / "tool_descriptions"):
+        if not page.is_file():
+            lines.append(f"{translation.name} translates {page.name}, which no longer exists, so Tools never shows it.")
+        else:
+            lines.append(
+                f"{translation.name} was translated from another version of {page.name}, so Tools shows the "
+                f"English page. Bring it up to date, then make its first line:\n  {Help_Pages.translation_marker(page)}"
+            )
+    return lines
+
+
 def run_qt_tool(name, arguments):
     """Run lupdate or lrelease. Returns what it printed beyond its progress lines."""
     result = subprocess.run(
@@ -516,6 +542,8 @@ def update_catalogs(
             done = sum(1 for message in live if message.status == "" and any(message.translations))
             report(f"{catalog.name}: {done} of {len(live)} texts translated.")
 
+    for line in help_page_reports(source_dir):
+        report(line)
     for problem in problems:
         report(problem)
     return 1 if problems else 0

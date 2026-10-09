@@ -180,6 +180,12 @@ still change before version 1.0.0.
   its style now takes from the page's script. It takes its texts from the windows'
   catalogs under `MetadataPage`, and a refused column deletion reaches it in the
   Viewer's language.
+- **The tool help pages can be translated.** A translation of
+  `src/tools/tool_descriptions/<name>.md` is a whole page beside it,
+  `<name>.<language>.md`, whose first line names the English page by its SHA-256. The
+  Tools window shows it in its language while that line matches, and the English page
+  once the English changes, until the translation is brought up to date; the catalog
+  update lists those. Card titles still come from the English pages.
 
 ### Changed
 

@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent and metadata pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are still English. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent and metadata pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are translated as whole pages, and none is yet. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -129,6 +129,16 @@ As the Viewer's web server serves a page or one of its scripts, it writes each t
 A page's text can't be counted, so it holds no `%n`. A text that a `.js` file passes to `t()` holds no backslash, since lupdate reads one wrongly there. The update refuses both. A message the Viewer sends a page, such as an error, is a `Message` it gives the page with `display_text`, so the page shows it translated while the terminal and MCP clients get the English.
 
 What a page saves stays English, as the settings files do: the names of the model cards the Agent page starts with or adds, which go to `model_card.json`.
+
+## Tool help pages
+
+The Tools window shows a tab's help from `src/tools/tool_descriptions/<name>.md`. A translation is a whole page beside it, `<name>.<language>.md`, such as `Embedding_MSA.zh_CN.md`, whose first line names the English page it was made from:
+
+```
+<!-- Translation of Embedding_MSA.md, sha256 <the English page's SHA-256> -->
+```
+
+Tools shows the translation in its language while that line matches the English page, and the English page otherwise. So after the English page changes, it shows until its translation is brought up to date. The update command lists such translations, with the first line each needs (`utilities/Help_Pages.py` makes it, as `translation_marker`); that is a note, not a failure. A translation keeps the English page's headings, tool names, setting keys, code and file names, and a tool's heading reads as its card title does in the catalog.
 
 ## Find text that is not marked
 

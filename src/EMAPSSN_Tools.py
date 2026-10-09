@@ -71,6 +71,7 @@ from Embedding_Alignment_Engine import (
     normalize_precision_setting,
     tiled_accelerator_support,
 )
+from utilities import Help_Pages
 from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from tools.tool_helpers.Model_Plugins import (
@@ -389,12 +390,11 @@ def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
     return True, " ".join([_incomplete_network_summary(network_info), default_tip or fallback])
 
 def get_tool_titles():
-    """Map tool script filenames to their display titles in the Markdown descriptions."""
-    descriptions_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "tools",
-        "tool_descriptions",
-    )
+    """Map tool script filenames to their display titles in the Markdown descriptions.
+
+    Only the English pages count; a translation's headings name the same tools.
+    """
+    descriptions_dir = Help_Pages.HELP_PAGES_DIR
     heading_pattern = re.compile(
         r"^#\s+(.+?)\s+\(`([^`]+\.py)`\)\s*$"
     )
@@ -403,7 +403,7 @@ def get_tool_titles():
         return titles
 
     for filename in os.listdir(descriptions_dir):
-        if not filename.endswith(".md"):
+        if not filename.endswith(".md") or Help_Pages.is_translation(filename):
             continue
         description_path = os.path.join(descriptions_dir, filename)
         try:
@@ -2502,21 +2502,19 @@ class ToolsGUI(QMainWindow):
             md_name = f"{description_key}.md"
             alt_md_name = f"{description_key.replace(' ', '_')}.md"
             
-            md_path = os.path.join(_SRC_DIR, "tools", "tool_descriptions", md_name)
-            alt_md_path = os.path.join(_SRC_DIR, "tools", "tool_descriptions", alt_md_name)
+            md_path = os.path.join(Help_Pages.HELP_PAGES_DIR, md_name)
+            alt_md_path = os.path.join(Help_Pages.HELP_PAGES_DIR, alt_md_name)
             
             markdown_content = ""
             
-            # 1. Try to load the exact Markdown file
-            if os.path.exists(md_path):
-                with open(md_path, "r", encoding="utf-8") as f:
-                    markdown_content = f.read()
-            # 2. Try the underscore version if the exact one fails
-            elif os.path.exists(alt_md_path):
-                with open(alt_md_path, "r", encoding="utf-8") as f:
-                    markdown_content = f.read()
+            # Try the exact Markdown file, then the underscore version. Each
+            # shows in the window's language when it has a current translation.
+            for candidate in (md_path, alt_md_path):
+                if os.path.exists(candidate):
+                    markdown_content = Help_Pages.help_page_text(candidate, installed_language())
+                    break
             
-            # 3. Fallback to the Python script's internal docstring if no MD file exists
+            # Otherwise fall back to the Python script's internal docstring
             if not markdown_content.strip():
                 s_data = self.script_data.get(path, {})
                 docstring = s_data.get('docstring', '')

@@ -481,6 +481,21 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("resources/agent/attachments.js:1: 'Back\\\\slash' holds a backslash")
                             for line in self.lines), self.lines)
 
+    def test_a_help_page_translation_behind_its_page_is_noted_not_refused(self):
+        from utilities import Help_Pages
+
+        pages = self.src / "tools" / "tool_descriptions"
+        pages.mkdir(parents=True)
+        (pages / "Demo.md").write_text("# Demo\n", encoding="utf-8")
+        (pages / "Demo.de.md").write_text(Help_Pages.translation_marker(pages / "Demo.md") + "\n# Demo\n",
+                                          encoding="utf-8")
+        self.assertEqual(self.update(), 0, self.lines)
+        self.assertFalse(any("Demo.de.md" in line for line in self.lines), self.lines)
+        (pages / "Demo.md").write_text("# Demo, revised\n", encoding="utf-8")
+        self.assertEqual(self.update(check=True), 0, self.lines)
+        self.assertTrue(any(line.startswith("Demo.de.md was translated from another version of Demo.md")
+                            for line in self.lines), self.lines)
+
     def test_a_language_must_be_a_language_code(self):
         for language in ("german", "DE", "de-DE", "../de"):
             with self.subTest(language=language), self.assertRaises(ValueError):
