@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so is the Viewer's window: its title, sidebar and dialogs. The Viewer's canvas text and VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages and VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -79,11 +79,14 @@ Each window files its texts under one context, which translators see as a group:
 | Text in a table made before any window, such as a module's labels | `QT_TRANSLATE_NOOP("Config", "Save")` where it is written, and `translate("Config", label)` where it shows |
 | A message on the Viewer's console line | `Message("Saved {name}.", name=name)` |
 | A counted message on the console line | `Message("Removed %n group(s) from {name}.", n=count, name=name)` |
+| A message put together from sentences | `JoinedMessage([Message("Matched %n node(s).", n=nodes), Message("Ignored %n row(s).", n=rows)])` |
 | Text from code without Qt that a window shows, such as an error | `ValueError(Message("Enter a profile name."))`, shown with `display_text(error)` |
 
-A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. `QT_TRANSLATE_NOOP` and `Message` come from `utilities.Localization`, which code without Qt can import.
+A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. `QT_TRANSLATE_NOOP`, `Message` and `JoinedMessage` come from `utilities.Localization`, which code without Qt can import.
 
 A value that is text to translate too, such as a page's name in a message, is a `Message` itself: `Message("{page} opened at {url}", page=Message("Agent UI"), url=url)`. The pseudo-language check can't see an untranslated value, which shows inside the translated text's brackets, so a test checks such a value on its own.
+
+The console line shows only the first line of a message given to `print_help`, and the terminal, which stays English, shows the rest. So a message whose later lines are details for the terminal, such as a list of what is available, marks its first line and adds the details after it: `JoinedMessage([Message("Group '{group}' does not exist.", group=name), details], separator="\n")`. Its English is the same as before.
 
 Pass a whole sentence as one plain string, and fill in the values after translating it. Don't write `translate("Config", f"Saved {count}")`, and don't add text to a translated one, as in `translate("Config", "Saved") + ":"`. Pass the arguments in order, without names. The update refuses texts that no catalog can list, and calls whose text or count Qt's lupdate would miss, such as a text whose lines a backslash joins. A text that two places show alike in English but a language may not, such as a column called "Count" and the verb, takes a comment telling them apart: `translate("Config", "Count", "statistics column")`.
 
@@ -110,7 +113,7 @@ Every text from the catalog shows accented, longer and bracketed, like `[Šåå�
 - Text still in plain English was never marked.
 - Text without its closing bracket is cut off.
 
-`tests/test_untranslated_text.py` runs this check for each window.
+`tests/test_untranslated_text.py` runs this check for each window. The text on the Viewer's canvas isn't Qt widgets, so the test reads each file's code instead. A file whose every text on the canvas is marked is listed in `CANVAS_MARKED`, and from then on a new unmarked one fails.
 
 ## What stays English
 

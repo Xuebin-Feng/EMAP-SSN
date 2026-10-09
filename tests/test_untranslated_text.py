@@ -12,9 +12,11 @@ left, the window joins FULLY_MARKED, and from then on a new unmarked text
 fails its test. Text that is translated must also show whole.
 
 The Viewer is covered by its window: the title, the sidebar its web
-plugins fill, and the sidebar's toggle. Its canvas text (the HUD and the
-console line) isn't Qt widgets; the console line's Message texts are
-checked in test_translation_loading.
+plugins fill, and the sidebar's toggle. Its canvas text (the HUD, the
+console line and the background-job status) isn't Qt widgets. Each file
+that writes it is read instead, and a file whose canvas text is all marked
+joins CANVAS_MARKED; ViewerCanvasTextTests shows the texts put together
+from several parts under the pseudo-language.
 """
 
 import contextlib
@@ -22,6 +24,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -51,11 +54,30 @@ from PySide6.QtGui import QTextDocumentFragment
 
 from desktop.Desktop_App import ToggleSwitch, fit_buttons_to_text, mark_name_item
 from utilities.Localization import display_text, is_pseudo_translated, pseudo_translate
-from tests.translation_fixtures import cut_off_texts, outside_the_catalog, pseudo_language, visible_texts
+from tests.translation_fixtures import (
+    cut_off_texts,
+    outside_the_catalog,
+    pseudo_language,
+    shows_canvas_text,
+    unmarked_canvas_texts,
+    visible_texts,
+)
 
 # Windows whose every text comes from a catalog. Marking a window's text
 # (language step 6) moves it here.
 FULLY_MARKED = frozenset({"Config", "Tools", "Viewer window"})
+
+# Files under src whose every text on the Viewer's canvas comes from a
+# catalog. Marking a file's console messages moves it here.
+CANVAS_MARKED = frozenset({
+    "Background_Job_Scheduler.py",
+    "Command_Engine.py",
+    "EMAPSSN_Viewer.py",
+    "Metadata_Core.py",
+    "web_ui/Browser_Page.py",
+    "web_ui/agent_backend.py",
+    "web_ui/meta_backend.py",
+})
 
 
 def flush(app):
@@ -612,6 +634,197 @@ class ViewerRunTimeTextTests(WindowTestCase):
         for text in texts:
             with self.subTest(text=text):
                 self.assert_translated(text)
+
+
+class CanvasTextTests(unittest.TestCase):
+    """What each file puts on the Viewer's canvas, read from its code
+    (translation_fixtures.unmarked_canvas_texts)."""
+
+    def test_every_canvas_text_of_a_marked_file_comes_from_a_catalog(self):
+        shown_by = set()
+        for path in sorted(SRC.rglob("*.py")):
+            relative = path.relative_to(SRC).as_posix()
+            source = path.read_text(encoding="utf-8")
+            if "__pycache__" in path.parts or not shows_canvas_text(source):
+                continue
+            shown_by.add(relative)
+            unmarked = unmarked_canvas_texts(source)
+            with self.subTest(file=relative):
+                if relative in CANVAS_MARKED:
+                    self.assertEqual(unmarked, [], f"{relative} shows canvas text not marked for translation")
+                else:
+                    self.assertTrue(unmarked, f"Every canvas text in {relative} is marked now: add it to CANVAS_MARKED.")
+        self.assertLessEqual(CANVAS_MARKED, shown_by, "CANVAS_MARKED names a file that shows no canvas text")
+
+    def test_the_check_finds_each_kind_of_unmarked_text(self):
+        source = '''
+HELP = "Usage: zoom <width>"
+
+def run(viewer, args, error):
+    Command_Engine.show_status(viewer, "Running.")
+    Command_Engine.print_help(viewer, f"Zoomed to {args[0]}.")
+    Command_Engine.print_help(viewer, HELP)
+    message = "Saved " + args[0]
+    Command_Engine.show_status(viewer, message)
+    Command_Engine.show_status(viewer, str(error))
+    Command_Engine.print_help(viewer, "; ".join(args))
+    viewer.zoom_text.text = f"View Width: {args[0]}"
+    Command_Engine.report_selection_error(viewer, args[0], error, "Hide")
+    Command_Engine.print_help(viewer, msg="Usage: hide <expression>")
+    Command_Engine.show_status(viewer, Message("Running {name}.", name=args[0]))
+    Command_Engine.show_status(viewer, translate("Viewer", "View Width: {width}").format(width=1))
+    Command_Engine.report_selection_error(viewer, args[0], error, Message("Hide"))
+    Command_Engine.show_status(viewer, "")
+    Command_Engine.show_status(viewer, args[0])
+'''
+        self.assertEqual([line for line, _ in unmarked_canvas_texts(source)], [5, 6, 7, 9, 10, 11, 12, 13, 14])
+
+
+class ViewerCanvasTextTests(WindowTestCase):
+    """The Viewer's canvas text under the pseudo-language: the HUD, and the
+    messages put together from several parts, which the code alone can't show.
+
+    Every letter of the pseudo-language takes an accent, so once a test takes
+    out the values it filled in, a plain letter left came from no catalog.
+    Brackets can't tell here, since some texts hold their own, as
+    "[Cluster {cluster}] {node}" does.
+    """
+
+    def setUp(self):
+        pseudo_language(self, self.app)
+
+    def assert_translated(self, text, *values):
+        self.assertTrue(text)
+        left = str(text)
+        for value in values:
+            left = left.replace(str(value), "")
+        self.assertEqual(re.findall("[A-Za-z]", left), [], text)
+
+    def test_the_hud(self):
+        import collections
+        from types import SimpleNamespace
+
+        import numpy
+
+        import EMAPSSN_Viewer
+
+        class Visual(SimpleNamespace):
+            """Stands in for a VisPy visual and keeps what it was given."""
+
+        viewer = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
+        viewer.hud_layout = collections.defaultdict(float)
+        viewer.canvas = SimpleNamespace(size=(1200, 800), scene=None, update=lambda: None)
+        viewer.vispy_ui_face = viewer.vispy_monospace_face = "Noto Sans"
+        viewer.view = SimpleNamespace(camera=SimpleNamespace(rect=SimpleNamespace(width=1234.5)))
+        viewer.visible_mask = numpy.array([True, False, False])
+        viewer.update_console_background = lambda: None
+        viewer.hud_displays = {}
+        with mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Text", Visual), \
+                mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Rectangle", Visual):
+            viewer.create_hud()
+        viewer._update_hud_elements()
+        self.assert_translated(viewer.instr_text.text)
+        self.assert_translated(viewer.zoom_text.text, "1234.5")
+        self.assert_translated(viewer.hidden_text.text, "2")
+
+    def test_the_selected_nodes_cluster_and_groups(self):
+        from types import SimpleNamespace
+
+        from EMAPSSN_Viewer import MainViewer
+
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.full_headers = ["101", "102"]
+        viewer.cluster_labels = [3, -1]
+        viewer.group_labels = [{"7", "8"}, set()]
+        viewer.console_text = SimpleNamespace(text="")
+        viewer.hud_displays = {}
+        viewer.update_nodes = viewer.broadcast_event = lambda *args: None
+        for node in (0, 1):
+            with contextlib.redirect_stdout(io.StringIO()):
+                viewer.apply_left_click_focus(node)
+            with self.subTest(node=node):
+                self.assert_translated(viewer.console_text.text, "101", "102", "7", "8", "3")
+
+    def test_a_selection_errors_first_line_and_what_failed(self):
+        # The console line shows the error's first line; the terminal gets every line, in English.
+        from types import SimpleNamespace
+
+        import Command_Engine
+
+        failing = (
+            lambda: Command_Engine.resolve_label_target(None, None, "noise"),
+            lambda: Command_Engine.resolve_label_target([1, 2], [set(), set()], "123"),
+            lambda: Command_Engine.parse_selection_expression('"12'),
+            lambda: Command_Engine.parse_selection_expression("12 &"),
+            lambda: Command_Engine.parse_metadata_range("-1-0"),
+        )
+        viewer = SimpleNamespace(console_text=SimpleNamespace(text=""))
+        for call in failing:
+            with self.assertRaises(Command_Engine.SelectionExpressionError) as caught:
+                call()
+            error = caught.exception
+            terminal = io.StringIO()
+            with contextlib.redirect_stdout(terminal):
+                Command_Engine.report_selection_error(viewer, "12", error)
+            with self.subTest(error=str(error)):
+                self.assert_translated(viewer.console_text.text, '"12', "12 &", "123", "-1-0", "12")
+                self.assertIn(f"Selection error: {str(error).splitlines()[0]}", terminal.getvalue())
+                self.assertNotIn("Šéļéçţîöñ", terminal.getvalue())
+
+    def test_the_metadata_upload_summary_and_its_errors(self):
+        from types import SimpleNamespace
+
+        import Metadata_Core
+
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        (folder / "1.csv").write_text(",1\n,number\n101,5\n102,6\n", encoding="utf-8")
+        (folder / "2.csv").write_text(",1\n", encoding="utf-8")
+        viewer = SimpleNamespace(
+            full_headers=["101", "102"], n_nodes=2, metadata={},
+            console_text=SimpleNamespace(text=""),
+            _save_state=lambda: None, broadcast_metadata_state=lambda: None,
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            Metadata_Core.upload_metadata(viewer, [str(folder / name) for name in ("1.csv", "2.csv", "3.csv")])
+        self.assertIn("1.csv", viewer.console_text.text)
+        self.assert_translated(viewer.console_text.text, "1.csv", "2.csv", "3.csv")
+        for requested, metadata in ((["9"], {"1": {}}), (["9"], {}), (["all"], {}), (["Node ID"], {})):
+            viewer.metadata = metadata
+            with self.subTest(requested=requested, metadata=metadata), \
+                    self.assertRaises(Metadata_Core.MetadataColumnDeleteError) as caught:
+                Metadata_Core._resolve_metadata_column_names(viewer, requested)
+            self.assert_translated(display_text(caught.exception), "9", "1", "Node ID")
+
+    def test_the_model_card_errors(self):
+        from web_ui import agent_backend
+
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        for content in ("{", '{"cards": 1}'):
+            cards = folder / "cards.json"
+            cards.write_text(content, encoding="utf-8")
+            with self.subTest(content=content), self.assertRaises(agent_backend.ModelCardsError) as caught:
+                agent_backend._read_model_card_document(str(cards))
+            cause = caught.exception.__cause__
+            self.assert_translated(display_text(caught.exception), str(cards), *([str(cause)] if cause else []))
+
+    def test_the_background_job_status(self):
+        from types import SimpleNamespace
+
+        from Background_Job_Scheduler import BackgroundJob, BackgroundJobScheduler
+
+        shown = []
+        scheduler = SimpleNamespace(_set_viewer_status=lambda message: shown.append(display_text(message)))
+        job = BackgroundJob(7, "label", "label -> 1.svg", None, None, "1.svg")
+        with contextlib.redirect_stdout(io.StringIO()):
+            BackgroundJobScheduler._report_started(scheduler, job)
+            BackgroundJobScheduler._report_succeeded(scheduler, job, {}, 2.5)
+            BackgroundJobScheduler._report_failed(scheduler, job, "98", "", 2.5)
+        self.assertEqual(len(shown), 3)
+        for text in shown:
+            with self.subTest(text=text):
+                self.assert_translated(text, "label -> 1.svg", "1.svg", "label", "2.5", "98", "7")
 
 
 if __name__ == "__main__":

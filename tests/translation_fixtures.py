@@ -13,6 +13,7 @@ together. pseudo_language() installs the pseudo-language for one test.
 
 Not collected by unittest; import with ``from tests.translation_fixtures import ...``.
 """
+import ast
 import re
 
 from PySide6 import QtGui
@@ -133,6 +134,125 @@ def cut_off_texts(window):
         if needed > room:
             found.append((_describe(label, "text"), text))
     return found
+
+
+# What puts text on the Viewer's canvas, with the position and the name of
+# its text argument: the console line and the background-job status line,
+# the helpers that pass their text on to them, and the name of what failed
+# that report_selection_error starts the console line with.
+CANVAS_TEXT_CALLS = {
+    "show_status": (1, "message"),
+    "print_help": (1, "msg"),
+    "set_background_job_status": (0, "message"),
+    "_set_viewer_status": (0, "message"),
+    "_set_console_message": (1, "message"),
+    "_set_console_text": (1, "message"),
+    "report_selection_error": (3, "operation"),
+}
+# The HUD's text visuals, whose .text a file sets itself.
+HUD_TEXTS = frozenset({"instr_text", "zoom_text", "hidden_text", "background_job_status_text"})
+# Calls whose result is marked text: a message, or a translation.
+MARKING_CALLS = frozenset({"Message", "JoinedMessage", "translate", "tr", "display_text"})
+
+
+def _called_name(call):
+    function = call.func
+    return function.id if isinstance(function, ast.Name) else getattr(function, "attr", None)
+
+
+def _has_letter(text):
+    return any(character.isalpha() for character in text)
+
+
+def _unmarked(node, assignments):
+    """Whether node, an expression a file shows on the canvas, holds text no catalog supplies.
+
+    Text with a letter written in the code, as a string or in an f-string, is
+    unmarked, and so is str() of a value, which shows a message's English, and
+    text joined from parts. A name is followed to what its function assigns
+    to it. Anything else, such as a parameter or another function's result,
+    is the caller's or that function's to mark.
+    """
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str) and _has_letter(node.value)
+    if isinstance(node, ast.JoinedStr):
+        return any(isinstance(part, ast.Constant) and _has_letter(part.value) for part in node.values)
+    if isinstance(node, ast.BinOp):
+        return _unmarked(node.left, assignments) or _unmarked(node.right, assignments)
+    if isinstance(node, ast.IfExp):
+        return _unmarked(node.body, assignments) or _unmarked(node.orelse, assignments)
+    if isinstance(node, ast.Name):
+        return any(_unmarked(value, assignments) for value in assignments.get(node.id, ()))
+    if isinstance(node, ast.Call):
+        name = _called_name(node)
+        if name in MARKING_CALLS:
+            return False
+        if name == "format" and isinstance(node.func, ast.Attribute):
+            return _unmarked(node.func.value, assignments)
+        return name in ("str", "join")
+    return False
+
+
+def unmarked_canvas_texts(source):
+    """(line, code) for each text source shows on the Viewer's canvas unmarked.
+
+    That is the text given to the console line and the background-job status
+    line (CANVAS_TEXT_CALLS) and set on the HUD's text visuals (HUD_TEXTS),
+    whether written there or assigned to a name passed there, in the same
+    function or, for a name the function doesn't assign, at the module's top
+    level, as a help text is. A marked text is a Message, a JoinedMessage, a
+    translate() result, or display_text() of a value.
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    found = []
+
+    def assignments_in(nodes):
+        assignments = {}
+        for node in nodes:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assignments.setdefault(target.id, []).append(node.value)
+            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)) and isinstance(node.target, ast.Name) and node.value:
+                assignments.setdefault(node.target.id, []).append(node.value)
+        return assignments
+
+    module_assignments = assignments_in(tree.body)
+
+    def check(function):
+        assignments = {**module_assignments, **assignments_in(ast.walk(function))}
+        for node in ast.walk(function):
+            shown = None
+            if isinstance(node, ast.Call):
+                position, name = CANVAS_TEXT_CALLS.get(_called_name(node), (None, None))
+                if position is not None and len(node.args) > position:
+                    shown = node.args[position]
+                elif position is not None:
+                    shown = next((keyword.value for keyword in node.keywords if keyword.arg == name), None)
+                elif _called_name(node) == "Text":
+                    shown = next((keyword.value for keyword in node.keywords if keyword.arg == "text"), None)
+            elif isinstance(node, ast.Assign):
+                target = node.targets[0]
+                if (isinstance(target, ast.Attribute) and target.attr == "text"
+                        and isinstance(target.value, ast.Attribute) and target.value.attr in HUD_TEXTS):
+                    shown = node.value
+            if shown is not None and _unmarked(shown, assignments):
+                found.append((node.lineno, lines[node.lineno - 1].strip()))
+
+    functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    for function in functions:
+        check(function)
+    # A function nested in another is walked with it too; count each line once.
+    return sorted(set(found))
+
+
+def shows_canvas_text(source):
+    """Whether source puts any text on the Viewer's canvas, marked or not."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call) and _called_name(node) in CANVAS_TEXT_CALLS:
+            return True
+    return False
 
 
 def outside_the_catalog(text):

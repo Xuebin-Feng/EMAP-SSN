@@ -123,6 +123,14 @@ still change before version 1.0.0.
   from a desktop launcher fails and no terminal can open to show its log, the dialog that
   says so shows in the language the windows show, or in English if that language can't
   load. The log stays English.
+- **The Viewer's canvas text is ready to translate, outside the commands.** The HUD
+  (its controls line, View Width and Hidden Nodes) and the console-line messages of the
+  Viewer, the command engine, background jobs, the metadata spreadsheet and the agent
+  come from the catalog, the selection-expression errors included. The terminal, logs
+  and MCP replies keep the English text. The commands' own messages follow. Counted
+  messages now read correctly for one, as in "Selected 1 node.", and the metadata
+  upload summary gives its counts as separate sentences. The error for an invalid
+  metadata predicate shows its example as '{Length>500}', no longer with doubled braces.
 
 ### Changed
 

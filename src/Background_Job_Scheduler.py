@@ -28,6 +28,7 @@ import weakref
 
 from PySide6 import QtCore
 from desktop.Desktop_App import open_in_file_manager
+from utilities.Localization import Message
 
 
 Worker = Callable[[Any], Mapping[str, Any]]
@@ -133,9 +134,12 @@ class BackgroundJobScheduler(QtCore.QObject):
                 command_context.add_job(job_id, output_path=output_path)
             self._jobs.put(job)
 
-        message = (
-            f"Queued background job #{job_id}: {job.command_name} "
-            f"(position {queue_position}) -> {os.path.basename(output_path)}"
+        message = Message(
+            "Queued background job #{job}: {command} (position {position}) -> {file}",
+            job=job_id,
+            command=job.command_name,
+            position=queue_position,
+            file=os.path.basename(output_path),
         )
         print(message)
         self._set_viewer_status(message)
@@ -216,15 +220,20 @@ class BackgroundJobScheduler(QtCore.QObject):
     def _report_started(self, job):
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, "running")
-        message = f"Running background job #{job.job_id}: {job.description}"
+        message = Message(
+            "Running background job #{job}: {description}", job=job.job_id, description=job.description
+        )
         print(message)
         self._set_viewer_status(message)
 
     @QtCore.Slot(object, object, float)
     def _report_succeeded(self, job, result, elapsed):
-        detail = result.get("message") or f"Saved {job.output_path}"
-        message = (
-            f"Background job #{job.job_id} completed in {elapsed:.1f}s: {detail}"
+        detail = result.get("message") or Message("Saved {path}", path=job.output_path)
+        message = Message(
+            "Background job #{job} completed in {seconds}s: {detail}",
+            job=job.job_id,
+            seconds=f"{elapsed:.1f}",
+            detail=detail,
         )
         print(f"\n{message}")
         self._set_viewer_status(message)
@@ -241,9 +250,12 @@ class BackgroundJobScheduler(QtCore.QObject):
 
     @QtCore.Slot(object, str, str, float)
     def _report_failed(self, job, error, detail, elapsed):
-        message = (
-            f"Background job #{job.job_id} failed after {elapsed:.1f}s "
-            f"({job.command_name}): {error}"
+        message = Message(
+            "Background job #{job} failed after {seconds}s ({command}): {error}",
+            job=job.job_id,
+            seconds=f"{elapsed:.1f}",
+            command=job.command_name,
+            error=error,
         )
         print(f"\n{message}")
         print(detail)

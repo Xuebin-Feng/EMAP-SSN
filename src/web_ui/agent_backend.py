@@ -41,6 +41,7 @@ if _SRC_DIR not in sys.path:
 import Command_Engine
 from PySide6 import QtCore
 from desktop.Desktop_App import translate
+from utilities.Localization import JoinedMessage, Message
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
 from web_ui.agent_images import validate_attachments, message_content, history_messages
@@ -103,10 +104,10 @@ def _read_model_card_document(path):
     _remove_stale_partials(path)
 
     def unusable(problem):
-        return ModelCardsError(
-            f"{path} {problem}. The file was left unchanged: correct it, or "
-            "delete it to start over from the default cards."
-        )
+        return ModelCardsError(JoinedMessage([
+            problem,
+            Message("The file was left unchanged: correct it, or delete it to start over from the default cards."),
+        ]))
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -114,11 +115,11 @@ def _read_model_card_document(path):
     except FileNotFoundError:
         return None
     except json.JSONDecodeError as e:
-        raise unusable(f"is not valid JSON ({e})") from e
+        raise unusable(Message("{path} is not valid JSON ({error}).", path=path, error=e)) from e
     except (OSError, UnicodeError) as e:
-        raise unusable(f"could not be read ({e})") from e
+        raise unusable(Message("{path} could not be read ({error}).", path=path, error=e)) from e
     if not isinstance(document, dict) or not _is_card_list(document.get("cards", [])):
-        raise unusable('must contain a JSON object whose "cards" is a list of objects')
+        raise unusable(Message('{path} must contain a JSON object whose "cards" is a list of objects.', path=path))
     return document
 
 
@@ -216,7 +217,9 @@ def activate_agent_from_card(viewer, card, quiet=False):
     options     = card.get("options") or None
 
     if not url:
-        Command_Engine.print_help(viewer, f"Error: Model card '{name}' has no URL configured. Open ⚙ Models to edit it.")
+        Command_Engine.print_help(viewer, Message(
+            "Error: Model card '{card}' has no URL configured. Open ⚙ Models to edit it.", card=name
+        ))
         return False
 
     # A card may name the chat endpoint itself. Strip it before the /models
@@ -254,7 +257,7 @@ def activate_agent_from_card(viewer, card, quiet=False):
     viewer.llm_options     = options
 
     if not quiet:
-        Command_Engine.print_help(viewer, f"LLM Agent Activated: {name} → {model}")
+        Command_Engine.print_help(viewer, Message("LLM Agent Activated: {card} → {model}", card=name, model=model))
     return True
 
 def activate_agent(viewer, force_backend=None, quiet=False):
@@ -262,7 +265,7 @@ def activate_agent(viewer, force_backend=None, quiet=False):
     try:
         cards = load_model_cards()
     except ModelCardsError as error:
-        Command_Engine.print_help(viewer, f"Error: {error}")
+        Command_Engine.print_help(viewer, Message("Error: {error}", error=error))
         return False
     deactivate_agent(viewer, quiet=True)
 
@@ -270,7 +273,9 @@ def activate_agent(viewer, force_backend=None, quiet=False):
         api_card = next((c for c in cards if c.get("api_key")), None)
         if api_card:
             return activate_agent_from_card(viewer, api_card, quiet=quiet)
-        Command_Engine.print_help(viewer, "Error: No model card with an API key found.\nAdd one in the ⚙ Models panel of the Agent UI.")
+        Command_Engine.print_help(viewer, Message(
+            "Error: No model card with an API key found.\nAdd one in the ⚙ Models panel of the Agent UI."
+        ))
         return False
 
     elif force_backend == "local":
@@ -285,15 +290,21 @@ def activate_agent(viewer, force_backend=None, quiet=False):
             viewer.llm_temperature = 0.0
             viewer.llm_api_key     = None
             if not quiet:
-                Command_Engine.print_help(viewer, f"LLM Agent Activated: {backend['name']} → {backend['model']}")
+                Command_Engine.print_help(viewer, Message(
+                    "LLM Agent Activated: {card} → {model}", card=backend['name'], model=backend['model']
+                ))
             return True
-        Command_Engine.print_help(viewer, "Error: No local running server (Ollama, LM Studio, Llama.cpp) was detected.")
+        Command_Engine.print_help(viewer, Message(
+            "Error: No local running server (Ollama, LM Studio, Llama.cpp) was detected."
+        ))
         return False
 
     else:  # auto — use first card
         if cards:
             return activate_agent_from_card(viewer, cards[0], quiet=quiet)
-        Command_Engine.print_help(viewer, "Error: No model cards configured. Open the Agent UI and add one in ⚙ Models.")
+        Command_Engine.print_help(viewer, Message(
+            "Error: No model cards configured. Open the Agent UI and add one in ⚙ Models."
+        ))
         return False
 
 def deactivate_agent(viewer, quiet=False):
@@ -304,7 +315,7 @@ def deactivate_agent(viewer, quiet=False):
 
     if not getattr(viewer, "llm_loaded", False):
         if not quiet:
-            Command_Engine.print_help(viewer, "Agent is already inactive.")
+            Command_Engine.print_help(viewer, Message("Agent is already inactive."))
         return
 
     backend    = getattr(viewer, "llm_backend", None)
@@ -318,7 +329,9 @@ def deactivate_agent(viewer, quiet=False):
     gc.collect()
 
     if not quiet:
-        Command_Engine.print_help(viewer, f"LLM Agent Deactivated. Unloaded: {model_name} ({backend})")
+        Command_Engine.print_help(viewer, Message(
+            "LLM Agent Deactivated. Unloaded: {model} ({backend})", model=model_name, backend=backend
+        ))
 
 # ─── API call ────────────────────────────────────────────────────────────────
 

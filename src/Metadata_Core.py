@@ -43,6 +43,7 @@ import numpy as np
 import pandas as pd
 
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 
 # Spreadsheet formats `meta download` writes, matched in any case.
@@ -116,30 +117,29 @@ def broadcast_metadata_state(viewer):
 
 def _resolve_metadata_column_names(viewer, requested_names):
     if not isinstance(requested_names, (list, tuple)):
-        raise MetadataColumnDeleteError(
+        raise MetadataColumnDeleteError(Message(
             "Metadata columns must be supplied as a list of property names."
-        )
+        ))
 
     normalized = [str(name).strip() for name in requested_names]
     if not normalized or any(not name for name in normalized):
-        raise MetadataColumnDeleteError(
+        raise MetadataColumnDeleteError(Message(
             "Specify at least one metadata property to delete."
-        )
+        ))
     if any(name.casefold() == "all" for name in normalized):
-        raise MetadataColumnDeleteError(
+        raise MetadataColumnDeleteError(Message(
             "Deleting all metadata columns at once is not supported."
-        )
+        ))
 
     protected = {"node id", "sequence header"}
     protected_requested = [
         name for name in normalized if name.casefold() in protected
     ]
     if protected_requested:
-        raise MetadataColumnDeleteError(
-            "Protected columns cannot be deleted: "
-            + ", ".join(protected_requested)
-            + "."
-        )
+        raise MetadataColumnDeleteError(Message(
+            "Protected columns cannot be deleted: {names}.",
+            names=", ".join(protected_requested),
+        ))
 
     available = list(getattr(viewer, "metadata", {}).keys())
     folded = {}
@@ -166,16 +166,16 @@ def _resolve_metadata_column_names(viewer, requested_names):
 
     problems = []
     if missing:
-        problems.append("not found: " + ", ".join(missing))
+        problems.append(Message("not found: {names}", names=", ".join(missing)))
     if ambiguous:
-        problems.append("case-ambiguous: " + ", ".join(ambiguous))
+        problems.append(Message("case-ambiguous: {names}", names=", ".join(ambiguous)))
     if problems:
-        available_text = ", ".join(available) if available else "none"
-        raise MetadataColumnDeleteError(
-            "Cannot delete metadata columns ("
-            + "; ".join(problems)
-            + f"). Available properties: {available_text}."
-        )
+        available_text = ", ".join(available) if available else Message("none")
+        raise MetadataColumnDeleteError(Message(
+            "Cannot delete metadata columns ({problems}). Available properties: {available}.",
+            problems=JoinedMessage(problems, separator="; "),
+            available=available_text,
+        ))
     return resolved
 
 def delete_metadata_columns(viewer, requested_names, broadcast=True):
@@ -231,7 +231,7 @@ def upload_metadata(viewer, file_paths):
         filename = os.path.basename(filepath)
         _, ext = os.path.splitext(filename)
         if not os.path.exists(filepath):
-            failed_files.append((filename, "File not found."))
+            failed_files.append((filename, Message("File not found.")))
             continue
 
         try:
@@ -241,7 +241,9 @@ def upload_metadata(viewer, file_paths):
                 df = pd.read_excel(filepath, header=None)
 
             if df.shape[0] < 3 or df.shape[1] < 2:
-                raise ValueError("Invalid file format. Must contain at least sequence headers and one property column.")
+                raise ValueError(Message(
+                    "Invalid file format. Must contain at least sequence headers and one property column."
+                ))
 
             prop_names = []
             valid_cols = []
@@ -252,14 +254,15 @@ def upload_metadata(viewer, file_paths):
                     valid_cols.append(col_idx)
 
             if not prop_names:
-                raise ValueError("No valid property names found in the first row.")
+                raise ValueError(Message("No valid property names found in the first row."))
 
             illegal_props = [prop for prop in prop_names if not re.match(r'^[a-zA-Z0-9_\-\.]+$', prop)]
             if illegal_props:
-                raise ValueError(
-                    f"Property names {', '.join([repr(p) for p in illegal_props])} contain illegal characters. "
-                    "Allowed characters are: letters, numbers, underscores (_), hyphens (-), and periods (.)"
-                )
+                raise ValueError(Message(
+                    "Property names {names} contain illegal characters. "
+                    "Allowed characters are: letters, numbers, underscores (_), hyphens (-), and periods (.)",
+                    names=", ".join([repr(p) for p in illegal_props]),
+                ))
 
             prop_types = []
             for col_idx in valid_cols:
@@ -293,7 +296,9 @@ def upload_metadata(viewer, file_paths):
                     unmatched_count += 1
 
             if matched_count == 0:
-                raise ValueError("No matching sequence headers found. Enforced strict exact matching against full headers.")
+                raise ValueError(Message(
+                    "No matching sequence headers found. Enforced strict exact matching against full headers."
+                ))
 
             for p_idx, prop_name in enumerate(prop_names):
                 prop_type = prop_types[p_idx]
@@ -350,23 +355,30 @@ def upload_metadata(viewer, file_paths):
             all_merged_props.update(prop_names)
 
         except Exception as e:
-            failed_files.append((filename, str(e)))
+            failed_files.append((filename, e))
             print(f"Error uploading metadata from {filename}: {e}")
             Command_Engine.command_failed(viewer, f'Error uploading metadata from {filename}: {e}')
 
     msg_parts = []
     if successful_files:
-        msg_parts.append(
-            f"Successfully uploaded metadata from {len(successful_files)} file(s): {', '.join(successful_files)}. "
-            f"Matched {len(matched_nodes)} unique nodes, ignored {total_unmatched} rows. "
-            f"Merged properties: {', '.join(sorted(all_merged_props))}."
-        )
+        msg_parts += [
+            Message(
+                "Successfully uploaded metadata from %n file(s): {files}.",
+                n=len(successful_files),
+                files=", ".join(successful_files),
+            ),
+            Message("Matched %n unique node(s).", n=len(matched_nodes)),
+            Message("Ignored %n row(s).", n=total_unmatched),
+            Message("Merged properties: {properties}.", properties=", ".join(sorted(all_merged_props))),
+        ]
         broadcast_metadata_state(viewer)
     if failed_files:
-        fail_details = "; ".join([f"{f}: {err}" for f, err in failed_files])
-        msg_parts.append(f"Failed to upload from {len(failed_files)} file(s): {fail_details}")
+        fail_details = JoinedMessage(
+            [Message("{file}: {error}", file=f, error=err) for f, err in failed_files], separator="; "
+        )
+        msg_parts.append(Message("Failed to upload from %n file(s): {details}", n=len(failed_files), details=fail_details))
 
-    msg = " ".join(msg_parts)
+    msg = JoinedMessage(msg_parts)
     Command_Engine.print_help(viewer, msg)
     if successful_files and not failed_files:
         Command_Engine.command_succeeded(viewer, msg)
@@ -385,9 +397,9 @@ def metadata_download_path(meta_dir, filename=""):
         if not ext:
             filename += ".csv"
         elif ext.lower() not in METADATA_DOWNLOAD_EXTENSIONS:
-            raise ValueError(
-                f"Metadata can only be downloaded as .csv or .xlsx, not '{ext}'."
-            )
+            raise ValueError(Message(
+                "Metadata can only be downloaded as .csv or .xlsx, not '{extension}'.", extension=ext
+            ))
         return os.path.join(meta_dir, filename)
 
     base_name = "metadata"
@@ -404,8 +416,9 @@ def metadata_download_path(meta_dir, filename=""):
 def download_metadata(viewer, filepath, expr=None):
     """Downloads network metadata to a file, applying optional logic filters."""
     if not getattr(viewer, 'metadata', None):
-        Command_Engine.print_help(viewer, "Error: No metadata available in the viewer to download.")
-        Command_Engine.command_failed(viewer, 'Error: No metadata available in the viewer to download.')
+        message = Message("Error: No metadata available in the viewer to download.")
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return False
 
     try:
@@ -430,13 +443,14 @@ def download_metadata(viewer, filepath, expr=None):
                     viewer,
                     expr,
                     error,
-                    "Metadata export",
+                    Message("Metadata export"),
                 )
                 return False
             
             if np.sum(mask) == 0:
-                Command_Engine.print_help(viewer, f"Error: No nodes matched the expression '{expr}'.")
-                Command_Engine.command_failed(viewer, f"Error: No nodes matched the expression '{expr}'.")
+                message = Message("Error: No nodes matched the expression '{expression}'.", expression=expr)
+                Command_Engine.print_help(viewer, message)
+                Command_Engine.command_failed(viewer, message)
                 return False
 
         prop_names = list(viewer.metadata.keys())
@@ -483,14 +497,19 @@ def download_metadata(viewer, filepath, expr=None):
             df.to_excel(filepath, header=False, index=False)
 
         if expr:
-            msg = f"Metadata successfully downloaded to {filepath} (filtered by: {expr})"
+            msg = Message(
+                "Metadata successfully downloaded to {path} (filtered by: {expression})",
+                path=filepath,
+                expression=expr,
+            )
         else:
-            msg = f"Metadata successfully downloaded to {filepath}"
+            msg = Message("Metadata successfully downloaded to {path}", path=filepath)
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_artifact(viewer, filepath)
         Command_Engine.command_succeeded(viewer, msg)
         return True
     except Exception as e:
-        Command_Engine.print_help(viewer, f"Error downloading metadata: {e}")
-        Command_Engine.command_failed(viewer, f'Error downloading metadata: {e}')
+        message = Message("Error downloading metadata: {error}", error=e)
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return False

@@ -139,6 +139,32 @@ class Message:
             return str(self)
 
 
+class JoinedMessage(Message):
+    """Messages shown one after another, such as the sentences of a report.
+
+    str() joins their English, and display() their translations, so a
+    message put together from parts is still one Message: the console line
+    shows it translated and the terminal prints it in English. A part may
+    also be plain text, such as a file name, which shows as it is.
+    """
+
+    __slots__ = ("parts", "separator")
+
+    def __init__(self, parts, separator=" "):
+        super().__init__("")
+        self.parts = tuple(parts)
+        self.separator = separator
+
+    def __str__(self):
+        return self.separator.join(str(part) for part in self.parts)
+
+    def __repr__(self):
+        return f"JoinedMessage({list(self.parts)!r}, separator={self.separator!r})"
+
+    def display(self):
+        return self.separator.join(display_text(part) for part in self.parts)
+
+
 def display_text(message):
     """What a window shows for message: a Message's display text, or the text itself.
 

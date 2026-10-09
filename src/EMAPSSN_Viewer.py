@@ -138,7 +138,7 @@ from Background_Job_Scheduler import BackgroundJobScheduler
 from utilities.Sequence_Utils import (
     load_sanitized_fasta,
 )
-from utilities.Localization import Message
+from utilities.Localization import Message, display_text
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
     UI_QSS_FONT_STACK,
@@ -921,7 +921,7 @@ class MainViewer:
         """Helper to render the command line with a visible cursor."""
         buf = self.input_buffer
         c = self.cursor_pos
-        Command_Engine.show_status(self, f"Cmd: {buf[:c]}_{buf[c:]}")
+        Command_Engine.show_status(self, Message("Cmd: {command}", command=f"{buf[:c]}_{buf[c:]}"))
         self.update_console_background()
         self.canvas.update()
 
@@ -1155,7 +1155,7 @@ class MainViewer:
         """Show a scheduler lifecycle message without altering command input."""
         if not hasattr(self, 'background_job_status_text'):
             return
-        self.background_job_status_text.text = str(message)
+        self.background_job_status_text.text = display_text(message)
         self.update_background_job_status_layout()
         self.canvas.update()
 
@@ -1565,10 +1565,10 @@ class MainViewer:
             else:
                 self.redo_stack.append(self._get_current_state())
                 self._apply_state(state)
-            msg = "Undo successful."
+            msg = Message("Undo successful.")
             changed = True
         else:
-            msg = "Nothing to undo."
+            msg = Message("Nothing to undo.")
             changed = False
         Command_Engine.show_status(self, msg)
         print(msg)
@@ -1585,10 +1585,10 @@ class MainViewer:
             else:
                 self.position_history.append(self._get_current_state())
                 self._apply_state(state)
-            msg = "Redo successful."
+            msg = Message("Redo successful.")
             changed = True
         else:
-            msg = "Nothing to redo."
+            msg = Message("Nothing to redo.")
             changed = False
         Command_Engine.show_status(self, msg)
         print(msg)
@@ -1998,7 +1998,7 @@ class MainViewer:
         hud_font_size = self._hud_font_size_points()
         
         self.instr_text = scene.visuals.Text(
-            text="[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes",
+            text=translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
             bold=False, 
             face=self.vispy_ui_face,
             font_size=hud_font_size,
@@ -2302,10 +2302,10 @@ class MainViewer:
                     native_app = vispy_app.use_app().native
                     native_app.clipboard().setText(full_header)
                     
-                    Command_Engine.show_status(self, f"Copied: {full_header}")
+                    Command_Engine.show_status(self, Message("Copied: {node}", node=full_header))
                     print(f"Copied to clipboard: {full_header}")
                 except Exception as e:
-                    Command_Engine.show_status(self, f"Copy Failed: {full_header}")
+                    Command_Engine.show_status(self, Message("Copy Failed: {node}", node=full_header))
                     print(f"Clipboard Error: {e}")
 
                 self.update_console_background()
@@ -2359,13 +2359,13 @@ class MainViewer:
                         from vispy import app as vispy_app
                         native_app = vispy_app.use_app().native
                         native_app.clipboard().setText(sequence)
-                        Command_Engine.show_status(self, f"Copied sequence of: {rec_id}")
+                        Command_Engine.show_status(self, Message("Copied sequence of: {node}", node=rec_id))
                         print(f"Copied sequence to clipboard: {rec_id} ({len(sequence)} aa)")
                     except Exception as e:
-                        Command_Engine.show_status(self, f"Copy Failed: {rec_id}")
+                        Command_Engine.show_status(self, Message("Copy Failed: {node}", node=rec_id))
                         print(f"Clipboard Error: {e}")
                 else:
-                    Command_Engine.show_status(self, f"Sequence not found for: {rec_id}")
+                    Command_Engine.show_status(self, Message("Sequence not found for: {node}", node=rec_id))
                     print(f"Sequence not found in FASTA for: {rec_id}")
 
                 self.update_console_background()
@@ -2407,20 +2407,21 @@ class MainViewer:
         if getattr(self, 'tooltip', None) is not None:
             self.tooltip.text = ""
 
-        label = ""
+        label = self.full_headers[node_idx]
         if getattr(self, 'cluster_labels', None) is not None:
             cluster_id = self.cluster_labels[node_idx]
-            label = "[Noise] " if cluster_id == -1 else f"[Cluster {cluster_id}] "
-        label += self.full_headers[node_idx]
+            if cluster_id == -1:
+                label = Message("[Noise] {node}", node=label)
+            else:
+                label = Message("[Cluster {cluster}] {node}", cluster=cluster_id, node=label)
 
-        group_suffix = ""
         if getattr(self, 'group_labels', None) and self.group_labels[node_idx]:
             group_text = ", ".join(sorted(self.group_labels[node_idx]))
-            group_suffix = f" [Groups: {group_text}]"
+            label = Message("{node} [Groups: {groups}]", node=label, groups=group_text)
 
         print(f"Node Selected: {self.full_headers[node_idx]}")
         if getattr(self, 'console_text', None) is not None:
-            Command_Engine.show_status(self, f"Selected: {label}{group_suffix}")
+            Command_Engine.show_status(self, Message("Selected: {node}", node=label))
 
         for display in getattr(self, 'hud_displays', {}).values():
             if getattr(display, 'on_node_clicked', None):
@@ -2448,14 +2449,14 @@ class MainViewer:
         # 1. Update Zoom Indicator (Visible World Width)
         if hasattr(self, 'zoom_text'):
             visible_width = self.view.camera.rect.width
-            self.zoom_text.text = f"View Width: {visible_width:.1f}"
+            self.zoom_text.text = translate("Viewer", "View Width: {width}").format(width=f"{visible_width:.1f}")
             self.zoom_text.color = cfg.TEXT_COLOR
             self.zoom_text.pos = self._status_hud_position(1, effective_size)
 
         # 2. Update Hidden Nodes Indicator
         if hasattr(self, 'hidden_text') and hasattr(self, 'visible_mask'):
             hidden_count = int(np.sum(~self.visible_mask))
-            self.hidden_text.text = f"Hidden Nodes: {hidden_count}"
+            self.hidden_text.text = translate("Viewer", "Hidden Nodes: {count}").format(count=hidden_count)
             if hidden_count > 0:
                 self.hidden_text.color = 'red'
             else:
@@ -3026,9 +3027,9 @@ class MainViewer:
 
             # Output final count to console
             if len(self.selected_indices) > 0:
-                Command_Engine.show_status(self, f"Selected {len(self.selected_indices)} nodes.")
+                Command_Engine.show_status(self, Message("Selected %n node(s).", n=len(self.selected_indices)))
             else:
-                Command_Engine.show_status(self, "Selection cleared.")
+                Command_Engine.show_status(self, Message("Selection cleared."))
                 
             event.handled = True
             return

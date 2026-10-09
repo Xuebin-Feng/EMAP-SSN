@@ -1035,6 +1035,202 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
+        <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Running background job #{job}: {description}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Background job #{job} completed in {seconds}s: {detail}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Background job #{job} failed after {seconds}s ({command}): {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Negative range bound in &apos;{text}&apos; must be written in parentheses, for example &apos;(-1)-0&apos; or &apos;(-1.5)-(-0.5)&apos;. Parentheses are required around negative values in a range.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selection file &apos;{file}&apos; must be a plain file name in the header list folder.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selection file &apos;{file}&apos; does not exist.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Noise cannot be selected because clusters have not been defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Noise does not exist in the current clustering.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Label &apos;{label}&apos; is ambiguous because it names both topology cluster {cluster} and a custom group. Rename or remove the custom group before using this label.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cluster &apos;{cluster}&apos; cannot be selected because clusters have not been defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cluster &apos;{cluster}&apos; does not exist in the current SSN.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group &apos;{group}&apos; does not exist in the current SSN.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment position &apos;{position}&apos; in predicate &apos;{predicate}&apos; is not a valid integer or insertion-position label.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Amino-acid predicate &apos;{predicate}&apos; cannot be evaluated because no alignment is loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment position &apos;{position}&apos; in predicate &apos;{predicate}&apos; does not exist in the current displayed numbering.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Grouped amino-acid target &apos;{target}&apos; must contain at least two one-letter residue symbols.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata predicate cannot be evaluated because no metadata is loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid metadata predicate &apos;{{{predicate}}}&apos;. Use &apos;{{PropertyOperatorValue}}&apos;, for example &apos;{{Length&gt;500}}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata predicate &apos;{{{predicate}}}&apos; is missing a comparison value.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata property &apos;{property}&apos; does not exist in the current SSN.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Value &apos;{value}&apos; is not numeric for metadata property &apos;{property}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Operator &apos;{operator}&apos; is not supported for text metadata property &apos;{property}&apos;. Use &apos;=&apos;, &apos;==&apos;, or &apos;!=&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata property &apos;{property}&apos; has unsupported type &apos;{type}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{operation} error: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selection file &apos;{file}&apos; is not UTF-8 text.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid Boolean expression &apos;{expression}&apos;. Ensure operators and parentheses are complete and do not place spaces inside individual predicates.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unterminated string target in Boolean expression &apos;{expression}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unterminated file target in Boolean expression &apos;{expression}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unterminated label target in Boolean expression &apos;{expression}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unterminated metadata target in Boolean expression &apos;{expression}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Boolean selection expression is empty.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Boolean expression &apos;{expression}&apos; contains empty or malformed targets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Negative alignment position &apos;({residues}){position}&apos; must be written as &apos;({residues})({position})&apos;. Parentheses are required around negative positions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Negative alignment position &apos;{residue}{position}&apos; must be written as &apos;{residue}({position})&apos;. Parentheses are required around negative positions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{text}&apos; is not a Boolean selection expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unsupported Boolean operator &apos;{operator}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Boolean expression contains an unsupported syntax node.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{token} cannot be evaluated because the current UI selection was not supplied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{token} selection mask does not match the current SSN node count.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unsupported Boolean target kind &apos;{kind}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Boolean expression did not resolve to one selection value per SSN node. Check for empty or malformed targets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reset successful: {targets}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Running {command}...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No &apos;run&apos; in {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unknown command: {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1127,6 +1323,58 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Cmd: {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Undo successful.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing to undo.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Redo successful.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing to redo.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied: {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy Failed: {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied sequence of: {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence not found for: {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>[Noise] {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>[Cluster {cluster}] {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{node} [Groups: {groups}]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selected: {node}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Metadata UI</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1140,6 +1388,128 @@ Command-line usage:
     </message>
     <message>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Selected %n node(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Selection cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata columns must be supplied as a list of property names.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Specify at least one metadata property to delete.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleting all metadata columns at once is not supported.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Protected columns cannot be deleted: {names}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>not found: {names}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>case-ambiguous: {names}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cannot delete metadata columns ({problems}). Available properties: {available}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File not found.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid file format. Must contain at least sequence headers and one property column.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No valid property names found in the first row.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Property names {names} contain illegal characters. Allowed characters are: letters, numbers, underscores (_), hyphens (-), and periods (.)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No matching sequence headers found. Enforced strict exact matching against full headers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Successfully uploaded metadata from %n file(s): {files}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Matched %n unique node(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Ignored %n row(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Merged properties: {properties}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{file}: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Failed to upload from %n file(s): {details}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Metadata can only be downloaded as .csv or .xlsx, not &apos;{extension}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No metadata available in the viewer to download.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No nodes matched the expression &apos;{expression}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata successfully downloaded to {path} (filtered by: {expression})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata successfully downloaded to {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error downloading metadata: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1158,6 +1528,51 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>{model} [separate terms]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The file was left unchanged: correct it, or delete it to start over from the default cards.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{path} is not valid JSON ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{path} could not be read ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{path} must contain a JSON object whose &quot;cards&quot; is a list of objects.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Model card &apos;{card}&apos; has no URL configured. Open ⚙ Models to edit it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>LLM Agent Activated: {card} → {model}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No model card with an API key found.
+Add one in the ⚙ Models panel of the Agent UI.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No local running server (Ollama, LM Studio, Llama.cpp) was detected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No model cards configured. Open the Agent UI and add one in ⚙ Models.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent is already inactive.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>LLM Agent Deactivated. Unloaded: {model} ({backend})</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1186,6 +1601,10 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>ESMFold Mol* UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleted metadata columns: {columns}.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2603,6 +3022,18 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Toggle sidebar panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>View Width: {width}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hidden Nodes: {count}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

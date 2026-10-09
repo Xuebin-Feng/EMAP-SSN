@@ -271,7 +271,7 @@ class ModelCardTests(unittest.TestCase):
                 mock.patch.object(agent, 'activate_agent_from_card') as activate:
             self.assertFalse(agent.activate_agent(SimpleNamespace(llm_loaded=False)))
         activate.assert_not_called()
-        self.assertIn('must contain a JSON object', print_help.call_args.args[1])
+        self.assertIn('must contain a JSON object', str(print_help.call_args.args[1]))
 
 
 class SetBackendTests(unittest.TestCase):

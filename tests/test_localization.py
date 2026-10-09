@@ -32,6 +32,7 @@ import Command_Engine
 from utilities import Localization
 from utilities.Localization import (
     CatalogMessage,
+    JoinedMessage,
     Message,
     display_text,
     english_plural,
@@ -125,6 +126,23 @@ class MessageTests(unittest.TestCase):
         nested = Message("Outer {inner}", inner=Message("Inner {count}", count=2))
         self.assertEqual(nested.display(), "«Outer «Inner 2»»")
         self.assertEqual(str(nested), "Outer Inner 2")
+
+    def test_a_joined_message_joins_the_english_and_the_translations(self):
+        joined = JoinedMessage([Message("Found {count} nodes.", count=3), "1.csv", Message("Done.")])
+        self.assertEqual(str(joined), "Found 3 nodes. 1.csv Done.")
+        self.assertEqual(joined.display(), "Found 3 nodes. 1.csv Done.")
+        previous = Localization.set_translator(mark)
+        self.addCleanup(Localization.set_translator, previous)
+        self.assertEqual(display_text(joined), "«Found 3 nodes.» 1.csv «Done.»")
+        self.assertEqual(str(joined), "Found 3 nodes. 1.csv Done.")
+        # Inside another message, or raised as an error, it shows translated too.
+        parts = JoinedMessage([Message("not found: {names}", names="x"), ValueError(Message("busy"))], separator="; ")
+        outer = Message("Cannot delete ({problems}).", problems=parts)
+        self.assertEqual(outer.display(), "«Cannot delete («not found: x»; «busy»).»")
+        self.assertEqual(str(outer), "Cannot delete (not found: x; busy).")
+        error = ValueError(joined)
+        self.assertEqual(display_text(error), "«Found 3 nodes.» 1.csv «Done.»")
+        self.assertEqual(str(error), "Found 3 nodes. 1.csv Done.")
 
     def test_qt_translate_noop_marks_text_and_returns_it(self):
         self.assertEqual(Localization.QT_TRANSLATE_NOOP("Config", "Input File Directory:"), "Input File Directory:")

@@ -20,7 +20,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 import EMAPSSN_Config as cfg
-from utilities.Localization import display_text
+from utilities.Localization import JoinedMessage, Message, display_text
 
 
 class SelectionExpressionError(ValueError):
@@ -113,11 +113,12 @@ def parse_metadata_range(value_text):
         high = match.group(3) or match.group(4)
         return float(low), float(high)
     if _BARE_NEGATIVE_RANGE_PATTERN.match(text):
-        raise SelectionExpressionError(
-            f"Negative range bound in '{text}' must be written in parentheses, "
+        raise SelectionExpressionError(Message(
+            "Negative range bound in '{text}' must be written in parentheses, "
             "for example '(-1)-0' or '(-1.5)-(-0.5)'. Parentheses are required "
-            "around negative values in a range."
-        )
+            "around negative values in a range.",
+            text=text,
+        ))
     return None
 _AA_PREDICATE_PATTERN = re.compile(
     r'(?<!\w)([a-zA-Z_])(?:\((-\d+(?:\.\d+)?)\)|([\d.]+))(?![\w.])'
@@ -181,11 +182,14 @@ def _selection_file_path(target):
     try:
         file_name = validate_output_basename(file_name)
     except ValueError as error:
-        raise SelectionContextError(
-            f"Selection file '{file_name}' must be a plain file name in the header list folder.\n"
-            f"{error}\n"
-            f"Header list folder: {header_dir}"
-        ) from error
+        raise SelectionContextError(JoinedMessage([
+            Message(
+                "Selection file '{file}' must be a plain file name in the header list folder.",
+                file=file_name,
+            ),
+            error,
+            f"Header list folder: {header_dir}",
+        ], separator="\n")) from error
     if file_name.lower().endswith(('.fasta', '.txt')):
         return os.path.join(header_dir, file_name), header_dir
     return os.path.join(header_dir, file_name + ".txt"), header_dir
@@ -194,10 +198,10 @@ def _selection_file_path(target):
 def _validate_file_target(target):
     load_path, header_dir = _selection_file_path(target)
     if not os.path.isfile(load_path):
-        raise SelectionContextError(
-            f"Selection file '{os.path.basename(load_path)}' does not exist.\n"
-            f"Expected location: {header_dir}"
-        )
+        raise SelectionContextError(JoinedMessage([
+            Message("Selection file '{file}' does not exist.", file=os.path.basename(load_path)),
+            f"Expected location: {header_dir}",
+        ], separator="\n"))
 
 
 def _available_group_lookup(group_labels):
@@ -221,10 +225,10 @@ def resolve_label_target(cluster_labels, group_labels, target):
 
     if target_lower == "noise":
         if cluster_labels is None:
-            raise SelectionContextError(
-                "Noise cannot be selected because clusters have not been defined.\n"
-                "Run the cluster command first."
-            )
+            raise SelectionContextError(JoinedMessage([
+                Message("Noise cannot be selected because clusters have not been defined."),
+                "Run the cluster command first.",
+            ], separator="\n"))
         cluster_values = np.asarray(cluster_labels)
         if not np.any(cluster_values == -1):
             available = [
@@ -232,10 +236,10 @@ def resolve_label_target(cluster_labels, group_labels, target):
                 for cluster_id in np.unique(cluster_values)
                 if int(cluster_id) != -1
             ]
-            raise SelectionContextError(
-                "Noise does not exist in the current clustering.\n"
-                + _format_available(available, "clusters")
-            )
+            raise SelectionContextError(JoinedMessage([
+                Message("Noise does not exist in the current clustering."),
+                _format_available(available, "clusters"),
+            ], separator="\n"))
         return ResolvedLabelTarget("noise", "noise", -1)
 
     cluster_match = re.fullmatch(r'cluster_(0|[1-9]\d*)', target_lower)
@@ -247,11 +251,13 @@ def resolve_label_target(cluster_labels, group_labels, target):
         cluster_exists = bool(np.any(cluster_values == cluster_id))
 
     if cluster_exists and group_name is not None:
-        raise SelectionContextError(
-            f"Label '{target_name}' is ambiguous because it names both topology "
-            "cluster " + f"cluster_{cluster_id} and a custom group. Rename or remove "
-            "the custom group before using this label."
-        )
+        raise SelectionContextError(Message(
+            "Label '{label}' is ambiguous because it names both topology cluster "
+            "{cluster} and a custom group. Rename or remove the custom group before "
+            "using this label.",
+            label=target_name,
+            cluster=f"cluster_{cluster_id}",
+        ))
     if cluster_exists:
         return ResolvedLabelTarget("cluster", f"cluster_{cluster_id}", cluster_id)
     if group_name is not None:
@@ -259,23 +265,26 @@ def resolve_label_target(cluster_labels, group_labels, target):
 
     if cluster_id is not None:
         if cluster_labels is None:
-            raise SelectionContextError(
-                f"Cluster 'cluster_{cluster_id}' cannot be selected because clusters "
-                "have not been defined.\nRun the cluster command first."
-            )
+            raise SelectionContextError(JoinedMessage([
+                Message(
+                    "Cluster '{cluster}' cannot be selected because clusters have not been defined.",
+                    cluster=f"cluster_{cluster_id}",
+                ),
+                "Run the cluster command first.",
+            ], separator="\n"))
         available = [
             "noise" if int(value) == -1 else f"cluster_{int(value)}"
             for value in np.unique(cluster_values)
         ]
-        raise SelectionContextError(
-            f"Cluster 'cluster_{cluster_id}' does not exist in the current SSN.\n"
-            + _format_available(available, "clusters")
-        )
+        raise SelectionContextError(JoinedMessage([
+            Message("Cluster '{cluster}' does not exist in the current SSN.", cluster=f"cluster_{cluster_id}"),
+            _format_available(available, "clusters"),
+        ], separator="\n"))
 
-    raise SelectionContextError(
-        f"Group '{target_name}' does not exist in the current SSN.\n"
-        + _format_available(group_lookup.values(), "groups")
-    )
+    raise SelectionContextError(JoinedMessage([
+        Message("Group '{group}' does not exist in the current SSN.", group=target_name),
+        _format_available(group_lookup.values(), "groups"),
+    ], separator="\n"))
 
 
 def _validate_label_target(cluster_labels, group_labels, target):
@@ -289,15 +298,18 @@ def _validate_aa_target(alignment, target_aa, target_pos_label):
         else f"{target_aa}{target_pos_label}"
     )
     if not re.fullmatch(r'-?\d+(?:\.\d+)?', target_pos_label):
-        raise SelectionExpressionError(
-            f"Alignment position '{target_pos_label}' in predicate '{predicate}' is "
-            "not a valid integer or insertion-position label."
-        )
+        raise SelectionExpressionError(Message(
+            "Alignment position '{position}' in predicate '{predicate}' is "
+            "not a valid integer or insertion-position label.",
+            position=target_pos_label,
+            predicate=predicate,
+        ))
     if alignment is None or getattr(alignment, 'aln', None) is None:
-        raise SelectionContextError(
-            f"Amino-acid predicate '{predicate}' cannot be evaluated because no "
-            "alignment is loaded."
-        )
+        raise SelectionContextError(Message(
+            "Amino-acid predicate '{predicate}' cannot be evaluated because no "
+            "alignment is loaded.",
+            predicate=predicate,
+        ))
 
     label_to_col = getattr(alignment, 'label_to_col', None) or {}
     if target_pos_label not in label_to_col:
@@ -307,53 +319,59 @@ def _validate_aa_target(alignment, target_aa, target_pos_label):
             ordered_labels = [col_to_label[key] for key in sorted(col_to_label)]
         if not ordered_labels:
             ordered_labels = list(label_to_col.keys())
-        raise SelectionContextError(
-            f"Alignment position '{target_pos_label}' in predicate '{predicate}' "
-            "does not exist in the current displayed numbering.\n"
-            + _format_available(ordered_labels, "alignment positions")
-        )
+        raise SelectionContextError(JoinedMessage([
+            Message(
+                "Alignment position '{position}' in predicate '{predicate}' "
+                "does not exist in the current displayed numbering.",
+                position=target_pos_label,
+                predicate=predicate,
+            ),
+            _format_available(ordered_labels, "alignment positions"),
+        ], separator="\n"))
 
 
 def _normalize_aa_group(target_aas):
     """Return a stable, case-insensitive residue set for a grouped predicate."""
     if len(target_aas) < 2:
         display = f"({target_aas})"
-        raise SelectionExpressionError(
-            f"Grouped amino-acid target '{display}' must contain at least two "
-            "one-letter residue symbols."
-        )
+        raise SelectionExpressionError(Message(
+            "Grouped amino-acid target '{target}' must contain at least two "
+            "one-letter residue symbols.",
+            target=display,
+        ))
     return tuple(dict.fromkeys(target_aas.upper()))
 
 
 def _validate_metadata_target(metadata, target):
     if not metadata:
-        raise SelectionContextError(
+        raise SelectionContextError(Message(
             "Metadata predicate cannot be evaluated because no metadata is loaded."
-        )
+        ))
 
     match = _METADATA_QUERY_PATTERN.fullmatch(target.strip())
     if not match:
-        raise SelectionExpressionError(
-            f"Invalid metadata predicate '{{{target}}}'. Use '{{PropertyOperatorValue}}', "
-            "for example '{{Length>500}}'."
-        )
+        raise SelectionExpressionError(Message(
+            "Invalid metadata predicate '{{{predicate}}}'. Use '{{PropertyOperatorValue}}', "
+            "for example '{{Length>500}}'.",
+            predicate=target,
+        ))
 
     key, operator, value_text = match.groups()
     value_text = value_text.strip()
     if not value_text:
-        raise SelectionExpressionError(
-            f"Metadata predicate '{{{target}}}' is missing a comparison value."
-        )
+        raise SelectionExpressionError(Message(
+            "Metadata predicate '{{{predicate}}}' is missing a comparison value.", predicate=target
+        ))
 
     metadata_key = next(
         (candidate for candidate in metadata if candidate.lower() == key.lower()),
         None,
     )
     if metadata_key is None:
-        raise SelectionContextError(
-            f"Metadata property '{key}' does not exist in the current SSN.\n"
-            + _format_available(metadata.keys(), "metadata properties")
-        )
+        raise SelectionContextError(JoinedMessage([
+            Message("Metadata property '{property}' does not exist in the current SSN.", property=key),
+            _format_available(metadata.keys(), "metadata properties"),
+        ], separator="\n"))
 
     property_type = metadata[metadata_key].get("type")
     if property_type == "number":
@@ -363,26 +381,38 @@ def _validate_metadata_target(metadata, target):
         except ValueError:
             if operator in ('=', '==') and parse_metadata_range(value_text) is not None:
                 return
-            raise SelectionExpressionError(
-                f"Value '{value_text}' is not numeric for metadata property "
-                f"'{metadata_key}'."
-            )
+            raise SelectionExpressionError(Message(
+                "Value '{value}' is not numeric for metadata property '{property}'.",
+                value=value_text,
+                property=metadata_key,
+            ))
 
     if property_type == "text":
         if operator not in ('=', '==', '!='):
-            raise SelectionExpressionError(
-                f"Operator '{operator}' is not supported for text metadata property "
-                f"'{metadata_key}'. Use '=', '==', or '!='."
-            )
+            raise SelectionExpressionError(Message(
+                "Operator '{operator}' is not supported for text metadata property "
+                "'{property}'. Use '=', '==', or '!='.",
+                operator=operator,
+                property=metadata_key,
+            ))
         return
 
-    raise SelectionExpressionError(
-        f"Metadata property '{metadata_key}' has unsupported type '{property_type}'."
-    )
+    raise SelectionExpressionError(Message(
+        "Metadata property '{property}' has unsupported type '{type}'.",
+        property=metadata_key,
+        type=property_type,
+    ))
 
 
-def report_selection_error(viewer, expression, error, operation="Selection"):
-    """Report a concise HUD error and detailed terminal diagnostics."""
+def report_selection_error(viewer, expression, error, operation=None):
+    """Report a concise HUD error and detailed terminal diagnostics.
+
+    operation names what failed, such as Message("Selection"), which the
+    console line starts with, before the error's first line. The terminal
+    and MCP clients get every line, in English.
+    """
+    if operation is None:
+        operation = Message("Selection")
     command_failed(viewer, str(error))
     error_lines = str(error).splitlines() or [str(error)]
     message_lines = [f"{operation} error: {error_lines[0]}"]
@@ -390,7 +420,12 @@ def report_selection_error(viewer, expression, error, operation="Selection"):
     if expression:
         message_lines.append(f"Expression: {expression}")
     message_lines.append("Operation aborted; no changes were applied.")
-    print_help(viewer, "\n".join(message_lines))
+    first_line = (display_text(error).splitlines() or [""])[0]
+    print_help(
+        viewer,
+        Message("{operation} error: {error}", operation=operation, error=first_line),
+        terminal_msg="\n".join(message_lines),
+    )
 
 
 class _LogicMask:
@@ -526,10 +561,10 @@ def _read_header_list(load_path):
                 elif line.startswith('>'):
                     entries.append(line[1:])
     except UnicodeDecodeError as error:
-        raise SelectionContextError(
-            f"Selection file '{os.path.basename(load_path)}' is not UTF-8 text.\n"
-            "Save it with UTF-8 encoding and try again."
-        ) from error
+        raise SelectionContextError(JoinedMessage([
+            Message("Selection file '{file}' is not UTF-8 text.", file=os.path.basename(load_path)),
+            "Save it with UTF-8 encoding and try again.",
+        ], separator="\n")) from error
     return entries
 
 def evaluate_file_mask(full_headers, target):
@@ -767,14 +802,36 @@ def evaluate_metadata_mask(full_headers, metadata, target):
 def _validate_metadata_syntax(target):
     match = _METADATA_QUERY_PATTERN.fullmatch(target.strip())
     if not match:
-        raise SelectionExpressionError(
-            f"Invalid metadata predicate '{{{target}}}'. Use '{{PropertyOperatorValue}}', "
-            "for example '{{Length>500}}'."
-        )
+        raise SelectionExpressionError(Message(
+            "Invalid metadata predicate '{{{predicate}}}'. Use '{{PropertyOperatorValue}}', "
+            "for example '{{Length>500}}'.",
+            predicate=target,
+        ))
     if not match.group(3).strip():
-        raise SelectionExpressionError(
-            f"Metadata predicate '{{{target}}}' is missing a comparison value."
-        )
+        raise SelectionExpressionError(Message(
+            "Metadata predicate '{{{predicate}}}' is missing a comparison value.", predicate=target
+        ))
+
+
+def _invalid_expression_message(expression):
+    """The error for a Boolean expression that doesn't parse."""
+    return Message(
+        "Invalid Boolean expression '{expression}'. Ensure operators and "
+        "parentheses are complete and do not place spaces inside individual "
+        "predicates.",
+        expression=expression,
+    )
+
+
+def _unterminated_target_message(kind, expression):
+    """The error for a target whose closing delimiter is missing, by the target's kind."""
+    if kind == "string":
+        return Message("Unterminated string target in Boolean expression '{expression}'.", expression=expression)
+    if kind == "file":
+        return Message("Unterminated file target in Boolean expression '{expression}'.", expression=expression)
+    if kind == "label":
+        return Message("Unterminated label target in Boolean expression '{expression}'.", expression=expression)
+    return Message("Unterminated metadata target in Boolean expression '{expression}'.", expression=expression)
 
 
 class _SelectionSyntaxParser:
@@ -791,17 +848,13 @@ class _SelectionSyntaxParser:
 
     def _error(self, message=None):
         if message is None:
-            message = (
-                f"Invalid Boolean expression '{self.text}'. Ensure operators and "
-                "parentheses are complete and do not place spaces inside individual "
-                "predicates."
-            )
+            message = _invalid_expression_message(self.text)
         raise SelectionExpressionError(message)
 
     def parse(self):
         self._skip_space()
         if self.position >= self.length:
-            raise SelectionExpressionError("Boolean selection expression is empty.")
+            raise SelectionExpressionError(Message("Boolean selection expression is empty."))
         expression = self._parse_or()
         self._skip_space()
         if self.position != self.length:
@@ -846,12 +899,12 @@ class _SelectionSyntaxParser:
         start = self.position
         end = self.text.find(delimiter, start + 1)
         if end == -1:
-            self._error(f"Unterminated {kind} target in Boolean expression '{self.text}'.")
+            self._error(_unterminated_target_message(kind, self.text))
         value = self.text[start + 1:end]
         if not value:
-            self._error(
-                f"Boolean expression '{self.text}' contains empty or malformed targets."
-            )
+            self._error(Message(
+                "Boolean expression '{expression}' contains empty or malformed targets.", expression=self.text
+            ))
         self.position = end + 1
         if kind == "metadata":
             _validate_metadata_syntax(value)
@@ -890,10 +943,12 @@ class _SelectionSyntaxParser:
         bare_group = _BARE_NEGATIVE_AA_GROUP_PATTERN.match(self.text, start)
         if bare_group:
             target_aas, position = bare_group.groups()
-            raise SelectionExpressionError(
-                f"Negative alignment position '({target_aas}){position}' must be written as "
-                f"'({target_aas})({position})'. Parentheses are required around negative positions."
-            )
+            raise SelectionExpressionError(Message(
+                "Negative alignment position '({residues}){position}' must be written as "
+                "'({residues})({position})'. Parentheses are required around negative positions.",
+                residues=target_aas,
+                position=position,
+            ))
 
         if char == "(":
             self.position += 1
@@ -914,10 +969,12 @@ class _SelectionSyntaxParser:
         bare_negative = _BARE_NEGATIVE_AA_PATTERN.match(self.text, start)
         if bare_negative:
             aa, position = bare_negative.groups()
-            raise SelectionExpressionError(
-                f"Negative alignment position '{aa}{position}' must be written as "
-                f"'{aa}({position})'. Parentheses are required around negative positions."
-            )
+            raise SelectionExpressionError(Message(
+                "Negative alignment position '{residue}{position}' must be written as "
+                "'{residue}({position})'. Parentheses are required around negative positions.",
+                residue=aa,
+                position=position,
+            ))
 
         raise _NotSelectionExpression()
 
@@ -953,10 +1010,7 @@ def classify_selection_expression(text):
         )
     except _NotSelectionExpression:
         if _looks_expression_like(str(text)):
-            error = SelectionExpressionError(
-                f"Invalid Boolean expression '{text}'. Ensure operators and parentheses "
-                "are complete and do not place spaces inside individual predicates."
-            )
+            error = SelectionExpressionError(_invalid_expression_message(text))
             return SelectionClassification(
                 SelectionClassificationKind.MALFORMED_EXPRESSION,
                 error=error,
@@ -976,9 +1030,7 @@ def parse_selection_expression(text):
         return classification.expression
     if classification.kind == SelectionClassificationKind.MALFORMED_EXPRESSION:
         raise classification.error
-    raise SelectionExpressionError(
-        f"'{text}' is not a Boolean selection expression."
-    )
+    raise SelectionExpressionError(Message("'{text}' is not a Boolean selection expression.", text=text))
 
 
 def get_selected_mask(viewer):
@@ -1047,10 +1099,10 @@ def _evaluate_selection_node(
             return left | right
         if node.operator == "^":
             return left ^ right
-        raise SelectionExpressionError(f"Unsupported Boolean operator '{node.operator}'.")
+        raise SelectionExpressionError(Message("Unsupported Boolean operator '{operator}'.", operator=node.operator))
 
     if not isinstance(node, _SelectionAtom):
-        raise SelectionExpressionError("Boolean expression contains an unsupported syntax node.")
+        raise SelectionExpressionError(Message("Boolean expression contains an unsupported syntax node."))
 
     if node.kind == "string":
         return _LogicMask.known(evaluate_string_mask(full_headers, node.value))
@@ -1068,14 +1120,14 @@ def _evaluate_selection_node(
         )
     if node.kind == "selection":
         if selection_mask is None:
-            raise SelectionContextError(
-                "$sele$ cannot be evaluated because the current UI selection was not supplied."
-            )
+            raise SelectionContextError(Message(
+                "{token} cannot be evaluated because the current UI selection was not supplied.", token="$sele$"
+            ))
         selected = np.asarray(selection_mask, dtype=bool)
         if selected.shape != (len(full_headers),):
-            raise SelectionContextError(
-                "$sele$ selection mask does not match the current SSN node count."
-            )
+            raise SelectionContextError(Message(
+                "{token} selection mask does not match the current SSN node count.", token="$sele$"
+            ))
         return _LogicMask.known(selected)
     if node.kind == "aa_group":
         target_aas, position = node.value
@@ -1102,7 +1154,7 @@ def _evaluate_selection_node(
             valid_indices,
         )
         return _LogicMask.partially_known(mask, np.asarray(viewer_to_aln) >= 0)
-    raise SelectionExpressionError(f"Unsupported Boolean target kind '{node.kind}'.")
+    raise SelectionExpressionError(Message("Unsupported Boolean target kind '{kind}'.", kind=node.kind))
 
 
 def evaluate_selection_expression(
@@ -1129,10 +1181,10 @@ def evaluate_selection_expression(
         selection_mask,
     ).to_bool()
     if result.shape != (len(full_headers),):
-        raise SelectionExpressionError(
+        raise SelectionExpressionError(Message(
             "Boolean expression did not resolve to one selection value per SSN node. "
             "Check for empty or malformed targets."
-        )
+        ))
     return result
 
 
@@ -1264,14 +1316,15 @@ def execute_reset(viewer, targets):
         if "hidden" in targets_found or "network" in targets_found:
             viewer.update_edges()
 
-    msg = f"Reset successful: {', '.join(targets_found)}."
+    # The targets are the reset command's own words, which stay English.
+    msg = Message("Reset successful: {targets}.", targets=", ".join(targets_found))
 
     show_status(viewer, msg)
     print(f"{msg}")
     if hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
 
-    return msg
+    return str(msg)
 
 # Shared command dispatch and explicit outcome reporting.
 def command_succeeded(viewer, message=None, artifact=None):
@@ -1360,7 +1413,7 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
 
         if hasattr(module, 'run'):
             if not silent and hasattr(viewer, 'console_text'):
-                show_status(viewer, f"Running {command_name}...")
+                show_status(viewer, Message("Running {command}...", command=command_name))
             if not silent and hasattr(viewer, 'update_console_background'):
                 viewer.update_console_background()
             if hasattr(app, 'process_events'):
@@ -1373,20 +1426,20 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
         else:
             command_failed(viewer, f"No run entry point in {command_name}")
             if not silent and hasattr(viewer, 'console_text'):
-                show_status(viewer, f"Error: No 'run' in {command_name}")
+                show_status(viewer, Message("Error: No 'run' in {command}", command=command_name))
             if not silent and hasattr(viewer, 'update_console_background'):
                 viewer.update_console_background()
 
     except ModuleNotFoundError as error:
         command_failed(viewer, f"Unknown command: {command_name}" if error.name == f"commands.{command_name}" else f"Command dependency unavailable: {error.name}")
         if not silent and hasattr(viewer, 'console_text'):
-            show_status(viewer, f"Unknown command: {command_name}")
+            show_status(viewer, Message("Unknown command: {command}", command=command_name))
         if not silent and hasattr(viewer, 'update_console_background'):
             viewer.update_console_background()
     except Exception as e:
         command_failed(viewer, str(e))
         if not silent and hasattr(viewer, 'console_text'):
-            show_status(viewer, f"Error: {e}")
+            show_status(viewer, Message("Error: {error}", error=e))
         if not silent and hasattr(viewer, 'update_console_background'):
             viewer.update_console_background()
         print(f"Command Error: {e}")
