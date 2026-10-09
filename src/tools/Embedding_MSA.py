@@ -717,6 +717,12 @@ def benchmark_msa_devices(
     ranked = Hardware_Utils.rank_benchmark_results(
         results,
         higher_is_better=False,
+        decision={
+            "kind": "msa_device",
+            "unit": "s",
+            "sample_merges": sample_shapes,
+            "repeats": 3,
+        },
     )
     if not ranked:
         failures = "; ".join(result.error or "unknown" for result in results)

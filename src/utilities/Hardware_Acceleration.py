@@ -18,6 +18,11 @@ from typing import Any, Iterable, Optional
 import numpy as np
 import torch
 
+try:
+    from utilities import Benchmark_Record
+except ImportError:
+    import Benchmark_Record
+
 # =====================================================================
 # 1. Portable PyTorch Device Discovery & Device Benchmarks
 # =====================================================================
@@ -270,8 +275,15 @@ def rank_benchmark_results(
     *,
     higher_is_better: bool,
     tie_fraction: float = BENCHMARK_TIE_FRACTION,
+    decision: Optional[dict[str, Any]] = None,
 ) -> list[BenchmarkResult]:
-    """Rank successful results, preferring CPU/fewer lanes inside a 3% tie."""
+    """Rank successful results, preferring CPU/fewer lanes inside a 3% tie.
+
+    ``decision`` says what the ranking chooses, as ``kind`` and the value's
+    ``unit`` plus any context, for Benchmark_Record. It is written only while
+    the benchmark records, and the ranking never depends on it.
+    """
+    results = list(results)
     remaining = [result for result in results if result.succeeded]
     ranked: list[BenchmarkResult] = []
     while remaining:
@@ -316,6 +328,13 @@ def rank_benchmark_results(
         )
         ranked.append(selected)
         remaining.remove(selected)
+    Benchmark_Record.record_ranking(
+        results,
+        ranked,
+        higher_is_better=higher_is_better,
+        tie_fraction=tie_fraction,
+        **(decision or {}),
+    )
     return ranked
 
 
@@ -770,7 +789,20 @@ def benchmark_layout_devices(
     finally:
         _restore_random_state(baseline_random_state)
 
-    ranked = rank_benchmark_results(results, higher_is_better=False)
+    ranked = rank_benchmark_results(
+        results,
+        higher_is_better=False,
+        decision={
+            "kind": "layout_device",
+            "unit": "s",
+            "engine": engine_label,
+            "size_class": size_class,
+            "nodes": prepared.node_count,
+            "edges": len(final_edges),
+            "steps_timed": steps,
+            "stage_steps": stage_steps,
+        },
+    )
     if not ranked:
         failures = "; ".join(result.error or "unknown" for result in results)
         raise RuntimeError(f"Every layout benchmark candidate failed: {failures}")

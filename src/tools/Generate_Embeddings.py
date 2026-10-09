@@ -381,7 +381,14 @@ def _benchmark_embedding_devices(
         results.append(result)
 
     ranked = Hardware_Utils.rank_benchmark_results(
-        results, higher_is_better=False
+        results,
+        higher_is_better=False,
+        decision={
+            "kind": "embedding_device",
+            "unit": "s",
+            "sequences": len(pending),
+            "sample_lengths": [len(sequence) for sequence in samples],
+        },
     )
     if not ranked:
         failures = "; ".join(result.error or "unknown" for result in results)

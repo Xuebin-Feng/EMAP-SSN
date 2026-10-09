@@ -80,6 +80,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
+from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Network_Kernels import align_microbatch, global_local_scores
 from Embedding_Alignment_Engine import (
@@ -975,7 +976,15 @@ def _benchmark_injection_plans(
         Hardware_Utils.release_device_cache(candidate)
 
     ranked = Hardware_Utils.rank_benchmark_results(
-        results, higher_is_better=True
+        results,
+        higher_is_better=True,
+        decision={
+            "kind": "injection_plan",
+            "unit": "pairs/s",
+            "pairs": len(sample),
+            "precision": matmul_precision,
+            "trial_seconds": BENCHMARK_TRIAL_SECONDS,
+        },
     )
     if not ranked:
         raise RuntimeError("No injection processing plan completed successfully.")
@@ -1727,6 +1736,7 @@ def run_injection():
             )
         else:
             print("[Memory] Using byte-bounded embedding tiles.")
+        Benchmark_Record.record_host_cache(embedding_store, HOST_CACHE_GB)
         sequence_lengths = [shape[0] for shape in embedding_store.shapes]
 
         def pending_columns_for_row(row):

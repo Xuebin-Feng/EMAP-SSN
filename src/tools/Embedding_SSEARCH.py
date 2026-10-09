@@ -57,6 +57,7 @@ import threading
 import time
 import math
 from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
+from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Network_Kernels import (
     global_score_length_identity,
@@ -1080,6 +1081,12 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
                 f"setup={t.setup:.4f}s processing={t.processing:.4f}s shutdown={t.shutdown:.4f}s"
                 for t, _rate in p.observations) for p in selector.plans),
         estimated_remaining=ranked[0].predicted(selector.costs),
+    )
+    Benchmark_Record.record_search_plans(
+        selector.plans, ranked, selector.costs, notes=selector.messages,
+        targets=len(tasks), query_length=len(query_embedding),
+        tuning_seconds=selector.elapsed, validation_seconds=selector.excluded,
+        budget_seconds=selector.budget,
     )
     print(f"[Hardware] Selected {ranked[0].label}; tuning={selector.elapsed:.3f}s; "
           f"required precision checks={selector.excluded:.3f}s; "

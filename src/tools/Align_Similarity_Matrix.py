@@ -79,6 +79,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
+from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
 from Embedding_Alignment_Engine import (
     AcceleratorMemorySnapshot,
@@ -1350,12 +1351,19 @@ def _resolve_active_matmul_precision(
             print("[Precision] Resuming established BF16 batches.")
         return "bf16"
 
+    def decided(choice, reason, **details):
+        # The automatic choice, for the benchmark's report (Benchmark_Record).
+        Benchmark_Record.record(
+            "matmul_precision", setting=normalized, choice=choice, reason=reason, **details
+        )
+        return choice
+
     candidates = Hardware_Utils.get_available_devices()
     cuda_candidate = _precision_device(candidates)
     if cuda_candidate is None:
         if normalized == "tf32":
             raise ValueError("TF32 was requested, but no CUDA device is available.")
-        return "ieee_fp32"
+        return decided("ieee_fp32", "no_nvidia_cuda")
     if normalized == "tf32":
         print("[Precision] TF32 was explicitly selected.")
         return "tf32"
@@ -1364,7 +1372,7 @@ def _resolve_active_matmul_precision(
         sample[: min(int(PRECISION_VALIDATION_PAIRS), len(sample))]
     )
     if len(validation_tasks) < 2:
-        return "ieee_fp32"
+        return decided("ieee_fp32", "too_few_pairs", pairs=len(validation_tasks))
     _release_alignment_device_cache(cuda_candidate)
     memory_plan = cuda_memory_plan(cuda_candidate.device, lanes=1)
     memory_info = (memory_plan.free_bytes, memory_plan.total_bytes)
@@ -1395,7 +1403,10 @@ def _resolve_active_matmul_precision(
             f"[Precision] Selected-plan validation is not VRAM-safe "
             f"({'; '.join(infeasible)}); using IEEE FP32."
         )
-        return "ieee_fp32"
+        return decided(
+            "ieee_fp32", "vram_preflight",
+            **Benchmark_Record.candidate_fields(cuda_candidate), detail="; ".join(infeasible),
+        )
     print(
         f"[Precision] Testing FP32/TF32 with "
         f"{', '.join(variants)} CUDA execution on "
@@ -1452,7 +1463,10 @@ def _resolve_active_matmul_precision(
             f"[Precision] TF32 validation unavailable "
             f"({type(error).__name__}: {error}); using IEEE FP32."
         )
-        return "ieee_fp32"
+        return decided(
+            "ieee_fp32", "trial_failed",
+            **Benchmark_Record.candidate_fields(cuda_candidate), error=f"{type(error).__name__}: {error}",
+        )
 
     validation = {}
     for variant in variants:
@@ -1465,12 +1479,24 @@ def _resolve_active_matmul_precision(
     tf32_best = max(rates[(variant, "tf32")] for variant in variants)
     speedup = tf32_best / max(fp32_best, 1e-9)
     all_equivalent = all(equivalent for equivalent, _reason in validation.values())
+    trial = {
+        **Benchmark_Record.candidate_fields(cuda_candidate),
+        "pairs": len(validation_tasks),
+        "rates": [
+            {"variant": variant, "precision": precision, "value": rate}
+            for (variant, precision), rate in rates.items()
+        ],
+        "unit": "pairs/s",
+        "equivalent": {variant: equivalent for variant, (equivalent, _reason) in validation.items()},
+        "speedup": speedup,
+        "required_speedup": 1.10,
+    }
     if all_equivalent and speedup >= 1.10:
         print(
             f"[Precision] TF32 passed {', '.join(variants)} numerical validation "
             f"and its best plan was {speedup:.2f}x faster."
         )
-        return "tf32"
+        return decided("tf32", "faster_and_equivalent", **trial)
 
     if not all_equivalent:
         failed = next(
@@ -1482,7 +1508,7 @@ def _resolve_active_matmul_precision(
     else:
         speed_reason = f"best-plan speedup {speedup:.2f}x is below 1.10x"
     print(f"[Precision] Using IEEE FP32: {speed_reason}.")
-    return "ieee_fp32"
+    return decided("ieee_fp32", "not_equivalent" if not all_equivalent else "too_little_speedup", **trial)
 
 
 def _benchmark_processing_plans(
@@ -1820,7 +1846,15 @@ def _benchmark_processing_plans(
         _release_alignment_device_cache(candidate)
 
     ranked = Hardware_Utils.rank_benchmark_results(
-        results, higher_is_better=True
+        results,
+        higher_is_better=True,
+        decision={
+            "kind": "alignment_plan",
+            "unit": "pairs/s",
+            "pairs": len(sample),
+            "precision": matmul_precision,
+            "trial_seconds": BENCHMARK_TRIAL_SECONDS,
+        },
     )
     if not ranked:
         raise RuntimeError("No CPU or accelerator alignment plan completed.")
@@ -2609,6 +2643,7 @@ def run_job_distributor():
             else "memory-bounded HDF5 tiles"
         )
         print(f"[Memory] Using {cache_mode}.")
+        Benchmark_Record.record_host_cache(active_embedding_store, HOST_CACHE_GB)
         try:
             active_matmul_precision = _resolve_active_matmul_precision(
                 precision_setting,
