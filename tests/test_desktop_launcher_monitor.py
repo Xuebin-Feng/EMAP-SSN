@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Desktop launcher monitor: the launch-and-wait handshake, the launch environment (managed path overrides, Linux Qt platform), terminal fallback, exit codes and the application log's encoding."""
+"""Desktop launcher monitor: the launch-and-wait handshake, the launch environment (managed path overrides, Linux Qt platform), terminal fallback and its dialog's language, exit codes and the application log's encoding."""
 
 from __future__ import annotations
 
@@ -401,6 +401,79 @@ class ApplicationLogEncodingTests(unittest.TestCase):
                 self.assertEqual(result, self.PROBE_EXIT, log)
                 self.assertIn(f"stdout: {self.SAMPLE}", log)
                 self.assertIn(f"stderr: {self.SAMPLE}", log)
+
+
+class FailureDialogTests(unittest.TestCase):
+    """The dialog shown when no terminal can open to show a failed application's
+    log: in the language the windows show, while the log keeps English."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def log_file(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        log_path = Path(folder.name) / "application.log"
+        log_path.write_text("Traceback\n", encoding="utf-8")
+        return log_path
+
+    def report(self):
+        """The dialog's title and text, and the log, once a failure is reported."""
+        log_path = self.log_file()
+        with mock.patch("PySide6.QtWidgets.QMessageBox.critical") as critical:
+            Desktop_Launcher_Monitor._report_terminal_failure(log_path, OSError(2))
+        critical.assert_called_once()
+        _parent, title, text = critical.call_args.args
+        return title, text, log_path.read_text(encoding="utf-8")
+
+    def test_the_dialog_shows_in_the_windows_language_and_the_log_in_english(self):
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+
+        pseudo_language(self, self.app)
+        title, text, log = self.report()
+        for shown in (title, text):
+            with self.subTest(shown=shown):
+                self.assertTrue(shown)
+                self.assertEqual(outside_the_catalog(shown), "", shown)
+        self.assertIn("SSN could not open a terminal to display the application failure.", log)
+        self.assertIn("Terminal error: 2", log)
+
+    def test_in_its_own_process_the_monitor_installs_the_language_first(self):
+        events = []
+
+        class OwnApplication:
+            """The application the monitor creates in its own process."""
+
+            @staticmethod
+            def instance():
+                return None
+
+            def __init__(self, arguments):
+                self.quit = mock.Mock()
+
+        with mock.patch("PySide6.QtWidgets.QApplication", OwnApplication), \
+                mock.patch.object(Desktop_Launcher_Monitor, "_install_chosen_language",
+                                  side_effect=lambda application: events.append(("language", application))), \
+                mock.patch("PySide6.QtWidgets.QMessageBox.critical",
+                           side_effect=lambda *arguments: events.append(("dialog", None))):
+            Desktop_Launcher_Monitor._report_terminal_failure(self.log_file(), OSError(2))
+        self.assertEqual([event for event, _ in events], ["language", "dialog"])
+        application = events[0][1]
+        self.assertIsInstance(application, OwnApplication)
+        application.quit.assert_called_once_with()
+
+    def test_the_dialog_shows_in_english_when_the_language_cannot_load(self):
+        with mock.patch("desktop.Desktop_App.startup_language", return_value="de"), \
+                mock.patch("desktop.Desktop_App.install_translations", side_effect=OSError("unreadable")) as install:
+            Desktop_Launcher_Monitor._install_chosen_language(self.app)
+        install.assert_called_once_with(self.app, "de")
+        title, text, log = self.report()
+        self.assertEqual(title, "SSN Application Failure")
+        self.assertTrue(text.startswith("SSN could not open a terminal"), text)
 
 
 if __name__ == "__main__":

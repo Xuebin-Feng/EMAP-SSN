@@ -19,12 +19,14 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 try:
+    from utilities.Localization import Message
     from utilities.Terminal_Launcher import (
         HoldMode,
         TerminalUnavailableError,
         launch_in_terminal,
     )
 except ModuleNotFoundError:
+    from Localization import Message  # type: ignore[no-redef]
     from Terminal_Launcher import (  # type: ignore[no-redef]
         HoldMode,
         TerminalUnavailableError,
@@ -113,14 +115,30 @@ def _open_error_terminal(log_path: Path, *, platform_name: str | None = None) ->
     return True
 
 
+def _install_chosen_language(application) -> None:
+    """Show the monitor's dialog in the language the windows show.
+
+    The monitor runs in a process of its own, which no window's language
+    reaches. If the language can't be loaded, the dialog shows in English.
+    """
+    try:
+        from desktop.Desktop_App import install_translations, startup_language
+
+        install_translations(application, startup_language())
+    except Exception:
+        pass
+
+
 def _report_terminal_failure(log_path: Path, error: Exception) -> None:
-    message = (
+    message = Message(
         "SSN could not open a terminal to display the application failure. "
-        f"Review the retained log at {log_path}. Terminal error: {error}"
+        "Review the retained log at {log}. Terminal error: {error}",
+        log=log_path,
+        error=error,
     )
     try:
         with log_path.open("a", encoding="utf-8", newline="\n") as log_handle:
-            print(f"\n{message}", file=log_handle)
+            print(f"\n{message}", file=log_handle)  # The log stays English.
     except OSError:
         pass
 
@@ -129,7 +147,9 @@ def _report_terminal_failure(log_path: Path, error: Exception) -> None:
 
         owns_application = QApplication.instance() is None
         application = QApplication.instance() or QApplication([])
-        QMessageBox.critical(None, "SSN Application Failure", message)
+        if owns_application:
+            _install_chosen_language(application)
+        QMessageBox.critical(None, Message("SSN Application Failure").display(), message.display())
         if owns_application:
             application.quit()
     except Exception:

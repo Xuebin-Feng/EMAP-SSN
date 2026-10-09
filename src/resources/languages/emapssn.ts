@@ -1035,6 +1035,14 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
+        <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SSN Application Failure</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Enter a profile name.</source>
         <translation type="unfinished"></translation>
     </message>

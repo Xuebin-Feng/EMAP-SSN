@@ -119,6 +119,10 @@ still change before version 1.0.0.
   page opens come from the catalog. MCP clients still read the window's title in English.
   The canvas text (the console line and the HUD) follows. Exporting metadata now picks
   CSV or Excel by the chosen filter's file pattern, which every language keeps.
+- **The launchers' failure dialog is ready to translate.** When an application started
+  from a desktop launcher fails and no terminal can open to show its log, the dialog that
+  says so shows in the language the windows show, or in English if that language can't
+  load. The log stays English.
 
 ### Changed
 
