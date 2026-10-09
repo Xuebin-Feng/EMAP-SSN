@@ -83,6 +83,238 @@ class _FrozenSparseAlignment:
     def get_alignment_length(self):
         return self.n_cols
 
+    def column_major(self):
+        """CSC copy of the frozen matrix (rows ascending in every column), built once."""
+        if getattr(self, "_column_major", None) is None:
+            self._column_major = self.matrix.tocsc()
+            self._column_major.sort_indices()
+        return self._column_major
+
+
+class _AlignmentRows:
+    """Rows of a sparse alignment, in order, without decoding them to text.
+
+    The row-subset matrix is gathered on each access rather than cached, so
+    the task list does not keep every subset's copy alive.
+    """
+
+    def __init__(self, alignment, row_indices):
+        self.parent = alignment
+        self.row_indices = np.asarray(row_indices, dtype=np.intp)
+        self.int_to_aa = alignment.int_to_aa
+
+    @property
+    def matrix(self):
+        return self.parent.matrix[self.row_indices]
+
+    def __len__(self):
+        return int(self.row_indices.size)
+
+    def __getitem__(self, index):
+        return self.parent[int(self.row_indices[index])]
+
+    def __iter__(self):
+        for index in self.row_indices:
+            yield self.parent[int(index)]
+
+    def get_alignment_length(self):
+        return self.parent.get_alignment_length()
+
+
+def _sparse_code_limit(matrix):
+    """Size of a lookup table covering every stored code, or None."""
+    data = matrix.data
+    if not np.issubdtype(data.dtype, np.integer):
+        return None
+    if data.size == 0:
+        return 1
+    low, high = int(data.min()), int(data.max())
+    if low < 0 or high > 65535:
+        return None
+    return high + 1
+
+
+def _count_letter_table(int_to_aa, gap_chars, code_limit):
+    """Map sparse codes to residue letters the way _get_amino_acid_counts reads them.
+
+    Unmapped codes count as 'X', symbols in gap_chars are skipped and residues
+    are upper-cased. Returns (code -> letter index or -1, letters).
+    """
+    letters = []
+    letter_index = {}
+    table = np.full(max(1, code_limit), -1, dtype=np.int32)
+    for code in range(1, code_limit):
+        amino_acid = int_to_aa.get(code, 'X')
+        if amino_acid in gap_chars:
+            continue
+        amino_acid = str(amino_acid).upper()
+        if amino_acid not in letter_index:
+            letter_index[amino_acid] = len(letters)
+            letters.append(amino_acid)
+        table[code] = letter_index[amino_acid]
+    return table, letters
+
+
+_COLUMN_BLOCK = 128
+_ROW_MAJOR_ENTRY_LIMIT = 4_000_000
+
+
+def _sparse_column_counts(aln, columns, weights, gap_chars):
+    """Return {column: {aa: weighted count}} for a sparse alignment, or None.
+
+    One pass over the stored entries replaces a scan of the whole row-major
+    matrix per column. Within every (column, residue) bin np.bincount adds the
+    weights in ascending row order, as the per-column loop does, and residues
+    keep the order of their first row, so sums and dict order are unchanged.
+    Small matrices are read in row-major order directly; large ones in column
+    blocks of a column-major copy (cached on the frozen global alignment).
+    """
+    matrix = aln.matrix
+    code_limit = _sparse_code_limit(matrix)
+    if code_limit is None or getattr(matrix, "format", None) != "csr":
+        return None
+    table, letters = _count_letter_table(aln.int_to_aa, gap_chars, code_limit)
+    letter_count = max(1, len(letters))
+    row_count, column_count = matrix.shape
+    bin_total = column_count * letter_count
+    sums = np.zeros(bin_total, dtype=float)
+    first_entry = np.full(bin_total, np.iinfo(np.int64).max, dtype=np.int64)
+    # Skip the gap filter when no stored code is a gap (the loaders' case), and
+    # count instead of summing unit weights: the integer totals are exact.
+    all_residues = bool(np.all(table[1:] >= 0)) and (
+        matrix.nnz == 0 or int(matrix.data.min()) > 0
+    )
+    unit_weights = bool(np.all(weights == 1.0))
+
+    def bin_sums(keys, entry_rows):
+        if unit_weights:
+            return np.bincount(keys, minlength=bin_total).astype(float)
+        return np.bincount(keys, weights=weights[entry_rows()], minlength=bin_total)
+
+    if matrix.nnz <= _ROW_MAJOR_ENTRY_LIMIT:
+        # Row-major entries: a bin's entries arrive in ascending row order.
+        letter = table[matrix.data]
+        if all_residues:
+            kept = np.arange(matrix.nnz, dtype=np.int64)
+            keys = matrix.indices.astype(np.int64)
+        else:
+            kept = np.flatnonzero(letter >= 0)
+            keys = matrix.indices[kept].astype(np.int64)
+            letter = letter[kept]
+        keys *= letter_count
+        keys += letter
+        sums += bin_sums(keys, lambda: np.repeat(
+            np.arange(row_count, dtype=np.int64), np.diff(matrix.indptr)
+        )[kept])
+        np.minimum.at(first_entry, keys, kept)
+    else:
+        column_major = getattr(aln, "column_major", None)
+        csc = column_major() if column_major is not None else matrix.tocsc()
+        csc.sort_indices()
+        for block_start in range(0, column_count, _COLUMN_BLOCK):
+            block_end = min(column_count, block_start + _COLUMN_BLOCK)
+            entry_start = int(csc.indptr[block_start])
+            entry_end = int(csc.indptr[block_end])
+            letter = table[csc.data[entry_start:entry_end]]
+            local_column = np.repeat(
+                np.arange(block_end - block_start, dtype=np.int64),
+                np.diff(csc.indptr[block_start:block_end + 1]),
+            )
+            if all_residues:
+                kept = np.arange(entry_end - entry_start, dtype=np.int64)
+                keys = local_column
+            else:
+                kept = np.flatnonzero(letter >= 0)
+                keys = local_column[kept]
+                letter = letter[kept]
+            keys *= letter_count
+            keys += letter
+            bins = slice(block_start * letter_count, block_end * letter_count)
+            block_bins = (block_end - block_start) * letter_count
+            if unit_weights:
+                sums[bins] = np.bincount(keys, minlength=block_bins)
+            else:
+                sums[bins] = np.bincount(
+                    keys,
+                    weights=weights[csc.indices[entry_start:entry_end][kept]],
+                    minlength=block_bins,
+                )
+            np.minimum.at(first_entry[bins], keys, kept)
+
+    present = np.flatnonzero(first_entry != np.iinfo(np.int64).max)
+    present = present[np.lexsort((first_entry[present], present // letter_count))]
+    present_columns = present // letter_count
+    starts = np.flatnonzero(np.diff(present_columns, prepend=-1))
+    ends = np.append(starts[1:], present.size).tolist()
+    names = np.asarray(letters, dtype=object)[present % letter_count].tolist()
+    totals = sums[present].tolist()
+    by_column = {
+        column: dict(zip(names[start:end], totals[start:end]))
+        for column, start, end in zip(
+            present_columns[starts].tolist(), starts.tolist(), ends
+        )
+    }
+    return {
+        column: by_column.get(column, {})
+        for column in (int(column) for column in columns)
+        if 0 <= column < column_count
+    }
+
+
+def _residue_lengths(aln, gap_chars):
+    """Ungapped length of every row, as get_sequence_stats counts decoded rows, or None."""
+    matrix = aln.matrix
+    if not hasattr(matrix, "indptr") or matrix.format != "csr":
+        return None
+    code_limit = _sparse_code_limit(matrix)
+    if code_limit is None:
+        return None
+    residues_per_code = np.zeros(code_limit, dtype=np.int64)
+    for code in range(1, code_limit):
+        decoded = aln.int_to_aa.get(code, "-")
+        residues_per_code[code] = sum(1 for char in decoded if char not in gap_chars)
+    lengths = np.diff(matrix.indptr).astype(np.int64)
+    correction = residues_per_code - 1
+    # Every stored entry is one residue unless a code decodes to a gap symbol
+    # or to several characters (not the case for the loaders' canonical codes).
+    if matrix.nnz and (int(matrix.data.min()) == 0 or np.any(correction[1:] != 0)):
+        entries = np.flatnonzero(correction[matrix.data] != 0)
+        rows = np.searchsorted(matrix.indptr, entries, side="right") - 1
+        lengths += np.bincount(
+            rows,
+            weights=correction[matrix.data[entries]],
+            minlength=lengths.size,
+        ).astype(np.int64)
+    return lengths
+
+
+def _standard_residue_rows(aln, block_rows=4096):
+    """Rows encoded for logo.calculate_identity_weights (0-19 or -1), or None.
+
+    Equal to encoding [str(record.seq).upper() for record in aln] without
+    building the strings.
+    """
+    matrix = getattr(aln, "matrix", None)
+    if matrix is None or getattr(matrix, "format", None) != "csr":
+        return None
+    code_limit = _sparse_code_limit(matrix)
+    if code_limit is None:
+        return None
+    table = np.full(code_limit, -1, dtype=np.int8)
+    for code in range(1, code_limit):
+        decoded = aln.int_to_aa.get(code, "-")
+        if not isinstance(decoded, str) or len(decoded) != 1:
+            return None
+        decoded = decoded.upper()
+        if decoded in logo_cmd.STANDARD_AAS:
+            table[code] = logo_cmd.STANDARD_AAS.index(decoded)
+    row_count, column_count = matrix.shape
+    encoded = np.empty((row_count, column_count), dtype=np.int8)
+    for start in range(0, row_count, block_rows):
+        stop = min(row_count, start + block_rows)
+        encoded[start:stop] = table[matrix[start:stop].toarray()]
+    return encoded
+
 
 class _FrozenAlignmentManager:
     def __init__(self, alignment, viewer_to_aln=None):
@@ -329,22 +561,20 @@ def _build_label_tasks(viewer, target_mode, viewer_to_aln):
             if alignment_index >= 0:
                 aln_idx_to_cid[alignment_index] = viewer.cluster_labels[node_index]
 
-        cluster_records = {}
-        for alignment_index, record in enumerate(viewer.alignment.aln):
+        cluster_rows = {}
+        for alignment_index in range(len(viewer.alignment.aln)):
             cluster_id = aln_idx_to_cid.get(alignment_index, -1)
             if cluster_id != -1:
-                cluster_records.setdefault(cluster_id, []).append(
-                    (alignment_index, record)
-                )
+                cluster_rows.setdefault(cluster_id, []).append(alignment_index)
 
-        for cluster_id in sorted(cluster_records):
-            indexed_records = cluster_records[cluster_id]
+        for cluster_id in sorted(cluster_rows):
+            row_indices = np.asarray(cluster_rows[cluster_id], dtype=int)
             tasks.append((
                 "cluster",
                 cluster_id,
-                MultipleSeqAlignment([record for _, record in indexed_records]),
+                _subset_alignment(viewer.alignment.aln, row_indices),
                 viewer.alignment.col_to_label,
-                np.asarray([index for index, _ in indexed_records], dtype=int),
+                row_indices,
             ))
 
     if target_mode in {"all", "groups"} and getattr(viewer, 'group_labels', None):
@@ -357,33 +587,40 @@ def _build_label_tasks(viewer, target_mode, viewer_to_aln):
             if groups and alignment_index >= 0:
                 aln_idx_to_groups[alignment_index] = groups
 
-        group_records = {}
-        for alignment_index, record in enumerate(viewer.alignment.aln):
+        group_rows = {}
+        for alignment_index in range(len(viewer.alignment.aln)):
             for group_name in aln_idx_to_groups.get(alignment_index, ()):
-                group_records.setdefault(group_name, []).append(
-                    (alignment_index, record)
-                )
+                group_rows.setdefault(group_name, []).append(alignment_index)
 
-        for group_name in sorted(group_records):
-            indexed_records = group_records[group_name]
+        for group_name in sorted(group_rows):
+            row_indices = np.asarray(group_rows[group_name], dtype=int)
             tasks.append((
                 "group",
                 group_name,
-                MultipleSeqAlignment([record for _, record in indexed_records]),
+                _subset_alignment(viewer.alignment.aln, row_indices),
                 viewer.alignment.col_to_label,
-                np.asarray([index for index, _ in indexed_records], dtype=int),
+                row_indices,
             ))
 
     return tasks
 
+
+def _subset_alignment(aln, row_indices):
+    """A sparse row view for sparse alignments; decoded records otherwise."""
+    if hasattr(aln, "matrix") and hasattr(aln, "int_to_aa"):
+        return _AlignmentRows(aln, row_indices)
+    return MultipleSeqAlignment([aln[int(index)] for index in row_indices])
+
 def get_sequence_stats(aln, gap_chars=None):
-    lengths = []
     gap_chars = set(cfg.GAP_CHARS if gap_chars is None else gap_chars)
-    for record in aln:
-        seq_str = str(record.seq)
-        ungapped_len = sum(1 for c in seq_str if c not in gap_chars)
-        lengths.append(ungapped_len)
-    if not lengths: return 0, 0, 0.0, 0.0
+    lengths = _residue_lengths(aln, gap_chars) if hasattr(aln, "matrix") else None
+    if lengths is None:
+        lengths = []
+        for record in aln:
+            seq_str = str(record.seq)
+            ungapped_len = sum(1 for c in seq_str if c not in gap_chars)
+            lengths.append(ungapped_len)
+    if not len(lengths): return 0, 0, 0.0, 0.0
     arr = np.array(lengths)
     return int(np.min(arr)), int(np.max(arr)), np.mean(arr), np.std(arr)
 
@@ -452,16 +689,27 @@ def _calculate_weighted_frequencies(aln, mapping, weights, gap_chars=None):
         return stats, counts_by_label
 
     alignment_length = aln.get_alignment_length()
+    column_counts = None
+    if hasattr(aln, "matrix"):
+        column_counts = _sparse_column_counts(
+            aln,
+            mapping.keys(),
+            weights,
+            frozenset(cfg.GAP_CHARS if gap_chars is None else gap_chars),
+        )
 
     for col_idx, label in mapping.items():
         if col_idx < 0 or col_idx >= alignment_length:
             continue
-        counts = _get_amino_acid_counts(
-            aln,
-            col_idx,
-            weights=weights,
-            gap_chars=gap_chars,
-        )
+        if column_counts is not None:
+            counts = column_counts[col_idx]
+        else:
+            counts = _get_amino_acid_counts(
+                aln,
+                col_idx,
+                weights=weights,
+                gap_chars=gap_chars,
+            )
         counts_by_label[label] = counts
         non_gap_weight = float(sum(counts.values()))
         occupancy = non_gap_weight / total_weight
@@ -502,16 +750,23 @@ def _get_indexed_amino_acid_count(
         selected_weights = weights[row_indices]
 
     target = str(amino_acid).upper()
-    encoded = aln.matrix[row_indices].getcol(col_idx).toarray().ravel()
+    column_major = getattr(aln, "column_major", None)
+    if column_major is not None and 0 <= col_idx < aln.matrix.shape[1]:
+        csc = column_major()
+        start, end = csc.indptr[col_idx], csc.indptr[col_idx + 1]
+        column = np.zeros(csc.shape[0], dtype=csc.dtype)
+        column[csc.indices[start:end]] = csc.data[start:end]
+        encoded = column[row_indices]
+    else:
+        encoded = aln.matrix[row_indices].getcol(col_idx).toarray().ravel()
     matching_codes = {
         int(code)
         for code, residue in aln.int_to_aa.items()
         if str(residue).upper() == target
     }
-    matches = np.fromiter(
-        (int(value) in matching_codes for value in encoded),
-        dtype=bool,
-        count=row_indices.size,
+    matches = np.isin(
+        encoded.astype(np.int64),
+        np.fromiter(matching_codes, dtype=np.int64, count=len(matching_codes)),
     )
     return float(selected_weights[matches].sum())
 
@@ -550,6 +805,26 @@ def _format_statistics_summary(
         f"Aligned {aligned_node_count} of {network_node_count} | "
         f"Excluded {excluded_node_count} | Effective {effective_display}"
     )
+
+
+def _occupancy_fills(cmap, occupancies, cache):
+    """Solid fills colored as cmap(occupancy), one per value, one object per color.
+
+    The colormap is applied to the whole list at once (element-wise identical to
+    scalar calls) and each distinct color builds a single PatternFill.
+    """
+    from openpyxl.styles import PatternFill
+
+    fills = []
+    for rgba in cmap(np.asarray(occupancies, dtype=float)).tolist():
+        rgba = tuple(rgba)
+        fill = cache.get(rgba)
+        if fill is None:
+            hex_color = mcolors.to_hex(rgba)[1:].upper()
+            fill = PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+            cache[rgba] = fill
+        fills.append(fill)
+    return fills
 
 
 def _append_workbook_metadata(
@@ -673,26 +948,30 @@ def _run_label_artifact(viewer, args):
         global_weights = None
         if identity_threshold is None:
             total_global_effective_n = float(total_global_seqs)
-            g_stats, _ = _calculate_weighted_frequencies(
+            # Unit weights sum to the exact integer counts, in first-row order,
+            # so these serve get_global_counts without another column scan.
+            g_stats, global_count_cache = _calculate_weighted_frequencies(
                 viewer.alignment.aln,
                 viewer.alignment.col_to_label,
                 np.ones(total_global_seqs, dtype=float),
                 gap_chars=gap_chars,
             )
-            global_count_cache = {}
         else:
             print(
                 "Calculating global identity-neighbour weights at "
                 f"{identity_threshold * 100:g}%..."
             )
-            global_sequences = [
-                str(record.seq).upper() for record in viewer.alignment.aln
-            ]
+            global_sequences = _standard_residue_rows(viewer.alignment.aln)
+            if global_sequences is None:
+                global_sequences = [
+                    str(record.seq).upper() for record in viewer.alignment.aln
+                ]
             global_weights = logo_cmd.calculate_identity_weights(
                 global_sequences,
                 identity_threshold,
                 report_backend=True,
             )
+            del global_sequences
             total_global_effective_n = float(global_weights.sum())
             g_stats, global_count_cache = _calculate_weighted_frequencies(
                 viewer.alignment.aln,
@@ -1055,10 +1334,10 @@ def _run_label_artifact(viewer, args):
             except AttributeError:
                 occ_cmap1 = matplotlib.colormaps['Reds_r']
                 
-            def get_occ_fill1(occ_value):
-                rgba = occ_cmap1(occ_value)
-                hex_color = mcolors.to_hex(rgba)[1:].upper()
-                return PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+            fill_cache1 = {}
+
+            def get_occ_fills1(occ_values):
+                return _occupancy_fills(occ_cmap1, occ_values, fill_cache1)
 
             # Write Global Row 
             if identity_threshold is not None:
@@ -1104,10 +1383,16 @@ def _run_label_artifact(viewer, args):
                     row=g_row_idx1, column=effective_n_column
                 ).number_format = effective_n_number_format
             
-            for c_idx, col in enumerate(sorted_cols):
-                if col in g_occ_dict1:
-                    col_letter_idx = c_idx + position_start_column
-                    ws1.cell(row=g_row_idx1, column=col_letter_idx).fill = get_occ_fill1(g_occ_dict1[col])
+            global_fill_columns1 = [
+                (c_idx + position_start_column, g_occ_dict1[col])
+                for c_idx, col in enumerate(sorted_cols)
+                if col in g_occ_dict1
+            ]
+            for (col_letter_idx, _), fill in zip(
+                global_fill_columns1,
+                get_occ_fills1([occ for _, occ in global_fill_columns1]),
+            ):
+                ws1.cell(row=g_row_idx1, column=col_letter_idx).fill = fill
                     
             ws1.append([]) # Blank row below Global Stats
 
@@ -1164,8 +1449,10 @@ def _run_label_artifact(viewer, args):
                     hex_val = res['hex'].replace("#", "").upper()
                     ws1.cell(row=current_row1, column=hex_color_column).fill = PatternFill(start_color=hex_val, end_color=hex_val, fill_type="solid")
                 
-                for col_index, occ_val in row_occs1.items():
-                    ws1.cell(row=current_row1, column=col_index).fill = get_occ_fill1(occ_val)
+                for col_index, fill in zip(
+                    row_occs1, get_occ_fills1(list(row_occs1.values()))
+                ):
+                    ws1.cell(row=current_row1, column=col_index).fill = fill
                     
             # ==========================================
             # TAB 2: Occupancy Stats
@@ -1206,10 +1493,10 @@ def _run_label_artifact(viewer, args):
             except AttributeError:
                 occ_cmap2 = matplotlib.colormaps['Greens']
                 
-            def get_occ_fill2(occ_value):
-                rgba = occ_cmap2(occ_value)
-                hex_color = mcolors.to_hex(rgba)[1:].upper()
-                return PatternFill(start_color=hex_color, end_color=hex_color, fill_type="solid")
+            fill_cache2 = {}
+
+            def get_occ_fills2(occ_values):
+                return _occupancy_fills(occ_cmap2, occ_values, fill_cache2)
 
             # Write Global Row 
             if identity_threshold is not None:
@@ -1250,9 +1537,11 @@ def _run_label_artifact(viewer, args):
                     row=g_row_idx2, column=effective_n_column
                 ).number_format = effective_n_number_format
             
-            for c_idx, col in enumerate(all_occ_labels):
+            for c_idx, fill in enumerate(
+                get_occ_fills2([g_occ_dict2[col] for col in all_occ_labels])
+            ):
                 col_letter_idx = c_idx + position_start_column
-                ws2.cell(row=g_row_idx2, column=col_letter_idx).fill = get_occ_fill2(g_occ_dict2[col])
+                ws2.cell(row=g_row_idx2, column=col_letter_idx).fill = fill
                 
             ws2.append([]) # Blank row below Global Stats
 
@@ -1302,8 +1591,10 @@ def _run_label_artifact(viewer, args):
                     hex_val = res['hex'].replace("#", "").upper()
                     ws2.cell(row=current_row2, column=hex_color_column).fill = PatternFill(start_color=hex_val, end_color=hex_val, fill_type="solid")
                 
-                for col_index, occ_val in row_occs2.items():
-                    ws2.cell(row=current_row2, column=col_index).fill = get_occ_fill2(occ_val)
+                for col_index, fill in zip(
+                    row_occs2, get_occ_fills2(list(row_occs2.values()))
+                ):
+                    ws2.cell(row=current_row2, column=col_index).fill = fill
 
             # Auto-fit Column A width based on the longest cluster or group name
             name_lengths = [len("Subset Name"), len("Global Stats")] + [len(res['name']) for res in cluster_results]
