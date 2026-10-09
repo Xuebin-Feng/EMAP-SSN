@@ -1309,6 +1309,7 @@ class InstalledTranslations:
     previous_message_translator: object = None
     catalog_dir: Path = LANGUAGES_DIR
     font_ids: tuple = ()
+    extra_catalogs: tuple = ()
 
     def remove(self):
         global _installed_translations
@@ -1339,7 +1340,7 @@ def _load_catalog(prefix, language, directory):
     return None
 
 
-def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
+def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalogs=()):
     """Show the windows built after this call in language.
 
     None or "en" keeps every text English as written and installs nothing.
@@ -1351,6 +1352,12 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
     line) then come from the same catalogs. A language whose script the
     core fonts lack also registers its bundled font (LANGUAGE_FONTS).
 
+    extra_catalogs lists (directory, name) pairs of catalogs a window adds
+    to the main one, as VR Config adds opt_vr's emapssn_vr: the
+    pseudo-language is made from <directory>/<name>.ts too, and a language
+    loads <directory>/<name>_<language>.qm after the main catalog. One that
+    is missing leaves its own texts English.
+
     Windows set their text once, as they are built, so call this after the
     QApplication exists and before the first window. A second call replaces
     the first. Returns the InstalledTranslations, or None for English.
@@ -1360,8 +1367,14 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
         _installed_translations.remove()
     if language in (None, "", "en"):
         return None
+    extra_catalogs = tuple((Path(directory), name) for directory, name in extra_catalogs)
     if language == PSEUDO_LANGUAGE:
         translators = [pseudo_translator(Path(catalog_dir) / f"{CATALOG_NAME}.ts")]
+        translators += [
+            pseudo_translator(directory / f"{name}.ts")
+            for directory, name in extra_catalogs
+            if (directory / f"{name}.ts").is_file()
+        ]
     else:
         ours = _load_catalog(CATALOG_NAME, language, catalog_dir)
         if ours is None:
@@ -1372,7 +1385,12 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
             for prefix in QT_CATALOG_PREFIXES
             if (translator := _load_catalog(prefix, language, qt_directory)) is not None
         ]
-        translators.append(ours)  # Installed last, so Qt asks it first.
+        translators.append(ours)  # Installed after Qt's, so Qt asks it first.
+        translators += [
+            translator
+            for directory, name in extra_catalogs
+            if (translator := _load_catalog(name, language, directory)) is not None
+        ]
     for translator in translators:
         app.installTranslator(translator)
     _installed_translations = InstalledTranslations(
@@ -1381,6 +1399,7 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR):
         set_translator(_translate_message),
         Path(catalog_dir),
         _add_language_font(language),
+        extra_catalogs,
     )
     return _installed_translations
 
@@ -1610,28 +1629,29 @@ def restore_view_positions(window, view):
 _redrawn_windows = []
 
 
-def redraw_in_language(window, language, build, catalog_dir=LANGUAGES_DIR):
+def redraw_in_language(window, language, build, catalog_dir=LANGUAGES_DIR, extra_catalogs=()):
     """Replace window with a copy in language, where the window was and as it was.
 
-    Installs language, then calls build() for the replacement, which must
-    carry over the window's values. The replacement gets the window's size,
-    position, splitter positions, tabs and scroll positions, and the
-    single-instance controller's attention (window.single_instance). It is
-    shown in the window's place before the window closes, so the program
-    never runs without a window. If build() fails, the window and its
-    language stay. Returns the replacement.
+    Installs language, with the window's extra_catalogs as install_translations
+    takes them, then calls build() for the replacement, which must carry over
+    the window's values. The replacement gets the window's size, position,
+    splitter positions, tabs and scroll positions, and the single-instance
+    controller's attention (window.single_instance). It is shown in the
+    window's place before the window closes, so the program never runs
+    without a window. If build() fails, the window and its language stay.
+    Returns the replacement.
     """
     app = QApplication.instance()
     previous = _installed_translations
     view = capture_view(window)
-    install_translations(app, language, catalog_dir)
+    install_translations(app, language, catalog_dir, extra_catalogs)
     try:
         replacement = build()
     except BaseException:
         if previous is None:
             install_translations(app, None)
         else:
-            install_translations(app, previous.language, previous.catalog_dir)
+            install_translations(app, previous.language, previous.catalog_dir, previous.extra_catalogs)
         raise
     restore_view(replacement, view)
     replacement.show()

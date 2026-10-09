@@ -36,6 +36,11 @@ text's placeholders, such as {count}.
 code's texts, if a compiled catalog no longer matches its .ts file, or if a
 translation lost a placeholder. The test suite runs it, so a text marked
 without running the update fails the tests.
+
+update_catalogs also keeps a window's own catalog beside the main one:
+opt_vr's Update_Translations_VR.py keeps VR Config's emapssn_vr.ts from
+opt_vr/src, leaving out every text emapssn.ts already lists, which VR
+Config shows from the main catalog.
 """
 
 import argparse
@@ -63,7 +68,6 @@ from utilities.Localization import (  # noqa: E402
 )
 
 LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(?:_[A-Z][a-z]{3})?(?:_[A-Z]{2})?$")
-_LANGUAGE_CATALOG = re.compile(rf"^{CATALOG_NAME}_(?P<language>\w+)\.ts$")
 _MARKER_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
 # lupdate's own progress lines; anything else it prints is worth showing.
 _LUPDATE_PROGRESS = re.compile(
@@ -160,7 +164,7 @@ _PLURAL_ADVICE = ('Mark its English plural ending, as in "%n file(s)" or "%n mat
                   'so English shows "1 file" and "2 files".')
 
 
-def prepare_source(text, filename):
+def prepare_source(text, filename, shared=frozenset()):
     """lupdate's view of one source file, and the problems in its marked texts.
 
     Returns the text as lupdate should read it, and a list of problems. In
@@ -172,6 +176,10 @@ def prepare_source(text, filename):
     tr() or translate() gets it, a call that names its arguments, and a
     text with %n that is not counted, or counted without an English plural
     ending. The changes add no lines, so every text keeps its line number.
+
+    shared holds the keys (context, text, disambiguation) of texts another
+    catalog lists. lupdate doesn't see those: a Message gets no marker, and
+    translate() and QT_TRANSLATE_NOOP() are renamed so lupdate skips them.
     """
     try:
         tree = ast.parse(text, filename)
@@ -199,6 +207,8 @@ def prepare_source(text, filename):
                           'as in Message("Removed %n group(s).", n=count).')
         if counted and not has_plural_ending(template.value):
             problem(node, f"Message counts a template without an English plural ending. {_PLURAL_ADVICE}")
+        if (MESSAGE_CONTEXT, template.value, "") in shared:
+            return
         row = node.func.end_lineno - 1
         line = lines[row]
         start = _column(line, node.func.end_col_offset)
@@ -207,6 +217,21 @@ def prepare_source(text, filename):
             problem(node, "put Message's opening parenthesis on the same line as its name.")
             return
         edits.append((row, column + 1, row, column + 1, message_marker(template.value, counted)))
+
+    def shared_key(node, name, source):
+        """The key of a translate() or QT_TRANSLATE_NOOP() text, if shared lists it."""
+        if name not in ("translate", "QT_TRANSLATE_NOOP") or not _is_plain_string(node.args[0]):
+            return None
+        disambiguation = node.args[2] if name == "translate" and len(node.args) > 2 else None
+        comment = disambiguation.value if disambiguation is not None and _is_plain_string(disambiguation) else ""
+        key = (node.args[0].value, source.value, comment)
+        return key if key in shared else None
+
+    def leave_out(node, name):
+        """Rename the call in lupdate's copy, so lupdate skips it."""
+        row = node.func.end_lineno - 1
+        end = _column(lines[row], node.func.end_col_offset)
+        edits.append((row, end - len(name), row, end, f"_shared_{name}"))
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -231,6 +256,9 @@ def prepare_source(text, filename):
             continue
         if _joins_lines(text, source):
             problem(node, f"{name}() gets a text that {_LINE_JOIN_ADVICE}")
+        if shared and shared_key(node, name, source):
+            leave_out(node, name)
+            continue
         count = _COUNT_ARGUMENT.get(name)
         counted = count is not None and len(node.args) > count
         if counted and name == "tr":
@@ -256,11 +284,12 @@ def prepare_source(text, filename):
     return "".join(lines), [explanation for _, explanation in sorted(problems)]
 
 
-def stage_sources(source_dir, stage_dir, skip=None):
+def stage_sources(source_dir, stage_dir, skip=None, shared=frozenset()):
     """Copy the .py files under source_dir into stage_dir, marking Message templates.
 
     Files in the folder skip (relative to source_dir), such as this command's
-    own, are left out. Returns the problems found.
+    own, are left out, and so are the texts shared lists, as prepare_source
+    explains. Returns the problems found.
     """
     source_dir, stage_dir = Path(source_dir), Path(stage_dir)
     skipped = Path(skip).parts if skip else None
@@ -273,7 +302,7 @@ def stage_sources(source_dir, stage_dir, skip=None):
             continue
         text = path.read_text(encoding="utf-8-sig")
         if any(word in text for word in ("Message", "tr(", "translate(", "QT_TR")):
-            text, found = prepare_source(text, relative.as_posix())
+            text, found = prepare_source(text, relative.as_posix(), shared)
             problems.extend(found)
         target = stage_dir / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -296,11 +325,12 @@ def run_qt_tool(name, arguments):
     return printed
 
 
-def language_catalogs(languages_dir):
-    """{language: path} of every emapssn_<language>.ts in languages_dir."""
+def language_catalogs(languages_dir, catalog_name=CATALOG_NAME):
+    """{language: path} of every <catalog_name>_<language>.ts in languages_dir."""
+    pattern = re.compile(rf"^{re.escape(catalog_name)}_(?P<language>\w+)\.ts$")
     catalogs = {}
-    for path in sorted(Path(languages_dir).glob(f"{CATALOG_NAME}_*.ts")):
-        match = _LANGUAGE_CATALOG.match(path.name)
+    for path in sorted(Path(languages_dir).glob(f"{catalog_name}_*.ts")):
+        match = pattern.match(path.name)
         if match and LANGUAGE_CODE.match(match.group("language")):
             catalogs[match.group("language")] = path
     return catalogs
@@ -343,20 +373,26 @@ def _is_live(message):
     return message.status not in ("vanished", "obsolete")
 
 
-def update_catalogs(source_dir=SRC_DIR, languages_dir=LANGUAGES_DIR, add=(), check=False, report=print):
+def update_catalogs(
+    source_dir=SRC_DIR, languages_dir=LANGUAGES_DIR, add=(), check=False, report=print,
+    catalog_name=CATALOG_NAME, shared_template=None,
+):
     """Bring the catalogs in languages_dir up to date with the code in source_dir.
 
     add starts catalogs for new languages. With check, nothing changes.
+    catalog_name names the template, <catalog_name>.ts, and the languages'
+    catalogs; shared_template is another template whose texts are left out.
     Returns 0, or 1 when something needs fixing; report gets every line to show.
     """
     source_dir, languages_dir = Path(source_dir).resolve(), Path(languages_dir).resolve()
-    template = languages_dir / f"{CATALOG_NAME}.ts"
-    languages = language_catalogs(languages_dir)
+    template = languages_dir / f"{catalog_name}.ts"
+    languages = language_catalogs(languages_dir, catalog_name)
+    shared = frozenset(message.key for message in read_catalog(shared_template)) if shared_template else frozenset()
     problems = []
     for language in add:
         if not LANGUAGE_CODE.match(language):
             raise ValueError(f"{language!r} is not a language code such as de, pt_BR or zh_CN.")
-        languages.setdefault(language, languages_dir / f"{CATALOG_NAME}_{language}.ts")
+        languages.setdefault(language, languages_dir / f"{catalog_name}_{language}.ts")
 
     with tempfile.TemporaryDirectory(prefix="emapssn-catalogs-") as temporary:
         # lupdate records each text's file relative to its catalog, so the
@@ -364,7 +400,7 @@ def update_catalogs(source_dir=SRC_DIR, languages_dir=LANGUAGES_DIR, add=(), che
         stage = Path(temporary) / source_dir.name
         stage_languages = stage / languages_dir.relative_to(source_dir)
         stage_languages.mkdir(parents=True)
-        problems += stage_sources(source_dir, stage, skip=languages_dir.relative_to(source_dir))
+        problems += stage_sources(source_dir, stage, skip=languages_dir.relative_to(source_dir), shared=shared)
 
         fresh_template = stage_languages / template.name
         for line in run_qt_tool("lupdate", [

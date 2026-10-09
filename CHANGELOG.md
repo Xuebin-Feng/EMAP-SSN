@@ -158,6 +158,13 @@ still change before version 1.0.0.
   English; the scheduler's own refusals (an output file that exists or is reserved)
   are translated too. label no longer reads its console line back into a job's error,
   which would have sent MCP clients the translated text.
+- **VR Config's texts are ready to translate, so every window's are.** VR Config shows
+  the language the 🌐 dropdown chose, as the desktop Config does. The texts the two share
+  come from the main catalog, and VR Config's own (the VR client's fields, tips and
+  notes) from opt_vr's new catalog, `opt_vr/src/resources/languages/emapssn_vr.ts`,
+  which `Update_Translations_VR.py` keeps beside the main one. `install_translations`
+  takes a window's extra catalogs, and `update_catalogs` can keep a catalog that leaves
+  out another catalog's texts.
 
 ### Changed
 

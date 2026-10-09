@@ -47,6 +47,7 @@ from desktop.Desktop_App import (
     UI_REGULAR_FILE,
     install_translations,
     installed_language,
+    redraw_in_language,
     startup_language,
     translate,
 )
@@ -311,6 +312,94 @@ class LanguageTests(TranslationTestCase):
         with self.assertRaisesRegex(LookupError, "'fr'"):
             install_translations(self.app, "fr", catalog_dir=self.folder)
         self.assert_english()
+
+
+VR_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" sourcelanguage="en">
+<context>
+    <name>Config</name>
+    <message>
+        <source>VR only sentence</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+</TS>
+"""
+
+VR_GERMAN = """<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" language="de" sourcelanguage="en">
+<context>
+    <name>Config</name>
+    <message>
+        <source>VR only sentence</source>
+        <translation>Nur in VR</translation>
+    </message>
+</context>
+</TS>
+"""
+
+
+class ExtraCatalogTests(TranslationTestCase):
+    """A window's own catalog beside the main one, as VR Config adds opt_vr's emapssn_vr."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        german = cls.folder / "emapssn_de.ts"
+        german.write_text(GERMAN, encoding="utf-8")
+        Update_Translations.run_qt_tool("lrelease", [german, "-qm", german.with_suffix(".qm")])
+        cls.own = cls.folder / "own"
+        cls.own.mkdir()
+        (cls.own / "emapssn_vr.ts").write_text(VR_TEMPLATE, encoding="utf-8")
+        own_german = cls.own / "emapssn_vr_de.ts"
+        own_german.write_text(VR_GERMAN, encoding="utf-8")
+        Update_Translations.run_qt_tool("lrelease", [own_german, "-qm", own_german.with_suffix(".qm")])
+        cls.extra = ((cls.own, "emapssn_vr"),)
+        cls.missing = ((cls.folder / "missing", "emapssn_vr"),)
+
+    def shown(self):
+        return (
+            QCoreApplication.translate("Config", "Shared sentence"),
+            QCoreApplication.translate("Config", "VR only sentence"),
+        )
+
+    def test_the_pseudo_language_is_made_from_every_template(self):
+        installed = install_translations(self.app, PSEUDO_LANGUAGE, catalog_dir=self.folder, extra_catalogs=self.extra)
+        self.assertEqual(self.shown(), (pseudo_translate("Shared sentence"), pseudo_translate("VR only sentence")))
+        self.assertEqual(installed.extra_catalogs, self.extra)
+        install_translations(self.app, PSEUDO_LANGUAGE, catalog_dir=self.folder)
+        self.assertEqual(self.shown(), (pseudo_translate("Shared sentence"), "VR only sentence"))
+
+    def test_a_language_loads_the_extra_catalog_beside_the_main_one(self):
+        install_translations(self.app, "de", catalog_dir=self.folder, extra_catalogs=self.extra)
+        self.assertEqual(Panel().tr("Save"), "Speichern")
+        self.assertEqual(self.shown(), ("Shared sentence", "Nur in VR"))
+
+    def test_a_missing_extra_catalog_leaves_only_its_texts_english(self):
+        for language in ("de", PSEUDO_LANGUAGE):
+            with self.subTest(language=language):
+                install_translations(self.app, language, catalog_dir=self.folder, extra_catalogs=self.missing)
+                self.assertEqual(installed_language(), language)
+                self.assertNotEqual(Panel().tr("Save"), "Save")
+                self.assertEqual(self.shown()[1], "VR only sentence")
+
+    def test_a_redraw_installs_them_again_and_a_failed_one_puts_them_back(self):
+        window = QWidget()
+        window.show()
+        replacement = redraw_in_language(window, "de", QWidget, catalog_dir=self.folder, extra_catalogs=self.extra)
+        self.addCleanup(replacement.deleteLater)
+        self.addCleanup(replacement.close)
+        self.assertEqual(self.shown()[1], "Nur in VR")
+
+        def broken():
+            raise RuntimeError("cannot build")
+
+        with self.assertRaisesRegex(RuntimeError, "cannot build"):
+            redraw_in_language(replacement, PSEUDO_LANGUAGE, broken, catalog_dir=self.folder)
+        self.assertEqual(installed_language(), "de")
+        self.assertEqual(self.shown()[1], "Nur in VR")
 
 
 class PseudoLetterFontTests(unittest.TestCase):

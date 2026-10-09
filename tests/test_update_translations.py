@@ -241,6 +241,32 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertTrue(problems[0].startswith("broken.py:1: not valid Python"))
 
+    def test_texts_another_catalog_lists_are_hidden_from_lupdate(self):
+        text = (
+            "def build(count):\n"
+            "    QCoreApplication.translate(\"Config\", \"Shared sentence\")\n"
+            "    translate(\"Config\", \"Own sentence\")\n"
+            "    translate(\"Config\", \"Shared sentence\", \"elsewhere\")\n"
+            "    QT_TRANSLATE_NOOP(\"Config\", \"Shared choice\")\n"
+            "    Message(\"Shared {count}\", count=count)\n"
+            "    Message(\"Own {count}\", count=count)\n"
+        )
+        shared = {
+            ("Config", "Shared sentence", ""), ("Config", "Shared choice", ""),
+            (MESSAGE_CONTEXT, "Shared {count}", ""),
+        }
+        prepared, problems = prepare_source(text, "window.py", shared)
+        self.assertEqual(problems, [])
+        self.assertEqual(prepared.splitlines(), [
+            "def build(count):",
+            "    QCoreApplication._shared_translate(\"Config\", \"Shared sentence\")",
+            "    translate(\"Config\", \"Own sentence\")",
+            "    translate(\"Config\", \"Shared sentence\", \"elsewhere\")",
+            "    _shared_QT_TRANSLATE_NOOP(\"Config\", \"Shared choice\")",
+            "    Message(\"Shared {count}\", count=count)",
+            f"    Message({Update_Translations.message_marker('Own {count}')}\"Own {{count}}\", count=count)",
+        ])
+
 
 class UpdateCommandTests(unittest.TestCase):
     def setUp(self):
@@ -344,6 +370,40 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertEqual(texts(self.translations / "emapssn.ts"), EXPECTED_TEXTS)
         (self.src / "tool.py").write_text(tool, encoding="utf-8")
         self.assertEqual(self.update(), 1, "the same file elsewhere is collected and checked")
+
+    def test_a_windows_own_catalog_lists_only_what_the_main_one_lacks(self):
+        # As opt_vr's emapssn_vr.ts holds only the texts emapssn.ts lacks.
+        self.assertEqual(self.update(), 0, self.lines)
+        own = self.src.parent / "own"
+        languages = own / "resources" / "languages"
+        languages.mkdir(parents=True)
+        (own / "window.py").write_text(
+            "from PySide6.QtCore import QCoreApplication, QT_TRANSLATE_NOOP\n"
+            "from utilities.Localization import Message\n"
+            "TITLE = QT_TRANSLATE_NOOP(\"Config\", \"Own title\")\n"
+            "\n"
+            "\n"
+            "def build(count, name):\n"
+            "    shared = QCoreApplication.translate(\"Config\", \"Shared sentence\")\n"
+            "    folders = QCoreApplication.translate(\"Config\", \"%n folder(s)\", None, count)\n"
+            "    mine = QCoreApplication.translate(\"Config\", \"Own sentence\")\n"
+            "    saved = Message(\"Saved {count} nodes to {name}.\", count=count, name=name)\n"
+            "    note = Message(\"Own note {name}\", name=name)\n"
+            "    return shared, folders, mine, saved, note\n",
+            encoding="utf-8",
+        )
+        options = dict(
+            catalog_name="emapssn_own", shared_template=self.translations / "emapssn.ts", report=self.lines.append,
+        )
+        self.lines.clear()
+        self.assertEqual(update_catalogs(own, languages, add=["de"], **options), 0, self.lines)
+        listed = {("Config", "Own title"), ("Config", "Own sentence"), (MESSAGE_CONTEXT, "Own note {name}")}
+        self.assertEqual(texts(languages / "emapssn_own.ts"), listed)
+        self.assertEqual(texts(languages / "emapssn_own_de.ts"), listed)
+        self.assertTrue((languages / "emapssn_own_de.qm").is_file())
+        self.assertEqual(sorted(path.name for path in languages.iterdir()),
+                         ["emapssn_own.ts", "emapssn_own_de.qm", "emapssn_own_de.ts"])
+        self.assertEqual(update_catalogs(own, languages, check=True, **options), 0, self.lines)
 
     def test_a_language_must_be_a_language_code(self):
         for language in ("german", "DE", "de-DE", "../de"):

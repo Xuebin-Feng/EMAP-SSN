@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked; VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -48,6 +48,16 @@ The command does four things:
 - It checks that every translation keeps its text's placeholders.
 
 The test suite fails while `emapssn.ts` does not match the code.
+
+### VR Config's own catalog
+
+VR Config files its texts under `Config`, as the desktop Config does, so the texts the two share come from `emapssn.ts`. Its own texts, such as the VR client's fields and notes, are in opt_vr's catalog, `opt_vr/src/resources/languages/emapssn_vr.ts`, which lists only the texts `emapssn.ts` lacks. Update it after the main catalog, since a text the two windows come to share leaves it:
+
+```
+python opt_vr/src/resources/languages/Update_Translations_VR.py
+```
+
+It keeps a catalog, `emapssn_vr_<language>.ts`, for each language the main catalogs have, so a language added here gets one there at its next update; translate the two together. VR Config shows a text its catalog doesn't translate yet in English. It installs the catalog beside the main one, with `install_translations(app, language, extra_catalogs=...)`, and opt_vr's test suite fails while `emapssn_vr.ts` does not match its code.
 
 ## Start and translate a language
 
