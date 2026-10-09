@@ -219,26 +219,21 @@ def run(viewer, args):
     print(f"Running {mode.upper()} Subclustering for cluster_{cluster_id} (Param={param1}, MinSize={min_sz})...")
 
     # --- 3. Extract Subgraph Edges ---
-    edges = np.array(viewer.edges, dtype=np.int32)
-    global_to_local = {g_idx: l_idx for l_idx, g_idx in enumerate(subgraph_nodes)}
-    local_to_global = {l_idx: g_idx for l_idx, g_idx in enumerate(subgraph_nodes)}
-    
-    subgraph_edges = []
-    subgraph_edge_scores = []
-    for e_idx, edge in enumerate(edges):
-        u, v = edge
-        if target_mask[u] and target_mask[v]:
-            subgraph_edges.append(edge)
-            if hasattr(viewer, 'edge_scores'):
-                subgraph_edge_scores.append(viewer.edge_scores[e_idx])
+    edges = np.array(viewer.edges, dtype=np.int32).reshape(-1, 2)
+    inside = target_mask[edges[:, 0]] & target_mask[edges[:, 1]]
 
-    if len(subgraph_edges) == 0:
+    if not inside.any():
         Command_Engine.print_help(viewer, f"Error: No edges exist within cluster_{cluster_id} to perform subclustering.")
         Command_Engine.command_failed(viewer, f'Error: No edges exist within cluster_{cluster_id} to perform subclustering.')
         return
 
-    local_edges = np.array([[global_to_local[u], global_to_local[v]] for u, v in subgraph_edges], dtype=np.int32)
-    local_edge_scores = np.array(subgraph_edge_scores, dtype=np.float64) if subgraph_edge_scores else None
+    global_to_local = np.full(len(target_mask), -1, dtype=np.int32)
+    global_to_local[subgraph_nodes] = np.arange(len(subgraph_nodes), dtype=np.int32)
+    local_edges = global_to_local[edges[inside]]
+    if hasattr(viewer, 'edge_scores'):
+        local_edge_scores = np.asarray(viewer.edge_scores)[inside].astype(np.float64)
+    else:
+        local_edge_scores = None
 
     n_sub = len(subgraph_nodes)
     local_labels = np.full(n_sub, -1, dtype=int)
@@ -255,57 +250,10 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             return
 
-        # Prepare adjacency data for Numba
-        degrees = np.zeros(n_sub, dtype=np.int32)
-        for u, v in local_edges:
-            degrees[u] += 1; degrees[v] += 1
-            
-        indptr = np.zeros(n_sub + 1, dtype=np.int32)
-        indptr[1:] = np.cumsum(degrees)
-        indices = np.zeros(indptr[-1], dtype=np.int32)
-        
-        temp_counts = np.zeros(n_sub, dtype=np.int32)
-        for u, v in local_edges:
-            indices[indptr[u] + temp_counts[u]] = v; temp_counts[u] += 1
-            indices[indptr[v] + temp_counts[v]] = u; temp_counts[v] += 1
-            
-        for i in range(n_sub): 
-            indices[indptr[i]:indptr[i+1]].sort()
-
-        # Numba Filter
-        keep_mask = network_clustering.fast_jaccard_filter(
-            local_edges, indptr, indices, thresh
+        # Connected components of the edges the Jaccard filter keeps.
+        local_labels = network_clustering.jaccard_partition(
+            n_sub, local_edges, thresh, min_sz
         )
-        
-        filtered_adj = {i: [] for i in range(n_sub)}
-        for i, keep in enumerate(keep_mask):
-            if keep:
-                u, v = local_edges[i]
-                filtered_adj[u].append(v)
-                filtered_adj[v].append(u)
-
-        # BFS Connected Components
-        visited = np.zeros(n_sub, dtype=bool)
-        sub_id = 1
-        
-        for i in range(n_sub):
-            if not visited[i]:
-                stack = [i]
-                visited[i] = True
-                component = []
-                
-                while stack:
-                    node = stack.pop()
-                    component.append(node)
-                    for neighbor in filtered_adj[node]:
-                        if not visited[neighbor]:
-                            visited[neighbor] = True
-                            stack.append(neighbor)
-                
-                if len(component) >= min_sz:
-                    for node in component: 
-                        local_labels[node] = sub_id
-                    sub_id += 1
 
     # =======================================================
     # MODE 2: MARKOV CLUSTERING (MCL)
@@ -338,8 +286,7 @@ def run(viewer, args):
         warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
         
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        result = mc.run_mcl(matrix, inflation=inflation)
-        clusters = mc.get_clusters(result)
+        clusters = network_clustering.markov_clusters(matrix, inflation)
         
         sub_id = 1
         for comp in clusters:
@@ -394,13 +341,12 @@ def run(viewer, args):
             g_set.remove(g)
 
     # Assign new ones and calculate counts
-    sub_counts = {}
-    for l_idx, m in enumerate(local_labels):
+    sub_ids, sub_sizes = np.unique(local_labels[local_labels != -1], return_counts=True)
+    sub_counts = dict(zip(sub_ids.tolist(), sub_sizes.tolist()))
+    group_names = {m: f"subcluster_{cluster_id}_{m}" for m in sub_counts}
+    for global_idx, m in zip(subgraph_nodes.tolist(), local_labels.tolist()):
         if m != -1:
-            g_name = f"subcluster_{cluster_id}_{m}"
-            global_idx = local_to_global[l_idx]
-            viewer.group_labels[global_idx].add(g_name)
-            sub_counts[m] = sub_counts.get(m, 0) + 1
+            viewer.group_labels[global_idx].add(group_names[m])
 
     # Compute color map for subclusters
     sorted_subs = sorted(sub_counts.keys())
@@ -412,13 +358,15 @@ def run(viewer, args):
         color_map = {}
 
     # Assign colors to viewer.current_colors for nodes in the subclustered target
-    for l_idx, m in enumerate(local_labels):
-        global_idx = local_to_global[l_idx]
+    unique_local, local_slots = np.unique(local_labels, return_inverse=True)
+    slot_colors = np.empty((len(unique_local), 4))
+    for slot, m in enumerate(unique_local.tolist()):
         if m == -1:
-            viewer.current_colors[global_idx] = (0.8, 0.8, 0.8, 0.4)  # Grey for noise
+            slot_colors[slot] = (0.8, 0.8, 0.8, 0.4)  # Grey for noise
         else:
             r, g, b = color_map[m]
-            viewer.current_colors[global_idx] = (r, g, b, 1.0)
+            slot_colors[slot] = (r, g, b, 1.0)
+    viewer.current_colors[subgraph_nodes] = slot_colors[local_slots]
 
     viewer.update_nodes()
 

@@ -734,6 +734,54 @@ def align_microbatch(
 # Network Topology Filtering and Community Detection (Clustering)
 # ---------------------------------------------------------------------------
 
+def _first_appearance_order(edges, n_nodes):
+    """Return the nodes of ``edges`` in the order they first appear in
+    ``(u0, v0, u1, v1, ...)``."""
+    flat = edges.ravel()
+    first = np.full(n_nodes, flat.size, dtype=np.int64)
+    np.minimum.at(first, flat, np.arange(flat.size, dtype=np.int64))
+    present = np.flatnonzero(first < flat.size)
+    # First positions are distinct, so any sort gives the same order.
+    return present[np.argsort(first[present])]
+
+
+def _leiden_csr_input(edges, weights, n_nodes):
+    """Return ``(nodes, indptr, indices, data)`` describing to
+    ``graspologic_native.leiden_csr`` the network that ``leiden`` builds
+    from the string edge list, or None when the edges repeat a pair or hold
+    a self-loop (whose handling the list path keeps).
+
+    ``leiden`` numbers nodes by first appearance in ``(u0, v0, u1, v1, ...)``
+    and orders each node's neighbours by that number. Given that numbering
+    and order, ``leiden_csr`` with the same seed returns the same partition
+    and community ids, without building a Python string per endpoint.
+    """
+    import scipy.sparse as sp
+
+    nodes = _first_appearance_order(edges, n_nodes)
+    local = np.empty(n_nodes, dtype=np.int64)
+    local[nodes] = np.arange(nodes.size, dtype=np.int64)
+    sources = local[edges[:, 0]]
+    targets = local[edges[:, 1]]
+    # csr_matrix sorts each row and merges repeated pairs (a self-loop's two
+    # half-edges as well), which the count check below detects.
+    graph = sp.csr_matrix(
+        (
+            np.concatenate((weights, weights)),
+            (np.concatenate((sources, targets)), np.concatenate((targets, sources))),
+        ),
+        shape=(nodes.size, nodes.size),
+    )
+    if graph.nnz != 2 * edges.shape[0]:
+        return None
+    return (
+        nodes,
+        graph.indptr.astype(np.int64),
+        graph.indices.astype(np.int32, copy=False),
+        graph.data,
+    )
+
+
 def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     """Partition a network with Leiden and return 1-based cluster labels."""
     import graspologic_native as gn
@@ -755,28 +803,51 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     else:
         weights = np.asarray(weights, dtype=float).ravel()
 
-    edge_list = [
-        (str(int(u)), str(int(v)), float(weight))
-        for (u, v), weight in zip(edges, weights)
-    ]
-    _, membership = gn.leiden(
-        edges=edge_list,
-        resolution=float(resolution),
-        use_modularity=True,
-        seed=int(seed),
+    # leiden_csr refuses negative and non-finite weights, which leiden takes.
+    csr_input = None
+    if hasattr(gn, "leiden_csr") and np.all((weights >= 0) & (weights < np.inf)):
+        csr_input = _leiden_csr_input(edges, weights, n_nodes)
+    if csr_input is not None:
+        nodes, indptr, indices, data = csr_input
+        _, membership = gn.leiden_csr(
+            indptr,
+            indices,
+            data,
+            int(nodes.size),
+            resolution=float(resolution),
+            use_modularity=True,
+            seed=int(seed),
+        )
+        members = nodes[
+            np.fromiter(membership.keys(), dtype=np.int64, count=len(membership))
+        ]
+    else:
+        edge_list = list(
+            zip(
+                map(str, edges[:, 0].tolist()),
+                map(str, edges[:, 1].tolist()),
+                weights.tolist(),
+            )
+        )
+        _, membership = gn.leiden(
+            edges=edge_list,
+            resolution=float(resolution),
+            use_modularity=True,
+            seed=int(seed),
+        )
+        members = np.fromiter(
+            map(int, membership.keys()), dtype=np.int64, count=len(membership)
+        )
+    communities = np.fromiter(
+        membership.values(), dtype=np.int64, count=len(membership)
     )
 
-    communities = {}
-    for node_string, community in membership.items():
-        communities.setdefault(community, []).append(int(node_string))
-
-    cluster_id = 1
-    for community in sorted(communities):
-        members = communities[community]
-        if len(members) >= min_size:
-            for node in members:
-                labels[node] = cluster_id
-            cluster_id += 1
+    # Communities of at least min_size members are numbered 1, 2, ... in
+    # community-id order; smaller ones are Noise.
+    sizes = np.bincount(communities)
+    kept = (sizes > 0) & (sizes >= min_size)
+    cluster_ids = np.where(kept, np.cumsum(kept), -1)
+    labels[members] = cluster_ids[communities]
 
     # Isolated nodes are always Noise, even when min_size == 1.
     connected = np.zeros(n_nodes, dtype=bool)
@@ -784,6 +855,159 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     connected[edges[:, 1]] = True
     labels[~connected] = -1
     return labels
+
+
+def sorted_neighbour_csr(edges, n_nodes):
+    """Return int32 ``(indptr, indices)`` listing each edge at both of its
+    endpoints, every row's neighbours in ascending order (repeated pairs and
+    self-loops are kept, as repeated entries)."""
+    edges = np.asarray(edges).reshape(-1, 2)
+    sources = np.concatenate((edges[:, 0], edges[:, 1])).astype(np.int64)
+    targets = np.concatenate((edges[:, 1], edges[:, 0])).astype(np.int64)
+    keys = sources * n_nodes + targets
+    keys.sort()
+    indices = (keys % max(n_nodes, 1)).astype(np.int32)
+    indptr = np.zeros(n_nodes + 1, dtype=np.int32)
+    indptr[1:] = np.cumsum(np.bincount(sources, minlength=n_nodes))
+    return indptr, indices
+
+
+def jaccard_partition(n_nodes, edges, threshold, min_size):
+    """Label the connected components left by ``fast_jaccard_filter``.
+
+    Components with fewer than ``min_size`` nodes are Noise (-1); the others
+    get distinct positive labels in no particular order, so callers number
+    them with ``renumber_clusters_by_size``.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+    indptr, indices = sorted_neighbour_csr(edges, n_nodes)
+    keep_mask = fast_jaccard_filter(edges, indptr, indices, threshold)
+    kept = edges[keep_mask]
+    graph = coo_matrix(
+        (np.ones(kept.shape[0], dtype=bool), (kept[:, 0], kept[:, 1])),
+        shape=(n_nodes, n_nodes),
+    )
+    _count, components = connected_components(graph, directed=False)
+    sizes = np.bincount(components)
+    return np.where(sizes[components] >= min_size, components + 1, -1)
+
+
+def _mcl_add_self_loops(matrix):
+    """``markov_clustering.add_self_loops(matrix, 1)`` for the canonical CSR
+    adjacency the commands build, without its DOK round trip.
+
+    Returns the same CSC arrays: each column's rows ascending, its diagonal
+    entry set to 1, or appended last when the column had none.
+    """
+    import scipy.sparse as sp
+
+    csc = matrix.tocsc()
+    n_nodes = csc.shape[0]
+    indptr, indices = csc.indptr, csc.indices
+    data = csc.data.copy()
+    columns = np.repeat(
+        np.arange(n_nodes, dtype=indices.dtype), np.diff(indptr)
+    )
+    diagonal = indices == columns
+    data[diagonal] = 1
+    missing = np.ones(n_nodes, dtype=bool)
+    missing[columns[diagonal]] = False
+    positions = indptr[1:][missing]
+    added = np.flatnonzero(missing).astype(indices.dtype)
+    new_indptr = np.zeros(n_nodes + 1, dtype=np.int64)
+    new_indptr[1:] = indptr[1:] + np.cumsum(missing)
+    return sp.csc_matrix(
+        (
+            np.insert(data, positions, np.ones(added.size, dtype=data.dtype)),
+            np.insert(indices, positions, added),
+            new_indptr,
+        ),
+        shape=csc.shape,
+    )
+
+
+def _mcl_prune(matrix, threshold):
+    """``markov_clustering.prune`` for the canonical CSC matrices MCL
+    iterates on, without its DOK round trip: the entries >= threshold in
+    their order, as float64 (the DOK's dtype), with each column's maximum
+    restored by the library's own statements."""
+    import scipy.sparse as sp
+
+    # A no-op for the inflated matrices MCL prunes; it guarantees the sorted
+    # rows the DOK round trip produced.
+    matrix.sum_duplicates()
+    keep = matrix.data >= threshold
+    kept_before = np.zeros(matrix.data.size + 1, dtype=np.int64)
+    np.cumsum(keep, out=kept_before[1:])
+    pruned = sp.csc_matrix(
+        (
+            matrix.data[keep].astype(np.float64),
+            matrix.indices[keep],
+            kept_before[matrix.indptr],
+        ),
+        shape=matrix.shape,
+    )
+    num_cols = matrix.shape[1]
+    row_indices = _mcl_column_argmax(matrix)
+    if row_indices is None:
+        row_indices = matrix.argmax(axis=0).reshape((num_cols,))
+    col_indices = np.arange(num_cols)
+    pruned[row_indices, col_indices] = matrix[row_indices, col_indices]
+    return pruned
+
+
+def _mcl_column_argmax(matrix):
+    """``matrix.argmax(axis=0)`` as an array for a canonical CSC matrix whose
+    columns all hold a positive maximum (MCL's do: the maximum is never
+    pruned), else None. Like SciPy, it takes each column's first maximum in
+    storage order."""
+    indptr, data = matrix.indptr, matrix.data
+    counts = np.diff(indptr)
+    if data.size == 0 or not counts.all():
+        return None
+    column_max = np.maximum.reduceat(data, indptr[:-1])
+    if not (column_max > 0).all():  # also refuses NaN
+        return None
+    max_positions = np.flatnonzero(data == np.repeat(column_max, counts))
+    first = max_positions[np.searchsorted(max_positions, indptr[:-1])]
+    return matrix.indices[first]
+
+
+def _mcl_get_clusters(matrix):
+    """``markov_clustering.get_clusters`` with one CSR conversion instead of
+    a row extraction per attractor."""
+    attractors = matrix.diagonal().nonzero()[0]
+    rows = matrix.tocsr()
+    indptr, indices, data = rows.indptr, rows.indices, rows.data
+    clusters = set()
+    for attractor in attractors.tolist():
+        start, end = indptr[attractor], indptr[attractor + 1]
+        members = indices[start:end][data[start:end] != 0]
+        clusters.add(tuple(members.tolist()))
+    return sorted(clusters)
+
+
+def markov_clusters(matrix, inflation):
+    """Return ``get_clusters(run_mcl(matrix, inflation=inflation))`` of
+    ``markov_clustering``, with the library's defaults and arithmetic.
+
+    Only its DOK-based self-loop, pruning and cluster-extraction steps are
+    replaced, by array code producing identical matrices, which ``matrix``
+    (canonical CSR from ``csr_matrix((data, (row, col)))``) guarantees.
+    """
+    from markov_clustering import mcl
+
+    matrix = mcl.normalize(_mcl_add_self_loops(matrix))
+    for _iteration in range(100):
+        last_mat = matrix.copy()
+        matrix = mcl.iterate(matrix, 2, inflation)
+        matrix = _mcl_prune(matrix, 0.001)
+        if mcl.converged(matrix, last_mat):
+            break
+    return _mcl_get_clusters(matrix)
 
 
 if NUMBA_AVAILABLE:
@@ -794,7 +1018,7 @@ if NUMBA_AVAILABLE:
             return _jaccard_keep_mask(edges, indptr, indices, threshold)
 
     # Every edge writes only its own mask entry, so edges run in parallel.
-    @jit(nopython=True, parallel=True)
+    @jit(nopython=True, parallel=True, cache=True)
     def _jaccard_keep_mask(edges, indptr, indices, threshold):
         n_edges = edges.shape[0]
         keep_mask = np.zeros(n_edges, dtype=np.bool_)
@@ -849,5 +1073,8 @@ __all__ = [
     "alignment_batch_scores",
     "align_microbatch",
     "leiden_partition",
+    "sorted_neighbour_csr",
+    "jaccard_partition",
+    "markov_clusters",
     "fast_jaccard_filter",
 ]

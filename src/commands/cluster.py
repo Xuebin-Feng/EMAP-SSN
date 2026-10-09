@@ -266,57 +266,10 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, viewer.console_text.text)
             return
 
-        # Prepare adjacency data for Numba
-        degrees = np.zeros(n_nodes, dtype=np.int32)
-        for u, v in edges:
-            degrees[u] += 1; degrees[v] += 1
-            
-        indptr = np.zeros(n_nodes + 1, dtype=np.int32)
-        indptr[1:] = np.cumsum(degrees)
-        indices = np.zeros(indptr[-1], dtype=np.int32)
-        
-        temp_counts = np.zeros(n_nodes, dtype=np.int32)
-        for u, v in edges:
-            indices[indptr[u] + temp_counts[u]] = v; temp_counts[u] += 1
-            indices[indptr[v] + temp_counts[v]] = u; temp_counts[v] += 1
-            
-        for i in range(n_nodes): 
-            indices[indptr[i]:indptr[i+1]].sort()
-
-        # Numba Filter
-        keep_mask = network_clustering.fast_jaccard_filter(
-            edges, indptr, indices, thresh
+        # Connected components of the edges the Jaccard filter keeps.
+        labels = network_clustering.jaccard_partition(
+            n_nodes, edges, thresh, min_sz
         )
-        
-        filtered_adj = {i: [] for i in range(n_nodes)}
-        for i, keep in enumerate(keep_mask):
-            if keep:
-                u, v = edges[i]
-                filtered_adj[u].append(v)
-                filtered_adj[v].append(u)
-
-        # BFS Connected Components
-        visited = np.zeros(n_nodes, dtype=bool)
-        cluster_id = 1
-        
-        for i in range(n_nodes):
-            if not visited[i]:
-                stack = [i]
-                visited[i] = True
-                component = []
-                
-                while stack:
-                    node = stack.pop()
-                    component.append(node)
-                    for neighbor in filtered_adj[node]:
-                        if not visited[neighbor]:
-                            visited[neighbor] = True
-                            stack.append(neighbor)
-                
-                if len(component) >= min_sz:
-                    for node in component: 
-                        labels[node] = cluster_id
-                    cluster_id += 1
 
     # =======================================================
     # MODE 2: MARKOV CLUSTERING (MCL)
@@ -352,8 +305,7 @@ def run(viewer, args):
         warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
         
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        result = mc.run_mcl(matrix, inflation=inflation)
-        clusters = mc.get_clusters(result)
+        clusters = network_clustering.markov_clusters(matrix, inflation)
         
         cluster_id = 1
         for comp in clusters:
@@ -406,21 +358,24 @@ def run(viewer, args):
     viewer.last_cluster_params = (f"{mode.upper()}_{param1}", min_sz)
     
     # Apply Colors
-    unique_clusters = sorted([k for k in np.unique(labels) if k != -1])
+    unique_labels, label_slots, counts = np.unique(
+        labels, return_inverse=True, return_counts=True
+    )
+    unique_clusters = [k for k in unique_labels if k != -1]
     color_map = get_cluster_color_map(unique_clusters)
 
-    for i in range(n_nodes):
-        lbl = labels[i]
-        if lbl == -1: 
-            viewer.current_colors[i] = (0.8, 0.8, 0.8, 0.4) # Grey for noise
-        else: 
+    slot_colors = np.empty((len(unique_labels), 4))
+    for slot, lbl in enumerate(unique_labels):
+        if lbl == -1:
+            slot_colors[slot] = (0.8, 0.8, 0.8, 0.4) # Grey for noise
+        else:
             r, g, b = color_map[lbl]
-            viewer.current_colors[i] = (r, g, b, 1.0)
+            slot_colors[slot] = (r, g, b, 1.0)
+    viewer.current_colors[:n_nodes] = slot_colors[label_slots]
         
     viewer.update_nodes()
     
     # --- 7. Print Statistics ---
-    unique_labels, counts = np.unique(labels, return_counts=True)
     label_counts = dict(zip(unique_labels, counts))
     
     print(f"\n{'='*54}")
