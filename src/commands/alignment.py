@@ -18,6 +18,8 @@ import fnmatch
 import EMAPSSN_Config as cfg
 import Command_Engine
 from PySide6 import QtWidgets
+from desktop.Desktop_App import translate
+from utilities.Localization import Message
 from Viewer_Command_Portal import user_interaction, CURRENT
 
 def print_help():
@@ -44,7 +46,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -56,24 +58,29 @@ def run(viewer, args):
             with user_interaction(viewer, "Select alignment file in the Viewer dialog"):
                 file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
                     viewer.canvas.native,
-                    "Select Alignment File",
+                    translate("Viewer", "Select Alignment File"),
                     msa_dir if os.path.exists(msa_dir) else "",
-                    "Alignment Files (*.fasta *.h5);;FASTA Files (*.fasta);;HDF5 Files (*.h5);;All Files (*)"
+                    ";;".join([
+                        translate("Viewer", "Alignment Files (*.fasta *.h5)"),
+                        translate("Viewer", "FASTA Files (*.fasta)"),
+                        translate("Viewer", "HDF5 Files (*.h5)"),
+                        translate("Viewer", "All Files (*)"),
+                    ]),
                 )
         except Exception as e:
-            msg = f"Error opening file dialog: {e}"
+            msg = Message("Error opening file dialog: {error}", error=e)
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
 
         if not file_path:
-            msg = "Alignment selection cancelled."
+            msg = Message("Alignment selection cancelled.")
             Command_Engine.command_cancelled(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
 
         if not os.path.exists(file_path):
-            msg = f"Error: File '{file_path}' does not exist."
+            msg = Message("Error: File '{file}' does not exist.", file=file_path)
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -109,7 +116,11 @@ def run(viewer, args):
                         break
                         
         if not new_path:
-            msg = f"Error: Alignment file '{identifier}' not found (checked absolute, relative, and {msa_dir})."
+            msg = Message(
+                "Error: Alignment file '{file}' not found (checked absolute, relative, and {folder}).",
+                file=identifier,
+                folder=msa_dir,
+            )
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
@@ -117,7 +128,7 @@ def run(viewer, args):
     # Load the selected alignment file
     print(f"\nAttempting to load alignment: {selected_file}...")
     if hasattr(viewer, 'console_text'):
-        Command_Engine.show_status(viewer, f"Loading {selected_file}...")
+        Command_Engine.show_status(viewer, Message("Loading {file}...", file=selected_file))
 
     # Backup current state for safety rollback
     backup_msa_file = cfg.MSA_FILE
@@ -150,7 +161,9 @@ def run(viewer, args):
         )
         print(f"\n{success_msg}")
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, f"Loaded {selected_file}: {aligned_count}/{total_count} aligned")
+            Command_Engine.show_status(viewer, Message(
+                "Loaded {file}: {aligned}/{total} aligned", file=selected_file, aligned=aligned_count, total=total_count
+            ))
 
         Command_Engine.command_succeeded(viewer, success_msg)
 
@@ -165,5 +178,7 @@ def run(viewer, args):
         viewer.active_reference = backup_active_ref
         
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Load failed. Reverted to previous alignment.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            # The console line shows it translated; the command's record keeps the English.
+            failure = Message("Load failed. Reverted to previous alignment.")
+            Command_Engine.show_status(viewer, failure)
+            Command_Engine.command_failed(viewer, failure)

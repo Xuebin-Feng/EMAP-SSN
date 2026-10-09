@@ -1231,6 +1231,226 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Help information printed to the terminal</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Model Custom Name &apos;{name}&apos; not found in configured model cards.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: LLM agent is not loaded. Please configure a model in the Agent UI first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error opening file dialog: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment selection cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: File &apos;{file}&apos; does not exist.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Alignment file &apos;{file}&apos; not found (checked absolute, relative, and {folder}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loading {file}...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loaded {file}: {aligned}/{total} aligned</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Load failed. Reverted to previous alignment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unknown esmfold keyword: {keyword}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Help cannot be combined with other keywords.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No nodes selected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Multiple nodes selected. Use &apos;esmfold multi&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: PyTorch/Hardware_Utils missing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Sequence retrieval failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESMFold cannot start because the Viewer web server is unavailable:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Viewer web server unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not launch the ESMFold worker in a terminal:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Could not launch the ESMFold terminal.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Spawning separate console to fold %n structure(s) with Biohub ESM3...</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Spawning separate console to fold %n structure(s) with local ESM3...</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Current Alignment Offset: {offset}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Current Alignment Offset: {offset} (inactive: no valid alignment reference is loaded)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Offset accepts exactly one integer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Alignment offset must be an integer, not &apos;{value}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Alignment offset requires a correctly loaded reference. Use &apos;reference &lt;ID&gt;&apos; first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Alignment offset could not be applied to the active reference.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Offset set to {offset}. Position numbering updated.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Usage: {syntax}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Current Reference: {reference}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Current Reference: {reference} (inactive; not resolved in the current MSA)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Current Reference: None</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reloading alignment with new reference: {reference}...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference successfully set: {reference}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference successfully set.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference &apos;{reference}&apos; is configured but inactive because it is not present in the current MSA. Pure occupancy mode remains active.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Could not reload the current MSA for reference &apos;{reference}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Reference &apos;{reference}&apos; not found.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Specify at least one reset target.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unknown reset target(s): {targets}. Nothing was reset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File selection cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Executing Python script...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Python script failed (exit code {code}):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Batch execution completed: %n command(s) run.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error reading/executing command file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>State successfully saved: {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error saving layout state: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom width must be a valid number.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom width must be a positive, finite number.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The canvas has no visible area, so the zoom cannot be applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom width is too large for the current view.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Zoom snapped to View Width: {width}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3016,6 +3236,50 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 </context>
 <context>
     <name>Viewer</name>
+    <message>
+        <source>Select Alignment File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Files (*.fasta *.h5)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA Files (*.fasta)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>HDF5 Files (*.h5)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All Files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESMFold Web Server Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESMFold Launch Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select Command File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Command Scripts (*.txt *.py)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Text Files (*.txt)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Python Scripts (*.py)</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>EMAP-SSN Viewer</source>
         <translation type="unfinished"></translation>

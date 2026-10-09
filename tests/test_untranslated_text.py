@@ -60,6 +60,7 @@ from tests.translation_fixtures import (
     pseudo_language,
     shows_canvas_text,
     unmarked_canvas_texts,
+    unmarked_dialog_texts,
     visible_texts,
 )
 
@@ -74,6 +75,17 @@ CANVAS_MARKED = frozenset({
     "Command_Engine.py",
     "EMAPSSN_Viewer.py",
     "Metadata_Core.py",
+    "commands/agent.py",
+    "commands/alignment.py",
+    "commands/esmfold.py",
+    "commands/offset.py",
+    "commands/redo.py",
+    "commands/reference.py",
+    "commands/reset.py",
+    "commands/run.py",
+    "commands/save.py",
+    "commands/undo.py",
+    "commands/zoom.py",
     "web_ui/Browser_Page.py",
     "web_ui/agent_backend.py",
     "web_ui/meta_backend.py",
@@ -656,6 +668,39 @@ class CanvasTextTests(unittest.TestCase):
                     self.assertTrue(unmarked, f"Every canvas text in {relative} is marked now: add it to CANVAS_MARKED.")
         self.assertLessEqual(CANVAS_MARKED, shown_by, "CANVAS_MARKED names a file that shows no canvas text")
 
+    def test_a_marked_file_never_reads_the_console_line_back(self):
+        # The console line shows the translation, so a report or print of what it
+        # shows would give the terminal and MCP clients translated text.
+        import ast
+
+        for relative in sorted(CANVAS_MARKED - {"EMAPSSN_Viewer.py"}):  # The Viewer draws the line.
+            tree = ast.parse((SRC / relative).read_text(encoding="utf-8"))
+            reads = [
+                node.lineno for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute) and node.attr == "text" and isinstance(node.ctx, ast.Load)
+                and "console_text" in (getattr(node.value, "attr", None), getattr(node.value, "id", None))
+            ]
+            with self.subTest(file=relative):
+                self.assertEqual(reads, [], f"{relative} reads the console line back")
+
+    def test_a_marked_file_opens_no_dialog_with_unmarked_text(self):
+        for relative in sorted(CANVAS_MARKED):
+            with self.subTest(file=relative):
+                self.assertEqual(unmarked_dialog_texts((SRC / relative).read_text(encoding="utf-8")), [])
+
+    def test_the_dialog_check_finds_unmarked_text(self):
+        source = '''
+def run(viewer, error):
+    QMessageBox.critical(None, "Load Error", f"Could not load: {error}")
+    path, _ = QFileDialog.getOpenFileName(None, "Select File", "", "Text Files (*.txt)")
+    QMessageBox.critical(None, translate("Viewer", "Load Error"), Message("Could not load: {error}", error=error).display())
+    path, _ = QFileDialog.getOpenFileName(None, translate("Viewer", "Select File"), "",
+                                          ";;".join([translate("Viewer", "Text Files (*.txt)")]))
+    path, _ = QFileDialog.getOpenFileName(None, translate("Viewer", "Select File"), "",
+                                          ";;".join([translate("Viewer", "Text Files (*.txt)"), "All Files (*)"]))
+'''
+        self.assertEqual([line for line, _ in unmarked_dialog_texts(source)], [3, 4, 8])
+
     def test_the_check_finds_each_kind_of_unmarked_text(self):
         source = '''
 HELP = "Usage: zoom <width>"
@@ -676,8 +721,18 @@ def run(viewer, args, error):
     Command_Engine.report_selection_error(viewer, args[0], error, Message("Hide"))
     Command_Engine.show_status(viewer, "")
     Command_Engine.show_status(viewer, args[0])
+    _report_error(viewer, "Error: bad width.")
+    _report_twice(viewer, "Error: again.")
+    _report_error(viewer, Message("Error: bad width."))
+
+def _report_error(viewer, msg):
+    Command_Engine.command_failed(viewer, msg)
+    Command_Engine.print_help(viewer, msg)
+
+def _report_twice(viewer, text):
+    _report_error(viewer, text)
 '''
-        self.assertEqual([line for line, _ in unmarked_canvas_texts(source)], [5, 6, 7, 9, 10, 11, 12, 13, 14])
+        self.assertEqual([line for line, _ in unmarked_canvas_texts(source)], [5, 6, 7, 9, 10, 11, 12, 13, 14, 20, 21])
 
 
 class ViewerCanvasTextTests(WindowTestCase):
@@ -770,6 +825,48 @@ class ViewerCanvasTextTests(WindowTestCase):
                 self.assert_translated(viewer.console_text.text, '"12', "12 &", "123", "-1-0", "12")
                 self.assertIn(f"Selection error: {str(error).splitlines()[0]}", terminal.getvalue())
                 self.assertNotIn("Šéļéçţîöñ", terminal.getvalue())
+
+    def test_the_help_of_every_marked_command(self):
+        # A help text's first line, such as "Usage: zoom <width>", is in a
+        # JoinedMessage, whose parts the code alone can't show.
+        import importlib
+
+        commands = sorted(name for name in CANVAS_MARKED if name.startswith("commands/"))
+        self.assertTrue(commands)
+        for relative in commands:
+            module = importlib.import_module(relative[:-3].replace("/", "."))
+            viewer = mock.MagicMock()
+            viewer.console_text.text = ""
+            with self.subTest(command=relative), contextlib.redirect_stdout(io.StringIO()), \
+                    mock.patch.object(module, "register", create=True):
+                module.run(viewer, ["help"])
+                shown = viewer.console_text.text
+                self.assertTrue(shown)
+                self.assertEqual(outside_the_catalog(shown), "", shown)
+
+    def test_command_messages_put_together_from_parts(self):
+        # An error raised with a message, a message a helper returns, a first
+        # line in a JoinedMessage: what the console line shows, the code alone can't.
+        from types import SimpleNamespace
+
+        from commands import esmfold, offset, reference, reset
+
+        cases = (
+            (reset, []),
+            (reset, ["123"]),
+            (offset, ["1", "2"]),
+            (esmfold, ["123"]),
+            (reference, []),
+        )
+        for module, args in cases:
+            viewer = SimpleNamespace(
+                console_text=SimpleNamespace(text=""), alignment=None, active_reference=None, alignment_offset=0,
+            )
+            with self.subTest(command=module.__name__, args=args), contextlib.redirect_stdout(io.StringIO()):
+                module.run(viewer, args)
+                shown = viewer.console_text.text
+                self.assertTrue(shown)
+                self.assert_translated(shown, "123")
 
     def test_the_metadata_upload_summary_and_its_errors(self):
         from types import SimpleNamespace

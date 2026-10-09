@@ -55,12 +55,21 @@ def reported_outcomes():
     """Replace Command_Engine.command_succeeded and command_failed with mocks.
 
     Yields (succeeded, failed). A failure must not report success as well, so
-    tests of a failure path check that succeeded was never called.
+    tests of a failure path check that succeeded was never called. A message
+    is recorded as its English text, as the command portal records it, so a
+    Message compares equal to the text it prints.
     """
     import Command_Engine
 
-    with mock.patch.object(Command_Engine, "command_succeeded") as succeeded, \
-            mock.patch.object(Command_Engine, "command_failed") as failed:
+    succeeded, failed = mock.Mock(), mock.Mock()
+
+    def in_english(record):
+        def report(viewer, message=None, *args, **kwargs):
+            return record(viewer, None if message is None else str(message), *args, **kwargs)
+        return report
+
+    with mock.patch.object(Command_Engine, "command_succeeded", side_effect=in_english(succeeded)), \
+            mock.patch.object(Command_Engine, "command_failed", side_effect=in_english(failed)):
         yield succeeded, failed
 
 

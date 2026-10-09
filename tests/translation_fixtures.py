@@ -189,8 +189,52 @@ def _unmarked(node, assignments):
             return False
         if name == "format" and isinstance(node.func, ast.Attribute):
             return _unmarked(node.func.value, assignments)
+        if name == "join" and isinstance(node.func, ast.Attribute) and node.args \
+                and isinstance(node.args[0], (ast.List, ast.Tuple)):
+            # Parts written out, such as a dialog's translated file filters.
+            return _unmarked(node.func.value, assignments) or any(
+                _unmarked(part, assignments) for part in node.args[0].elts
+            )
         return name in ("str", "join")
     return False
+
+
+def _shown_argument(call, canvas_calls):
+    """The argument call shows on the canvas, if it is a canvas call, else None."""
+    position, name = canvas_calls.get(_called_name(call), (None, None))
+    if position is None:
+        return None
+    if len(call.args) > position:
+        return call.args[position]
+    return next((keyword.value for keyword in call.keywords if keyword.arg == name), None)
+
+
+def _canvas_calls(tree):
+    """CANVAS_TEXT_CALLS, and the functions of tree that pass a parameter on to one.
+
+    A command's helper such as _report_error(viewer, msg), which hands msg to
+    print_help, puts its text on the canvas just as print_help does, and so
+    does a helper that hands it to that helper.
+    """
+    calls = dict(CANVAS_TEXT_CALLS)
+    functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    changed = True
+    while changed:
+        changed = False
+        for function in functions:
+            if function.name in calls:
+                continue
+            parameters = [argument.arg for argument in function.args.args]
+            for node in ast.walk(function):
+                shown = _shown_argument(node, calls) if isinstance(node, ast.Call) else None
+                if isinstance(shown, ast.Name) and shown.id in parameters:
+                    position = parameters.index(shown.id)
+                    if parameters[0] in ("self", "cls"):
+                        position -= 1  # Called as self.helper(...).
+                    calls[function.name] = (position, shown.id)
+                    changed = True
+                    break
+    return calls
 
 
 def unmarked_canvas_texts(source):
@@ -219,18 +263,15 @@ def unmarked_canvas_texts(source):
         return assignments
 
     module_assignments = assignments_in(tree.body)
+    canvas_calls = _canvas_calls(tree)
 
     def check(function):
         assignments = {**module_assignments, **assignments_in(ast.walk(function))}
         for node in ast.walk(function):
             shown = None
             if isinstance(node, ast.Call):
-                position, name = CANVAS_TEXT_CALLS.get(_called_name(node), (None, None))
-                if position is not None and len(node.args) > position:
-                    shown = node.args[position]
-                elif position is not None:
-                    shown = next((keyword.value for keyword in node.keywords if keyword.arg == name), None)
-                elif _called_name(node) == "Text":
+                shown = _shown_argument(node, canvas_calls)
+                if shown is None and _called_name(node) == "Text":
                     shown = next((keyword.value for keyword in node.keywords if keyword.arg == "text"), None)
             elif isinstance(node, ast.Assign):
                 target = node.targets[0]
@@ -244,6 +285,42 @@ def unmarked_canvas_texts(source):
     for function in functions:
         check(function)
     # A function nested in another is walked with it too; count each line once.
+    return sorted(set(found))
+
+
+# Qt calls that open a dialog with text given after the parent widget.
+DIALOG_CALLS = frozenset({
+    "critical", "warning", "information", "question", "about",
+    "getOpenFileName", "getOpenFileNames", "getSaveFileName", "getExistingDirectory",
+})
+
+
+def unmarked_dialog_texts(source):
+    """(line, code) for each dialog call in source given text no catalog supplies.
+
+    Every argument after the parent widget is checked as unmarked_canvas_texts
+    checks canvas text: a title, a message, a file filter.
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    module_assignments = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    module_assignments.setdefault(target.id, []).append(node.value)
+    found = []
+    for function in [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        assignments = dict(module_assignments)
+        for node in ast.walk(function):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        assignments.setdefault(target.id, []).append(node.value)
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call) and _called_name(node) in DIALOG_CALLS:
+                if any(_unmarked(argument, assignments) for argument in node.args[1:]):
+                    found.append((node.lineno, lines[node.lineno - 1].strip()))
     return sorted(set(found))
 
 

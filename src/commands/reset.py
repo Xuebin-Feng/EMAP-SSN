@@ -15,6 +15,7 @@
 
 import Command_Engine
 import numpy as np
+from utilities.Localization import JoinedMessage, Message
 
 # The target names execute_reset handles, after target_name() normalizes a
 # typed target.
@@ -70,12 +71,19 @@ def target_name(target):
 
 
 def check_targets(targets):
-    """Raise ValueError unless at least one target is given and every target is known."""
+    """Raise ValueError unless at least one target is given and every target is known.
+
+    The error's first line is a Message, which the console line shows
+    translated; the usage after it is for the terminal.
+    """
     if not targets:
-        raise ValueError(f"Specify at least one reset target.\n{USAGE}")
+        raise ValueError(JoinedMessage([Message("Specify at least one reset target."), USAGE], separator="\n"))
     unknown = [target for target in targets if target_name(target) not in TARGET_NAMES]
     if unknown:
-        raise ValueError(f"Unknown reset target(s): {', '.join(unknown)}. Nothing was reset.\n{USAGE}")
+        raise ValueError(JoinedMessage([
+            Message("Unknown reset target(s): {targets}. Nothing was reset.", targets=", ".join(unknown)),
+            USAGE,
+        ], separator="\n"))
 
 
 def reset_node_render_order(viewer):
@@ -92,7 +100,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -101,7 +109,7 @@ def run(viewer, args):
     try:
         check_targets(args)
     except ValueError as error:
-        msg = f"Error: {error}"
+        msg = Message("Error: {error}", error=error)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return

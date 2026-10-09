@@ -19,6 +19,8 @@ import Command_Engine
 import EMAPSSN_Config as cfg
 import web_ui.esmfold_backend as esmfold_backend
 from PySide6.QtWidgets import QApplication, QMessageBox
+from desktop.Desktop_App import translate
+from utilities.Localization import Message
 from utilities.Terminal_Launcher import (
     HoldMode,
     TerminalUnavailableError,
@@ -56,10 +58,11 @@ def _set_console_text(viewer, message):
 
 
 def _report_usage_error(viewer, message):
+    """Report message, a Message, in English to the terminal and translated on the console line."""
     print(f"Error: {message}")
     Command_Engine.command_failed(viewer, f'Error: {message}')
     print("Usage: esmfold [large] [multi]")
-    _set_console_text(viewer, f"Error: {message}")
+    _set_console_text(viewer, Message("Error: {error}", error=message))
 
 
 def _parse_options(viewer, args):
@@ -67,7 +70,7 @@ def _parse_options(viewer, args):
     allowed = {"large", "multi"}
     unknown = [argument for argument in normalized if argument not in allowed]
     if unknown:
-        _report_usage_error(viewer, f"Unknown esmfold keyword: {unknown[0]}")
+        _report_usage_error(viewer, Message("Unknown esmfold keyword: {keyword}", keyword=unknown[0]))
         return None
     duplicates = sorted({argument for argument in normalized if normalized.count(argument) > 1})
     if duplicates:
@@ -93,10 +96,10 @@ def run(viewer, args):
     # 2. Help & Usage Check
     if args and args[0].lower() in ['help', '-h', '--help']:
         if len(args) != 1:
-            _report_usage_error(viewer, "Help cannot be combined with other keywords.")
+            _report_usage_error(viewer, Message("Help cannot be combined with other keywords."))
             return
         print_help()
-        _set_console_text(viewer, "Help information printed to the terminal")
+        _set_console_text(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -123,8 +126,9 @@ def run(viewer, args):
         print("Error: No nodes selected. Please select a node in the visualizer first.")
         Command_Engine.command_failed(viewer, 'Error: No nodes selected. Please select a node in the visualizer first.')
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Error: No nodes selected.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            failure = Message("Error: No nodes selected.")
+            Command_Engine.show_status(viewer, failure)
+            Command_Engine.command_failed(viewer, failure)
         return
 
     # 4. Check for multiple selections vs "multi" command flag
@@ -132,8 +136,9 @@ def run(viewer, args):
         print("Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
         Command_Engine.command_failed(viewer, "Error: Multiple nodes selected. Run 'esmfold multi' to fold them, or select a single node.")
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Error: Multiple nodes selected. Use 'esmfold multi'.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            failure = Message("Error: Multiple nodes selected. Use 'esmfold multi'.")
+            Command_Engine.show_status(viewer, failure)
+            Command_Engine.command_failed(viewer, failure)
         return
 
     # 5. Select hardware only for local inference. Biohub runs remotely.
@@ -145,7 +150,7 @@ def run(viewer, args):
         except ImportError:
             print("Error: PyTorch or Hardware_Utils could not be imported.")
             Command_Engine.command_failed(viewer, 'Error: PyTorch or Hardware_Utils could not be imported.')
-            _set_console_text(viewer, "Error: PyTorch/Hardware_Utils missing")
+            _set_console_text(viewer, Message("Error: PyTorch/Hardware_Utils missing"))
             return
 
         device = Hardware_Utils.get_optimal_device()
@@ -188,8 +193,9 @@ def run(viewer, args):
         print("Error: Could not retrieve sequences for selected nodes.")
         Command_Engine.command_failed(viewer, 'Error: Could not retrieve sequences for selected nodes.')
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Error: Sequence retrieval failed.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            failure = Message("Error: Sequence retrieval failed.")
+            Command_Engine.show_status(viewer, failure)
+            Command_Engine.command_failed(viewer, failure)
         return
 
     # 8. Set up Directory & Web Registration
@@ -202,14 +208,14 @@ def run(viewer, args):
     try:
         action_url = viewer.get_web_url("/api/action")
     except Exception as error:
-        message = f"ESMFold cannot start because the Viewer web server is unavailable:\n{error}"
+        message = Message("ESMFold cannot start because the Viewer web server is unavailable:\n{error}", error=error)
         print(f"Error: {message}")
         Command_Engine.command_failed(viewer, f'Error: {message}')
         parent = getattr(viewer, 'main_window', None)
         from Viewer_Command_Portal import CURRENT
         if CURRENT.get() is None:
-            QMessageBox.critical(parent, "ESMFold Web Server Error", message)
-        _set_console_text(viewer, "Error: Viewer web server unavailable.")
+            QMessageBox.critical(parent, translate("Viewer", "ESMFold Web Server Error"), message.display())
+        _set_console_text(viewer, Message("Error: Viewer web server unavailable."))
         return
 
     # 9. Save nodes to fold to a temporary JSON file and spawn background worker process
@@ -277,23 +283,25 @@ def run(viewer, args):
             os.unlink(tmp_path)
         except OSError:
             pass
-        message = f"Could not launch the ESMFold worker in a terminal:\n{error}"
+        message = Message("Could not launch the ESMFold worker in a terminal:\n{error}", error=error)
         Command_Engine.command_failed(viewer, message)
         print(f"Error: {message}")
         Command_Engine.command_failed(viewer, f'Error: {message}')
         parent = getattr(viewer, 'main_window', None)
         if context is None:
-            QMessageBox.critical(parent, "ESMFold Launch Error", message)
+            QMessageBox.critical(parent, translate("Viewer", "ESMFold Launch Error"), message.display())
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Error: Could not launch the ESMFold terminal.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            failure = Message("Error: Could not launch the ESMFold terminal.")
+            Command_Engine.show_status(viewer, failure)
+            Command_Engine.command_failed(viewer, failure)
         return
 
     # 10. Open Mol* web browser tab immediately
     esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
     mode_label = "Biohub ESM3" if is_large else "local ESM3"
-    _set_console_text(
-        viewer,
-        f"Spawning separate console to fold {len(nodes_to_fold)} structure(s) with {mode_label}...",
-    )
+    if is_large:
+        spawning = Message("Spawning separate console to fold %n structure(s) with Biohub ESM3...", n=len(nodes_to_fold))
+    else:
+        spawning = Message("Spawning separate console to fold %n structure(s) with local ESM3...", n=len(nodes_to_fold))
+    _set_console_text(viewer, spawning)
     Command_Engine.command_succeeded(viewer, f"Started {mode_label} folding for {len(nodes_to_fold)} structure(s); waiting for the worker.")

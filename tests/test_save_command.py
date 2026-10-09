@@ -81,7 +81,7 @@ class InteractiveSaveTests(unittest.TestCase):
             ), mock.patch.object(
                 save_command.Command_Engine,
                 "print_help",
-                side_effect=lambda _viewer, message: messages.append(message),
+                side_effect=lambda _viewer, message: messages.append(str(message)),
             ):
                 save_command.run(viewer, ["../escape"])
 

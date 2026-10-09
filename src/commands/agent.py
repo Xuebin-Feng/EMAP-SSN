@@ -20,6 +20,7 @@ All backend logic lives in web_ui/agent_backend.py.
 """
 
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 
 from web_ui.agent_backend import (
     activate_agent_from_card,
@@ -68,8 +69,9 @@ def _load_saved_cards(viewer):
     try:
         return load_model_cards()
     except ModelCardsError as error:
-        Command_Engine.print_help(viewer, f"Error: {error}")
-        Command_Engine.command_failed(viewer, f"Error: {error}")
+        message = Message("Error: {error}", error=error)
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return None
 
 def run(viewer, args):
@@ -84,7 +86,7 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -126,8 +128,16 @@ def run(viewer, args):
                 Command_Engine.command_succeeded(viewer, f"Activated Agent model {model_custom_name!r}.")
         else:
             available_names = ", ".join([f"<{c.get('name')}>" for c in cards if c.get("name")])
-            Command_Engine.print_help(viewer, f"Error: Model Custom Name '{model_custom_name}' not found in configured model cards.\nAvailable model names: {available_names}")
-            Command_Engine.command_failed(viewer, f"Error: Model Custom Name '{model_custom_name}' not found in configured model cards.\nAvailable model names: {available_names}")
+            # The console line shows the first line; the list of names is for the terminal.
+            message = JoinedMessage([
+                Message(
+                    "Error: Model Custom Name '{name}' not found in configured model cards.",
+                    name=model_custom_name,
+                ),
+                f"Available model names: {available_names}",
+            ], separator="\n")
+            Command_Engine.print_help(viewer, message)
+            Command_Engine.command_failed(viewer, message)
         return
 
     # 4. Message forwarding: strip quotes if present
@@ -143,8 +153,9 @@ def run(viewer, args):
         if cards:
             activate_agent_from_card(viewer, cards[0], quiet=True)
         else:
-            Command_Engine.print_help(viewer, "Error: LLM agent is not loaded. Please configure a model in the Agent UI first.")
-            Command_Engine.command_failed(viewer, 'Error: LLM agent is not loaded. Please configure a model in the Agent UI first.')
+            message = Message("Error: LLM agent is not loaded. Please configure a model in the Agent UI first.")
+            Command_Engine.print_help(viewer, message)
+            Command_Engine.command_failed(viewer, message)
             return
 
     # Forward the message to the agent backend

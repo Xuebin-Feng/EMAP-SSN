@@ -277,16 +277,20 @@ class OffsetCommandTests(unittest.TestCase):
         self.viewer.alignment = self.manager
         self.viewer.alignment_offset = 0
 
+    def assert_reported(self, report, text):
+        """report, a mock of print_help or command_failed, got text once, as its English."""
+        report.assert_called_once()
+        viewer, message = report.call_args.args
+        self.assertIs(viewer, self.viewer)
+        self.assertEqual(str(message), text)
+
     def test_command_without_argument_reports_current_offset(self):
         self.manager.set_offset(7)
 
         with mock.patch.object(offset_command.Command_Engine, "print_help") as output:
             offset_command.run(self.viewer, [])
 
-        output.assert_called_once_with(
-            self.viewer,
-            "Current Alignment Offset: 7",
-        )
+        self.assert_reported(output, "Current Alignment Offset: 7")
 
     def test_help_describes_numbering_rules_and_affected_commands(self):
         output = io.StringIO()
@@ -314,10 +318,7 @@ class OffsetCommandTests(unittest.TestCase):
             self.assertEqual(self.viewer.alignment_offset, 10)
             self.assertEqual(offset_command.cfg.ALIGNMENT_OFFSET, 10)
             self.assertEqual(self.manager.label_to_col["11.1"], 1)
-            output.assert_called_once_with(
-                self.viewer,
-                "Alignment Offset set to 10. Position numbering updated.",
-            )
+            self.assert_reported(output, "Alignment Offset set to 10. Position numbering updated.")
         finally:
             offset_command.cfg.ALIGNMENT_OFFSET = old_cfg_offset
 
@@ -328,7 +329,7 @@ class OffsetCommandTests(unittest.TestCase):
         self.assertEqual(self.manager.offset, 0)
         self.assertIn(
             "must be an integer",
-            output.call_args.args[1],
+            str(output.call_args.args[1]),
         )
 
     def test_command_cannot_set_offset_without_valid_reference(self):
@@ -340,7 +341,7 @@ class OffsetCommandTests(unittest.TestCase):
         self.assertEqual(self.manager.offset, 0)
         self.assertIn(
             "requires a correctly loaded reference",
-            output.call_args.args[1],
+            str(output.call_args.args[1]),
         )
 
     def test_command_rejects_more_than_one_value(self):
@@ -351,8 +352,8 @@ class OffsetCommandTests(unittest.TestCase):
             offset_command.run(self.viewer, ["1", "2"])
 
         message = "Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]"
-        output.assert_called_once_with(self.viewer, message)
-        failed.assert_called_once_with(self.viewer, message)
+        self.assert_reported(output, message)
+        self.assert_reported(failed, message)
         succeeded.assert_not_called()
         self.assertEqual(self.manager.offset, 0)
         self.assertEqual(self.viewer.alignment_offset, 0)

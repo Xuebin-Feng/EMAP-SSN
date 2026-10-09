@@ -131,6 +131,13 @@ still change before version 1.0.0.
   messages now read correctly for one, as in "Selected 1 node.", and the metadata
   upload summary gives its counts as separate sentences. The error for an invalid
   metadata predicate shows its example as '{Length>500}', no longer with doubled braces.
+- **Eleven commands' console messages are ready to translate.** agent, alignment,
+  esmfold, offset, redo, reference, reset, run, save, undo and zoom take their console
+  messages, the first line of their help ("Usage: zoom <width>", the syntax staying
+  English), their file dialogs and their error dialogs from the catalog. The terminal
+  and MCP replies keep the English: these commands no longer report what the console
+  line shows as their failure. Some counts now read correctly for one, as in
+  "Batch execution completed: 1 command run."
 
 ### Changed
 

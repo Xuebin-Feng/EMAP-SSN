@@ -14,9 +14,14 @@
 # limitations under the License.
 
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: redo\nDescription: Reapplies a state that was previously undone using the `undo` command."
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="redo"),
+            "Description: Reapplies a state that was previously undone using the `undo` command.",
+        ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return

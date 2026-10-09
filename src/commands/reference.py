@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 from utilities.Sequence_Utils import pick_reference_header
 
 
@@ -31,11 +32,13 @@ def _resolve_reference_header(viewer, target):
 def _current_reference_message(viewer):
     alignment = getattr(viewer, 'alignment', None)
     if alignment is not None and getattr(alignment, 'has_reference', False):
-        return f"Current Reference: {alignment.resolved_ref_full}"
+        return Message("Current Reference: {reference}", reference=alignment.resolved_ref_full)
     configured = getattr(viewer, 'active_reference', None)
     if configured and str(configured).strip().lower() != 'none':
-        return f"Current Reference: {configured} (inactive; not resolved in the current MSA)"
-    return "Current Reference: None"
+        return Message(
+            "Current Reference: {reference} (inactive; not resolved in the current MSA)", reference=configured
+        )
+    return Message("Current Reference: None")
 
 
 def run(viewer, args):
@@ -46,7 +49,16 @@ def run(viewer, args):
         return
 
     if args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: reference [TARGET]\nDescription: Changes the reference sequence for alignment mapping.\n  - Call without arguments to see the current reference and whether it is active.\n  - Pass a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard\n    pattern such as WP_01* to set a new reference. An exact header or identifier takes priority;\n    otherwise the first match is used and a warning names it.\nExamples:\n  reference\n  reference SeqA"
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="reference [TARGET]"),
+            "Description: Changes the reference sequence for alignment mapping.\n"
+            "  - Call without arguments to see the current reference and whether it is active.\n"
+            "  - Pass a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard\n"
+            "    pattern such as WP_01* to set a new reference. An exact header or identifier takes priority;\n"
+            "    otherwise the first match is used and a warning names it.\n"
+            "Examples:\n  reference\n  reference SeqA",
+        ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
@@ -58,7 +70,9 @@ def run(viewer, args):
         viewer.active_reference = resolved_header
 
         print(f"\nReloading alignment...")
-        Command_Engine.show_status(viewer, f"Reloading alignment with new reference: {resolved_header}...")
+        Command_Engine.show_status(
+            viewer, Message("Reloading alignment with new reference: {reference}...", reference=resolved_header)
+        )
 
         viewer.load_global_alignment()
 
@@ -68,24 +82,25 @@ def run(viewer, args):
             and getattr(viewer.alignment, 'has_reference', False)
         ):
             viewer.resolved_ref_full = viewer.alignment.resolved_ref_full
-            msg = f"Reference successfully set: {viewer.alignment.resolved_ref_full}."
-            Command_Engine.show_status(viewer, "Reference successfully set.")
+            msg = Message("Reference successfully set: {reference}.", reference=viewer.alignment.resolved_ref_full)
+            Command_Engine.show_status(viewer, Message("Reference successfully set."))
         elif viewer.alignment and viewer.alignment.aln is not None:
             viewer.resolved_ref_full = None
-            msg = (
-                f"Reference '{resolved_header}' is configured but inactive because it is not "
-                "present in the current MSA. Pure occupancy mode remains active."
+            msg = Message(
+                "Reference '{reference}' is configured but inactive because it is not "
+                "present in the current MSA. Pure occupancy mode remains active.",
+                reference=resolved_header,
             )
             Command_Engine.show_status(viewer, msg)
             print(f"\nWarning: {msg}")
         else:
-            msg = f"Error: Could not reload the current MSA for reference '{target}'."
+            msg = Message("Error: Could not reload the current MSA for reference '{reference}'.", reference=target)
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.show_status(viewer, msg)
             print(f"\n{msg}")
             return
     else:
-        err = f"Error: Reference '{target}' not found."
+        err = Message("Error: Reference '{reference}' not found.", reference=target)
         Command_Engine.command_failed(viewer, err)
         Command_Engine.show_status(viewer, err)
         print(f"\n{err}")

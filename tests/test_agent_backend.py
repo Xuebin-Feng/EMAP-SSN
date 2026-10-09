@@ -257,7 +257,7 @@ class ModelCardTests(unittest.TestCase):
                 activate.assert_not_called()
                 query.assert_not_called()
                 succeeded.assert_not_called()
-                self.assertIn('is not valid JSON', failed.call_args.args[1])
+                self.assertIn('is not valid JSON', str(failed.call_args.args[1]))
 
         # A running agent needs no cards to take a message.
         activate, query, failed, succeeded = run(['hello'], True)

@@ -15,6 +15,7 @@
 
 import Command_Engine
 import EMAPSSN_Config as cfg
+from utilities.Localization import JoinedMessage, Message
 
 
 def print_help():
@@ -81,60 +82,57 @@ def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
     current_offset, is_active = _current_offset(viewer)
     if not args:
-        suffix = "" if is_active else " (inactive: no valid alignment reference is loaded)"
-        Command_Engine.print_help(
-            viewer,
-            f"Current Alignment Offset: {current_offset}{suffix}",
-        )
-        Command_Engine.command_succeeded(viewer, f"Current Alignment Offset: {current_offset}{suffix}")
+        if is_active:
+            message = Message("Current Alignment Offset: {offset}", offset=current_offset)
+        else:
+            message = Message(
+                "Current Alignment Offset: {offset} (inactive: no valid alignment reference is loaded)",
+                offset=current_offset,
+            )
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_succeeded(viewer, message)
         return
 
     if len(args) != 1:
-        Command_Engine.print_help(
-            viewer,
-            "Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]",
+        # The console line shows the first line; the usage is for the terminal.
+        message = JoinedMessage(
+            [Message("Error: Offset accepts exactly one integer."), "Usage: offset [INTEGER]"], separator="\n"
         )
-        Command_Engine.command_failed(viewer, 'Error: Offset accepts exactly one integer.\nUsage: offset [INTEGER]')
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return
 
     try:
         new_offset = int(args[0])
     except (TypeError, ValueError):
-        Command_Engine.print_help(
-            viewer,
-            f"Error: Alignment offset must be an integer, not '{args[0]}'.",
-        )
-        Command_Engine.command_failed(viewer, f"Error: Alignment offset must be an integer, not '{args[0]}'.")
+        message = Message("Error: Alignment offset must be an integer, not '{value}'.", value=args[0])
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return
 
     alignment = getattr(viewer, 'alignment', None)
     if alignment is None or not getattr(alignment, 'has_reference', False):
-        Command_Engine.print_help(
-            viewer,
-            "Error: Alignment offset requires a correctly loaded reference. "
-            "Use 'reference <ID>' first.",
+        message = Message(
+            "Error: Alignment offset requires a correctly loaded reference. Use 'reference <ID>' first."
         )
-        Command_Engine.command_failed(viewer, "Error: Alignment offset requires a correctly loaded reference. Use 'reference <ID>' first.")
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return
 
     if not alignment.set_offset(new_offset):
-        Command_Engine.print_help(
-            viewer,
-            "Error: Alignment offset could not be applied to the active reference.",
-        )
-        Command_Engine.command_failed(viewer, 'Error: Alignment offset could not be applied to the active reference.')
+        message = Message("Error: Alignment offset could not be applied to the active reference.")
+        Command_Engine.print_help(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         return
 
     viewer.alignment_offset = new_offset
     cfg.ALIGNMENT_OFFSET = new_offset
-    Command_Engine.print_help(
-        viewer,
-        f"Alignment Offset set to {new_offset}. Position numbering updated.",
-    )
-    Command_Engine.command_succeeded(viewer, f"Alignment Offset set to {new_offset}. Position numbering updated.")
+    message = Message("Alignment Offset set to {offset}. Position numbering updated.", offset=new_offset)
+    Command_Engine.print_help(viewer, message)
+    Command_Engine.command_succeeded(viewer, message)

@@ -22,10 +22,18 @@ import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Viewer_State import resolve_selected_cache
 from utilities.Cache_Metadata import validate_cache_provenance
+from utilities.Localization import JoinedMessage, Message
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: save [filename.h5]\nDescription: Takes a snapshot of the current network state (positions, colors, sizes, shapes, visibility, render order, clusters, groups) and saves it as an HDF5 layout cache.\nIf no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\nExamples:\n  save\n  save my_layout.h5"
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="save [filename.h5]"),
+            "Description: Takes a snapshot of the current network state (positions, colors, sizes, shapes, "
+            "visibility, render order, clusters, groups) and saves it as an HDF5 layout cache.\n"
+            "If no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\n"
+            "Examples:\n  save\n  save my_layout.h5",
+        ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
@@ -130,13 +138,13 @@ def run(viewer, args):
         if hasattr(viewer, 'original_pos'):
             viewer.original_pos = viewer.pos.copy()
         
-        msg = f"State successfully saved: {save_name}"
+        msg = Message("State successfully saved: {name}", name=save_name)
         Command_Engine.print_help(viewer, msg)
-        
+
     except Exception as e:
         if 'partial_save_path' in locals() and os.path.exists(partial_save_path):
             os.remove(partial_save_path)
-        msg = f"Error saving layout state: {e}"
+        msg = Message("Error saving layout state: {error}", error=e)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return

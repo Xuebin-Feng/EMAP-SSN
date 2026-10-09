@@ -53,7 +53,8 @@ class ReferenceResolutionTests(unittest.TestCase):
                 redirect_stdout(output):
             for target in targets:
                 reference_command.run(viewer, [target] if target else [])
-        messages = [call.args[1] for call in succeeded.call_args_list]
+        # As the command portal records them: in English.
+        messages = [str(call.args[1]) for call in succeeded.call_args_list]
         return viewer, output.getvalue(), messages
 
     def load_configured(self, records, headers, reference):
@@ -193,7 +194,8 @@ class ReferenceResolutionTests(unittest.TestCase):
             reference_command.run(viewer, ["zzz"])
 
         message = "Error: Reference 'zzz' not found."
-        failed.assert_called_once_with(viewer, message)
+        failed.assert_called_once()
+        self.assertEqual((failed.call_args.args[0], str(failed.call_args.args[1])), (viewer, message))
         succeeded.assert_not_called()
         viewer.load_global_alignment.assert_not_called()
         self.assertIs(viewer.alignment, alignment)

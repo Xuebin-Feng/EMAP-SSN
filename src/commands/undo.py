@@ -14,9 +14,15 @@
 # limitations under the License.
 
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: undo\nDescription: Reverts the visual and spatial state of the network to the previous action.\nMost commands automatically save state before execution, allowing them to be undone."
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="undo"),
+            "Description: Reverts the visual and spatial state of the network to the previous action.\n"
+            "Most commands automatically save state before execution, allowing them to be undone.",
+        ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return

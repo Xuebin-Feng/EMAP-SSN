@@ -19,6 +19,8 @@ import locale
 import os
 import Command_Engine
 from PySide6 import QtWidgets
+from desktop.Desktop_App import translate
+from utilities.Localization import JoinedMessage, Message
 from Viewer_Command_Portal import user_interaction, CURRENT
 
 # A byte-order mark names a .txt file's encoding. UTF-32 LE's mark begins with
@@ -56,14 +58,15 @@ def read_command_lines(file_path):
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
-        msg = (
-            "Usage: run\n"
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="run"),
             "Description: Opens a file explorer to select a command script file (.txt or .py) and executes the commands in sequence.\n"
             "  - For .txt files: Executes each line as a command.\n"
             "  - For .py files: Executes the Python script in a subprocess and runs the commands outputted to stdout.\n"
             "Example:\n"
-            "  run"
-        )
+            "  run",
+        ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
@@ -73,24 +76,29 @@ def run(viewer, args):
         with user_interaction(viewer, "Select run file in the Viewer dialog"):
             file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
                 viewer.canvas.native,
-                "Select Command File",
+                translate("Viewer", "Select Command File"),
                 "",
-                "Command Scripts (*.txt *.py);;Text Files (*.txt);;Python Scripts (*.py);;All Files (*)"
+                ";;".join([
+                    translate("Viewer", "Command Scripts (*.txt *.py)"),
+                    translate("Viewer", "Text Files (*.txt)"),
+                    translate("Viewer", "Python Scripts (*.py)"),
+                    translate("Viewer", "All Files (*)"),
+                ]),
             )
     except Exception as e:
-        msg = f"Error opening file dialog: {e}"
+        msg = Message("Error opening file dialog: {error}", error=e)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
 
     if not file_path:
-        msg = "File selection cancelled."
+        msg = Message("File selection cancelled.")
         Command_Engine.command_cancelled(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
 
     if not os.path.exists(file_path):
-        msg = f"Error: File '{file_path}' does not exist."
+        msg = Message("Error: File '{file}' does not exist.", file=file_path)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -107,7 +115,7 @@ def run(viewer, args):
             
             print(f"[Run] Executing Python script: {file_path}")
             if hasattr(viewer, 'console_text'):
-                Command_Engine.show_status(viewer, "Executing Python script...")
+                Command_Engine.show_status(viewer, Message("Executing Python script..."))
                 if hasattr(vispy_app, 'process_events'):
                     vispy_app.process_events()
 
@@ -132,7 +140,11 @@ def run(viewer, args):
             
             if result.returncode != 0:
                 stderr_output = result.stderr.strip()
-                msg = f"Error: Python script failed (exit code {result.returncode}):\n{stderr_output}"
+                # The console line shows the first line; the script's errors are for the terminal.
+                msg = JoinedMessage([
+                    Message("Error: Python script failed (exit code {code}):", code=result.returncode),
+                    stderr_output,
+                ], separator="\n")
                 Command_Engine.command_failed(viewer, msg)
                 Command_Engine.print_help(viewer, msg)
                 return
@@ -170,11 +182,11 @@ def run(viewer, args):
             Command_Engine._dispatch_user_command(viewer, cmd_line, record_history=False)
             executed_count += 1
             
-        msg = f"Batch execution completed: {executed_count} commands run."
+        msg = Message("Batch execution completed: %n command(s) run.", n=executed_count)
         Command_Engine.print_help(viewer, msg)
         
     except Exception as e:
-        msg = f"Error reading/executing command file: {e}"
+        msg = Message("Error reading/executing command file: {error}", error=e)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return

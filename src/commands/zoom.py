@@ -16,6 +16,7 @@
 import math
 
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 
 
 def _report_error(viewer, msg):
@@ -25,7 +26,12 @@ def _report_error(viewer, msg):
 
 def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
-        msg = "Usage: zoom <width>\nDescription: Sets the camera view width to exactly <width> while keeping the current center point and canvas aspect ratio.\nExamples:\n  zoom 500  (Sets the view width to 500 units)"
+        # The console line shows the first line; the terminal shows it all, in English.
+        msg = JoinedMessage([
+            Message("Usage: {syntax}", syntax="zoom <width>"),
+            "Description: Sets the camera view width to exactly <width> while keeping the current "
+            "center point and canvas aspect ratio.\nExamples:\n  zoom 500  (Sets the view width to 500 units)",
+        ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
@@ -33,16 +39,16 @@ def run(viewer, args):
     try:
         new_width = float(args[0])
     except ValueError:
-        _report_error(viewer, "Error: Zoom width must be a valid number.")
+        _report_error(viewer, Message("Error: Zoom width must be a valid number."))
         return
     # float() also accepts nan, inf and 1e400; none of them is a view width.
     if not math.isfinite(new_width) or new_width <= 0:
-        _report_error(viewer, "Error: Zoom width must be a positive, finite number.")
+        _report_error(viewer, Message("Error: Zoom width must be a positive, finite number."))
         return
 
     canvas_width, canvas_height = viewer.canvas.size
     if canvas_width <= 0 or canvas_height <= 0:
-        _report_error(viewer, "Error: The canvas has no visible area, so the zoom cannot be applied.")
+        _report_error(viewer, Message("Error: The canvas has no visible area, so the zoom cannot be applied."))
         return
 
     rect = viewer.view.camera.rect
@@ -58,13 +64,13 @@ def run(viewer, args):
     y_range = (center_y - half_h, center_y + half_h)
     # A huge finite width can still overflow to inf on a tall canvas.
     if not all(math.isfinite(value) for value in x_range + y_range):
-        _report_error(viewer, "Error: Zoom width is too large for the current view.")
+        _report_error(viewer, Message("Error: Zoom width is too large for the current view."))
         return
 
     viewer.view.camera.set_range(x=x_range, y=y_range)
 
     viewer._hud_timer.start()
 
-    msg = f"Zoom snapped to View Width: {new_width}"
+    msg = Message("Zoom snapped to View Width: {width}", width=new_width)
     Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)
