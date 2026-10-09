@@ -1035,6 +1035,18 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
+        <source>The background job scheduler is shutting down.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Output file already exists: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Output file is already reserved by a background job: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1573,6 +1585,202 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>gmin is fixed at 97% and cannot be set by the label command.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing numerical value for &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid percentage &apos;{value}&apos; for &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate assignment for &apos;{key}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ambiguous input. Positional argument &apos;{argument}&apos; found after keywords.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid percentage &apos;{value}&apos;: thresholds must be finite. Add .xlsx to use it as the report filename.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Provide only one custom output filename.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A custom output filename must be the final argument.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Too many positional numerical arguments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ambiguous input. &apos;{key}&apos; defined both positionally and via keyword.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Global Alignment not loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected MSA contains no aligned rows for the current network. Label analysis is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No active alignment reference. Use &apos;reference &lt;ID&gt;&apos; with a node present in the current MSA.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No clusters or groups defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;openpyxl&apos; is required for XLSX export. Run: {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exported to {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>IO Error: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Label generation did not produce an artifact.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global Alignment not loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The selected MSA contains no aligned rows for the current network. Label analysis is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No active alignment reference. Use &apos;reference &lt;ID&gt;&apos; with a node present in the current MSA.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Run &apos;cluster&apos; first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No groups defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No clusters or groups defined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The background job scheduler is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not snapshot label inputs: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Identity threshold cannot be empty.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid identity threshold &apos;{value}&apos;. Use 0.9, 90, or 90%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Identity threshold &apos;{value}&apos; is outside the supported range (0, 100%].</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Provide only one identity threshold for logo reweighting.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Saved {gap_mode} {mode} logo for %n aligned node(s) (identity {identity}%, effective N {effective}) to {file}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Invalid insertion position &apos;{value}&apos;; the fractional suffix must be positive.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fractional range &apos;{range}&apos; is not supported; list insertion positions explicitly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Position range &apos;{range}&apos; must be written from lower to higher.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Logo command requires a POSITIONS parameter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No positions provided. Use [...] syntax.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Logo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No selection found. Defaulting to ALL nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Could not parse positions from brackets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: MSA not loaded in viewer. Please check inputs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected MSA contains no aligned rows for the current network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No nodes matched the criteria for logo generation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Requested positions are outside the sequence bounds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No aligned nodes matched the logo selection criteria.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Logo generation failed: the background job scheduler is unavailable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Logo generation failed: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Deleted metadata columns: {columns}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1682,10 +1890,6 @@ Command-line usage:
     </message>
     <message>
         <source>Error: No bracketed argument provided. Use [...] syntax (e.g., [10-20] or [K&gt;10%]).</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>No selection found. Defaulting to ALL nodes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1848,10 +2052,6 @@ Command-line usage:
     </message>
     <message>
         <source>Error: Select accepts exactly one whitespace-free Boolean expression.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

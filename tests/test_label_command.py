@@ -55,7 +55,7 @@ class ImmediateScheduler:
 
     def enqueue(self, **job):
         result = job["worker"](job["payload"])
-        self.viewer.console_text.text = result["message"]
+        self.viewer.console_text.text = str(result["message"])
         reveal_directory = result.get("reveal_directory")
         if reveal_directory:
             application_windows.open_in_file_manager(reveal_directory)
@@ -424,8 +424,10 @@ class LabelWorkbookPercentTests(unittest.TestCase):
         ) as command_failed:
             viewer = self.run_label(directory, ["gmin", "90%"])
 
-        command_failed.assert_called_once_with(
-            viewer,
+        command_failed.assert_called_once()
+        self.assertIs(command_failed.call_args.args[0], viewer)
+        self.assertEqual(
+            str(command_failed.call_args.args[1]),
             "Error: gmin is fixed at 97% and cannot be set by the label command.",
         )
 
@@ -441,7 +443,9 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as output:
             label.run(viewer, [])
 
-        command_failed.assert_called_once_with(viewer, message)
+        command_failed.assert_called_once()
+        self.assertIs(command_failed.call_args.args[0], viewer)
+        self.assertEqual(str(command_failed.call_args.args[1]), message)
         self.assertIsNone(viewer.background_job_scheduler.job)
         self.assertEqual(viewer.console_text.text, message)
         self.assertEqual(output.getvalue(), message + "\n")

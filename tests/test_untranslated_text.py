@@ -83,6 +83,8 @@ CANVAS_MARKED = frozenset({
     "commands/export.py",
     "commands/group.py",
     "commands/hide.py",
+    "commands/label.py",
+    "commands/logo.py",
     "commands/meta.py",
     "commands/offset.py",
     "commands/print.py",
@@ -929,7 +931,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         # An error filled into an error, such as the output-name check's, and a
         # first line in a JoinedMessage.
         import EMAPSSN_Config
-        from commands import color, export, meta, query, select
+        from commands import color, export, logo, meta, query, select
         from utilities.Localization import Message
 
         folder = tempfile.mkdtemp()
@@ -940,6 +942,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         self.assert_translated(viewer.console_text.text)
         cases = (
             (color, [], {}, ()),
+            (logo, [], {}, ()),
             (query, [], {}, ()),
             (select, [], {}, ()),
             (select, ["9"], {}, ("9",)),
@@ -1097,6 +1100,168 @@ class ViewerCanvasTextTests(WindowTestCase):
                 print_command.run(viewer, ["1"])
                 self.assert_translated(viewer.console_text.text, "PNG", "9")
         self.assertEqual(os.listdir(folder), [])
+
+    def test_label_errors(self):
+        # label checks its inputs before its background job and reports them
+        # through one helper, whose callers the code check can't follow; a
+        # failed job raises the Message its worker showed.
+        from types import SimpleNamespace
+
+        import numpy
+
+        import EMAPSSN_Config
+        from commands import label
+        from utilities.Localization import Message
+
+        class Scheduler:
+            def __init__(self, reserved=False, error=None):
+                self.reserved, self.error = reserved, error
+
+            def is_output_path_reserved(self, path):
+                return self.reserved
+
+            def enqueue(self, **job):
+                raise self.error
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        reserved_path = os.path.abspath(os.path.join(folder, "1.xlsx"))
+        clustered = {"cluster_labels": [1, 1]}
+        shutting_down = RuntimeError(Message("The background job scheduler is shutting down."))
+        cases = (
+            ([], {"alignment": None}),
+            ([], {"alignment": SimpleNamespace(aln=[], has_reference=True)}),
+            ([], {"alignment": SimpleNamespace(aln=[1], has_reference=False)}),
+            (["gmin"], {}),
+            (["clusters"], {"group_labels": [set(), set()]}),
+            (["groups"], clustered),
+            ([], {}),
+            ([], clustered),
+            (["1.xlsx"], {**clustered, "background_job_scheduler": Scheduler(reserved=True)}),
+            ([], {**clustered, "background_job_scheduler": Scheduler(error=shutting_down)}),
+        )
+        for args, attributes in cases:
+            viewer = SimpleNamespace(**{
+                "alignment": SimpleNamespace(aln=[1], has_reference=True), "cluster_labels": None,
+                "group_labels": None, "full_headers": ["101", "102"], "n_nodes": 2,
+                "console_text": SimpleNamespace(text=""), **attributes,
+            })
+            with self.subTest(args=args, attributes=sorted(attributes)), contextlib.redirect_stdout(io.StringIO()), \
+                    mock.patch.object(EMAPSSN_Config, "resolve_directory_path", lambda value, *rest: folder), \
+                    mock.patch.object(label.Command_Engine, "get_alignment_mapping",
+                                      return_value=(numpy.array([0, 1]), numpy.array([0, 1]))), \
+                    mock.patch.object(label, "_FrozenAlignmentManager", lambda alignment, viewer_to_aln: None):
+                label.run(viewer, args)
+                # The pseudo-language leaves markup such as the syntax <ID> as it is.
+                self.assert_translated(viewer.console_text.text, reserved_path, "<ID>")
+        viewer = SimpleNamespace(**{**clustered, "alignment": SimpleNamespace(aln=[1], has_reference=True),
+                                    "group_labels": None, "full_headers": [], "n_nodes": 0,
+                                    "console_text": SimpleNamespace(text=""),
+                                    "background_job_scheduler": Scheduler()})
+        with contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.object(EMAPSSN_Config, "resolve_directory_path", lambda value, *rest: folder), \
+                mock.patch.object(label.Command_Engine, "get_alignment_mapping", side_effect=RuntimeError("9")):
+            label.run(viewer, [])
+        self.assert_translated(viewer.console_text.text, "9")
+        snapshot = SimpleNamespace(alignment=None, console_text=SimpleNamespace(text=""))
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError) as caught:
+            label._execute_label_envelope(label._LabelJobEnvelope(snapshot, ()))
+        self.assertEqual(str(caught.exception), "Error: Global Alignment not loaded.")
+        self.assert_translated(display_text(caught.exception))
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_logo_errors_and_report(self):
+        # The errors logo fills into "Error: {error}", and the report of its background job.
+        from commands import logo
+
+        failing = (
+            lambda: logo.parse_identity_threshold(""),
+            lambda: logo.parse_identity_threshold("x"),
+            lambda: logo.parse_identity_threshold("200%"),
+            lambda: logo.extract_identity_threshold(["90%", "80%"]),
+            lambda: logo.parse_logo_positions("[1.0]"),
+            lambda: logo.parse_logo_positions("[1.1-2]"),
+            lambda: logo.parse_logo_positions("[5-2]"),
+        )
+        for call in failing:
+            with self.assertRaises(ValueError) as caught:
+                call()
+            with self.subTest(error=str(caught.exception)):
+                self.assert_translated(display_text(caught.exception), "x")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        for threshold, filename in ((None, "1.svg"), (0.9, "2.svg")):
+            payload = {
+                "selected_seqs": ("AAAA", "AAAA", "GGGG"), "valid_cols": (0,), "plot_positions": (1,),
+                "mode": "pcts", "gap_mode": "no_gap", "identity_threshold": threshold, "filename": filename,
+                "color_scheme": "chemistry", "logo_dir": folder, "allow_overwrite": False, "ref_id": "1",
+            }
+            with self.subTest(threshold=threshold), contextlib.redirect_stdout(io.StringIO()):
+                result = logo._generate_logo_artifact(payload)
+                self.assert_translated(display_text(result["message"]), "no_gap", "pcts", filename)
+
+    def test_background_job_errors(self):
+        # The scheduler's refusals, and a failed job's error, show translated.
+        import threading
+        from types import SimpleNamespace
+
+        from Background_Job_Scheduler import BackgroundJob, BackgroundJobScheduler
+        from utilities.Localization import Message
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        existing = os.path.abspath(os.path.join(folder, "1.svg"))
+        Path(existing).write_text("", encoding="utf-8")
+        reserved = os.path.abspath(os.path.join(folder, "2.svg"))
+
+        def scheduler(accepting=True):
+            return SimpleNamespace(
+                _lock=threading.Lock(), _accepting=accepting, _output_key=BackgroundJobScheduler._output_key,
+                _reserved_output_paths={BackgroundJobScheduler._output_key(reserved)},
+            )
+
+        for state, path in ((scheduler(accepting=False), reserved), (scheduler(), existing), (scheduler(), reserved)):
+            with self.subTest(path=path, accepting=state._accepting), \
+                    self.assertRaises((RuntimeError, FileExistsError)) as caught:
+                BackgroundJobScheduler.enqueue(state, "1", "1", None, None, path)
+            self.assert_translated(display_text(caught.exception), path)
+        shown = []
+        state = SimpleNamespace(_set_viewer_status=lambda message: shown.append(display_text(message)))
+        job = BackgroundJob(7, "label", "label -> 1.xlsx", None, None, "1.xlsx")
+        with contextlib.redirect_stdout(io.StringIO()):
+            BackgroundJobScheduler._report_failed(
+                state, job, RuntimeError(Message("Error: No groups defined.")), "", 2.5
+            )
+        self.assert_translated(shown[0], "label", "2.5", "7")
+
+        # From the worker thread to the console line, the failed job's error stays a Message.
+        import time
+
+        class Viewer:
+            """The scheduler keeps a weak reference to its viewer."""
+
+            def __init__(self):
+                self.statuses = []
+
+            def set_background_job_status(self, message):
+                self.statuses.append(display_text(message))
+
+        viewer = Viewer()
+        statuses = viewer.statuses
+        jobs = BackgroundJobScheduler(viewer)
+        self.addCleanup(jobs.shutdown)
+
+        def worker(payload):
+            raise RuntimeError(Message("Error: No groups defined."))
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            jobs.enqueue("label", "1", None, worker, os.path.join(folder, "3.svg"))
+            deadline = time.monotonic() + 10
+            while len(statuses) < 3 and time.monotonic() < deadline:  # Queued, running, failed.
+                self.app.processEvents()
+                time.sleep(0.005)
+        self.assertEqual(len(statuses), 3, statuses)
+        self.assert_translated(statuses[-1], "label")
 
     def test_the_metadata_upload_summary_and_its_errors(self):
         from types import SimpleNamespace

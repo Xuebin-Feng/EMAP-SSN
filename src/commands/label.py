@@ -31,6 +31,7 @@ from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
+from utilities.Localization import Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
     format_alignment_offset_display,
@@ -474,13 +475,13 @@ def _parse_label_arguments(args):
             index += 1
             continue
         if argument in fixed_keys:
-            raise ValueError(
+            raise ValueError(Message(
                 "gmin is fixed at 97% and cannot be set by the label command."
-            )
+            ))
         if argument in valid_keys:
             keyword_mode = True
             if index + 1 >= len(args):
-                raise ValueError(f"Missing numerical value for '{argument}'.")
+                raise ValueError(Message("Missing numerical value for '{argument}'.", argument=argument))
             if argument in {"gmax", "global_max", "g_max"}:
                 key_name = "gmax"
             elif argument in {"cmin", "cluster_min", "c_min"}:
@@ -493,11 +494,11 @@ def _parse_label_arguments(args):
             else:
                 value = parse_percentage(value_text)
                 if value is None:
-                    raise ValueError(
-                        f"Invalid percentage '{value_text}' for '{argument}'."
-                    )
+                    raise ValueError(Message(
+                        "Invalid percentage '{value}' for '{argument}'.", value=value_text, argument=argument
+                    ))
             if key_name in keyword_args:
-                raise ValueError(f"Duplicate assignment for '{key_name}'.")
+                raise ValueError(Message("Duplicate assignment for '{key}'.", key=key_name))
             keyword_args[key_name] = value
             index += 2
             continue
@@ -505,36 +506,39 @@ def _parse_label_arguments(args):
         parsed_value = parse_percentage(argument)
         if parsed_value is not None:
             if keyword_mode:
-                raise ValueError(
-                    f"Ambiguous input. Positional argument '{argument}' found "
-                    "after keywords."
-                )
+                raise ValueError(Message(
+                    "Ambiguous input. Positional argument '{argument}' found "
+                    "after keywords.",
+                    argument=argument,
+                ))
             positional_args.append((raw_argument, parsed_value))
             index += 1
             continue
         if _is_non_finite_number(argument):
-            raise ValueError(
-                f"Invalid percentage '{raw_argument}': thresholds must be finite. "
-                "Add .xlsx to use it as the report filename."
-            )
+            raise ValueError(Message(
+                "Invalid percentage '{value}': thresholds must be finite. "
+                "Add .xlsx to use it as the report filename.",
+                value=raw_argument,
+            ))
 
         if requested_filename is not None:
-            raise ValueError("Provide only one custom output filename.")
+            raise ValueError(Message("Provide only one custom output filename."))
         if index != len(args) - 1:
-            raise ValueError("A custom output filename must be the final argument.")
+            raise ValueError(Message("A custom output filename must be the final argument."))
         requested_filename = _normalize_output_filename(raw_argument)
         index += 1
 
     positional_keys = ("gmax", "cmin", "id")
     if len(positional_args) > len(positional_keys):
-        raise ValueError("Too many positional numerical arguments.")
+        raise ValueError(Message("Too many positional numerical arguments."))
     for position, (raw_value, parsed_value) in enumerate(positional_args):
         key_name = positional_keys[position]
         if key_name in keyword_args:
-            raise ValueError(
-                f"Ambiguous input. '{key_name}' defined both positionally and "
-                "via keyword."
-            )
+            raise ValueError(Message(
+                "Ambiguous input. '{key}' defined both positionally and "
+                "via keyword.",
+                key=key_name,
+            ))
         if key_name == "id":
             parsed_value = logo_cmd.parse_identity_threshold(raw_value)
         keyword_args[key_name] = parsed_value
@@ -857,6 +861,17 @@ def _append_workbook_metadata(
     worksheet.append([])
 
 
+def _label_failed(viewer, message):
+    """End a label run on its snapshot viewer with message, a Message.
+
+    The snapshot keeps message, and _execute_label_envelope raises it as the
+    job's error: the snapshot's console line holds only its translation.
+    """
+    viewer._label_failure = message
+    Command_Engine.show_status(viewer, message)
+    Command_Engine.command_failed(viewer, message)
+
+
 def _run_label_artifact(viewer, args):
     if args and args[0].lower() == 'reset':
         msg = Command_Engine.execute_reset(viewer, ["clusters"])
@@ -865,32 +880,32 @@ def _run_label_artifact(viewer, args):
     try:
         alignment = getattr(viewer, 'alignment', None)
         if alignment is None or alignment.aln is None:
-            Command_Engine.show_status(viewer, "Error: Global Alignment not loaded.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            _label_failed(viewer, Message("Error: Global Alignment not loaded."))
             print("Error: Global Alignment not loaded.")
             return
 
         if len(alignment.aln) == 0:
-            msg = (
+            msg = Message(
                 "Error: The selected MSA contains no aligned rows for the current "
                 "network. Label analysis is unavailable."
             )
-            Command_Engine.command_failed(viewer, msg)
-            Command_Engine.show_status(viewer, msg)
+            _label_failed(viewer, msg)
             print(msg)
             return
 
         if not getattr(alignment, 'has_reference', False):
-            Command_Engine.show_status(viewer, "Error: No active alignment reference. Use 'reference <ID>' with "
-                "a node present in the current MSA.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
-            print(viewer.console_text.text)
+            msg = Message(
+                "Error: No active alignment reference. Use 'reference <ID>' with "
+                "a node present in the current MSA."
+            )
+            _label_failed(viewer, msg)
+            print(msg)
             return
 
         if args and args[0].lower() in ['help', '-h', '-?']:
             print_help()
             if hasattr(viewer, 'console_text'):
-                Command_Engine.show_status(viewer, "Help information printed to the terminal")
+                Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
             return
 
         parameters = _parse_label_arguments(args)
@@ -901,14 +916,12 @@ def _run_label_artifact(viewer, args):
 
         # --- Validations ---
         if forced_target == "clusters" and viewer.cluster_labels is None:
-            Command_Engine.show_status(viewer, "Error: Run 'cluster' first.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            _label_failed(viewer, Message("Error: Run 'cluster' first."))
             print("Error: Run 'cluster' first to use cluster mode.")
             return
             
         if forced_target == "groups" and getattr(viewer, 'group_labels', None) is None:
-            Command_Engine.show_status(viewer, "Error: No groups defined.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            _label_failed(viewer, Message("Error: No groups defined."))
             print("Error: No groups defined. Use the 'group' command first.")
             return
 
@@ -917,8 +930,7 @@ def _run_label_artifact(viewer, args):
             and viewer.cluster_labels is None
             and getattr(viewer, 'group_labels', None) is None
         ):
-            Command_Engine.show_status(viewer, "Error: No clusters or groups defined.")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            _label_failed(viewer, Message("Error: No clusters or groups defined."))
             print("Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
             return
 
@@ -1172,7 +1184,7 @@ def _run_label_artifact(viewer, args):
         )
         if not os.path.exists(out_dir): os.makedirs(out_dir)
         if not allow_overwrite and os.path.exists(out_path):
-            raise FileExistsError(f"Output file already exists: {out_path}")
+            raise FileExistsError(Message("Output file already exists: {path}", path=out_path))
 
         global_list = []
         for lbl in sort_alignment_labels(g_stats.keys()):
@@ -1228,8 +1240,9 @@ def _run_label_artifact(viewer, args):
             import openpyxl
             from openpyxl.styles import PatternFill, Font
         except ImportError:
-            Command_Engine.show_status(viewer, "Error: 'openpyxl' is required for XLSX export. Run: pip install openpyxl")
-            Command_Engine.command_failed(viewer, viewer.console_text.text)
+            _label_failed(viewer, Message(
+                "Error: 'openpyxl' is required for XLSX export. Run: {command}", command="pip install openpyxl"
+            ))
             print("Error: openpyxl not installed.")
             return
 
@@ -1618,9 +1631,9 @@ def _run_label_artifact(viewer, args):
             try:
                 wb.save(partial_path)
                 if not allow_overwrite and os.path.exists(out_path):
-                    raise FileExistsError(
-                        f"Output file already exists: {out_path}"
-                    )
+                    raise FileExistsError(Message(
+                        "Output file already exists: {path}", path=out_path
+                    ))
                 os.replace(partial_path, out_path)
                 partial_path = None
             finally:
@@ -1630,7 +1643,7 @@ def _run_label_artifact(viewer, args):
                     except OSError:
                         pass
             
-            msg = f"Exported to {out_path}"
+            msg = Message("Exported to {path}", path=out_path)
             Command_Engine.show_status(viewer, msg)
             print(msg)
             return {
@@ -1639,12 +1652,13 @@ def _run_label_artifact(viewer, args):
                 "reveal_directory": out_dir,
             }
         except Exception as e:
-            Command_Engine.show_status(viewer, f"IO Error: {e}")
+            Command_Engine.show_status(viewer, Message("IO Error: {error}", error=e))
             raise
 
     except Exception as e:
-        Command_Engine.show_status(viewer, f"Error: {e}")
-        Command_Engine.command_failed(viewer, viewer.console_text.text)
+        message = Message("Error: {error}", error=e)
+        Command_Engine.show_status(viewer, message)
+        Command_Engine.command_failed(viewer, message)
         raise
 
 
@@ -1654,13 +1668,15 @@ def _execute_label_envelope(envelope):
         list(envelope.args),
     )
     if not isinstance(result, dict):
-        message = getattr(envelope.viewer_snapshot.console_text, "text", "")
-        raise RuntimeError(message or "Label generation did not produce an artifact.")
+        # Not the snapshot's console line, which holds the translation.
+        failure = getattr(envelope.viewer_snapshot, "_label_failure", None)
+        raise RuntimeError(failure or Message("Label generation did not produce an artifact."))
     return result
 
 
 def _report_label_error(viewer, error):
-    message = f"Error: {error}"
+    """Report error, a Message or an error raised with one, as label's failure."""
+    message = Message("Error: {error}", error=error)
     Command_Engine.command_failed(viewer, message)
     if hasattr(viewer, "console_text"):
         Command_Engine.show_status(viewer, message)
@@ -1678,26 +1694,30 @@ def run(viewer, args):
 
     alignment = getattr(viewer, "alignment", None)
     if alignment is None or alignment.aln is None:
-        _report_label_error(viewer, "Global Alignment not loaded.")
+        _report_label_error(viewer, Message("Global Alignment not loaded."))
         return
     if len(alignment.aln) == 0:
         _report_label_error(
             viewer,
-            "The selected MSA contains no aligned rows for the current network. "
-            "Label analysis is unavailable.",
+            Message(
+                "The selected MSA contains no aligned rows for the current network. "
+                "Label analysis is unavailable."
+            ),
         )
         return
     if not getattr(alignment, "has_reference", False):
         _report_label_error(
             viewer,
-            "No active alignment reference. Use 'reference <ID>' with a node "
-            "present in the current MSA.",
+            Message(
+                "No active alignment reference. Use 'reference <ID>' with a node "
+                "present in the current MSA."
+            ),
         )
         return
     if args and args[0].lower() in {"help", "-h", "-?"}:
         print_help()
         if hasattr(viewer, "console_text"):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -1709,22 +1729,22 @@ def run(viewer, args):
 
     forced_target = parameters["forced_target"]
     if forced_target == "clusters" and getattr(viewer, "cluster_labels", None) is None:
-        _report_label_error(viewer, "Run 'cluster' first.")
+        _report_label_error(viewer, Message("Run 'cluster' first."))
         return
     if forced_target == "groups" and getattr(viewer, "group_labels", None) is None:
-        _report_label_error(viewer, "No groups defined.")
+        _report_label_error(viewer, Message("No groups defined."))
         return
     if (
         forced_target == "all"
         and getattr(viewer, "cluster_labels", None) is None
         and getattr(viewer, "group_labels", None) is None
     ):
-        _report_label_error(viewer, "No clusters or groups defined.")
+        _report_label_error(viewer, Message("No clusters or groups defined."))
         return
 
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
-        _report_label_error(viewer, "The background job scheduler is unavailable.")
+        _report_label_error(viewer, Message("The background job scheduler is unavailable."))
         return
 
     output_directory = os.path.abspath(
@@ -1751,7 +1771,7 @@ def run(viewer, args):
         if scheduler.is_output_path_reserved(output_path):
             _report_label_error(
                 viewer,
-                f"Output file is already reserved by a background job: {output_path}",
+                Message("Output file is already reserved by a background job: {path}", path=output_path),
             )
             return
 
@@ -1759,7 +1779,7 @@ def run(viewer, args):
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         frozen_alignment = _FrozenAlignmentManager(alignment, viewer_to_aln)
     except Exception as error:
-        _report_label_error(viewer, f"Could not snapshot label inputs: {error}")
+        _report_label_error(viewer, Message("Could not snapshot label inputs: {error}", error=error))
         return
 
     group_labels = getattr(viewer, "group_labels", None)

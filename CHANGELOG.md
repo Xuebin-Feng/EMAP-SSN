@@ -152,6 +152,12 @@ still change before version 1.0.0.
   spoiled. query, cluster and subcluster no longer report what the console line shows
   as their failure. Counts read correctly for one, as in "Done! Found 1 cluster via
   LEIDEN." and "Queried 1 position. Check terminal."
+- **label and logo's console messages are ready to translate, so every command's
+  are.** A failed background job's error now reaches the console line as itself rather
+  than as its text, so it shows in the windows' language while MCP clients get the
+  English; the scheduler's own refusals (an output file that exists or is reserved)
+  are translated too. label no longer reads its console line back into a job's error,
+  which would have sent MCP clients the translated text.
 
 ### Changed
 

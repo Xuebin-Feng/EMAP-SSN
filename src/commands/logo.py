@@ -20,6 +20,7 @@ import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import EMAPSSN_Config as cfg
 import Command_Engine
+from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
@@ -232,24 +233,24 @@ def parse_identity_threshold(value):
     """Normalize an identity threshold written as a fraction or percentage."""
     text = str(value).strip()
     if not text:
-        raise ValueError("Identity threshold cannot be empty.")
+        raise ValueError(Message("Identity threshold cannot be empty."))
 
     is_percent = text.endswith('%')
     numeric_text = text[:-1].strip() if is_percent else text
     try:
         threshold = float(numeric_text)
     except ValueError as exc:
-        raise ValueError(
-            f"Invalid identity threshold '{value}'. Use 0.9, 90, or 90%."
-        ) from exc
+        raise ValueError(Message(
+            "Invalid identity threshold '{value}'. Use 0.9, 90, or 90%.", value=value
+        )) from exc
 
     if is_percent or threshold > 1.0:
         threshold /= 100.0
 
     if not np.isfinite(threshold) or threshold <= 0.0 or threshold > 1.0:
-        raise ValueError(
-            f"Identity threshold '{value}' is outside the supported range (0, 100%]."
-        )
+        raise ValueError(Message(
+            "Identity threshold '{value}' is outside the supported range (0, 100%].", value=value
+        ))
     return threshold
 
 
@@ -267,7 +268,7 @@ def extract_identity_threshold(args):
             continue
 
         if threshold is not None:
-            raise ValueError("Provide only one identity threshold for logo reweighting.")
+            raise ValueError(Message("Provide only one identity threshold for logo reweighting."))
         threshold = parse_identity_threshold(threshold_value)
 
     return threshold, remaining_args
@@ -627,7 +628,7 @@ def _generate_logo_artifact(payload):
     )
     allow_overwrite = bool(payload.get("allow_overwrite", False))
     if not allow_overwrite and os.path.exists(save_path):
-        raise FileExistsError(f"Output file already exists: {save_path}")
+        raise FileExistsError(Message("Output file already exists: {path}", path=save_path))
 
     fig_width = max(6, len(plot_positions) * 0.5 + 1)
     fig = Figure(figsize=(fig_width, 4))
@@ -683,7 +684,7 @@ def _generate_logo_artifact(payload):
             bbox_inches='tight',
         )
         if not allow_overwrite and os.path.exists(save_path):
-            raise FileExistsError(f"Output file already exists: {save_path}")
+            raise FileExistsError(Message("Output file already exists: {path}", path=save_path))
         os.replace(partial_path, save_path)
         partial_path = None
     finally:
@@ -694,16 +695,18 @@ def _generate_logo_artifact(payload):
             except OSError:
                 pass
 
+    # The background job's report: the console line shows it translated.
     if identity_threshold is None:
-        message = (
-            f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes "
-            f"to {filename}"
+        message = Message(
+            "Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}",
+            n=len(selected_seqs), gap_mode=gap_mode, mode=mode, file=filename,
         )
     else:
-        message = (
-            f"Saved {gap_mode} {mode} logo for {len(selected_seqs)} aligned nodes "
-            f"(identity {identity_threshold * 100:g}%, "
-            f"effective N {effective_sequence_count:.2f}) to {filename}"
+        message = Message(
+            "Saved {gap_mode} {mode} logo for %n aligned node(s) "
+            "(identity {identity}%, effective N {effective}) to {file}",
+            n=len(selected_seqs), gap_mode=gap_mode, mode=mode, file=filename,
+            identity=f"{identity_threshold * 100:g}", effective=f"{effective_sequence_count:.2f}",
         )
     return {
         "message": message,
@@ -825,9 +828,9 @@ def _normalize_logo_position_label(value):
 
     insertion = int(insertion_text)
     if insertion <= 0:
-        raise ValueError(
-            f"Invalid insertion position '{value}'; the fractional suffix must be positive."
-        )
+        raise ValueError(Message(
+            "Invalid insertion position '{value}'; the fractional suffix must be positive.", value=value
+        ))
     return f"{major}.{insertion}"
 
 
@@ -860,14 +863,15 @@ def parse_logo_positions(position_spec):
             start = _normalize_logo_position_label(range_match.group(1))
             end = _normalize_logo_position_label(range_match.group(2))
             if not isinstance(start, int) or not isinstance(end, int):
-                raise ValueError(
-                    f"Fractional range '{part}' is not supported; list insertion "
-                    "positions explicitly."
-                )
+                raise ValueError(Message(
+                    "Fractional range '{range}' is not supported; list insertion "
+                    "positions explicitly.",
+                    range=part,
+                ))
             if start > end:
-                raise ValueError(
-                    f"Position range '{part}' must be written from lower to higher."
-                )
+                raise ValueError(Message(
+                    "Position range '{range}' must be written from lower to higher.", range=part
+                ))
             for position in range(start, end + 1):
                 positions[str(position)] = position
             continue
@@ -945,7 +949,11 @@ def print_help():
 
 def run(viewer, args):
     if not args:
-        msg = "Error: Logo command requires a POSITIONS parameter.\nUsage: logo [POSITIONS]"
+        # The console line shows the first line; the usage is for the terminal.
+        msg = JoinedMessage([
+            Message("Error: Logo command requires a POSITIONS parameter."),
+            "Usage: logo [POSITIONS]",
+        ], separator="\n")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -953,7 +961,7 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "Help information printed to the terminal")
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
@@ -1003,7 +1011,7 @@ def run(viewer, args):
     try:
         identity_threshold, args = extract_identity_threshold(args)
     except ValueError as exc:
-        msg = f"Error: {exc}"
+        msg = Message("Error: {error}", error=exc)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -1012,7 +1020,7 @@ def run(viewer, args):
     bracket_indices = [i for i, a in enumerate(args) if a.startswith('[') and a.endswith(']')]
     
     if not bracket_indices:
-        msg = "Error: No positions provided. Use [...] syntax."
+        msg = Message("Error: No positions provided. Use [...] syntax.")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
@@ -1041,48 +1049,49 @@ def run(viewer, args):
         classification = Command_Engine.classify_selection_expression(expr)
         if classification.kind != Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
             error = classification.error or Command_Engine.SelectionExpressionError(
-                f"'{expr}' is not a Boolean selection expression."
+                Message("'{expression}' is not a Boolean selection expression.", expression=expr)
             )
-            Command_Engine.report_selection_error(viewer, expr, error, "Logo")
+            Command_Engine.report_selection_error(viewer, expr, error, Message("Logo"))
             return
 
     try:
         filename = _normalize_logo_filename(filename)
     except ValueError as exc:
-        Command_Engine.print_help(viewer, f"Error: {exc}")
-        Command_Engine.command_failed(viewer, f'Error: {exc}')
+        msg = Message("Error: {error}", error=exc)
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     # ---> NEW LOGIC: Smart Fallback to ALL Nodes <---
     if expr == "$sele$" and not getattr(viewer, 'selected_indices', []):
         expr = '"*"'  # The wildcard string matches all headers
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, "No selection found. Defaulting to ALL nodes.")
+            Command_Engine.show_status(viewer, Message("No selection found. Defaulting to ALL nodes."))
         print("No nodes selected. Defaulting to ALL nodes in the network.")
 
     # 5. Parse Position Array
     try:
         requested_positions = parse_logo_positions(pos_str)
     except ValueError as exc:
-        msg = f"Error: {exc}"
+        msg = Message("Error: {error}", error=exc)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
 
     if not requested_positions:
-        msg = "Error: Could not parse positions from brackets."
+        msg = Message("Error: Could not parse positions from brackets.")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.show_status(viewer, msg)
         return
 
     alignment = getattr(viewer, 'alignment', None)
     if alignment is None or alignment.aln is None:
-        msg = "Error: MSA not loaded in viewer. Please check inputs."
+        msg = Message("Error: MSA not loaded in viewer. Please check inputs.")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.show_status(viewer, msg)
         return
     if len(alignment.aln) == 0:
-        msg = (
+        msg = Message(
             "Error: The selected MSA contains no aligned rows for the current network."
         )
         Command_Engine.command_failed(viewer, msg)
@@ -1106,11 +1115,11 @@ def run(viewer, args):
         )
         selected_nodes = np.where(mask)[0]
     except Exception as e:
-        Command_Engine.report_selection_error(viewer, expr, e, "Logo")
+        Command_Engine.report_selection_error(viewer, expr, e, Message("Logo"))
         return
         
     if len(selected_nodes) == 0:
-        msg = "No nodes matched the criteria for logo generation."
+        msg = Message("No nodes matched the criteria for logo generation.")
         Command_Engine.show_status(viewer, msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
@@ -1130,7 +1139,7 @@ def run(viewer, args):
         print(f"Warning: Position {position} was not found in the active alignment mapping.")
 
     if not valid_cols:
-        msg = "Error: Requested positions are outside the sequence bounds."
+        msg = Message("Error: Requested positions are outside the sequence bounds.")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.show_status(viewer, msg)
         return
@@ -1143,7 +1152,7 @@ def run(viewer, args):
     )
 
     if not selected_seqs:
-        msg = (
+        msg = Message(
             "Error: No aligned nodes matched the logo selection criteria."
         )
         Command_Engine.command_failed(viewer, msg)
@@ -1154,11 +1163,9 @@ def run(viewer, args):
     logo_dir = cfg.resolve_directory_path(LOGO_DIRECTORY)
     scheduler = getattr(viewer, "background_job_scheduler", None)
     if scheduler is None:
-        Command_Engine.print_help(
-            viewer,
-            "Logo generation failed: the background job scheduler is unavailable.",
-        )
-        Command_Engine.command_failed(viewer, 'Logo generation failed: the background job scheduler is unavailable.')
+        msg = Message("Logo generation failed: the background job scheduler is unavailable.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
         return
 
     if automatic_filename:
@@ -1170,12 +1177,12 @@ def run(viewer, args):
     else:
         output_path = os.path.abspath(os.path.join(logo_dir, filename))
         if scheduler.is_output_path_reserved(output_path):
-            Command_Engine.print_help(
-                viewer,
-                "Logo generation failed: Output file is already reserved by a "
-                f"background job: {output_path}",
+            msg = Message(
+                "Logo generation failed: {error}",
+                error=Message("Output file is already reserved by a background job: {path}", path=output_path),
             )
-            Command_Engine.command_failed(viewer, f'Logo generation failed: Output file is already reserved by a background job: {output_path}')
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
             return
     allow_overwrite = not automatic_filename
 
@@ -1204,7 +1211,8 @@ def run(viewer, args):
             allow_overwrite=allow_overwrite,
         )
     except (FileExistsError, RuntimeError) as exc:
-        Command_Engine.print_help(viewer, f"Logo generation failed: {exc}")
-        Command_Engine.command_failed(viewer, f'Logo generation failed: {exc}')
+        msg = Message("Logo generation failed: {error}", error=exc)
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
     else:
         Command_Engine.command_succeeded(viewer, f"Queued logo generation for {output_path}; waiting for the background job.")

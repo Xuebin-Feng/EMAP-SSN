@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. Of the commands' own console messages, all but label's and logo's are marked; theirs and VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked; VR Config's texts follow. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -89,6 +89,8 @@ A value that is text to translate too, such as a page's name in a message, is a 
 The console line shows only the first line of a message given to `print_help`, and the terminal, which stays English, shows the rest. So a message whose later lines are details for the terminal, such as a list of what is available, marks its first line and adds the details after it: `JoinedMessage([Message("Group '{group}' does not exist.", group=name), details], separator="\n")`. Its English is the same as before. A command's help works the same way: the terminal prints it all, and the console line shows its first line, `Message("Usage: {syntax}", syntax="zoom <width>")`. Command syntax stays English, like the commands typed. Syntax with braces of its own is a value too, since a template's braces are its placeholders: `Message("Error: Spectrum accepts exactly one {syntax}.", syntax="{PROPERTY_NAME}")`.
 
 Never read the console line back (`viewer.console_text.text`) to report or print it: it shows the translation. Keep the message in a variable and give it to both `show_status` and `command_failed`, so the terminal and MCP clients get its English.
+
+A background job's error reaches the console line as the error itself, so a worker raises its errors holding a Message, and MCP clients get `str(error)`. A worker that runs on a snapshot of the viewer keeps the Message it showed instead of reading the snapshot's console line back, as label's `_label_failed` does.
 
 Pass a whole sentence as one plain string, and fill in the values after translating it. Don't write `translate("Config", f"Saved {count}")`, and don't add text to a translated one, as in `translate("Config", "Saved") + ":"`. Pass the arguments in order, without names. The update refuses texts that no catalog can list, and calls whose text or count Qt's lupdate would miss, such as a text whose lines a backslash joins. A text that two places show alike in English but a language may not, such as a column called "Count" and the verb, takes a comment telling them apart: `translate("Config", "Count", "statistics column")`.
 

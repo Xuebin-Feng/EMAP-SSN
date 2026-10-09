@@ -435,7 +435,7 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
 
             self.assertTrue(os.path.isfile(result["save_path"]))
             self.assertGreater(os.path.getsize(result["save_path"]), 0)
-            self.assertIn("effective N 2.00", result["message"])
+            self.assertIn("effective N 2.00", str(result["message"]))
 
     def test_atomic_renderer_removes_partial_file_after_success(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -50,7 +50,8 @@ class BackgroundJobScheduler(QtCore.QObject):
 
     job_started = QtCore.Signal(object)
     job_succeeded = QtCore.Signal(object, object, float)
-    job_failed = QtCore.Signal(object, str, str, float)
+    # The error itself, not its text, so a Message it holds shows translated.
+    job_failed = QtCore.Signal(object, object, str, float)
 
     _STOP = object()
 
@@ -108,13 +109,13 @@ class BackgroundJobScheduler(QtCore.QObject):
         output_key = self._output_key(output_path)
         with self._lock:
             if not self._accepting:
-                raise RuntimeError("The background job scheduler is shutting down.")
+                raise RuntimeError(Message("The background job scheduler is shutting down."))
             if not allow_overwrite and os.path.exists(output_path):
-                raise FileExistsError(f"Output file already exists: {output_path}")
+                raise FileExistsError(Message("Output file already exists: {path}", path=output_path))
             if output_key in self._reserved_output_paths:
-                raise FileExistsError(
-                    f"Output file is already reserved by a background job: {output_path}"
-                )
+                raise FileExistsError(Message(
+                    "Output file is already reserved by a background job: {path}", path=output_path
+                ))
 
             job_id = self._next_job_id
             self._next_job_id += 1
@@ -200,7 +201,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                 with self._lock:
                     accepting = self._accepting
                 if accepting:
-                    self.job_failed.emit(job, str(error), detail, elapsed)
+                    self.job_failed.emit(job, error, detail, elapsed)
             finally:
                 with self._lock:
                     self._active_job = None
@@ -248,8 +249,9 @@ class BackgroundJobScheduler(QtCore.QObject):
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, "succeeded", message, [job.output_path])
 
-    @QtCore.Slot(object, str, str, float)
+    @QtCore.Slot(object, object, str, float)
     def _report_failed(self, job, error, detail, elapsed):
+        """Report a failed job: its error shows translated, and MCP clients get str(error)."""
         message = Message(
             "Background job #{job} failed after {seconds}s ({command}): {error}",
             job=job.job_id,
@@ -262,4 +264,4 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._set_viewer_status(message)
         if job.command_context is not None:
             job.command_context.portal.append_output(job.command_context.request_id, 'stderr', detail)
-            job.command_context.job_event(job.job_id, 'failed', error)
+            job.command_context.job_event(job.job_id, 'failed', str(error))
