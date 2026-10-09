@@ -1118,6 +1118,24 @@ Command-line usage:
         <source>invalid color value for {key}: {value}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Model: {model}
+Weights license: {license}
+Restriction: {restriction}
+Model source: {source}
+License information: {url}
+
+The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model weights are not.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{model} [non-commercial]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{model} [separate terms]</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ToggleSwitch</name>
@@ -1134,6 +1152,1382 @@ Command-line usage:
     <name>Tools</name>
     <message>
         <source>EMAP-SSN Tools</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>TF32 (Nvidia GPU Only)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BF16 (Low Precision)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Automatic 32-bit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence &amp;&amp; Embedding Preparation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding &amp;&amp; Network Tools</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Tools</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Similarity Calculations</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding MSA</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Embedding Multiple Sequence Alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📉 Sparse MSA Converter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Embedding Injection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📤 Embedding Extraction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Network Injection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📤 Network Extraction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Pairwise Embedding Alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🔍 Embedding Database Search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Dynamic Programming Embedding Alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Substitution Matrix Alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🔍 Parse BLAST Output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧼 Sanitize Sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🧬 Generate Embeddings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>✂️ Embedding Cropping</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>global</source>
+        <comment>alignment mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>local</source>
+        <comment>alignment mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>alignment_length</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>shorter_sequence</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>longer_sequence</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>average_sequence</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>auto</source>
+        <comment>execution mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>scalar</source>
+        <comment>execution mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>tiled</source>
+        <comment>execution mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The network metadata could not be validated.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network completeness is unknown: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Incomplete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs ({coverage:.2f}% coverage).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No network is selected. Select a valid network to determine whether imputed pairs can be included in the final consensus.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. Not applicable: all pairs are observed, so full cophenetic consensus is automatic.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Imputed pairs participate in every replicate tree and are also replaced by replicate-averaged cophenetic distances in the final matrix.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Imputed pairs participate in every replicate tree but retain their baseline imputed distances in the final matrix.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable Noise-Perturbed Trees with UPGMA to change this setting.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Isotonic regression plots are unavailable for BLAST networks.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No network is selected. Select a valid network to determine whether an isotonic regression plot can be displayed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. All pairs are already observed, so isotonic regression and diagnostic plots are only available for sparse networks.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
+Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>External Model License</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{model} weights require separate publisher terms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>I Accept These Terms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>View License</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
+
+  {error}
+
+QtWebEngine is installed with PySide6, but its bundled Chromium needs system
+libraries that pip cannot provide. Install them, then start EMAP-SSN Tools again.
+
+Ubuntu / Debian:
+  sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \
+                   libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \
+                   libasound2t64 libcups2t64
+
+  On Ubuntu 22.04 and older, use libasound2 and libcups2 instead -- the t64
+  suffix only exists on 24.04 and newer.
+
+Fedora / RHEL:
+  sudo dnf install nss nspr libXcomposite libXdamage libXrandr \
+                   libxkbcommon-x11 libXtst mesa-libgbm mesa-libEGL libxslt \
+                   alsa-lib cups-libs
+
+The first line above names the exact library that failed to load; if it is not
+covered by these commands, install the package that provides it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>AUTO ON</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>AUTO OFF</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Automatic host cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host cache size linear slider</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host cache size in GiB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta): The raw FASTA sequence database to clean.
+Uppercases residues, trims terminal non-residues, masks invalid characters with &apos;X&apos;, and deduplicates headers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable Length Filter: Toggle to filter sequences by amino acid length.
+When enabled, only sequences within the minimum and maximum length bounds will be retained.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.
+If OFF, creates a new file named &lt;input_name&gt;_sanitized.fasta to preserve the original file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove Header Substring: Case-sensitive substring filter on raw headers.
+Sequences containing this exact text (e.g. &apos;fragment&apos;, &apos;partial&apos;) are discarded. Leave blank to disable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Minimum Sequence Length: Lower length bound (inclusive) in amino acids.
+Sequences shorter than this threshold will be discarded during sanitization.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Maximum Sequence Length: Upper length bound (inclusive) in amino acids.
+Sequences longer than this threshold will be discarded during sanitization.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta): FASTA sequence database to embed.
+Records are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model Name: Protein language model (pLM) architecture used to generate residue embeddings.
+Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saving Mode: Floating-point precision for storing embedding tensors in HDF5.
+Float16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device: Hardware compute device used for neural network inference.
+Auto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.
+Contextual residue embeddings for cropped segments are sliced directly from these full-context tensors.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.
+Headers and sequences must match exact contiguous substrings within the full embedding database.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Set (.h5): HDF5 database containing dense residue embeddings.
+Vectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.
+Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.
+Higher percentages speed up calculations by performing residue alignments on only the most promising pairs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.
+Increasing workers speeds up alignment of large datasets across multiple CPU cores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.
+More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.
+Controls gap insertion penalties across end-to-end full-length alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.
+Larger values improve throughput but require more RAM. Enter an integer or &apos;auto&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device: Hardware compute device used for pairwise residue score matrix calculation.
+Auto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
+&apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.
+AUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.
+float32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta): FASTA sequence database to align with BLASTP.
+Records undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Substitution Matrix: Amino acid substitution matrix (e.g. BLOSUM62, PAM250) used for scoring.
+Select based on the expected evolutionary distance of the sequence set.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU Workers: Number of parallel CPU threads allocated for BLASTP execution and parsing.
+Increasing threads accelerates all-vs-all search across multi-core systems.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.
+Tuning this parameter controls RAM usage and optimizes disk write performance.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLASTP Directory: Directory containing local blastp and makeblastdb executable binaries.
+If left blank, standard system PATH and default platform installation locations are searched.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.
+When OFF, aligns all sequences present in the intersection of the embedding and network databases.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta): FASTA file used to filter sequences when Sequence Filter is ON.
+Ignored and blanked out when Use Sequence Filter is disabled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.
+Used to weight progressive profile-profile alignments along evolutionary guide tree nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.
+For sparse networks, missing edge scores are automatically imputed using isotonic regression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree Building Method: Algorithm used to construct the evolutionary guide tree.
+UPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal evolutionary rates.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Score Mode: Selects whether to weight guide tree branches using &apos;global&apos; or &apos;local&apos; network scores.
+Determines the hierarchical branching and progressive alignment order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Normalization Mode: Formula used to normalize network scores by sequence or alignment length.
+Corrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Noise-Perturbed Trees: Toggle to average guide trees across randomly perturbed distance replicates.
+Assesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.
+Higher values yield a more stable consensus guide tree but increase computation time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;
+ON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).
+Applies additive noise across all observed and regression-imputed distances, clamped to valid bounds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.
+More negative values penalize gap initiation, yielding fewer overall gap regions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.
+More negative values shorten gap lengths.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.
+Increasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device: Hardware used for sequential profile score-matrix construction.
+Auto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.
+Ensures large guide tree and distance matrix calculations do not exceed system RAM.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Convert All Alignments: If ON, converts all FASTA MSA files in the alignment directory to sparse HDF5 format.
+If OFF, converts only the selected FASTA alignment file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.
+Compresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.
+Run DIAMOND with -k 0 so no query&apos;s hits are truncated, and with --header verbose to record its version and command.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Column: One-based full query-header column used only for Custom Columns.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Subject Column: One-based full subject-header column used only for Custom Columns.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>E-Value Column: One-based E-value column used only for Custom Columns.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.
+Existing sequence embeddings are preserved and reused without recalculation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.
+Embeddings are computed only for the newly introduced sequences to optimize compute time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.
+Extracts matching residue embedding datasets without re-running language model inference.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.
+Only embeddings matching these headers are saved to the new HDF5 database.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Network Edges (.h5): Pre-existing HDF5 similarity network file.
+Pre-computed alignment scores between existing sequence pairs are reused directly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.
+Newly introduced sequence pairs are aligned and injected into the updated network file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.
+Distributes alignment of newly added sequence pairs across CPU cores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Batch Size: Number of sequence alignments calculated and buffered per write block.
+Tuning this parameter controls RAM usage and optimizes file write performance.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
+&apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {cap:g} GiB; turn it OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.
+Edges connecting sequences outside the whitelist are filtered out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Sequence Set (.fasta): Whitelist FASTA file defining the subset of sequence nodes to retain.
+Only edges connecting two whitelist sequences are extracted and re-indexed into the sub-network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.
+Supplies stored sequences and models whenever a manual sequence switch is OFF.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference Header: Header of the reference sequence in the embedding database.
+Typed text is sanitized before lookup; if left blank, the first database sequence is used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Ref Seq: Toggle to enter a raw reference sequence manually.
+When OFF, the reference sequence and embedding are loaded from the database by header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ref Sequence (Optional): Raw amino acid sequence for the reference protein.
+Used only when Manual Ref Seq is ON; sanitized and embedded on the fly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Target Header: Header of the target sequence in the embedding database.
+Typed text is sanitized before lookup; if left blank, the second database sequence is used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Tar Seq: Toggle to enter a raw target sequence manually.
+When OFF, the target sequence and embedding are loaded from the database by header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tar Sequence (Optional): Raw amino acid sequence for the target protein.
+Used only when Manual Tar Seq is ON; sanitized and embedded on the fly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Highlight Pos (e.g. 1, 4-6): Comma-separated 1-indexed residue positions or ranges in the reference.
+Tracked through the alignment and highlighted directly on target sequence positions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Model: Protein language model used when both sequences are entered manually.
+When either sequence is selected from an embedding database, that database&apos;s model is used instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.
+Calculates dynamic programming alignment based on residue embedding cosine similarities.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.
+More negative values penalize gap insertions within local alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.
+More negative values penalize gap insertions across full-length alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Generate Report: Toggle to save an interactive, color-coded HTML alignment report.
+Outputs a formatted report with highlighted residue mappings to the report directory.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.
+Database sequences are scanned against the query sequence using parallelized dynamic programming.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Header: Header of a sequence in the embedding database used as the search query.
+Sanitized before lookup when Manual Query Seq is OFF.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Query Seq: Toggle to provide a custom query sequence manually.
+When OFF, the query sequence and embedding are loaded from the database by header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Sequence (Optional): Raw amino acid sequence for the query protein.
+Used only when Manual Query Seq is ON; embedded on the fly using the database model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).
+If left blank, defaults to the sanitized query header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Top K Hits: Maximum number of highest-scoring database matches to export in results.
+Controls the output hit list size in summary tables and reports.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.
+Hits scoring below this cutoff are excluded from results. Set to &apos;None&apos; to disable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.
+Compares database sequence embeddings against the query using dynamic programming.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.
+Prevents score bias toward longer or shorter sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.
+More negative values penalize gap insertions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.
+More negative values penalize gap insertions across full sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU Workers: Number of parallel CPU worker processes allocated for database search.
+Running with more workers speeds up database scanning on multi-core systems.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.
+Outputs the query sequence followed by ranked matching sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Sanitization Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable Length Filter:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Overwrite Original File:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove Header Substring:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Min Seq Length:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max Seq Length:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Generation Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model Name:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saving Mode:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Cropping Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Full Embedding Set (.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cropped Sequence Set (.fasta):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input &amp; Output Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Set (.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Edge Prefiltering:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Strength (%):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local Align Gap Penalty:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global Align Gap Penalty:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU Workers:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Batch Size:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Precision:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Execution Mode:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host Cache (GiB):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Set (.fasta/.fa/.faa):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Substitution Matrix:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware &amp; Workspace Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLASTP Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Parse External BLAST Output:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST Results (.tabular/.txt/.tab/.tsv):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom Columns (1-based indexing)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST Layout:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Column:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Subject Column:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EValue Column:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Sequence Filter:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network File (.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Guide Tree Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>UPGMA (Fast)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Neighbor-joining (Slow)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree Building Method:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Noise-Perturbed Trees:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of Perturbed Trees:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Normalized Noise Scale (0 to 0.1):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Score Mode:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show Isotonic Regression Plot:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Normalization Mode:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Include Imputed Pairs in Final Consensus:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gap Open Penalty:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gap Extend Penalty:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse MSA Converter Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Convert All Alignments:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input MSA (.fasta):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Injection Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Embedding Set (.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Sequence Set (.fasta):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Extraction Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network Injection Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Network Edges (.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network Extraction Settings:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Input:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Target Sequences:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference Header:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Ref Seq:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ref Sequence (Optional):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Target Header:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Tar Seq:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tar Sequence (Optional):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Highlight Pos (e.g., 1, 4-6):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Model:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Parameters:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Mode:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Generate Report:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Input Files:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Parameters:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Header:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manual Query Seq:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Query Sequence (Optional):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Output Name:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Top K Hits:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Norm Score Cutoff (Optional):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Generate FASTA File:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hover or focus on an input to see its description.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Script Description</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tools Settings Not Loaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{error}
+
+The window shows the default values, and the file was left unchanged. Saving directories and running tools will not work until you correct the file, or delete it to start over from the default settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📂 Global Directory Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save Directories</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing pre-computed protein language model embedding databases (.h5).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory where per-tool JSON settings files are exported for command-line execution.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Report Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Setting Export Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open Folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Browse...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select Directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directories</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directories Not Saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{error}
+
+The file was left unchanged. Correct it, or delete it to start over from the default settings, then save the directories again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to save directories:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Success</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global directories saved to JSON successfully.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not find &apos;{folder}&apos; directory.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Define paths to folders used globally across the SSN tool scripts. These configurations are automatically saved, validated, and loaded at runtime by all scripts.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📄 Internal Documentation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>⚠️ Documentation Missing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No documentation file found for this tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>To add one, create a Markdown document at:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Edge Prefiltering</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Strength (%)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable Length Filter</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unavailable saved model [{model}]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Auto Benchmark</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unavailable saved device [{device}]</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Setting: {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remote API — local device not applicable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No network is selected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unable to determine network type: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save &amp;&amp; Run</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save the current tool settings to the shared settings file and run this tool.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export this tool&apos;s current settings, with the directories, to a standalone JSON file in the Setting Export Directory, and show the command that runs the tool from it. The shared settings file is not changed, and the tool does not run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enter a name for the exported settings file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enter a valid settings filename.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The settings name cannot contain path separators or &lt;&gt;:&quot;|?*.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The settings name cannot end with a space or period.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{name}&apos; is a reserved filename.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export Tool Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Settings name:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Replace Exported Settings?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{path}&apos; already exists. Replace it?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Settings Exported</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Settings exported to:
+{path}
+
+Command-line usage:
+{command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export Settings Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tool Not Started</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{error}
+
+The file was left unchanged and the tool was not started. Correct the file, or delete it to start over from the default settings, then run the tool again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unsupported Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{model}&apos; is no longer supported. Choose another model before running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid Hardware Selection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid Accelerator Precision</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>TF32 requires an available NVIDIA CUDA device.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BF16 requires a CUDA/ROCm, XPU, or MPS accelerator that passes the runtime BF16 capability probe.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid Execution Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tiled alignment requires an available CUDA/ROCm, XPU, or MPS accelerator.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tiled execution requires an available CUDA/ROCm or XPU accelerator.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid Host Cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host Cache must be &apos;auto&apos; or a non-negative GiB value.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to save JSON settings:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved configuration to JSON and launched {tool}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to run {path}:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{window} Startup Error</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing QtWebEngine libraries</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabBar,
     QTabWidget,
     QWidget,
 )
@@ -60,7 +61,8 @@ def visible_texts(window):
     """(where, text) for every text a user can read in window.
 
     That is its title, labels, buttons, group and tab titles, list choices,
-    placeholders, spin box units and tooltips, on every tab, shown or not.
+    placeholders, spin box units, tooltips, and the names and descriptions
+    a screen reader speaks, on every tab, shown or not.
     A rich-text label counts with the text it shows, without its markup, and
     a toggle switch with both its texts, on and off.
     What a user typed or picked (an edit's text, a spin box's value) is
@@ -103,6 +105,10 @@ def visible_texts(window):
             add(widget, "prefix", widget.prefix())
             add(widget, "suffix", widget.suffix())
         add(widget, "tooltip", widget.toolTip())
+        # The scroll buttons Qt puts in a tab bar take their names from Qt's catalogs.
+        if not isinstance(widget.parentWidget(), QTabBar):
+            add(widget, "accessible name", widget.accessibleName())
+            add(widget, "accessible description", widget.accessibleDescription())
     return found
 
 

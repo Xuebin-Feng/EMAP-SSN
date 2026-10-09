@@ -15,6 +15,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from utilities.Localization import Message
+
 # =====================================================================
 # 1. Declarative Plugin Discovery & Metadata Validation
 # =====================================================================
@@ -269,27 +271,44 @@ def record_model_license_acceptance(
             os.unlink(temporary_path)
 
 
-def format_model_usage_terms(model_name, terms):
-    """Create the common human-readable notice used by GUI and CLI paths."""
-    return (
-        f"Model: {model_name}\n"
-        f"Weights license: {terms['license_id']}\n"
-        f"Restriction: {terms['restriction']}\n"
-        f"Model source: {terms['source_url']}\n"
-        f"License information: {terms['license_url']}\n\n"
+def model_usage_terms_message(model_name, terms):
+    """The common human-readable notice used by GUI and CLI paths, as a Message.
+
+    The terminal prints it in English; the Tools window shows it translated.
+    """
+    return Message(
+        "Model: {model}\n"
+        "Weights license: {license}\n"
+        "Restriction: {restriction}\n"
+        "Model source: {source}\n"
+        "License information: {url}\n\n"
         "The EMAP-SSN integration code is Apache-2.0, but the separately "
-        "downloaded model weights are not."
+        "downloaded model weights are not.",
+        model=model_name,
+        license=terms["license_id"],
+        restriction=terms["restriction"],
+        source=terms["source_url"],
+        url=terms["license_url"],
     )
 
 
+def format_model_usage_terms(model_name, terms):
+    """Create the common human-readable notice used by GUI and CLI paths, in English."""
+    return str(model_usage_terms_message(model_name, terms))
+
+
 def format_model_selector_label(model_name, terms):
-    """Label separately licensed weights without changing the model identifier."""
+    """Label separately licensed weights without changing the model identifier.
+
+    The label of a model with separate terms is a Message, which a window
+    shows translated (Localization.display_text).
+    """
     if not terms:
         return model_name
     restriction = terms["restriction"].lower()
     if "non-commercial" in restriction:
-        return f"{model_name} [non-commercial]"
-    return f"{model_name} [separate terms]"
+        return Message("{model} [non-commercial]", model=model_name)
+    return Message("{model} [separate terms]", model=model_name)
 
 
 def prompt_for_model_license_acceptance(
@@ -343,6 +362,7 @@ __all__ = [
     "model_terms_fingerprint",
     "is_model_license_accepted",
     "record_model_license_acceptance",
+    "model_usage_terms_message",
     "format_model_usage_terms",
     "format_model_selector_label",
     "prompt_for_model_license_acceptance",

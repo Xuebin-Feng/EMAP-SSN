@@ -54,7 +54,7 @@ from tests.translation_fixtures import cut_off_texts, outside_the_catalog, pseud
 
 # Windows whose every text comes from a catalog. Marking a window's text
 # (language step 6) moves it here.
-FULLY_MARKED = frozenset({"Config"})
+FULLY_MARKED = frozenset({"Config", "Tools"})
 
 
 def flush(app):
@@ -95,13 +95,15 @@ class VisibleTextTests(WindowTestCase):
         spin.setSuffix(" nodes")
         rich = QLabel('<div style="line-height: 120%;">A rich label &amp; more</div>')
         switch = ToggleSwitch("Shown when on", "Shown when off")
+        switch.setAccessibleName("A spoken name")
+        switch.setAccessibleDescription("A spoken description")
         for widget in (label, QPushButton("A button"), QCheckBox("A check box"), group, tabs,
                        choices, edit, spin, QLabel("12.5"), QPushButton("📁"), QPushButton(">>"), rich, switch):
             layout.addWidget(widget)
         self.assertEqual(sorted(text for _, text in visible_texts(window)), sorted([
             "Window title", "A label", "A tooltip", "A button", "A check box", "A group",
             "A tab", "A choice", "A placeholder", " nodes", "A rich label & more",
-            "Shown when off", "Shown when on",
+            "Shown when off", "Shown when on", "A spoken name", "A spoken description",
         ]))
 
 
@@ -288,6 +290,136 @@ class ConfigRunTimeTextTests(WindowTestCase):
         self.assertGreater(len(report.splitlines()), 10, report)
         self.assert_translated(report)
         self.assert_translated(QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText())
+
+
+class ToolsRunTimeTextTests(WindowTestCase):
+    """Text the Tools window shows after it opens: tips, help, messages and errors."""
+
+    def setUp(self):
+        import EMAPSSN_Tools
+        from tests.tools_gui_fixtures import isolated_tools_project
+
+        pseudo_language(self, self.app)
+        isolated_tools_project(self)
+        patcher = mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.tools = EMAPSSN_Tools
+        self.window = EMAPSSN_Tools.ToolsGUI()
+        self.addCleanup(self.window.deleteLater)
+
+    def assert_translated(self, text):
+        self.assertTrue(text)
+        self.assertEqual(outside_the_catalog(text), "", text)
+
+    def test_every_tool_tip(self):
+        tips = [tip for script in self.window.SCRIPT_TIPS.values() for tip in script.values()]
+        self.assertGreater(len(tips), 90)
+        for tip in tips:
+            with self.subTest(tip=tip[:40]):
+                self.assertTrue(is_pseudo_translated(tip), tip)
+
+    def test_the_network_switch_tips_in_every_state(self):
+        from Cache_Manifest import NetworkCompletenessInfo
+
+        states = [
+            None,
+            NetworkCompletenessInfo("unknown"),
+            NetworkCompletenessInfo("complete", 4, 6, 6),
+            NetworkCompletenessInfo("incomplete", 4000, 1500, 7998000),
+        ]
+        for info in states:
+            for noise, checked in ((True, True), (True, False), (False, False)):
+                with self.subTest(info=info, noise=noise, checked=checked):
+                    self.assert_translated(self.tools.imputed_consensus_switch_state(info, noise, checked)[1])
+            for blast in (True, False):
+                with self.subTest(info=info, blast=blast):
+                    self.assert_translated(self.tools.isotonic_regression_switch_state(info, blast)[1])
+
+    def test_export_name_errors(self):
+        for name in ("", ".", "a/b", "name.", "con"):
+            with self.subTest(name=name), self.assertRaises(ValueError) as caught:
+                self.window._normalized_export_filename(name)
+            self.assert_translated(display_text(caught.exception))
+
+    def test_the_help_shown_for_the_directories_and_without_a_help_file(self):
+        directories = self.window.tab_paths.index("DIRECTORIES_TAB")
+        self.window.on_tab_changed(directories)
+        help_text = self.window.script_desc_text.toPlainText()
+        self.assert_translated(help_text)
+        self.assertNotIn("##", help_text, "the Markdown heading is shown as a heading")
+        # Without a help file, the tool's docstring shows under a heading, or,
+        # without one, where a help file would go.
+        self.window.tabs.widget(0).setProperty("descriptionKey", "No_Such_Help")
+        self.window.on_tab_changed(0)
+        heading = self.window.script_desc_text.toPlainText().splitlines()[0]
+        self.assertIn("📄", heading)
+        self.assert_translated(heading)
+        self.window.script_data[self.window.tab_paths[0]]["docstring"] = ""
+        self.window.on_tab_changed(0)
+        help_text = self.window.script_desc_text.toPlainText()
+        missing_file = os.path.join("src", "tools", "tool_descriptions", "No_Such_Help.md")
+        self.assertIn(missing_file, help_text)
+        self.assert_translated(help_text.replace(missing_file, ""))
+
+    def test_the_license_dialog(self):
+        from PySide6.QtWidgets import QMessageBox
+
+        class RecordingBox:
+            """Stands in for the modal QMessageBox and keeps the texts it was given."""
+
+            Icon, ButtonRole, StandardButton = QMessageBox.Icon, QMessageBox.ButtonRole, QMessageBox.StandardButton
+            texts = []
+
+            def __init__(self, parent):
+                pass
+
+            def setWindowTitle(self, text):
+                self.texts.append(text)
+
+            setText = setInformativeText = setWindowTitle
+
+            def addButton(self, button, role=None):
+                if isinstance(button, str):
+                    self.texts.append(button)
+                return object()
+
+            def setIcon(self, icon):
+                pass
+
+            setDefaultButton = setIcon
+
+            def exec(self):
+                return 0
+
+            def clickedButton(self):
+                return None  # Cancelled.
+
+        terms = {"license_id": "X-1", "restriction": "Research use", "source_url": "https://example.org/m",
+                 "license_url": "https://example.org/l"}
+        with mock.patch.object(self.tools, "QMessageBox", RecordingBox), \
+                mock.patch.object(self.tools, "is_model_license_accepted", return_value=False):
+            self.assertFalse(self.tools.confirm_model_usage_terms(None, "model_a", terms))
+        self.assertEqual(len(RecordingBox.texts), 5, RecordingBox.texts)
+        for text in RecordingBox.texts:
+            self.assert_translated(text)
+        self.assertIn("Weights license: X-1", str(self.tools.model_usage_terms_message("model_a", terms)))
+
+    def test_file_names_in_folder_dropdowns_show_as_names(self):
+        fasta_dir = Path(self.window.dir_inputs["FASTA_DIR"].text())
+        fasta_dir.mkdir(parents=True, exist_ok=True)
+        (fasta_dir / "my_sequences.fasta").write_text(">a\nMK\n", encoding="utf-8")
+        # Opening a folder's dropdown lists it again from the Directories tab.
+        for combo in self.window.findChildren(self.tools.DynamicComboBox):
+            combo.populate()
+        combos = [combo for combo in self.window.findChildren(QComboBox) if combo.findText("my_sequences.fasta") >= 0]
+        self.assertTrue(combos)
+        self.assertNotIn("my_sequences.fasta", [text for _, text in visible_texts(self.window)])
+
+    def test_card_titles_are_the_headings_of_the_tool_help_files(self):
+        headings = self.tools.get_tool_titles()
+        self.assertEqual(len(headings), 14)
+        self.assertEqual(self.tools.TOOL_TITLES, headings)
 
 
 if __name__ == "__main__":

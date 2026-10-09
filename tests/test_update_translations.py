@@ -13,6 +13,7 @@ runs --check on the real code, so a text marked without running the update
 fails the suite.
 """
 
+import ast
 import os
 from pathlib import Path
 import re
@@ -192,6 +193,22 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertIn("without an English plural ending", problems[6])
         self.assertIn("needs the count as n=", problems[7])
 
+    def test_a_text_whose_lines_a_backslash_joins_is_refused(self):
+        text = (
+            'def build(self, value):\n'
+            '    translate("Panel", """First line \\\n'
+            'same line""")\n'
+            '    Message("Saved \\\n'
+            'here.")\n'
+            '    translate("Panel", """A real backslash \\\\\n'
+            'and a new line""")\n'
+            '    translate("Panel", "Joined "  \\\n'
+            '              "outside the text")\n'
+        )
+        _, problems = prepare_source(text, "join.py")
+        self.assertEqual([problem.split(":")[1] for problem in problems], ["2", "4"])
+        self.assertTrue(all("backslash" in problem for problem in problems))
+
     def test_texts_filled_in_before_translation_are_refused(self):
         text = (
             "def build(self, n, value, choice):\n"
@@ -344,6 +361,36 @@ class RepositoryCatalogTests(unittest.TestCase):
         lines = []
         status = update_catalogs(check=True, report=lines.append)
         self.assertEqual(status, 0, "Run python src/resources/languages/Update_Translations.py:\n" + "\n".join(lines))
+
+    def test_the_catalog_lists_each_marked_text_as_python_reads_it(self):
+        # lupdate parses the code itself. A text it reads otherwise than Python,
+        # as with an escape or a joined line, would be listed but never found.
+        listed = {message.key for message in read_catalog(Update_Translations.LANGUAGES_DIR / "emapssn.ts")}
+
+        def plain(node):
+            return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+        missing, checked = [], 0
+        for path in sorted(SRC.rglob("*.py")):
+            if Update_Translations.LANGUAGES_DIR in path.parents:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = Update_Translations._called_name(node)
+                args = node.args
+                if name in ("translate", "QT_TRANSLATE_NOOP") and len(args) >= 2 and plain(args[0]) and plain(args[1]):
+                    comment = args[2].value if len(args) > 2 and plain(args[2]) else ""
+                    key = (args[0].value, args[1].value, comment)
+                elif name == "Message" and args and plain(args[0]):
+                    key = (MESSAGE_CONTEXT, args[0].value, "")
+                else:
+                    continue
+                checked += 1
+                if key not in listed:
+                    missing.append(f"{path.relative_to(SRC).as_posix()}:{node.lineno}: {key[1][:60]!r}")
+        self.assertGreater(checked, 500)
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

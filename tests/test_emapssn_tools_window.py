@@ -284,7 +284,7 @@ class ToolExportGuiTests(unittest.TestCase):
         source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         self.assertGreaterEqual(source.count('"var_name": "EXECUTION_MODE"'), 2)
         self.assertGreaterEqual(
-            source.count('"options": ["auto", "scalar", "tiled"]'), 2
+            source.count('"option_values": ["auto", "scalar", "tiled"]'), 2
         )
 
         script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")

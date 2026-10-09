@@ -71,13 +71,14 @@ from Embedding_Alignment_Engine import (
     normalize_precision_setting,
     tiled_accelerator_support,
 )
+from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from tools.tool_helpers.Model_Plugins import (
     discover_model_execution_modes,
     discover_model_usage_terms,
     format_model_selector_label,
-    format_model_usage_terms,
     is_model_license_accepted,
+    model_usage_terms_message,
     record_model_license_acceptance,
 )
 from tools.tool_helpers.Tool_Pipeline import (
@@ -101,7 +102,10 @@ from desktop.Desktop_App import (
     ToggleSwitch,
     configure_linux_qt_desktop_identity,
     fit_buttons_to_text,
+    mark_name_item,
     show_window_in_front,
+    # The Tools window files its texts under one context, "Tools".
+    translate,
 )
 from Cache_Manifest import (
     file_cache_key,
@@ -111,9 +115,9 @@ from Cache_Manifest import (
 
 MAX_CORES = os.cpu_count() or 16
 HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
-TF32_PRECISION_LABEL = "TF32 (Nvidia GPU Only)"
-BF16_PRECISION_LABEL = "BF16 (Low Precision)"
-AUTOMATIC_32BIT_PRECISION_LABEL = "Automatic 32-bit"
+TF32_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "TF32 (Nvidia GPU Only)")
+BF16_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "BF16 (Low Precision)")
+AUTOMATIC_32BIT_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "Automatic 32-bit")
 # The stored TREE_METHOD value that tools/Embedding_MSA.py checks for.
 NEIGHBOR_JOINING_TREE_METHOD = "Neighbor-joining (Slow)"
 HOST_CACHE_SLIDER_SCALE = 10
@@ -234,94 +238,155 @@ MATCHED_TRAILING_LABEL_VARS = {
     "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
 }
 TAB_DISPLAY_NAMES = {
-    "Sequence_and_Embedding_Preparation": "Sequence && Embedding Preparation",
-    "Embedding_and_Network_Tools": "Embedding && Network Tools",
-    "Others": "Manual Tools",
-    "Sequence_Similarity_Calculations": "Sequence Similarity Calculations",
+    "Sequence_and_Embedding_Preparation": QT_TRANSLATE_NOOP("Tools", "Sequence && Embedding Preparation"),
+    "Embedding_and_Network_Tools": QT_TRANSLATE_NOOP("Tools", "Embedding && Network Tools"),
+    "Others": QT_TRANSLATE_NOOP("Tools", "Manual Tools"),
+    "Sequence_Similarity_Calculations": QT_TRANSLATE_NOOP("Tools", "Sequence Similarity Calculations"),
+    "Embedding_MSA": QT_TRANSLATE_NOOP("Tools", "Embedding MSA"),
 }
+NORMALIZATION_MODES = ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence")
+# Each tool card's title, as the heading of its help file in
+# src/tools/tool_descriptions names it (a test keeps the two alike).
+TOOL_TITLES = {
+    "Embedding_MSA.py": QT_TRANSLATE_NOOP("Tools", "🧬 Embedding Multiple Sequence Alignment"),
+    "Sparse_MSA_Converter.py": QT_TRANSLATE_NOOP("Tools", "📉 Sparse MSA Converter"),
+    "Embedding_Injection.py": QT_TRANSLATE_NOOP("Tools", "🧬 Embedding Injection"),
+    "Embedding_Extraction.py": QT_TRANSLATE_NOOP("Tools", "📤 Embedding Extraction"),
+    "Network_Injection.py": QT_TRANSLATE_NOOP("Tools", "🧬 Network Injection"),
+    "Network_Extraction.py": QT_TRANSLATE_NOOP("Tools", "📤 Network Extraction"),
+    "Embedding_PWA.py": QT_TRANSLATE_NOOP("Tools", "🧬 Pairwise Embedding Alignment"),
+    "Embedding_SSEARCH.py": QT_TRANSLATE_NOOP("Tools", "🔍 Embedding Database Search"),
+    "Align_Similarity_Matrix.py": QT_TRANSLATE_NOOP("Tools", "🧬 Dynamic Programming Embedding Alignment"),
+    "Align_Substitution_Matrix.py": QT_TRANSLATE_NOOP("Tools", "🧬 Substitution Matrix Alignment"),
+    "Parse_BLAST_Output.py": QT_TRANSLATE_NOOP("Tools", "🔍 Parse BLAST Output"),
+    "Sanitize_Sequences.py": QT_TRANSLATE_NOOP("Tools", "🧼 Sanitize Sequences"),
+    "Generate_Embeddings.py": QT_TRANSLATE_NOOP("Tools", "🧬 Generate Embeddings"),
+    "Embedding_Cropping.py": QT_TRANSLATE_NOOP("Tools", "✂️ Embedding Cropping"),
+}
+
+
+# What a dropdown shows for each stored mode. Code that rebuilds a dropdown
+# takes its labels from these too, so it reads the same.
+def alignment_mode_labels(modes):
+    labels = {
+        "global": translate("Tools", "global", "alignment mode"),
+        "local": translate("Tools", "local", "alignment mode"),
+    }
+    return [labels[mode] for mode in modes]
+
+
+def normalization_labels(modes):
+    labels = {
+        "alignment_length": translate("Tools", "alignment_length", "normalization mode"),
+        "shorter_sequence": translate("Tools", "shorter_sequence", "normalization mode"),
+        "longer_sequence": translate("Tools", "longer_sequence", "normalization mode"),
+        "average_sequence": translate("Tools", "average_sequence", "normalization mode"),
+    }
+    return [labels[mode] for mode in modes]
+
+
+def execution_mode_labels(modes):
+    labels = {
+        "auto": translate("Tools", "auto", "execution mode"),
+        "scalar": translate("Tools", "scalar", "execution mode"),
+        "tiled": translate("Tools", "tiled", "execution mode"),
+    }
+    return [labels[mode] for mode in modes]
+
+
+def _unknown_completeness_tip(network_info):
+    reason = network_info.reason or translate("Tools", "The network metadata could not be validated.")
+    return translate("Tools", "Network completeness is unknown: {reason}").format(reason=reason)
+
+
+def _incomplete_network_summary(network_info):
+    observed = network_info.edge_count
+    expected = network_info.expected_edge_count
+    coverage = 100.0 if expected == 0 else 100.0 * observed / expected
+    return translate(
+        "Tools",
+        "Incomplete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+        "observed pairs ({coverage:.2f}% coverage).",
+    ).format(
+        sequences=network_info.sequence_count, observed=observed,
+        expected=expected, coverage=coverage,
+    )
 
 
 def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
     """Return the enabled state and explanatory tooltip for the MSA switch."""
     if network_info is None:
-        return False, (
+        return False, translate(
+            "Tools",
             "No network is selected. Select a valid network to determine whether "
-            "imputed pairs can be included in the final consensus."
+            "imputed pairs can be included in the final consensus.",
         )
 
     if network_info.status == "unknown":
-        reason = network_info.reason or "The network metadata could not be validated."
-        return False, f"Network completeness is unknown: {reason}"
+        return False, _unknown_completeness_tip(network_info)
 
-    observed = network_info.edge_count
-    expected = network_info.expected_edge_count
-    sequences = network_info.sequence_count
     if network_info.status == "complete":
-        return False, (
-            f"Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+        return False, translate(
+            "Tools",
+            "Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
             "observed pairs. Not applicable: all pairs are observed, so full cophenetic "
-            "consensus is automatic."
+            "consensus is automatic.",
+        ).format(
+            sequences=network_info.sequence_count, observed=network_info.edge_count,
+            expected=network_info.expected_edge_count,
         )
 
-    coverage = 100.0 if expected == 0 else 100.0 * observed / expected
-    prefix = (
-        f"Incomplete network: {sequences:,} sequences and {observed:,}/{expected:,} "
-        f"observed pairs ({coverage:.2f}% coverage). "
-    )
     if checked:
-        behavior = (
+        behavior = translate(
+            "Tools",
             "Imputed pairs participate in every replicate tree and are also replaced "
-            "by replicate-averaged cophenetic distances in the final matrix."
+            "by replicate-averaged cophenetic distances in the final matrix.",
         )
     else:
-        behavior = (
+        behavior = translate(
+            "Tools",
             "Imputed pairs participate in every replicate tree but retain their "
-            "baseline imputed distances in the final matrix."
+            "baseline imputed distances in the final matrix.",
         )
+    sentences = [_incomplete_network_summary(network_info), behavior]
     if noise_trees_active:
-        return True, prefix + behavior
-    return False, (
-        prefix
-        + behavior
-        + " Enable Noise-Perturbed Trees with UPGMA to change this setting."
-    )
+        return True, " ".join(sentences)
+    sentences.append(translate("Tools", "Enable Noise-Perturbed Trees with UPGMA to change this setting."))
+    return False, " ".join(sentences)
 
 
 def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
     """Return the enabled state and explanatory tooltip for the isotonic regression plot switch."""
     if is_blast:
-        return False, "Isotonic regression plots are unavailable for BLAST networks."
+        return False, translate("Tools", "Isotonic regression plots are unavailable for BLAST networks.")
 
     if network_info is None:
-        return False, (
+        return False, translate(
+            "Tools",
             "No network is selected. Select a valid network to determine whether "
-            "an isotonic regression plot can be displayed."
+            "an isotonic regression plot can be displayed.",
         )
 
     if network_info.status == "unknown":
-        reason = network_info.reason or "The network metadata could not be validated."
-        return False, f"Network completeness is unknown: {reason}"
+        return False, _unknown_completeness_tip(network_info)
 
-    observed = network_info.edge_count
-    expected = network_info.expected_edge_count
-    sequences = network_info.sequence_count
     if network_info.status == "complete":
-        return False, (
-            f"Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
+        return False, translate(
+            "Tools",
+            "Complete network: {sequences:,} sequences and {observed:,}/{expected:,} "
             "observed pairs. All pairs are already observed, so isotonic regression "
-            "and diagnostic plots are only available for sparse networks."
+            "and diagnostic plots are only available for sparse networks.",
+        ).format(
+            sequences=network_info.sequence_count, observed=network_info.edge_count,
+            expected=network_info.expected_edge_count,
         )
 
-    coverage = 100.0 if expected == 0 else 100.0 * observed / expected
-    prefix = (
-        f"Incomplete network: {sequences:,} sequences and {observed:,}/{expected:,} "
-        f"observed pairs ({coverage:.2f}% coverage). "
-    )
-    fallback = (
+    fallback = translate(
+        "Tools",
         "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\n"
-        "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores."
+        "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.",
     )
-    return True, prefix + (default_tip or fallback)
+    return True, " ".join([_incomplete_network_summary(network_info), default_tip or fallback])
 
 def get_tool_titles():
     """Map tool script filenames to their display titles in the Markdown descriptions."""
@@ -448,17 +513,17 @@ def confirm_model_usage_terms(parent, model_name, terms):
     while True:
         dialog = QMessageBox(parent)
         dialog.setIcon(QMessageBox.Icon.Warning)
-        dialog.setWindowTitle("External Model License")
+        dialog.setWindowTitle(translate("Tools", "External Model License"))
         dialog.setText(
-            f"{model_name} weights require separate publisher terms."
+            translate("Tools", "{model} weights require separate publisher terms.").format(model=model_name)
         )
-        dialog.setInformativeText(format_model_usage_terms(model_name, terms))
+        dialog.setInformativeText(model_usage_terms_message(model_name, terms).display())
         accept_button = dialog.addButton(
-            "I Accept These Terms",
+            translate("Tools", "I Accept These Terms"),
             QMessageBox.ButtonRole.AcceptRole,
         )
         view_button = dialog.addButton(
-            "View License",
+            translate("Tools", "View License"),
             QMessageBox.ButtonRole.ActionRole,
         )
         cancel_button = dialog.addButton(
@@ -551,7 +616,7 @@ def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
         if tf32_index >= 0:
             precision_combo.removeItem(tf32_index)
     elif tf32_index < 0:
-        precision_combo.addItem(TF32_PRECISION_LABEL, "tf32")
+        precision_combo.addItem(translate("Tools", TF32_PRECISION_LABEL), "tf32")
     precision_combo.setProperty("tf32Available", available)
     bf16_available = _selection_supports_bf16(selection, candidates)
     bf16_index = precision_combo.findData("bf16")
@@ -559,7 +624,7 @@ def _sync_tf32_precision_option(device_combo, precision_combo, candidates=None):
     if not bf16_available and bf16_index >= 0 and current_value != "bf16":
         precision_combo.removeItem(bf16_index)
     elif bf16_available and bf16_index < 0:
-        precision_combo.addItem(BF16_PRECISION_LABEL, "bf16")
+        precision_combo.addItem(translate("Tools", BF16_PRECISION_LABEL), "bf16")
     precision_combo.setProperty("bf16Available", bf16_available)
     return available
 
@@ -598,14 +663,13 @@ def _sync_alignment_tiled_option(
         if tiled_index >= 0:
             execution_combo.removeItem(tiled_index)
     elif tiled_index < 0:
-        add_combo_options(execution_combo, ["tiled"])
+        add_combo_options(execution_combo, ["tiled"], execution_mode_labels(["tiled"]))
     available = not hide_tiled
     execution_combo.setProperty("tiledAvailable", available)
     return available
 
 
-QTWEBENGINE_MISSING_MESSAGE = """\
-EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
+QTWEBENGINE_MISSING_MESSAGE = QT_TRANSLATE_NOOP("Tools", """EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
 
@@ -626,8 +690,7 @@ Fedora / RHEL:
                    alsa-lib cups-libs
 
 The first line above names the exact library that failed to load; if it is not
-covered by these commands, install the package that provides it.\
-"""
+covered by these commands, install the package that provides it.""")
 
 class ResponsiveTextBrowser(QWebEngineView):
     def __init__(self, *args, **kwargs):
@@ -868,20 +931,20 @@ class HostCacheControl(QWidget):
         control_layout.setContentsMargins(0, 0, 0, 0)
         control_layout.setSpacing(12)
 
-        self.auto_button = ToggleSwitch("AUTO ON", "AUTO OFF")
+        self.auto_button = ToggleSwitch(translate("Tools", "AUTO ON"), translate("Tools", "AUTO OFF"))
         self.auto_button.setObjectName("hostCacheAutoButton")
-        self.auto_button.setAccessibleName("Automatic host cache")
+        self.auto_button.setAccessibleName(translate("Tools", "Automatic host cache"))
 
         self.slider = NoScrollSlider(Qt.Orientation.Horizontal)
         self.slider.setObjectName("hostCacheSlider")
-        self.slider.setAccessibleName("Host cache size linear slider")
+        self.slider.setAccessibleName(translate("Tools", "Host cache size linear slider"))
         self.slider.setRange(0, HOST_CACHE_SLIDER_STEPS)
         self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.slider.setTickInterval(HOST_CACHE_SLIDER_STEPS // 4)
 
         self.spinbox = NoScrollDoubleSpinBox()
         self.spinbox.setObjectName("hostCacheSpinBox")
-        self.spinbox.setAccessibleName("Host cache size in GiB")
+        self.spinbox.setAccessibleName(translate("Tools", "Host cache size in GiB"))
         self.spinbox.setRange(0.0, HOST_CACHE_MAX_GB)
         self.spinbox.setDecimals(1)
         self.spinbox.setSingleStep(1.0)
@@ -977,6 +1040,8 @@ class DynamicComboBox(QComboBox):
                         else:
                             options.append(f.replace(self.ext, ""))
             self.addItems(options)
+            for index in range(self.count()):
+                mark_name_item(self, index)  # File names, which no language translates.
             if current_text:
                 idx = self.findText(current_text)
                 if idx >= 0:
@@ -1087,7 +1152,7 @@ class ToolsGUI(QMainWindow):
         super().__init__()
         # carried: what a redraw in another language keeps (language_carry_over).
         self._carried = carried
-        self.setWindowTitle(TOOLS_DISPLAY_NAME)
+        self.setWindowTitle(translate("Tools", TOOLS_DISPLAY_NAME))
         self.tool_titles = get_tool_titles()
         
         # Set Window Icon
@@ -1102,126 +1167,126 @@ class ToolsGUI(QMainWindow):
         # --- CENTRALIZED SCRIPT TIPS DICTIONARY ---
         self.SCRIPT_TIPS = {
             "Sanitize_Sequences.py": {
-                "INPUT_FASTA": "Sequence Set (.fasta): The raw FASTA sequence database to clean.\nUppercases residues, trims terminal non-residues, masks invalid characters with 'X', and deduplicates headers.",
-                "ENABLE_LENGTH_FILTER": "Enable Length Filter: Toggle to filter sequences by amino acid length.\nWhen enabled, only sequences within the minimum and maximum length bounds will be retained.",
-                "OVER_WRITE": "Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.\nIf OFF, creates a new file named <input_name>_sanitized.fasta to preserve the original file.",
-                "REMOVE_BY_HEADER_STRING": "Remove Header Substring: Case-sensitive substring filter on raw headers.\nSequences containing this exact text (e.g. 'fragment', 'partial') are discarded. Leave blank to disable.",
-                "MIN_SEQ_LENGTH": "Minimum Sequence Length: Lower length bound (inclusive) in amino acids.\nSequences shorter than this threshold will be discarded during sanitization.",
-                "MAX_SEQ_LENGTH": "Maximum Sequence Length: Upper length bound (inclusive) in amino acids.\nSequences longer than this threshold will be discarded during sanitization."
+                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): The raw FASTA sequence database to clean.\nUppercases residues, trims terminal non-residues, masks invalid characters with 'X', and deduplicates headers."),
+                "ENABLE_LENGTH_FILTER": translate("Tools", "Enable Length Filter: Toggle to filter sequences by amino acid length.\nWhen enabled, only sequences within the minimum and maximum length bounds will be retained."),
+                "OVER_WRITE": translate("Tools", "Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.\nIf OFF, creates a new file named <input_name>_sanitized.fasta to preserve the original file."),
+                "REMOVE_BY_HEADER_STRING": translate("Tools", "Remove Header Substring: Case-sensitive substring filter on raw headers.\nSequences containing this exact text (e.g. 'fragment', 'partial') are discarded. Leave blank to disable."),
+                "MIN_SEQ_LENGTH": translate("Tools", "Minimum Sequence Length: Lower length bound (inclusive) in amino acids.\nSequences shorter than this threshold will be discarded during sanitization."),
+                "MAX_SEQ_LENGTH": translate("Tools", "Maximum Sequence Length: Upper length bound (inclusive) in amino acids.\nSequences longer than this threshold will be discarded during sanitization.")
             },
             "Generate_Embeddings.py": {
-                "INPUT_FASTA": "Sequence Set (.fasta): FASTA sequence database to embed.\nRecords are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference.",
-                "MODEL_NAME": "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).",
-                "SAVING_MODE": "Saving Mode: Floating-point precision for storing embedding tensors in HDF5.\nFloat16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.",
-                "DEVICE_SELECTION": "Device: Hardware compute device used for neural network inference.\nAuto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences."
+                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA sequence database to embed.\nRecords are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference."),
+                "MODEL_NAME": translate("Tools", "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key)."),
+                "SAVING_MODE": translate("Tools", "Saving Mode: Floating-point precision for storing embedding tensors in HDF5.\nFloat16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision."),
+                "DEVICE_SELECTION": translate("Tools", "Device: Hardware compute device used for neural network inference.\nAuto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.")
             },
             "Embedding_Cropping.py": {
-                "INPUT_EMBED": "Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.\nContextual residue embeddings for cropped segments are sliced directly from these full-context tensors.",
-                "CROPPED_FASTA": "Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.\nHeaders and sequences must match exact contiguous substrings within the full embedding database."
+                "INPUT_EMBED": translate("Tools", "Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.\nContextual residue embeddings for cropped segments are sliced directly from these full-context tensors."),
+                "CROPPED_FASTA": translate("Tools", "Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.\nHeaders and sequences must match exact contiguous substrings within the full embedding database.")
             },
             "Align_Similarity_Matrix.py": {
-                "INPUT_HDF5": "Embedding Set (.h5): HDF5 database containing dense residue embeddings.\nVectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores.",
-                "EDGE_PREFILTERING": "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.",
-                "PREFILTER_STRENGTH": "Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.\nHigher percentages speed up calculations by performing residue alignments on only the most promising pairs.",
-                "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.\nIncreasing workers speeds up alignment of large datasets across multiple CPU cores.",
-                "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps.",
-                "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments.",
-                "BATCH_SIZE": "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'.",
-                "DEVICE_SELECTION": "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.",
-                "HOST_CACHE_GB": f"Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {HOST_CACHE_MAX_GB:g} GiB. Turn AUTO OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox; 0 disables persistent caching.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution."
+                "INPUT_HDF5": translate("Tools", "Embedding Set (.h5): HDF5 database containing dense residue embeddings.\nVectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores."),
+                "EDGE_PREFILTERING": translate("Tools", "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),
+                "PREFILTER_STRENGTH": translate("Tools", "Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.\nHigher percentages speed up calculations by performing residue alignments on only the most promising pairs."),
+                "WORKERS": translate("Tools", "CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.\nIncreasing workers speeds up alignment of large datasets across multiple CPU cores."),
+                "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps."),
+                "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments."),
+                "BATCH_SIZE": translate("Tools", "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'."),
+                "DEVICE_SELECTION": translate("Tools", "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU."),
+                "EXECUTION_MODE": translate("Tools", "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes."),
+                "HOST_CACHE_GB": translate("Tools", "Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.").format(cap=HOST_CACHE_MAX_GB),
+                "ACCELERATOR_PRECISION": translate("Tools", "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.")
             },
             "Align_Substitution_Matrix.py": {
-                "INPUT_FASTA": "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.",
-                "MATRIX": "Substitution Matrix: Amino acid substitution matrix (e.g. BLOSUM62, PAM250) used for scoring.\nSelect based on the expected evolutionary distance of the sequence set.",
-                "NUM_THREADS": "CPU Workers: Number of parallel CPU threads allocated for BLASTP execution and parsing.\nIncreasing threads accelerates all-vs-all search across multi-core systems.",
-                "BATCH_SIZE": "Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.\nTuning this parameter controls RAM usage and optimizes disk write performance.",
-                "BLASTP_DIR": "BLASTP Directory: Directory containing local blastp and makeblastdb executable binaries.\nIf left blank, standard system PATH and default platform installation locations are searched."
+                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment."),
+                "MATRIX": translate("Tools", "Substitution Matrix: Amino acid substitution matrix (e.g. BLOSUM62, PAM250) used for scoring.\nSelect based on the expected evolutionary distance of the sequence set."),
+                "NUM_THREADS": translate("Tools", "CPU Workers: Number of parallel CPU threads allocated for BLASTP execution and parsing.\nIncreasing threads accelerates all-vs-all search across multi-core systems."),
+                "BATCH_SIZE": translate("Tools", "Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.\nTuning this parameter controls RAM usage and optimizes disk write performance."),
+                "BLASTP_DIR": translate("Tools", "BLASTP Directory: Directory containing local blastp and makeblastdb executable binaries.\nIf left blank, standard system PATH and default platform installation locations are searched.")
             },
             "Embedding_MSA.py": {
-                "USE_SEQUENCE_FILTER": "Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.\nWhen OFF, aligns all sequences present in the intersection of the embedding and network databases.",
-                "INPUT_FASTA": "Sequence Set (.fasta): FASTA file used to filter sequences when Sequence Filter is ON.\nIgnored and blanked out when Use Sequence Filter is disabled.",
-                "INPUT_EMBED": "Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.\nUsed to weight progressive profile-profile alignments along evolutionary guide tree nodes.",
-                "INPUT_NETWORK": "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression.",
-                "SHOW_REGRESSION_PLOT": "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\nVisualizes the isotonic regression fit between mean embedding cosine distances and network scores.",
-                "TREE_METHOD": "Tree Building Method: Algorithm used to construct the evolutionary guide tree.\nUPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal evolutionary rates.",
-                "ALIGNMENT_SCORE": "Score Mode: Selects whether to weight guide tree branches using 'global' or 'local' network scores.\nDetermines the hierarchical branching and progressive alignment order.",
-                "NORMALIZATION_MODE": "Normalization Mode: Formula used to normalize network scores by sequence or alignment length.\nCorrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).",
-                "BOOTSTRAP_TREE": "Noise-Perturbed Trees: Toggle to average guide trees across randomly perturbed distance replicates.\nAssesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree.",
-                "NUM_TREES": "Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.\nHigher values yield a more stable consensus guide tree but increase computation time.",
-                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees.",
-                "NOISE_SCALE": "Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).\nApplies additive noise across all observed and regression-imputed distances, clamped to valid bounds.",
-                "GAP_OPEN": "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions.",
-                "GAP_EXTEND": "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths.",
-                "WORKERS": "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.",
-                "DEVICE_SELECTION": "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.",
-                "SAFE_TEMP_DIR": "Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.\nEnsures large guide tree and distance matrix calculations do not exceed system RAM."
+                "USE_SEQUENCE_FILTER": translate("Tools", "Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.\nWhen OFF, aligns all sequences present in the intersection of the embedding and network databases."),
+                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA file used to filter sequences when Sequence Filter is ON.\nIgnored and blanked out when Use Sequence Filter is disabled."),
+                "INPUT_EMBED": translate("Tools", "Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.\nUsed to weight progressive profile-profile alignments along evolutionary guide tree nodes."),
+                "INPUT_NETWORK": translate("Tools", "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression."),
+                "SHOW_REGRESSION_PLOT": translate("Tools", "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\nVisualizes the isotonic regression fit between mean embedding cosine distances and network scores."),
+                "TREE_METHOD": translate("Tools", "Tree Building Method: Algorithm used to construct the evolutionary guide tree.\nUPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal evolutionary rates."),
+                "ALIGNMENT_SCORE": translate("Tools", "Score Mode: Selects whether to weight guide tree branches using 'global' or 'local' network scores.\nDetermines the hierarchical branching and progressive alignment order."),
+                "NORMALIZATION_MODE": translate("Tools", "Normalization Mode: Formula used to normalize network scores by sequence or alignment length.\nCorrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST)."),
+                "BOOTSTRAP_TREE": translate("Tools", "Noise-Perturbed Trees: Toggle to average guide trees across randomly perturbed distance replicates.\nAssesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree."),
+                "NUM_TREES": translate("Tools", "Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.\nHigher values yield a more stable consensus guide tree but increase computation time."),
+                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": translate("Tools", "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees."),
+                "NOISE_SCALE": translate("Tools", "Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).\nApplies additive noise across all observed and regression-imputed distances, clamped to valid bounds."),
+                "GAP_OPEN": translate("Tools", "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions."),
+                "GAP_EXTEND": translate("Tools", "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths."),
+                "WORKERS": translate("Tools", "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores."),
+                "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU."),
+                "SAFE_TEMP_DIR": translate("Tools", "Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.\nEnsures large guide tree and distance matrix calculations do not exceed system RAM.")
             },
             "Sparse_MSA_Converter.py": {
-                "CONVERT_ALL": "Convert All Alignments: If ON, converts all FASTA MSA files in the alignment directory to sparse HDF5 format.\nIf OFF, converts only the selected FASTA alignment file.",
-                "INPUT_FASTA": "Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.\nCompresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%."
+                "CONVERT_ALL": translate("Tools", "Convert All Alignments: If ON, converts all FASTA MSA files in the alignment directory to sparse HDF5 format.\nIf OFF, converts only the selected FASTA alignment file."),
+                "INPUT_FASTA": translate("Tools", "Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.\nCompresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%.")
             },
             "Parse_BLAST_Output.py": {
-                "INPUT_BLAST_TABULAR": "BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.\nRun DIAMOND with -k 0 so no query's hits are truncated, and with --header verbose to record its version and command.",
-                "INPUT_FASTA": "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.",
-                "BLAST_LAYOUT": "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.",
-                "QUERY_COLUMN": "Query Column: One-based full query-header column used only for Custom Columns.",
-                "SUBJECT_COLUMN": "Subject Column: One-based full subject-header column used only for Custom Columns.",
-                "EVALUE_COLUMN": "E-Value Column: One-based E-value column used only for Custom Columns."
+                "INPUT_BLAST_TABULAR": translate("Tools", "BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.\nRun DIAMOND with -k 0 so no query's hits are truncated, and with --header verbose to record its version and command."),
+                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers."),
+                "BLAST_LAYOUT": translate("Tools", "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below."),
+                "QUERY_COLUMN": translate("Tools", "Query Column: One-based full query-header column used only for Custom Columns."),
+                "SUBJECT_COLUMN": translate("Tools", "Subject Column: One-based full subject-header column used only for Custom Columns."),
+                "EVALUE_COLUMN": translate("Tools", "E-Value Column: One-based E-value column used only for Custom Columns.")
             },
             "Embedding_Injection.py": {
-                "INPUT_EMBED": "Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.\nExisting sequence embeddings are preserved and reused without recalculation.",
-                "INPUT_FASTA": "Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.\nEmbeddings are computed only for the newly introduced sequences to optimize compute time."
+                "INPUT_EMBED": translate("Tools", "Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.\nExisting sequence embeddings are preserved and reused without recalculation."),
+                "INPUT_FASTA": translate("Tools", "Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.\nEmbeddings are computed only for the newly introduced sequences to optimize compute time.")
             },
             "Embedding_Extraction.py": {
-                "INPUT_EMBED": "Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.\nExtracts matching residue embedding datasets without re-running language model inference.",
-                "INPUT_FASTA": "Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.\nOnly embeddings matching these headers are saved to the new HDF5 database."
+                "INPUT_EMBED": translate("Tools", "Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.\nExtracts matching residue embedding datasets without re-running language model inference."),
+                "INPUT_FASTA": translate("Tools", "Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.\nOnly embeddings matching these headers are saved to the new HDF5 database.")
             },
             "Network_Injection.py": {
-                "OLD_NETWORK": "Input Network Edges (.h5): Pre-existing HDF5 similarity network file.\nPre-computed alignment scores between existing sequence pairs are reused directly.",
-                "NEW_EMBEDDINGS": "Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.\nNewly introduced sequence pairs are aligned and injected into the updated network file.",
-                "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores.",
-                "BATCH_SIZE": "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance.",
-                "DEVICE_SELECTION": "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.",
-                "EXECUTION_MODE": "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.",
-                "HOST_CACHE_GB": f"Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {HOST_CACHE_MAX_GB:g} GiB; turn it OFF to choose 0 to {HOST_CACHE_MAX_GB:g} GiB with the linear slider or spinbox."
+                "OLD_NETWORK": translate("Tools", "Input Network Edges (.h5): Pre-existing HDF5 similarity network file.\nPre-computed alignment scores between existing sequence pairs are reused directly."),
+                "NEW_EMBEDDINGS": translate("Tools", "Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.\nNewly introduced sequence pairs are aligned and injected into the updated network file."),
+                "WORKERS": translate("Tools", "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores."),
+                "BATCH_SIZE": translate("Tools", "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance."),
+                "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU."),
+                "EXECUTION_MODE": translate("Tools", "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator."),
+                "HOST_CACHE_GB": translate("Tools", "Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {cap:g} GiB; turn it OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox.").format(cap=HOST_CACHE_MAX_GB)
             },
             "Network_Extraction.py": {
-                "INPUT_NET": "Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.\nEdges connecting sequences outside the whitelist are filtered out.",
-                "INPUT_FASTA": "Input Sequence Set (.fasta): Whitelist FASTA file defining the subset of sequence nodes to retain.\nOnly edges connecting two whitelist sequences are extracted and re-indexed into the sub-network."
+                "INPUT_NET": translate("Tools", "Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.\nEdges connecting sequences outside the whitelist are filtered out."),
+                "INPUT_FASTA": translate("Tools", "Input Sequence Set (.fasta): Whitelist FASTA file defining the subset of sequence nodes to retain.\nOnly edges connecting two whitelist sequences are extracted and re-indexed into the sub-network.")
             },
             "Embedding_PWA.py": {
-                "INPUT_EMBED": "Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.\nSupplies stored sequences and models whenever a manual sequence switch is OFF.",
-                "REF_HEADER": "Reference Header: Header of the reference sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the first database sequence is used.",
-                "MANUAL_REF_SEQ": "Manual Ref Seq: Toggle to enter a raw reference sequence manually.\nWhen OFF, the reference sequence and embedding are loaded from the database by header.",
-                "REF_SEQUENCE": "Ref Sequence (Optional): Raw amino acid sequence for the reference protein.\nUsed only when Manual Ref Seq is ON; sanitized and embedded on the fly.",
-                "TAR_HEADER": "Target Header: Header of the target sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the second database sequence is used.",
-                "MANUAL_TAR_SEQ": "Manual Tar Seq: Toggle to enter a raw target sequence manually.\nWhen OFF, the target sequence and embedding are loaded from the database by header.",
-                "TAR_SEQUENCE": "Tar Sequence (Optional): Raw amino acid sequence for the target protein.\nUsed only when Manual Tar Seq is ON; sanitized and embedded on the fly.",
-                "HIGHLIGHT_POSITIONS": "Highlight Pos (e.g. 1, 4-6): Comma-separated 1-indexed residue positions or ranges in the reference.\nTracked through the alignment and highlighted directly on target sequence positions.",
-                "EMBEDDING_MODEL": "Embedding Model: Protein language model used when both sequences are entered manually.\nWhen either sequence is selected from an embedding database, that database's model is used instead.",
-                "ALIGNMENT_MODE": "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCalculates dynamic programming alignment based on residue embedding cosine similarities.",
-                "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions within local alignments.",
-                "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nMore negative values penalize gap insertions across full-length alignments.",
-                "GENERATE_REPORT": "Generate Report: Toggle to save an interactive, color-coded HTML alignment report.\nOutputs a formatted report with highlighted residue mappings to the report directory."
+                "INPUT_EMBED": translate("Tools", "Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.\nSupplies stored sequences and models whenever a manual sequence switch is OFF."),
+                "REF_HEADER": translate("Tools", "Reference Header: Header of the reference sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the first database sequence is used."),
+                "MANUAL_REF_SEQ": translate("Tools", "Manual Ref Seq: Toggle to enter a raw reference sequence manually.\nWhen OFF, the reference sequence and embedding are loaded from the database by header."),
+                "REF_SEQUENCE": translate("Tools", "Ref Sequence (Optional): Raw amino acid sequence for the reference protein.\nUsed only when Manual Ref Seq is ON; sanitized and embedded on the fly."),
+                "TAR_HEADER": translate("Tools", "Target Header: Header of the target sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the second database sequence is used."),
+                "MANUAL_TAR_SEQ": translate("Tools", "Manual Tar Seq: Toggle to enter a raw target sequence manually.\nWhen OFF, the target sequence and embedding are loaded from the database by header."),
+                "TAR_SEQUENCE": translate("Tools", "Tar Sequence (Optional): Raw amino acid sequence for the target protein.\nUsed only when Manual Tar Seq is ON; sanitized and embedded on the fly."),
+                "HIGHLIGHT_POSITIONS": translate("Tools", "Highlight Pos (e.g. 1, 4-6): Comma-separated 1-indexed residue positions or ranges in the reference.\nTracked through the alignment and highlighted directly on target sequence positions."),
+                "EMBEDDING_MODEL": translate("Tools", "Embedding Model: Protein language model used when both sequences are entered manually.\nWhen either sequence is selected from an embedding database, that database's model is used instead."),
+                "ALIGNMENT_MODE": translate("Tools", "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCalculates dynamic programming alignment based on residue embedding cosine similarities."),
+                "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions within local alignments."),
+                "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nMore negative values penalize gap insertions across full-length alignments."),
+                "GENERATE_REPORT": translate("Tools", "Generate Report: Toggle to save an interactive, color-coded HTML alignment report.\nOutputs a formatted report with highlighted residue mappings to the report directory.")
             },
             "Embedding_SSEARCH.py": {
-                "INPUT_EMBED": "Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.\nDatabase sequences are scanned against the query sequence using parallelized dynamic programming.",
-                "QUERY_HEADER": "Query Header: Header of a sequence in the embedding database used as the search query.\nSanitized before lookup when Manual Query Seq is OFF.",
-                "MANUAL_QUERY_SEQ": "Manual Query Seq: Toggle to provide a custom query sequence manually.\nWhen OFF, the query sequence and embedding are loaded from the database by header.",
-                "QUERY_SEQUENCE": "Query Sequence (Optional): Raw amino acid sequence for the query protein.\nUsed only when Manual Query Seq is ON; embedded on the fly using the database model.",
-                "OUTPUT_NAME": "Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).\nIf left blank, defaults to the sanitized query header.",
-                "TOP_K": "Top K Hits: Maximum number of highest-scoring database matches to export in results.\nControls the output hit list size in summary tables and reports.",
-                "NORM_THRESHOLD": "Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.\nHits scoring below this cutoff are excluded from results. Set to 'None' to disable.",
-                "ALIGNMENT_MODE": "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCompares database sequence embeddings against the query using dynamic programming.",
-                "NORM_MODE": "Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.\nPrevents score bias toward longer or shorter sequences.",
-                "LOCAL_GAP_P": "Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.\nMore negative values penalize gap insertions.",
-                "GLOBAL_GAP_P": "Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.\nMore negative values penalize gap insertions across full sequences.",
-                "WORKERS": "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems.",
-                "GENERATE_FASTA": "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences.",
-                "DEVICE_SELECTION": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
-                "ACCELERATOR_PRECISION": "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution."
+                "INPUT_EMBED": translate("Tools", "Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.\nDatabase sequences are scanned against the query sequence using parallelized dynamic programming."),
+                "QUERY_HEADER": translate("Tools", "Query Header: Header of a sequence in the embedding database used as the search query.\nSanitized before lookup when Manual Query Seq is OFF."),
+                "MANUAL_QUERY_SEQ": translate("Tools", "Manual Query Seq: Toggle to provide a custom query sequence manually.\nWhen OFF, the query sequence and embedding are loaded from the database by header."),
+                "QUERY_SEQUENCE": translate("Tools", "Query Sequence (Optional): Raw amino acid sequence for the query protein.\nUsed only when Manual Query Seq is ON; embedded on the fly using the database model."),
+                "OUTPUT_NAME": translate("Tools", "Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).\nIf left blank, defaults to the sanitized query header."),
+                "TOP_K": translate("Tools", "Top K Hits: Maximum number of highest-scoring database matches to export in results.\nControls the output hit list size in summary tables and reports."),
+                "NORM_THRESHOLD": translate("Tools", "Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.\nHits scoring below this cutoff are excluded from results. Set to 'None' to disable."),
+                "ALIGNMENT_MODE": translate("Tools", "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCompares database sequence embeddings against the query using dynamic programming."),
+                "NORM_MODE": translate("Tools", "Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.\nPrevents score bias toward longer or shorter sequences."),
+                "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.\nMore negative values penalize gap insertions."),
+                "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.\nMore negative values penalize gap insertions across full sequences."),
+                "WORKERS": translate("Tools", "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems."),
+                "GENERATE_FASTA": translate("Tools", "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences."),
+                "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets."),
+                "ACCELERATOR_PRECISION": translate("Tools", "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.")
             }
         }
         
@@ -1235,7 +1300,7 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "title_sanitize",
                             "type": "title",
-                            "display": "Sequence Sanitization Settings:"
+                            "display": translate("Tools", "Sequence Sanitization Settings:")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1244,39 +1309,39 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,    # <-- Added
                             "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
+                            "display": translate("Tools", "Sequence Set (.fasta):")
                         },
                         {
                             "var_name": "ENABLE_LENGTH_FILTER", # <--- NEW
                             "type": "switch",
-                            "display": "Enable Length Filter:"
+                            "display": translate("Tools", "Enable Length Filter:")
                         },
                         {
                             "var_name": "OVER_WRITE",
                             "type": "switch",
-                            "display": "Overwrite Original File:"
+                            "display": translate("Tools", "Overwrite Original File:")
                         },
                         {
                             "var_name": "REMOVE_BY_HEADER_STRING",
                             "type": "text",
-                            "display": "Remove Header Substring:"
+                            "display": translate("Tools", "Remove Header Substring:")
                         },
                         {
                             "var_name": "MIN_SEQ_LENGTH",
                             "type": "number",
-                            "display": "Min Seq Length:"
+                            "display": translate("Tools", "Min Seq Length:")
                         },
                         {
                             "var_name": "MAX_SEQ_LENGTH",
                             "type": "number",
-                            "display": "Max Seq Length:"
+                            "display": translate("Tools", "Max Seq Length:")
                         }
                     ],
                     "Generate_Embeddings.py": [
                         {
                             "var_name": "title_embed",
                             "type": "title",
-                            "display": "Embedding Generation Settings:"
+                            "display": translate("Tools", "Embedding Generation Settings:")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1285,32 +1350,33 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,    # <-- Added
                             "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
+                            "display": translate("Tools", "Sequence Set (.fasta):")
                         },
                         {
                             "var_name": "MODEL_NAME",
                             "type": "dropdown",
                             "options": get_supported_embedding_models(),
                             "model_license_labels": True,
-                            "display": "Model Name:"
+                            "display": translate("Tools", "Model Name:")
                         },
                         {
                             "var_name": "SAVING_MODE",
                             "type": "dropdown",
                             "options": ["float32", "float16"],
-                            "display": "Saving Mode:"
+                            "name_options": True,
+                            "display": translate("Tools", "Saving Mode:")
                         },
                         {
                             "var_name": "DEVICE_SELECTION",
                             "type": "device_dropdown",
-                            "display": "Device:"
+                            "display": translate("Tools", "Device:")
                         }
                     ],
                     "Embedding_Cropping.py": [
                         {
                             "var_name": "title_crop",
                             "type": "title",
-                            "display": "Embedding Cropping Settings:"
+                            "display": translate("Tools", "Embedding Cropping Settings:")
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1319,7 +1385,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",
-                            "display": "Full Embedding Set (.h5):"
+                            "display": translate("Tools", "Full Embedding Set (.h5):")
                         },
                         {
                             "var_name": "CROPPED_FASTA",
@@ -1328,7 +1394,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
-                            "display": "Cropped Sequence Set (.fasta):"
+                            "display": translate("Tools", "Cropped Sequence Set (.fasta):")
                         }
                     ]
                 }
@@ -1339,7 +1405,7 @@ class ToolsGUI(QMainWindow):
                 {
                     "var_name": "title_asm_io",
                     "type": "title",
-                    "display": "Input & Output Settings:"
+                    "display": translate("Tools", "Input & Output Settings:")
                 },
                 {
                     "var_name": "INPUT_HDF5",
@@ -1348,88 +1414,90 @@ class ToolsGUI(QMainWindow):
                     "extension": ".h5",
                     "include_ext": True,
                     "dir_key": "EMBED_DIR",
-                    "display": "Embedding Set (.h5):"
+                    "display": translate("Tools", "Embedding Set (.h5):")
                 },
                 {
                     "var_name": "EDGE_PREFILTERING",
                     "type": "switch",
-                    "display": "Edge Prefiltering:"
+                    "display": translate("Tools", "Edge Prefiltering:")
                 },
                 {
                     "var_name": "PREFILTER_STRENGTH",
                     "type": "slider",
                     "min": 0,
                     "max": 80,
-                    "display": "Strength (%):"
+                    "display": translate("Tools", "Strength (%):")
                 },
                 {
                     "var_name": "title_asm_align",
                     "type": "title",
-                    "display": "Alignment Settings:"
+                    "display": translate("Tools", "Alignment Settings:")
                 },
                 {
                     "var_name": "LOCAL_GAP_P",
                     "type": "negative_number",
-                    "display": "Local Align Gap Penalty:"
+                    "display": translate("Tools", "Local Align Gap Penalty:")
                 },
                 {
                     "var_name": "GLOBAL_GAP_P",
                     "type": "negative_number",
-                    "display": "Global Align Gap Penalty:"
+                    "display": translate("Tools", "Global Align Gap Penalty:")
                 },
                 {
                     "var_name": "title_asm_hw",
                     "type": "title",
-                    "display": "Hardware Settings:"
+                    "display": translate("Tools", "Hardware Settings:")
                 },
                 {
                     "var_name": "WORKERS",
                     "type": "slider",
                     "min": 1,
                     "max": MAX_CORES,
-                    "display": "CPU Workers:"
+                    "display": translate("Tools", "CPU Workers:")
                 },
                 {
                     "var_name": "BATCH_SIZE",
                     "type": "text",
-                    "display": "Batch Size:"
+                    "display": translate("Tools", "Batch Size:")
                 },
                 {
                     "var_name": "DEVICE_SELECTION",
                     "type": "device_dropdown",
-                    "display": "Device:"
+                    "display": translate("Tools", "Device:")
                 },
                 {
                     "var_name": "ACCELERATOR_PRECISION",
                     "type": "dropdown",
                     "options": [
-                        AUTOMATIC_32BIT_PRECISION_LABEL,
+                        translate("Tools", AUTOMATIC_32BIT_PRECISION_LABEL),
                         "float32",
-                        TF32_PRECISION_LABEL,
-                        BF16_PRECISION_LABEL,
+                        translate("Tools", TF32_PRECISION_LABEL),
+                        translate("Tools", BF16_PRECISION_LABEL),
                     ],
                     "option_values": [
                         "automatic_32bit", "float32", "tf32", "bf16"
                     ],
-                    "display": "Precision:"
+                    "name_options": {"float32"},
+                    "display": translate("Tools", "Precision:")
                 },
                 {
                     "var_name": "EXECUTION_MODE",
                     "type": "dropdown",
-                    "options": ["auto", "scalar", "tiled"],
-                    "display": "Execution Mode:"
+                    "options": execution_mode_labels(["auto", "scalar", "tiled"]),
+                    "option_values": ["auto", "scalar", "tiled"],
+                    "display": translate("Tools", "Execution Mode:")
                 },
                 {
                     "var_name": "HOST_CACHE_GB",
                     "type": "host_cache",
-                    "display": "Host Cache (GiB):"
+                    "display": translate("Tools", "Host Cache (GiB):")
                 }
                     ],
                     "Align_Substitution_Matrix.py": [
                         {
                             "var_name": "title_sub_io",
                             "type": "title",
-                            "display": "Input Settings:"
+                            "display": translate("Tools", "Input Settings:")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1438,42 +1506,43 @@ class ToolsGUI(QMainWindow):
                             "extension": (".fasta", ".fa", ".faa"),
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta/.fa/.faa):"
+                            "display": translate("Tools", "Sequence Set (.fasta/.fa/.faa):")
                         },
                         {
                             "var_name": "MATRIX",
                             "type": "dropdown",
                             "options": ["BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90", "PAM30", "PAM70", "PAM250"],
-                            "display": "Substitution Matrix:"
+                            "name_options": True,
+                            "display": translate("Tools", "Substitution Matrix:")
                         },
                         {
                             "var_name": "title_sub_hw",
                             "type": "title",
-                            "display": "Hardware & Workspace Settings:"
+                            "display": translate("Tools", "Hardware & Workspace Settings:")
                         },
                         {
                             "var_name": "NUM_THREADS",
                             "type": "slider",
                             "min": 1,
                             "max": MAX_CORES,
-                            "display": "CPU Workers:"
+                            "display": translate("Tools", "CPU Workers:")
                         },
                         {
                             "var_name": "BATCH_SIZE",
                             "type": "text",
-                            "display": "Batch Size:"
+                            "display": translate("Tools", "Batch Size:")
                         },
                         {
                             "var_name": "BLASTP_DIR",
                             "type": "folder_browser",
-                            "display": "BLASTP Directory:"
+                            "display": translate("Tools", "BLASTP Directory:")
                         }
                     ],
                     "Parse_BLAST_Output.py": [
                         {
                             "var_name": "title_parse",
                             "type": "title",
-                            "display": "Parse External BLAST Output:"
+                            "display": translate("Tools", "Parse External BLAST Output:")
                         },
                         {
                             "var_name": "INPUT_BLAST_TABULAR",
@@ -1482,7 +1551,7 @@ class ToolsGUI(QMainWindow):
                             "extension": (".tabular", ".txt", ".tab", ".tsv"),
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",
-                            "display": "BLAST Results (.tabular/.txt/.tab/.tsv):"
+                            "display": translate("Tools", "BLAST Results (.tabular/.txt/.tab/.tsv):")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1491,7 +1560,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
+                            "display": translate("Tools", "Sequence Set (.fasta):")
                         },
                         {
                             "var_name": "BLAST_LAYOUT",
@@ -1499,29 +1568,30 @@ class ToolsGUI(QMainWindow):
                             "options": [
                                 "standard_outfmt6",
                                 "outfmt7_fields",
-                                "Custom Columns (1-based indexing)"
+                                translate("Tools", "Custom Columns (1-based indexing)")
                             ],
+                            "name_options": {"standard_outfmt6", "outfmt7_fields"},
                             "option_values": [
                                 "standard_outfmt6",
                                 "outfmt7_fields",
                                 "custom_columns"
                             ],
-                            "display": "BLAST Layout:"
+                            "display": translate("Tools", "BLAST Layout:")
                         },
                         {
                             "var_name": "QUERY_COLUMN",
                             "type": "number",
-                            "display": "Query Column:"
+                            "display": translate("Tools", "Query Column:")
                         },
                         {
                             "var_name": "SUBJECT_COLUMN",
                             "type": "number",
-                            "display": "Subject Column:"
+                            "display": translate("Tools", "Subject Column:")
                         },
                         {
                             "var_name": "EVALUE_COLUMN",
                             "type": "number",
-                            "display": "EValue Column:"
+                            "display": translate("Tools", "EValue Column:")
                         }
                     ]
                 }
@@ -1532,12 +1602,12 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "title_io",
                             "type": "title",
-                            "display": "Input & Output Settings:"
+                            "display": translate("Tools", "Input & Output Settings:")
                         },
                         {
                             "var_name": "USE_SEQUENCE_FILTER",
                             "type": "switch",
-                            "display": "Use Sequence Filter:"
+                            "display": translate("Tools", "Use Sequence Filter:")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1546,7 +1616,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",
-                            "display": "Sequence Set (.fasta):"
+                            "display": translate("Tools", "Sequence Set (.fasta):")
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1555,7 +1625,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",
-                            "display": "Embedding Set (.h5):"
+                            "display": translate("Tools", "Embedding Set (.h5):")
                         },
                         {
                             "var_name": "INPUT_NETWORK",
@@ -1564,28 +1634,32 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",
-                            "display": "Network File (.h5):"
+                            "display": translate("Tools", "Network File (.h5):")
                         },
                         {
                             "var_name": "title_guide",
                             "type": "title",
-                            "display": "Guide Tree Settings:"
+                            "display": translate("Tools", "Guide Tree Settings:")
                         },
                         {
                             "var_name": "TREE_METHOD",
                             "type": "dropdown",
-                            "options": ["UPGMA (Fast)", "Neighbor-joining (Slow)"],
-                            "display": "Tree Building Method:"
+                            "options": [
+                                translate("Tools", "UPGMA (Fast)"),
+                                translate("Tools", "Neighbor-joining (Slow)"),
+                            ],
+                            "option_values": ["UPGMA (Fast)", NEIGHBOR_JOINING_TREE_METHOD],
+                            "display": translate("Tools", "Tree Building Method:")
                         },
                         {
                             "var_name": "BOOTSTRAP_TREE",
                             "type": "switch",
-                            "display": "Noise-Perturbed Trees:"
+                            "display": translate("Tools", "Noise-Perturbed Trees:")
                         },
                         {
                             "var_name": "NUM_TREES",
                             "type": "number",
-                            "display": "Number of Perturbed Trees:"
+                            "display": translate("Tools", "Number of Perturbed Trees:")
                         },
                         {
                             "var_name": "NOISE_SCALE",
@@ -1593,68 +1667,70 @@ class ToolsGUI(QMainWindow):
                             "min": 0,
                             "max": 100,
                             "scale": 1000.0,
-                            "display": "Normalized Noise Scale (0 to 0.1):"
+                            "display": translate("Tools", "Normalized Noise Scale (0 to 0.1):")
                         },
                         {
                             "var_name": "ALIGNMENT_SCORE",
                             "type": "dropdown",
-                            "options": ["global", "local"],
-                            "display": "Score Mode:"
+                            "options": alignment_mode_labels(["global", "local"]),
+                            "option_values": ["global", "local"],
+                            "display": translate("Tools", "Score Mode:")
                         },
                         {
                             "var_name": "SHOW_REGRESSION_PLOT",
                             "type": "switch",
-                            "display": "Show Isotonic Regression Plot:"
+                            "display": translate("Tools", "Show Isotonic Regression Plot:")
                         },
                         {
                             "var_name": "NORMALIZATION_MODE",
                             "type": "dropdown",
-                            "options": ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"],
-                            "display": "Normalization Mode:"
+                            "options": normalization_labels(NORMALIZATION_MODES),
+                            "option_values": list(NORMALIZATION_MODES),
+                            "display": translate("Tools", "Normalization Mode:")
                         },
                         {
                             "var_name": "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS",
                             "type": "switch",
-                            "display": "Include Imputed Pairs in Final Consensus:"
+                            "display": translate("Tools", "Include Imputed Pairs in Final Consensus:")
                         },
                         {
                             "var_name": "title_align",
                             "type": "title",
-                            "display": "Alignment Settings:"
+                            "display": translate("Tools", "Alignment Settings:")
                         },
                         {
                             "var_name": "GAP_OPEN",
                             "type": "negative_number",
-                            "display": "Gap Open Penalty:"
+                            "display": translate("Tools", "Gap Open Penalty:")
                         },
                         {
                             "var_name": "GAP_EXTEND",
                             "type": "negative_number",
-                            "display": "Gap Extend Penalty:"
+                            "display": translate("Tools", "Gap Extend Penalty:")
                         },
                         {
                             "var_name": "WORKERS",
                             "type": "slider",
                             "min": 1,
                             "max": MAX_CORES,
-                            "display": "CPU Workers:"
+                            "display": translate("Tools", "CPU Workers:")
                         },
                         {
                             "var_name": "DEVICE_SELECTION",
                             "type": "device_dropdown",
-                            "display": "Device:"
+                            "display": translate("Tools", "Device:")
                         }
                     ],
                     "Sparse_MSA_Converter.py": [
                         {
                             "var_name": "title_sparse",
                             "type": "title",
-                            "display": "Sparse MSA Converter Settings:"
+                            "display": translate("Tools", "Sparse MSA Converter Settings:")
                         },
                         {
                             "var_name": "CONVERT_ALL",
                             "type": "switch",
-                            "display": "Convert All Alignments:"
+                            "display": translate("Tools", "Convert All Alignments:")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1663,7 +1739,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "MSA_DIR",
-                            "display": "Input MSA (.fasta):"
+                            "display": translate("Tools", "Input MSA (.fasta):")
                         }
                     ]
                 }
@@ -1674,7 +1750,7 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "title_inj",
                             "type": "title",
-                            "display": "Embedding Injection Settings:"
+                            "display": translate("Tools", "Embedding Injection Settings:")
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1683,7 +1759,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",  # <-- Added
-                            "display": "Input Embedding Set (.h5):"
+                            "display": translate("Tools", "Input Embedding Set (.h5):")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1692,14 +1768,14 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",  # <-- Added
-                            "display": "Input Sequence Set (.fasta):"
+                            "display": translate("Tools", "Input Sequence Set (.fasta):")
                         }
                     ],
                     "Embedding_Extraction.py": [
                         {
                             "var_name": "title_ext",
                             "type": "title",
-                            "display": "Embedding Extraction Settings:"
+                            "display": translate("Tools", "Embedding Extraction Settings:")
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1708,7 +1784,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",  # <-- Added
-                            "display": "Input Embedding Set (.h5):"
+                            "display": translate("Tools", "Input Embedding Set (.h5):")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1717,14 +1793,14 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",  # <-- Added
-                            "display": "Input Sequence Set (.fasta):"
+                            "display": translate("Tools", "Input Sequence Set (.fasta):")
                         }
                     ],
                     "Network_Injection.py": [
                         {
                             "var_name": "title_net_inj",
                             "type": "title",
-                            "display": "Network Injection Settings:"
+                            "display": translate("Tools", "Network Injection Settings:")
                         },
                         {
                             "var_name": "OLD_NETWORK",
@@ -1733,7 +1809,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",
-                            "display": "Input Network Edges (.h5):"
+                            "display": translate("Tools", "Input Network Edges (.h5):")
                         },
                         {
                             "var_name": "NEW_EMBEDDINGS",
@@ -1742,42 +1818,43 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",  # <-- Added
-                            "display": "Input Embedding Set (.h5):"
+                            "display": translate("Tools", "Input Embedding Set (.h5):")
                         },
                         {
                             "var_name": "WORKERS",
                             "type": "slider",
                             "min": 1,
                             "max": MAX_CORES,
-                            "display": "CPU Workers:"
+                            "display": translate("Tools", "CPU Workers:")
                         },
                         {
                             "var_name": "BATCH_SIZE",
                             "type": "text",
-                            "display": "Batch Size:"
+                            "display": translate("Tools", "Batch Size:")
                         },
                         {
                             "var_name": "DEVICE_SELECTION",
                             "type": "device_dropdown",
-                            "display": "Device:"
+                            "display": translate("Tools", "Device:")
                         },
                         {
                             "var_name": "EXECUTION_MODE",
                             "type": "dropdown",
-                            "options": ["auto", "scalar", "tiled"],
-                            "display": "Execution Mode:"
+                            "options": execution_mode_labels(["auto", "scalar", "tiled"]),
+                            "option_values": ["auto", "scalar", "tiled"],
+                            "display": translate("Tools", "Execution Mode:")
                         },
                         {
                             "var_name": "HOST_CACHE_GB",
                             "type": "host_cache",
-                            "display": "Host Cache (GiB):"
+                            "display": translate("Tools", "Host Cache (GiB):")
                         }
                     ],
                     "Network_Extraction.py": [
                         {
                             "var_name": "title_net_ext",
                             "type": "title",
-                            "display": "Network Extraction Settings:"
+                            "display": translate("Tools", "Network Extraction Settings:")
                         },
                         {
                             "var_name": "INPUT_NET",
@@ -1786,7 +1863,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "NETWORK_DIR",  # <-- Added
-                            "display": "Input Network Edges (.h5):"
+                            "display": translate("Tools", "Input Network Edges (.h5):")
                         },
                         {
                             "var_name": "INPUT_FASTA",
@@ -1795,7 +1872,7 @@ class ToolsGUI(QMainWindow):
                             "extension": ".fasta",
                             "include_ext": True,
                             "dir_key": "FASTA_DIR",  # <-- Added
-                            "display": "Input Sequence Set (.fasta):"
+                            "display": translate("Tools", "Input Sequence Set (.fasta):")
                         }
                     ]
                 }
@@ -1806,7 +1883,7 @@ class ToolsGUI(QMainWindow):
                         {
                             "var_name": "title_pwa_io",
                             "type": "title",
-                            "display": "Embedding Input:"
+                            "display": translate("Tools", "Embedding Input:")
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1815,87 +1892,88 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",
-                            "display": "Embedding Set (.h5):"
+                            "display": translate("Tools", "Embedding Set (.h5):")
                         },
                         {
                             "var_name": "title_pwa_headers",
                             "type": "title",
-                            "display": "Target Sequences:"
+                            "display": translate("Tools", "Target Sequences:")
                         },
                         {
                             "var_name": "REF_HEADER",
                             "type": "text",
-                            "display": "Reference Header:"
+                            "display": translate("Tools", "Reference Header:")
                         },
                         {
                             "var_name": "MANUAL_REF_SEQ",
                             "type": "switch",
-                            "display": "Manual Ref Seq:"
+                            "display": translate("Tools", "Manual Ref Seq:")
                         },
                         {
                             "var_name": "REF_SEQUENCE",
                             "type": "text",
-                            "display": "Ref Sequence (Optional):"
+                            "display": translate("Tools", "Ref Sequence (Optional):")
                         },
                         {
                             "var_name": "TAR_HEADER",
                             "type": "text",
-                            "display": "Target Header:"
+                            "display": translate("Tools", "Target Header:")
                         },
                         {
                             "var_name": "MANUAL_TAR_SEQ",
                             "type": "switch",
-                            "display": "Manual Tar Seq:"
+                            "display": translate("Tools", "Manual Tar Seq:")
                         },
                         {
                             "var_name": "TAR_SEQUENCE",
                             "type": "text",
-                            "display": "Tar Sequence (Optional):"
+                            "display": translate("Tools", "Tar Sequence (Optional):")
                         },
                         {
                             "var_name": "HIGHLIGHT_POSITIONS",
                             "type": "text",
-                            "display": "Highlight Pos (e.g., 1, 4-6):"
+                            "display": translate("Tools", "Highlight Pos (e.g., 1, 4-6):")
                         },
                         {
                             "var_name": "EMBEDDING_MODEL",
                             "type": "dropdown",
                             "options": get_supported_embedding_models(),
                             "model_license_labels": True,
-                            "display": "Embedding Model:"
+                            "display": translate("Tools", "Embedding Model:")
                         },
                         {
                             "var_name": "title_pwa_params",
                             "type": "title",
-                            "display": "Alignment Parameters:"
+                            "display": translate("Tools", "Alignment Parameters:")
                         },
                         {
                             "var_name": "ALIGNMENT_MODE",
                             "type": "dropdown",
-                            "options": ["global", "local"],
-                            "display": "Alignment Mode:"
+                            "options": alignment_mode_labels(["global", "local"]),
+                            "option_values": ["global", "local"],
+                            "display": translate("Tools", "Alignment Mode:")
                         },
                         {
                             "var_name": "LOCAL_GAP_P",
                             "type": "negative_number",
-                            "display": "Local Align Gap Penalty:"
+                            "display": translate("Tools", "Local Align Gap Penalty:")
                         },
                         {
                             "var_name": "GLOBAL_GAP_P",
                             "type": "negative_number",
-                            "display": "Global Align Gap Penalty:"
+                            "display": translate("Tools", "Global Align Gap Penalty:")
                         },
                         {
                             "var_name": "GENERATE_REPORT",
                             "type": "switch",
-                            "display": "Generate Report:"
+                            "display": translate("Tools", "Generate Report:")
                         }
                     ],
                     "Embedding_SSEARCH.py": [
                         {
                             "var_name": "title_ss_io",
                             "type": "title",
-                            "display": "Input Files:"
+                            "display": translate("Tools", "Input Files:")
                         },
                         {
                             "var_name": "INPUT_EMBED",
@@ -1904,100 +1982,103 @@ class ToolsGUI(QMainWindow):
                             "extension": ".h5",
                             "include_ext": True,
                             "dir_key": "EMBED_DIR",
-                            "display": "Embedding Set (.h5):"
+                            "display": translate("Tools", "Embedding Set (.h5):")
                         },
                         {
                             "var_name": "title_ss_query",
                             "type": "title",
-                            "display": "Query Parameters:"
+                            "display": translate("Tools", "Query Parameters:")
                         },
                         {
                             "var_name": "QUERY_HEADER",
                             "type": "text",
-                            "display": "Query Header:"
+                            "display": translate("Tools", "Query Header:")
                         },
                         {
                             "var_name": "MANUAL_QUERY_SEQ",
                             "type": "switch",
-                            "display": "Manual Query Seq:"
+                            "display": translate("Tools", "Manual Query Seq:")
                         },
                         {
                             "var_name": "QUERY_SEQUENCE",
                             "type": "text",
-                            "display": "Query Sequence (Optional):"
+                            "display": translate("Tools", "Query Sequence (Optional):")
                         },
                         {
                             "var_name": "OUTPUT_NAME",
                             "type": "text",
-                            "display": "Output Name:"
+                            "display": translate("Tools", "Output Name:")
                         },
                         {
                             "var_name": "TOP_K",
                             "type": "number",
-                            "display": "Top K Hits:"
+                            "display": translate("Tools", "Top K Hits:")
                         },
                         {
                             "var_name": "NORM_THRESHOLD",
                             "type": "text",
-                            "display": "Norm Score Cutoff (Optional):"
+                            "display": translate("Tools", "Norm Score Cutoff (Optional):")
                         },
                         {
                             "var_name": "title_ss_params",
                             "type": "title",
-                            "display": "Alignment Parameters:"
+                            "display": translate("Tools", "Alignment Parameters:")
                         },
                         {
                             "var_name": "ALIGNMENT_MODE",
                             "type": "dropdown",
-                            "options": ["global", "local"],
-                            "display": "Alignment Mode:"
+                            "options": alignment_mode_labels(["global", "local"]),
+                            "option_values": ["global", "local"],
+                            "display": translate("Tools", "Alignment Mode:")
                         },
                         {
                             "var_name": "NORM_MODE",
                             "type": "dropdown",
-                            "options": ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"],
-                            "display": "Normalization Mode:"
+                            "options": normalization_labels(NORMALIZATION_MODES),
+                            "option_values": list(NORMALIZATION_MODES),
+                            "display": translate("Tools", "Normalization Mode:")
                         },
                         {
                             "var_name": "LOCAL_GAP_P",
                             "type": "negative_number",
-                            "display": "Local Align Gap Penalty:"
+                            "display": translate("Tools", "Local Align Gap Penalty:")
                         },
                         {
                             "var_name": "GLOBAL_GAP_P",
                             "type": "negative_number",
-                            "display": "Global Align Gap Penalty:"
+                            "display": translate("Tools", "Global Align Gap Penalty:")
                         },
                         {
                             "var_name": "WORKERS",
                             "type": "slider",
                             "min": 1,
                             "max": MAX_CORES,
-                            "display": "CPU Workers:"
+                            "display": translate("Tools", "CPU Workers:")
                         },
                         {
                             "var_name": "DEVICE_SELECTION",
                             "type": "device_dropdown",
-                            "display": "Device:"
+                            "display": translate("Tools", "Device:")
                         },
                         {
                             "var_name": "ACCELERATOR_PRECISION",
                             "type": "dropdown",
                             "options": [
-                                AUTOMATIC_32BIT_PRECISION_LABEL,
+                                translate("Tools", AUTOMATIC_32BIT_PRECISION_LABEL),
                                 "float32",
-                                TF32_PRECISION_LABEL,
-                                BF16_PRECISION_LABEL,
+                                translate("Tools", TF32_PRECISION_LABEL),
+                                translate("Tools", BF16_PRECISION_LABEL),
                             ],
                             "option_values": [
                                 "automatic_32bit", "float32", "tf32", "bf16"
                             ],
-                            "display": "Precision:"
+                            "name_options": {"float32"},
+                            "display": translate("Tools", "Precision:")
                         },
                         {
                             "var_name": "GENERATE_FASTA",
                             "type": "switch",
-                            "display": "Generate FASTA File:"
+                            "display": translate("Tools", "Generate FASTA File:")
                         }
                     ]
                 }
@@ -2034,14 +2115,14 @@ class ToolsGUI(QMainWindow):
         self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
         self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.tip_panel = SpacedTipLabel("Hover or focus on an input to see its description.")
+        self.tip_panel = SpacedTipLabel(translate("Tools", "Hover or focus on an input to see its description."))
         self.tip_panel.setWordWrap(True)
         self.tip_panel.setMinimumHeight(20)
         self.tip_panel.setStyleSheet("color: #444; font-style: normal; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
         self.left_bottom_layout.addWidget(self.tip_panel)
         
         btn_layout = QHBoxLayout()
-        btn_exit = QPushButton("Exit")
+        btn_exit = QPushButton(translate("Tools", "Exit"))
         btn_exit.clicked.connect(self.close)
         btn_layout.addStretch()
         btn_layout.addWidget(btn_exit)
@@ -2067,7 +2148,7 @@ class ToolsGUI(QMainWindow):
         self.splitter.setStretchFactor(0, 7)
         self.splitter.setStretchFactor(1, 3)
         
-        self.desc_title = QLabel("Script Description")
+        self.desc_title = QLabel(translate("Tools", "Script Description"))
         self.desc_title.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 5px;")
         self.desc_title.setFixedHeight(25)
         self.right_panel.addWidget(self.desc_title, 0)
@@ -2117,11 +2198,14 @@ class ToolsGUI(QMainWindow):
             return
         QMessageBox.warning(
             self,
-            "Tools Settings Not Loaded",
-            f"{self.settings_load_error}\n\nThe window shows the default values, "
-            "and the file was left unchanged. Saving directories and running "
-            "tools will not work until you correct the file, or delete it to "
-            "start over from the default settings.",
+            translate("Tools", "Tools Settings Not Loaded"),
+            translate(
+                "Tools",
+                "{error}\n\nThe window shows the default values, "
+                "and the file was left unchanged. Saving directories and running "
+                "tools will not work until you correct the file, or delete it to "
+                "start over from the default settings.",
+            ).format(error=self.settings_load_error),
         )
 
     def _route_native_tooltips_to_tip_panel(self):
@@ -2151,11 +2235,11 @@ class ToolsGUI(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(0)
 
-        desc_label = QLabel("📂 Global Directory Settings")
+        desc_label = QLabel(translate("Tools", "📂 Global Directory Settings"))
         desc_label.setObjectName("toolTitle")
         desc_label.setStyleSheet(PRIMARY_TITLE_STYLE)
 
-        btn_save = QPushButton("Save Directories")
+        btn_save = QPushButton(translate("Tools", "Save Directories"))
         btn_save.setObjectName("saveDirectoriesButton")
         btn_save.setStyleSheet(action_button_stylesheet("#4CAF50"))
         fit_buttons_to_text(btn_save)
@@ -2192,12 +2276,20 @@ class ToolsGUI(QMainWindow):
                     dir_defaults[key] = saved_directories[key]
 
         dir_tips = {
-            "FASTA_DIR": "Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets.",
-            "MSA_DIR": "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).",
-            "EMBED_DIR": "Directory containing pre-computed protein language model embedding databases (.h5).",
-            "NETWORK_DIR": "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular).",
-            "REPORT_DIR": "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved.",
-            "SETTING_EXPORT_DIR": "Directory where per-tool JSON settings files are exported for command-line execution."
+            "FASTA_DIR": translate("Tools", "Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets."),
+            "MSA_DIR": translate("Tools", "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5)."),
+            "EMBED_DIR": translate("Tools", "Directory containing pre-computed protein language model embedding databases (.h5)."),
+            "NETWORK_DIR": translate("Tools", "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular)."),
+            "REPORT_DIR": translate("Tools", "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved."),
+            "SETTING_EXPORT_DIR": translate("Tools", "Directory where per-tool JSON settings files are exported for command-line execution.")
+        }
+        dir_labels = {
+            "EMBED_DIR": translate("Tools", "Embedding Directory:"),
+            "FASTA_DIR": translate("Tools", "FASTA Directory:"),
+            "MSA_DIR": translate("Tools", "MSA Directory:"),
+            "NETWORK_DIR": translate("Tools", "Network Directory:"),
+            "REPORT_DIR": translate("Tools", "Alignment Report Directory:"),
+            "SETTING_EXPORT_DIR": translate("Tools", "Setting Export Directory:"),
         }
         
         for key, current_val in dir_defaults.items():
@@ -2209,9 +2301,9 @@ class ToolsGUI(QMainWindow):
             le = QLineEdit(clean_val_str)
             open_button = QPushButton("📂")
             open_button.setFixedWidth(30)
-            open_button.setToolTip("Open Folder")
+            open_button.setToolTip(translate("Tools", "Open Folder"))
             open_button.setEnabled(bool(le.text().strip()))
-            btn = QPushButton("Browse...")
+            btn = QPushButton(translate("Tools", "Browse..."))
 
             def open_selected_folder(checked=False, line_edit=le):
                 raw_path = line_edit.text().strip()
@@ -2233,7 +2325,9 @@ class ToolsGUI(QMainWindow):
             self.directory_open_buttons[key] = open_button
             
             def open_folder_dialog(checked=False, line_edit=le):
-                folder = QFileDialog.getExistingDirectory(self, "Select Directory", line_edit.text() if line_edit.text() else "")
+                folder = QFileDialog.getExistingDirectory(
+                    self, translate("Tools", "Select Directory"), line_edit.text() if line_edit.text() else ""
+                )
                 if folder:
                     import os
                     line_edit.setText(os.path.normpath(folder))
@@ -2243,14 +2337,7 @@ class ToolsGUI(QMainWindow):
             h_lay.addWidget(open_button)
             h_lay.addWidget(btn)
             
-            display_name = key.replace('_', ' ').title()
-            display_name = display_name.replace('Msa', 'MSA').replace('Dir', 'Directory')
-            display_name = display_name.replace('Fasta', 'FASTA')
-            display_name = display_name.replace('Embed', 'Embedding')
-            display_name = display_name.replace('Report Directory', 'Alignment Report Directory')
-            display_name = display_name.replace('Blastp', 'BLASTP')
-            
-            lbl = QLabel(f"{display_name}:")
+            lbl = QLabel(dir_labels[key])
             layout.addRow(lbl, ui_element)
             self.dir_inputs[key] = le
             
@@ -2267,7 +2354,7 @@ class ToolsGUI(QMainWindow):
         main_layout.addStretch() # Pushes the form strictly to the top
         self._tool_form_layouts.append(layout)
         
-        self.tabs.addTab(scroll, "Directories")
+        self.tabs.addTab(scroll, translate("Tools", "Directories"))
         self.tab_paths.append("DIRECTORIES_TAB")
 
     def save_directories(self):
@@ -2284,21 +2371,33 @@ class ToolsGUI(QMainWindow):
         except ToolSettingsError as error:
             QMessageBox.critical(
                 self,
-                "Directories Not Saved",
-                f"{error}\n\nThe file was left unchanged. Correct it, or delete "
-                "it to start over from the default settings, then save the "
-                "directories again.",
+                translate("Tools", "Directories Not Saved"),
+                translate(
+                    "Tools",
+                    "{error}\n\nThe file was left unchanged. Correct it, or delete "
+                    "it to start over from the default settings, then save the "
+                    "directories again.",
+                ).format(error=error),
             )
             return
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save directories:\n{e}")
+            QMessageBox.critical(
+                self, translate("Tools", "Error"),
+                translate("Tools", "Failed to save directories:\n{error}").format(error=e),
+            )
             return
-        QMessageBox.information(self, "Success", "Global directories saved to JSON successfully.")
+        QMessageBox.information(
+            self, translate("Tools", "Success"),
+            translate("Tools", "Global directories saved to JSON successfully."),
+        )
 
     def load_tools(self):
         tools_dir = os.path.join(_SRC_DIR, "tools")
         if not os.path.exists(tools_dir):
-            QMessageBox.critical(self, "Error", f"Could not find '{tools_dir}' directory.")
+            QMessageBox.critical(
+                self, translate("Tools", "Error"),
+                translate("Tools", "Could not find '{folder}' directory.").format(folder=tools_dir),
+            )
             return
             
         for tab_key, settings_def in self.MANUAL_SETTINGS.items():
@@ -2315,10 +2414,14 @@ class ToolsGUI(QMainWindow):
         if index >= 0 and index < len(self.tab_paths):
             path = self.tab_paths[index]
             if path == "DIRECTORIES_TAB":
-                dir_md = (
-                    "## 📂 Global Directory Settings\n\n"
-                    "Define paths to folders used globally across the SSN tool scripts. "
-                    "These configurations are automatically saved, validated, and loaded at runtime by all scripts."
+                # The Markdown stays in the code; only the words are translated.
+                dir_md = "## {heading}\n\n{text}".format(
+                    heading=translate("Tools", "📂 Global Directory Settings"),
+                    text=translate(
+                        "Tools",
+                        "Define paths to folders used globally across the SSN tool scripts. "
+                        "These configurations are automatically saved, validated, and loaded at runtime by all scripts.",
+                    ),
                 )
                 dir_html = render_markdown_with_math(dir_md)
                 dir_html = dir_html.replace("<table>", '<table border="1" cellpadding="6" style="border-collapse: collapse;">')
@@ -2358,17 +2461,17 @@ class ToolsGUI(QMainWindow):
                 docstring = s_data.get('docstring', '')
                 
                 if docstring.strip():
-                    markdown_content = (
-                        f"## 📄 Internal Documentation\n\n"
-                        f"```text\n{docstring.strip()}\n```"
+                    markdown_content = "## {heading}\n\n```text\n{docstring}\n```".format(
+                        heading=translate("Tools", "📄 Internal Documentation"),
+                        docstring=docstring.strip(),
                     )
                 else:
                     # Final placeholder if absolutely nothing is found
-                    markdown_content = (
-                        f"## ⚠️ Documentation Missing\n\n"
-                        f"No documentation file found for this tab.\n\n"
-                        f"To add one, create a Markdown document at:\n\n"
-                        f"`{os.path.join('src', 'tools', 'tool_descriptions', md_name)}`"
+                    markdown_content = "## {heading}\n\n{missing}\n\n{add_one}\n\n`{path}`".format(
+                        heading=translate("Tools", "⚠️ Documentation Missing"),
+                        missing=translate("Tools", "No documentation file found for this tab."),
+                        add_one=translate("Tools", "To add one, create a Markdown document at:"),
+                        path=os.path.join('src', 'tools', 'tool_descriptions', md_name),
                     )
             
             html_content = render_markdown_with_math(markdown_content.strip())
@@ -2474,7 +2577,9 @@ class ToolsGUI(QMainWindow):
                 switch_btn.setChecked(bool(actual_val))
                 
                 # Get tooltip for prefiltering
-                prefilter_tip = self.SCRIPT_TIPS.get(script_name, {}).get("EDGE_PREFILTERING", "Edge Prefiltering")
+                prefilter_tip = self.SCRIPT_TIPS.get(script_name, {}).get(
+                    "EDGE_PREFILTERING", translate("Tools", "Edge Prefiltering")
+                )
                 switch_btn.setToolTip(prefilter_tip)
                 self.tip_db[switch_btn] = prefilter_tip
                 switch_btn.installEventFilter(self)
@@ -2516,7 +2621,9 @@ class ToolsGUI(QMainWindow):
                     strength_lay.addWidget(box)
                     strength_widget.slider = sl
                     
-                    strength_tip = self.SCRIPT_TIPS.get(script_name, {}).get("PREFILTER_STRENGTH", "Strength (%)")
+                    strength_tip = self.SCRIPT_TIPS.get(script_name, {}).get(
+                        "PREFILTER_STRENGTH", translate("Tools", "Strength (%)")
+                    )
                     strength_widget.setToolTip(strength_tip)
                     self.tip_db[strength_widget] = strength_tip
                     strength_widget.installEventFilter(self)
@@ -2535,7 +2642,7 @@ class ToolsGUI(QMainWindow):
                 compound_widget = QWidget()
                 
                 if strength_widget:
-                    strength_lbl = QLabel("Strength (%):")
+                    strength_lbl = QLabel(translate("Tools", "Strength (%):"))
                     
                     # Tooltip for the label
                     strength_lbl.setToolTip(strength_tip)
@@ -2590,7 +2697,9 @@ class ToolsGUI(QMainWindow):
                 filter_btn = ToggleSwitch()
                 filter_btn.setChecked(bool(actual_val))
                 
-                filter_tip = self.SCRIPT_TIPS.get(script_name, {}).get("ENABLE_LENGTH_FILTER", "Enable Length Filter")
+                filter_tip = self.SCRIPT_TIPS.get(script_name, {}).get(
+                    "ENABLE_LENGTH_FILTER", translate("Tools", "Enable Length Filter")
+                )
                 filter_btn.setToolTip(filter_tip)
                 self.tip_db[filter_btn] = filter_tip
                 filter_btn.installEventFilter(self)
@@ -2629,13 +2738,14 @@ class ToolsGUI(QMainWindow):
                 elif s_def.get("model_license_labels", False):
                     usage_terms = get_embedding_model_usage_terms()
                     for model_name in s_def['options']:
-                        ui_element.addItem(
-                            format_model_selector_label(
-                                model_name,
-                                usage_terms.get(model_name),
-                            ),
+                        label = format_model_selector_label(
                             model_name,
+                            usage_terms.get(model_name),
                         )
+                        ui_element.addItem(display_text(label), model_name)
+                        if label == model_name:
+                            # A model's name alone, which no language translates.
+                            mark_name_item(ui_element, ui_element.count() - 1)
                     ui_element.setProperty("persistItemData", True)
                     idx = ui_element.findData(str(actual_val))
                     if idx < 0 and isinstance(actual_val, str) and actual_val.strip():
@@ -2643,24 +2753,35 @@ class ToolsGUI(QMainWindow):
                         # no plugin provides any more stays visible instead of
                         # silently becoming the first model in the list.
                         ui_element.addItem(
-                            f"Unavailable saved model [{actual_val}]", actual_val
+                            translate("Tools", "Unavailable saved model [{model}]").format(model=actual_val),
+                            actual_val,
                         )
                         idx = ui_element.count() - 1
                 else:
                     # Without option_values, each option is stored as itself.
                     add_combo_options(ui_element, s_def['options'])
                     idx = ui_element.findData(str(actual_val))
+                # Options that are names, such as BLOSUM62, show as they are.
+                names = s_def.get("name_options", ())
+                for index in range(ui_element.count()):
+                    if names is True or ui_element.itemText(index) in names:
+                        mark_name_item(ui_element, index)
                 if idx >= 0: ui_element.setCurrentIndex(idx)
 
             elif s_def['type'] == "device_dropdown":
                 ui_element = NoScrollComboBox()
                 for display, spec in Hardware_Utils.device_selection_options():
-                    ui_element.addItem(display, spec)
+                    if spec == Hardware_Utils.AUTO_DEVICE:
+                        ui_element.addItem(translate("Tools", "Auto Benchmark"), spec)
+                    else:
+                        ui_element.addItem(display, spec)
+                        mark_name_item(ui_element, ui_element.count() - 1)
                 normalized = Hardware_Utils.normalize_device_selection(actual_val)
                 idx = ui_element.findData(normalized)
                 if idx < 0 and normalized != "auto":
                     ui_element.addItem(
-                        f"Unavailable saved device [{normalized}]", normalized
+                        translate("Tools", "Unavailable saved device [{device}]").format(device=normalized),
+                        normalized,
                     )
                     idx = ui_element.count() - 1
                 ui_element.setCurrentIndex(max(0, idx))
@@ -2699,7 +2820,7 @@ class ToolsGUI(QMainWindow):
                 # Add the folder button
                 btn = QPushButton("📂")
                 btn.setFixedWidth(30)
-                btn.setToolTip("Open Folder")
+                btn.setToolTip(translate("Tools", "Open Folder"))
                 def open_folder(checked, dk=dir_key, df=folder):
                     import os
                     from PySide6.QtGui import QDesktopServices
@@ -2816,10 +2937,12 @@ class ToolsGUI(QMainWindow):
                 clean_val_str = str(actual_val).replace('r"', '"').replace("r'", "'").strip("\"'")
                 
                 le = QLineEdit(clean_val_str)
-                btn = QPushButton("Browse...")
+                btn = QPushButton(translate("Tools", "Browse..."))
                 
                 def open_folder_dialog(checked=False, line_edit=le):
-                    folder = QFileDialog.getExistingDirectory(self, "Select Directory", line_edit.text() if line_edit.text() else "")
+                    folder = QFileDialog.getExistingDirectory(
+                        self, translate("Tools", "Select Directory"), line_edit.text() if line_edit.text() else ""
+                    )
                     if folder:
                         import os
                         folder = os.path.normpath(folder)
@@ -2834,7 +2957,7 @@ class ToolsGUI(QMainWindow):
                 ui_element = QLineEdit(str(actual_val))
             
             script_dict = self.SCRIPT_TIPS.get(script_name, {})
-            tip = script_dict.get(var_name, f"Setting: {var_name}")
+            tip = script_dict.get(var_name) or translate("Tools", "Setting: {name}").format(name=var_name)
                 
             ui_element.setToolTip(tip)
             self.tip_db[ui_element] = tip
@@ -2940,14 +3063,14 @@ class ToolsGUI(QMainWindow):
                         remote_index = device_combo.findData("__remote_api__")
                         if remote_index < 0:
                             device_combo.addItem(
-                                "Remote API — local device not applicable",
+                                translate("Tools", "Remote API — local device not applicable"),
                                 "__remote_api__",
                             )
                             remote_index = device_combo.count() - 1
                         device_combo.setCurrentIndex(remote_index)
                         device_combo.setEnabled(False)
                         device_combo.setToolTip(
-                            "Remote API — local device not applicable"
+                            translate("Tools", "Remote API — local device not applicable")
                         )
                     else:
                         local_selection = device_combo.property(
@@ -3065,11 +3188,11 @@ class ToolsGUI(QMainWindow):
                     
                     is_local = combo_value(score_combo) == "local"
                     if is_local:
-                        add_combo_options(norm_combo, ["shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["shorter_sequence", "longer_sequence", "average_sequence"], normalization_labels(["shorter_sequence", "longer_sequence", "average_sequence"]))
                         if current_norm == "alignment_length":
                             current_norm = "longer_sequence"
                     else:
-                        add_combo_options(norm_combo, ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"], normalization_labels(["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"]))
                         
                     select_combo_value(norm_combo, current_norm)
                     norm_combo.blockSignals(False)
@@ -3078,10 +3201,10 @@ class ToolsGUI(QMainWindow):
                     network_path = selected_network_path()
                     try:
                         if network_path is None:
-                            raise ValueError("No network is selected.")
+                            raise ValueError(translate("Tools", "No network is selected."))
                         network_metadata = validate_network_schema(network_path)
                     except (OSError, ValueError) as error:
-                        error_tip = f"Unable to determine network type: {error}"
+                        error_tip = translate("Tools", "Unable to determine network type: {error}").format(error=error)
                         score_combo.setEnabled(False)
                         norm_combo.setEnabled(False)
                         score_combo.setToolTip(error_tip)
@@ -3380,11 +3503,11 @@ class ToolsGUI(QMainWindow):
                     
                     is_local = combo_value(score_combo) == "local"
                     if is_local:
-                        add_combo_options(norm_combo, ["shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["shorter_sequence", "longer_sequence", "average_sequence"], normalization_labels(["shorter_sequence", "longer_sequence", "average_sequence"]))
                         if current_norm == "alignment_length":
                             current_norm = "longer_sequence"
                     else:
-                        add_combo_options(norm_combo, ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"])
+                        add_combo_options(norm_combo, ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"], normalization_labels(["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"]))
                         
                     select_combo_value(norm_combo, current_norm)
                     norm_combo.blockSignals(False)
@@ -3450,34 +3573,39 @@ class ToolsGUI(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(0)
 
-        tool_title = self.tool_titles.get(
-            script_name,
-            script_name.removesuffix(".py").replace("_", " "),
-        )
+        if script_name in TOOL_TITLES:
+            tool_title = translate("Tools", TOOL_TITLES[script_name])
+        else:
+            tool_title = self.tool_titles.get(
+                script_name,
+                script_name.removesuffix(".py").replace("_", " "),
+            )
         title_label = QLabel(tool_title)
         title_label.setObjectName("toolTitle")
         title_label.setStyleSheet(PRIMARY_TITLE_STYLE)
 
-        btn_run = QPushButton("Save && Run")
+        btn_run = QPushButton(translate("Tools", "Save && Run"))
         btn_run.setObjectName("saveRunButton")
-        btn_run.setToolTip(
+        btn_run.setToolTip(translate(
+            "Tools",
             "Save the current tool settings to the shared settings file "
-            "and run this tool."
-        )
+            "and run this tool.",
+        ))
         btn_run.setStyleSheet(action_button_stylesheet("#4CAF50"))
         btn_run.clicked.connect(
             lambda checked, sp=script_path: self.save_and_run(sp)
         )
 
-        btn_export = QPushButton("Export")
+        btn_export = QPushButton(translate("Tools", "Export"))
         btn_export.setObjectName("exportSettingButton")
-        btn_export.setAccessibleName("Export Settings")
-        btn_export.setToolTip(
+        btn_export.setAccessibleName(translate("Tools", "Export Settings"))
+        btn_export.setToolTip(translate(
+            "Tools",
             "Export this tool's current settings, with the directories, to a "
             "standalone JSON file in the Setting Export Directory, and show the "
             "command that runs the tool from it. The shared settings file is not "
-            "changed, and the tool does not run."
-        )
+            "changed, and the tool does not run.",
+        ))
         btn_export.setStyleSheet(action_button_stylesheet("#3498DB"))
         btn_export.clicked.connect(
             lambda checked, sp=script_path: self.export_settings(sp)
@@ -3725,7 +3853,10 @@ class ToolsGUI(QMainWindow):
         self.tab_paths.append(pseudo_path)
         
         scroll.setProperty("descriptionKey", tab_key)
-        tab_name = TAB_DISPLAY_NAMES.get(tab_key, tab_key.replace("_", " "))
+        if tab_key in TAB_DISPLAY_NAMES:
+            tab_name = translate("Tools", TAB_DISPLAY_NAMES[tab_key])
+        else:
+            tab_name = tab_key.replace("_", " ")
         self.tabs.addTab(scroll, tab_name)
 
     def switch_language(self, language, **options):
@@ -3833,23 +3964,23 @@ class ToolsGUI(QMainWindow):
     def _normalized_export_filename(raw_name):
         name = raw_name.strip()
         if not name:
-            raise ValueError("Enter a name for the exported settings file.")
+            raise ValueError(translate("Tools", "Enter a name for the exported settings file."))
         if name.lower().endswith(".json"):
             stem = name[:-5]
         else:
             stem = name
             name += ".json"
         if not stem or stem in {".", ".."}:
-            raise ValueError("Enter a valid settings filename.")
+            raise ValueError(translate("Tools", "Enter a valid settings filename."))
         if any(character in name for character in '<>:"/\\|?*'):
-            raise ValueError("The settings name cannot contain path separators or <>:\"|?*.")
+            raise ValueError(translate("Tools", "The settings name cannot contain path separators or <>:\"|?*."))
         if stem[-1] in {" ", "."}:
-            raise ValueError("The settings name cannot end with a space or period.")
+            raise ValueError(translate("Tools", "The settings name cannot end with a space or period."))
         reserved = {"CON", "PRN", "AUX", "NUL"}
         reserved.update(f"COM{index}" for index in range(1, 10))
         reserved.update(f"LPT{index}" for index in range(1, 10))
         if stem.split(".", 1)[0].upper() in reserved:
-            raise ValueError(f"'{stem}' is a reserved filename.")
+            raise ValueError(translate("Tools", "'{name}' is a reserved filename.").format(name=stem))
         return name
 
     def export_settings(self, script_path):
@@ -3857,8 +3988,8 @@ class ToolsGUI(QMainWindow):
         suggested_name = script_name.removesuffix(".py")
         raw_name, accepted = QInputDialog.getText(
             self,
-            "Export Tool Settings",
-            "Settings name:",
+            translate("Tools", "Export Tool Settings"),
+            translate("Tools", "Settings name:"),
             QLineEdit.EchoMode.Normal,
             suggested_name,
         )
@@ -3879,8 +4010,8 @@ class ToolsGUI(QMainWindow):
             if os.path.exists(target_path):
                 answer = QMessageBox.question(
                     self,
-                    "Replace Exported Settings?",
-                    f"'{target_path}' already exists. Replace it?",
+                    translate("Tools", "Replace Exported Settings?"),
+                    translate("Tools", "'{path}' already exists. Replace it?").format(path=target_path),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No,
                 )
@@ -3909,12 +4040,13 @@ class ToolsGUI(QMainWindow):
             command = format_invocation_command(invocation)
             QMessageBox.information(
                 self,
-                "Settings Exported",
-                f"Settings exported to:\n{os.path.abspath(target_path)}\n\n"
-                f"Command-line usage:\n{command}",
+                translate("Tools", "Settings Exported"),
+                translate(
+                    "Tools", "Settings exported to:\n{path}\n\nCommand-line usage:\n{command}"
+                ).format(path=os.path.abspath(target_path), command=command),
             )
         except Exception as error:
-            QMessageBox.critical(self, "Export Settings Error", str(error))
+            QMessageBox.critical(self, translate("Tools", "Export Settings Error"), display_text(error))
 
     def save_and_run(self, script_path):
         # 1. Collect current values from GUI
@@ -3927,10 +4059,13 @@ class ToolsGUI(QMainWindow):
         except ToolSettingsError as error:
             QMessageBox.critical(
                 self,
-                "Tool Not Started",
-                f"{error}\n\nThe file was left unchanged and the tool was not "
-                "started. Correct the file, or delete it to start over from the "
-                "default settings, then run the tool again.",
+                translate("Tools", "Tool Not Started"),
+                translate(
+                    "Tools",
+                    "{error}\n\nThe file was left unchanged and the tool was not "
+                    "started. Correct the file, or delete it to start over from the "
+                    "default settings, then run the tool again.",
+                ).format(error=error),
             )
             return
         tool_spec = get_tool_spec_for_script(script_path)
@@ -3949,9 +4084,10 @@ class ToolsGUI(QMainWindow):
             # saved model" in its dropdown; the script would reject it anyway.
             QMessageBox.critical(
                 self,
-                "Unsupported Model",
-                f"'{selected_model}' is no longer supported. "
-                "Choose another model before running.",
+                translate("Tools", "Unsupported Model"),
+                translate(
+                    "Tools", "'{model}' is no longer supported. Choose another model before running."
+                ).format(model=selected_model),
             )
             return
         if selected_model:
@@ -3985,7 +4121,7 @@ class ToolsGUI(QMainWindow):
                     )
                 except ValueError as error:
                     QMessageBox.critical(
-                        self, "Invalid Hardware Selection", str(error)
+                        self, translate("Tools", "Invalid Hardware Selection"), display_text(error)
                     )
                     return
 
@@ -4002,7 +4138,7 @@ class ToolsGUI(QMainWindow):
                     available_devices,
                 )
             except ValueError as error:
-                QMessageBox.critical(self, "Invalid Hardware Selection", str(error))
+                QMessageBox.critical(self, translate("Tools", "Invalid Hardware Selection"), display_text(error))
                 return
             if script_name in {
                 "Align_Similarity_Matrix.py", "Embedding_SSEARCH.py"
@@ -4015,7 +4151,7 @@ class ToolsGUI(QMainWindow):
                     )
                 except ValueError as error:
                     QMessageBox.critical(
-                        self, "Invalid Accelerator Precision", str(error)
+                        self, translate("Tools", "Invalid Accelerator Precision"), display_text(error)
                     )
                     return
                 new_settings["ACCELERATOR_PRECISION"] = precision
@@ -4025,8 +4161,8 @@ class ToolsGUI(QMainWindow):
                 ):
                     QMessageBox.critical(
                         self,
-                        "Invalid Accelerator Precision",
-                        "TF32 requires an available NVIDIA CUDA device.",
+                        translate("Tools", "Invalid Accelerator Precision"),
+                        translate("Tools", "TF32 requires an available NVIDIA CUDA device."),
                     )
                     return
                 if precision == "bf16" and not _selection_supports_bf16(
@@ -4035,9 +4171,12 @@ class ToolsGUI(QMainWindow):
                 ):
                     QMessageBox.critical(
                         self,
-                        "Invalid Accelerator Precision",
-                        "BF16 requires a CUDA/ROCm, XPU, or MPS accelerator "
-                        "that passes the runtime BF16 capability probe.",
+                        translate("Tools", "Invalid Accelerator Precision"),
+                        translate(
+                            "Tools",
+                            "BF16 requires a CUDA/ROCm, XPU, or MPS accelerator "
+                            "that passes the runtime BF16 capability probe.",
+                        ),
                     )
                     return
             if script_name in {
@@ -4049,7 +4188,7 @@ class ToolsGUI(QMainWindow):
                     )
                 except ValueError as error:
                     QMessageBox.critical(
-                        self, "Invalid Execution Mode", str(error)
+                        self, translate("Tools", "Invalid Execution Mode"), display_text(error)
                     )
                     return
                 if execution_mode == "tiled":
@@ -4081,13 +4220,19 @@ class ToolsGUI(QMainWindow):
                     if not eligible:
                         QMessageBox.critical(
                             self,
-                            "Invalid Execution Mode",
+                            translate("Tools", "Invalid Execution Mode"),
                             (
-                                "Tiled alignment requires an available "
-                                "CUDA/ROCm, XPU, or MPS accelerator."
+                                translate(
+                                    "Tools",
+                                    "Tiled alignment requires an available "
+                                    "CUDA/ROCm, XPU, or MPS accelerator.",
+                                )
                                 if script_name == "Align_Similarity_Matrix.py"
-                                else "Tiled execution requires an available "
-                                "CUDA/ROCm or XPU accelerator."
+                                else translate(
+                                    "Tools",
+                                    "Tiled execution requires an available "
+                                    "CUDA/ROCm or XPU accelerator.",
+                                )
                             ),
                         )
                         return
@@ -4100,8 +4245,8 @@ class ToolsGUI(QMainWindow):
                     if not math.isfinite(host_cache_value) or host_cache_value < 0:
                         QMessageBox.critical(
                             self,
-                            "Invalid Host Cache",
-                            "Host Cache must be 'auto' or a non-negative GiB value.",
+                            translate("Tools", "Invalid Host Cache"),
+                            translate("Tools", "Host Cache must be 'auto' or a non-negative GiB value."),
                         )
                         return
 
@@ -4116,7 +4261,10 @@ class ToolsGUI(QMainWindow):
                 base_document=combined_settings,
             )
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save JSON settings:\n{e}")
+            QMessageBox.critical(
+                self, translate("Tools", "Error"),
+                translate("Tools", "Failed to save JSON settings:\n{error}").format(error=e),
+            )
             return
             
         # 4. Run the script
@@ -4137,10 +4285,16 @@ class ToolsGUI(QMainWindow):
                 title=script_name,
             )
             
-            QMessageBox.information(self, "Success", f"Saved configuration to JSON and launched {script_name}.")
+            QMessageBox.information(
+                self, translate("Tools", "Success"),
+                translate("Tools", "Saved configuration to JSON and launched {tool}.").format(tool=script_name),
+            )
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to run {script_path}:\n{e}")
+            QMessageBox.critical(
+                self, translate("Tools", "Error"),
+                translate("Tools", "Failed to run {path}:\n{error}").format(path=script_path, error=e),
+            )
 
 if __name__ == "__main__":
     existing_qt_application = QApplication.instance()
@@ -4157,7 +4311,11 @@ if __name__ == "__main__":
             is_primary_instance = single_instance.acquire_or_notify()
         except RuntimeError as error:
             QMessageBox.critical(
-                None, f"{TOOLS_DISPLAY_NAME} Startup Error", str(error)
+                None,
+                translate("Tools", "{window} Startup Error").format(
+                    window=translate("Tools", TOOLS_DISPLAY_NAME)
+                ),
+                str(error),
             )
             raise SystemExit(1)
         if not is_primary_instance:
@@ -4180,10 +4338,13 @@ if __name__ == "__main__":
     # the Qt platform plugin itself is broken no window can appear, and the
     # launchers run in a terminal where the printed copy is still readable.
     if QTWEBENGINE_IMPORT_ERROR is not None:
-        message = QTWEBENGINE_MISSING_MESSAGE.format(error=QTWEBENGINE_IMPORT_ERROR)
-        print(message, file=sys.stderr)
+        print(QTWEBENGINE_MISSING_MESSAGE.format(error=QTWEBENGINE_IMPORT_ERROR), file=sys.stderr)
         try:
-            QMessageBox.critical(None, "Missing QtWebEngine libraries", message)
+            QMessageBox.critical(
+                None,
+                translate("Tools", "Missing QtWebEngine libraries"),
+                translate("Tools", QTWEBENGINE_MISSING_MESSAGE).format(error=QTWEBENGINE_IMPORT_ERROR),
+            )
         except Exception:
             pass
         sys.exit(1)

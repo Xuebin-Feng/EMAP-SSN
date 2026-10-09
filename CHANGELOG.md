@@ -107,6 +107,13 @@ still change before version 1.0.0.
   score histogram draws its title and legend in the window's language, Simplified
   Chinese with the bundled font. The update command also refuses calls whose text or
   count Qt's `lupdate` would miss: arguments passed by name, and a counted `tr()`.
+- **The Tools window is ready to translate.** Its labels, tips, dropdown choices, card
+  and tab titles, help-panel notes, messages, the external model license dialog and the
+  names a screen reader speaks all come from the catalog. Names stay as written: file
+  and model names, devices, substitution matrices such as BLOSUM62, and float32. The
+  tool help pages in `src/tools/tool_descriptions/` stay English. The update command
+  now also refuses a text whose lines a backslash joins, which `lupdate` reads with a
+  line break the code never shows.
 
 ### Changed
 

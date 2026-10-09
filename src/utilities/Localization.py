@@ -167,7 +167,9 @@ def QT_TRANSLATE_NOOP(context, text):
 _FILL_IN_PATTERNS = (
     r"\{\{|\}\}|\{[^{}]*\}",                                # str.format fields, {{ and }}
     r"%L?(?:n|[1-9]\d?)",                                   # Qt's %n and %1 ... %99
-    r"%(?:\([^)]*\))?[-#0 +]*\d*(?:\.\d+)?[sdifrxXeEgGc%]",  # printf codes
+    # printf codes. Without the space flag, so the percent sign of
+    # "50% disk space" or "2.00% coverage" stays plain text.
+    r"%(?:\([^)]*\))?[-#0+]*\d*(?:\.\d+)?[sdifrxXeEgGc%]",
 )
 _FILL_INS = re.compile("|".join(_FILL_IN_PATTERNS))
 _KEPT_AS_WRITTEN = re.compile("|".join(_FILL_IN_PATTERNS + (

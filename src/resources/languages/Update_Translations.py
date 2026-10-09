@@ -21,9 +21,9 @@ A counted text, such as translate("Config", "%n file(s)", None, count),
 needs a plural form per language. lupdate sees the count of translate()
 only when it is a number as written, and drops the text when it is a call
 such as len(files), so the temporary copy writes 0 in its place. lupdate
-also drops or miscounts a text whose call names its arguments, and a
-counted tr() would show English as "1 file(s)", so the update refuses
-those.
+also drops or miscounts a text whose call names its arguments, keeps the
+new line where a backslash ends a line inside a text, and a counted tr()
+would show English as "1 file(s)", so the update refuses those.
 
 It rewrites emapssn.ts, the list of every text, and merges the texts into
 each language's catalog, emapssn_<language>.ts, keeping its translations. A
@@ -40,12 +40,14 @@ without running the update fails the tests.
 
 import argparse
 import ast
+import io
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tokenize
 
 LANGUAGES_DIR = Path(__file__).resolve().parent
 SRC_DIR = LANGUAGES_DIR.parents[1]
@@ -127,6 +129,28 @@ def _is_count_as_written(node):
     return isinstance(node, ast.Constant) and type(node.value) is int
 
 
+# An odd run of backslashes before a newline: the last one joins the lines.
+_LINE_JOIN = re.compile(r"(?<!\\)(?:\\\\)*\\\n")
+
+
+def _joins_lines(text, node):
+    """Whether a string literal of node ends a line with a backslash.
+
+    Python joins the lines, but lupdate keeps the newline, so the catalog
+    would list a text the code never shows.
+    """
+    segment = ast.get_source_segment(text, node) or ""
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(segment).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return False
+    return any(token.type == tokenize.STRING and _LINE_JOIN.search(token.string) for token in tokens)
+
+
+_LINE_JOIN_ADVICE = ("ends a line with a backslash inside the text, which lupdate reads as a new "
+                     "line. Write the text without it, or join plain literals.")
+
+
 def _column(line, offset):
     """The character column of ast's offset, which counts UTF-8 bytes, in line."""
     return len(line.encode("utf-8")[:offset].decode("utf-8"))
@@ -167,6 +191,8 @@ def prepare_source(text, filename):
             problem(node, "Message needs its English template as a plain string, not an f-string "
                           "or a variable, so the catalog can list it.")
             return
+        if _joins_lines(text, template):
+            problem(node, f"Message's template {_LINE_JOIN_ADVICE}")
         counted = "%n" in template.value
         if counted and not {keyword.arg for keyword in node.keywords} & {"n", None}:
             problem(node, "Message's template holds %n, Qt's count, so it needs the count as n=, "
@@ -203,6 +229,8 @@ def prepare_source(text, filename):
             problem(node, f"{name}() names its arguments, so lupdate would drop the text or miss "
                           'its count. Pass them in order, as in self.tr("%n file(s)", "", count).')
             continue
+        if _joins_lines(text, source):
+            problem(node, f"{name}() gets a text that {_LINE_JOIN_ADVICE}")
         count = _COUNT_ARGUMENT.get(name)
         counted = count is not None and len(node.args) > count
         if counted and name == "tr":

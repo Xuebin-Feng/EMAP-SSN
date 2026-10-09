@@ -317,6 +317,11 @@ class FillInTests(unittest.TestCase):
         self.assertEqual(fill_ins("%s is 100%% and %(name)d"), ["%(name)d", "%s"])
         self.assertEqual(fill_ins("<b>Bold</b> &amp; *.fasta"), [])
 
+    def test_a_percent_sign_before_a_word_is_plain_text(self):
+        self.assertEqual(fill_ins("Float16 saves 50% disk space ({coverage:.2f}% coverage)"),
+                         ["{coverage:.2f}"])
+        self.assertEqual(fill_ins("Min % Drop Threshold: %d of %-5d"), ["%-5d", "%d"])
+
 
 class CatalogReadingTests(unittest.TestCase):
     CATALOG = """<?xml version="1.0" encoding="utf-8"?>
