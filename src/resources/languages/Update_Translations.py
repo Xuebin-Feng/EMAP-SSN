@@ -15,7 +15,10 @@ The update collects every text marked for translation in src:
 * the English template of every Message("...", ...), the Viewer's console
   line, filed under the "Message" context. lupdate can't read a Message, so
   in a temporary copy of the code each one gets a QT_TRANSLATE_NOOP on the
-  same line, and translators still see the real file and line.
+  same line, and translators still see the real file and line;
+* the texts of the web pages the Viewer serves (web_ui/Page_Texts.py tells
+  how a page marks them), filed under each page's context. The temporary
+  copy of a page holds only a QT_TRANSLATE_NOOP per text, on its line.
 
 A counted text, such as translate("Config", "%n file(s)", None, count),
 needs a plural form per language. lupdate sees the count of translate()
@@ -69,6 +72,9 @@ from utilities.Localization import (  # noqa: E402
 
 LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(?:_[A-Z][a-z]{3})?(?:_[A-Z]{2})?$")
 _MARKER_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+# lupdate reads .py files as Python, .js as JavaScript and any other, such
+# as a staged page's .html, as C++; each reads a QT_TRANSLATE_NOOP.
+_SCANNED_EXTENSIONS = "py,html,js"
 # lupdate's own progress lines; anything else it prints is worth showing.
 _LUPDATE_PROGRESS = re.compile(
     r"^\s*(Scanning directory|Updating|Found \d+ source text|Removed \d+ obsolete)"
@@ -92,10 +98,19 @@ def message_marker(template, counted=False):
     QT_TRANSLATE_NOOP("Message", template), or for a counted template,
     whose plural forms need a count, translate("Message", template, None, 0).
     """
-    literal = "".join(_MARKER_ESCAPES.get(character, character) for character in template)
+    literal = _marker_literal(template)
     if counted:
         return f'QCoreApplication.translate("{MESSAGE_CONTEXT}", "{literal}", None, 0), '
     return f'QT_TRANSLATE_NOOP("{MESSAGE_CONTEXT}", "{literal}"), '
+
+
+def _marker_literal(text):
+    return "".join(_MARKER_ESCAPES.get(character, character) for character in text)
+
+
+def page_marker(context, text):
+    """A page's text as lupdate reads it in the page's staged copy, then a space."""
+    return f'QT_TRANSLATE_NOOP("{context}", "{_marker_literal(text)}"); '
 
 
 # The argument that holds the text, for each way of marking one, and the
@@ -310,6 +325,37 @@ def stage_sources(source_dir, stage_dir, skip=None, shared=frozenset()):
     return problems
 
 
+def stage_pages(source_dir, stage_dir):
+    """Write lupdate's view of each web page under source_dir into stage_dir.
+
+    lupdate can't read a page's markup or its t() calls, so the staged copy
+    of a page (web_ui/Page_Texts.py lists them) holds only a page_marker
+    per marked text, on the text's own line. Returns the problems found.
+    """
+    from web_ui.Page_Texts import PAGE_CONTEXTS, read_page
+
+    problems = []
+    for relative, context in PAGE_CONTEXTS.items():
+        path = Path(source_dir) / relative
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8-sig")
+        page = read_page(source, path.suffix)
+        problems += [f"{relative}:{line}: {explanation}" for line, explanation in page.problems]
+        lines = [""] * (source.count("\n") + 1)
+        for text in page.texts:
+            if "\\" in text.text and path.suffix == ".js":
+                # lupdate reads a script's escapes twice, so "\\" comes out as nothing.
+                problems.append(f"{relative}:{text.line}: {text.text!r} holds a backslash, which lupdate "
+                                "misreads in a script. Write the text without one.")
+                continue
+            lines[text.line - 1] += page_marker(context, text.text)
+        target = Path(stage_dir) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    return problems
+
+
 def run_qt_tool(name, arguments):
     """Run lupdate or lrelease. Returns what it printed beyond its progress lines."""
     result = subprocess.run(
@@ -401,10 +447,11 @@ def update_catalogs(
         stage_languages = stage / languages_dir.relative_to(source_dir)
         stage_languages.mkdir(parents=True)
         problems += stage_sources(source_dir, stage, skip=languages_dir.relative_to(source_dir), shared=shared)
+        problems += stage_pages(source_dir, stage)
 
         fresh_template = stage_languages / template.name
         for line in run_qt_tool("lupdate", [
-            "-extensions", "py", "-source-language", "en", "-locations", "none", "-no-obsolete",
+            "-extensions", _SCANNED_EXTENSIONS, "-source-language", "en", "-locations", "none", "-no-obsolete",
             stage, "-ts", fresh_template,
         ]):
             report(f"lupdate: {line}")
@@ -443,7 +490,7 @@ def update_catalogs(
                         encoding="utf-8", newline="\n",
                     )
             for line in run_qt_tool("lupdate", [
-                "-extensions", "py", "-source-language", "en", "-locations", "relative",
+                "-extensions", _SCANNED_EXTENSIONS, "-source-language", "en", "-locations", "relative",
                 stage, "-ts", *staged.values(),
             ]):
                 report(f"lupdate: {line}")

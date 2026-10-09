@@ -19,6 +19,8 @@ import uuid
 
 from PySide6 import QtCore
 
+from utilities.Localization import Message
+
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'skipped'}
 CURRENT = ContextVar('viewer_command_context', default=None)
 # Commands from these sources are checked against the catalog's agent policy
@@ -176,16 +178,18 @@ class ViewerCommandPortal(QtCore.QObject):
                     messages=[], artifacts=[], jobs=[], children=[], dispatched=False)
 
     def submit(self, submission_id, commands, source='mcp'):
+        # The errors an agent reply can meet hold Messages, which the Agent
+        # page shows translated; str() keeps them English for MCP clients.
         if self._closed:
-            raise ValueError('Viewer command portal is shutting down.')
+            raise ValueError(Message('Viewer command portal is shutting down.'))
         if not isinstance(submission_id, str) or not 1 <= len(submission_id) <= 128:
             raise ValueError('submission_id must be a client-generated string of 1..128 characters')
         if isinstance(commands, str):
             commands = [commands]
         if not isinstance(commands, list) or not 1 <= len(commands) <= 100:
-            raise ValueError('commands must contain 1..100 command strings')
+            raise ValueError(Message('commands must contain 1..100 command strings'))
         if any(not isinstance(c, str) or not c.strip() or '\n' in c or '\r' in c or len(c) > 8192 for c in commands):
-            raise ValueError('Each command must be a nonempty single line of at most 8192 characters')
+            raise ValueError(Message('Each command must be a nonempty single line of at most 8192 characters'))
         signature = hashlib.sha256(json.dumps([commands, source], ensure_ascii=False).encode()).hexdigest()
         if submission_id in self.submissions:
             old_signature, request_id = self.submissions[submission_id]
@@ -195,7 +199,7 @@ class ViewerCommandPortal(QtCore.QObject):
                 raise ValueError('Submission already executed; its result was evicted. It will not be executed again.')
             return self.get(request_id)
         if len(self.queue) >= 100:
-            raise ValueError('Viewer command queue is full; retry later with the same submission_id')
+            raise ValueError(Message('Viewer command queue is full; retry later with the same submission_id'))
         records = [self.new_command(c.strip()) for c in commands]
         if source in REVIEWED_SOURCES:
             from desktop.Command_Metadata import agent_policy
@@ -292,7 +296,7 @@ class ViewerCommandPortal(QtCore.QObject):
             raise ValueError('run must be true or false')
         record = next((c for c in self.requests[request_id]['commands'] if c['command_id'] == command_id), None)
         if record is None or record.get('approval') != 'pending' or record['status'] != 'awaiting_user_input':
-            raise ValueError('That command is not waiting to be run or discarded.')
+            raise ValueError(Message('That command is not waiting to be run or discarded.'))
         if run:
             record.update(approval='approved', status='queued')
         else:
@@ -333,7 +337,7 @@ class ViewerCommandPortal(QtCore.QObject):
             if request_id not in self.requests:
                 raise ValueError('Submission is known but its result was evicted from this Viewer')
         if request_id not in self.requests:
-            raise ValueError('Command request is unknown or evicted from this Viewer')
+            raise ValueError(Message('Command request is unknown or evicted from this Viewer'))
         return request_id
 
     def get(self, request_id=None, offset=0, limit=25, command_id=None, artifact_offset=0, artifact_limit=25, submission_id=None):

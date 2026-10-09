@@ -43,6 +43,8 @@ class FixtureHandler(WebServerHandler):
             return
         if path == '/agent':
             file = ROOT / 'src/web_ui/agent.html'
+        elif path == '/page_text.js':
+            file = ROOT / 'src/web_ui/page_text.js'
         elif path.startswith('/agent_resource/') and name in AGENT_RESOURCES:
             file = ROOT / 'src/resources/agent' / name
         else:

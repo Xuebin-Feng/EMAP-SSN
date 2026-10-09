@@ -165,6 +165,16 @@ still change before version 1.0.0.
   which `Update_Translations_VR.py` keeps beside the main one. `install_translations`
   takes a window's extra catalogs, and `update_catalogs` can keep a catalog that leaves
   out another catalog's texts.
+- **The Agent page is ready to translate.** The browser page the Viewer opens for the
+  agent marks its texts: `data-i18n` on an element whose content is one text, its
+  titles, placeholders and screen-reader names, and `t()` in its scripts. As the Viewer's
+  web server serves the page, it writes each text in the Viewer's language
+  (`src/web_ui/Page_Texts.py`), so the page takes its texts from the windows' catalogs,
+  under `AgentPage`, and needs none of its own. The update command collects them. What
+  the Viewer sends the page comes in the same language: an agent turn's errors, model
+  card problems, a refused image or Viewer capture, and a command the agent may not run.
+  The terminal and MCP clients keep the English. The ESMFold page stays English: it is
+  Mol*'s own interface, which has no translations.
 
 ### Changed
 

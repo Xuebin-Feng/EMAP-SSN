@@ -2,6 +2,373 @@
 <!DOCTYPE TS>
 <TS version="2.1" sourcelanguage="en">
 <context>
+    <name>AgentPage</name>
+    <message>
+        <source>Processing…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove attachment: {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove attachment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A message can contain at most 10 image attachments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each image must be nonempty and at most 20 MiB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only image files are accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Image validation failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This browser cannot decode this image. Use a supported static image format.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pasted image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name}: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer capture</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer capture timed out. Try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not confirm submission. Press Send to retry the same message. Your draft is retained.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN Agent Chat</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🤖 EMAP-SSN Agent Chat</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🌙 Dark Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent Control Panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deactivated</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle agent on/off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select model card</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Manage model cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>⚙ Models</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear Chat</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pending image attachments</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ask the agent a question or give a command...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Capture Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Capture&lt;br&gt;Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Send</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>⚙ Model Cards</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Close panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>+ Add Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>💾 Save</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>queued</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>running</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>awaiting user input</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>succeeded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>cancelled</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>skipped</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>☀️ Light Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the Viewer answered HTTP {status}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>it must contain a JSON object whose &quot;cards&quot; is a list of objects</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>it is not valid JSON</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model cards could not be loaded from model_card.json ({reason}). Changes made on this page will not be saved: correct the file, or delete it to start over from the default cards, then reload this page.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model {number}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Using the saved settings of &quot;{model}&quot;: press 💾 Save to use the edits made here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>this model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>✓ Saved!</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drag to reorder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expand / collapse</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>e.g. My Ollama</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Base URL</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>e.g. qwen2.5:1.5b (leave blank = auto)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Temperature</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>API Key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>sk-... (leave blank if not needed)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom Options (JSON)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>e.g. {example}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cannot remove the last model card.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Chat history and context memory cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reconnecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer commands: {status}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The agent wants to run {command}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Run</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Discard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent active: {model}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent is inactive. Select a model and press the toggle button to activate.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>LLM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent deactivated.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent activated: {model}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{model} (Analyzing results)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>⏳ Thinking ({model})...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Assistant</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Thought Process</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Executed Command(s)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Terminal Output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tokens: {total} ({prompt} prompt, {completion} completion)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Requests: {requests}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Request failed (HTTP {status}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied!</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Config</name>
     <message>
         <source>EMAP-SSN Configuration</source>
@@ -2547,6 +2914,46 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Viewer command portal is shutting down.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>commands must contain 1..100 command strings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each command must be a nonempty single line of at most 8192 characters</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer command queue is full; retry later with the same submission_id</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>That command is not waiting to be run or discarded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Command request is unknown or evicted from this Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer canvas is unavailable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Associated command request has not finished</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer canvas capture failed: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This headless Viewer has no OpenGL context to render with; relaunch it in normal mode to capture the view.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The file was left unchanged: correct it, or delete it to start over from the default cards.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2560,6 +2967,10 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>{path} must contain a JSON object whose &quot;cards&quot; is a list of objects.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the request must contain a non-empty &quot;cards&quot; list of objects</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2589,6 +3000,110 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>LLM Agent Deactivated. Unloaded: {model} ({backend})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No response received from LLM.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid submission ID.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This Viewer already has an active agent turn.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>LLM is not loaded. Select a model and activate it in the Agent UI.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enter a message or attach an image.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>System prompt file missing at {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not read prompt file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reload the Agent page to switch models.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model cards could not be loaded: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This model is not saved yet: press 💾 Save in ⚙ Models, then switch the agent on again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model cards were not saved: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each image must be nonempty and at most 20 MiB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only image files are accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SVG must be static and self-contained, without animation or embedded images.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Animated or external SVG styles are not accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SVG must be static and self-contained.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid or unsupported image file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Animated and multi-frame images are not accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Multi-frame icons are not accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid or unsupported image file; only decodable static images are accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A message can contain at most 10 image attachments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid image attachment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Attachments must be PNG images of at most 20 MiB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Attachments must be PNG images no larger than 1600 pixels per side.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid PNG attachment.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

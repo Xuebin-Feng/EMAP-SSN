@@ -81,9 +81,50 @@ EXPECTED_TEXTS = {
 }
 COUNTED_TEXTS = {"%n file(s)", "%n folder(s)", "Removed %n group(s) from {name}."}
 
+# A web page and its script, at the paths web_ui/Page_Texts.py names the
+# Agent page's. Its markup, attributes and t() calls mark texts with what
+# a marker must escape: quotes, a tag and a placeholder.
+AGENT_PAGE = '''<!DOCTYPE html>
+<html lang="en">
+<head><title data-i18n>Demo page</title></head>
+<body>
+<button title='Says "hi"' data-i18n>Say <b>hi</b></button>
+<p>Unmarked text is the tests' business, not the update's.</p>
+<script>
+const shown = t("Shown {count}", {count: 1});
+</script>
+</body>
+</html>
+'''
+ATTACHMENTS = "\n\nconst later = () => t('It\\'s \"quoted\"');\n"
+PAGE_TEXTS = {
+    ("AgentPage", "Demo page"), ("AgentPage", 'Says "hi"'), ("AgentPage", "Say <b>hi</b>"),
+    ("AgentPage", "Shown {count}"), ("AgentPage", 'It\'s "quoted"'),
+}
+
 
 def texts(catalog):
     return {(message.context, message.source) for message in read_catalog(catalog)}
+
+
+def locations(catalog):
+    """{(context, source): (file, line)} of each text in a catalog lupdate wrote with relative locations.
+
+    A location names its file only when it changes, and counts its line
+    from the one before it in the same file.
+    """
+    from xml.etree import ElementTree
+
+    found, last_line, filename = {}, {}, None
+    for context in ElementTree.parse(catalog).getroot().iter("context"):
+        for message in context.iter("message"):
+            for location in message.iter("location"):
+                filename = location.get("filename", filename)
+                line = location.get("line")
+                line = last_line.get(filename, 0) + int(line) if line[0] in "+-" else int(line)
+                last_line[filename] = line
+                found.setdefault((context.findtext("name"), message.findtext("source")), (filename, line))
+    return found
 
 
 def translate_in(catalog, source, translation):
@@ -405,6 +446,41 @@ class UpdateCommandTests(unittest.TestCase):
                          ["emapssn_own.ts", "emapssn_own_de.qm", "emapssn_own_de.ts"])
         self.assertEqual(update_catalogs(own, languages, check=True, **options), 0, self.lines)
 
+    def write_pages(self, page=AGENT_PAGE, script=ATTACHMENTS):
+        (self.src / "web_ui").mkdir(exist_ok=True)
+        (self.src / "web_ui" / "agent.html").write_text(page, encoding="utf-8")
+        (self.src / "resources" / "agent").mkdir(parents=True, exist_ok=True)
+        (self.src / "resources" / "agent" / "attachments.js").write_text(script, encoding="utf-8")
+
+    def test_a_pages_texts_are_listed_under_its_context_at_their_lines(self):
+        self.write_pages()
+        code = self.snapshot()
+        self.assertEqual(self.update(add=["de"]), 0, self.lines)
+        self.assertEqual(texts(self.translations / "emapssn.ts"), EXPECTED_TEXTS | PAGE_TEXTS)
+        self.assertEqual(self.snapshot().items() & code.items(), code.items())
+        found = locations(self.translations / "emapssn_de.ts")
+        page, script = "../../web_ui/agent.html", "../agent/attachments.js"
+        self.assertEqual(found[("AgentPage", "Demo page")], (page, 3))
+        self.assertEqual(found[("AgentPage", 'Says "hi"')], (page, 5))
+        self.assertEqual(found[("AgentPage", "Say <b>hi</b>")], (page, 5))
+        self.assertEqual(found[("AgentPage", "Shown {count}")], (page, 8))
+        self.assertEqual(found[("AgentPage", 'It\'s "quoted"')], (script, 3))
+        translate_in(self.translations / "emapssn_de.ts", "Shown {count}", "Gezeigt")
+        self.assertEqual(self.update(), 1)
+        self.assertTrue(any("'Gezeigt'" in line and "['{count}']" in line for line in self.lines), self.lines)
+
+    def test_a_page_text_no_catalog_can_list_fails_the_update(self):
+        self.write_pages(page="<script>\nt(`Built ${n}`);\n</script>\n<p data-i18n>%n pages</p>\n",
+                         script="t('Back\\\\slash');\n")
+        self.assertEqual(self.update(), 1)
+        self.assertTrue(any(line.startswith("web_ui/agent.html:2: t() needs its English text as a plain string")
+                            for line in self.lines), self.lines)
+        self.assertTrue(any(line.startswith("web_ui/agent.html:4: '%n pages' holds %n") for line in self.lines),
+                        self.lines)
+        # lupdate reads a script's escapes twice; a page's own <script> it reads right.
+        self.assertTrue(any(line.startswith("resources/agent/attachments.js:1: 'Back\\\\slash' holds a backslash")
+                            for line in self.lines), self.lines)
+
     def test_a_language_must_be_a_language_code(self):
         for language in ("german", "DE", "de-DE", "../de"):
             with self.subTest(language=language), self.assertRaises(ValueError):
@@ -450,6 +526,22 @@ class RepositoryCatalogTests(unittest.TestCase):
                 if key not in listed:
                     missing.append(f"{path.relative_to(SRC).as_posix()}:{node.lineno}: {key[1][:60]!r}")
         self.assertGreater(checked, 500)
+        self.assertEqual(missing, [])
+
+    def test_the_catalog_lists_each_page_text_as_the_page_reads_it(self):
+        # The update shows lupdate a page's texts as markers, and the Viewer's
+        # web server translates what the page holds; the two must agree.
+        from web_ui.Page_Texts import PAGE_CONTEXTS, read_page
+
+        listed = texts(Update_Translations.LANGUAGES_DIR / "emapssn.ts")
+        missing, checked = [], 0
+        for relative, context in PAGE_CONTEXTS.items():
+            path = SRC / relative
+            for text in read_page(path.read_text(encoding="utf-8"), path.suffix).texts:
+                checked += 1
+                if (context, text.text) not in listed:
+                    missing.append(f"{relative}:{text.line}: {text.text[:60]!r}")
+        self.assertGreater(checked, 90)
         self.assertEqual(missing, [])
 
 

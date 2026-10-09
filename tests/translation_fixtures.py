@@ -9,11 +9,13 @@ PSEUDO_LANGUAGE)), a text that came from a catalog is bracketed, so in
 visible_texts() the unbracketed ones are text never marked for translation,
 and cut_off_texts() lists translated text a window doesn't show whole.
 outside_the_catalog() finds the untranslated part of a message the code put
-together. pseudo_language() installs the pseudo-language for one test.
+together. pseudo_language() installs the pseudo-language for one test, and
+unmarked_page_texts() reads a web page's code for text it shows unmarked.
 
 Not collected by unittest; import with ``from tests.translation_fixtures import ...``.
 """
 import ast
+import bisect
 import re
 
 from PySide6 import QtGui
@@ -350,3 +352,132 @@ def pseudo_language(test_case, app, catalog_dir=LANGUAGES_DIR):
     installed = install_translations(app, PSEUDO_LANGUAGE, catalog_dir=catalog_dir)
     test_case.addCleanup(installed.remove)
     return installed
+
+
+# How a web page's scripts show text, which they mark with t()
+# (web_ui/Page_Texts.py): the properties they set to it, the functions and
+# DOM methods they call with it, the attributes setAttribute gives it, and
+# the keys of the objects that carry it, such as a Tabulator column's title.
+PAGE_TEXT_PROPERTIES = frozenset({
+    "textContent", "innerText", "innerHTML", "outerHTML", "title", "placeholder", "alt", "ariaLabel",
+})
+PAGE_TEXT_CALLS = frozenset({
+    "alert", "confirm", "prompt", "Error", "appendSystemMsg", "appendErrorMsg", "attachmentNotice", "showStatus",
+})
+PAGE_TEXT_METHODS = frozenset({"append", "prepend", "insertAdjacentText", "insertAdjacentHTML", "replaceChildren"})
+PAGE_TEXT_ATTRIBUTES = frozenset({"aria-label", "title", "placeholder", "alt"})
+PAGE_TEXT_KEYS = frozenset({"label", "placeholder", "title", "error"})
+_COMPARISONS = frozenset({"===", "!==", "==", "!="})
+_LINK = re.compile(r"https?://\S+")
+
+
+def _shows_letters(text):
+    """Whether a page shows letters for text: its markup and links don't count."""
+    return _has_letter(_LINK.sub("", re.sub(r"<[^>]*>", "", text)))
+
+
+def _closing(tokens, opening):
+    """The index of the bracket that closes tokens[opening]."""
+    depth = 0
+    for index in range(opening, len(tokens)):
+        token = tokens[index]
+        if token.kind == "punct" and token.value in "([{":
+            depth += 1
+        elif token.kind == "punct" and token.value in ")]}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return len(tokens)
+
+
+def _expression_end(tokens, start, stops):
+    """Where the expression at tokens[start] ends: at a stop of its own depth, or an outer bracket."""
+    depth = 0
+    for index in range(start, len(tokens)):
+        token = tokens[index]
+        if token.kind != "punct":
+            continue
+        if token.value in "([{":
+            depth += 1
+        elif token.value in ")]}":
+            if depth == 0:
+                return index
+            depth -= 1
+        elif depth == 0 and token.value in stops:
+            return index
+    return len(tokens)
+
+
+def _unmarked_literals(tokens, start, end, line_of, found):
+    """Add the literals with letters in tokens[start:end] that no t() marks, as (line, text), to found.
+
+    A string compared with ===, or passed to a method such as replaceAll,
+    is not shown. A template is never t()'s text, so a letter in its
+    literal parts, outside markup, is unmarked.
+    """
+    from web_ui.Page_Texts import is_t_call
+
+    index = start
+    while index < end:
+        token = tokens[index]
+        follows = tokens[index + 1] if index + 1 < len(tokens) else None
+        if (token.kind == "punct" and token.value in (".", "?.") and follows is not None and follows.kind == "name"
+                and follows.value not in PAGE_TEXT_METHODS and index + 2 < end and tokens[index + 2].value == "("):
+            index = _closing(tokens, index + 2) + 1
+            continue
+        if token.kind == "string":
+            text = index >= 2 and tokens[index - 1].value == "(" and is_t_call(tokens, index - 2)
+            compared = (tokens[index - 1].value in _COMPARISONS if index else False) or (
+                follows is not None and follows.value in _COMPARISONS)
+            if not text and not compared and _shows_letters(token.value):
+                found.append((line_of(token.start), token.value))
+        elif token.kind == "template":
+            found.extend((line_of(part_start), part) for part, part_start, _ in token.parts if _shows_letters(part))
+            for expression in token.expressions:
+                _unmarked_literals(expression, 0, len(expression), line_of, found)
+        index += 1
+
+
+def _unmarked_script_texts(tokens, line_of, found):
+    for index, token in enumerate(tokens):
+        for expression in token.expressions:
+            _unmarked_script_texts(expression, line_of, found)
+        ahead = [tokens[index + step] if index + step < len(tokens) else None for step in (1, 2, 3)]
+        if token.kind == "punct" and token.value in (".", "?.") and ahead[0] is not None and ahead[0].kind == "name":
+            name, after = ahead[0].value, ahead[1]
+            if name in PAGE_TEXT_PROPERTIES and after is not None and after.value in ("=", "+="):
+                end = _expression_end(tokens, index + 3, (";", ","))
+                _unmarked_literals(tokens, index + 3, end, line_of, found)
+            elif name in PAGE_TEXT_METHODS and after is not None and after.value == "(":
+                _unmarked_literals(tokens, index + 3, _closing(tokens, index + 2), line_of, found)
+            elif (name == "setAttribute" and after is not None and after.value == "(" and ahead[2] is not None
+                  and ahead[2].kind == "string" and ahead[2].value in PAGE_TEXT_ATTRIBUTES):
+                _unmarked_literals(tokens, index + 4, _closing(tokens, index + 2), line_of, found)
+        elif token.kind == "name" and token.value in PAGE_TEXT_CALLS and ahead[0] is not None and ahead[0].value == "(":
+            _unmarked_literals(tokens, index + 2, _closing(tokens, index + 1), line_of, found)
+        elif (token.kind in ("name", "string") and token.value in PAGE_TEXT_KEYS and ahead[0] is not None
+              and ahead[0].value == ":" and index and tokens[index - 1].value in ("{", ",")):
+            end = _expression_end(tokens, index + 2, (",",))
+            _unmarked_literals(tokens, index + 2, end, line_of, found)
+
+
+def unmarked_page_texts(source, suffix):
+    """(line, text) for each text a web page shows that no catalog supplies.
+
+    source is a page, or one of its scripts by suffix (".js"). That is text
+    an element shows outside any data-i18n element, and the literals with a
+    letter that its scripts show without t(): set as an element's text or
+    title, given to alert() or new Error(), and the like.
+    """
+    from web_ui.Page_Texts import read_page
+
+    page = read_page(source, suffix)
+    found = list(page.unmarked)
+    line_starts = [0] + [match.end() for match in re.finditer("\n", source)]
+
+    def line_of(offset):
+        return bisect.bisect_right(line_starts, offset)
+
+    for tokens in page.scripts:
+        _unmarked_script_texts(tokens, line_of, found)
+    return sorted(set(found))

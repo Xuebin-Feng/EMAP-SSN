@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts. The tool help pages (`src/tools/tool_descriptions/`) stay English. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent page the Viewer opens in the browser. The metadata page and the tool help pages (`src/tools/tool_descriptions/`) are still English. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -114,6 +114,22 @@ Rephrase a sentence whose other words change with the count, such as "%n file(s)
 
 A text has one count. A message with two counts its first with `%n` and fills in the other as a counted `Message` of its own: `Message("Removed %n group(s) from {instances}.", n=len(groups), instances=Message("%n total node instance(s)", n=removed))`.
 
+## Web pages
+
+The Viewer's browser pages take their text from the same catalogs, each page under a context of its own, such as `AgentPage`. `PAGE_CONTEXTS` in `src/web_ui/Page_Texts.py` lists each page's files. A page marks its texts three ways:
+
+| Text | How to mark it |
+|---|---|
+| An element whose content is one text | `<button data-i18n>Clear Chat</button>`. The content may hold markup, such as `<b>` or `<br>`, which a translation keeps. |
+| A `title`, `placeholder`, `aria-label` or `alt` attribute | Nothing: each one that holds a letter is a text. |
+| A text a script shows | `t("Agent activated: {model}", {model: name})`, with the English as a plain string literal |
+
+As the Viewer's web server serves a page or one of its scripts, it writes each text's translation in place of its English. So a page needs no catalog of its own, and `t()`, from `src/web_ui/page_text.js`, only fills in the values, as a `Message` does. A page shows the language the Viewer started in, and its `<html lang>` names it.
+
+A page's text can't be counted, so it holds no `%n`. A text that a `.js` file passes to `t()` holds no backslash, since lupdate reads one wrongly there. The update refuses both. A message the Viewer sends a page, such as an error, is a `Message` it gives the page with `display_text`, so the page shows it translated while the terminal and MCP clients get the English.
+
+What a page saves stays English, as the settings files do: the names of the model cards the Agent page starts with or adds, which go to `model_card.json`.
+
 ## Find text that is not marked
 
 Start a window in the test-only pseudo-language:
@@ -131,6 +147,8 @@ Every text from the catalog shows accented, longer and bracketed, like `[Šåå�
 
 `tests/test_untranslated_text.py` runs this check for each window. The text on the Viewer's canvas isn't Qt widgets, so the test reads each file's code instead. A file whose every text on the canvas is marked is listed in `CANVAS_MARKED`, and from then on a new unmarked one fails. The check follows a name through its whole function, so text that only the terminal or MCP clients get, such as print's full report, goes in a variable of its own, not in one the console line shows.
 
+`tests/test_page_translations.py` opens the Agent page in Qt WebEngine under the pseudo-language, and reads each page's code for text that an element or a script shows unmarked.
+
 ## What stays English
 
 These stay English in every language:
@@ -139,3 +157,5 @@ These stay English in every language:
 - MCP replies
 - settings files
 - the commands typed in the Viewer's console
+- the notes the Viewer adds to the agent's replies, such as "No explanatory text was returned.", which the model reads back with the conversation
+- the ESMFold page, which is Mol*'s own interface

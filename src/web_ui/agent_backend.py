@@ -41,7 +41,7 @@ if _SRC_DIR not in sys.path:
 import Command_Engine
 from PySide6 import QtCore
 from desktop.Desktop_App import translate
-from utilities.Localization import JoinedMessage, Message
+from utilities.Localization import JoinedMessage, Message, display_text
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
 from web_ui.agent_images import validate_attachments, message_content, history_messages
@@ -149,7 +149,7 @@ def save_model_cards(cards):
     case model_card.json is left as it was.
     """
     if not cards or not _is_card_list(cards):
-        raise ModelCardsError('the request must contain a non-empty "cards" list of objects')
+        raise ModelCardsError(Message('the request must contain a non-empty "cards" list of objects'))
     path = _model_card_path()
     document = _read_model_card_document(path) or {}
     document["cards"] = cards
@@ -393,13 +393,18 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=0.
             print(f"\n[Agent Error Detail]\nHTTP Status Code: {e.code}\nServer Response: {body}\n")
         except Exception:
             pass
-        raise ValueError(f'Model request failed (HTTP {e.code}): {body[:2000] if "body" in locals() else e.reason}. Image messages require a vision-capable model/provider.') from e
+        raise ValueError(Message(
+            "Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.",
+            code=e.code, response=body[:2000] if "body" in locals() else e.reason,
+        )) from e
     return None
 
 # ─── Worker threads ───────────────────────────────────────────────────────────
 
 class AgentWorker(QtCore.QThread):
-    finished = QtCore.Signal(str, str, str, str)  # (response, reasoning, tokens_json, error)
+    # (response, reasoning, tokens_json, error). The error is the exception
+    # or Message itself, so the Agent page can show it translated.
+    finished = QtCore.Signal(str, str, str, object)
 
     def __init__(self, backend, url, model_name, system_prompt, query, history, temperature, api_key, options=None):
         super().__init__()
@@ -419,11 +424,11 @@ class AgentWorker(QtCore.QThread):
             if self.backend == "server":
                 res_dict = call_api(self.url, self.model_name, self.system_prompt, self.query, self.history, self.temperature, self.api_key, self.options)
             if not res_dict or not res_dict.get("content"):
-                self.finished.emit("", "", "", "No response received from LLM.")
+                self.finished.emit("", "", "", Message("No response received from LLM."))
             else:
                 self.finished.emit(res_dict["content"], res_dict.get("reasoning", ""), json.dumps(res_dict.get("tokens", {})), "")
         except Exception as e:
-            self.finished.emit("", "", "", str(e))
+            self.finished.emit("", "", "", e)
 
 
 class RefinementWorker(QtCore.QThread):
@@ -548,7 +553,7 @@ def _agent_event(viewer, event, turn=None):
 
 def run_web_agent_query(viewer, query, attachments=None, submission_id=None):
     if submission_id is not None and (not isinstance(submission_id, str) or len(submission_id) > 100):
-        viewer.broadcast_event({'type': 'agent_error', 'error': 'Invalid submission ID.'})
+        viewer.broadcast_event({'type': 'agent_error', 'error': display_text(Message('Invalid submission ID.'))})
         return
     previous = getattr(viewer, '_agent_submissions', {}).get(submission_id)
     if previous:
@@ -556,31 +561,39 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None):
         return
     turn = {'submission_id': submission_id, 'attachments': []}
     if getattr(viewer, '_agent_busy', False):
-        _agent_event(viewer, {'type': 'agent_error', 'error': 'This Viewer already has an active agent turn.'}, turn)
+        _agent_event(viewer, {'type': 'agent_error', 'error': display_text(Message(
+            'This Viewer already has an active agent turn.'
+        ))}, turn)
         return
 
     if not getattr(viewer, "llm_loaded", False):
-        _agent_event(viewer, {"type": "agent_error", "error": "LLM is not loaded. Select a model and activate it in the Agent UI."}, turn)
+        _agent_event(viewer, {"type": "agent_error", "error": display_text(Message(
+            "LLM is not loaded. Select a model and activate it in the Agent UI."
+        ))}, turn)
         return
 
     try:
         turn['attachments'] = validate_attachments(attachments)
         if not isinstance(query, str) or (not query.strip() and not turn['attachments']):
-            raise ValueError('Enter a message or attach an image.')
+            raise ValueError(Message('Enter a message or attach an image.'))
     except ValueError as error:
-        _agent_event(viewer, {'type': 'agent_error', 'error': str(error)}, turn)
+        _agent_event(viewer, {'type': 'agent_error', 'error': display_text(error)}, turn)
         return
 
     prompt_path = os.path.join(_SRC_DIR, "resources", "agent", "system_prompt.md")
     if not os.path.exists(prompt_path):
-        _agent_event(viewer, {"type": "agent_error", "error": f"System prompt file missing at {prompt_path}"}, turn)
+        _agent_event(viewer, {"type": "agent_error", "error": display_text(Message(
+            "System prompt file missing at {path}", path=prompt_path
+        ))}, turn)
         return
 
     try:
         with open(prompt_path, "r", encoding="utf-8") as f:
             system_prompt = f.read()
     except Exception as e:
-        _agent_event(viewer, {"type": "agent_error", "error": f"Could not read prompt file: {e}"}, turn)
+        _agent_event(viewer, {"type": "agent_error", "error": display_text(Message(
+            "Could not read prompt file: {error}", error=e
+        ))}, turn)
         return
 
     system_prompt += get_viewer_session_context(viewer)
@@ -614,7 +627,7 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
         return
     if error_msg:
         viewer._agent_busy = False
-        _agent_event(viewer, {"type": "agent_error", "error": error_msg}, turn)
+        _agent_event(viewer, {"type": "agent_error", "error": display_text(error_msg)}, turn)
         return
 
     cmd_lines         = []
@@ -649,7 +662,7 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
             request = portal.submit(uuid.uuid4().hex, cmd_lines, source='web_agent')
         except ValueError as error:
             viewer._agent_busy = False
-            _agent_event(viewer, {'type': 'agent_error', 'error': str(error)}, turn)
+            _agent_event(viewer, {'type': 'agent_error', 'error': display_text(error)}, turn)
             return
         request_id = request['request_id']
         viewer._agent_request_id = request_id
@@ -722,7 +735,7 @@ def save_and_broadcast_agent_response(viewer, query, explanation, commands, term
 
 def start_refinement_worker(viewer, query, original_explanation, commands, terminal_output, initial_tokens_json, original_reasoning, turn=None):
     model_name = getattr(viewer, "llm_model_name", "LLM")
-    _agent_event(viewer, {"type": "agent_thinking", "model_name": f"{model_name} (Analyzing results)"}, turn)
+    _agent_event(viewer, {"type": "agent_thinking", "model_name": model_name, "analyzing": True}, turn)
 
     backend     = viewer.llm_backend
     url         = getattr(viewer, "llm_url", None)
@@ -784,14 +797,16 @@ def handle_set_backend(viewer, data):
         card = None
         if not isinstance(card_id, str):
             # An Agent page opened before cards were activated by id.
-            error = "Reload the Agent page to switch models."
+            error = Message("Reload the Agent page to switch models.")
         else:
             try:
                 card = next((c for c in load_model_cards() if c.get("id") == card_id), None)
             except ModelCardsError as e:
-                error = f"Model cards could not be loaded: {e}"
+                error = Message("Model cards could not be loaded: {error}", error=e)
             if card is None and error is None:
-                error = "This model is not saved yet: press 💾 Save in ⚙ Models, then switch the agent on again."
+                error = Message(
+                    "This model is not saved yet: press 💾 Save in ⚙ Models, then switch the agent on again."
+                )
         if card is None:
             deactivate_agent(viewer, quiet=True)
         else:
@@ -804,7 +819,7 @@ def handle_set_backend(viewer, data):
         "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown")
     }
     if error:
-        event["error"] = error
+        event["error"] = display_text(error)
     viewer.broadcast_event(event)
 
 def handle_save_model_cards(viewer, data):
@@ -813,9 +828,9 @@ def handle_save_model_cards(viewer, data):
     try:
         save_model_cards(data.get("cards"))
     except (ValueError, OSError) as e:
-        message = f"Model cards were not saved: {e}"
+        message = Message("Model cards were not saved: {error}", error=e)
         print(f"Warning: {message}")
-        viewer.broadcast_event({"type": "model_cards_error", "error": message, "save_id": save_id})
+        viewer.broadcast_event({"type": "model_cards_error", "error": display_text(message), "save_id": save_id})
         return
     viewer.broadcast_event({"type": "model_cards_saved", "save_id": save_id})
 
@@ -828,7 +843,9 @@ def handle_check_model_cards(viewer, data):
     try:
         _read_model_card_document(_model_card_path())
     except ModelCardsError as e:
-        viewer.broadcast_event({"type": "model_cards_error", "error": f"Model cards could not be loaded: {e}"})
+        viewer.broadcast_event({"type": "model_cards_error", "error": display_text(Message(
+            "Model cards could not be loaded: {error}", error=e
+        ))})
 
 def handle_decide_agent_command(viewer, data):
     """Run or discard a command an Agent reply left waiting for approval."""
@@ -836,7 +853,7 @@ def handle_decide_agent_command(viewer, data):
     try:
         get_portal(viewer).decide(data.get("request_id"), data.get("command_id"), data.get("run"))
     except ValueError as e:
-        viewer.broadcast_event({"type": "agent_command_error", "error": str(e)})
+        viewer.broadcast_event({"type": "agent_command_error", "error": display_text(e)})
 
 def handle_clear_history(viewer, data):
     _invalidate_agent_turn(viewer)
@@ -879,7 +896,7 @@ def register_backend(registry, viewer):
             result = capture_view(viewer, data.get('request_id'))
             viewer.broadcast_event({'type': 'agent_capture', **result, 'capture_token': data.get('capture_token')})
         except ValueError as error:
-            viewer.broadcast_event({'type': 'agent_capture', 'error': str(error), 'capture_token': data.get('capture_token')})
+            viewer.broadcast_event({'type': 'agent_capture', 'error': display_text(error), 'capture_token': data.get('capture_token')})
     registry.register_action('agent', 'capture_view', capture)
     registry.register_action(
         "agent", "decide_agent_command", lambda data: handle_decide_agent_command(viewer, data)

@@ -8,6 +8,8 @@ import os
 import uuid
 import numpy as np
 
+from utilities.Localization import JoinedMessage, Message
+
 
 def edge_stages(viewer, configuration, cache=False):
     edges = np.asarray(getattr(viewer, 'edges', ()), dtype=np.int32).reshape(-1, 2)
@@ -46,15 +48,20 @@ def visual_overview(viewer, configuration):
 
 
 def capture_view(viewer, request_id=None):
+    """The canvas as a PNG, for MCP clients and the Agent page.
+
+    Its errors hold Messages: MCP clients get str(error), in English, and
+    the Agent page shows them translated.
+    """
     from PIL import Image
     canvas = getattr(viewer, 'canvas', None)
     if canvas is None:
-        raise ValueError('Viewer canvas is unavailable')
+        raise ValueError(Message('Viewer canvas is unavailable'))
     if request_id is not None:
         from Viewer_Command_Portal import get_portal, TERMINAL
         request = get_portal(viewer).get(request_id)
         if request['status'] not in TERMINAL:
-            raise ValueError('Associated command request has not finished')
+            raise ValueError(Message('Associated command request has not finished'))
     try:
         pixels = canvas.render()
         result = Image.fromarray(pixels)
@@ -63,14 +70,16 @@ def capture_view(viewer, request_id=None):
         out = io.BytesIO()
         result.save(out, format='PNG')
     except Exception as error:
-        hint = ''
+        message = Message('Viewer canvas capture failed: {error}', error=error)
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' and 'OpenGL context' in str(error):
             # Qt's offscreen platform has no OpenGL context on Windows (Linux
             # builds may provide one through EGL/GLX), so headless Viewers
             # there cannot render; other capture failures keep their own text.
-            hint = (' This headless Viewer has no OpenGL context to render with;'
-                    ' relaunch it in normal mode to capture the view.')
-        raise ValueError(f'Viewer canvas capture failed: {error}{hint}') from error
+            message = JoinedMessage([message, Message(
+                'This headless Viewer has no OpenGL context to render with;'
+                ' relaunch it in normal mode to capture the view.'
+            )])
+        raise ValueError(message) from error
     return {'capture_id': uuid.uuid4().hex, 'captured_at': datetime.now(timezone.utc).isoformat(),
             'session_id': getattr(viewer, 'inspection_session_id', None), 'request_id': request_id,
             'observation': 'Current canvas; manual changes may postdate command completion.',

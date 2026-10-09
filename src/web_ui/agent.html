@@ -19,10 +19,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>EMAP-SSN Agent Chat</title>
+    <title data-i18n>EMAP-SSN Agent Chat</title>
     <!-- Fonts and marked are vendored under src/resources so the agent panel
          works offline. See THIRD_PARTY_LICENSES.md section 1. -->
     <link href="/fonts/fonts.css" rel="stylesheet">
+    <!-- t() fills in this page's texts, which the Viewer serves in its
+         language (src/web_ui/Page_Texts.py). -->
+    <script src="/page_text.js"></script>
     <script src="/agent_resource/marked.umd.js"></script>
     <style>
         :root {
@@ -745,10 +748,10 @@
 </head>
 <body>
     <header>
-        <h1>🤖 EMAP-SSN Agent Chat</h1>
+        <h1 data-i18n>🤖 EMAP-SSN Agent Chat</h1>
         <div style="display:flex;align-items:center;gap:10px;">
-            <button class="btn" id="theme-toggle-btn" style="border-radius:9999px;padding:4px 12px;font-weight:500;box-shadow:none;">🌙 Dark Mode</button>
-            <div id="connection-status" class="status-badge">Connecting...</div>
+            <button class="btn" id="theme-toggle-btn" style="border-radius:9999px;padding:4px 12px;font-weight:500;box-shadow:none;" data-i18n>🌙 Dark Mode</button>
+            <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
     </header>
 
@@ -756,16 +759,16 @@
         <!-- Chat area -->
         <div class="chat-container">
             <div class="pane-header">
-                <span class="pane-title">Agent Control Panel</span>
+                <span class="pane-title" data-i18n>Agent Control Panel</span>
                 <div class="header-controls">
-                    <span id="active-model-badge">Deactivated</span>
+                    <span id="active-model-badge" data-i18n>Deactivated</span>
                     <label id="agent-toggle-btn" class="ios-toggle" title="Toggle agent on/off">
                         <input type="checkbox" id="agent-toggle-input">
                         <span class="ios-toggle-track"><span class="ios-toggle-thumb"></span></span>
                     </label>
                     <select id="model-selector" title="Select model card"></select>
-                    <button class="btn" id="models-panel-btn" title="Manage model cards">⚙ Models</button>
-                    <button class="btn" id="clear-chat-btn">Clear Chat</button>
+                    <button class="btn" id="models-panel-btn" title="Manage model cards" data-i18n>⚙ Models</button>
+                    <button class="btn" id="clear-chat-btn" data-i18n>Clear Chat</button>
                 </div>
             </div>
             <div id="chat-log"></div>
@@ -773,8 +776,8 @@
               <div id="attachment-tray" aria-label="Pending image attachments"></div>
               <div class="chat-input-bar">
                 <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
-                <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer">Capture<br>Viewer</button>
-                <button class="btn btn-primary" id="chat-send-btn" disabled>Send</button>
+                <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer" data-i18n>Capture<br>Viewer</button>
+                <button class="btn btn-primary" id="chat-send-btn" disabled data-i18n>Send</button>
               </div>
               <div id="attachment-notice" role="status" aria-live="polite"></div>
             </div>
@@ -783,15 +786,15 @@
         <!-- Right panel: Model Cards Manager -->
         <div id="models-panel" class="models-panel">
             <div class="panel-header">
-                <span>⚙ Model Cards</span>
+                <span data-i18n>⚙ Model Cards</span>
                 <button id="close-panel-btn" class="close-btn" title="Close panel">✕</button>
             </div>
             <div id="cards-list" class="cards-list">
                 <!-- Cards rendered by JS -->
             </div>
             <div class="panel-footer">
-                <button id="add-card-btn" class="btn">+ Add Model</button>
-                <button id="save-cards-btn" class="btn btn-primary">💾 Save</button>
+                <button id="add-card-btn" class="btn" data-i18n>+ Add Model</button>
+                <button id="save-cards-btn" class="btn btn-primary" data-i18n>💾 Save</button>
             </div>
         </div>
     </div>
@@ -819,11 +822,24 @@
 
         // The ids of agent_backend's defaults, which it uses while no cards are
         // saved, so these can be activated before their first save completes.
+        // Their names are saved in model_card.json, so they stay English.
         const DEFAULT_CARDS = [
             { id: "ollama",   name: "Ollama (Local)",    url: "http://localhost:11434/v1", model: "qwen2.5:1.5b", api_key: "", temperature: 0.0 },
             { id: "lmstudio", name: "LM Studio (Local)", url: "http://localhost:1234/v1",  model: "",             api_key: "", temperature: 0.0 },
             { id: "llamacpp", name: "Llama.cpp (Local)", url: "http://localhost:8080/v1",  model: "",             api_key: "", temperature: 0.0 }
         ];
+        // What the Custom Options field shows before anything is typed in it.
+        const OPTIONS_EXAMPLE = '{\n  "reasoning_effort": "low"\n}';
+        // The statuses the Viewer's command portal gives a command request.
+        const COMMAND_STATUSES = {
+            queued: t("queued"),
+            running: t("running"),
+            awaiting_user_input: t("awaiting user input"),
+            succeeded: t("succeeded"),
+            failed: t("failed"),
+            cancelled: t("cancelled"),
+            skipped: t("skipped")
+        };
 
         function uid() { return Math.random().toString(36).slice(2, 10); }
 
@@ -867,7 +883,7 @@
 
         function updateThemeBtn(theme) {
             const btn = document.getElementById("theme-toggle-btn");
-            if (btn) btn.innerHTML = theme === "dark" ? "☀️ Light Mode" : "🌙 Dark Mode";
+            if (btn) btn.textContent = theme === "dark" ? t("☀️ Light Mode") : t("🌙 Dark Mode");
         }
 
         // ─── Model Cards ──────────────────────────────────────────────────────────
@@ -880,21 +896,19 @@
                 if (resp.status === 404) {
                     savedCards = [];
                 } else if (!resp.ok) {
-                    throw new Error(`the Viewer answered HTTP ${resp.status}`);
+                    throw new Error(t("the Viewer answered HTTP {status}", {status: resp.status}));
                 } else {
                     const data = await resp.json();
                     if (!isPlainObject(data) || (data.cards !== undefined && !isCardList(data.cards))) {
-                        throw new Error('it must contain a JSON object whose "cards" is a list of objects');
+                        throw new Error(t('it must contain a JSON object whose "cards" is a list of objects'));
                     }
                     savedCards = data.cards || [];
                 }
             } catch (e) {
                 // The browser's JSON error quotes the file, API keys included;
                 // check_model_cards (sent once connected) reports the position.
-                const reason = e instanceof SyntaxError ? "it is not valid JSON" : e.message;
-                modelCardsLoadError = `Model cards could not be loaded from model_card.json (${reason}). ` +
-                    "Changes made on this page will not be saved: correct the file, or delete it " +
-                    "to start over from the default cards, then reload this page.";
+                const reason = e instanceof SyntaxError ? t("it is not valid JSON") : e.message;
+                modelCardsLoadError = t("Model cards could not be loaded from model_card.json ({reason}). Changes made on this page will not be saved: correct the file, or delete it to start over from the default cards, then reload this page.", {reason});
             }
             modelCards = savedCards && savedCards.length > 0 ? savedCards : deepClone(DEFAULT_CARDS);
             if (savedCards && savedCards.length > 0) savedCardsJson = JSON.stringify(savedCards);
@@ -918,7 +932,7 @@
             modelCards.forEach((card, i) => {
                 const opt = document.createElement("option");
                 opt.value = String(i);
-                opt.textContent = card.name || `Model ${i + 1}`;
+                opt.textContent = card.name || t("Model {number}", {number: i + 1});
                 sel.appendChild(opt);
             });
             if (prevVal !== "" && parseInt(prevVal) < modelCards.length) sel.value = prevVal;
@@ -943,14 +957,14 @@
             sendAction({ action: "set_backend", card_id: card.id });
             const saved = JSON.parse(savedCardsJson || "[]").find(c => c.id === card.id);
             if (saved && JSON.stringify(saved) !== JSON.stringify(card)) {
-                appendSystemMsg(`Using the saved settings of "${card.name || "this model"}": press 💾 Save to use the edits made here.`);
+                appendSystemMsg(t('Using the saved settings of "{model}": press 💾 Save to use the edits made here.', {model: card.name || t("this model")}));
             }
         }
 
         function showCardsSaved() {
             const saveCardsBtn = document.getElementById("save-cards-btn");
             if (!saveCardsBtn.dataset.label) saveCardsBtn.dataset.label = saveCardsBtn.textContent;
-            saveCardsBtn.textContent = "✓ Saved!";
+            saveCardsBtn.textContent = t("✓ Saved!");
             saveCardsBtn.style.backgroundColor = "#22c55e";
             saveCardsBtn.style.borderColor = "#22c55e";
             clearTimeout(cardsSavedTimer);
@@ -978,23 +992,23 @@
             // Drag handle for reordering
             const dragHandle = document.createElement("span");
             dragHandle.className = "drag-handle";
-            dragHandle.title = "Drag to reorder";
+            dragHandle.title = t("Drag to reorder");
             dragHandle.textContent = "☰";
             dragHandle.addEventListener("mousedown", (e) => e.stopPropagation());
 
             const nameLabel = document.createElement("span");
             nameLabel.className = "card-name-label";
-            nameLabel.textContent = card.name || `Model ${index + 1}`;
+            nameLabel.textContent = card.name || t("Model {number}", {number: index + 1});
 
             const delBtn = document.createElement("button");
             delBtn.className = "card-delete-btn";
-            delBtn.title = "Remove model";
+            delBtn.title = t("Remove model");
             delBtn.textContent = "✕";
             delBtn.addEventListener("click", (e) => { e.stopPropagation(); removeCard(index); });
 
             const expandBtn = document.createElement("button");
             expandBtn.className = "card-expand-btn";
-            expandBtn.title = "Expand / collapse";
+            expandBtn.title = t("Expand / collapse");
             expandBtn.textContent = "▾";
 
             header.appendChild(dragHandle);
@@ -1020,10 +1034,10 @@
             body.className = "model-card-body";
 
             const fields = [
-                { key: "name",        label: "Name",        type: "text",     placeholder: "e.g. My Ollama"                           },
-                { key: "url",         label: "Base URL",    type: "text",     placeholder: "http://localhost:11434/v1"                 },
-                { key: "model",       label: "Model Name",  type: "text",     placeholder: "e.g. qwen2.5:1.5b (leave blank = auto)"   },
-                { key: "temperature", label: "Temperature", type: "number",   placeholder: "0.0", min: "0", max: "2", step: "0.1", width: "80px" }
+                { key: "name",        label: t("Name"),        type: "text",     placeholder: t("e.g. My Ollama")                          },
+                { key: "url",         label: t("Base URL"),    type: "text",     placeholder: "http://localhost:11434/v1"                  },
+                { key: "model",       label: t("Model Name"),  type: "text",     placeholder: t("e.g. qwen2.5:1.5b (leave blank = auto)")  },
+                { key: "temperature", label: t("Temperature"), type: "number",   placeholder: "0.0", min: "0", max: "2", step: "0.1", width: "80px" }
             ];
 
             fields.forEach(({ key, label, type, placeholder, min, max, step, width }) => {
@@ -1041,7 +1055,7 @@
                 inp.addEventListener("input", () => {
                     if (!modelCards[index]) return;
                     modelCards[index][key] = key === "temperature" ? (parseFloat(inp.value) || 0.0) : inp.value;
-                    if (key === "name") { nameLabel.textContent = inp.value || `Model ${index + 1}`; populateDropdown(); }
+                    if (key === "name") { nameLabel.textContent = inp.value || t("Model {number}", {number: index + 1}); populateDropdown(); }
                 });
                 fieldDiv.appendChild(lbl);
                 fieldDiv.appendChild(inp);
@@ -1053,12 +1067,12 @@
             apiDiv.className = "card-field";
             const apiLbl = document.createElement("div");
             apiLbl.className = "card-field-label";
-            apiLbl.textContent = "API Key";
+            apiLbl.textContent = t("API Key");
             const apiRow = document.createElement("div");
             apiRow.style.cssText = "display:flex;gap:6px;align-items:center;";
             const apiInp = document.createElement("input");
             apiInp.type = "password";
-            apiInp.placeholder = "sk-... (leave blank if not needed)";
+            apiInp.placeholder = t("sk-... (leave blank if not needed)");
             apiInp.value = card.api_key || "";
             apiInp.style.flex = "1";
             apiInp.addEventListener("input", () => {
@@ -1067,10 +1081,10 @@
             const showBtn = document.createElement("button");
             showBtn.className = "btn show-key-btn";
             showBtn.type = "button";
-            showBtn.textContent = "Show";
+            showBtn.textContent = t("Show");
             showBtn.addEventListener("click", () => {
                 apiInp.type = apiInp.type === "password" ? "text" : "password";
-                showBtn.textContent = apiInp.type === "password" ? "Show" : "Hide";
+                showBtn.textContent = apiInp.type === "password" ? t("Show") : t("Hide");
             });
             apiRow.appendChild(apiInp);
             apiRow.appendChild(showBtn);
@@ -1083,10 +1097,10 @@
             optDiv.className = "card-field";
             const optLbl = document.createElement("div");
             optLbl.className = "card-field-label";
-            optLbl.textContent = "Custom Options (JSON)";
+            optLbl.textContent = t("Custom Options (JSON)");
             const optArea = document.createElement("textarea");
             optArea.style.cssText = "width:100%;height:60px;font-family:var(--font-mono);font-size:11.5px;padding:6px;border:1px solid var(--border-color);border-radius:6px;background:var(--input-bg);color:var(--input-text);resize:vertical;";
-            optArea.placeholder = 'e.g. {\n  "reasoning_effort": "low"\n}';
+            optArea.placeholder = t("e.g. {example}", {example: OPTIONS_EXAMPLE});
             
             let initialVal = "";
             if (card.options) {
@@ -1135,7 +1149,7 @@
 
 
         function removeCard(index) {
-            if (modelCards.length <= 1) { appendSystemMsg("Cannot remove the last model card."); return; }
+            if (modelCards.length <= 1) { appendSystemMsg(t("Cannot remove the last model card.")); return; }
             modelCards.splice(index, 1);
             populateDropdown();
             renderCardsPanel();
@@ -1198,6 +1212,7 @@
 
 
         function addCard() {
+            // The name is saved in model_card.json, so it stays English.
             modelCards.push({ id: uid(), name: "New Model", url: "", model: "", api_key: "", temperature: 0.0 });
             populateDropdown();
             renderCardsPanel();
@@ -1242,12 +1257,12 @@
             });
 
             clearBtn.addEventListener("click", () => {
-                if (!window.confirm('Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.')) return;
+                if (!window.confirm(t('Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.'))) return;
                 clearAttachmentDraft();
                 enableInput(agentActive);
                 sendAction({ action: "clear_history" });
                 document.getElementById("chat-log").innerHTML = "";
-                appendSystemMsg("Chat history and context memory cleared.");
+                appendSystemMsg(t("Chat history and context memory cleared."));
             });
 
             toggleInput.addEventListener("change", () => {
@@ -1291,12 +1306,12 @@
             eventSource = new EventSource("/api/events?client=agent");
 
             eventSource.onopen = () => {
-                statusBadge.innerText = "Connected";
+                statusBadge.innerText = t("Connected");
                 statusBadge.style.backgroundColor = "var(--connection-active-bg)";
                 statusBadge.style.color = "var(--connection-active-text)";
             };
             eventSource.onerror = () => {
-                statusBadge.innerText = "Reconnecting...";
+                statusBadge.innerText = t("Reconnecting...");
                 statusBadge.style.backgroundColor = "var(--connection-reconnecting-bg)";
                 statusBadge.style.color = "var(--connection-reconnecting-text)";
             };
@@ -1313,7 +1328,7 @@
                 element.id = 'command-request-status';
                 document.getElementById('chat-log').appendChild(element);
             }
-            element.textContent = `Viewer commands: ${status.replaceAll('_', ' ')}`;
+            element.textContent = t("Viewer commands: {status}", {status: COMMAND_STATUSES[status] || status.replaceAll('_', ' ')});
             const waiting = commands.find(c => c.approval === 'pending' && c.status === 'awaiting_user_input');
             if (!waiting) return;
             const requestId = activeCommandRequest;
@@ -1321,8 +1336,10 @@
             row.className = 'command-approval';
             const command = document.createElement('code');
             command.textContent = waiting.command;
-            row.append('The agent wants to run ', command);
-            for (const [label, run] of [['Run', true], ['Discard', false]]) {
+            // The command goes where the sentence names it, in any language.
+            const [before, after = ''] = t("The agent wants to run {command}").split('{command}');
+            row.append(before, command, after);
+            for (const [label, run] of [[t('Run'), true], [t('Discard'), false]]) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = run ? 'btn btn-primary' : 'btn';
@@ -1349,8 +1366,8 @@
                     } else {
                         document.getElementById("chat-log").innerHTML = "";
                         appendSystemMsg(event.data.llm_loaded
-                            ? `Agent active: ${event.data.llm_model_name}`
-                            : "Agent is inactive. Select a model and press the toggle button to activate.");
+                            ? t("Agent active: {model}", {model: event.data.llm_model_name})
+                            : t("Agent is inactive. Select a model and press the toggle button to activate."));
                     }
                     reconcileSubmission(event.data.llm_history || []);
                     if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status, event.data.agent_command_request.commands);
@@ -1384,7 +1401,7 @@
                     if (event.error) appendErrorMsg(event.error);
                     break;
                 case "agent_thinking":
-                    setAgentThinking(event.model_name);
+                    setAgentThinking(event.model_name, event.analyzing);
                     break;
                 case "agent_response":
                     if (!finishSubmission(event)) break;
@@ -1425,10 +1442,10 @@
             toggleInput.checked = agentActive;
 
             if (agentActive) {
-                badge.textContent = data.llm_model_name || "LLM";
+                badge.textContent = data.llm_model_name || t("LLM");
                 badge.classList.add("active");
             } else {
-                badge.textContent = "Deactivated";
+                badge.textContent = t("Deactivated");
                 badge.classList.remove("active");
             }
 
@@ -1436,8 +1453,8 @@
             const modelChanged  = prevLlmModelName !== data.llm_model_name;
 
             if (!isInit && (loadedChanged || modelChanged)) {
-                if (!data.llm_loaded) appendSystemMsg("Agent deactivated.");
-                else appendSystemMsg(`Agent activated: ${data.llm_model_name}`);
+                if (!data.llm_loaded) appendSystemMsg(t("Agent deactivated."));
+                else appendSystemMsg(t("Agent activated: {model}", {model: data.llm_model_name}));
             }
 
             prevLlmLoaded    = data.llm_loaded;
@@ -1457,18 +1474,22 @@
             }
         }
 
-        function setAgentThinking(modelName) {
+        // analyzing: the model is reading back the results of the commands it ran.
+        function setAgentThinking(modelName, analyzing = false) {
+            const model = analyzing ? t("{model} (Analyzing results)", {model: modelName}) : modelName;
+            const text = t("⏳ Thinking ({model})...", {model});
             const existing = document.getElementById("thinking-bubble");
             if (existing) {
                 const inner = existing.querySelector(".msg-system");
-                if (inner) inner.innerHTML = `⏳ Thinking (${escapeHtml(modelName)})...`;
+                if (inner) inner.textContent = text;
                 return;
             }
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-system";
             wrapper.id = "thinking-bubble";
-            wrapper.innerHTML = `<div class="msg msg-system">⏳ Thinking (${escapeHtml(modelName)})...</div>`;
+            wrapper.innerHTML = `<div class="msg msg-system"></div>`;
+            wrapper.firstElementChild.textContent = text;
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -1493,7 +1514,7 @@
                 if (!item.data_url || !item.data_url.startsWith('data:image/png;base64,')) return;
                 const img = document.createElement('img');
                 img.src = item.data_url;
-                img.alt = item.name || 'Image';
+                img.alt = item.name || t('Image');
                 images.appendChild(img);
             });
             wrapper.firstElementChild.appendChild(images);
@@ -1550,7 +1571,7 @@
 
             const hdr = document.createElement("div");
             hdr.className = "msg-agent-header";
-            hdr.innerHTML = `<span>🤖</span><span>Assistant</span>`;
+            hdr.innerHTML = `<span>🤖</span><span>${escapeHtml(t("Assistant"))}</span>`;
             wrapper.appendChild(hdr);
 
             if (reasoning) {
@@ -1559,7 +1580,7 @@
                 
                 const thoughtHdr = document.createElement("div");
                 thoughtHdr.className = "thought-box-header";
-                thoughtHdr.innerHTML = `<span>Thought Process</span><span class="thought-box-toggle">▶</span>`;
+                thoughtHdr.innerHTML = `<span>${escapeHtml(t("Thought Process"))}</span><span class="thought-box-toggle">▶</span>`;
                 
                 const thoughtContent = document.createElement("div");
                 thoughtContent.className = "thought-box-content";
@@ -1587,10 +1608,10 @@
                 box.className = "code-box";
                 const boxHdr = document.createElement("div");
                 boxHdr.className = "code-box-header";
-                boxHdr.innerHTML = `<span>Executed Command(s)</span>`;
+                boxHdr.innerHTML = `<span>${escapeHtml(t("Executed Command(s)"))}</span>`;
                 const copyBtn = document.createElement("button");
                 copyBtn.className = "copy-btn";
-                copyBtn.textContent = "Copy";
+                copyBtn.textContent = t("Copy");
                 copyBtn.addEventListener("click", () => copyText(commands, copyBtn));
                 boxHdr.appendChild(copyBtn);
                 box.appendChild(boxHdr);
@@ -1605,7 +1626,7 @@
                 termBox.className = "terminal-output-box";
                 const termHdr = document.createElement("div");
                 termHdr.className = "terminal-output-header";
-                termHdr.innerHTML = `<span>Terminal Output</span>`;
+                termHdr.innerHTML = `<span>${escapeHtml(t("Terminal Output"))}</span>`;
                 termBox.appendChild(termHdr);
                 const pre = document.createElement("pre");
                 pre.textContent = terminalOutput;
@@ -1616,9 +1637,10 @@
             if (tokens && tokens.total) {
                 const ti = document.createElement("div");
                 ti.className = "token-info";
-                let text = `Tokens: ${tokens.total} (${tokens.prompt} prompt, ${tokens.completion} completion)`;
+                let text = t("Tokens: {total} ({prompt} prompt, {completion} completion)",
+                             {total: tokens.total, prompt: tokens.prompt, completion: tokens.completion});
                 if (tokens.requests) {
-                    text += ` | Requests: ${tokens.requests}`;
+                    text += " | " + t("Requests: {requests}", {requests: tokens.requests});
                 }
                 ti.textContent = text;
                 wrapper.appendChild(ti);
@@ -1634,7 +1656,7 @@
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-error";
-            wrapper.innerHTML = `<div class="msg msg-error"><b>Error:</b> ${escapeHtml(err)}</div>`;
+            wrapper.innerHTML = `<div class="msg msg-error"><b>${escapeHtml(t("Error:"))}</b> ${escapeHtml(err)}</div>`;
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -1659,7 +1681,7 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             }).then(response => {
-                if (!response.ok) throw new Error(`Request failed (HTTP ${response.status}).`);
+                if (!response.ok) throw new Error(t("Request failed (HTTP {status}).", {status: response.status}));
                 return response;
             }).catch(err => {
                 if (['agent_query', 'capture_view'].includes(payload.action)) throw err;
@@ -1670,7 +1692,7 @@
         function copyText(text, btn) {
             navigator.clipboard.writeText(text).then(() => {
                 const orig = btn.textContent;
-                btn.textContent = "Copied!";
+                btn.textContent = t("Copied!");
                 btn.style.color = "#34d399";
                 setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1500);
             }).catch(err => console.error("Clipboard error:", err));

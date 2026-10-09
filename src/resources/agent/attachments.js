@@ -32,14 +32,14 @@ function renderAttachments() {
             tile.appendChild(img);
         }
         const label = document.createElement('span');
-        label.textContent = item.processing ? 'Processing…' : item.name;
+        label.textContent = item.processing ? t('Processing…') : item.name;
         label.title = item.name;
         tile.appendChild(label);
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.textContent = '×';
-        remove.setAttribute('aria-label', `Remove attachment: ${item.name}`);
-        remove.title = 'Remove attachment';
+        remove.setAttribute('aria-label', t('Remove attachment: {name}', {name: item.name}));
+        remove.title = t('Remove attachment');
         remove.onclick = () => {
             pendingAttachments = pendingAttachments.filter(candidate => candidate !== item);
             renderAttachments();
@@ -53,7 +53,7 @@ function renderAttachments() {
 function reserveAttachment(name) {
     if (pendingSubmission) return null;
     if (pendingAttachments.length >= MAX_ATTACHMENTS) {
-        attachmentNotice('A message can contain at most 10 image attachments.');
+        attachmentNotice(t('A message can contain at most 10 image attachments.'));
         return null;
     }
     const item = {name, processing: true};
@@ -63,11 +63,11 @@ function reserveAttachment(name) {
 }
 
 async function normalizeImage(file) {
-    if (!file.size || file.size > MAX_IMAGE_BYTES) throw new Error('Each image must be nonempty and at most 20 MiB.');
-    if (file.type && !file.type.startsWith('image/')) throw new Error('Only image files are accepted.');
+    if (!file.size || file.size > MAX_IMAGE_BYTES) throw new Error(t('Each image must be nonempty and at most 20 MiB.'));
+    if (file.type && !file.type.startsWith('image/')) throw new Error(t('Only image files are accepted.'));
     const response = await fetch('/api/agent/image', {method: 'POST', body: file, signal: AbortSignal.timeout(20000)});
     const info = await response.json();
-    if (!response.ok) throw new Error(info.error || 'Image validation failed.');
+    if (!response.ok) throw new Error(info.error || t('Image validation failed.'));
     const url = URL.createObjectURL(new Blob([file], {type: info.mime_type}));
     try {
         const img = new Image();
@@ -80,7 +80,7 @@ async function normalizeImage(file) {
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
         return canvas.toDataURL('image/png');
     } catch (error) {
-        throw new Error('This browser cannot decode this image. Use a supported static image format.');
+        throw new Error(t('This browser cannot decode this image. Use a supported static image format.'));
     } finally {
         URL.revokeObjectURL(url);
     }
@@ -90,7 +90,7 @@ function addImageFiles(files) {
     if (pendingSubmission) return;
     attachmentNotice('');
     for (const file of files) {
-        const item = reserveAttachment(file.name || 'Pasted image');
+        const item = reserveAttachment(file.name || t('Pasted image'));
         if (!item) continue;
         normalizeImage(file).then(dataURL => {
             item.data_url = dataURL;
@@ -98,17 +98,17 @@ function addImageFiles(files) {
         }).catch(error => {
             if (pendingAttachments.includes(item)) {
                 pendingAttachments = pendingAttachments.filter(candidate => candidate !== item);
-                attachmentNotice(`${item.name}: ${error.message}`);
+                attachmentNotice(t('{name}: {error}', {name: item.name, error: error.message}));
             }
         }).finally(renderAttachments);
     }
 }
 
 function captureViewerAttachment() {
-    const item = reserveAttachment('Viewer capture');
+    const item = reserveAttachment(t('Viewer capture'));
     if (!item) return;
     const token = crypto.randomUUID();
-    const timer = setTimeout(() => finishCapture({capture_token: token, error: 'Viewer capture timed out. Try again.'}), 20000);
+    const timer = setTimeout(() => finishCapture({capture_token: token, error: t('Viewer capture timed out. Try again.')}), 20000);
     captureRequests.set(token, {item, timer});
     sendAction({action: 'capture_view', capture_token: token}).catch(error => {
         finishCapture({capture_token: token, error: error.message});
@@ -198,7 +198,7 @@ async function sendAgentQuery() {
 function submissionTransportFailed(draft) {
     if (pendingSubmission !== draft || draft.accepted) return;
     draft.transportFailed = true;
-    attachmentNotice('Could not confirm submission. Press Send to retry the same message. Your draft is retained.');
+    attachmentNotice(t('Could not confirm submission. Press Send to retry the same message. Your draft is retained.'));
     refreshComposer();
 }
 

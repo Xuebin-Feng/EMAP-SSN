@@ -29,10 +29,13 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
 
+from desktop.Desktop_App import installed_language, translate
 from desktop.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
 )
+from web_ui.Page_Texts import translated_file
+from utilities.Localization import Message, display_text
 from utilities.Viewer_Sessions import (
     SESSION_PROTOCOL_VERSION,
     publish_viewer_session,
@@ -276,6 +279,20 @@ def content_security_policy(page_name, body):
     return "; ".join(f"{name} {sources}" for name, sources in directives.items())
 
 
+def page_in_viewer_language(filepath, body):
+    """body, the bytes of a file to serve, in the Viewer's language.
+
+    A bundled page and its scripts come with their marked texts translated
+    (web_ui/Page_Texts.py); any other file comes as it is. A page that can't
+    be translated comes in English, with a warning.
+    """
+    try:
+        return translated_file(filepath, body, installed_language(), translate)
+    except Exception as error:
+        print(f"Warning: Could not show {os.path.basename(filepath)} in the Viewer's language: {error}")
+        return body
+
+
 def event_client_from_path(path):
     """Return a bounded client label from an SSE request URL, if present."""
     values = parse_qs(urlsplit(path).query).get("client", [])
@@ -489,7 +506,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404, f"File {filepath} Not Found")
             return
         with open(filepath, "rb") as f:
-            body = f.read()
+            body = page_in_viewer_language(filepath, f.read())
         self.send_response(200)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -615,19 +632,21 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/agent/image":
+            # Only the Agent page asks, and it shows the error as it comes,
+            # so the error comes in the page's language.
             from web_ui.agent_images import MAX_IMAGE_BYTES, inspect_source
             body = None
             try:
                 length = int(self.headers.get('Content-Length', '0'))
                 if length <= 0 or length > MAX_IMAGE_BYTES:
                     self.close_connection = True
-                    self._send_json(413, {'error': 'Each image must be nonempty and at most 20 MiB.'},
+                    self._send_json(413, {'error': display_text(Message('Each image must be nonempty and at most 20 MiB.'))},
                                     headers=self._discard_request_body(MAX_IMAGE_BYTES))
                     return
                 body = self.rfile.read(length)
                 self._send_json(200, inspect_source(body))
             except ValueError as error:
-                self._send_json(400, {'error': str(error)},
+                self._send_json(400, {'error': display_text(error)},
                                 headers=self._discard_request_body(MAX_IMAGE_BYTES) if body is None else None)
             return
 
