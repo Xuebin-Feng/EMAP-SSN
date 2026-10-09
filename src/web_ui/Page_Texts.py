@@ -43,6 +43,7 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 PAGE_CONTEXTS = {
     "web_ui/agent.html": "AgentPage",
     "resources/agent/attachments.js": "AgentPage",
+    "web_ui/meta.html": "MetadataPage",
 }
 MARK = "data-i18n"
 TEXT_ATTRIBUTES = frozenset({"title", "placeholder", "aria-label", "alt"})

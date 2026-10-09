@@ -175,6 +175,11 @@ still change before version 1.0.0.
   card problems, a refused image or Viewer capture, and a command the agent may not run.
   The terminal and MCP clients keep the English. The ESMFold page stays English: it is
   Mol*'s own interface, which has no translations.
+- **The metadata page is ready to translate.** The spreadsheet page marks its buttons,
+  help, column titles, delete prompts, status and its columns' NUM and TXT badges, which
+  its style now takes from the page's script. It takes its texts from the windows'
+  catalogs under `MetadataPage`, and a refused column deletion reaches it in the
+  Viewer's language.
 
 ### Changed
 

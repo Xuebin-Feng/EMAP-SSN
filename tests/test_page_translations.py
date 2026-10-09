@@ -8,11 +8,11 @@ A page marks its texts (web_ui/Page_Texts.py), the update command files
 them in the catalogs (tests/test_update_translations.py), and the Viewer's
 web server writes each one's translation in place of its English as it
 serves the page or one of its scripts. These tests read and translate
-pages, serve them, and open the Agent page in Qt WebEngine under the
-pseudo-language, where every ASCII letter a catalog supplies is accented:
-a plain one the page shows, once the values a test filled in are taken
-out, came from no catalog. The messages the Viewer sends the page are
-checked the same way. The ESMFold page stays English: it is Mol*'s own
+pages, serve them, and open the Agent and metadata pages in Qt WebEngine
+under the pseudo-language, where every ASCII letter a catalog supplies is
+accented: a plain one a page shows, once the values a test filled in are
+taken out, came from no catalog. The messages the Viewer sends the pages
+are checked the same way. The ESMFold page stays English: it is Mol*'s own
 interface, which has no translations.
 """
 
@@ -240,15 +240,26 @@ class FixtureHandler(WebServerHandler):
         self.serve_file(str(file), MIME_TYPES.get(file.suffix, "application/octet-stream"))
 
 
-class AgentPageHandler(FixtureHandler):
+class PageHandler(FixtureHandler):
     files = {
         "/agent.html": SRC / "web_ui" / "agent.html",
         "/page_text.js": SRC / "web_ui" / "page_text.js",
         "/agent_resource/attachments.js": SRC / "resources" / "agent" / "attachments.js",
         "/agent_resource/marked.umd.js": SRC / "resources" / "agent" / "marked.umd.js",
+        "/meta.html": SRC / "web_ui" / "meta.html",
+        "/meta_resource/tabulator.min.js": SRC / "resources" / "meta" / "tabulator.min.js",
+        "/meta_resource/tabulator.min.css": SRC / "resources" / "meta" / "tabulator.min.css",
         "/fonts/fonts.css": SRC / "resources" / "fonts" / "fonts.css",
         "/esmfold.html": SRC / "web_ui" / "esmfold.html",
     }
+
+
+# A text each page file shows, to find in the file as it is served.
+SERVED_TEXTS = {
+    "/agent.html": "Clear Chat",
+    "/agent_resource/attachments.js": "Remove attachment",
+    "/meta.html": "Got it",
+}
 
 
 def start_server(test_case, handler, viewer=None):
@@ -282,24 +293,24 @@ class ServedPageTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_pages_come_in_the_viewers_language_with_a_policy_for_what_is_served(self):
-        server = start_server(self, AgentPageHandler)
-        english = {path: request(server, "GET", path)[1] for path in AgentPageHandler.files}
-        for path, file in AgentPageHandler.files.items():
+        server = start_server(self, PageHandler)
+        english = {path: request(server, "GET", path)[1] for path in PageHandler.files}
+        for path, file in PageHandler.files.items():
             self.assertEqual(english[path], file.read_bytes(), path)
         pseudo_language(self, self.app)
-        for path, file in AgentPageHandler.files.items():
+        for path, file in PageHandler.files.items():
             response, body = request(server, "GET", path)
             with self.subTest(path=path):
                 if page_context(file) is None:
                     self.assertEqual(body, file.read_bytes())
                     continue
                 self.assertNotEqual(body, file.read_bytes())
-                shown = body.decode("utf-8")
-                self.assertIn(pseudo_translate("Clear Chat") if path == "/agent.html"
-                              else pseudo_translate("Remove attachment"), shown)
-                if path == "/agent.html":
+                self.assertIn(pseudo_translate(SERVED_TEXTS[path]), body.decode("utf-8"))
+                if file.suffix == ".html":
                     self.assertEqual(response.getheader("Content-Security-Policy"),
-                                     content_security_policy("agent.html", body))
+                                     content_security_policy(file.name, body))
+        self.assertEqual({path for path, file in PageHandler.files.items() if page_context(file)},
+                         set(SERVED_TEXTS))
 
     def test_a_page_that_cannot_be_translated_comes_in_english(self):
         page = SRC / "web_ui" / "agent.html"
@@ -310,7 +321,7 @@ class ServedPageTests(unittest.TestCase):
 
     def test_the_image_check_answers_in_the_viewers_language(self):
         viewer = SimpleNamespace(communicator=SimpleNamespace(handle_action=lambda data: None))
-        server = start_server(self, AgentPageHandler, viewer)
+        server = start_server(self, PageHandler, viewer)
         pseudo_language(self, self.app)
         headers = {"Host": f"127.0.0.1:{server.server_port}", "Content-Type": "application/octet-stream"}
         _, body = request(server, "POST", "/api/agent/image", b"not an image", headers)
@@ -369,8 +380,13 @@ CARDS = {"cards": [
 ]}
 
 
-class AgentPageTests(unittest.TestCase):
-    """The Agent page in Qt WebEngine under the pseudo-language, in each state it can show."""
+class WebPageTestCase(unittest.TestCase):
+    """A page in Qt WebEngine under the pseudo-language, served as the Viewer serves it.
+
+    page_data lists what a page shows that is data, not its own text.
+    """
+
+    page_data = ()
 
     @classmethod
     def setUpClass(cls):
@@ -403,7 +419,7 @@ class AgentPageTests(unittest.TestCase):
                 raise RuntimeError("The test asked for a failed action.")
             self.actions.append(data)
 
-        self.server = start_server(self, AgentPageHandler, SimpleNamespace(communicator=SimpleNamespace(
+        self.server = start_server(self, PageHandler, SimpleNamespace(communicator=SimpleNamespace(
             handle_action=handle)))
         pseudo_language(self, self.app)
         self.page.dialogs.clear()
@@ -429,19 +445,19 @@ class AgentPageTests(unittest.TestCase):
             time.sleep(0.02)
         self.fail("Timed out: " + source)
 
-    def open(self, cards=CARDS, status=200):
-        AgentPageHandler.body = (status, cards if isinstance(cards, bytes) else json.dumps(cards).encode())
+    def load(self, path, ready):
+        """Open the page at path, and wait until the script ready says it has set itself up."""
         loaded = []
         callback = loaded.append
         self.view.loadFinished.connect(callback)
-        self.view.load(QUrl(f"http://127.0.0.1:{self.server.server_port}/agent.html"))
+        self.view.load(QUrl(f"http://127.0.0.1:{self.server.server_port}{path}"))
         deadline = time.monotonic() + 10
         while not loaded and time.monotonic() < deadline:
             self.app.processEvents()
             time.sleep(0.01)
         self.view.loadFinished.disconnect(callback)
         self.assertEqual(loaded, [True])
-        self.wait_for("document.getElementById('capture-viewer-btn').onclick !== null")
+        self.wait_for(ready)
 
     def collect(self):
         self.shown += json.loads(self.js(SHOWN_TEXTS))
@@ -453,12 +469,21 @@ class AgentPageTests(unittest.TestCase):
 
     def assert_translated(self, *values):
         self.assertTrue(self.shown)
-        values = sorted({str(value) for value in values + PAGE_DATA}, key=len, reverse=True)
+        values = sorted({str(value) for value in values + tuple(self.page_data)}, key=len, reverse=True)
         for text in self.shown:
             left = LINK.sub("", text)
             for value in values:
                 left = left.replace(value, "")
             self.assertEqual(re.findall("[A-Za-z]", left), [], text)
+
+class AgentPageTests(WebPageTestCase):
+    """The Agent page in each state it can show."""
+
+    page_data = PAGE_DATA
+
+    def open(self, cards=CARDS, status=200):
+        PageHandler.body = (status, cards if isinstance(cards, bytes) else json.dumps(cards).encode())
+        self.load("/agent.html", "document.getElementById('capture-viewer-btn').onclick !== null")
 
     def test_the_page_as_it_opens_and_connects(self):
         self.open()
@@ -552,6 +577,50 @@ class AgentPageTests(unittest.TestCase):
         response, body = request(self.server, "GET", "/esmfold.html")
         self.assertEqual(body, (SRC / "web_ui" / "esmfold.html").read_bytes())
         self.assertNotIn("web_ui/esmfold.html", PAGE_CONTEXTS)
+
+
+class MetadataPageTests(WebPageTestCase):
+    """The metadata spreadsheet page, its table built by Tabulator, and its help."""
+
+    # The help's wildcard examples, which a translation keeps as written.
+    page_data = ("*coli*", "*subtilis")
+    # Column names and values without letters: they are the user's data.
+    TABLE = {
+        "columns": ["Node ID", "1", "2"], "types": {"1": "number", "2": "text"},
+        "rows": [{"id": 0, "Node ID": "3", "1": 4, "2": "5"}, {"id": 1, "Node ID": "6", "1": 7, "2": "8"}],
+        "selected_indices": [], "visible_mask": [True, True],
+    }
+    BADGES = ("JSON.stringify(Array.from(document.querySelectorAll('.tabulator-header-filter'),"
+              " filter => getComputedStyle(filter, '::before').content))")
+
+    def open(self, table):
+        self.load("/meta.html", "typeof handleServerEvent === 'function'")
+        self.collect()
+        self.js(f"handleServerEvent({{type: 'init', data: {json.dumps(table)}}})")
+        self.wait_for(f"document.querySelectorAll('.tabulator-header-filter').length === {len(table['columns'])}")
+        self.collect()
+
+    def test_the_page_its_table_and_help(self):
+        self.open(self.TABLE)
+        badges = [badge for badge in json.loads(self.js(self.BADGES)) if badge != "none"]
+        self.assertEqual(badges, [f'"{pseudo_translate(badge)}"' for badge in ("NUM", "TXT")])
+        self.shown += badges
+        self.run_and_collect("eventSource.onopen()", "eventSource.onerror()",
+                             "document.getElementById('help-btn').click()")
+        self.assertEqual(self.js("document.getElementById('help-modal').style.display"), "flex")
+        self.js("document.querySelector('.metadata-delete-column').click()")
+        self.js("handleServerEvent({type: 'metadata_error'})")
+        self.js("handleServerEvent({type: 'metadata_error', message: '9'})")
+        self.assertEqual(len(self.page.dialogs), 3)
+        self.shown += self.page.dialogs
+        self.assert_translated()
+
+    def test_an_empty_table(self):
+        self.open({"columns": ["Node ID"], "types": {}, "rows": [], "selected_indices": [], "visible_mask": []})
+        self.wait_for("document.querySelector('.tabulator-placeholder') !== null")
+        self.collect()
+        self.assertIn(pseudo_translate("No network data loaded"), self.shown)
+        self.assert_translated()
 
 
 class AgentMessageTests(unittest.TestCase):
@@ -708,6 +777,18 @@ class AgentMessageTests(unittest.TestCase):
         self.assertIs(emitted[0][3], failure)
         for *_, error in emitted:
             self.assert_translated(display_text(error), "500", "8")
+
+    def test_a_refused_column_deletion(self):
+        from web_ui import meta_backend
+
+        events = []
+        viewer = SimpleNamespace(broadcast_event=events.append, metadata={"1": {}})
+        with mock.patch.object(meta_backend.Command_Engine, "print_help"), \
+                mock.patch.object(meta_backend.Command_Engine, "command_failed") as failed:
+            self.assertFalse(meta_backend.handle_delete_columns(viewer, {"columns": ["9"]}))
+        self.assertEqual([event["type"] for event in events], ["metadata_error"])
+        self.assert_translated(events[0]["message"], "9", "1")
+        self.assertTrue(failed.call_args.args[1].startswith("Error: "))
 
     def test_a_model_request_failure_and_the_analysis_step(self):
         import urllib.error

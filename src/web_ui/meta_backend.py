@@ -19,7 +19,7 @@ from PySide6 import QtWidgets, QtCore
 import Command_Engine
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import translate
-from utilities.Localization import Message
+from utilities.Localization import Message, display_text
 from web_ui.Plugin_Manager import ensure_registry
 # The metadata data model lives in Metadata_Core so the headless VR front
 # end can use it too; re-exported here so this module's own callers and
@@ -48,9 +48,10 @@ def handle_delete_columns(viewer, data):
     except MetadataColumnDeleteError as error:
         message = str(error)
         if hasattr(viewer, "broadcast_event"):
+            # The page shows the error as it comes, in the Viewer's language.
             viewer.broadcast_event({
                 "type": "metadata_error",
-                "message": message,
+                "message": display_text(error),
             })
         Command_Engine.print_help(viewer, Message("Error: {error}", error=error))
         Command_Engine.command_failed(viewer, f'Error: {message}')

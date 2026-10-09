@@ -3136,6 +3136,173 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
 </context>
 <context>
+    <name>MetadataPage</name>
+    <message>
+        <source>EMAP-SSN Metadata</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📊 EMAP-SSN Metadata Spreadsheet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>+ Import</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export Spreadsheet (CSV / Excel)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>📤 Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Undo (Ctrl+Z)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>↶ Undo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Redo (Ctrl+Y)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>↷ Redo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Help ?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>NUM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>TXT</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete metadata column {column}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete metadata column &quot;{column}&quot;?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reconnecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metadata operation failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No network data loaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🔍 Search Filter Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Text / Sequence Header Columns:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Substring Match&lt;/strong&gt;: Matches anywhere in the text by default (e.g. &lt;code&gt;candidatus&lt;/code&gt;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Wildcard Match&lt;/strong&gt;: Use &lt;code&gt;*&lt;/code&gt; for zero or more characters, or &lt;code&gt;?&lt;/code&gt; for a single character (e.g. &lt;code&gt;*coli*&lt;/code&gt;, &lt;code&gt;b*subtilis&lt;/code&gt;, or &lt;code&gt;node?&lt;/code&gt;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Numerical Columns (e.g. Length):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Range&lt;/strong&gt;: Format &lt;code&gt;min-max&lt;/code&gt; (e.g. &lt;code&gt;100-300&lt;/code&gt;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Operators&lt;/strong&gt;: Prepend with math operators:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;&amp;gt;=100&lt;/code&gt; (greater than or equal to 100)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;&amp;lt;=150&lt;/code&gt; (less than or equal to 150)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;&amp;gt;50&lt;/code&gt; (greater than 50)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;&amp;lt;200&lt;/code&gt; (less than 200)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;!=10&lt;/code&gt; (not equal to 10)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;=10&lt;/code&gt; or just &lt;code&gt;10&lt;/code&gt; (exactly equal to 10)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Logical Commands&lt;/strong&gt;: Combine comparisons enclosed in matching parentheses with operators:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;&amp;amp;&lt;/code&gt; (AND): e.g. &lt;code&gt;(&amp;gt;=100)&amp;amp;(&amp;lt;=500)&lt;/code&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;|&lt;/code&gt; (OR): e.g. &lt;code&gt;(&amp;gt;10)|(&amp;lt;3)&lt;/code&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;code&gt;^&lt;/code&gt; (XOR): e.g. &lt;code&gt;(&amp;gt;100)^(&amp;gt;200)&lt;/code&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>🖱️ Interaction Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Network Selection Filtering:&lt;/strong&gt; Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Node Click Highlighting:&lt;/strong&gt; Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Got it</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ToggleSwitch</name>
     <message>
         <source>ON</source>

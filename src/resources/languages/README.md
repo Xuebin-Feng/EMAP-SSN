@@ -9,7 +9,7 @@ This folder holds the catalogs the program's windows take their text from.
 | `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
 
-The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent page the Viewer opens in the browser. The metadata page and the tool help pages (`src/tools/tool_descriptions/`) are still English. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. There is no language catalog yet, so every window shows English.
+The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent and metadata pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are still English. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. There is no language catalog yet, so every window shows English.
 
 ## Choose the language
 
@@ -116,7 +116,7 @@ A text has one count. A message with two counts its first with `%n` and fills in
 
 ## Web pages
 
-The Viewer's browser pages take their text from the same catalogs, each page under a context of its own, such as `AgentPage`. `PAGE_CONTEXTS` in `src/web_ui/Page_Texts.py` lists each page's files. A page marks its texts three ways:
+The Viewer's browser pages take their text from the same catalogs, each page under a context of its own: `AgentPage` and `MetadataPage`. `PAGE_CONTEXTS` in `src/web_ui/Page_Texts.py` lists each page's files. A page marks its texts three ways:
 
 | Text | How to mark it |
 |---|---|
@@ -147,7 +147,7 @@ Every text from the catalog shows accented, longer and bracketed, like `[Šåå�
 
 `tests/test_untranslated_text.py` runs this check for each window. The text on the Viewer's canvas isn't Qt widgets, so the test reads each file's code instead. A file whose every text on the canvas is marked is listed in `CANVAS_MARKED`, and from then on a new unmarked one fails. The check follows a name through its whole function, so text that only the terminal or MCP clients get, such as print's full report, goes in a variable of its own, not in one the console line shows.
 
-`tests/test_page_translations.py` opens the Agent page in Qt WebEngine under the pseudo-language, and reads each page's code for text that an element or a script shows unmarked.
+`tests/test_page_translations.py` opens the Agent and metadata pages in Qt WebEngine under the pseudo-language, and reads each page's code for text that an element or a script shows unmarked.
 
 ## What stays English
 

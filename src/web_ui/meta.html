@@ -19,10 +19,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>EMAP-SSN Metadata</title>
+    <title data-i18n>EMAP-SSN Metadata</title>
     <!-- Load local Tabulator CSS -->
     <link rel="stylesheet" href="/meta_resource/tabulator.min.css">
     <link rel="stylesheet" href="/fonts/fonts.css">
+    <!-- t() fills in this page's texts, which the Viewer serves in its
+         language (src/web_ui/Page_Texts.py). -->
+    <script src="/page_text.js"></script>
     <style>
         :root {
             --bg-main: #f8fafc;
@@ -273,18 +276,19 @@
             padding: 2px 4px;
         }
 
+        /* The page's script sets each badge's text in the page's language. */
         .metadata-number-column .tabulator-header-filter::before {
             background-color: #dafbe1;
             border-color: #2da44e;
             color: #1a7f37;
-            content: "NUM";
+            content: var(--number-badge, "NUM");
         }
 
         .metadata-text-column .tabulator-header-filter::before {
             background-color: #ddf4ff;
             border-color: #388bfd;
             color: #0969da;
-            content: "TXT";
+            content: var(--text-badge, "TXT");
         }
 
         .tabulator-header-filter input {
@@ -392,14 +396,14 @@
 </head>
 <body>
     <header>
-        <h1>📊 EMAP-SSN Metadata Spreadsheet</h1>
+        <h1 data-i18n>📊 EMAP-SSN Metadata Spreadsheet</h1>
         <div style="display: flex; align-items: center; gap: 12px;">
-            <button class="btn btn-primary" id="import-btn" style="padding: 6px 16px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;">+ Import</button>
-            <button class="btn" id="export-btn" title="Export Spreadsheet (CSV / Excel)" style="padding: 6px 16px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);">📤 Export</button>
-            <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);">↶ Undo</button>
-            <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);">↷ Redo</button>
-            <button class="btn" id="help-btn" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);">Help ?</button>
-            <div id="connection-status" class="status-badge">Connecting...</div>
+            <button class="btn btn-primary" id="import-btn" style="padding: 6px 16px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;" data-i18n>+ Import</button>
+            <button class="btn" id="export-btn" title="Export Spreadsheet (CSV / Excel)" style="padding: 6px 16px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>📤 Export</button>
+            <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>↶ Undo</button>
+            <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>↷ Redo</button>
+            <button class="btn" id="help-btn" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>Help ?</button>
+            <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
     </header>
 
@@ -422,6 +426,10 @@
         let currentSelectionIndices = null;
         let currentSelectionIndicesSet = null;
         let pendingNodeNameGesture = null;
+
+        // The type badges of the columns' filters, which the page's style draws.
+        document.documentElement.style.setProperty("--number-badge", JSON.stringify(t("NUM")));
+        document.documentElement.style.setProperty("--text-badge", JSON.stringify(t("TXT")));
 
         function cancelPendingNodeNameGesture() {
             pendingNodeNameGesture = null;
@@ -479,8 +487,8 @@
             deleteButton.type = "button";
             deleteButton.className = "metadata-delete-column";
             deleteButton.textContent = "×";
-            deleteButton.title = `Delete metadata column ${columnName}`;
-            deleteButton.setAttribute("aria-label", `Delete metadata column ${columnName}`);
+            deleteButton.title = t("Delete metadata column {column}", {column: columnName});
+            deleteButton.setAttribute("aria-label", t("Delete metadata column {column}", {column: columnName}));
             ["pointerdown", "mousedown"].forEach(eventName => {
                 deleteButton.addEventListener(eventName, event => {
                     event.preventDefault();
@@ -490,7 +498,7 @@
             deleteButton.addEventListener("click", event => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (window.confirm(`Delete metadata column "${columnName}"?`)) {
+                if (window.confirm(t('Delete metadata column "{column}"?', {column: columnName}))) {
                     sendAction({
                         action: "delete_columns",
                         columns: [columnName]
@@ -512,7 +520,7 @@
                     movable: false
                 },
                 {
-                    title: "Sequence Header",
+                    title: t("Sequence Header"),
                     field: "Node ID",
                     headerFilter: "input",
                     sorter: "string",
@@ -671,13 +679,13 @@
             eventSource = new EventSource("/api/events?client=meta");
 
             eventSource.onopen = () => {
-                statusBadge.innerText = "Connected";
+                statusBadge.innerText = t("Connected");
                 statusBadge.style.backgroundColor = "#dcfce7";
                 statusBadge.style.color = "#15803d";
             };
 
             eventSource.onerror = () => {
-                statusBadge.innerText = "Reconnecting...";
+                statusBadge.innerText = t("Reconnecting...");
                 statusBadge.style.backgroundColor = "#fef3c7";
                 statusBadge.style.color = "#b45309";
             };
@@ -732,7 +740,7 @@
                     }
                     break;
                 case "metadata_error":
-                    window.alert(event.message || "Metadata operation failed.");
+                    window.alert(event.message || t("Metadata operation failed."));
                     break;
             }
         }
@@ -746,7 +754,7 @@
                 columns: columns,
                 selectable: true,
                 virtualDom: true,
-                placeholder: "No network data loaded",
+                placeholder: t("No network data loaded"),
                 headerSortTristate: true,
                 movableColumns: true,
                 history: false,
@@ -1004,37 +1012,37 @@
     <!-- Help Modal -->
     <div id="help-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 9999; justify-content: center; align-items: center; font-family: 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
         <div class="modal-content" style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; width: 500px; max-width: 90%; padding: 24px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); position: relative; animation: modalFadeIn 0.2s ease-out;">
-            <h3 style="margin-top: 0; font-size: 18px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 8px;">🔍 Search Filter Rules</h3>
+            <h3 style="margin-top: 0; font-size: 18px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 8px;" data-i18n>🔍 Search Filter Rules</h3>
             <button id="close-modal-btn" style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer; line-height: 1;">&times;</button>
             
             <div style="margin-top: 16px; font-size: 13px; line-height: 1.6; color: var(--text-secondary);">
                 <div style="margin-bottom: 16px;">
-                    <strong style="color: var(--text-primary); font-size: 14px;">Text / Sequence Header Columns:</strong>
+                    <strong style="color: var(--text-primary); font-size: 14px;" data-i18n>Text / Sequence Header Columns:</strong>
                     <ul style="margin: 6px 0 0 16px; padding: 0;">
-                        <li><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
-                        <li><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
+                        <li data-i18n><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
+                        <li data-i18n><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
                     </ul>
                 </div>
                 
                 <div>
-                    <strong style="color: var(--text-primary); font-size: 14px;">Numerical Columns (e.g. Length):</strong>
+                    <strong style="color: var(--text-primary); font-size: 14px;" data-i18n>Numerical Columns (e.g. Length):</strong>
                     <ul style="margin: 6px 0 0 16px; padding: 0;">
-                        <li><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
-                        <li><strong>Operators</strong>: Prepend with math operators:
+                        <li data-i18n><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
+                        <li><span data-i18n><strong>Operators</strong>: Prepend with math operators:</span>
                             <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: circle;">
-                                <li><code>&gt;=100</code> (greater than or equal to 100)</li>
-                                <li><code>&lt;=150</code> (less than or equal to 150)</li>
-                                <li><code>&gt;50</code> (greater than 50)</li>
-                                <li><code>&lt;200</code> (less than 200)</li>
-                                <li><code>!=10</code> (not equal to 10)</li>
-                                <li><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
+                                <li data-i18n><code>&gt;=100</code> (greater than or equal to 100)</li>
+                                <li data-i18n><code>&lt;=150</code> (less than or equal to 150)</li>
+                                <li data-i18n><code>&gt;50</code> (greater than 50)</li>
+                                <li data-i18n><code>&lt;200</code> (less than 200)</li>
+                                <li data-i18n><code>!=10</code> (not equal to 10)</li>
+                                <li data-i18n><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
                             </ul>
                         </li>
-                        <li style="margin-top: 8px;"><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:
+                        <li style="margin-top: 8px;"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
                             <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: circle;">
-                                <li><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
-                                <li><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
-                                <li><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
+                                <li data-i18n><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
+                                <li data-i18n><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
+                                <li data-i18n><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
                             </ul>
                         </li>
                     </ul>
@@ -1042,16 +1050,16 @@
             </div>
 
             <div style="margin-top: 24px; font-size: 13px; line-height: 1.6; color: var(--text-secondary); border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <h3 style="margin-top: 0; font-size: 16px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 8px;">🖱️ Interaction Rules</h3>
+                <h3 style="margin-top: 0; font-size: 16px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 8px;" data-i18n>🖱️ Interaction Rules</h3>
                 
                 <ul style="margin: 8px 0 0 16px; padding: 0;">
-                    <li style="margin-bottom: 8px;"><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
-                    <li style="margin-bottom: 8px;"><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
+                    <li style="margin-bottom: 8px;" data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
+                    <li style="margin-bottom: 8px;" data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
                 </ul>
             </div>
             
             <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                <button class="btn btn-primary" id="close-modal-btn-ok" style="padding: 6px 18px; font-size: 13px; height: 32px; border-radius: 6px; font-weight: 600;">Got it</button>
+                <button class="btn btn-primary" id="close-modal-btn-ok" style="padding: 6px 18px; font-size: 13px; height: 32px; border-radius: 6px; font-weight: 600;" data-i18n>Got it</button>
             </div>
         </div>
     </div>
