@@ -697,6 +697,15 @@ still change before version 1.0.0.
   values without a word; the problem came to light only when **Save Directories** or
   **Save & Run** refused. It now warns when the window opens, with the parse error's
   line and column, and leaves the file unchanged.
+- The Tools window's file dropdowns did not use the saved directories until they were
+  opened. Each listed its default folder instead, so with custom directories it showed
+  no file, or one from the default folder; once opened, it listed the saved directory
+  but selected its first file rather than the saved one. **Save & Run** saved and ran
+  whichever file it showed, and the Embedding MSA card lost its saved Alignment Score
+  Mode and Normalization Mode. The dropdowns now open on the saved file. A relative
+  directory is found from the EMAP-SSN folder, as the tools find it, rather than from
+  the folder the window was started in; a blank one lists the default folder; and the
+  📂 button beside a dropdown opens the folder it lists.
 - A tool run from the command line without a settings file, while `tools_settings.json`
   could not be read (invalid JSON, empty, or not a JSON object), printed a warning and
   ran on its built-in defaults; an MCP job given parameters without every directory

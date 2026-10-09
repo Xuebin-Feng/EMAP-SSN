@@ -1145,6 +1145,25 @@ def _starting_settings_document(window):
     return carried["document"] if carried else _saved_settings_document()
 
 
+def _dropdown_folder(window, dir_key):
+    """The folder a file dropdown lists: its directory as the tools find it.
+
+    The directory is the Directories tab's or, before that tab exists, the one
+    the window starts from. A blank directory means the default, and a
+    relative one is relative to the project root, not the working directory.
+    """
+    dir_inputs = getattr(window, "dir_inputs", None)
+    if dir_inputs is not None and dir_key in dir_inputs:
+        directory = dir_inputs[dir_key].text()
+    else:
+        directories = _starting_settings_document(window).get("DIRECTORIES")
+        directory = directories.get(dir_key) if isinstance(directories, dict) else None
+    directory = str(directory or "").strip() or DEFAULT_DIRECTORY_PATHS[dir_key]
+    if not os.path.isabs(directory):
+        directory = os.path.join(_PROJECT_ROOT, directory)
+    return os.path.normpath(directory)
+
+
 class ToolsGUI(QMainWindow):
     COMMON_TAB_VIEWPORT_MINIMUM_WIDTH = 600
 
@@ -2805,8 +2824,8 @@ class ToolsGUI(QMainWindow):
                 # By passing them as default arguments (c=combo, dk=dir_key, op=original_populate), 
                 # Python locks in their values instantly during the loop!
                 def dynamic_populate(c=combo, dk=dir_key, op=original_populate):
-                    if dk and hasattr(self, 'dir_inputs') and dk in self.dir_inputs:
-                        c.folder = self.dir_inputs[dk].text()
+                    if dk:
+                        c.folder = _dropdown_folder(self, dk)
                     op()
                     
                 combo.populate = dynamic_populate
@@ -2825,7 +2844,7 @@ class ToolsGUI(QMainWindow):
                     import os
                     from PySide6.QtGui import QDesktopServices
                     from PySide6.QtCore import QUrl
-                    path = self.dir_inputs[dk].text() if dk and hasattr(self, 'dir_inputs') and dk in self.dir_inputs else df
+                    path = _dropdown_folder(self, dk) if dk else df
                     abs_path = os.path.abspath(path)
                     os.makedirs(abs_path, exist_ok=True)
                     QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
@@ -3132,11 +3151,7 @@ class ToolsGUI(QMainWindow):
                     filename = net_combo.currentText().strip()
                     if not filename:
                         return None
-                    if hasattr(self, 'dir_inputs') and "NETWORK_DIR" in self.dir_inputs:
-                        network_dir = self.dir_inputs["NETWORK_DIR"].text()
-                    else:
-                        network_dir = net_combo.folder
-                    return os.path.abspath(os.path.join(network_dir, filename))
+                    return os.path.join(_dropdown_folder(self, "NETWORK_DIR"), filename)
 
                 def cached_network_completeness():
                     network_path = selected_network_path()

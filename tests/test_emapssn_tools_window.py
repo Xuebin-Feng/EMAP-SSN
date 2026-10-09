@@ -6,7 +6,8 @@
 
 Tooltip routing, BLAST custom-column controls, tool cards and their headers,
 the Directories tab, settings export, hardware-dependent precision and
-execution options, the host-cache control and the model dropdown.
+execution options, the host-cache control, the model dropdown and the file
+dropdowns.
 """
 
 import ast
@@ -1375,6 +1376,143 @@ class SettingsLoadReportTests(unittest.TestCase):
         lines = {ast.unparse(node): node.lineno for node in ast.walk(launch) if isinstance(node, ast.Call)}
         self.assertLess(lines["show_window_in_front(window)"], lines["window.report_settings_load_error()"])
         self.assertLess(lines["window.report_settings_load_error()"], lines["app.exec()"])
+
+
+class FolderDropdownTests(unittest.TestCase):
+    """A file dropdown lists its directory as the tools find it and starts on the saved file.
+
+    It does so as the window opens, without being opened itself: before the
+    Directories tab exists, the directory comes from the saved settings, or in a
+    language redraw from the ones carried over. A relative directory is relative to
+    the project root, not the working directory, and a blank one means the default.
+    """
+
+    # One file dropdown per directory: tool, field, directory key, extension.
+    FIELDS = (
+        ("Sanitize_Sequences.py", "INPUT_FASTA", "FASTA_DIR", ".fasta"),
+        ("Align_Similarity_Matrix.py", "INPUT_HDF5", "EMBED_DIR", ".h5"),
+        ("Network_Extraction.py", "INPUT_NET", "NETWORK_DIR", ".h5"),
+        ("Sparse_MSA_Converter.py", "INPUT_FASTA", "MSA_DIR", ".fasta"),
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from PySide6.QtWidgets import QTextBrowser
+
+        self.root = isolated_tools_project(self)
+        patcher = mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def saved_name(key, extension):
+        return f"saved_{key.lower()}{extension}"
+
+    def open_tools(self, directories=None, carried=None):
+        """Open the Tools window, saving directories first if they are given.
+
+        directories maps each key to (its saved value, the folder it leads to).
+        Each folder holds its field's saved file and a file listed before it.
+        """
+        import EMAPSSN_Tools
+
+        if directories is not None:
+            document = {"DIRECTORIES": {key: saved for key, (saved, _) in directories.items()}}
+            for script, field, key, extension in self.FIELDS:
+                folder = directories[key][1]
+                folder.mkdir(parents=True, exist_ok=True)
+                for name in ("a_listed_first" + extension, self.saved_name(key, extension)):
+                    (folder / name).touch()
+                document[script] = {field: self.saved_name(key, extension)}
+            (self.root / "tools_settings.json").write_text(json.dumps(document), encoding="utf-8")
+        window = EMAPSSN_Tools.ToolsGUI(carried=carried)
+
+        def close():
+            window.close()
+            window.deleteLater()
+            self.app.processEvents()
+
+        self.addCleanup(close)
+        return window
+
+    @staticmethod
+    def dropdown(window, script, field):
+        """(script path, combo) of a tool's file dropdown."""
+        path, data = next(
+            (path, data) for path, data in window.script_data.items()
+            if pathlib.Path(path).name == script
+        )
+        return path, data["inputs"][field]["widget"].combo
+
+    def assert_saved_files_selected(self, window):
+        for script, field, key, extension in self.FIELDS:
+            with self.subTest(script=script, field=field):
+                path, combo = self.dropdown(window, script, field)
+                saved = self.saved_name(key, extension)
+                listed = sorted(combo.itemText(index) for index in range(combo.count()))
+                self.assertEqual(listed, sorted(["a_listed_first" + extension, saved]))
+                self.assertEqual(combo.currentText(), saved)
+                # What Save & Run and Export collect.
+                self.assertEqual(window._collect_tool_settings(path)[field], saved)
+
+    def assert_opening_keeps_the_saved_files(self, window):
+        """Opening a dropdown lists the Directories tab's directory again."""
+        for script, field, _, _ in self.FIELDS:
+            self.dropdown(window, script, field)[1].populate()
+        self.assert_saved_files_selected(window)
+
+    def test_a_dropdown_starts_on_the_file_saved_in_its_directory(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        directories = {}
+        for _, _, key, _ in self.FIELDS:
+            folder = pathlib.Path(elsewhere.name, key.lower())
+            directories[key] = (str(folder), folder)
+
+        window = self.open_tools(directories)
+
+        self.assert_saved_files_selected(window)
+        self.assert_opening_keeps_the_saved_files(window)
+
+    def test_relative_and_blank_directories_are_found_from_the_project_root(self):
+        directories = {}
+        for _, _, key, _ in self.FIELDS:
+            relative = os.path.join("custom", key.lower())
+            directories[key] = (relative, self.root / relative)
+        # A blank directory is the default, which the tools also find from the root.
+        directories["MSA_DIR"] = ("", self.root / DEFAULT_DIRECTORY_PATHS["MSA_DIR"])
+        self.assertNotEqual(pathlib.Path.cwd().resolve(), self.root.resolve())
+
+        window = self.open_tools(directories)
+
+        self.assert_saved_files_selected(window)
+        self.assert_opening_keeps_the_saved_files(window)
+
+    def test_a_redraw_lists_the_directories_as_shown(self):
+        directories = {}
+        for _, _, key, _ in self.FIELDS:
+            folder = self.root / "saved" / key.lower()
+            directories[key] = (str(folder), folder)
+        window = self.open_tools(directories)
+        # A directory changed without saving, and a file picked from it.
+        unsaved = self.root / "unsaved_sequences"
+        unsaved.mkdir()
+        for name in ("a_listed_first.fasta", "picked.fasta"):
+            (unsaved / name).touch()
+        window.dir_inputs["FASTA_DIR"].setText(str(unsaved))
+        _, combo = self.dropdown(window, "Sanitize_Sequences.py", "INPUT_FASTA")
+        combo.populate()
+        combo.setCurrentIndex(combo.findText("picked.fasta"))
+        carried = window.language_carry_over()
+
+        replacement = self.open_tools(carried=carried)
+
+        _, combo = self.dropdown(replacement, "Sanitize_Sequences.py", "INPUT_FASTA")
+        self.assertEqual(combo.currentText(), "picked.fasta")
+        self.assertEqual(replacement.language_carry_over()["document"], carried["document"])
 
 
 if __name__ == "__main__":
