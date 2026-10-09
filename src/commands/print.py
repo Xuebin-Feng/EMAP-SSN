@@ -16,13 +16,17 @@
 import Command_Engine
 import os
 import math
+import time
 import datetime
 import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 from matplotlib.collections import LineCollection
+from PySide6 import QtCore
 from vispy import app
+from vispy.scene.visuals import VisualNode
+from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import open_in_file_manager
 from utilities.Output_Names import validate_output_basename
@@ -32,6 +36,13 @@ PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
 PNG_TRIM_PADDING_PX = 20
 PNG_ALPHA_TOLERANCE = 1.0 / 255.0
 PNG_BACKGROUND_TOLERANCE = 2.0 / 255.0
+# Viewer HUD overlays drawn over the network, left out of every capture.
+CAPTURE_HIDDEN_OVERLAYS = (
+    'instr_text', 'zoom_text', 'tooltip', 'hidden_text', 'console_bg',
+    'console_text', 'background_job_status_text', 'selection_box',
+)
+# Longest stretch of a full capture without letting Qt paint and run timers.
+CAPTURE_EVENT_INTERVAL_S = 0.1
 
 def print_help():
     print("""
@@ -50,9 +61,11 @@ def print_help():
 
     Modifiers (Can be combined, except for SVG):
       transparent : Removes the configured background color (PNG only).
-      full        : Automatically pans the camera and stitches multiple tiles 
-                    together to generate a massive, ultra-high-resolution PNG 
-                    of the entire network without OpenGL edge-clipping.
+      full        : Renders the network tile by tile off screen and stitches
+                    the tiles into a massive, ultra-high-resolution PNG of
+                    the entire network without OpenGL edge-clipping. The view
+                    on screen stays put; keyboard and mouse input waits until
+                    the capture ends, and resizing the window cancels it.
       svg         : Reconstructs the visible network as a Scalable Vector Graphic 
                     for infinite zoom without pixelation (Not compatible with 
                     other modifiers).
@@ -246,17 +259,15 @@ def _export_svg(viewer, filepath):
     return True
 
 def _capture_tile(viewer, is_transparent):
-    """Helper function to render the current camera view and extract RGBA."""
+    """Render the current camera view offscreen and return float RGBA.
+
+    canvas.render() draws into a framebuffer object of its own, and the
+    transparent pass hands its two backgrounds to render() rather than
+    setting canvas.bgcolor: nothing reaches the window and no event runs.
+    """
     if is_transparent:
-        viewer.canvas.bgcolor = 'black'
-        viewer.canvas.update()
-        app.process_events()
-        img_black = viewer.canvas.render()[..., :3].astype(np.float32) / 255.0
-        
-        viewer.canvas.bgcolor = 'white'
-        viewer.canvas.update()
-        app.process_events()
-        img_white = viewer.canvas.render()[..., :3].astype(np.float32) / 255.0
+        img_black = viewer.canvas.render(bgcolor='black')[..., :3].astype(np.float32) / 255.0
+        img_white = viewer.canvas.render(bgcolor='white')[..., :3].astype(np.float32) / 255.0
         
         alpha = 1.0 - img_white + img_black
         alpha_channel = np.clip(np.mean(alpha, axis=2), 0.0, 1.0)
@@ -271,14 +282,143 @@ def _capture_tile(viewer, is_transparent):
         final_tile[..., 3] = alpha_channel
         return final_tile
     else:
-        viewer.canvas.update()
-        app.process_events()
         img = viewer.canvas.render().astype(np.float32) / 255.0
         if len(img.shape) == 3 and img.shape[2] == 3:
             rgba = np.ones((img.shape[0], img.shape[1], 4), dtype=np.float32)
             rgba[..., :3] = img
             return rgba
         return img
+
+
+def _capture_overlays(viewer):
+    """Return the HUD visuals a capture leaves out, each once."""
+    overlays = [getattr(viewer, name, None) for name in CAPTURE_HIDDEN_OVERLAYS]
+    overlays += [
+        getattr(display, 'text_visual', None)
+        for display in getattr(viewer, 'hud_displays', {}).values()
+    ]
+    unique = []
+    for overlay in overlays:
+        if (hasattr(overlay, 'visible')
+                and not any(overlay is seen for seen in unique)):
+            unique.append(overlay)
+    return unique
+
+
+def _render_capture(viewer, is_transparent, overlays, rect=None):
+    """Capture one tile with the HUD hidden and the camera at rect, if given.
+
+    The live camera and HUD visibility are read here and put back before
+    returning, even on error, and no event is processed in between, so a
+    paint only ever sees the live view.
+    """
+    camera = viewer.view.camera
+    live_rect = camera.rect
+    shown = [overlay.visible for overlay in overlays]
+    try:
+        for overlay in overlays:
+            overlay.visible = False
+        if rect is not None:
+            camera.rect = rect
+        return _capture_tile(viewer, is_transparent)
+    finally:
+        if rect is not None:
+            camera.rect = live_rect
+        for overlay, visible in zip(overlays, shown):
+            overlay.visible = visible
+
+
+def _capture_geometry(viewer):
+    """Return what tile pixels depend on besides the scene and camera rect."""
+    try:
+        return (
+            tuple(getattr(viewer.canvas, 'size', ())),
+            tuple(getattr(viewer.canvas, 'physical_size', ())),
+            getattr(viewer.view.camera, 'aspect', None),
+        )
+    except Exception:
+        return None
+
+
+def _process_events_without_input():
+    """Run pending paints, timers and window events; keyboard and mouse
+    input stays queued until Qt's event loop runs normally again."""
+    application = QtCore.QCoreApplication.instance()
+    if application is not None:
+        application.processEvents(
+            QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
+
+
+class _CaptureInterrupted(RuntimeError):
+    """Something a full capture depends on changed between its tiles."""
+
+
+class _CaptureEvents:
+    """Lets Qt run between full-capture tiles, and cancels spoiled captures.
+
+    Between tiles the live view is on screen, so pending paints, timers and
+    window events run while keyboard and mouse input waits. What does run
+    can still spoil the mosaic: a resize or display-scale change alters the
+    tile geometry, and a web or background action can redraw the network.
+    Either cancels the capture. A camera move alone is harmless, because
+    every tile sets its own camera and puts the live one back.
+    """
+
+    def __init__(self, viewer, overlays):
+        self._viewer = viewer
+        self._geometry = _capture_geometry(viewer)
+        self._changed = False
+        self._emitters = []
+        self._next_pause = time.perf_counter() + CAPTURE_EVENT_INTERVAL_S
+        root = getattr(viewer.canvas, 'scene', None)
+        if root is None:
+            return
+        # Every visual a tile draws, plus any the network gains: the HUD
+        # overlays are hidden in tiles, and the view widgets change only
+        # with the camera or the window size.
+        skipped = {id(overlay) for overlay in overlays}
+        self._watch(root.events.children_change)
+        nodes = [root]
+        while nodes:
+            node = nodes.pop()
+            nodes.extend(node.children)
+            if (isinstance(node, VisualNode) and not isinstance(node, Widget)
+                    and id(node) not in skipped):
+                self._watch(node.events.update)
+
+    def _watch(self, emitter):
+        emitter.connect(self._mark_changed)
+        self._emitters.append(emitter)
+
+    def _mark_changed(self, event=None):
+        self._changed = True
+
+    def pause_if_due(self):
+        """Process events if the last pause was long enough ago."""
+        if time.perf_counter() < self._next_pause:
+            return
+        camera = self._viewer.view.camera
+        live_rect = camera.rect
+        self._changed = False
+        _process_events_without_input()
+        if _capture_geometry(self._viewer) != self._geometry:
+            raise _CaptureInterrupted(
+                "the Viewer window was resized during the capture, so nothing "
+                "was saved. Run print again."
+            )
+        # A camera move updates every visual too, and only that is harmless.
+        if self._changed and camera.rect == live_rect:
+            raise _CaptureInterrupted(
+                "the network display changed during the capture, so nothing "
+                "was saved. Run print again."
+            )
+        self._next_pause = time.perf_counter() + CAPTURE_EVENT_INTERVAL_S
+
+    def close(self):
+        for emitter in self._emitters:
+            emitter.disconnect(self._mark_changed)
+        self._emitters = []
 
 
 def _background_rgb(background_color):
@@ -361,7 +501,6 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
-            if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
             return
             
         if len(args) > 2:
@@ -369,7 +508,6 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
-            if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
             return
 
     args = final_args
@@ -386,7 +524,6 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
-            if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
             return
     else:
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -397,50 +534,40 @@ def run(viewer, args):
         
     filepath = os.path.join(save_dir, filename)
     
-    # 4. Store original states
+    # 4. A capture leaves the live view alone: each render hides the HUD and
+    # moves the camera only between reading and restoring the live state,
+    # with no event processed in between (see _render_capture).
     original_bgcolor = viewer.canvas.bgcolor
-    instr_visible = viewer.instr_text.visible
-    zoom_visible = viewer.zoom_text.visible if hasattr(viewer, 'zoom_text') else False
-    tooltip_visible = viewer.tooltip.visible if hasattr(viewer, 'tooltip') else False
-    hidden_visible = viewer.hidden_text.visible if hasattr(viewer, 'hidden_text') else False
-    meta_display = getattr(viewer, 'hud_displays', {}).get('meta_display')
-    meta_text_visual = getattr(meta_display, 'text_visual', None)
-    meta_text_visible = (
-        meta_text_visual.visible if meta_text_visual is not None else False
-    )
-    
-    orig_rect = viewer.view.camera.rect
-    orig_aspect = viewer.view.camera.aspect
-    
+    overlays = _capture_overlays(viewer)
+    events = None
+
     try:
-        # Hide UI
-        viewer.instr_text.visible = False
-        if hasattr(viewer, 'zoom_text'): viewer.zoom_text.visible = False
-        if hasattr(viewer, 'tooltip'): viewer.tooltip.visible = False
-        if hasattr(viewer, 'hidden_text'): viewer.hidden_text.visible = False
-        if meta_text_visual is not None:
-            meta_text_visual.visible = False
-        if hasattr(viewer, 'console_bg'):
-            viewer.console_bg.visible = False
-            Command_Engine.show_status(viewer, "")
-            
         if is_svg:
             if not _export_svg(viewer, filepath):
                 msg = "Error: No visible nodes to export."
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
                 Command_Engine.show_status(viewer, msg)
-                if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
                 return
 
         elif is_full:
             print("\nCalculating seamless tile grid (bypassing OpenGL edge-clipping)...")
             
+            vis = viewer.visible_mask
+            if not np.any(vis):
+                msg = "Error: No visible nodes to export."
+                Command_Engine.command_failed(viewer, msg)
+                print(f"\n{msg}")
+                Command_Engine.show_status(viewer, msg)
+                return
+
             # 1. Keep the aspect ratio locked to preserve rendering proportions
-            orig_real_rect = viewer.view.camera._real_rect if hasattr(viewer.view.camera, '_real_rect') else orig_rect
+            camera = viewer.view.camera
+            orig_real_rect = camera._real_rect if hasattr(camera, '_real_rect') else camera.rect
+            events = _CaptureEvents(viewer, overlays)
             
             # 2. Get exact physical pixel resolution
-            dummy_tile = _capture_tile(viewer, is_transparent)
+            dummy_tile = _render_capture(viewer, is_transparent, overlays)
             tile_px_h, tile_px_w = dummy_tile.shape[:2]
             
             # 3. Define the trash margin (Throw away outer 15% of pixels)
@@ -460,15 +587,6 @@ def run(viewer, args):
             
             # 5. Get world bounding box with padding
             # Recalculate bounding box using only visible nodes
-            vis = viewer.visible_mask
-            if not np.any(vis):
-                msg = "Error: No visible nodes to export."
-                Command_Engine.command_failed(viewer, msg)
-                print(f"\n{msg}")
-                Command_Engine.show_status(viewer, msg)
-                if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
-                return
-                
             visible_pos = viewer.pos[vis, :2]
             min_x, min_y = np.min(visible_pos, axis=0)
             max_x, max_y = np.max(visible_pos, axis=0)
@@ -510,11 +628,13 @@ def run(viewer, args):
                     cam_top = target_keep_top + (margin_px * upp_y)
                     cam_bottom = cam_top - orig_real_rect.height
                     
-                    # Snap camera
-                    viewer.view.camera.rect = (cam_left, cam_bottom, orig_real_rect.width, orig_real_rect.height)
-                    app.process_events() 
-                    
-                    tile_img = _capture_tile(viewer, is_transparent)
+                    # Render the tile from its own camera; the live one is back on return
+                    tile_img = _render_capture(
+                        viewer,
+                        is_transparent,
+                        overlays,
+                        (cam_left, cam_bottom, orig_real_rect.width, orig_real_rect.height),
+                    )
                     
                     # The Cookie Cutter: Snip off the unsafe clipped margins
                     cropped_tile = tile_img[margin_px : tile_px_h - margin_px, margin_px : tile_px_w - margin_px]
@@ -523,6 +643,9 @@ def run(viewer, args):
                     paste_x = c * keep_px_w
                     paste_y = r * keep_px_h
                     final_img[paste_y : paste_y + keep_px_h, paste_x : paste_x + keep_px_w, :] = cropped_tile
+
+                    # Let the window paint and timers run; input stays queued
+                    events.pause_if_due()
                     
             # 9. Crop to exact requested world bounds
             print("Stitching complete. Cropping to exact bounds...")
@@ -537,7 +660,7 @@ def run(viewer, args):
 
         else:
             # Standard single-shot render
-            final_img = _capture_tile(viewer, is_transparent)
+            final_img = _render_capture(viewer, is_transparent, overlays)
 
         if not is_svg:
             original_height, original_width = final_img.shape[:2]
@@ -565,36 +688,26 @@ def run(viewer, args):
         print(f"\n{msg}")
         
         Command_Engine.show_status(viewer, f"Saved {image_format}: {filename}")
-        if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
         
         # Open the save folder in the system file explorer
         open_in_file_manager(save_dir)
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        interrupted = isinstance(e, _CaptureInterrupted)
+        if not interrupted:
+            import traceback
+            traceback.print_exc()
         error_msg = f"Failed to save {image_format}: {e}"
         Command_Engine.command_failed(viewer, error_msg)
         print(f"\n{error_msg}")
-        Command_Engine.show_status(viewer, f"Error saving {image_format}. Check console.")
-        Command_Engine.command_failed(viewer, viewer.console_text.text)
-        if hasattr(viewer, 'console_bg'): viewer.console_bg.visible = True
+        Command_Engine.show_status(
+            viewer,
+            error_msg if interrupted else f"Error saving {image_format}. Check console.",
+        )
         return
 
     finally:
-        # --- RESTORE STATE ---
-        
-        viewer.view.camera.aspect = orig_aspect
-        viewer.view.camera.rect = orig_rect
-        
-        viewer.canvas.bgcolor = original_bgcolor
-        viewer.instr_text.visible = instr_visible
-        if hasattr(viewer, 'zoom_text'): viewer.zoom_text.visible = zoom_visible
-        if hasattr(viewer, 'tooltip'): viewer.tooltip.visible = tooltip_visible
-        if hasattr(viewer, 'hidden_text'): viewer.hidden_text.visible = hidden_visible
-        if meta_text_visual is not None:
-            meta_text_visual.visible = meta_text_visible
-            
+        if events is not None:
+            events.close()
         viewer.canvas.update()
-        app.process_events()
     Command_Engine.command_succeeded(viewer, msg)
