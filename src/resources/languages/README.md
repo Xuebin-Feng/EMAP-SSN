@@ -197,3 +197,5 @@ These stay English in every language:
 - the commands typed in the Viewer's console
 - the notes the Viewer adds to the agent's replies, such as "No explanatory text was returned.", which the model reads back with the conversation
 - the ESMFold page, which is Mol*'s own interface
+
+The benchmark's report is the one file the program writes in the chosen language. `src/resources/benchmark/Run_Benchmark.py` reads the language once, when a run starts, and writes `Benchmark_Report_<date>_<time>.txt` in it; the terminal's copy of the report, the `.json` beside it and the summary an MCP job returns stay English. Its texts are `Message`s under the "Message" context: the script renders them with `display_text` after installing the language in an offscreen `QGuiApplication` (a bare `QCoreApplication` crashes when the Chinese font registers), and removes the language once the file is written. Its columns are padded by display width, so a wide script keeps them lined up.

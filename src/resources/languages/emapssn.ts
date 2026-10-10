@@ -3130,11 +3130,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Host cache {choice}: {size} of embeddings, with a limit of {limit}.</source>
+        <source>Host cache: {choice} ({size} of embeddings, limit {limit}).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>({size} components)</source>
+        <source>Device for the layout of {size} components, by estimated time</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3419,6 +3419,10 @@ Command-line usage:
     </message>
     <message>
         <source>Benchmark protocol</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

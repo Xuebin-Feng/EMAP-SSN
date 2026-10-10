@@ -1920,13 +1920,13 @@ def decision_blocks(decision):
         return blocks
     if kind == "host_cache":
         return [("line", Message(
-            "Host cache {choice}: {size} of embeddings, with a limit of {limit}.",
+            "Host cache: {choice} ({size} of embeddings, limit {limit}).",
             choice=decision_choice(decision), size=format_bytes(decision.get("embedding_bytes")),
             limit=format_bytes(decision.get("limit_bytes")),
         ))]
     title = DECISION_TITLES.get(kind, kind or "?")
     if kind == "layout_device" and decision.get("size_class"):
-        title = JoinedMessage([title, Message("({size} components)", size=decision["size_class"])])
+        title = Message("Device for the layout of {size} components, by estimated time", size=decision["size_class"])
     candidates = decision.get("candidates") or []
     ranking = [index for index in decision.get("ranking") or [] if 0 <= index < len(candidates)]
     order = ranking + [index for index in range(len(candidates)) if index not in ranking]
@@ -2162,6 +2162,7 @@ def report_blocks(run):
         [Message("Disk space used"), format_bytes(run.temp_peak_bytes)],
         [Message("Program"), _program_text(run.program)],
         [Message("Benchmark protocol"), str(PROTOCOL_VERSION)],
+        [Message("Report language"), run.language or "en"],
         [Message("Sequence set"), dataset.get("name") or DATASET_NAME],
         [Message("Sequences"), Message(
             "{main} in the main set, {new} for injection",
@@ -2284,15 +2285,58 @@ def english(value):
     return str(value)
 
 
-def write_reports(run, folder, show=display_text):
-    """Write the .json (English) and the .txt (shown with show) beside each other; return the data."""
+def report_language():
+    """The language the program shows, read once as the run starts: the one user setting the benchmark reads.
+
+    None means English. A setting that can't be read leaves the report English.
+    """
+    try:
+        from desktop.Desktop_App import startup_language
+
+        return startup_language()
+    except Exception as error:
+        say(f"Warning: the report will be in English, because the language setting could not be read ({error}).")
+        return None
+
+
+def install_report_language(language):
+    """Install language's translations for writing the .txt; return what remove() takes them away, or None.
+
+    The translations need a Qt application. An offscreen QGuiApplication is
+    enough, and a bare QCoreApplication is not: it crashes when the Chinese
+    font registers. Anything that fails leaves the report English.
+    """
+    if not language:
+        return None
+    try:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtGui import QGuiApplication
+
+        from desktop.Desktop_App import install_translations
+
+        app = QGuiApplication.instance() or QGuiApplication([])
+        return install_translations(app, language)
+    except Exception as error:
+        say(f"Warning: the report is in English, because language {language} could not be installed "
+            f"({type(error).__name__}: {error}).")
+        return None
+
+
+def write_reports(run, folder):
+    """Write the English .json and the .txt in the run's language beside each other; return the data."""
     run.text_path, run.json_path = reserve_report_paths(folder, run.started)
     data = report_data(run)
     partial = run.json_path.with_name(run.json_path.name + ".partial")
     partial.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     os.replace(partial, run.json_path)
+    installed = install_report_language(run.language)
+    try:
+        text = render(report_blocks(run), display_text)
+    finally:
+        if installed is not None:
+            installed.remove()
     with open(run.text_path, "w", encoding="utf-8") as handle:
-        handle.write(render(report_blocks(run), show))
+        handle.write(text)
     return data
 
 
@@ -2345,6 +2389,8 @@ def run_stages(run, temp, echo=True):
     say("Stages: " + ", ".join(f"{STAGES_BY_KEY[key].number} {key}" for key in run.selected))
     if run.limit:
         say(f"Test option: only the first {run.limit} sequences; the report can't be compared with full runs.")
+    run.language = report_language()
+    say(f"Report language: {run.language or 'English'}")
     say("Recording the hardware and software...")
     run.program = program_version()
     run.machine = describe_machine()

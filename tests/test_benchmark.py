@@ -594,6 +594,131 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertEqual(len(starts), 1, summary)
 
 
+def qt_application():
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
+
+
+def every_kind_of_stage():
+    """A run whose stages end every way, with every kind of Auto decision, and data without letters."""
+    started = datetime(2026, 10, 9, 21, 0, 0).astimezone()
+    stages = benchmark.STAGES
+    measured = benchmark.StageRun(returncode=0, wall_seconds=20.0, cpu_seconds=30.0,
+                                  peak_rss_bytes=1 << 30, peak_processes=3)
+    child = {"tool_seconds": 15.0, "import_seconds": 1.0, "gpu_peak_bytes": 1 << 20,
+             "steps": {"alignment": {"started_at": 1000.0, "finished_at": 1015.0}},
+             "details": {"nodes": 4, "edges": 6, "tree_seconds": 1.5, "merge_seconds": 0.5}}
+    ranking = {"unit": "pairs/s", "ranking": [1, 0], "winner": 1, "time": 1010.0, "size_class": "2", "candidates": [
+        {"device": "#1", "backend": "cpu", "variant": "1", "lanes": 1, "value": 5.0, "error": None},
+        {"device": "#2", "backend": "cuda", "variant": "2", "lanes": 2, "value": 50.0, "error": None,
+         "profile": "3", "peak_memory_bytes": 1 << 20},
+        {"device": "#3", "backend": "cuda", "variant": "2", "lanes": 8, "value": None, "error": "4"},
+    ]}
+    decisions = [dict(ranking, kind=kind) for kind in benchmark.DECISION_TITLES] + [
+        {"kind": "matmul_precision", "choice": "ieee_fp32", "reason": reason, "unit": "pairs/s", "time": 1003.0,
+         "rates": [{"variant": "2", "precision": "ieee_fp32", "value": 4.0}]}
+        for reason in benchmark.PRECISION_REASONS
+    ] + [{"kind": "host_cache", "choice": choice, "limit_bytes": 1 << 30, "embedding_bytes": 1 << 20}
+         for choice in benchmark.HOST_CACHE_TEXT]
+    outcomes = []
+    for stage, status in zip(stages, ["completed", "completed", "completed", "failed", "skipped",
+                                      "interrupted", "not_run", "completed", "completed", "not_selected"]):
+        outcome = benchmark.StageResult(stage, status=status)
+        if status in ("completed", "failed", "interrupted"):
+            outcome.run, outcome.child = measured, dict(child)
+        if stage.key == "alignment":
+            outcome.decisions = decisions
+        if status == "failed":
+            outcome.reason = benchmark.Message("The stage stopped with exit code {code}.", code=1)
+            outcome.log_tail = ["12 34"]
+        if status == "skipped":
+            outcome.reason = benchmark.umap_problem({}) or benchmark.Message("It needs {stages}, which did not complete.",
+                                                                              stages="3")
+        outcomes.append(outcome)
+    machine = {
+        "hardware": {"cpu": "-", "logical_cpus": 8, "physical_cores": 4, "ram_bytes": 1 << 34, "gpus": [
+            {"name": "#2", "driver": "1.0", "compute_capability": "8.9"}],
+            "devices": [{"spec": "1", "name": "#2", "backend": "cuda", "memory_bytes": 1 << 33}], "os": "-"},
+        "software": {"python": "3.13", "pytorch": "2.12", "packages": {}, "numba": {"threads": 6, "usable_cpus": 8}},
+        "conditions": {"cpu_load_percent": 50.0, "available_ram_bytes": 1 << 33, "on_battery": True,
+                       "other_emapssn_processes": ["1"], "caches": {"numba_cache_files": 1, "gpu_kernel_cache_files": 2}},
+    }
+    inputs = {"dataset": {"name": "-"}, "workload": {
+        "main": {"sequences": 4, "residues": 40, "pairs": 6, "cells": 600},
+        "injection": {"sequences": 2, "residues": 20, "pairs": 9, "cells": 900},
+        "msa": {"sequences": 3, "residues": 30, "pairs": 3, "cells": 300},
+    }}
+    return benchmark.BenchmarkRun(
+        started=started, selected=[stage.key for stage in stages[:-1]], outcomes=outcomes, limit=20,
+        finished=started + timedelta(seconds=90), inputs=inputs, machine=machine, interrupted=True,
+        error="1", program={"version": "0.3.0", "commit": "0593ae3", "dirty": True},
+        model={"download_seconds": 2.0}, language="pseudo", temp_peak_bytes=1 << 30,
+    )
+
+
+class BenchmarkLanguageTests(unittest.TestCase):
+    """The .txt follows the program's language; the terminal, the .json and MCP stay English."""
+
+    def test_every_text_of_the_report_comes_from_the_catalog(self):
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+
+        pseudo_language(self, qt_application())
+        text = benchmark.render(benchmark.report_blocks(every_kind_of_stage()), Localization.display_text)
+        # Names the report shows as they are: the model, two programs, a precision and the language's
+        # code; and the units after numbers, which every language writes alike.
+        for name in (f"{benchmark.REFERENCE_MODEL} ({benchmark.MODEL_REPOSITORY})", "Python", "PyTorch",
+                     "FP32", "pseudo"):
+            text = text.replace(name, "")
+        text = re.sub(r"\d[\d,.]* (?:ms|s|B|KiB|MiB|GiB|TiB)\b", "", text)
+        self.assertEqual(outside_the_catalog(text), "")
+
+    def test_a_run_in_the_pseudo_language_writes_only_the_txt_in_it(self):
+        qt_application()
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with mock.patch.dict(os.environ, {benchmark.WORK_DIR_VARIABLE: str(folder), "SSN_PSEUDO_TRANSLATION": "1"}), \
+                mock.patch.object(benchmark, "describe_machine", return_value=MACHINE), \
+                mock.patch.object(benchmark, "reference_model_cached", return_value=True), \
+                mock.patch.object(benchmark, "run_child", BenchmarkRunTests.stand_in_step.__get__(self)), \
+                redirect_stdout(StringIO()) as shown:
+            self.steps, self.failing, self.interrupt_at, self.download_error = [], set(), None, None
+            code = benchmark.run_benchmark(stages="1", result_path=folder / "result.json", echo=False)
+        self.assertEqual(code, 0)
+        result = json.loads((folder / "result.json").read_text(encoding="utf-8"))
+        text = Path(result["report_text"]).read_text(encoding="utf-8")
+        self.assertEqual(text.splitlines()[0], Localization.pseudo_translate("EMAP-SSN benchmark report"))
+        shown = shown.getvalue()
+        self.assertIn("\nEMAP-SSN benchmark report\n", shown)
+        data = json.loads(Path(result["report_json"]).read_text(encoding="utf-8"))
+        self.assertEqual((data["language"], data["stages"][0]["title"], data["stages"][0]["status"]),
+                         ("pseudo", "Sanitize sequences", "completed"))
+        pseudo_letters = set(Localization.pseudo_translate("abcdefghijklmnopqrstuvwxyz")) - set("[]")
+        for english in (shown, json.dumps(data, ensure_ascii=False)):
+            self.assertEqual(pseudo_letters & set(english), set())
+        self.assertEqual(str(benchmark.STATUS_TEXT["completed"]), Localization.display_text(benchmark.STATUS_TEXT["completed"]),
+                         "the language is removed once the .txt is written")
+
+    def test_a_language_that_can_t_be_installed_leaves_the_report_english(self):
+        import desktop.Desktop_App as Desktop_App
+
+        qt_application()
+        run = every_kind_of_stage()
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with mock.patch.object(Desktop_App, "install_translations", side_effect=LookupError("no catalog")), \
+                redirect_stdout(StringIO()) as shown:
+            benchmark.write_reports(run, folder)
+        self.assertTrue(run.text_path.read_text(encoding="utf-8").startswith("EMAP-SSN benchmark report\n"))
+        self.assertIn("could not be installed (LookupError: no catalog)", shown.getvalue())
+
+    def test_a_language_setting_that_can_t_be_read_leaves_the_report_english(self):
+        import desktop.Desktop_App as Desktop_App
+
+        with mock.patch.object(Desktop_App, "startup_language", side_effect=OSError("unreadable")), \
+                redirect_stdout(StringIO()) as shown:
+            self.assertIsNone(benchmark.report_language())
+        self.assertIn("unreadable", shown.getvalue())
+
+
 @unittest.skipUnless(
     os.environ.get("EMAPSSN_BENCHMARK_SMOKE_TEST") == "1",
     "runs the real benchmark on 20 sequences for about two minutes; set EMAPSSN_BENCHMARK_SMOKE_TEST=1",

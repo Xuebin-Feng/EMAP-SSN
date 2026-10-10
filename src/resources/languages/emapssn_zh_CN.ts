@@ -4046,174 +4046,174 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location filename="../benchmark/Run_Benchmark.py" line="+111"/>
         <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在你有写入权限的 EMAP-SSN 副本中运行它。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The benchmark needs {needed} of free disk space on the drive of {folder}, but only {free} is free.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试需要 {folder} 所在驱动器有 {needed} 的可用磁盘空间，但目前只有 {free} 可用。</translation>
     </message>
     <message>
         <location line="+60"/>
         <source>Another benchmark is running (process {pid}, started {time}). Wait for it to finish, then start this one again.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">另一个基准测试正在运行（进程 {pid}，开始于 {time}）。请等它结束后再重新启动本次测试。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The benchmark could not replace the stale lock {path} ({error}).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试无法替换过期的锁文件 {path}（{error}）。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The benchmark could not take its lock {path}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试无法获取锁文件 {path}。</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>The benchmark could not clear its temporary folder {folder}, so it stopped instead of starting on old files. Close the program that uses them and start again. {problems}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试无法清空临时文件夹 {folder}，为避免使用旧文件，已停止运行。请关闭正在使用这些文件的程序后重新启动。{problems}</translation>
     </message>
     <message>
         <location line="+586"/>
         <source>Completed</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已完成</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">失败</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Skipped</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已跳过</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Interrupted</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已中断</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not run</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未运行</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not selected</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未选择</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>{rate} sequences/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 条序列/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} residues/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 个残基/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} pairs/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 个序列对/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} billion DP cells/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 十亿个 DP 单元/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} layout steps/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 个布局步/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} targets/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 个目标/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} queries/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 次查询/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} edges/s</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{rate} 条边/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} sequences/s after the Auto trials</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">自动试验后 {rate} 条序列/秒</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>{rate} pairs/s after the Auto trials</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">自动试验后 {rate} 个序列对/秒</translation>
     </message>
     <message numerus="yes">
         <location line="+60"/>
         <source>This stage needs %n Python package(s) that are not installed ({packages}).</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>此阶段需要 %n 个未安装的 Python 包（{packages}）。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+17"/>
         <source>The MSA needs at least 3 {protein} sequences, but this run has {count}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 至少需要 3 条 {protein} 序列，但本次运行只有 {count} 条。</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>NCBI BLAST+ was not found on the PATH or in {folder} ({error}).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在 PATH 和 {folder} 中都找不到 NCBI BLAST+（{error}）。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The reference model ESM-2 8M could not be downloaded ({error}).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法下载参考模型 ESM-2 8M（{error}）。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sanitize sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">清理序列</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Embeddings (ESM-2 8M)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">嵌入（ESM-2 8M）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>All-against-all embedding alignment</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">全对全嵌入比对</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>SSN layout</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">SSN 布局</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>UMAP layout</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">UMAP 布局</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Clustering (Leiden, MCL and Jaccard)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">聚类（Leiden、MCL 和 Jaccard）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Embedding database search</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">嵌入数据库搜索</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Injection of new sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">注入新序列</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -4223,702 +4223,711 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+2"/>
         <source>BLAST all-against-all alignment</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">BLAST 全对全比对</translation>
     </message>
     <message>
         <location line="+530"/>
         <source>The stage stopped with exit code {code}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">此阶段以退出代码 {code} 停止。</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>There is no stage {stage}. The stages are {stages}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有阶段 {stage}。可用的阶段为 {stages}。</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>{device}, {plan} plan</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{device}，{plan} 方案</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>{device}, {plan} plan with the {profile} memory profile, %n lane(s)</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>{device}，{plan} 方案，{profile} 内存配置，%n 个通道</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>{device}, {plan} plan, %n lane(s)</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>{device}，{plan} 方案，%n 个通道</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+381"/>
         <source>CPU</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">CPU</translation>
     </message>
     <message>
         <location line="-367"/>
         <source>not recorded</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未记录</translation>
     </message>
     <message>
         <location line="+89"/>
         <source>no candidate succeeded</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有候选项成功</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>TF32 gave the same results and was at least 1.10 times as fast</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">TF32 结果一致，且速度至少为 FP32 的 1.10 倍</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>TF32 was less than 1.10 times as fast</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">TF32 的速度不到 FP32 的 1.10 倍</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>TF32 did not give the same results</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">TF32 的结果与 FP32 不一致</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>there is no NVIDIA CUDA device</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有 NVIDIA CUDA 设备</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>there were too few pairs to compare the two</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列对太少，无法比较两种精度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the trial would not fit in the GPU&apos;s memory</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">试验所需内存超出 GPU 显存</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the trial failed</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">试验失败</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>all embeddings packed in RAM</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">所有嵌入都装入内存</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>embeddings read in tiles</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">嵌入按分块读取</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Device for the embeddings, by predicted job time</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">嵌入所用设备，按预计任务时间选择</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Alignment plan, by pairs per second in a short trial</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">比对方案，按短时试验中每秒比对的序列对数选择</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Injection alignment plan, by pairs per second in a short trial</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">注入比对方案，按短时试验中每秒比对的序列对数选择</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Device for the MSA, by the median time of sample merges</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 所用设备，按样本合并时间的中位数选择</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Device for the layout, by estimated time</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">布局所用设备，按估计时间选择</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search plan, by predicted search time</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">搜索方案，按预计搜索时间选择</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Matrix-product precision {choice}, because {reason}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">矩阵乘法精度为 {choice}，因为 {reason}。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Precision</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">精度</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Plan</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">方案</translation>
     </message>
     <message>
         <location line="+0"/>
         <location line="+19"/>
         <source>Measured</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">测量值</translation>
     </message>
     <message>
         <location line="-12"/>
-        <source>Host cache {choice}: {size} of embeddings, with a limit of {limit}.</source>
-        <translation type="unfinished"></translation>
+        <source>Host cache: {choice} ({size} of embeddings, limit {limit}).</source>
+        <translation type="unfinished">主机缓存：{choice}（嵌入共 {size}，上限 {limit}）。</translation>
+    </message>
+    <message>
+        <source>({size} components)</source>
+        <translation type="obsolete">（{size} 连通分量）</translation>
     </message>
     <message>
         <location line="+7"/>
-        <source>({size} components)</source>
-        <translation type="unfinished"></translation>
+        <source>Device for the layout of {size} components, by estimated time</source>
+        <translation type="unfinished">{size} 连通分量的布局所用设备，按估计时间选择</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Candidate</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">候选项</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Peak memory</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">峰值内存</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+219"/>
         <source>Result</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">结果</translation>
     </message>
     <message>
         <location line="-215"/>
         <source>Chosen</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已选择</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Failed ({error})</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">失败（{error}）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ranked {place}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">第 {place} 名</translation>
     </message>
     <message>
         <location line="+15"/>
         <location line="+13"/>
         <source>{sequences} sequences, {residues} residues</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{sequences} 条序列，{residues} 个残基</translation>
     </message>
     <message>
         <location line="-10"/>
         <source>{pairs} pairs, {cells} dynamic-programming cells</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{pairs} 个序列对，{cells} 个动态规划单元</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>{nodes} nodes</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{nodes} 个节点</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>One query against {sequences} sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">1 条查询序列检索 {sequences} 条序列</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>{sequences} new sequences, {pairs} new pairs</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{sequences} 条新序列，{pairs} 个新序列对</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>{sequences} queries against {sequences} sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{sequences} 条查询序列检索 {sequences} 条序列</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+9"/>
         <source>Network</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">网络</translation>
     </message>
     <message>
         <location line="-9"/>
         <location line="+9"/>
         <source>{nodes} nodes, {edges} edges</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{nodes} 个节点，{edges} 条边</translation>
     </message>
     <message>
         <location line="-4"/>
         <source>Layout jobs</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">布局任务</translation>
     </message>
     <message numerus="yes">
         <location line="+0"/>
         <source>%n job(s), {steps} steps in all</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>%n 个任务，共 {steps} 步</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>{clusters} clusters of 10 or more in {time}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{clusters} 个至少含 10 个节点的簇，用时 {time}</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Tree building</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">建树</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Cluster merging</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">簇合并</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Embedding the new sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">嵌入新序列</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Aligning the new sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">比对新序列</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The run was interrupted, so the stages after it did not run.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">运行被中断，因此之后的阶段没有运行。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The benchmark itself failed ({error}).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试本身出错（{error}）。</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>This run used only the first %n sequence(s) of the set, a test option, so it can&apos;t be compared with full runs.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>本次运行只使用了序列集的前 %n 条序列（一个测试选项），因此不能与完整运行相比较。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Stage times include the time each tool spends on its own Auto hardware trials.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">各阶段时间包含各工具进行自动硬件试验所用的时间。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>ESM-2 8M makes embeddings 320 values wide, so the alignment&apos;s matrix products are cheaper here than with larger models.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">ESM-2 8M 生成的嵌入宽度为 320，因此这里比对中的矩阵乘法比使用更大的模型时开销更小。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The CPU was {load} busy when the run started, which can slow the run down.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">运行开始时 CPU 占用率为 {load}，这可能会拖慢运行。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The computer ran on battery, which can slow the run down.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">计算机使用电池供电，这可能会拖慢运行。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Other EMAP-SSN programs were running ({programs}), which can slow the run down.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">其他 EMAP-SSN 程序正在运行（{programs}），这可能会拖慢运行。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A machine&apos;s first run also compiles kernels that later runs load from a cache, so it can be slower.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">一台计算机首次运行时还会编译计算内核，以后的运行从缓存加载它们，因此首次运行可能较慢。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Compare reports only when their protocol versions and sequence sets match.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">只有测试规程版本和序列集都相同时，报告才可比较。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>CPU cores</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">CPU 核心</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{logical} logical CPUs, {physical} physical cores</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{logical} 个逻辑 CPU，{physical} 个物理核心</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Memory (RAM)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">内存（RAM）</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>driver {driver}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">驱动程序 {driver}</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>compute capability {capability}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">计算能力 {capability}</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>GPU</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">GPU</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>with {memory}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">显存 {memory}</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Compute device</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">计算设备</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Operating system</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">操作系统</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Installed backend</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已安装的后端</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Numba threads</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Numba 线程</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{threads} of {usable} usable CPUs</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{threads} 个（共 {usable} 个可用 CPU）</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Download failed ({error})</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">下载失败（{error}）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Downloaded before the timed stages in {time}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在计时阶段之前下载，用时 {time}</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Already in the Hugging Face cache</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已在 Hugging Face 缓存中</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not needed by the selected stages</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">所选阶段不需要</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>CPU load</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">CPU 占用率</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Available RAM</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">可用内存</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Power</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">电源</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>No battery found</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未发现电池</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Battery</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">电池</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Mains</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">外接电源</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Other EMAP-SSN programs</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">其他 EMAP-SSN 程序</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>None</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Compiled kernel caches</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已编译内核的缓存</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{numba} Numba files, {gpu} GPU kernel files</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{numba} 个 Numba 文件，{gpu} 个 GPU 内核文件</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+54"/>
+        <location line="+55"/>
         <source>Reference model</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">参考模型</translation>
     </message>
     <message>
-        <location line="-45"/>
+        <location line="-46"/>
         <source>EMAP-SSN {version}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">EMAP-SSN {version}</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>EMAP-SSN {version}, commit {commit}, with local changes</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">EMAP-SSN {version}，提交 {commit}，含本地修改</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>EMAP-SSN {version}, commit {commit}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">EMAP-SSN {version}，提交 {commit}</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>EMAP-SSN benchmark report</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">EMAP-SSN 基准测试报告</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Stages</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">阶段</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{completed} completed, {failed} failed, {skipped} skipped</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{completed} 个已完成，{failed} 个失败，{skipped} 个已跳过</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Started</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">开始时间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Finished</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">结束时间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Duration</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">用时</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Disk space used</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">占用磁盘空间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Program</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">程序</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Benchmark protocol</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试规程</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Report language</source>
+        <translation type="unfinished">报告语言</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sequence set</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列集</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sequences</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">序列</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{main} in the main set, {new} for injection</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">主序列集 {main} 条，注入用 {new} 条</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Summary</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">概要</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stage</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">阶段</translation>
     </message>
     <message>
         <location line="+0"/>
         <location line="+44"/>
         <source>Status</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">状态</translation>
     </message>
     <message>
         <location line="-44"/>
         <source>Time</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">时间</translation>
     </message>
     <message>
         <location line="+0"/>
         <location line="+70"/>
         <source>Throughput</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">吞吐量</translation>
     </message>
     <message>
         <location line="-70"/>
         <source>Device</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">设备</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Stage {number}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">阶段 {number}</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Hardware and software</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">硬件和软件</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Packages</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">软件包</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not installed</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未安装</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Conditions at the start</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">开始时的条件</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Auto hardware decisions</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">自动硬件决策</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>No stage recorded an Auto decision.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">没有阶段记录自动决策。</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+9"/>
         <source>Stage {number}, {title}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">阶段 {number}：{title}</translation>
     </message>
     <message>
         <location line="-4"/>
         <source>Stage details</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">阶段详情</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Reason</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">原因</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Total time</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">总时间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Time in the tool</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">工具内时间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Start-up and imports</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">启动和导入</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>CPU time</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">CPU 时间</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{time}, {share} of all logical CPUs on average</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{time}，平均占用所有逻辑 CPU 的 {share}</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Peak RAM</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">峰值内存</translation>
     </message>
     <message numerus="yes">
         <location line="+0"/>
         <source>{size} in %n process(es)</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>{size}，共 %n 个进程</numerusform>
         </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Peak GPU memory</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">峰值 GPU 内存</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>None recorded</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未记录</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Auto trials</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">自动试验</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>{time} until the last Auto decision, {rest} after it</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">最后一次自动决策前 {time}，之后 {rest}</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Work</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">工作量</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Settings for {name}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{name} 的设置</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The last lines of its output</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">其输出的最后几行</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Notes</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">说明</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+162"/>
         <source>It needs {stages}, which did not complete.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">所需的 {stages} 未完成。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>stage {number}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">阶段 {number}</translation>
     </message>
 </context>
 <context>
