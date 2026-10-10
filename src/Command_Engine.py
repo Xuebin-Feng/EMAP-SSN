@@ -17,6 +17,8 @@ import numpy as np
 import fnmatch
 import re
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 import EMAPSSN_Config as cfg
@@ -1239,11 +1241,48 @@ def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
             viewer.update_console_background()
 
 
+def _reset_changes_state(viewer, base_p):
+    """True unless resetting base_p, a name reset's target_name returns, is
+    certain to leave everything an undo step saves as it is."""
+    if base_p == "color":
+        colors = getattr(viewer, 'current_colors', None)
+        if colors is None:
+            return False
+        import matplotlib.colors as mcolors
+        initial = np.asarray(mcolors.to_rgba(cfg.INITIAL_NODE_COLOR), dtype=colors.dtype)
+        return not np.all(colors == initial)
+    if base_p == "size":
+        sizes = getattr(viewer, 'current_sizes', None)
+        return sizes is not None and bool(np.any(sizes != np.asarray(cfg.NODE_SIZE, dtype=sizes.dtype)))
+    if base_p == "shape":
+        shapes = getattr(viewer, 'current_shapes', None)
+        return shapes is not None and bool(np.any(shapes != 'disc'))
+    if base_p == "cluster":
+        return (getattr(viewer, 'cluster_labels', None) is not None
+                or getattr(viewer, 'last_cluster_params', None) is not None)
+    if base_p == "group":
+        groups = getattr(viewer, 'group_labels', None)
+        return groups is None or any(groups)
+    if base_p in ["hide", "hidden"]:
+        return not np.all(viewer.visible_mask)
+    if base_p == "network":
+        original = getattr(viewer, 'original_pos', None)
+        if original is None:
+            return False
+        pos = getattr(viewer, 'pos', None)
+        return pos is None or not np.array_equal(pos, original)
+    if base_p in ["order", "layer"]:
+        identity_order = np.arange(viewer.n_nodes, dtype=np.int32)
+        return not np.array_equal(getattr(viewer, 'node_render_order', identity_order), identity_order)
+    return True
+
+
 def execute_reset(viewer, targets):
     """Executes reset on the specified targets.
 
     Raises ValueError, before any undo state is saved or anything is reset,
-    when no target is given or any target is unknown.
+    when no target is given or any target is unknown. Undo state is saved
+    only when a target has something to reset.
     """
     from commands import reset as reset_command
     reset_command.check_targets(targets)
@@ -1251,7 +1290,10 @@ def execute_reset(viewer, targets):
     targets_found = []
     needs_update = False
 
-    viewer._save_state()
+    # A reset that changes nothing must not push an undo entry: the history
+    # holds 50, and an empty one would push out a real one.
+    if any(_reset_changes_state(viewer, reset_command.target_name(p)) for p in targets):
+        viewer._save_state()
 
     for p in targets:
         base_p = reset_command.target_name(p)
@@ -1278,6 +1320,8 @@ def execute_reset(viewer, targets):
 
         elif base_p == "cluster":
             viewer.cluster_labels = None
+            # The parameters belong to the clusters just cleared.
+            viewer.last_cluster_params = None
             if hasattr(viewer, 'label_visuals'):
                 for visual in viewer.label_visuals:
                     visual.parent = None
@@ -1316,8 +1360,9 @@ def execute_reset(viewer, targets):
         if "hidden" in targets_found or "network" in targets_found:
             viewer.update_edges()
 
-    # The targets are the reset command's own words, which stay English.
-    msg = Message("Reset successful: {targets}.", targets=", ".join(targets_found))
+    # The targets are the reset command's own words, which stay English. A
+    # target named twice is reported once.
+    msg = Message("Reset successful: {targets}.", targets=", ".join(dict.fromkeys(targets_found)))
 
     show_status(viewer, msg)
     print(f"{msg}")
@@ -1327,17 +1372,55 @@ def execute_reset(viewer, targets):
     return str(msg)
 
 # Shared command dispatch and explicit outcome reporting.
+# A typed command has no command-portal record to read its outcome from. A
+# caller that needs it, such as a typed run script, wraps the dispatch in
+# recorded_outcome(); the outcome is kept as the portal's records keep theirs:
+# the latest status reported, except that a failure or cancellation stays.
+_RECORDED_OUTCOME = ContextVar('recorded_command_outcome', default=None)
+
+@contextmanager
+def recorded_outcome():
+    """Yield a dict whose 'status' is the outcome the commands run inside the block reported, or None."""
+    outcome = {'status': None}
+    token = _RECORDED_OUTCOME.set(outcome)
+    try:
+        yield outcome
+    finally:
+        _RECORDED_OUTCOME.reset(token)
+
+def _record_outcome(status):
+    outcome = _RECORDED_OUTCOME.get()
+    if outcome is not None and outcome['status'] not in {'failed', 'cancelled'}:
+        outcome['status'] = status
+
 def command_succeeded(viewer, message=None, artifact=None):
     from Viewer_Command_Portal import report
+    _record_outcome('succeeded')
     report('succeeded', message, artifact, viewer)
 
 def command_failed(viewer, message):
     from Viewer_Command_Portal import report
+    _record_outcome('failed')
     report('failed', str(message), viewer=viewer)
 
 def command_cancelled(viewer, message):
     from Viewer_Command_Portal import report
+    _record_outcome('cancelled')
     report('cancelled', str(message), viewer=viewer)
+
+def script_command(line):
+    """The command a command-script line holds, or None for a blank or comment line.
+
+    A line whose first non-space character is '#' is a comment, and so is the
+    text from a '//' that starts the line or follows whitespace. A '//' inside
+    a word, as in meta C://data/x.csv or "a//b", is part of the command.
+    """
+    if line.lstrip().startswith('#'):
+        return None
+    comment = re.search(r'(?:^|\s)//', line)
+    if comment:
+        line = line[:comment.start()]
+    return line.strip() or None
 
 def command_artifact(viewer, path):
     from Viewer_Command_Portal import report

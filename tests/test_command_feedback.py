@@ -55,6 +55,27 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
         self.assertEqual(retried['commands'][0]['messages'], record['messages'])
         self.assertEqual(self.viewer.saved, saved)
 
+    def test_an_unknown_reset_target_is_reported_once(self):
+        for command in ('reset bogus', 'reset colors bogus', 'reset'):
+            with self.subTest(command=command):
+                record = self.execute(command, 'failed')
+                self.assertEqual([m['status'] for m in record['messages']], ['failed'], record)
+
+    def test_a_reset_with_nothing_to_reset_saves_no_undo_state(self):
+        saved = self.viewer.saved
+        for command in ('reset hide', 'hide reset', 'reset hide hidden', 'reset shapes', 'reset order',
+                        'reset network', 'reset groups'):
+            with self.subTest(command=command):
+                record = self.execute(command)
+                self.assertTrue(self.success_text(record).startswith('Reset successful: '), record)
+                self.assertEqual(self.viewer.saved, saved)
+        self.assertEqual(self.success_text(self.execute('reset hide hidden')), 'Reset successful: hidden.')
+
+        self.viewer.visible_mask[1] = False
+        self.execute('hide reset')
+        self.assertEqual(self.viewer.saved, saved + 1)
+        np.testing.assert_array_equal(self.viewer.visible_mask, [True] * 3)
+
     def test_visual_summaries_and_no_matches(self):
         for command, expected in [
             ('color "one" red', 'Applied: 1 node (red)'),

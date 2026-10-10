@@ -87,7 +87,8 @@ class ScriptTracker(QtCore.QObject):
         environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
         def work():
             try:
-                result = subprocess.run([sys.executable, path], capture_output=True,
+                # No stdin: a script calling input() would otherwise wait on the Viewer's own.
+                result = subprocess.run([sys.executable, path], stdin=subprocess.DEVNULL, capture_output=True,
                     text=True, encoding='utf-8', errors='replace', env=environment)
             except Exception as error:
                 result = error
@@ -104,7 +105,8 @@ class ScriptTracker(QtCore.QObject):
         if result.returncode:
             self.context.job_event(self.job_id, 'failed', f'Python command script exited with code {result.returncode}')
             return
-        commands = [line.split('//')[0].strip() for line in result.stdout.splitlines()]
+        from Command_Engine import script_command
+        commands = [script_command(line) for line in result.stdout.splitlines()]
         commands = [line for line in commands if line and line.split()[0].lower() != 'run']
         try:
             self.context.children(commands)

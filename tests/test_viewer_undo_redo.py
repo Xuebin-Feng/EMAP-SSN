@@ -25,6 +25,7 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+import Command_Engine  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 
 
@@ -87,6 +88,14 @@ def quietly(action):
     """Run an undo/redo step without its console print reaching the test log."""
     with redirect_stdout(io.StringIO()):
         return action()
+
+
+def reset(viewer, *targets):
+    """Run the reset command's execute_reset on a make_viewer() viewer."""
+    viewer.tooltip = SimpleNamespace(text="")
+    viewer.update_nodes = mock.Mock()
+    viewer.update_console_background = mock.Mock()
+    return quietly(lambda: Command_Engine.execute_reset(viewer, list(targets)))
 
 
 class ViewerUndoRedoTests(unittest.TestCase):
@@ -193,6 +202,57 @@ class ViewerUndoRedoTests(unittest.TestCase):
             self.assertTrue(quietly(viewer._do_undo))
         self.assertEqual(viewer.current_sizes[0], 2.0)
         self.assertFalse(quietly(viewer._do_undo))
+
+    def test_a_reset_with_nothing_to_reset_saves_no_history_entry(self):
+        # A no-op reset used to push an entry, which at 50 pushed out the oldest real one.
+        viewer = make_viewer()
+        for size in range(1, 51):
+            viewer.current_sizes[0] = float(size)
+            viewer._save_state()
+        quietly(viewer._do_undo)
+        history, redo = list(viewer.position_history), list(viewer.redo_stack)
+
+        reset(viewer, "hide", "shapes", "order", "groups", "clusters", "network", "hidden")
+
+        self.assertEqual(viewer.position_history, history)
+        self.assertEqual(viewer.redo_stack, redo)
+
+        # A reset that has something to reset is still one undo step.
+        viewer.visible_mask[2] = False
+        reset(viewer, "hide")
+
+        self.assertEqual(len(viewer.position_history), len(history) + 1)
+        self.assertEqual(viewer.redo_stack, [])
+        quietly(viewer._do_undo)
+        np.testing.assert_array_equal(viewer.visible_mask, [True, True, False, True])
+
+    def test_every_target_with_something_to_reset_saves_one_history_entry(self):
+        for target, change in (
+                ("colors", lambda v: v.current_colors.__setitem__(1, RED)),
+                ("sizes", lambda v: v.current_sizes.__setitem__(1, 99.0)),
+                ("shapes", lambda v: v.current_shapes.__setitem__(1, "star")),
+                ("clusters", lambda v: setattr(v, "cluster_labels", np.array([0, 0, 1, -1]))),
+                ("groups", lambda v: v.group_labels[3].add("kinases")),
+                ("hide", lambda v: v.visible_mask.__setitem__(2, False)),
+                ("network", lambda v: (setattr(v, "original_pos", v.pos.copy()), v.pos.__setitem__(0, [5.0, 5.0]))),
+                ("order", lambda v: setattr(v, "node_render_order", np.array([0, 2, 3, 1], dtype=np.int32)))):
+            with self.subTest(target=target):
+                viewer = make_viewer()
+                change(viewer)
+                reset(viewer, target)
+                self.assertEqual(len(viewer.position_history), 1)
+
+    def test_clearing_clusters_clears_their_parameters_and_undo_restores_both(self):
+        viewer = make_viewer()
+        change_every_field(viewer)
+
+        reset(viewer, "clusters")
+
+        self.assertIsNone(viewer.cluster_labels)
+        self.assertIsNone(viewer.last_cluster_params)
+        self.assertTrue(quietly(viewer._do_undo))
+        np.testing.assert_array_equal(viewer.cluster_labels, [0, 0, 1, -1])
+        self.assertEqual(viewer.last_cluster_params, {"method": "leiden"})
 
     def test_undo_and_redo_with_empty_history_change_nothing(self):
         viewer = make_viewer()

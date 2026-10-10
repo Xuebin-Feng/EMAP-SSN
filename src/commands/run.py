@@ -129,8 +129,11 @@ def run(viewer, args):
             # Execute python script in a subprocess using the current python executable.
             # Its output is decoded as UTF-8, so the child must print UTF-8; a piped
             # child otherwise uses the Windows ANSI code page. Bad bytes show as U+FFFD.
+            # It has no stdin: a script calling input() would otherwise wait on the
+            # Viewer's own stdin, and the Viewer with it.
             result = subprocess.run(
                 [sys.executable, file_path],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -155,7 +158,7 @@ def run(viewer, args):
 
         context = CURRENT.get()
         if context is not None:
-            commands = [line.split('//')[0].strip() for line in commands_lines]
+            commands = [Command_Engine.script_command(line) for line in commands_lines]
             commands = [line for line in commands if line and line.split()[0].lower() != 'run']
             context.children(commands)
             Command_Engine.command_succeeded(viewer, f'Prepared {len(commands)} child commands.')
@@ -163,9 +166,10 @@ def run(viewer, args):
 
         # Execute the commands in sequence
         executed_count = 0
+        failed_count = 0
         for line in commands_lines:
-            # Split by // to remove any trailing comment
-            cmd_line = line.split('//')[0].strip()
+            # Drop blank lines, # lines and any trailing // comment
+            cmd_line = Command_Engine.script_command(line)
             if not cmd_line:
                 continue
             
@@ -179,9 +183,20 @@ def run(viewer, args):
                 continue
             
             print(f"[Run] Executing: {cmd_line}")
-            Command_Engine._dispatch_user_command(viewer, cmd_line, record_history=False)
+            # Every line runs, as before; a line that reported a failure is counted.
+            with Command_Engine.recorded_outcome() as outcome:
+                Command_Engine._dispatch_user_command(viewer, cmd_line, record_history=False)
             executed_count += 1
-            
+            if outcome['status'] == 'failed':
+                failed_count += 1
+
+        if failed_count:
+            msg = Message("Batch execution finished: {failed} of %n command(s) failed.",
+                          n=executed_count, failed=failed_count)
+            Command_Engine.command_failed(viewer, msg)
+            Command_Engine.print_help(viewer, msg, report_message=False)
+            return
+
         msg = Message("Batch execution completed: %n command(s) run.", n=executed_count)
         Command_Engine.print_help(viewer, msg)
         

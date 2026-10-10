@@ -198,6 +198,16 @@ class HideCommandTests(unittest.TestCase):
         succeeded.assert_called_once_with(viewer, "Reset successful: hidden.")
         self.assertEqual(viewer.console_text.text, "Reset successful: hidden.")
 
+    def test_hide_reset_with_nothing_hidden_adds_no_undo_step(self):
+        # An empty undo step would push a real one out of the 50 the Viewer keeps.
+        viewer = graph_viewer([True, True], [], [])
+        succeeded, failed = run_hide(viewer, ["reset"])
+
+        np.testing.assert_array_equal(viewer.visible_mask, [True, True])
+        viewer._save_state.assert_not_called()
+        failed.assert_not_called()
+        succeeded.assert_called_once_with(viewer, "Reset successful: hidden.")
+
 
 if __name__ == "__main__":
     unittest.main()

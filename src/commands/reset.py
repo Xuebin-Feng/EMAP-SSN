@@ -111,7 +111,8 @@ def run(viewer, args):
     except ValueError as error:
         msg = Message("Error: {error}", error=error)
         Command_Engine.command_failed(viewer, msg)
-        Command_Engine.print_help(viewer, msg)
+        # command_failed has reported the message; print_help only shows it.
+        Command_Engine.print_help(viewer, msg, report_message=False)
         return
 
     msg = Command_Engine.execute_reset(viewer, args)

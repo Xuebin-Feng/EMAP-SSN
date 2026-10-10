@@ -1,6 +1,6 @@
 """The reset command (commands/reset.py) and Command_Engine.execute_reset: which
-targets they accept, and that a refused reset changes nothing and saves no undo
-state."""
+targets they accept, that a refused reset changes nothing and saves no undo
+state, and that a reset with nothing to reset saves none either."""
 
 import io
 import os
@@ -68,6 +68,84 @@ class ResetCommandTests(unittest.TestCase):
         viewer.update_nodes.assert_called_once_with()
         failed.assert_not_called()
         self.assertEqual(succeeded.call_args.args[1], "Reset successful: colors, shapes.")
+
+    def test_a_target_named_twice_is_reported_once(self):
+        for arguments, expected in (
+            (["colors", "colors"], "Reset successful: colors."),
+            (["Colors", "color", "sizes"], "Reset successful: colors, sizes."),
+            (["hide", "hidden"], "Reset successful: hidden."),
+            (["order", "layer", "orders"], "Reset successful: node order."),
+        ):
+            with self.subTest(arguments=arguments):
+                viewer, succeeded, failed = self.run_reset(arguments)
+
+                failed.assert_not_called()
+                self.assertEqual(succeeded.call_args.args[1], expected)
+
+    def test_reset_saves_undo_state_only_when_something_changes(self):
+        def at_defaults():
+            viewer = self.make_viewer()
+            viewer.current_colors[:] = mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)
+            viewer.current_sizes.fill(cfg.NODE_SIZE)
+            viewer.current_shapes[:] = "disc"
+            viewer.cluster_labels = None
+            viewer.last_cluster_params = None
+            viewer.n_nodes = 1
+            viewer.node_render_order = np.arange(1, dtype=np.int32)
+            return viewer
+
+        everything = ["colors", "sizes", "shapes", "clusters", "groups", "hide", "network", "order", "layer"]
+        for arguments in (everything, ["hidden"], ["hide", "hidden"]):
+            with self.subTest(nothing_to_reset=arguments):
+                viewer = at_defaults()
+                with reported_outcomes(), redirect_stdout(io.StringIO()):
+                    reset_command.run(viewer, arguments)
+
+                viewer._save_state.assert_not_called()
+
+        # Each target alone, and then with a no-op target beside it.
+        changes = {
+            "colors": lambda v: v.current_colors.__setitem__(0, [1, 0, 0, 1]),
+            "sizes": lambda v: v.current_sizes.fill(cfg.NODE_SIZE + 1),
+            "shapes": lambda v: v.current_shapes.__setitem__(0, "star"),
+            "clusters": lambda v: setattr(v, "cluster_labels", np.array([1])),
+            "groups": lambda v: v.group_labels[0].add("kinases"),
+            "hide": lambda v: v.visible_mask.__setitem__(0, False),
+            "network": lambda v: (setattr(v, "original_pos", np.zeros((1, 2))), setattr(v, "pos", np.ones((1, 2)))),
+            # A one-node order is always the identity, so this viewer gets a second node.
+            "order": lambda v: (setattr(v, "n_nodes", 2), setattr(v, "node_render_order", np.array([1, 0], dtype=np.int32))),
+        }
+        for target, change in changes.items():
+            for others in ([], ["hidden"]):
+                with self.subTest(target=target, with_no_op_targets=others):
+                    viewer = at_defaults()
+                    change(viewer)
+                    with reported_outcomes(), redirect_stdout(io.StringIO()):
+                        reset_command.run(viewer, others + [target])
+
+                    viewer._save_state.assert_called_once_with()
+
+    def test_clusters_reset_clears_the_cluster_parameters_too(self):
+        # Label, save and MCP inspection read last_cluster_params, which
+        # describes the clusters that this reset just cleared.
+        viewer = self.make_viewer()
+        viewer.last_cluster_params = ("LEIDEN_1.0", 10)
+        with reported_outcomes(), redirect_stdout(io.StringIO()):
+            reset_command.run(viewer, ["clusters"])
+
+        self.assertIsNone(viewer.cluster_labels)
+        self.assertIsNone(viewer.last_cluster_params)
+        viewer._save_state.assert_called_once_with()
+
+    def test_clusters_reset_with_only_parameters_left_still_saves_undo_state(self):
+        viewer = self.make_viewer()
+        viewer.cluster_labels = None
+        viewer.last_cluster_params = ("LEIDEN_1.0", 10)
+        with reported_outcomes(), redirect_stdout(io.StringIO()):
+            reset_command.run(viewer, ["clusters"])
+
+        self.assertIsNone(viewer.last_cluster_params)
+        viewer._save_state.assert_called_once_with()
 
     def test_execute_reset_refuses_unknown_targets_before_saving_state(self):
         # The other commands' "<command> reset" forms call execute_reset

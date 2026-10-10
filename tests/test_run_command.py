@@ -3,11 +3,12 @@ a Python command script prints, reach the Viewer unchanged. Typed into the
 Viewer, run.py runs a script itself; from a command-portal request (an MCP
 client or the agent page) it hands a script to
 Viewer_Worker_Tracking.ScriptTracker, and a .txt file's lines to
-context.children."""
+context.children. Typed, a script runs every line and reports how many failed."""
 
 import codecs
 import io
 import os
+import subprocess
 import unittest
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
@@ -40,6 +41,18 @@ COMMANDS = 'select "café" // déjà vu\r\nselect "α-amylase"\r\n'
 EXPECTED = ['select "café"', 'select "α-amylase"']
 # Printed when a file falls back to the ANSI code page.
 FALLBACK_NOTE = 'is not UTF-8'
+
+# Comment lines, and '//' inside a word, which is no comment: a URL, or a quoted
+# pattern. `bogus` is no command, so these lines are dispatched and fail harmlessly.
+COMMENTED = (
+    '# a comment\n'
+    'bogus C://data/x.csv\n'
+    'bogus "a//b" // a trailing comment\n'
+    '    // an indented comment\n'
+    '   # an indented hash line\n'
+    'bogus a //b\n'
+)
+COMMENTED_EXPECTED = ['bogus C://data/x.csv', 'bogus "a//b"', 'bogus a']
 
 
 @contextmanager
@@ -108,6 +121,99 @@ class ScriptOutputTests(RunPaths, unittest.TestCase):
             with self.subTest(path=path.__name__):
                 commands, diagnostics = path()
                 self.assertEqual(commands, ['select "caf�"'], diagnostics)
+
+
+class ScriptStdinTests(RunPaths, unittest.TestCase):
+    """A script has no stdin: input() fails at once instead of waiting on the Viewer's own."""
+
+    def test_a_script_calling_input_fails_instead_of_waiting(self):
+        self.script.write_text('answer = input()\nprint(\'select "\' + answer + \'"\')\n', encoding='utf-8')
+        for path in (self.typed, self.requested):
+            with self.subTest(path=path.__name__), mock.patch('subprocess.run', wraps=subprocess.run) as run:
+                commands, diagnostics = path()
+            self.assertEqual(commands, [], diagnostics)
+            self.assertIs(run.call_args.kwargs['stdin'], subprocess.DEVNULL)
+
+
+class ScriptCommentTests(RunPaths, unittest.TestCase):
+    """A comment is a # line or a // after whitespace; a // inside a word stays in the command."""
+
+    def test_comments_are_dropped_and_a_double_slash_inside_a_word_is_kept(self):
+        for name, data in (('commands.txt', COMMENTED),
+                           ('commands.py', f'import sys\nsys.stdout.write({COMMENTED!r})\n')):
+            self.script = Path(self.directory.name) / name
+            self.script.write_text(data, encoding='utf-8')
+            for path in (self.typed, self.requested):
+                with self.subTest(script=name, path=path.__name__):
+                    commands, diagnostics = path()
+                    self.assertEqual(commands, COMMENTED_EXPECTED, diagnostics)
+
+    def test_script_command(self):
+        for line, expected in (
+                ('select "a"', 'select "a"'),
+                ('  select "a"  \r\n', 'select "a"'),
+                ('select "a" // note', 'select "a"'),
+                ('select "a"\t// note', 'select "a"'),
+                ('select "a" //note', 'select "a"'),
+                ('meta C://data/x.csv', 'meta C://data/x.csv'),
+                ('select "a//b"', 'select "a//b"'),
+                ('// whole line', None), ('  // whole line', None),
+                ('# whole line', None), ('   #cluster_1# red', None),
+                ('', None), ('   \n', None)):
+            with self.subTest(line=line):
+                self.assertEqual(ce.script_command(line), expected)
+
+
+class TypedRunOutcomeTests(RunPaths, unittest.TestCase):
+    """Typed, run runs every line of a script, and ends in a failure when any line failed."""
+
+    def setUp(self):
+        super().setUp()
+        self.script = Path(self.directory.name) / 'commands.txt'
+
+    def run_script(self, *lines):
+        """Run the lines as a typed script; return the commands dispatched, what was printed, and run's outcome mocks."""
+        self.script.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        with mock.patch.object(ce, 'command_failed', wraps=ce.command_failed) as failed, \
+                mock.patch.object(ce, 'command_succeeded', wraps=ce.command_succeeded) as succeeded:
+            commands, printed = self.typed()
+        return commands, printed, failed, succeeded
+
+    def test_a_failed_line_does_not_stop_the_script_and_is_counted(self):
+        for lines, expected in (
+                # No command is named bogus; reset rejects its target.
+                (('reset hide', 'bogus', 'reset colors'), '1 of 3 commands failed.'),
+                (('reset bogus', 'reset hide', 'bogus'), '2 of 3 commands failed.'),
+                (('bogus',), '1 of 1 command failed.')):
+            with self.subTest(lines=lines):
+                commands, printed, failed, succeeded = self.run_script(*lines)
+
+                self.assertEqual(commands, list(lines))
+                message = f'Batch execution finished: {expected}'
+                self.assertEqual(str(failed.call_args.args[1]), message)
+                self.assertIn(message, printed)
+                self.assertNotIn('Batch execution completed', printed)
+                self.assertFalse(any('Batch execution' in str(call.args[1]) for call in succeeded.call_args_list))
+
+    def test_a_script_without_failures_keeps_the_success_message(self):
+        commands, printed, failed, succeeded = self.run_script('reset hide', 'reset colors')
+
+        self.assertEqual(commands, ['reset hide', 'reset colors'])
+        failed.assert_not_called()
+        self.assertEqual(str(succeeded.call_args.args[1]), 'Batch execution completed: 2 commands run.')
+        self.assertIn('Batch execution completed: 2 commands run.', printed)
+
+    def test_recorded_outcome_keeps_a_failure(self):
+        with ce.recorded_outcome() as outcome:
+            self.assertIsNone(outcome['status'])
+            ce.command_succeeded(self.viewer)
+            self.assertEqual(outcome['status'], 'succeeded')
+            ce.command_failed(self.viewer, 'failed')
+            ce.command_succeeded(self.viewer)
+        self.assertEqual(outcome['status'], 'failed')
+        # Outside the block nothing is recorded.
+        ce.command_succeeded(self.viewer)
+        self.assertEqual(outcome['status'], 'failed')
 
 
 class CommandFileEncodingTests(RunPaths, unittest.TestCase):
