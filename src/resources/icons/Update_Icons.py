@@ -123,7 +123,8 @@ def check():
     written = set()
     for path, text in _variants():
         written.add(path.name)
-        if not path.is_file() or path.read_bytes() != text.encode("utf-8"):
+        # A checkout may have turned the line endings to CRLF; the bytes otherwise match.
+        if not path.is_file() or path.read_bytes().replace(b"\r\n", b"\n") != text.encode("utf-8"):
             problems.append(f"stale coloured copy: qss/{path.name}")
     problems += [f"coloured copy not in QSS_ICON_VARIANTS: qss/{path.name}"
                  for path in (ICONS_DIR / "qss").glob("*.svg") if path.name not in written]

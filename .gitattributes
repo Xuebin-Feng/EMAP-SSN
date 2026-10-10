@@ -33,3 +33,8 @@ src/resources/esmfold/molstar.css -text
 # The benchmark's sequence sets have recorded SHA-256 values. Keep their exact
 # bytes, with LF line ends, in checkouts and source archives on every platform.
 src/resources/benchmark/*.fasta -text
+
+# Lucide icons are copied unchanged from their package, and Update_Icons.py --check
+# compares the stylesheet's coloured copies byte for byte: keep their exact bytes.
+src/resources/icons/lucide/*  -text
+src/resources/icons/qss/*     -text
