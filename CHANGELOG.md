@@ -435,6 +435,16 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Viewer command audit.**
+  - **`label`:** it kept dropping fully conserved residues at exact thresholds: with `id` weighting, a residue in every member could fail `cmin 100%`, and 999 of 1000 failed `cmin 99.9%`. Hex Color now matches the viewer's palette, and thresholds outside 0–100% are refused. `--help` and typos such as `gmax=0.4` no longer become report filenames. With nothing to analyse, it fails before writing an empty workbook.
+  - **`query`:** grouped targets such as `(AC)<=30%` are exact at the boundary, and multi-word metadata values such as `{Organism=Escherichia coli}` work in `query` and `logo`.
+  - **`zoom`:** `zoom N` gives a view exactly N wide, not 1.1·N.
+  - **`cluster`:** a NaN or infinite Leiden resolution or weight is an error instead of a crash that escaped every handler. MCL refuses non-positive scores and keeps its minimum size when clusters overlap.
+  - **`run`:** reports how many lines failed and treats `#` lines as comments.
+  - **Metadata:** a column named `id` no longer redirects web-table edits to the wrong node.
+  - **`print svg`:** draws nodes in screen order and keeps the colour of `+`, `|` and `-` shapes.
+  - Commands run for MCP or the agent page report whether their browser page opened, and never wait on a dialog.
+  - **VR:** `label` and `logo` work, `hide` reaches the headset, and undo restores metadata.
 - MCP `start_session` terminated a healthy Viewer after a fixed 30 s. On a
   12,927-node network loaded from OneDrive, the Viewer was stopped while building its
   display, seconds from publishing its session. A readiness probe that timed out while
