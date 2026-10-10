@@ -613,7 +613,7 @@
     </message>
     <message>
         <source>Score Histogram</source>
-        <translation type="obsolete">分数直方图</translation>
+        <translation type="obsolete">得分直方图</translation>
     </message>
     <message>
         <source>Close</source>
@@ -810,21 +810,21 @@ Used to calculate positional conservation, gaps, and occupancy thresholds during
         <location line="+1"/>
         <source>Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.
 Must contain alignment metrics for at least all sequences present in the active sequence set.</source>
-        <translation type="unfinished">网络或相似性矩阵文件（.h5），包含序列两两之间的相似性分数和边的坐标。
+        <translation type="unfinished">网络或相似性矩阵文件（.h5），包含序列两两之间的相似性得分和边的坐标。
 必须至少包含当前序列集中所有序列的比对指标。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.
 Local alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons.</source>
-        <translation type="unfinished">（用于嵌入 SSN）指定使用全局（Needleman-Wunsch）还是局部（Smith-Waterman）分数。
+        <translation type="unfinished">（用于嵌入 SSN）指定使用全局（Needleman-Wunsch）还是局部（Smith-Waterman）得分。
 多结构域蛋白建议使用局部比对；全长比较最适合使用全局比对。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.
 Normalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias.</source>
-        <translation type="unfinished">（用于嵌入 SSN）双序列比对分数的归一化策略。
+        <translation type="unfinished">（用于嵌入 SSN）双序列比对得分的归一化策略。
 按比对长度、较短序列、较长序列或平均序列长度归一化，以减少长度偏差。</translation>
     </message>
     <message>
@@ -845,15 +845,15 @@ Applied only when the Alignment Reference ID resolves successfully in the alignm
         <location line="+1"/>
         <source>Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.
 Edges below this cutoff are filtered out and excluded from physics simulation and rendering.</source>
-        <translation type="unfinished">保留一条边所需的最低相似性分数阈值（一致性比例、归一化分数或 -Log10 E 值）。
+        <translation type="unfinished">保留一条边所需的最低相似性得分阈值（一致性比例、归一化得分或 -Log10 期望值）。
 低于此阈值的边会被过滤掉，不参与物理模拟和绘制。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Alternative edge filter that retains only the top N% highest-scoring edges in the network.
 Maintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold).</source>
-        <translation type="unfinished">另一种边过滤方式：只保留网络中分数最高的前 N% 条边。
-无需手动调整原始分数阈值即可保持一致的网络连通性和密度（优先于阈值）。</translation>
+        <translation type="unfinished">另一种边过滤方式：只保留网络中得分最高的前 N% 条边。
+无需手动调整原始得分阈值即可保持一致的网络连通性和密度（优先于阈值）。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -979,7 +979,7 @@ Auto Benchmark measures representative workloads and may choose a different back
         <source>Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.
 Every retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.</source>
         <translation type="unfinished">胡克弹簧引力常数，把由保留的网络边相连的节点拉近。
-每条保留的边弹簧强度相同；其相似性分数只决定是否被过滤，不决定引力大小。</translation>
+每条保留的边弹簧强度相同；其相似性得分只决定是否被过滤，不决定引力大小。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1106,7 +1106,7 @@ Populates the MSA dropdown in the Inputs tab.</source>
         <location line="+1"/>
         <source>Directory containing HDF5 pairwise sequence similarity scores and network edge files.
 Populates the Network Edges dropdown in the Inputs tab.</source>
-        <translation type="unfinished">存放 HDF5 双序列相似性分数和网络边文件的目录。
+        <translation type="unfinished">存放 HDF5 双序列相似性得分和网络边文件的目录。
 用于填充“输入与输出”选项卡中的网络边下拉列表。</translation>
     </message>
     <message>
@@ -1258,7 +1258,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     <message>
         <location line="+9"/>
         <source>Alignment Score Mode:</source>
-        <translation type="unfinished">比对分数模式：</translation>
+        <translation type="unfinished">比对得分模式：</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1398,7 +1398,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     <message>
         <location line="-2309"/>
         <source>Metric: Log10(E-Value)</source>
-        <translation type="unfinished">指标：Log10(E 值)</translation>
+        <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -1439,7 +1439,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     <message>
         <location line="+2"/>
         <source>Metric: {score} Alignment Score with {normalization} Normalization</source>
-        <translation type="unfinished">指标：{score}比对分数，按{normalization}归一化</translation>
+        <translation type="unfinished">指标：{score}比对得分，按{normalization}归一化</translation>
     </message>
     <message>
         <source>====== Network Statistics ======</source>
@@ -1500,11 +1500,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <source>Computing score distribution... This may take a moment.</source>
-        <translation type="obsolete">正在计算分数分布…这可能需要一点时间。</translation>
+        <translation type="obsolete">正在计算得分分布…这可能需要一点时间。</translation>
     </message>
     <message>
         <source>Displaying score histogram...</source>
-        <translation type="obsolete">正在显示分数直方图…</translation>
+        <translation type="obsolete">正在显示得分直方图…</translation>
     </message>
     <message>
         <source>Histogram displayed successfully.</source>
@@ -2086,7 +2086,7 @@ Command-line usage:
     <message>
         <location line="+18"/>
         <source>{token} cannot be evaluated because the current UI selection was not supplied.</source>
-        <translation type="unfinished">未提供当前界面中的选区，因此无法计算 {token}。</translation>
+        <translation type="unfinished">未提供当前界面中的选中节点，因此无法计算 {token}。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -2223,7 +2223,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/cluster.py" line="-170"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
-        <translation type="unfinished">错误：MCL 膨胀参数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
+        <translation type="unfinished">错误：MCL 膨胀系数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -2249,7 +2249,7 @@ Command-line usage:
         <location line="+20"/>
         <source>Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.</source>
         <translation type="unfinished">
-            <numerusform>错误：MCL 要求每条边的分数都是大于 0 的有限值，但有 %n 条边的分数不符合要求。</numerusform>
+            <numerusform>错误：MCL 要求每条边的得分都是大于 0 的有限值，但有 %n 条边的得分不符合要求。</numerusform>
         </translation>
     </message>
     <message>
@@ -2310,17 +2310,17 @@ Command-line usage:
     <message>
         <location filename="../../../commands/color.py" line="-10"/>
         <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
-        <translation type="unfinished">错误：color 命令至少需要一个属性（颜色、缩放比例或形状）或表达式。</translation>
+        <translation type="unfinished">错误：color 命令至少需要一个属性（颜色、缩放倍数或形状）或表达式。</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Error: Invalid scale &apos;{scale}&apos;. A scale is a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.</source>
-        <translation type="unfinished">错误：无效的缩放比例“{scale}”。缩放比例是一个有限的非负数，后接 x，例如 2x、0.5x 或 0x。</translation>
+        <translation type="unfinished">错误：无效的缩放倍数“{scale}”。缩放倍数是一个有限的非负数，后接 x，例如 2x、0.5x 或 0x。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Error: Scale &apos;{scale}&apos; is too large to make a valid node size.</source>
-        <translation type="unfinished">错误：缩放比例“{scale}”过大，无法得到有效的节点大小。</translation>
+        <translation type="unfinished">错误：缩放倍数“{scale}”过大，无法得到有效的节点大小。</translation>
     </message>
     <message>
         <location line="+43"/>
@@ -2331,7 +2331,7 @@ Command-line usage:
     <message>
         <location line="-40"/>
         <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, scale with trailing x, or shape.</source>
-        <translation type="unfinished">错误：无法识别的着色参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放比例或形状。</translation>
+        <translation type="unfinished">错误：无法识别的着色参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -2359,7 +2359,7 @@ Command-line usage:
         <location line="+5"/>
         <source>Skipped %n expression(s) with no color, scale or shape: {skipped}.</source>
         <translation type="unfinished">
-            <numerusform>已跳过 %n 个没有颜色、缩放比例或形状的表达式：{skipped}。</numerusform>
+            <numerusform>已跳过 %n 个没有颜色、缩放倍数或形状的表达式：{skipped}。</numerusform>
         </translation>
     </message>
     <message>
@@ -2972,7 +2972,7 @@ Command-line usage:
         <location line="-49"/>
         <location filename="../../../commands/query.py" line="+70"/>
         <source>No selection found. Defaulting to ALL nodes.</source>
-        <translation type="unfinished">未找到选区，默认使用全部节点。</translation>
+        <translation type="unfinished">没有选中节点，默认使用全部节点。</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -3131,12 +3131,12 @@ Command-line usage:
     <message>
         <location line="+5"/>
         <source>Error: Unknown option &apos;{option}&apos;. Modifiers are written without dashes: transparent, full or svg.</source>
-        <translation type="unfinished">错误：未知的选项“{option}”。修饰词不带短横线：transparent、full 或 svg。</translation>
+        <translation type="unfinished">错误：未知的选项“{option}”。修饰符不带短横线：transparent、full 或 svg。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Error: Unrecognized print argument &apos;{argument}&apos;. A file name is one word; the modifiers are {modifiers}.</source>
-        <translation type="unfinished">错误：无法识别的 print 参数“{argument}”。文件名只能是一个词；修饰词为 {modifiers}。</translation>
+        <translation type="unfinished">错误：无法识别的 print 参数“{argument}”。文件名只能是一个词；修饰符为 {modifiers}。</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -3486,7 +3486,7 @@ Command-line usage:
     <message>
         <location line="+10"/>
         <source>Error: &apos;save&apos; must come first. Use &apos;select save &lt;FILENAME&gt;&apos; to save the current selection; to save new matches, select them first.</source>
-        <translation type="unfinished">错误：&apos;save&apos; 必须放在最前面。请用 &apos;select save &lt;FILENAME&gt;&apos; 保存当前选区；要保存新的匹配项，请先选中它们。</translation>
+        <translation type="unfinished">错误：&apos;save&apos; 必须放在最前面。请用 &apos;select save &lt;FILENAME&gt;&apos; 保存当前选中节点；要保存新的匹配项，请先选中它们。</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -3522,14 +3522,14 @@ Command-line usage:
         <location line="+9"/>
         <source>Added %n node(s) to selection (current total: {total}).</source>
         <translation type="unfinished">
-            <numerusform>已将 %n 个节点加入选区（当前共 {total}）。</numerusform>
+            <numerusform>已新增选中 %n 个节点（当前共选中 {total} 个）。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+9"/>
         <source>Removed %n node(s) from selection (remaining: {remaining}).</source>
         <translation type="unfinished">
-            <numerusform>已从选区移除 %n 个节点（剩余 {remaining}）。</numerusform>
+            <numerusform>已取消选中 %n 个节点（仍选中 {remaining} 个）。</numerusform>
         </translation>
     </message>
     <message>
@@ -3540,7 +3540,7 @@ Command-line usage:
     <message>
         <location line="+5"/>
         <source>Filtered selection: Kept {kept}, removed {removed}.</source>
-        <translation type="unfinished">已过滤选区：保留 {kept}，移除 {removed}。</translation>
+        <translation type="unfinished">已过滤选中节点：保留 {kept} 个，移除 {removed} 个。</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -3551,7 +3551,7 @@ Command-line usage:
         <location filename="../../../commands/spectrum.py" line="-118"/>
         <source>Spectrum coloring applied to %n node(s) using property &apos;{property}&apos; {range} with scheme &apos;{scheme}&apos;.</source>
         <translation type="unfinished">
-            <numerusform>已按属性“{property}”{range}，用配色方案“{scheme}”为 %n 个节点应用色谱着色。</numerusform>
+            <numerusform>已按属性“{property}”{range}，用配色方案“{scheme}”为 %n 个节点应用渐变色着色。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -3569,7 +3569,7 @@ Command-line usage:
     <message>
         <location line="+91"/>
         <source>Error: Missing arguments for spectrum coloring.</source>
-        <translation type="unfinished">错误：色谱着色缺少参数。</translation>
+        <translation type="unfinished">错误：渐变色着色缺少参数。</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -3595,7 +3595,7 @@ Command-line usage:
         <location line="+10"/>
         <location line="+81"/>
         <source>Spectrum</source>
-        <translation type="unfinished">色谱</translation>
+        <translation type="unfinished">渐变色</translation>
     </message>
     <message>
         <location line="-77"/>
@@ -3625,7 +3625,7 @@ Command-line usage:
     <message>
         <location line="+11"/>
         <source>Error: Property &apos;{property}&apos; is not numerical (type is &apos;{type}&apos;). Spectrum coloring requires a numerical property.</source>
-        <translation type="unfinished">错误：属性“{property}”不是数值型（类型为“{type}”）。色谱着色需要数值型属性。</translation>
+        <translation type="unfinished">错误：属性“{property}”不是数值型（类型为“{type}”）。渐变色着色需要数值型属性。</translation>
     </message>
     <message>
         <location line="+31"/>
@@ -3782,11 +3782,11 @@ Command-line usage:
     </message>
     <message>
         <source>E-Value</source>
-        <translation type="obsolete">E 值</translation>
+        <translation type="obsolete">期望值</translation>
     </message>
     <message>
         <source>Score Distribution ({mode})</source>
-        <translation type="obsolete">分数分布（{mode}）</translation>
+        <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
         <location line="+977"/>
@@ -3841,7 +3841,7 @@ Command-line usage:
     <message>
         <location line="+10"/>
         <source>NORM_MODE alignment_length is unavailable for local alignment scores</source>
-        <translation type="unfinished">NORM_MODE alignment_length 不适用于局部比对分数</translation>
+        <translation type="unfinished">NORM_MODE alignment_length 不适用于局部比对得分</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -3944,7 +3944,7 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <source>Selection cleared.</source>
-        <translation type="unfinished">已清除选区。</translation>
+        <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
     <message>
         <location filename="../../../Metadata_Core.py" line="+143"/>
@@ -5891,7 +5891,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+2"/>
         <source>&lt;strong&gt;Network Selection Filtering:&lt;/strong&gt; Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</source>
-        <translation type="unfinished">&lt;strong&gt;按网络选区过滤：&lt;/strong&gt;在网络查看器中选择一组节点（例如使用选择工具）时，电子表格会自动过滤，只显示这些节点的数据。</translation>
+        <translation type="unfinished">&lt;strong&gt;按网络中的选中节点过滤：&lt;/strong&gt;在网络查看器中选择一组节点（例如使用选择工具）时，电子表格会自动过滤，只显示这些节点的数据。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6159,12 +6159,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+13"/>
         <source>No network is selected. Select a valid network to determine whether imputed pairs can be included in the final consensus.</source>
-        <translation type="unfinished">未选择网络。请选择一个有效的网络，以确定能否在最终共识中纳入插补的序列对。</translation>
+        <translation type="unfinished">未选择网络。请选择一个有效的网络，以确定能否在最终一致树中纳入插补的序列对。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. Not applicable: all pairs are observed, so full cophenetic consensus is automatic.</source>
-        <translation type="unfinished">完整的网络：{sequences:,} 条序列，已观测 {observed:,}/{expected:,} 个序列对。不适用：所有序列对均已观测，因此会自动采用完整的共表型共识。</translation>
+        <translation type="unfinished">完整的网络：{sequences:,} 条序列，已观测 {observed:,}/{expected:,} 个序列对。不适用：所有序列对均已观测，因此会自动采用完整的共表型一致树。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -6202,7 +6202,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
-展示平均嵌入余弦距离与网络分数之间的保序回归拟合。</translation>
+展示平均嵌入余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
         <location line="-936"/>
@@ -6390,7 +6390,7 @@ Headers and sequences must match exact contiguous substrings within the full emb
         <source>Embedding Set (.h5): HDF5 database containing dense residue embeddings.
 Vectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores.</source>
         <translation type="unfinished">嵌入集（.h5）：包含稠密残基嵌入的 HDF5 数据库。
-这些向量用于计算两两残基相似性矩阵和动态规划比对分数。</translation>
+这些向量用于计算两两残基相似性矩阵和动态规划比对得分。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6438,7 +6438,7 @@ Larger values improve throughput but require more RAM. Enter an integer or &apos
         <location line="+1"/>
         <source>Device: Hardware compute device used for pairwise residue score matrix calculation.
 Auto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.</source>
-        <translation type="unfinished">设备：计算两两残基分数矩阵时使用的硬件计算设备。
+        <translation type="unfinished">设备：计算两两残基得分矩阵时使用的硬件计算设备。
 “自动”会对 CPU 和加速器进行基准测试；动态规划比对评分始终在 CPU 上运行。</translation>
     </message>
     <message>
@@ -6446,7 +6446,7 @@ Auto benchmarks CPU and accelerators; dynamic programming alignment scoring alwa
         <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
 &apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
         <translation type="unfinished">执行模式：“自动”会在支持时对标量和分块方案进行基准测试。
-“标量”一次处理一个两两分数矩阵；“分块”在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的嵌入分块和填充后的微批次。</translation>
+“标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的嵌入分块和填充后的微批次。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6459,7 +6459,7 @@ AUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to 
         <location line="+1"/>
         <source>Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.
 float32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
-        <translation type="unfinished">加速器精度：“自动 32 位”只测试 IEEE FP32 和 TF32，验证比对长度和分数，并要求最佳方案下 TF32 至少加速 10%。
+        <translation type="unfinished">加速器精度：“自动 32 位”只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。
 float32 强制使用 IEEE FP32。TF32 仅限 NVIDIA。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
@@ -6523,7 +6523,7 @@ Used to weight progressive profile-profile alignments along evolutionary guide t
         <source>Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.
 For sparse networks, missing edge scores are automatically imputed using isotonic regression.</source>
         <translation type="unfinished">网络文件（.h5）：用于构建引导树的两两相似性网络（.h5）。
-对于稀疏网络，缺失的边分数会用保序回归自动插补。</translation>
+对于稀疏网络，缺失的边得分会用保序回归自动插补。</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -6536,14 +6536,14 @@ UPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal 
         <location line="+1"/>
         <source>Score Mode: Selects whether to weight guide tree branches using &apos;global&apos; or &apos;local&apos; network scores.
 Determines the hierarchical branching and progressive alignment order.</source>
-        <translation type="unfinished">分数模式：选择用“全局”还是“局部”网络分数为引导树分支加权。
+        <translation type="unfinished">得分模式：选择用“全局”还是“局部”网络得分为引导树分支加权。
 决定层次分支和渐进比对的顺序。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Normalization Mode: Formula used to normalize network scores by sequence or alignment length.
 Corrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).</source>
-        <translation type="unfinished">归一化模式：按序列长度或比对长度对网络分数进行归一化的公式。
+        <translation type="unfinished">归一化模式：按序列长度或比对长度对网络得分进行归一化的公式。
 在转换为距离矩阵前校正序列长度差异（BLAST 网络不可用）。</translation>
     </message>
     <message>
@@ -6557,14 +6557,14 @@ Assesses tree sensitivity to distance fluctuations; disabling this runs a single
         <location line="+1"/>
         <source>Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.
 Higher values yield a more stable consensus guide tree but increase computation time.</source>
-        <translation type="unfinished">扰动树数量：用于构建共识的噪声扰动重复树数量。
-数值越高，共识引导树越稳定，但计算时间越长。</translation>
+        <translation type="unfinished">扰动树数量：用于构建一致树的噪声扰动重复树数量。
+数值越高，一致引导树越稳定，但计算时间越长。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;
 ON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees.</source>
-        <translation type="unfinished">在最终共识中纳入插补的序列对：对于不完整的网络，关闭时保留基准插补距离；
+        <translation type="unfinished">在最终一致树中纳入插补的序列对：对于不完整的网络，关闭时保留基准插补距离；
 开启时将所有序列对替换为各重复树平均的共表型距离。插补的序列对参与所有重复树。</translation>
     </message>
     <message>
@@ -6593,13 +6593,13 @@ More negative values shorten gap lengths.</source>
         <source>CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.
 Increasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
         <translation type="unfinished">CPU 工作进程数：分配给并行计算引导树重复的 CPU 工作进程数。
-在多核系统上，增加进程数可加快共识树的生成。每个 UPGMA 工作进程每个序列对约占 16 字节（44,000 条序列约 16 GB）。邻接法的工作进程还会以线程方式共用除两个以外的所有逻辑 CPU，因此单个工作进程就已使用多个核心。</translation>
+在多核系统上，增加进程数可加快一致树的生成。每个 UPGMA 工作进程每个序列对约占 16 字节（44,000 条序列约 16 GB）。邻接法的工作进程还会以线程方式共用除两个以外的所有逻辑 CPU，因此单个工作进程就已使用多个核心。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Device: Hardware used for sequential profile score-matrix construction.
 Auto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.</source>
-        <translation type="unfinished">设备：依次构建谱分数矩阵时使用的硬件。
+        <translation type="unfinished">设备：依次构建谱得分矩阵时使用的硬件。
 “自动基准测试”会在三次有代表性的叶节点合并上比较 CPU 和可用的加速器；引导树计算和动态规划回溯仍在 CPU 上运行。</translation>
     </message>
     <message>
@@ -6638,7 +6638,7 @@ Run DIAMOND with -k 0 so no query&apos;s hits are truncated, and with --header v
     <message>
         <location line="+1"/>
         <source>BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.</source>
-        <translation type="unfinished">BLAST 列格式：标准 outfmt 6 要求正好 12 列。outfmt 7 从 # Query 读取完整的查询序列，并从 # Fields 读取目标序列和 E 值所在的列。“自定义列”使用下面三项从 1 开始编号的列设置。</translation>
+        <translation type="unfinished">BLAST 列格式：标准 outfmt 6 要求正好 12 列。outfmt 7 从 # Query 读取完整的查询序列，并从 # Fields 读取目标序列和期望值所在的列。“自定义列”使用下面三项从 1 开始编号的列设置。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6653,7 +6653,7 @@ Run DIAMOND with -k 0 so no query&apos;s hits are truncated, and with --header v
     <message>
         <location line="+1"/>
         <source>E-Value Column: One-based E-value column used only for Custom Columns.</source>
-        <translation type="unfinished">E 值列：E 值所在的列（从 1 开始），仅用于“自定义列”。</translation>
+        <translation type="unfinished">期望值列：期望值所在的列（从 1 开始），仅用于“自定义列”。</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -6688,7 +6688,7 @@ Only embeddings matching these headers are saved to the new HDF5 database.</sour
         <source>Input Network Edges (.h5): Pre-existing HDF5 similarity network file.
 Pre-computed alignment scores between existing sequence pairs are reused directly.</source>
         <translation type="unfinished">输入网络边（.h5）：已有的 HDF5 相似性网络文件。
-已有序列对之间预先计算的比对分数会被直接复用。</translation>
+已有序列对之间预先计算的比对得分会被直接复用。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6714,14 +6714,14 @@ Tuning this parameter controls RAM usage and optimizes file write performance.</
     <message>
         <location line="+1"/>
         <source>Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.</source>
-        <translation type="unfinished">设备：计算新的残基分数矩阵时使用的硬件。以 TF32 生成的源网络需要 NVIDIA CUDA；动态规划仍在 CPU 上运行。</translation>
+        <translation type="unfinished">设备：计算新的残基得分矩阵时使用的硬件。以 TF32 生成的源网络需要 NVIDIA CUDA；动态规划仍在 CPU 上运行。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
 &apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.</source>
         <translation type="unfinished">执行模式：“自动”会在支持时对标量和分块方案进行基准测试。
-“标量”一次处理一个两两分数矩阵；“分块”在 CUDA/ROCm 或 XPU 上使用加速器嵌入分块和填充后的微批次。选择 MPS 或 MPS 是唯一可用的加速器时，不显示分块模式。</translation>
+“标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm 或 XPU 上使用加速器嵌入分块和填充后的微批次。选择 MPS 或 MPS 是唯一可用的加速器时，不显示分块模式。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6732,7 +6732,7 @@ Tuning this parameter controls RAM usage and optimizes file write performance.</
         <location line="+3"/>
         <source>Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.
 Edges connecting sequences outside the whitelist are filtered out.</source>
-        <translation type="unfinished">输入网络边（.h5）：包含两两相似性分数或 E 值的主 HDF5 网络文件。
+        <translation type="unfinished">输入网络边（.h5）：包含两两相似性得分或期望值的主 HDF5 网络文件。
 连接白名单以外序列的边会被过滤掉。</translation>
     </message>
     <message>
@@ -6879,7 +6879,7 @@ Controls the output hit list size in summary tables and reports.</source>
         <location line="+1"/>
         <source>Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.
 Hits scoring below this cutoff are excluded from results. Set to &apos;None&apos; to disable.</source>
-        <translation type="unfinished">归一化分数下限：数据库命中的最低归一化相似性分数阈值。
+        <translation type="unfinished">归一化得分下限：数据库命中的最低归一化相似性得分阈值。
 低于此值的命中不会列入结果。设为 &apos;None&apos; 则不启用。</translation>
     </message>
     <message>
@@ -6893,8 +6893,8 @@ Compares database sequence embeddings against the query using dynamic programmin
         <location line="+1"/>
         <source>Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.
 Prevents score bias toward longer or shorter sequences.</source>
-        <translation type="unfinished">归一化模式：按序列长度或比对长度对比对分数进行归一化的公式。
-防止分数偏向较长或较短的序列。</translation>
+        <translation type="unfinished">归一化模式：按序列长度或比对长度对比对得分进行归一化的公式。
+防止得分偏向较长或较短的序列。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6927,7 +6927,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+1"/>
         <source>Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.</source>
-        <translation type="unfinished">设备：计算残基分数矩阵时使用的硬件。目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
+        <translation type="unfinished">设备：计算残基得分矩阵时使用的硬件。目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7153,7 +7153,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+5"/>
         <source>EValue Column:</source>
-        <translation type="unfinished">E 值列：</translation>
+        <translation type="unfinished">期望值列：</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -7203,7 +7203,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+7"/>
         <source>Score Mode:</source>
-        <translation type="unfinished">分数模式：</translation>
+        <translation type="unfinished">得分模式：</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -7219,7 +7219,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="-345"/>
         <source>Include Imputed Pairs in Final Consensus:</source>
-        <translation type="unfinished">在最终共识中纳入插补的序列对：</translation>
+        <translation type="unfinished">在最终一致树中纳入插补的序列对：</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -7391,7 +7391,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+5"/>
         <source>Norm Score Cutoff (Optional):</source>
-        <translation type="unfinished">归一化分数下限（可选）：</translation>
+        <translation type="unfinished">归一化得分下限（可选）：</translation>
     </message>
     <message>
         <location line="+61"/>
@@ -7454,7 +7454,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+1"/>
         <source>Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular).</source>
-        <translation type="unfinished">存放两两相似性网络、E 值矩阵和 BLAST 表格文件（.h5、.tabular）的目录。</translation>
+        <translation type="unfinished">存放两两相似性网络、期望值矩阵和 BLAST 表格文件（.h5、.tabular）的目录。</translation>
     </message>
     <message>
         <location line="+1"/>
