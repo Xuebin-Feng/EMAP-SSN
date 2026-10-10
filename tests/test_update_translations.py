@@ -351,7 +351,7 @@ class UpdateCommandTests(unittest.TestCase):
 
     def test_a_language_keeps_its_translations_through_updates(self):
         self.assertEqual(self.update(add=["de"]), 0, self.lines)
-        german = self.translations / "emapssn_de.ts"
+        german = self.translations / "de" / "emapssn_de.ts"  # In a folder of its own.
         self.assertIn('language="de"', german.read_text(encoding="utf-8"))
         self.assertTrue(german.with_suffix(".qm").is_file())
         self.assertEqual(texts(german), EXPECTED_TEXTS)
@@ -398,15 +398,15 @@ class UpdateCommandTests(unittest.TestCase):
 
     def test_check_finds_a_catalog_translated_but_not_compiled(self):
         self.assertEqual(self.update(add=["de"]), 0, self.lines)
-        translate_in(self.translations / "emapssn_de.ts", "Save", "Speichern")
+        translate_in(self.translations / "de" / "emapssn_de.ts", "Save", "Speichern")
         self.assertEqual(self.update(check=True), 1)
-        self.assertIn("emapssn_de.qm does not match emapssn_de.ts: run the update.", self.lines)
+        self.assertIn("de/emapssn_de.qm does not match emapssn_de.ts: run the update.", self.lines)
         self.assertEqual(self.update(), 0, self.lines)
         self.assertEqual(self.update(check=True), 0, self.lines)
 
     def test_a_translation_that_loses_a_placeholder_is_reported(self):
         self.assertEqual(self.update(add=["de"]), 0, self.lines)
-        translate_in(self.translations / "emapssn_de.ts", "Saved {count} nodes to {name}.", "Knoten gespeichert.")
+        translate_in(self.translations / "de" / "emapssn_de.ts", "Saved {count} nodes to {name}.", "Knoten gespeichert.")
         self.assertEqual(self.update(), 1)
         self.assertTrue(any("'Knoten gespeichert.'" in line and "['{count}', '{name}']" in line
                             for line in self.lines), self.lines)
@@ -455,10 +455,11 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertEqual(update_catalogs(own, languages, add=["de"], **options), 0, self.lines)
         listed = {("Config", "Own title"), ("Config", "Own sentence"), (MESSAGE_CONTEXT, "Own note {name}")}
         self.assertEqual(texts(languages / "emapssn_own.ts"), listed)
-        self.assertEqual(texts(languages / "emapssn_own_de.ts"), listed)
-        self.assertTrue((languages / "emapssn_own_de.qm").is_file())
-        self.assertEqual(sorted(path.name for path in languages.iterdir()),
-                         ["emapssn_own.ts", "emapssn_own_de.qm", "emapssn_own_de.ts"])
+        self.assertEqual(texts(languages / "de" / "emapssn_own_de.ts"), listed)
+        self.assertTrue((languages / "de" / "emapssn_own_de.qm").is_file())
+        self.assertEqual(sorted(path.name for path in languages.iterdir()), ["de", "emapssn_own.ts"])
+        self.assertEqual(sorted(path.name for path in (languages / "de").iterdir()),
+                         ["emapssn_own_de.qm", "emapssn_own_de.ts"])
         self.assertEqual(update_catalogs(own, languages, check=True, **options), 0, self.lines)
 
     def write_pages(self, page=AGENT_PAGE, script=ATTACHMENTS):
@@ -473,14 +474,15 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertEqual(self.update(add=["de"]), 0, self.lines)
         self.assertEqual(texts(self.translations / "emapssn.ts"), EXPECTED_TEXTS | PAGE_TEXTS)
         self.assertEqual(self.snapshot().items() & code.items(), code.items())
-        found = locations(self.translations / "emapssn_de.ts")
-        page, script = "../../web_ui/agent.html", "../agent/attachments.js"
+        found = locations(self.translations / "de" / "emapssn_de.ts")
+        # Relative to the catalog, in the language's folder.
+        page, script = "../../../web_ui/agent.html", "../../agent/attachments.js"
         self.assertEqual(found[("AgentPage", "Demo page")], (page, 3))
         self.assertEqual(found[("AgentPage", 'Says "hi"')], (page, 5))
         self.assertEqual(found[("AgentPage", "Say <b>hi</b>")], (page, 5))
         self.assertEqual(found[("AgentPage", "Shown {count}")], (page, 8))
         self.assertEqual(found[("AgentPage", 'It\'s "quoted"')], (script, 3))
-        translate_in(self.translations / "emapssn_de.ts", "Shown {count}", "Gezeigt")
+        translate_in(self.translations / "de" / "emapssn_de.ts", "Shown {count}", "Gezeigt")
         self.assertEqual(self.update(), 1)
         self.assertTrue(any("'Gezeigt'" in line and "['{count}']" in line for line in self.lines), self.lines)
 
@@ -502,14 +504,34 @@ class UpdateCommandTests(unittest.TestCase):
         pages = self.src / "tools" / "tool_descriptions"
         pages.mkdir(parents=True)
         (pages / "Demo.md").write_text("# Demo\n", encoding="utf-8")
-        (pages / "Demo.de.md").write_text(Help_Pages.translation_marker(pages / "Demo.md") + "\n# Demo\n",
-                                          encoding="utf-8")
+        translation = self.translations / "de" / "help" / "Demo.md"
+        translation.parent.mkdir(parents=True)
+        translation.write_text(Help_Pages.translation_marker(pages / "Demo.md") + "\n# Demo\n", encoding="utf-8")
         self.assertEqual(self.update(), 0, self.lines)
-        self.assertFalse(any("Demo.de.md" in line for line in self.lines), self.lines)
+        self.assertFalse(any("Demo.md" in line for line in self.lines), self.lines)
         (pages / "Demo.md").write_text("# Demo, revised\n", encoding="utf-8")
         self.assertEqual(self.update(check=True), 0, self.lines)
-        self.assertTrue(any(line.startswith("Demo.de.md was translated from another version of Demo.md")
+        self.assertTrue(any(line.startswith("de/help/Demo.md was translated from another version of Demo.md")
                             for line in self.lines), self.lines)
+
+    def test_a_language_json_that_cant_be_used_fails_the_update(self):
+        self.assertEqual(self.update(add=["de"]), 0, self.lines)
+        manifest = self.translations / "de" / "language.json"
+        for content, reason in (("{", "Expecting"), ('{"fonts": {}}', "unknown keys ['fonts']"),
+                                ('{"font": {"family": "X", "vispy_face": "X", "files": ["../x.ttf"]}}', "inside")):
+            with self.subTest(content=content):
+                manifest.write_text(content, encoding="utf-8")
+                self.assertEqual(self.update(check=True), 1)
+                self.assertTrue(any(str(manifest) in line and reason in line for line in self.lines), self.lines)
+        manifest.write_text('{"name": "Deutsch"}', encoding="utf-8")
+        self.assertEqual(self.update(check=True), 0, self.lines)
+
+    def test_add_starts_a_language_in_a_folder_named_by_its_code(self):
+        self.assertEqual(self.update(add=["pt_BR"]), 0, self.lines)
+        self.assertEqual(sorted(path.name for path in (self.translations / "pt_BR").iterdir()),
+                         ["emapssn_pt_BR.qm", "emapssn_pt_BR.ts"])
+        self.assertIn('language="pt_BR"', (self.translations / "pt_BR" / "emapssn_pt_BR.ts").read_text(encoding="utf-8"))
+        self.assertEqual(self.update(check=True), 0, self.lines)
 
     def test_a_language_must_be_a_language_code(self):
         for language in ("german", "DE", "de-DE", "../de"):

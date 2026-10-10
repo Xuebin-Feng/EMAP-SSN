@@ -1,0 +1,20 @@
+{
+  "name": "简体中文",
+  "font": {
+    "family": "Noto Sans SC",
+    "vispy_face": "NotoSansSC",
+    "files": [
+      "noto/NotoSansSC/NotoSansSC-Regular.ttf",
+      "noto/NotoSansSC/NotoSansSC-Bold.ttf"
+    ],
+    "web_range": "U+3000-303F, U+3040-30FF, U+3100-312F, U+3200-33FF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF"
+  },
+  "punctuation": {
+    "no_space_after": "。！？；：，、）」』】》",
+    "separators": {
+      ", ": "，",
+      "; ": "；"
+    },
+    "separator_script": "U+2E80-9FFF, U+F900-FAFF, U+FF00-FFEF"
+  }
+}

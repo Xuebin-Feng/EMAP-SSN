@@ -9,9 +9,8 @@ Tools each show a Language dropdown. Choosing a language saves it and
 redraws that window in it at once, keeping everything the window shows: its
 size, position and splitters, its tabs and scroll positions, and every
 field, unsaved edits included. Other windows take the language when they
-next open. No real language ships yet, so the redraws here go to the
-test-only pseudo-language, and a small compiled catalog stands in for a
-real one. Simplified Chinese also brings its bundled font, only while it
+next open. The redraws here go to the test-only pseudo-language, and small compiled
+catalogs, each in its language's folder, stand in for real ones. Simplified Chinese also brings its bundled font, only while it
 shows.
 """
 
@@ -20,6 +19,7 @@ import contextlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -41,7 +41,6 @@ from desktop.Desktop_App import (
     ENGLISH,
     PSEUDO_LANGUAGE,
     QT_MONOSPACE_FAMILIES,
-    QT_SIMPLIFIED_CHINESE_FAMILY,
     QT_UI_FAMILIES,
     SYSTEM_LANGUAGE,
     LanguageSelector,
@@ -59,6 +58,9 @@ from utilities.App_Settings import read_app_settings
 from utilities.Localization import is_pseudo_translated
 import Update_Translations
 from tests.translation_fixtures import visible_texts
+
+# Simplified Chinese's bundled font, as its language.json names it.
+CHINESE_FAMILY = Desktop_App.LANGUAGE_FONTS["zh_CN"].family
 
 GERMAN = """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
@@ -123,11 +125,17 @@ class LanguageTestCase(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         cls.addClassCleanup(folder.cleanup)
         cls.catalogs = Path(folder.name)
-        for name in ("emapssn_de.ts", "emapssn_zh_CN.ts", "emapssn_en.ts"):
-            (cls.catalogs / name).write_text(GERMAN.replace('language="de"', ""), encoding="utf-8")
-            Update_Translations.run_qt_tool("lrelease", [cls.catalogs / name, "-qm", cls.catalogs / name.replace(".ts", ".qm")])
+        # Each language in a folder of its own, named by its code.
+        for code in ("de", "zh_CN", "en"):
+            catalog = cls.catalogs / code / f"emapssn_{code}.ts"
+            catalog.parent.mkdir()
+            catalog.write_text(GERMAN.replace('language="de"', ""), encoding="utf-8")
+            Update_Translations.run_qt_tool("lrelease", [catalog, "-qm", catalog.with_suffix(".qm")])
         (cls.catalogs / "emapssn.ts").write_text("<TS/>", encoding="utf-8")
         (cls.catalogs / "notes.txt").write_text("not a catalog", encoding="utf-8")
+        (cls.catalogs / "fr").mkdir()  # A folder without a compiled catalog isn't a language yet.
+        (cls.catalogs / "fr" / "emapssn_fr.ts").write_text("<TS/>", encoding="utf-8")
+        (cls.catalogs / "scripts").mkdir()  # Nor is a folder not named as a language code.
 
     def setUp(self):
         # Every test starts English, from a settings file of its own.
@@ -146,11 +154,21 @@ class LanguageSettingTests(LanguageTestCase):
         self.assertEqual(catalog_languages(Desktop_App.LANGUAGES_DIR), ["zh_CN"], "Simplified Chinese ships")
 
     def test_each_language_is_named_in_itself(self):
-        names = {code: language_name(code) for code in ("en", "de", "fr", "ja", "zh_CN", "zh_TW")}
+        names = {code: language_name(code) for code in ("en", "de", "fr", "ja", "zh_CN")}
         self.assertEqual(names, {
             "en": "English", "de": "Deutsch", "fr": "Français", "ja": "日本語",
-            "zh_CN": "简体中文", "zh_TW": "繁體中文",
+            "zh_CN": "简体中文",  # From its language.json.
         })
+
+    def test_a_language_json_gives_the_name_qt_lacks(self):
+        # Qt names Chinese by its language alone; a language.json tells its scripts apart.
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        (folder / "zh_TW").mkdir()
+        (folder / "zh_TW" / "language.json").write_bytes(json.dumps({"name": "繁體中文"}, ensure_ascii=False).encode("utf-8"))
+        self.assertEqual(language_name("zh_TW", folder), "繁體中文")
+        (folder / "de").mkdir()
+        self.assertEqual(language_name("de", folder), "Deutsch", "no language.json: Qt's name")
 
     def test_the_system_language_is_the_first_one_preferred_that_has_a_catalog(self):
         cases = [
@@ -262,26 +280,26 @@ class LanguageFontTests(LanguageTestCase):
         return {run.rawFont().familyName() for run in layout.glyphRuns()}
 
     def test_simplified_chinese_brings_its_font_and_takes_it_away_again(self):
-        if QT_SIMPLIFIED_CHINESE_FAMILY in QFontDatabase.families():
-            self.skipTest(f"{QT_SIMPLIFIED_CHINESE_FAMILY} is installed on this system")
+        if CHINESE_FAMILY in QFontDatabase.families():
+            self.skipTest(f"{CHINESE_FAMILY} is installed on this system")
         # Both stacks name it after the core family, where Qt finds it once registered.
         for families in (QT_UI_FAMILIES, QT_MONOSPACE_FAMILIES):
-            self.assertEqual(families[1], QT_SIMPLIFIED_CHINESE_FAMILY)
+            self.assertEqual(families[1], CHINESE_FAMILY)
 
         install_translations(self.app, "zh_CN", self.catalogs)
-        self.assertEqual(set(QFontDatabase.styles(QT_SIMPLIFIED_CHINESE_FAMILY)), {"Regular", "Bold"})
+        self.assertEqual(set(QFontDatabase.styles(CHINESE_FAMILY)), {"Regular", "Bold"})
         for families in (QT_UI_FAMILIES, QT_MONOSPACE_FAMILIES):
-            self.assertEqual(self.drawn_in(families), {QT_SIMPLIFIED_CHINESE_FAMILY})
+            self.assertEqual(self.drawn_in(families), {CHINESE_FAMILY})
 
         for language in ("de", PSEUDO_LANGUAGE, None):
             with self.subTest(language=language):
                 install_translations(self.app, "zh_CN", self.catalogs)
                 install_translations(self.app, language, self.catalogs)
-                self.assertNotIn(QT_SIMPLIFIED_CHINESE_FAMILY, QFontDatabase.families())
+                self.assertNotIn(CHINESE_FAMILY, QFontDatabase.families())
 
     def test_a_missing_font_file_leaves_the_language_with_the_system_fonts(self):
         missing = Desktop_App.LanguageFont(
-            QT_SIMPLIFIED_CHINESE_FAMILY, "Missing", ("noto/Missing/Missing-Regular.ttf", "noto/Missing/Missing-Bold.ttf")
+            CHINESE_FAMILY, "Missing", ("noto/Missing/Missing-Regular.ttf", "noto/Missing/Missing-Bold.ttf")
         )
         with mock.patch.dict(Desktop_App.LANGUAGE_FONTS, {"zh_CN": missing}), \
                 warnings.catch_warnings(record=True) as caught:

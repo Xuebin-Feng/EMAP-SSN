@@ -21,7 +21,8 @@ a near-black primary button and one indigo accent for focus and slider fills.
   pre-coloured copies in src/resources/icons/qss (QSS_ICON_VARIANTS).
 * Body text keeps the application font at its size: the layouts size labels,
   toggles and buttons from it. Only weights 400 and 600 are used, because the
-  bundled Noto Sans SC has no Medium face and would draw 500 as bold.
+  bundled language fonts (Noto Sans SC for Chinese) have no Medium face and would
+  draw 500 as bold.
 """
 
 from __future__ import annotations

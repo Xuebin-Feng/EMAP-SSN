@@ -1,13 +1,16 @@
 # Translations
 
-This folder holds the catalogs the program's windows take their text from.
+This folder holds the catalogs the program's windows take their text from, and one folder per language.
 
 | File | What it is |
 |---|---|
 | `emapssn.ts` | Every text a window can show, in English, without translations. The update command writes it. |
-| `emapssn_<language>.ts` | One language's translations, such as `emapssn_de.ts`. Translators edit this file. |
-| `emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. |
 | `Update_Translations.py` | The update command. |
+| `<language>/` | One language, named by its code, such as `de`, `pt_BR` or `zh_CN`. Everything the language brings is in it. |
+| `<language>/emapssn_<language>.ts` | The language's translations, such as `de/emapssn_de.ts`. Translators edit this file. |
+| `<language>/emapssn_<language>.qm` | The compiled catalog the program loads. The update command writes it. A folder is offered as a language once this file is in it. |
+| `<language>/language.json` | Optional: the language's name, its bundled font and its punctuation (see "Add a language"). |
+| `<language>/help/<name>.md` | Optional: translated tool help pages (see "Tool help pages"). |
 
 The Config and Tools windows' texts are marked, and so are the Viewer's window (its title, sidebar and dialogs) and its canvas text outside the commands: the HUD, and the console messages of the Viewer, the command engine, the metadata and the agent. The commands' own console messages are all marked, and so are VR Config's texts and the Agent and metadata pages the Viewer opens in the browser. The tool help pages (`src/tools/tool_descriptions/`) are translated as whole pages. The ESMFold page stays English: it is Mol*'s own interface, which has no translations. The first language is Simplified Chinese (`zh_CN`): every text and every help page is drafted, and a native speaker's review is pending (see "Review a language").
 
@@ -26,13 +29,13 @@ The choice is saved in `app_settings.json` in the project folder, and every wind
 - **Number formats** keep following the system's regional settings in every language.
 
 The bundled fonts cover Latin, Greek and Cyrillic. Simplified Chinese brings a
-font of its own, loaded only while it shows (see
-`src/resources/fonts/desktop/README.md`): the Qt windows, the Viewer's canvas
-and the browser views (the Agent and metadata pages and the Tools help panel)
-all draw Chinese in it. In other scripts, Qt windows fall back
+font of its own, which its `language.json` names and which loads only while it
+shows (see `src/resources/fonts/desktop/README.md`): the Qt windows, the
+Viewer's canvas and the browser views (the Agent and metadata pages and the
+Tools help panel) all draw Chinese in it. In other scripts, Qt windows fall back
 to the system's fonts. The Viewer's canvas can't, since it draws each text in
 a single face, so a new language in another script needs a bundled font too
-(`LANGUAGE_FONTS` in `src/desktop/Desktop_App.py`).
+(see "Add a language").
 
 ## Update the catalogs
 
@@ -59,18 +62,57 @@ VR Config files its texts under `Config`, as the desktop Config does, so the tex
 python opt_vr/src/resources/languages/Update_Translations_VR.py
 ```
 
-It keeps a catalog, `emapssn_vr_<language>.ts`, for each language the main catalogs have, so a language added here gets one there at its next update; translate the two together. VR Config shows a text its catalog doesn't translate yet in English. It installs the catalog beside the main one, with `install_translations(app, language, extra_catalogs=...)`, and opt_vr's test suite fails while `emapssn_vr.ts` does not match its code.
+It keeps a catalog, `<language>/emapssn_vr_<language>.ts` in a folder named as the main one's, for each language the main catalogs have, so a language added here gets one there at its next update; translate the two together. VR Config shows a text its catalog doesn't translate yet in English. It installs the catalog beside the main one, with `install_translations(app, language, extra_catalogs=...)`, and opt_vr's test suite fails while `emapssn_vr.ts` does not match its code.
 
-## Start and translate a language
+## Add a language
+
+A language is its folder: adding one means adding `<language>/` here, and nothing in the code names a language. Start it with the update command, which makes the folder and its catalog:
 
 ```
 python src/resources/languages/Update_Translations.py --add de
-pyside6-linguist src/resources/languages/emapssn_de.ts
+python opt_vr/src/resources/languages/Update_Translations_VR.py
+pyside6-linguist src/resources/languages/de/emapssn_de.ts opt_vr/src/resources/languages/de/emapssn_vr_de.ts
 ```
 
 1. Translate in Qt Linguist, which shows the file and line each text comes from.
 2. Mark each finished translation as done, and save.
-3. Run the update again to compile.
+3. Run the updates again to compile. The language shows in the 🌐 dropdown once `de/emapssn_de.qm` is there.
+4. Translate the tool help pages you want into `de/help/` (see "Tool help pages"); the others show in English.
+
+A folder made elsewhere works the same way: copy it here whole. Its name is the language's code, written exactly so, as are its files' names: `pt_BR`, not `pt_br`, and `emapssn_pt_BR.ts`. The program compares names as the folder lists them, so a wrong case fails on Windows and macOS just as it does on Linux.
+
+### language.json
+
+A language that needs nothing more than Qt's name for it and the bundled Latin, Greek and Cyrillic fonts needs no `language.json`. Simplified Chinese's, `zh_CN/language.json`, shows all three keys:
+
+```json
+{
+  "name": "简体中文",
+  "font": {
+    "family": "Noto Sans SC",
+    "vispy_face": "NotoSansSC",
+    "files": ["noto/NotoSansSC/NotoSansSC-Regular.ttf", "noto/NotoSansSC/NotoSansSC-Bold.ttf"],
+    "web_range": "U+3000-303F, U+3040-30FF, U+3100-312F, U+3200-33FF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF"
+  },
+  "punctuation": {
+    "no_space_after": "。！？；：，、）」』】》",
+    "separators": {", ": "，", "; ": "；"},
+    "separator_script": "U+2E80-9FFF, U+F900-FAFF, U+FF00-FFEF"
+  }
+}
+```
+
+| Key | What it gives |
+|---|---|
+| `name` | The language's name in itself, as the dropdown lists it. Without it, Qt's name for the code, which can't tell some languages apart (Qt names Simplified and Traditional Chinese alike). |
+| `font` | A bundled font, for a script the core Noto faces lack. `family` is the font's own family name, `vispy_face` the name the Viewer's canvas registers it under, `files` its regular and bold faces in `src/resources/fonts/desktop/` (written with `/`), and `web_range` the CSS unicode-range of the characters the browser views draw in it. The font files stay in the fonts folder, listed in its `SHA256SUMS` with their licence in `LICENSE.fonts`. The font registers only while its language shows, so other languages keep the system's fonts for the same characters. |
+| `punctuation` | How a message put together from sentences or list items (`JoinedMessage`) is punctuated. `no_space_after` lists the characters a sentence ends in without a space after it, `separators` a list's separators in the language's own form, and `separator_script` the unicode ranges whose text takes those forms, so a list of Latin file names keeps ", ". Without it, the parts join as given, as English does. |
+
+The update command checks every `language.json` and fails while one can't be used; the program warns and uses its defaults for it. A language written right to left isn't supported yet: its windows, canvas and pages would show it left to right.
+
+### Translate a language
+
+A translation must keep these parts exactly as the English text has them:
 
 A translation must keep these parts exactly as the English text has them:
 
@@ -87,20 +129,20 @@ compiles it all the same, so the windows show the drafts until a reviewer
 changes them, and the update counts them apart:
 
 ```
-emapssn_zh_CN.ts: 0 of 1124 texts translated; 1124 more drafted, awaiting review.
+emapssn_zh_CN.ts: 0 of 1423 texts translated; 1423 more drafted, awaiting review.
 ```
 
 To review, open the language's two catalogs in Qt Linguist, correct each text
 as needed, mark it finished, save, and run both updates to compile:
 
 ```
-pyside6-linguist src/resources/languages/emapssn_zh_CN.ts opt_vr/src/resources/languages/emapssn_vr_zh_CN.ts
+pyside6-linguist src/resources/languages/zh_CN/emapssn_zh_CN.ts opt_vr/src/resources/languages/zh_CN/emapssn_vr_zh_CN.ts
 python src/resources/languages/Update_Translations.py
 python opt_vr/src/resources/languages/Update_Translations_VR.py
 ```
 
 A help page's translation is reviewed in its own file, such as
-`src/tools/tool_descriptions/Embedding_MSA.zh_CN.md`. Keep its first line as it
+`src/resources/languages/zh_CN/help/Embedding_MSA.md`. Keep its first line as it
 is. `tests/test_tool_help_pages.py` checks that each translation keeps its
 English page's headings, code, tables, links and math, and
 `tests/test_application_fonts.py` that the bundled font has every character a
@@ -120,7 +162,7 @@ Each window files its texts under one context, which translators see as a group:
 | A message put together from sentences | `JoinedMessage([Message("Matched %n node(s).", n=nodes), Message("Ignored %n row(s).", n=rows)])` |
 | Text from code without Qt that a window shows, such as an error | `ValueError(Message("Enter a profile name."))`, shown with `display_text(error)` |
 
-A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. A `JoinedMessage` shows its translations in their own punctuation: where a part is Chinese (or other CJK) text, no space follows a full-width sentence end such as "。", and its ", " and "; " separators show as "，" and "；". Its English is joined as given. `QT_TRANSLATE_NOOP`, `Message` and `JoinedMessage` come from `utilities.Localization`, which code without Qt can import.
+A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. A `JoinedMessage` shows its translations in their language's punctuation, which the language's `language.json` gives: in Chinese no space follows a sentence end such as "。", and ", " and "; " beside Chinese text show as "，" and "；". Its English is joined as given. `QT_TRANSLATE_NOOP`, `Message` and `JoinedMessage` come from `utilities.Localization`, which code without Qt can import.
 
 A value that is text to translate too, such as a page's name in a message, is a `Message` itself: `Message("{page} opened at {url}", page=Message("Agent UI"), url=url)`. The pseudo-language check can't see an untranslated value, which shows inside the translated text's brackets, so a test checks such a value on its own.
 
@@ -160,13 +202,13 @@ What a page saves stays English, as the settings files do: the names of the mode
 
 ## Tool help pages
 
-The Tools window shows a tab's help from `src/tools/tool_descriptions/<name>.md`. A translation is a whole page beside it, `<name>.<language>.md`, such as `Embedding_MSA.zh_CN.md`, whose first line names the English page it was made from:
+The Tools window shows a tab's help from `src/tools/tool_descriptions/<name>.md`. A translation is a whole page in its language's folder, under the English page's name, `<language>/help/<name>.md`, such as `zh_CN/help/Embedding_MSA.md`, whose first line names the English page it was made from:
 
 ```
 <!-- Translation of Embedding_MSA.md, sha256 <the English page's SHA-256> -->
 ```
 
-Tools shows the translation in its language while that line matches the English page, and the English page otherwise. So after the English page changes, it shows until its translation is brought up to date. The update command lists such translations, with the first line each needs (`utilities/Help_Pages.py` makes it, as `translation_marker`); that is a note, not a failure. A translation keeps the English page's headings, tool names, setting keys, code and file names, and a tool's heading reads as its card title does in the catalog.
+Tools shows the translation in its language while that line matches the English page, and the English page otherwise. So after the English page changes, it shows until its translation is brought up to date. The update command lists such translations, with the first line each needs (`utilities/Help_Pages.py` makes it, as `translation_marker`), and any translation still beside the English pages as `<name>.<language>.md`, where Tools doesn't look; those are notes, not failures. A translation keeps the English page's headings, tool names, setting keys, code and file names, and a tool's heading reads as its card title does in the catalog.
 
 ## Find text that is not marked
 

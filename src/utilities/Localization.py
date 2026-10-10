@@ -15,10 +15,11 @@ as in "%n file(s)": English shows "1 file" and "2 files" (english_plural),
 and a translation gives each plural form its language has.
 
 Translations live in Qt catalogs in src/resources/languages: emapssn.ts lists
-every text the program can show, and emapssn_<language>.ts holds one
-language's translations. Update_Translations.py in the same folder collects the
-texts from the code, Message templates included, which it files under
-MESSAGE_CONTEXT.
+every text the program can show, and each language has a folder of its own,
+<language>/, whose emapssn_<language>.ts holds its translations
+(utilities/Language_Packs.py finds them). Update_Translations.py in
+src/resources/languages collects the texts from the code, Message templates
+included, which it files under MESSAGE_CONTEXT.
 
 The pseudo-language is a test-only language made from emapssn.ts: every text
 comes out accented, longer and bracketed, so text that skipped the catalog
@@ -139,35 +140,64 @@ class Message:
             return str(self)
 
 
-# Chinese and Japanese put no space after their full-width punctuation, and
-# write a list's comma and semicolon full width.
-_FULL_WIDTH_ENDINGS = frozenset("。！？；：，、）」』】》")
-_FULL_WIDTH_SEPARATORS = {", ": "，", "; ": "；"}
+@dataclass(frozen=True)
+class Punctuation:
+    """How a language joins the sentences and list items of a JoinedMessage.
+
+    A language's language.json gives it (utilities/Language_Packs.py), and
+    the window that installs the language installs it with set_punctuation.
+
+    no_space_after holds the characters after which a sentence takes no
+    space, as Chinese writes no space after 。. separators maps a list's
+    separator to the language's own, as ", " to "，". A separator takes its
+    own form only next to a text holding a character of separator_script,
+    (first, last) code-point ranges, so a list of Latin file names in a
+    Chinese sentence keeps ", ".
+    """
+
+    no_space_after: frozenset = frozenset()
+    separators: tuple = ()  # ((separator, the language's own), ...)
+    separator_script: tuple = ()  # ((first code point, last code point), ...)
+
+    def in_script(self, text):
+        """Whether text holds a character of separator_script."""
+        return any(first <= ord(character) <= last
+                   for character in text for first, last in self.separator_script)
 
 
-def _is_cjk(character):
-    """Whether character is a CJK ideograph, kana, or CJK or full-width punctuation."""
-    code = ord(character)
-    return 0x2E80 <= code <= 0x9FFF or 0xF900 <= code <= 0xFAFF or 0xFF00 <= code <= 0xFFEF
+_punctuation = None
+
+
+def set_punctuation(punctuation):
+    """Install the shown language's Punctuation, or None to join every text as given.
+
+    Returns the Punctuation it replaces, so a caller can restore it.
+    """
+    global _punctuation
+    previous, _punctuation = _punctuation, punctuation
+    return previous
 
 
 def _joined_for_display(texts, separator):
-    """texts joined by separator as a window shows them, in the punctuation of the language they are in.
+    """texts joined by separator as a window shows them, in the shown language's punctuation.
 
-    Only the shown texts tell the language: after a full-width sentence end
-    a space separator is dropped, and a ", " or "; " next to CJK text
-    becomes "，" or "；". English, and every other separator, joins as given.
+    After a sentence ending in one of the language's no_space_after
+    characters, a space separator is dropped; a separator the language
+    writes its own way takes that form next to text in its script. Without
+    a language's Punctuation, as in English, texts join as given.
     """
-    if _translator is None or separator not in (" ", *_FULL_WIDTH_SEPARATORS):
+    rules = _punctuation
+    own = dict(rules.separators) if rules is not None else {}
+    if rules is None or (separator != " " and separator not in own):
         return separator.join(texts)
     shown = []
     for index, text in enumerate(texts):
         if index:
             previous = texts[index - 1]
             if separator == " ":
-                shown.append("" if previous and previous[-1] in _FULL_WIDTH_ENDINGS else " ")
-            elif any(map(_is_cjk, previous)) or any(map(_is_cjk, text)):
-                shown.append(_FULL_WIDTH_SEPARATORS[separator])
+                shown.append("" if previous and previous[-1] in rules.no_space_after else " ")
+            elif rules.in_script(previous) or rules.in_script(text):
+                shown.append(own[separator])
             else:
                 shown.append(separator)
         shown.append(text)
@@ -181,8 +211,9 @@ class JoinedMessage(Message):
     message put together from parts is still one Message: the console line
     shows it translated and the terminal prints it in English. A part may
     also be plain text, such as a file name, which shows as it is. The
-    translations are joined in their own punctuation: a Chinese sentence
-    ends without a space after it, and a Chinese list uses "，" and "；".
+    translations are joined in their language's punctuation (Punctuation):
+    a Chinese sentence ends without a space after it, and a Chinese list
+    uses "，" and "；".
     """
 
     __slots__ = ("parts", "separator")

@@ -4,7 +4,7 @@
 <context>
     <name>AgentPage</name>
     <message>
-        <location filename="../agent/attachments.js" line="+35"/>
+        <location filename="../../agent/attachments.js" line="+35"/>
         <source>Processing…</source>
         <translation type="unfinished">处理中…</translation>
     </message>
@@ -69,7 +69,7 @@
         <translation type="unfinished">无法确认已提交。点击“发送”可重试同一条消息。您的草稿已保留。</translation>
     </message>
     <message>
-        <location filename="../../web_ui/agent.html" line="+22"/>
+        <location filename="../../../web_ui/agent.html" line="+22"/>
         <location line="+936"/>
         <source>EMAP-SSN Agent Chat</source>
         <translation type="unfinished">EMAP-SSN 智能体对话</translation>
@@ -503,12 +503,12 @@
 <context>
     <name>Config</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+77"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+86"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Config.py" line="+171"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+171"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -575,12 +575,12 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3673"/>
+        <location line="+3672"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3665"/>
+        <location line="-3664"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -621,12 +621,12 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3183"/>
+        <location line="+3182"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3180"/>
+        <location line="-3179"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -1209,12 +1209,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+48"/>
-        <location line="+1432"/>
+        <location line="+1431"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1398"/>
+        <location line="-1397"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1669,7 +1669,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">排布网格大小：</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+39"/>
         <source>Simulation &amp;&amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
@@ -1824,7 +1824,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+1587"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1611"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -1851,23 +1851,23 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../Background_Job_Scheduler.py" line="+112"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+112"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../commands/label.py" line="+1267"/>
+        <location filename="../../../commands/label.py" line="+1267"/>
         <location line="+447"/>
-        <location filename="../../commands/logo.py" line="+691"/>
+        <location filename="../../../commands/logo.py" line="+691"/>
         <location line="+59"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../commands/label.py" line="+140"/>
-        <location filename="../../commands/logo.py" line="+685"/>
+        <location filename="../../../commands/label.py" line="+140"/>
+        <location filename="../../../commands/logo.py" line="+685"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -1897,7 +1897,7 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 在 {seconds} 秒后失败（{command}）：{error}</translation>
     </message>
     <message>
-        <location filename="../../Command_Engine.py" line="+123"/>
+        <location filename="../../../Command_Engine.py" line="+123"/>
         <source>Negative range bound in &apos;{text}&apos; must be written in parentheses, for example &apos;(-1)-0&apos; or &apos;(-1.5)-(-0.5)&apos;. Parentheses are required around negative values in a range.</source>
         <translation type="unfinished">“{text}”中的负数范围边界必须写在括号中，例如 &apos;(-1)-0&apos; 或 &apos;(-1.5)-(-0.5)&apos;。范围中的负值必须加括号。</translation>
     </message>
@@ -1958,7 +1958,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+14"/>
-        <location filename="../../commands/query.py" line="+152"/>
+        <location filename="../../../commands/query.py" line="+152"/>
         <source>Grouped amino-acid target &apos;{target}&apos; must contain at least two one-letter residue symbols.</source>
         <translation type="unfinished">成组的氨基酸目标“{target}”必须至少包含两个单字母残基符号。</translation>
     </message>
@@ -2001,7 +2001,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+15"/>
-        <location filename="../../commands/select.py" line="+272"/>
+        <location filename="../../../commands/select.py" line="+272"/>
         <location line="+56"/>
         <source>Selection</source>
         <translation type="unfinished">选择</translation>
@@ -2118,46 +2118,46 @@ Command-line usage:
     </message>
     <message>
         <location line="+6"/>
-        <location filename="../../commands/agent.py" line="+73"/>
+        <location filename="../../../commands/agent.py" line="+73"/>
         <location line="+121"/>
-        <location filename="../../commands/esmfold.py" line="+73"/>
+        <location filename="../../../commands/esmfold.py" line="+73"/>
         <location line="+142"/>
-        <location filename="../../commands/label.py" line="-115"/>
+        <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
-        <location filename="../../commands/logo.py" line="-221"/>
+        <location filename="../../../commands/logo.py" line="-221"/>
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../commands/meta.py" line="+166"/>
+        <location filename="../../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../commands/print.py" line="+934"/>
+        <location filename="../../../commands/print.py" line="+934"/>
         <location line="+51"/>
-        <location filename="../../commands/query.py" line="+583"/>
-        <location filename="../../commands/reset.py" line="+114"/>
-        <location filename="../../commands/select.py" line="-194"/>
-        <location filename="../../web_ui/agent_backend.py" line="+280"/>
-        <location filename="../../web_ui/meta_backend.py" line="+56"/>
+        <location filename="../../../commands/query.py" line="+583"/>
+        <location filename="../../../commands/reset.py" line="+114"/>
+        <location filename="../../../commands/select.py" line="-194"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+280"/>
+        <location filename="../../../web_ui/meta_backend.py" line="+56"/>
         <source>Error: {error}</source>
         <translation type="unfinished">错误：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/agent.py" line="-87"/>
-        <location filename="../../commands/alignment.py" line="+49"/>
-        <location filename="../../commands/cluster.py" line="+286"/>
-        <location filename="../../commands/color.py" line="+95"/>
-        <location filename="../../commands/esmfold.py" line="-59"/>
-        <location filename="../../commands/export.py" line="+103"/>
-        <location filename="../../commands/group.py" line="+138"/>
-        <location filename="../../commands/label.py" line="+18"/>
-        <location filename="../../commands/logo.py" line="-149"/>
-        <location filename="../../commands/meta.py" line="-132"/>
-        <location filename="../../commands/offset.py" line="+92"/>
-        <location filename="../../commands/print.py" line="-113"/>
-        <location filename="../../commands/query.py" line="-260"/>
-        <location filename="../../commands/reset.py" line="-9"/>
-        <location filename="../../commands/select.py" line="-26"/>
-        <location filename="../../commands/spectrum.py" line="+181"/>
-        <location filename="../../commands/subcluster.py" line="+148"/>
+        <location filename="../../../commands/agent.py" line="-87"/>
+        <location filename="../../../commands/alignment.py" line="+49"/>
+        <location filename="../../../commands/cluster.py" line="+286"/>
+        <location filename="../../../commands/color.py" line="+95"/>
+        <location filename="../../../commands/esmfold.py" line="-59"/>
+        <location filename="../../../commands/export.py" line="+103"/>
+        <location filename="../../../commands/group.py" line="+138"/>
+        <location filename="../../../commands/label.py" line="+18"/>
+        <location filename="../../../commands/logo.py" line="-149"/>
+        <location filename="../../../commands/meta.py" line="-132"/>
+        <location filename="../../../commands/offset.py" line="+92"/>
+        <location filename="../../../commands/print.py" line="-113"/>
+        <location filename="../../../commands/query.py" line="-260"/>
+        <location filename="../../../commands/reset.py" line="-9"/>
+        <location filename="../../../commands/select.py" line="-26"/>
+        <location filename="../../../commands/spectrum.py" line="+181"/>
+        <location filename="../../../commands/subcluster.py" line="+148"/>
         <source>Help information printed to the terminal</source>
         <translation type="unfinished">帮助信息已打印到终端</translation>
     </message>
@@ -2177,8 +2177,8 @@ Command-line usage:
         <translation type="unfinished">智能体后端未接受该消息。</translation>
     </message>
     <message>
-        <location filename="../../commands/alignment.py" line="+22"/>
-        <location filename="../../commands/run.py" line="+176"/>
+        <location filename="../../../commands/alignment.py" line="+22"/>
+        <location filename="../../../commands/run.py" line="+176"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -2189,7 +2189,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+6"/>
-        <location filename="../../commands/run.py" line="+12"/>
+        <location filename="../../../commands/run.py" line="+12"/>
         <source>Error: File &apos;{file}&apos; does not exist.</source>
         <translation type="unfinished">错误：文件“{file}”不存在。</translation>
     </message>
@@ -2214,7 +2214,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../commands/cluster.py" line="-170"/>
+        <location filename="../../../commands/cluster.py" line="-170"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL 膨胀参数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -2263,15 +2263,15 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../Command_Engine.py" line="-163"/>
-        <location filename="../../commands/cluster.py" line="+151"/>
+        <location filename="../../../Command_Engine.py" line="-163"/>
+        <location filename="../../../commands/cluster.py" line="+151"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../commands/cluster.py" line="+11"/>
+        <location filename="../../../commands/cluster.py" line="+11"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -2283,13 +2283,13 @@ Command-line usage:
     </message>
     <message>
         <location line="-138"/>
-        <location filename="../../commands/subcluster.py" line="+194"/>
+        <location filename="../../../commands/subcluster.py" line="+194"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message>
         <location line="+45"/>
-        <location filename="../../commands/subcluster.py" line="+42"/>
+        <location filename="../../../commands/subcluster.py" line="+42"/>
         <source>Missing library! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
@@ -2301,7 +2301,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/color.py" line="-10"/>
+        <location filename="../../../commands/color.py" line="-10"/>
         <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
         <translation type="unfinished">错误：color 命令至少需要一个属性（颜色、缩放比例或形状）或表达式。</translation>
     </message>
@@ -2356,7 +2356,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/esmfold.py" line="-29"/>
+        <location filename="../../../commands/esmfold.py" line="-29"/>
         <source>Unknown esmfold keyword: {keyword}</source>
         <translation type="unfinished">未知的 esmfold 关键字：{keyword}</translation>
     </message>
@@ -2446,7 +2446,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/export.py" line="-40"/>
+        <location filename="../../../commands/export.py" line="-40"/>
         <source>Error: Export refused {source}: {error}</source>
         <translation type="unfinished">错误：拒绝导出{source}：{error}</translation>
     </message>
@@ -2545,9 +2545,9 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/group.py" line="+7"/>
+        <location filename="../../../commands/group.py" line="+7"/>
         <location line="+11"/>
-        <location filename="../../commands/subcluster.py" line="-224"/>
+        <location filename="../../../commands/subcluster.py" line="-224"/>
         <source>No groups are currently defined.</source>
         <translation type="unfinished">当前未定义任何分组。</translation>
     </message>
@@ -2645,23 +2645,23 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../commands/cluster.py" line="-375"/>
-        <location filename="../../commands/hide.py" line="+25"/>
-        <location filename="../../commands/meta.py" line="+10"/>
-        <location filename="../../commands/redo.py" line="+48"/>
+        <location filename="../../../commands/cluster.py" line="-375"/>
+        <location filename="../../../commands/hide.py" line="+25"/>
+        <location filename="../../../commands/meta.py" line="+10"/>
+        <location filename="../../../commands/redo.py" line="+48"/>
         <location line="+15"/>
-        <location filename="../../commands/reference.py" line="+84"/>
-        <location filename="../../commands/run.py" line="-41"/>
-        <location filename="../../commands/save.py" line="+31"/>
-        <location filename="../../commands/subcluster.py" line="-82"/>
-        <location filename="../../commands/undo.py" line="+48"/>
+        <location filename="../../../commands/reference.py" line="+84"/>
+        <location filename="../../../commands/run.py" line="-41"/>
+        <location filename="../../../commands/save.py" line="+31"/>
+        <location filename="../../../commands/subcluster.py" line="-82"/>
+        <location filename="../../../commands/undo.py" line="+48"/>
         <location line="+16"/>
-        <location filename="../../commands/zoom.py" line="+87"/>
+        <location filename="../../../commands/zoom.py" line="+87"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
     <message>
-        <location filename="../../commands/hide.py" line="+19"/>
+        <location filename="../../../commands/hide.py" line="+19"/>
         <source>Error: Unrecognized hide argument &apos;{argument}&apos;. &apos;{keyword}&apos; takes no other arguments.</source>
         <translation type="unfinished">错误：无法识别的 hide 参数“{argument}”。&apos;{keyword}&apos; 不接受其他参数。</translation>
     </message>
@@ -2712,7 +2712,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/label.py" line="-1288"/>
+        <location filename="../../../commands/label.py" line="-1288"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
@@ -2856,7 +2856,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/logo.py" line="-911"/>
+        <location filename="../../../commands/logo.py" line="-911"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -2891,7 +2891,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+66"/>
-        <location filename="../../commands/print.py" line="+64"/>
+        <location filename="../../../commands/print.py" line="+64"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
@@ -2951,7 +2951,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+9"/>
-        <location filename="../../commands/select.py" line="+162"/>
+        <location filename="../../../commands/select.py" line="+162"/>
         <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished">“{expression}”不是布尔选择表达式。</translation>
     </message>
@@ -2963,7 +2963,7 @@ Command-line usage:
     </message>
     <message>
         <location line="-49"/>
-        <location filename="../../commands/query.py" line="+70"/>
+        <location filename="../../../commands/query.py" line="+70"/>
         <source>No selection found. Defaulting to ALL nodes.</source>
         <translation type="unfinished">未找到选区，默认使用全部节点。</translation>
     </message>
@@ -3016,8 +3016,8 @@ Command-line usage:
         <translation type="unfinished">生成序列标识图失败：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/meta.py" line="+12"/>
-        <location filename="../../web_ui/meta_backend.py" line="+5"/>
+        <location filename="../../../commands/meta.py" line="+12"/>
+        <location filename="../../../web_ui/meta_backend.py" line="+5"/>
         <source>Deleted metadata columns: {columns}.</source>
         <translation type="unfinished">已删除元数据列：{columns}。</translation>
     </message>
@@ -3062,7 +3062,7 @@ Command-line usage:
         <translation type="unfinished">错误：找不到元数据文件“{file}”（已检查绝对路径、相对路径和 {folder}）。</translation>
     </message>
     <message>
-        <location filename="../../commands/offset.py" line="+7"/>
+        <location filename="../../../commands/offset.py" line="+7"/>
         <source>Current Alignment Offset: {offset}</source>
         <translation type="unfinished">当前比对偏移量：{offset}</translation>
     </message>
@@ -3102,7 +3102,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../commands/print.py" line="-215"/>
+        <location filename="../../../commands/print.py" line="-215"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3183,7 +3183,7 @@ Command-line usage:
         <translation type="unfinished">保存 {format} 出错。请查看终端。</translation>
     </message>
     <message>
-        <location filename="../../commands/query.py" line="-471"/>
+        <location filename="../../../commands/query.py" line="-471"/>
         <source>Invalid frequency Boolean expression. Ensure operators and parentheses are complete.</source>
         <translation type="unfinished">无效的频率布尔表达式。请确保运算符和括号完整。</translation>
     </message>
@@ -3274,7 +3274,7 @@ Command-line usage:
         <translation type="unfinished">没有查询到有效的位置。</translation>
     </message>
     <message>
-        <location filename="../../commands/reference.py" line="-41"/>
+        <location filename="../../../commands/reference.py" line="-41"/>
         <source>Warning: Multiple matches found for &apos;{target}&apos;. Using &apos;{reference}&apos;.</source>
         <translation type="unfinished">警告：“{target}”有多个匹配项，将使用“{reference}”。</translation>
     </message>
@@ -3333,7 +3333,7 @@ Command-line usage:
         <translation type="unfinished">错误：找不到参考序列“{reference}”。</translation>
     </message>
     <message>
-        <location filename="../../commands/reset.py" line="-23"/>
+        <location filename="../../../commands/reset.py" line="-23"/>
         <source>Specify at least one reset target.</source>
         <translation type="unfinished">请至少指定一个重置目标。</translation>
     </message>
@@ -3343,7 +3343,7 @@ Command-line usage:
         <translation type="unfinished">未知的重置目标：{targets}。未重置任何内容。</translation>
     </message>
     <message>
-        <location filename="../../commands/run.py" line="-62"/>
+        <location filename="../../../commands/run.py" line="-62"/>
         <source>Error: The script holds {count} commands, more than the {limit} a script may run. None were run.</source>
         <translation type="unfinished">错误：该脚本含有 {count} 条命令，超过了脚本最多可运行的 {limit} 条。未运行任何命令。</translation>
     </message>
@@ -3404,7 +3404,7 @@ Command-line usage:
         <translation type="unfinished">读取或执行命令文件出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/save.py" line="+24"/>
+        <location filename="../../../commands/save.py" line="+24"/>
         <source>Filename cannot contain &apos;:&apos;.</source>
         <translation type="unfinished">文件名不能包含 &apos;:&apos;。</translation>
     </message>
@@ -3419,7 +3419,7 @@ Command-line usage:
         <translation type="unfinished">保存布局状态出错：{error}</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../commands/select.py" line="-239"/>
+        <location filename="../../../commands/select.py" line="-239"/>
         <source>%n node(s)</source>
         <translation type="unfinished">
             <numerusform>%n 个节点</numerusform>
@@ -3541,7 +3541,7 @@ Command-line usage:
         <translation type="unfinished">错误：不支持的选择模式“{mode}”。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../commands/spectrum.py" line="-118"/>
+        <location filename="../../../commands/spectrum.py" line="-118"/>
         <source>Spectrum coloring applied to %n node(s) using property &apos;{property}&apos; {range} with scheme &apos;{scheme}&apos;.</source>
         <translation type="unfinished">
             <numerusform>已按属性“{property}”{range}，用配色方案“{scheme}”为 %n 个节点应用色谱着色。</numerusform>
@@ -3636,7 +3636,7 @@ Command-line usage:
         <translation type="unfinished">（最小值：{min}，最大值：{max}）</translation>
     </message>
     <message>
-        <location filename="../../commands/subcluster.py" line="-1"/>
+        <location filename="../../../commands/subcluster.py" line="-1"/>
         <source>Error: Unrecognized subcluster argument &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：无法识别的 subcluster 参数“{argument}”。</translation>
     </message>
@@ -3695,7 +3695,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/zoom.py" line="-37"/>
+        <location filename="../../../commands/zoom.py" line="-37"/>
         <source>Error: Zoom width must be a valid number.</source>
         <translation type="unfinished">错误：缩放宽度必须是有效的数字。</translation>
     </message>
@@ -3730,7 +3730,7 @@ Command-line usage:
         <translation type="unfinished">缩放已对齐到视图宽度：{width}</translation>
     </message>
     <message>
-        <location filename="../../desktop/Desktop_Launcher_Monitor.py" line="+133"/>
+        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+133"/>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished">SSN 无法打开终端来显示应用程序故障。请查看保留在 {log} 的日志。终端错误：{error}</translation>
     </message>
@@ -3740,7 +3740,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Config.py" line="-3979"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-3978"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3845,7 +3845,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="+1119"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1119"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -3943,7 +3943,7 @@ Command-line usage:
         <translation type="unfinished">已清除选区。</translation>
     </message>
     <message>
-        <location filename="../../Metadata_Core.py" line="+143"/>
+        <location filename="../../../Metadata_Core.py" line="+143"/>
         <source>Metadata columns must be supplied as a list of property names.</source>
         <translation type="unfinished">元数据列必须以属性名称列表的形式提供。</translation>
     </message>
@@ -3973,13 +3973,13 @@ Command-line usage:
         <translation type="unfinished">大小写有歧义：{names}</translation>
     </message>
     <message>
-        <location filename="../../commands/meta.py" line="-106"/>
-        <location filename="../../Metadata_Core.py" line="+2"/>
+        <location filename="../../../commands/meta.py" line="-106"/>
+        <location filename="../../../Metadata_Core.py" line="+2"/>
         <source>none</source>
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location filename="../../Metadata_Core.py" line="+1"/>
+        <location filename="../../../Metadata_Core.py" line="+1"/>
         <source>Cannot delete metadata columns ({problems}). Available properties: {available}.</source>
         <translation type="unfinished">无法删除元数据列（{problems}）。可用的属性：{available}。</translation>
     </message>
@@ -4087,7 +4087,7 @@ Command-line usage:
         <translation type="unfinished">下载元数据出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../tools/tool_helpers/Model_Plugins.py" line="+314"/>
+        <location filename="../../../tools/tool_helpers/Model_Plugins.py" line="+314"/>
         <source>Model: {model}
 Weights license: {license}
 Restriction: {restriction}
@@ -4114,7 +4114,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">{model} [单独条款]</translation>
     </message>
     <message>
-        <location filename="../../utilities/Output_Names.py" line="+31"/>
+        <location filename="../../../utilities/Output_Names.py" line="+31"/>
         <source>Filename cannot be empty.</source>
         <translation type="unfinished">文件名不能为空。</translation>
     </message>
@@ -4129,7 +4129,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">文件名含有不支持的字符：“{file}”。</translation>
     </message>
     <message>
-        <location filename="../../utilities/Sequence_Utils.py" line="+48"/>
+        <location filename="../../../utilities/Sequence_Utils.py" line="+48"/>
         <source>Negative position &apos;{position}&apos; must be written as &apos;({position})&apos;. Parentheses are required around negative positions.</source>
         <translation type="unfinished">负位置“{position}”必须写成“({position})”。负位置必须加括号。</translation>
     </message>
@@ -4235,7 +4235,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../Viewer_Command_Portal.py" line="+186"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+186"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -4265,7 +4265,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此查看器中没有该命令请求，或它已被清除</translation>
     </message>
     <message>
-        <location filename="../../Viewer_Visual_State.py" line="+59"/>
+        <location filename="../../../Viewer_Visual_State.py" line="+59"/>
         <source>Viewer canvas is unavailable</source>
         <translation type="unfinished">查看器画布不可用</translation>
     </message>
@@ -4285,7 +4285,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此无界面查看器没有可用于绘制的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
     </message>
     <message>
-        <location filename="../../web_ui/agent_backend.py" line="-171"/>
+        <location filename="../../../web_ui/agent_backend.py" line="-171"/>
         <source>The file was left unchanged: correct it, or delete it to start over from the default cards.</source>
         <translation type="unfinished">该文件保持不变：请修正它，或删除它以从默认的模型卡重新开始。</translation>
     </message>
@@ -4419,8 +4419,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">模型卡未保存：{error}</translation>
     </message>
     <message>
-        <location filename="../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../web_ui/Web_Server.py" line="+647"/>
+        <location filename="../../../web_ui/agent_images.py" line="+21"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+647"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -4490,7 +4490,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无效的 PNG 附件。</translation>
     </message>
     <message>
-        <location filename="../../web_ui/Browser_Page.py" line="+88"/>
+        <location filename="../../../web_ui/Browser_Page.py" line="+88"/>
         <source>{page} is already open in your browser.</source>
         <translation type="unfinished">{page}已在浏览器中打开。</translation>
     </message>
@@ -4520,12 +4520,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已在 {url} 打开{page}</translation>
     </message>
     <message>
-        <location filename="../../web_ui/esmfold_backend.py" line="+85"/>
+        <location filename="../../../web_ui/esmfold_backend.py" line="+85"/>
         <source>ESMFold Mol* UI</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
     <message>
-        <location filename="../benchmark/Run_Benchmark.py" line="+111"/>
+        <location filename="../../benchmark/Run_Benchmark.py" line="+111"/>
         <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
         <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在有写入权限的 EMAP-SSN 副本中运行它。</translation>
     </message>
@@ -5466,7 +5466,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">阶段 {number}</translation>
     </message>
     <message>
-        <location filename="../../utilities/Network_Kernels.py" line="+807"/>
+        <location filename="../../../utilities/Network_Kernels.py" line="+807"/>
         <source>Leiden clustering failed: {error}</source>
         <translation type="unfinished">Leiden 聚类失败：{error}</translation>
     </message>
@@ -5481,7 +5481,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Leiden 的边权重必须是有限数。</translation>
     </message>
     <message>
-        <location filename="../../Alignment_Manager.py" line="+289"/>
+        <location filename="../../../Alignment_Manager.py" line="+289"/>
         <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
         <translation type="unfinished">稀疏 HDF5 缺少必需对象“{path}”。</translation>
     </message>
@@ -5617,14 +5617,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">将 FASTA 加载到内存时出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/redo.py" line="-31"/>
-        <location filename="../../commands/undo.py" line="-32"/>
+        <location filename="../../../commands/redo.py" line="-31"/>
+        <location filename="../../../commands/undo.py" line="-32"/>
         <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
         <translation type="unfinished">错误：{syntax} 需要一个正整数步数，而不是“{value}”。</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location filename="../../commands/undo.py" line="+5"/>
+        <location filename="../../../commands/undo.py" line="+5"/>
         <source>Error: {syntax} takes one number of steps; &apos;{argument}&apos; was not used.</source>
         <translation type="unfinished">错误：{syntax} 只接受一个步数；未使用“{argument}”。</translation>
     </message>
@@ -5636,7 +5636,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../commands/undo.py" line="+36"/>
+        <location filename="../../../commands/undo.py" line="+36"/>
         <source>Undid %n step(s).</source>
         <translation type="unfinished">
             <numerusform>已撤销 %n 步。</numerusform>
@@ -5646,7 +5646,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>MetadataPage</name>
     <message>
-        <location filename="../../web_ui/meta.html" line="+22"/>
+        <location filename="../../../web_ui/meta.html" line="+22"/>
         <source>EMAP-SSN Metadata</source>
         <translation type="unfinished">EMAP-SSN 元数据</translation>
     </message>
@@ -5892,7 +5892,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="-352"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-395"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>
@@ -5905,12 +5905,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1288"/>
+        <location line="-1269"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Tools.py" line="+120"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+120"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -7898,7 +7898,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>Viewer</name>
     <message>
-        <location filename="../../commands/alignment.py" line="-132"/>
+        <location filename="../../../commands/alignment.py" line="-132"/>
         <source>Select Alignment File</source>
         <translation type="unfinished">选择比对文件</translation>
     </message>
@@ -7919,12 +7919,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../commands/run.py" line="-66"/>
+        <location filename="../../../commands/run.py" line="-66"/>
         <source>All Files (*)</source>
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../commands/esmfold.py" line="-94"/>
+        <location filename="../../../commands/esmfold.py" line="-94"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>
@@ -7934,14 +7934,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">ESMFold 启动错误</translation>
     </message>
     <message>
-        <location filename="../../commands/meta.py" line="+28"/>
+        <location filename="../../../commands/meta.py" line="+28"/>
         <location line="+4"/>
         <location line="+12"/>
         <source>N/A</source>
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location filename="../../commands/run.py" line="-6"/>
+        <location filename="../../../commands/run.py" line="-6"/>
         <source>Select Command File</source>
         <translation type="unfinished">选择命令文件</translation>
     </message>
@@ -7961,12 +7961,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">Python 脚本 (*.py)</translation>
     </message>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="-1"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-1"/>
         <source>EMAP-SSN Viewer</source>
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="-2236"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2236"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -7990,7 +7990,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="obsolete">🤖 智能体</translation>
     </message>
     <message>
-        <location filename="../../web_ui/agent_backend.py" line="+86"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+86"/>
         <source>Agent</source>
         <translation type="unfinished">智能体</translation>
     </message>
@@ -8000,7 +8000,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">在浏览器中打开 AI 智能体对话控制台</translation>
     </message>
     <message>
-        <location filename="../../web_ui/Browser_Page.py" line="-77"/>
+        <location filename="../../../web_ui/Browser_Page.py" line="-77"/>
         <source>Browser Page Already Open</source>
         <translation type="unfinished">浏览器页面已打开</translation>
     </message>
@@ -8009,7 +8009,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="obsolete">🧬 结构视图</translation>
     </message>
     <message>
-        <location filename="../../web_ui/esmfold_backend.py" line="-18"/>
+        <location filename="../../../web_ui/esmfold_backend.py" line="-18"/>
         <source>Fold View</source>
         <translation type="unfinished">结构视图</translation>
     </message>
@@ -8019,7 +8019,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">打开 ESMFold 与 Mol* 结构查看器</translation>
     </message>
     <message>
-        <location filename="../../web_ui/meta_backend.py" line="+81"/>
+        <location filename="../../../web_ui/meta_backend.py" line="+81"/>
         <source>Import Metadata Spreadsheet</source>
         <translation type="unfinished">导入元数据电子表格</translation>
     </message>

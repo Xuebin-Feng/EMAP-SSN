@@ -153,6 +153,11 @@ class MessageTests(unittest.TestCase):
         }
         previous = Localization.set_translator(lambda template, n: chinese.get(template, template))
         self.addCleanup(Localization.set_translator, previous)
+        # Chinese's punctuation, as its language.json gives it and installing the language installs it.
+        from utilities.Language_Packs import read_pack
+
+        previous_punctuation = Localization.set_punctuation(read_pack("zh_CN").punctuation)
+        self.addCleanup(Localization.set_punctuation, previous_punctuation)
         sentences = JoinedMessage([Message("Load failed."), Message("MSA rejected: {error}", error="x")])
         self.assertEqual(sentences.display(), "加载失败。MSA 被拒绝：x")
         self.assertEqual(str(sentences), "Load failed. MSA rejected: x")
@@ -166,8 +171,10 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(JoinedMessage([Message("Done."), "1.csv"]).display(), "Done. 1.csv")
         self.assertEqual(JoinedMessage(["a", "b"], separator=", ").display(), "a, b")
         self.assertEqual(JoinedMessage([Message("Load failed."), "next"], separator="\n").display(), "加载失败。\nnext")
-        # In English, with no translator, nothing changes, even beside CJK text such as a file name.
+        # In English, with no translator or punctuation, nothing changes, even beside CJK
+        # text such as a file name.
         Localization.set_translator(None)
+        Localization.set_punctuation(None)
         self.assertEqual(JoinedMessage(["数据.csv", "x.csv"], separator="; ").display(), "数据.csv; x.csv")
         self.assertEqual(JoinedMessage(["完成。", "x"]).display(), "完成。 x")
 

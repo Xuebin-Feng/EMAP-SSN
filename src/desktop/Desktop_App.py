@@ -48,6 +48,14 @@ from desktop.Studio_Theme import (
 )
 from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
 
+from utilities.Language_Packs import (
+    LanguageFont,
+    ManifestError,
+    find_catalog,
+    language_codes,
+    read_pack,
+    read_packs,
+)
 from utilities.Localization import (
     CATALOG_NAME,
     LANGUAGES_DIR,
@@ -56,6 +64,7 @@ from utilities.Localization import (
     english_plural,
     pseudo_translate,
     read_catalog,
+    set_punctuation,
     set_translator,
 )
 
@@ -328,18 +337,28 @@ def open_in_file_manager(path):
 
 QT_UI_FAMILY = "Noto Sans"
 QT_MONOSPACE_FAMILY = "Noto Sans Mono"
-# Simplified Chinese, which the core faces lack. It is registered only while
-# that language shows (LANGUAGE_FONTS), and the stacks skip it otherwise.
-QT_SIMPLIFIED_CHINESE_FAMILY = "Noto Sans SC"
 VISPY_UI_FACE = "NotoSans"
 VISPY_MONOSPACE_FACE = "NotoSansMono"
-VISPY_SIMPLIFIED_CHINESE_FACE = "NotoSansSC"
 VISPY_FALLBACK_FACE = "OpenSans"
 VISPY_REFERENCE_DPI = 96.0
 
-QT_UI_FAMILIES = (
-    QT_UI_FAMILY,
-    QT_SIMPLIFIED_CHINESE_FAMILY,
+# The bundled font of each language whose script the core faces lack, from
+# its language.json (utilities/Language_Packs.py). Registered only while its
+# language shows, so other languages keep the system's fonts for the same
+# characters, as Japanese does for kanji. A language.json that can't be used
+# is left out, with a warning when the languages are listed (catalog_languages).
+_LANGUAGE_PACKS, _LANGUAGE_PACK_PROBLEMS = read_packs(LANGUAGES_DIR)
+LANGUAGE_FONTS = {code: pack.font for code, pack in _LANGUAGE_PACKS.items() if pack.font is not None}
+# Each stack names the language fonts after its core family, so a language
+# font draws only what the core lacks. A family that isn't registered (its
+# language isn't showing) is skipped.
+LANGUAGE_FONT_FAMILIES = tuple(dict.fromkeys(font.family for font in LANGUAGE_FONTS.values()))
+# The family the browser views draw a language's script in. language_web_font_css
+# declares the shown language's bundled font under it, so a page names one family
+# whatever its language; a family of its own never ties with 'Noto Sans'.
+WEB_LANGUAGE_FAMILY = "EMAP-SSN Language"
+
+_SYSTEM_UI_FAMILIES = (
     "Segoe UI",
     ".AppleSystemUIFont",
     "Helvetica Neue",
@@ -347,9 +366,7 @@ QT_UI_FAMILIES = (
     "DejaVu Sans",
     "sans-serif",
 )
-QT_MONOSPACE_FAMILIES = (
-    QT_MONOSPACE_FAMILY,
-    QT_SIMPLIFIED_CHINESE_FAMILY,
+_SYSTEM_MONOSPACE_FAMILIES = (
     "SFMono-Regular",
     "Menlo",
     "Monaco",
@@ -358,6 +375,8 @@ QT_MONOSPACE_FAMILIES = (
     "DejaVu Sans Mono",
     "monospace",
 )
+QT_UI_FAMILIES = (QT_UI_FAMILY, *LANGUAGE_FONT_FAMILIES, *_SYSTEM_UI_FAMILIES)
+QT_MONOSPACE_FAMILIES = (QT_MONOSPACE_FAMILY, *LANGUAGE_FONT_FAMILIES, *_SYSTEM_MONOSPACE_FAMILIES)
 
 
 def _qss_stack(families: tuple[str, ...]) -> str:
@@ -369,6 +388,9 @@ def _qss_stack(families: tuple[str, ...]) -> str:
 
 UI_QSS_FONT_STACK = _qss_stack(QT_UI_FAMILIES)
 MONOSPACE_QSS_FONT_STACK = _qss_stack(QT_MONOSPACE_FAMILIES)
+# The same stacks for a page in a browser view, which names WEB_LANGUAGE_FAMILY.
+WEB_UI_FONT_STACK = _qss_stack((QT_UI_FAMILY, WEB_LANGUAGE_FAMILY, *_SYSTEM_UI_FAMILIES))
+WEB_MONOSPACE_FONT_STACK = _qss_stack((QT_MONOSPACE_FAMILY, WEB_LANGUAGE_FAMILY, *_SYSTEM_MONOSPACE_FAMILIES))
 
 DESKTOP_FONT_DIR = (
     Path(__file__).resolve().parents[1] / "resources" / "fonts" / "desktop"
@@ -410,39 +432,6 @@ MONOSPACE_REGULAR_FILE = "noto/NotoSansMono/NotoSansMono-Regular.ttf"
 MONOSPACE_BOLD_FILE = "noto/NotoSansMono/NotoSansMono-Bold.ttf"
 
 
-@dataclass(frozen=True)
-class LanguageFont:
-    """A bundled font for a language whose script the core faces lack.
-
-    Qt finds the family after the core family in each stack, so it shows
-    only the characters the core lacks. VisPy draws a text in a single face,
-    so the Viewer draws all its text in vispy_face, which has Latin letters
-    too. files holds the regular and bold faces, as the manifest names them.
-    web_range is the CSS unicode-range of the script's characters, which
-    the browser views draw in it (language_web_font_css).
-    """
-
-    family: str
-    vispy_face: str
-    files: tuple[str, ...]
-    web_range: str = ""
-
-
-# Registered only while their language shows, so other languages keep the
-# system's fonts for the same characters, as Japanese does for kanji.
-LANGUAGE_FONTS = {
-    "zh_CN": LanguageFont(
-        QT_SIMPLIFIED_CHINESE_FAMILY,
-        VISPY_SIMPLIFIED_CHINESE_FACE,
-        (
-            "noto/NotoSansSC/NotoSansSC-Regular.ttf",
-            "noto/NotoSansSC/NotoSansSC-Bold.ttf",
-        ),
-        # CJK punctuation, kana, bopomofo, enclosed CJK, ideographs and
-        # full-width forms; Latin, Greek and Cyrillic keep the core faces.
-        "U+3000-303F, U+3040-30FF, U+3100-312F, U+3200-33FF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF",
-    ),
-}
 LANGUAGE_FONT_FILES = frozenset(
     relative_path for font in LANGUAGE_FONTS.values() for relative_path in font.files
 )
@@ -735,10 +724,11 @@ def matplotlib_language_families(
 def language_web_font_css(language: str | None, url_prefix: str) -> str:
     """@font-face rules that let a browser view draw language in its bundled font, or "".
 
-    They declare the language font's family, with its regular (400) and
-    bold (700) faces, for its script's characters (LanguageFont.web_range).
-    The browser views' font stacks name that family after the core one, as
-    the Qt stacks do, so it draws only what the core lacks. Added only for
+    They declare the language font, under WEB_LANGUAGE_FAMILY, with its
+    regular (400) and bold (700) faces, for its script's characters
+    (LanguageFont.web_range). The browser views' font stacks name that
+    family after the core one (WEB_UI_FONT_STACK), as the Qt stacks name the
+    language fonts, so it draws only what the core lacks. Added only for
     this language, the rules leave other languages with the system's fonts.
     url_prefix leads to the desktop font folder: "/fonts/desktop/" on the
     Viewer's web server, or a path relative to a page's base URL.
@@ -747,7 +737,7 @@ def language_web_font_css(language: str | None, url_prefix: str) -> str:
     if font is None or not font.web_range:
         return ""
     return "\n".join(
-        f"@font-face {{ font-family: '{font.family}'; font-style: normal; font-weight: {weight}; "
+        f"@font-face {{ font-family: '{WEB_LANGUAGE_FAMILY}'; font-style: normal; font-weight: {weight}; "
         f"font-display: swap; src: url('{url_prefix}{path}') format('truetype'); "
         f"unicode-range: {font.web_range}; }}"
         for weight, path in zip((400, 700), font.files)
@@ -1466,6 +1456,7 @@ class InstalledTranslations:
     catalog_dir: Path = LANGUAGES_DIR
     font_ids: tuple = ()
     extra_catalogs: tuple = ()
+    previous_punctuation: object = None
 
     def remove(self):
         global _installed_translations
@@ -1474,6 +1465,7 @@ class InstalledTranslations:
         for translator in self.translators:
             QtCore.QCoreApplication.removeTranslator(translator)
         set_translator(self.previous_message_translator)
+        set_punctuation(self.previous_punctuation)
         for font_id in self.font_ids:
             QFontDatabase.removeApplicationFont(font_id)
         if _installed_translations is self:
@@ -1489,11 +1481,33 @@ def _translate_message(template, n=-1):
 
 
 def _load_catalog(prefix, language, directory):
-    """A translator holding <directory>/<prefix>_<language>.qm, or None."""
+    """A translator holding Qt's own <directory>/<prefix>_<language>.qm, or None."""
     translator = QtCore.QTranslator()
     if translator.load(QtCore.QLocale(language), prefix, "_", str(directory)):
         return translator
     return None
+
+
+def _load_language_catalog(name, language, languages_dir):
+    """A translator holding <languages_dir>/<language>/<name>_<language>.qm, or None.
+
+    The folder and the file must be named exactly so, as on Linux, whatever
+    the system (Language_Packs.find_catalog).
+    """
+    path = find_catalog(language, name, ".qm", languages_dir)
+    translator = QtCore.QTranslator()
+    if path is not None and translator.load(str(path)):
+        return translator
+    return None
+
+
+def _language_punctuation(language, languages_dir):
+    """The Punctuation of language's language.json in languages_dir, or None."""
+    try:
+        return read_pack(language, languages_dir).punctuation
+    except ManifestError as error:
+        _warn_once(f"{error} Its messages join without its punctuation.")
+        return None
 
 
 def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalogs=()):
@@ -1502,17 +1516,19 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalog
     None or "en" keeps every text English as written and installs nothing.
     PSEUDO_LANGUAGE installs the test-only pseudo-language made from
     <catalog_dir>/emapssn.ts. Any other language loads Qt's own catalogs
-    for it, where Qt has them, then <catalog_dir>/emapssn_<language>.qm,
-    which wins where both translate a text. Without that catalog it raises
-    LookupError and installs nothing. Message texts (the Viewer's console
-    line) then come from the same catalogs. A language whose script the
-    core fonts lack also registers its bundled font (LANGUAGE_FONTS).
+    for it, where Qt has them, then its folder's catalog,
+    <catalog_dir>/<language>/emapssn_<language>.qm, which wins where both
+    translate a text. Without that catalog it raises LookupError and
+    installs nothing. Message texts (the Viewer's console line) then come
+    from the same catalogs, and messages put together from parts take the
+    punctuation its language.json gives. A language whose script the core
+    fonts lack also registers its bundled font (LANGUAGE_FONTS).
 
     extra_catalogs lists (directory, name) pairs of catalogs a window adds
     to the main one, as VR Config adds opt_vr's emapssn_vr: the
     pseudo-language is made from <directory>/<name>.ts too, and a language
-    loads <directory>/<name>_<language>.qm after the main catalog. One that
-    is missing leaves its own texts English.
+    loads <directory>/<language>/<name>_<language>.qm after the main
+    catalog. One that is missing leaves its own texts English.
 
     Windows set their text once, as they are built, so call this after the
     QApplication exists and before the first window. A second call replaces
@@ -1524,6 +1540,7 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalog
     if language in (None, "", "en"):
         return None
     extra_catalogs = tuple((Path(directory), name) for directory, name in extra_catalogs)
+    punctuation = None
     if language == PSEUDO_LANGUAGE:
         translators = [pseudo_translator(Path(catalog_dir) / f"{CATALOG_NAME}.ts")]
         translators += [
@@ -1532,9 +1549,13 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalog
             if (directory / f"{name}.ts").is_file()
         ]
     else:
-        ours = _load_catalog(CATALOG_NAME, language, catalog_dir)
+        ours = _load_language_catalog(CATALOG_NAME, language, catalog_dir)
         if ours is None:
-            raise LookupError(f"No {CATALOG_NAME} catalog for language {language!r} in {catalog_dir}.")
+            raise LookupError(
+                f"No {CATALOG_NAME} catalog for language {language!r} in {catalog_dir}: "
+                f"it would be {Path(catalog_dir) / str(language) / f'{CATALOG_NAME}_{language}.qm'}."
+            )
+        punctuation = _language_punctuation(language, catalog_dir)
         qt_directory = QtCore.QLibraryInfo.path(QtCore.QLibraryInfo.LibraryPath.TranslationsPath)
         translators = [
             translator
@@ -1545,7 +1566,7 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalog
         translators += [
             translator
             for directory, name in extra_catalogs
-            if (translator := _load_catalog(name, language, directory)) is not None
+            if (translator := _load_language_catalog(name, language, directory)) is not None
         ]
     for translator in translators:
         app.installTranslator(translator)
@@ -1556,6 +1577,7 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalog
         Path(catalog_dir),
         _add_language_font(language),
         extra_catalogs,
+        set_punctuation(punctuation),
     )
     return _installed_translations
 
@@ -1572,25 +1594,36 @@ def installed_language():
 LANGUAGE_SETTING = "LANGUAGE"
 SYSTEM_LANGUAGE = "system"
 ENGLISH = "en"
-# Chinese is written in two scripts, which QLocale tells apart only by country.
-_LANGUAGE_NAMES = {ENGLISH: "English", "zh_CN": "简体中文", "zh_TW": "繁體中文"}
-_COMPILED_CATALOG = re.compile(rf"^{CATALOG_NAME}_(\w+)\.qm$")
+ENGLISH_NAME = "English"
 
 
 def catalog_languages(catalog_dir=LANGUAGES_DIR):
-    """The languages that have a compiled catalog, by code, sorted."""
-    codes = []
-    for path in sorted(Path(catalog_dir).glob(f"{CATALOG_NAME}_*.qm")):
-        match = _COMPILED_CATALOG.match(path.name)
-        if match and match.group(1) != ENGLISH:
-            codes.append(match.group(1))
-    return codes
+    """The languages that have a compiled catalog in their folder, by code, sorted.
+
+    Each language's folder in catalog_dir is <code>/, holding
+    emapssn_<code>.qm (utilities/Language_Packs.py). A language.json in such
+    a folder that can't be used is warned about here, once.
+    """
+    for problem in read_packs(catalog_dir)[1]:
+        _warn_once(f"{problem} The language uses the program's defaults instead.")
+    return [code for code in language_codes(catalog_dir) if code != ENGLISH]
 
 
-def language_name(code):
-    """A language's name in that language, as the Language dropdown lists it."""
-    if code in _LANGUAGE_NAMES:
-        return _LANGUAGE_NAMES[code]
+def language_name(code, catalog_dir=LANGUAGES_DIR):
+    """A language's name in that language, as the Language dropdown lists it.
+
+    The "name" of its language.json, else Qt's name for the code. A name
+    a language.json gives tells apart what Qt names alike, such as
+    Simplified and Traditional Chinese.
+    """
+    if code == ENGLISH:
+        return ENGLISH_NAME
+    try:
+        name = read_pack(code, catalog_dir).name
+    except ManifestError:
+        name = None  # catalog_languages warns about it.
+    if name:
+        return name
     name = QtCore.QLocale(code).nativeLanguageName()
     return name[:1].upper() + name[1:] if name else code
 
@@ -1659,7 +1692,7 @@ class LanguageSelector(QComboBox):
         super().__init__(parent)
         self.setObjectName("languageSelector")
         available = catalog_languages(catalog_dir)
-        system = language_name(system_language(available, ui_languages))
+        system = language_name(system_language(available, ui_languages), catalog_dir)
         self.addItem(
             QtCore.QCoreApplication.translate("LanguageSelector", "System default ({language})")
             .format(language=system),
@@ -1667,7 +1700,7 @@ class LanguageSelector(QComboBox):
         )
         self.addItem(language_name(ENGLISH), ENGLISH)
         for code in available:
-            self.addItem(language_name(code), code)
+            self.addItem(language_name(code, catalog_dir), code)
         self.setToolTip(QtCore.QCoreApplication.translate(
             "LanguageSelector",
             "The language of the windows. Config and Tools switch at once; "
@@ -1843,16 +1876,16 @@ __all__ = [
     "open_in_file_manager",
     "QT_UI_FAMILY",
     "QT_MONOSPACE_FAMILY",
-    "QT_SIMPLIFIED_CHINESE_FAMILY",
     "VISPY_UI_FACE",
     "VISPY_MONOSPACE_FACE",
-    "VISPY_SIMPLIFIED_CHINESE_FACE",
     "VISPY_FALLBACK_FACE",
     "VISPY_REFERENCE_DPI",
     "QT_UI_FAMILIES",
     "QT_MONOSPACE_FAMILIES",
     "UI_QSS_FONT_STACK",
     "MONOSPACE_QSS_FONT_STACK",
+    "WEB_UI_FONT_STACK",
+    "WEB_MONOSPACE_FONT_STACK",
     "DESKTOP_FONT_DIR",
     "FONT_MANIFEST",
     "NOTO_FONT_DIR",
@@ -1864,7 +1897,9 @@ __all__ = [
     "MONOSPACE_BOLD_FILE",
     "LanguageFont",
     "LANGUAGE_FONTS",
+    "LANGUAGE_FONT_FAMILIES",
     "LANGUAGE_FONT_FILES",
+    "WEB_LANGUAGE_FAMILY",
     "vispy_points_for_logical_pixels",
     "vispy_points_at_reference_dpi",
     "QtFontLoadStatus",
@@ -1908,6 +1943,7 @@ __all__ = [
     "LANGUAGE_SETTING",
     "SYSTEM_LANGUAGE",
     "ENGLISH",
+    "ENGLISH_NAME",
     "catalog_languages",
     "language_name",
     "system_language",

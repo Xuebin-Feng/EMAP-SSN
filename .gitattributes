@@ -12,10 +12,11 @@
 # cmd.exe mis-parses multi-line batch files that use LF, so these stay CRLF.
 *.bat      text eol=crlf
 
-# Translation catalogs: lupdate writes .ts files with LF everywhere, and the
-# compiled .qm files the program loads are binary.
-src/resources/languages/*.ts  text eol=lf
-src/resources/languages/*.qm  binary
+# Translation catalogs, the template and each language folder's: lupdate
+# writes .ts files with LF everywhere, and the compiled .qm files the program
+# loads are binary.
+src/resources/languages/**/*.ts  text eol=lf
+src/resources/languages/**/*.qm  binary
 
 # Binary assets: never touch, never diff as text.
 *.woff2 binary

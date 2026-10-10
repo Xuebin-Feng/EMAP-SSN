@@ -262,8 +262,13 @@ console, terminal output and logs, MCP replies, settings files, the benchmark's
 Simplified Chinese brings a font of its own, Noto Sans SC cut down to the GB2312
 character set (4.37 MiB). The windows, the Viewer's canvas and the browser pages
 use it only while that language shows, so Chinese draws correctly on a system
-without a Chinese font. To review a translation, add a language or mark new text
-for translation, see the [translations guide](src/resources/languages/README.md).
+without a Chinese font.
+
+Each language is one folder in `src/resources/languages/`, named by its code
+(`zh_CN/`): its catalog, an optional `language.json` with its name, font and
+punctuation, and its translated help pages. Adding a language means adding its
+folder. To review a translation, add a language or mark new text for
+translation, see the [translations guide](src/resources/languages/README.md).
 
 ---
 ## 🧬 System Workflow

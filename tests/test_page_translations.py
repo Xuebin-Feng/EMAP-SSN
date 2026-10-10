@@ -613,7 +613,11 @@ class AgentPageTests(WebPageTestCase):
 
 
 class ChinesePageFontTests(WebPageTestCase):
-    """A page served in Simplified Chinese draws its Chinese in the bundled Noto Sans SC."""
+    """A page served in Simplified Chinese draws its Chinese in the bundled font (Noto Sans SC).
+
+    The page names it by Desktop_App.WEB_LANGUAGE_FAMILY, which the shown
+    language's @font-face rules declare.
+    """
 
     def setUp(self):
         super().setUp()
@@ -629,7 +633,9 @@ class ChinesePageFontTests(WebPageTestCase):
         chinese = "[...document.fonts].filter(face => face.unicodeRange.toUpperCase().includes('4E00-9FFF'))"
         self.wait_for(f"{chinese}.some(face => face.weight === '400' && face.status === 'loaded')")
         faces = json.loads(self.js(f"JSON.stringify({chinese}.map(face => [face.family, face.weight, face.status]))"))
-        self.assertIn(["Noto Sans SC", "400", "loaded"],
+        from desktop.Desktop_App import WEB_LANGUAGE_FAMILY
+
+        self.assertIn([WEB_LANGUAGE_FAMILY, "400", "loaded"],
                       [[family.strip('"'), weight, status] for family, weight, status in faces])
 
 

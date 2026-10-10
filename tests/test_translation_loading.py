@@ -21,12 +21,16 @@ translations before it builds anything that shows text.
 import ast
 import contextlib
 import io
+import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
+import warnings
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -45,6 +49,7 @@ from desktop.Desktop_App import (
     PSEUDO_TRANSLATION_VARIABLE,
     UI_BOLD_FILE,
     UI_REGULAR_FILE,
+    catalog_languages,
     install_translations,
     installed_language,
     redraw_in_language,
@@ -52,7 +57,7 @@ from desktop.Desktop_App import (
     translate,
 )
 from utilities import Localization
-from utilities.Localization import MESSAGE_CONTEXT, Message, pseudo_translate
+from utilities.Localization import MESSAGE_CONTEXT, JoinedMessage, Message, pseudo_translate
 import Update_Translations
 
 SAVED = "Saved {count} nodes to {name}."
@@ -274,7 +279,8 @@ class LanguageTests(TranslationTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        catalog = cls.folder / "emapssn_de.ts"
+        catalog = cls.folder / "de" / "emapssn_de.ts"  # A language's folder holds its catalog.
+        catalog.parent.mkdir()
         catalog.write_text(GERMAN, encoding="utf-8")
         Update_Translations.run_qt_tool("lrelease", [catalog, "-qm", catalog.with_suffix(".qm")])
         qt_folder = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath))
@@ -317,6 +323,63 @@ class LanguageTests(TranslationTestCase):
             install_translations(self.app, "fr", catalog_dir=self.folder)
         self.assert_english()
 
+    def test_a_language_folder_counts_only_when_named_exactly(self):
+        # pt_BR's folder written in another case: Windows and macOS would open
+        # it, Linux wouldn't, so no system may.
+        compiled = self.folder / "de" / "emapssn_de.qm"
+        folder = self.folder / "pt_br"
+        folder.mkdir()
+        self.addCleanup(shutil.rmtree, folder)
+        shutil.copyfile(compiled, folder / "emapssn_pt_BR.qm")
+        # And es's file written in another case, in a folder named right.
+        named = self.folder / "es"
+        named.mkdir()
+        self.addCleanup(shutil.rmtree, named)
+        shutil.copyfile(compiled, named / "Emapssn_es.qm")
+        for language in ("pt_BR", "es"):
+            with self.subTest(language=language):
+                self.assertNotIn(language, catalog_languages(self.folder))
+                with self.assertRaisesRegex(LookupError, f"'{language}'"):
+                    install_translations(self.app, language, catalog_dir=self.folder)
+        self.assertEqual(catalog_languages(self.folder), ["de"])
+        self.assert_english()
+
+    def test_a_language_takes_its_punctuation_from_its_language_json(self):
+        manifest = self.folder / "de" / "language.json"
+        manifest.write_text(json.dumps({"punctuation": {
+            "no_space_after": "。", "separators": {", ": "、"}, "separator_script": "U+3000-303F",
+        }}), encoding="utf-8")
+        self.addCleanup(manifest.unlink)
+        installed = install_translations(self.app, "de", catalog_dir=self.folder)
+        self.assertEqual(JoinedMessage(["一。", "二"]).display(), "一。二")
+        self.assertEqual(JoinedMessage(["「a」", "b"], separator=", ").display(), "「a」、b")
+        self.assertEqual(JoinedMessage(["a", "b"], separator=", ").display(), "a, b", "Latin items keep their comma")
+        installed.remove()
+        self.assertEqual(JoinedMessage(["一。", "二"]).display(), "一。 二", "English joins as given")
+        install_translations(self.app, "de", catalog_dir=self.folder).remove()
+        manifest.unlink()
+        manifest.write_text("{}", encoding="utf-8")
+        install_translations(self.app, "de", catalog_dir=self.folder)
+        self.assertEqual(JoinedMessage(["一。", "二"]).display(), "一。 二", "no punctuation: as given")
+
+    def test_a_broken_language_json_is_warned_about_and_leaves_the_language(self):
+        manifest = self.folder / "de" / "language.json"
+        manifest.write_text('{"punctuation": {"separators": {", ": "、"}}}', encoding="utf-8")
+        self.addCleanup(manifest.unlink)
+        # Listing the languages warns, as the dropdown does, and so does installing it.
+        for step in ("list", "install"):
+            with self.subTest(step=step), warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                with mock.patch("desktop.Desktop_App._warned_messages", set()):
+                    if step == "list":
+                        self.assertIn("de", catalog_languages(self.folder))
+                    else:
+                        installed = install_translations(self.app, "de", catalog_dir=self.folder)
+                self.assertTrue(any("separator_script" in str(w.message) and str(manifest) in str(w.message)
+                                    for w in caught), [str(w.message) for w in caught])
+        self.assertEqual(installed.language, "de")
+        self.assertEqual(JoinedMessage(["a。", "b"]).display(), "a。 b")
+
 
 VR_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
@@ -351,13 +414,15 @@ class ExtraCatalogTests(TranslationTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        german = cls.folder / "emapssn_de.ts"
+        german = cls.folder / "de" / "emapssn_de.ts"
+        german.parent.mkdir()
         german.write_text(GERMAN, encoding="utf-8")
         Update_Translations.run_qt_tool("lrelease", [german, "-qm", german.with_suffix(".qm")])
         cls.own = cls.folder / "own"
         cls.own.mkdir()
         (cls.own / "emapssn_vr.ts").write_text(VR_TEMPLATE, encoding="utf-8")
-        own_german = cls.own / "emapssn_vr_de.ts"
+        own_german = cls.own / "de" / "emapssn_vr_de.ts"  # Beside the template, in the language's folder.
+        own_german.parent.mkdir()
         own_german.write_text(VR_GERMAN, encoding="utf-8")
         Update_Translations.run_qt_tool("lrelease", [own_german, "-qm", own_german.with_suffix(".qm")])
         cls.extra = ((cls.own, "emapssn_vr"),)

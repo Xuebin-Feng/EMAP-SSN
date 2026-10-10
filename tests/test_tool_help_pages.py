@@ -4,12 +4,13 @@
 
 """The tool help pages and their translations (src/utilities/Help_Pages.py).
 
-A translation of src/tools/tool_descriptions/<name>.md is <name>.<language>.md
-beside it, and its first line names the English page's SHA-256. The Tools
-window shows a tab's help in the window's language while that line matches,
-and the English page otherwise; the update command lists the translations
-that fell behind. These tests use made-up pages in a temporary folder, and
-the Tools window on a copy of the real ones.
+A translation of src/tools/tool_descriptions/<name>.md is <language>/help/<name>.md
+in src/resources/languages, and its first line names the English page's
+SHA-256. The Tools window shows a tab's help in the window's language while
+that line matches, and the English page otherwise; the update command lists
+the translations that fell behind, and any left beside the English pages.
+These tests use made-up pages in temporary folders, and the Tools window on a
+copy of the real ones.
 """
 
 import os
@@ -45,29 +46,38 @@ class HelpPageTests(unittest.TestCase):
         self.folder = Path(folder.name)
         self.page = self.folder / "Demo.md"
         self.page.write_bytes(ENGLISH.encode("utf-8"))
+        self.languages = self.folder / "languages"
 
     def translate(self, marker=None, language="de", body=GERMAN):
-        path = Help_Pages.translation_path(self.page, language)
+        path = Help_Pages.translation_path(self.page, language, self.languages)
+        self.assertEqual(path, self.languages / language / "help" / "Demo.md")
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(((marker or Help_Pages.translation_marker(self.page)) + "\n" + body).encode("utf-8"))
         return path
 
+    def shown(self, language):
+        return Help_Pages.help_page_text(self.page, language, self.languages)
+
+    def stale(self):
+        return Help_Pages.stale_translations(self.languages, self.folder)
+
     def test_a_current_translation_shows_without_its_first_line(self):
         self.translate()
-        self.assertEqual(Help_Pages.help_page_text(self.page, "de"), GERMAN)
+        self.assertEqual(self.shown("de"), GERMAN)
         english = ENGLISH.replace("\r\n", "\n")
         for language in (None, "", "fr", "pseudo"):
             with self.subTest(language=language):
-                self.assertEqual(Help_Pages.help_page_text(self.page, language), english)
-        self.assertEqual(Help_Pages.stale_translations(self.folder), [])
+                self.assertEqual(self.shown(language), english)
+        self.assertEqual(self.stale(), [])
 
     def test_the_english_page_shows_once_it_changes(self):
         translation = self.translate()
         revised = ENGLISH.replace("help.", "help, revised.")
         self.page.write_bytes(revised.encode("utf-8"))
-        self.assertEqual(Help_Pages.help_page_text(self.page, "de"), revised.replace("\r\n", "\n"))
-        self.assertEqual(Help_Pages.stale_translations(self.folder), [(translation, self.page)])
+        self.assertEqual(self.shown("de"), revised.replace("\r\n", "\n"))
+        self.assertEqual(self.stale(), [(translation, self.page)])
         self.translate()
-        self.assertEqual(Help_Pages.help_page_text(self.page, "de"), GERMAN)
+        self.assertEqual(self.shown("de"), GERMAN)
 
     def test_a_translation_naming_another_page_or_none_is_not_shown(self):
         other = self.folder / "Other.md"
@@ -76,8 +86,8 @@ class HelpPageTests(unittest.TestCase):
         for marker in (Help_Pages.translation_marker(other), "<!-- A comment -->", "# No marker"):
             with self.subTest(marker=marker):
                 translation = self.translate(marker)
-                self.assertEqual(Help_Pages.help_page_text(self.page, "de"), english)
-                self.assertEqual(Help_Pages.stale_translations(self.folder), [(translation, self.page)])
+                self.assertEqual(self.shown("de"), english)
+                self.assertEqual(self.stale(), [(translation, self.page)])
 
     def test_line_endings_leave_the_marker_alone(self):
         marker = Help_Pages.translation_marker(self.page)
@@ -86,12 +96,21 @@ class HelpPageTests(unittest.TestCase):
         self.assertEqual(Help_Pages.translation_marker(self.page), marker)
         translation = self.translate()
         translation.write_bytes(translation.read_bytes().replace(b"\n", b"\r\n"))
-        self.assertEqual(Help_Pages.help_page_text(self.page, "de"), GERMAN)
+        self.assertEqual(self.shown("de"), GERMAN)
 
     def test_a_translation_whose_page_is_gone_is_listed(self):
         translation = self.translate()
         self.page.unlink()
-        self.assertEqual(Help_Pages.stale_translations(self.folder), [(translation, self.page)])
+        self.assertEqual(self.stale(), [(translation, self.page)])
+
+    def test_a_translation_counts_only_under_its_exact_names(self):
+        # Windows and macOS would open demo.md for Demo.md, and de for DE; Linux wouldn't.
+        right = self.translate()
+        right.rename(right.with_name("demo.md"))
+        self.assertEqual(self.shown("de"), ENGLISH.replace("\r\n", "\n"))
+        right.with_name("demo.md").rename(right)
+        self.assertEqual(self.shown("de"), GERMAN)
+        self.assertEqual(self.shown("DE"), ENGLISH.replace("\r\n", "\n"))
 
     def test_translations_are_told_apart_by_name(self):
         names = {
@@ -105,17 +124,22 @@ class HelpPageTests(unittest.TestCase):
     def test_the_update_lists_the_pages_tools_shows_in_english(self):
         pages = self.folder / "src" / "tools" / "tool_descriptions"
         pages.mkdir(parents=True)
+        help_dir = self.folder / "src" / "resources" / "languages" / "zh_CN" / "help"
+        help_dir.mkdir(parents=True)
         for name in ("Current", "Behind"):
             (pages / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
             marker = Help_Pages.translation_marker(pages / f"{name}.md")
-            (pages / f"{name}.zh_CN.md").write_text(marker + "\n# 译文\n", encoding="utf-8")
+            (help_dir / f"{name}.md").write_text(marker + "\n# 译文\n", encoding="utf-8")
         (pages / "Behind.md").write_text("# Behind, revised\n", encoding="utf-8")
-        (pages / "Gone.zh_CN.md").write_text("# 译文\n", encoding="utf-8")
+        (help_dir / "Gone.md").write_text("# 译文\n", encoding="utf-8")
+        (pages / "Old.zh_CN.md").write_text("# 译文\n", encoding="utf-8")  # Where translations used to be.
         lines = Update_Translations.help_page_reports(self.folder / "src")
-        self.assertEqual(len(lines), 2, lines)
-        self.assertTrue(lines[0].startswith("Behind.zh_CN.md was translated from another version of Behind.md"))
+        self.assertEqual(len(lines), 3, lines)
+        self.assertTrue(lines[0].startswith("zh_CN/help/Behind.md was translated from another version of Behind.md"))
         self.assertTrue(lines[0].endswith("\n  " + Help_Pages.translation_marker(pages / "Behind.md")))
-        self.assertEqual(lines[1], "Gone.zh_CN.md translates Gone.md, which no longer exists, so Tools never shows it.")
+        self.assertEqual(lines[1], "zh_CN/help/Gone.md translates Gone.md, which no longer exists, so Tools never shows it.")
+        self.assertEqual(lines[2], "Old.zh_CN.md is beside the English pages, where Tools no longer looks for "
+                                   "translations. Move it to zh_CN/help/Old.md in src/resources/languages.")
         self.assertEqual(Update_Translations.help_page_reports(self.folder), [])
 
 
@@ -135,8 +159,11 @@ class ToolsHelpPageTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, folder, True)
         self.pages = folder / "pages"
         shutil.copytree(Help_Pages.HELP_PAGES_DIR, self.pages)
+        self.languages = folder / "languages"
+        shutil.copytree(Help_Pages.TRANSLATIONS_DIR / "zh_CN" / "help", self.languages / "zh_CN" / "help")
         for patcher in (mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser),
-                        mock.patch.object(Help_Pages, "HELP_PAGES_DIR", self.pages)):
+                        mock.patch.object(Help_Pages, "HELP_PAGES_DIR", self.pages),
+                        mock.patch.object(Help_Pages, "TRANSLATIONS_DIR", self.languages)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.tools = EMAPSSN_Tools
@@ -151,7 +178,10 @@ class ToolsHelpPageTests(unittest.TestCase):
 
     def test_a_tab_shows_its_help_in_the_windows_language(self):
         english = self.pages / "Embedding_MSA.md"
-        Help_Pages.translation_path(english, "de").write_text(
+        german = Help_Pages.translation_path(english, "de")
+        self.assertEqual(german, self.languages / "de" / "help" / "Embedding_MSA.md")
+        german.parent.mkdir(parents=True)
+        german.write_text(
             Help_Pages.translation_marker(english) + "\n# Einbettungs-MSA (`Embedding_MSA.py`)\n\nDeutsche Hilfe.\n",
             encoding="utf-8",
         )
@@ -175,8 +205,9 @@ class ToolsHelpPageTests(unittest.TestCase):
         titles = self.tools.get_tool_titles()
         self.assertEqual(titles["Embedding_MSA.py"], "Embedding Multiple Sequence Alignment")
         english = self.pages / "Embedding_MSA.md"
-        # Listed after the English page, so its heading would win if it counted.
-        Help_Pages.translation_path(english, "zh_CN").write_text(
+        # A translation left beside the English pages, where translations used
+        # to be: listed after the English page, so its heading would win if it counted.
+        (self.pages / "Embedding_MSA.zh_CN.md").write_text(
             Help_Pages.translation_marker(english) + "\n# 嵌入多序列比对 (`Embedding_MSA.py`)\n", encoding="utf-8"
         )
         self.assertEqual(self.tools.get_tool_titles(), titles)
@@ -254,9 +285,11 @@ class HelpHeadingIconTests(unittest.TestCase):
         for name in names:
             with self.subTest(icon=name):
                 self.assertTrue((LUCIDE_DIR / f"{name}.svg").is_file())
-        for page in sorted(Help_Pages.HELP_PAGES_DIR.glob("*.md")):
+        translated = sorted(Help_Pages.TRANSLATIONS_DIR.glob("*/help/*.md"))
+        self.assertTrue(translated)
+        for page in sorted(Help_Pages.HELP_PAGES_DIR.glob("*.md")) + translated:
             text = page.read_text(encoding="utf-8")
-            with self.subTest(page=page.name):
+            with self.subTest(page=page.relative_to(page.parents[2]).as_posix()):
                 # Plain Markdown, as the MCP agents read it: no emoji and no icon markup.
                 headings = re.findall(r"^(#{1,6}) (.+)$", text, re.M)
                 for _, heading in headings:
@@ -305,14 +338,21 @@ def page_structure(text):
 class TranslatedHelpPageTests(unittest.TestCase):
     """The translated help pages that ship: current, and their English pages' structure."""
 
+    def translations(self):
+        """(language, translated page) for every help page a language folder ships."""
+        from utilities.Language_Packs import language_folders
+
+        found = [(language, page) for language in language_folders(Help_Pages.TRANSLATIONS_DIR)
+                 for page in sorted((Help_Pages.TRANSLATIONS_DIR / language / "help").glob("*.md"))]
+        self.assertTrue(found)
+        return found
+
     def test_each_translation_keeps_its_pages_structure(self):
-        translations = sorted(page for page in Help_Pages.HELP_PAGES_DIR.glob("*.md") if Help_Pages.is_translation(page))
-        self.assertTrue(translations)
         self.assertEqual(Help_Pages.stale_translations(), [])
-        for translation in translations:
-            name, language = translation.name.split(".")[:2]
-            english = translation.with_name(f"{name}.md")
-            with self.subTest(page=translation.name):
+        self.assertEqual(Help_Pages.misplaced_translations(), [])
+        for language, translation in self.translations():
+            english = Help_Pages.HELP_PAGES_DIR / translation.name
+            with self.subTest(page=f"{language}/{translation.name}"):
                 shown = Help_Pages.help_page_text(english, language)
                 self.assertNotEqual(shown, english.read_text(encoding="utf-8"), "Tools shows the translation")
                 expected, found = page_structure(english.read_text(encoding="utf-8")), page_structure(shown)
@@ -323,14 +363,11 @@ class TranslatedHelpPageTests(unittest.TestCase):
         from utilities.Localization import LANGUAGES_DIR, read_catalog
 
         heading = re.compile(r"^# (.+) \(`([\w.]+\.py)`\)$", re.M)
-        for translation in sorted(Help_Pages.HELP_PAGES_DIR.glob("*.md")):
-            if not Help_Pages.is_translation(translation):
-                continue
-            name, language = translation.name.split(".")[:2]
+        for language, translation in self.translations():
             titles = {message.source: message.translations[0] for message in read_catalog(
-                LANGUAGES_DIR / f"emapssn_{language}.ts") if message.context == "Tools" and message.translations}
-            english = (Help_Pages.HELP_PAGES_DIR / f"{name}.md").read_text(encoding="utf-8")
-            with self.subTest(page=translation.name):
+                LANGUAGES_DIR / language / f"emapssn_{language}.ts") if message.context == "Tools" and message.translations}
+            english = (Help_Pages.HELP_PAGES_DIR / translation.name).read_text(encoding="utf-8")
+            with self.subTest(page=f"{language}/{translation.name}"):
                 expected = [(titles[title], script) for title, script in heading.findall(english)]
                 self.assertEqual(heading.findall(translation.read_text(encoding="utf-8")), expected)
 
@@ -340,7 +377,9 @@ class HelpPanelPageTests(unittest.TestCase):
 
     def test_the_page_names_its_language_and_brings_its_font(self):
         import EMAPSSN_Tools
-        from desktop.Desktop_App import LANGUAGE_FONTS, language_web_font_css
+        from desktop.Desktop_App import (
+            LANGUAGE_FONTS, WEB_MONOSPACE_FONT_STACK, WEB_UI_FONT_STACK, language_web_font_css,
+        )
 
         page = EMAPSSN_Tools.ResponsiveTextBrowser.page_html
         chinese = page("<p>帮助</p>", "zh_CN")
@@ -348,6 +387,9 @@ class HelpPanelPageTests(unittest.TestCase):
         self.assertIn("<p>帮助</p>", chinese)
         fonts = language_web_font_css("zh_CN", "fonts/desktop/")
         self.assertIn(fonts, chinese)
+        # Its stacks name the family those rules declare, as the Viewer's pages do.
+        self.assertIn(f"font-family: {WEB_UI_FONT_STACK};", chinese)
+        self.assertIn(f"font-family: {WEB_MONOSPACE_FONT_STACK};", chinese)
         # Relative to the panel's baseUrl, src/resources/.
         for path in LANGUAGE_FONTS["zh_CN"].files:
             self.assertIn(f"url('fonts/desktop/{path}')", fonts)

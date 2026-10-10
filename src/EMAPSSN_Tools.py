@@ -511,8 +511,8 @@ except ImportError as exc:
 
 from PySide6.QtGui import QColor, QIcon
 from desktop.Desktop_App import (
-    MONOSPACE_QSS_FONT_STACK,
-    UI_QSS_FONT_STACK,
+    WEB_MONOSPACE_FONT_STACK,
+    WEB_UI_FONT_STACK,
     add_combo_options,
     apply_studio_theme,
     combo_value,
@@ -908,8 +908,8 @@ class ResponsiveTextBrowser(QWebEngineView):
         }
         """
         for name, value in (
-            ("UI_FONT_STACK", UI_QSS_FONT_STACK),
-            ("MONOSPACE_FONT_STACK", MONOSPACE_QSS_FONT_STACK),
+            ("UI_FONT_STACK", WEB_UI_FONT_STACK),
+            ("MONOSPACE_FONT_STACK", WEB_MONOSPACE_FONT_STACK),
             *((token.upper(), value) for token, value in TOKENS.items()),
         ):
             page_style = page_style.replace(f"__{name}__", str(value))

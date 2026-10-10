@@ -29,21 +29,25 @@ new line where a backslash ends a line inside a text, and a counted tr()
 would show English as "1 file(s)", so the update refuses those.
 
 It rewrites emapssn.ts, the list of every text, and merges the texts into
-each language's catalog, emapssn_<language>.ts, keeping its translations. A
-text that left the code stays there, marked obsolete, in case it comes back.
-Then it compiles each language's catalog into emapssn_<language>.qm, the
-file the program loads, and checks that every translation keeps its
-text's placeholders, such as {count}.
+each language's catalog, <language>/emapssn_<language>.ts in the language's
+own folder (utilities/Language_Packs.py), keeping its translations. A text
+that left the code stays there, marked obsolete, in case it comes back. Then
+it compiles each language's catalog into emapssn_<language>.qm beside it,
+the file the program loads, and checks that every translation keeps its
+text's placeholders, such as {count}, and that each language.json can be
+used. --add de makes the folder de/ with its catalog.
 
-It also lists the translated tool help pages, <name>.<language>.md beside
+It also lists the translated tool help pages, <language>/help/<name>.md for
 src/tools/tool_descriptions/<name>.md, whose English page changed since:
 Tools shows those in English until they are brought up to date
-(utilities/Help_Pages.py). That is a note, not a failure.
+(utilities/Help_Pages.py). That is a note, not a failure, and so is a
+translation still beside the English pages, where translations used to live.
 
 --check changes nothing. It exits with 1 if emapssn.ts no longer lists the
-code's texts, if a compiled catalog no longer matches its .ts file, or if a
-translation lost a placeholder. The test suite runs it, so a text marked
-without running the update fails the tests.
+code's texts, if a compiled catalog no longer matches its .ts file, if a
+translation lost a placeholder, or if a language.json can't be used. The
+test suite runs it, so a text marked without running the update fails the
+tests.
 
 update_catalogs also keeps a window's own catalog beside the main one:
 opt_vr's Update_Translations_VR.py keeps VR Config's emapssn_vr.ts from
@@ -67,6 +71,7 @@ SRC_DIR = LANGUAGES_DIR.parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from utilities.Language_Packs import LANGUAGE_CODE, catalog_path, language_codes, read_packs  # noqa: E402
 from utilities.Localization import (  # noqa: E402
     CATALOG_NAME,
     MESSAGE_CONTEXT,
@@ -75,7 +80,6 @@ from utilities.Localization import (  # noqa: E402
     read_catalog,
 )
 
-LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(?:_[A-Z][a-z]{3})?(?:_[A-Z]{2})?$")
 _MARKER_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
 # lupdate reads .py files as Python, .js as JavaScript and any other, such
 # as a staged page's .html, as C++; each reads a QT_TRANSLATE_NOOP.
@@ -361,24 +365,33 @@ def stage_pages(source_dir, stage_dir):
     return problems
 
 
-def help_page_reports(source_dir):
+def help_page_reports(source_dir, languages_dir=None):
     """A line for each translated tool help page under source_dir that Tools shows in English.
 
     Help_Pages.help_page_text shows a translation only while its first line
     matches its English page, so these need bringing up to date. They are
-    reported, not refused: the window shows the English page meanwhile.
+    reported, not refused: the window shows the English page meanwhile. So
+    is a translation left beside the English pages, where none is shown.
     """
     from utilities import Help_Pages
 
+    pages_dir = Path(source_dir) / "tools" / "tool_descriptions"
+    languages_dir = Path(languages_dir) if languages_dir else Path(source_dir) / "resources" / "languages"
     lines = []
-    for translation, page in Help_Pages.stale_translations(Path(source_dir) / "tools" / "tool_descriptions"):
+    for translation, page in Help_Pages.stale_translations(languages_dir, pages_dir):
+        shown = translation.relative_to(languages_dir).as_posix()
         if not page.is_file():
-            lines.append(f"{translation.name} translates {page.name}, which no longer exists, so Tools never shows it.")
+            lines.append(f"{shown} translates {page.name}, which no longer exists, so Tools never shows it.")
         else:
             lines.append(
-                f"{translation.name} was translated from another version of {page.name}, so Tools shows the "
+                f"{shown} was translated from another version of {page.name}, so Tools shows the "
                 f"English page. Bring it up to date, then make its first line:\n  {Help_Pages.translation_marker(page)}"
             )
+    for translation, destination in Help_Pages.misplaced_translations(pages_dir, languages_dir):
+        lines.append(
+            f"{translation.name} is beside the English pages, where Tools no longer looks for translations. "
+            f"Move it to {destination.relative_to(languages_dir).as_posix()} in src/resources/languages."
+        )
     return lines
 
 
@@ -398,14 +411,15 @@ def run_qt_tool(name, arguments):
 
 
 def language_catalogs(languages_dir, catalog_name=CATALOG_NAME):
-    """{language: path} of every <catalog_name>_<language>.ts in languages_dir."""
-    pattern = re.compile(rf"^{re.escape(catalog_name)}_(?P<language>\w+)\.ts$")
-    catalogs = {}
-    for path in sorted(Path(languages_dir).glob(f"{catalog_name}_*.ts")):
-        match = pattern.match(path.name)
-        if match and LANGUAGE_CODE.match(match.group("language")):
-            catalogs[match.group("language")] = path
-    return catalogs
+    """{language: path} of every <language>/<catalog_name>_<language>.ts in languages_dir.
+
+    A language's folder and catalog count only when named exactly so
+    (utilities/Language_Packs.py), as on Linux, whatever the system.
+    """
+    return {
+        language: catalog_path(language, catalog_name, ".ts", languages_dir)
+        for language in language_codes(languages_dir, catalog_name, ".ts")
+    }
 
 
 def placeholder_problems(catalog):
@@ -451,20 +465,21 @@ def update_catalogs(
 ):
     """Bring the catalogs in languages_dir up to date with the code in source_dir.
 
-    add starts catalogs for new languages. With check, nothing changes.
-    catalog_name names the template, <catalog_name>.ts, and the languages'
-    catalogs; shared_template is another template whose texts are left out.
-    Returns 0, or 1 when something needs fixing; report gets every line to show.
+    add starts catalogs for new languages, each in a folder of its own. With
+    check, nothing changes. catalog_name names the template, <catalog_name>.ts,
+    and the languages' catalogs, <language>/<catalog_name>_<language>.ts;
+    shared_template is another template whose texts are left out. Returns 0,
+    or 1 when something needs fixing; report gets every line to show.
     """
     source_dir, languages_dir = Path(source_dir).resolve(), Path(languages_dir).resolve()
     template = languages_dir / f"{catalog_name}.ts"
     languages = language_catalogs(languages_dir, catalog_name)
     shared = frozenset(message.key for message in read_catalog(shared_template)) if shared_template else frozenset()
-    problems = []
+    problems = list(read_packs(languages_dir)[1])
     for language in add:
         if not LANGUAGE_CODE.match(language):
             raise ValueError(f"{language!r} is not a language code such as de, pt_BR or zh_CN.")
-        languages.setdefault(language, languages_dir / f"{catalog_name}_{language}.ts")
+        languages.setdefault(language, catalog_path(language, catalog_name, ".ts", languages_dir))
 
     with tempfile.TemporaryDirectory(prefix="emapssn-catalogs-") as temporary:
         # lupdate records each text's file relative to its catalog, so the
@@ -504,7 +519,10 @@ def update_catalogs(
         if languages and not check:
             staged = {}
             for language, catalog in languages.items():
-                staged[language] = stage_languages / catalog.name
+                # Staged in the language's folder, so lupdate records each text's
+                # file relative to where the catalog really is.
+                staged[language] = stage_languages / language / catalog.name
+                staged[language].parent.mkdir(parents=True, exist_ok=True)
                 if catalog.is_file():
                     shutil.copyfile(catalog, staged[language])
                 else:
@@ -522,22 +540,24 @@ def update_catalogs(
                 report(f"lupdate: {line}")
             for language, catalog in languages.items():
                 if not _same_file(staged[language], catalog):
+                    catalog.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(staged[language], catalog)
-                    report(f"Updated {catalog.name}.")
+                    report(f"Updated {language}/{catalog.name}.")
 
         for language, catalog in languages.items():
             if not catalog.is_file():
                 continue
             problems += placeholder_problems(catalog)
             compiled = catalog.with_suffix(".qm")
-            fresh = stage_languages / compiled.name
+            fresh = stage_languages / language / compiled.name
+            fresh.parent.mkdir(parents=True, exist_ok=True)
             run_qt_tool("lrelease", [catalog, "-qm", fresh])
             if not _same_file(fresh, compiled):
                 if check:
-                    problems.append(f"{compiled.name} does not match {catalog.name}: run the update.")
+                    problems.append(f"{language}/{compiled.name} does not match {catalog.name}: run the update.")
                 else:
                     shutil.copyfile(fresh, compiled)
-                    report(f"Compiled {compiled.name}.")
+                    report(f"Compiled {language}/{compiled.name}.")
             live = list(filter(_is_live, read_catalog(catalog)))
             done = sum(1 for message in live if message.status == "" and any(message.translations))
             # Drafts are compiled and shown too, until a reviewer marks them finished.
@@ -545,7 +565,7 @@ def update_catalogs(
             report(f"{catalog.name}: {done} of {len(live)} texts translated"
                    + (f"; {drafted} more drafted, awaiting review." if drafted else "."))
 
-    for line in help_page_reports(source_dir):
+    for line in help_page_reports(source_dir, languages_dir):
         report(line)
     for problem in problems:
         report(problem)
@@ -561,7 +581,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--add", metavar="LANGUAGE", action="append", default=[],
-        help="start a catalog for LANGUAGE, such as de, pt_BR or zh_CN",
+        help="start a catalog for LANGUAGE, such as de, pt_BR or zh_CN, in a folder of its own",
     )
     arguments = parser.parse_args(argv)
     if arguments.check and arguments.add:

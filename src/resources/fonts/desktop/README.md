@@ -28,14 +28,19 @@ unchanged.
 ## Simplified Chinese
 
 The windows shown in Simplified Chinese use Noto Sans SC from
-`noto/NotoSansSC/`. It is registered only while that language shows, so other
-languages keep the system's fonts for the same characters, as Japanese does
-for kanji. Qt uses it for the characters the core fonts lack. VisPy draws each
-text in a single face, so the Viewer draws all its text in it. The browser
+`noto/NotoSansSC/`, which the language's
+`src/resources/languages/zh_CN/language.json` names (its "font" key: the family,
+the VisPy face name, the two files and the browser views' unicode-range). A
+language whose script the core fonts lack brings its font the same way: the
+files go here, listed in `SHA256SUMS` and `../LICENSE.fonts`, and its
+`language.json` names them. It is registered only while that language shows, so
+other languages keep the system's fonts for the same characters, as Japanese
+does for kanji. Qt uses it for the characters the core fonts lack. VisPy draws
+each text in a single face, so the Viewer draws all its text in it. The browser
 views use it too: a page served in Simplified Chinese, and the Tools help
-panel, carry @font-face rules for the family
-(`Desktop_App.language_web_font_css`), which their font stacks name right
-after the core family, as the Qt stacks do.
+panel, carry @font-face rules declaring it under the page family 'EMAP-SSN
+Language' (`Desktop_App.language_web_font_css`), which their font stacks name
+right after the core family, as the Qt stacks name the language's font.
 
 The two files total 4,583,760 bytes (4.37 MiB). They come from Google Fonts'
 variable font `ofl/notosanssc/NotoSansSC[wght].ttf`: version 2.004-H2,

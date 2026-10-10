@@ -96,6 +96,18 @@ still change before version 1.0.0.
   Chinese brings a font of its own, Noto Sans SC cut down to GB2312's 7,445 characters
   plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
   that language shows.
+- **A language is one folder.** Each language lives in `src/resources/languages/<code>/`
+  (`zh_CN/`): its catalog `emapssn_<code>.ts` with the compiled `.qm`, an optional
+  `language.json` and its translated tool help pages in `help/`. `language.json` gives
+  the language's name where Qt's is ambiguous, its bundled font (for a script the core
+  Noto faces lack) and how messages put together from sentences are punctuated, so no
+  language is written into the code, and a language is added by adding its folder
+  (`Update_Translations.py --add <code>` starts one). The font files stay in
+  `src/resources/fonts/` with their licence and checksums. VR Config keeps its own
+  texts' catalogs in opt_vr, in folders of the same names. Folder and file names count
+  only as written, `zh_CN` and not `zh_cn`, on Windows and macOS as on Linux. The update
+  command checks every `language.json` and reports a translated help page left beside
+  the English pages.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts
@@ -180,8 +192,9 @@ still change before version 1.0.0.
   catalogs under `MetadataPage`, and a refused column deletion reaches it in the
   Viewer's language.
 - **The tool help pages can be translated.** A translation of
-  `src/tools/tool_descriptions/<name>.md` is a whole page beside it,
-  `<name>.<language>.md`, whose first line names the English page by its SHA-256. The
+  `src/tools/tool_descriptions/<name>.md` is a whole page in its language's folder,
+  `src/resources/languages/<code>/help/<name>.md`, whose first line names the English
+  page by its SHA-256. The
   Tools window shows it in its language while that line matches, and the English page
   once the English changes, until the translation is brought up to date; the catalog
   update lists those. Card titles still come from the English pages.
@@ -192,8 +205,9 @@ still change before version 1.0.0.
   until a native speaker reviews them in Qt Linguist, and the catalog update counts them
   apart ("0 of 1124 texts translated; 1124 more drafted, awaiting review."). The
   browser views draw Chinese in the bundled Noto Sans SC too: a page served in Chinese,
-  and the Tools help panel, carry its @font-face rules, and their font stacks name it
-  after Noto Sans, as the windows' stacks do.
+  and the Tools help panel, carry its @font-face rules under one page family, 'EMAP-SSN
+  Language', which their font stacks name after Noto Sans, as the windows' stacks name
+  the language's font.
 - **Benchmark.** `src/resources/benchmark/Run_Benchmark.py` times the program's heavy
   calculations on a bundled set of public sequences, so computers and versions can be
   compared. It runs ten stages, each in a process of its own with every device setting
