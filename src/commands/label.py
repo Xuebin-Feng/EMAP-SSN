@@ -15,6 +15,7 @@
 
 import Command_Engine
 import os
+import re
 import math
 import datetime
 import tempfile
@@ -48,6 +49,15 @@ CLUSTER_LABEL_DIRECTORY = os.path.join("$analysis_result$", "Cluster_Label")
 
 
 GLOBAL_CONSERVATION_THRESHOLD = 0.97
+
+# Frequencies are sums and quotients of floats, so a residue that sits exactly
+# on a threshold can come out a few ulps either side of it. The cmin and gmax
+# comparisons allow for that much noise.
+THRESHOLD_TOLERANCE = 1e-9
+
+# A threshold is written in plain digits: float() alone would also take
+# underscores ("2026_01_01") and words ("nan").
+_PLAIN_NUMBER = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 
 class _FrozenSparseAlignment:
@@ -367,8 +377,11 @@ def print_help():
       gmax (Outside Max)  : Default 40%. Max frequency a conserved residue can
                             have outside the union of all analyzed subsets where
                             that same residue meets cmin at the same position.
+                            The limit is exclusive: a residue is rejected when
+                            its outside frequency is >= gmax.
       cmin (Cluster Min)  : Default 98%. Min frequency a residue must have WITHIN 
                             a subset to be reported as conserved.
+      Both must lie between 0 and 100%; anything outside is rejected.
       id (Identity)       : Optional sequence-redundancy threshold. Equivalent
                             forms: 0.9, 90, or 90%. Reweighting is OFF unless
                             supplied. Without the 'id' keyword, identity must be
@@ -401,9 +414,11 @@ def print_help():
       label groups cmin 90%       (Keyword: Analyzes groups, sets cmin to 90%)
       label groups report         (Writes report.xlsx)
       label 0.4 0.9 report        (Sets thresholds and writes report.xlsx)
+      label reset                 (Clears the topology clusters, like 'reset clusters')
       
     Note: Do not mix positional numbers after using keywords. The first two
           positional numbers remain gmax and cmin. A custom filename must be final.
+          A filename cannot start with '-' or contain '='.
     """)
 
 def parse_percentage(val_str):
@@ -411,18 +426,23 @@ def parse_percentage(val_str):
 
     A trailing % always means percent, so "0.5%" is 0.005 and "1%" is 0.01;
     without one, values above 1 are percentages, as in `logo` and `query`.
-    Returns None for anything that is not a finite number.
+    Returns None for anything that is not a finite number written in plain
+    digits (so "2026_01_01" is a name, not a threshold). A percentage is
+    rounded to 12 places so that "99.9%" is exactly 0.999.
     """
     text = str(val_str).strip()
     is_percent = text.endswith('%')
+    number = text[:-1].strip() if is_percent else text
+    if not _PLAIN_NUMBER.fullmatch(number):
+        return None
     try:
-        value = float(text[:-1].strip() if is_percent else text)
+        value = float(number)
     except ValueError:
         return None
     if not math.isfinite(value):
         return None
     if is_percent or value > 1.0:
-        value /= 100.0
+        value = round(value / 100.0, 12)
     return value
 
 
@@ -442,11 +462,25 @@ def _is_non_finite_number(val_str):
 
 
 def _normalize_output_filename(filename):
-    """Return a safe XLSX basename for the configured label output directory."""
+    """Return a safe XLSX basename for the configured label output directory.
+
+    Trailing dots are dropped, as Windows drops them from a file name:
+    "report.xlsx." is report.xlsx, not "report.xlsx..xlsx".
+    """
     filename = validate_output_basename(filename)
+    filename = validate_output_basename(filename.rstrip("."))
     if not filename.lower().endswith(".xlsx"):
         filename += ".xlsx"
     return filename
+
+
+def _check_threshold_range(key_name, value_text, value):
+    """Raise ValueError unless a parsed gmax or cmin lies between 0 and 100%."""
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(Message(
+            "The {argument} threshold '{value}' is outside the supported range of 0 to 100%.",
+            argument=key_name, value=value_text,
+        ))
 
 
 def _parse_label_arguments(args):
@@ -497,6 +531,7 @@ def _parse_label_arguments(args):
                     raise ValueError(Message(
                         "Invalid percentage '{value}' for '{argument}'.", value=value_text, argument=argument
                     ))
+                _check_threshold_range(key_name, value_text, value)
             if key_name in keyword_args:
                 raise ValueError(Message("Duplicate assignment for '{key}'.", key=key_name))
             keyword_args[key_name] = value
@@ -520,6 +555,13 @@ def _parse_label_arguments(args):
                 "Add .xlsx to use it as the report filename.",
                 value=raw_argument,
             ))
+        if raw_argument.startswith("-") or "=" in raw_argument:
+            raise ValueError(Message(
+                "Unrecognized argument '{argument}'. A filename cannot start with '-' "
+                "or contain '='; write a threshold as a keyword and a value, "
+                "such as 'cmin 90%'.",
+                argument=raw_argument,
+            ))
 
         if requested_filename is not None:
             raise ValueError(Message("Provide only one custom output filename."))
@@ -541,6 +583,8 @@ def _parse_label_arguments(args):
             ))
         if key_name == "id":
             parsed_value = logo_cmd.parse_identity_threshold(raw_value)
+        else:
+            _check_threshold_range(key_name, raw_value, parsed_value)
         keyword_args[key_name] = parsed_value
 
     return {
@@ -550,6 +594,38 @@ def _parse_label_arguments(args):
         "forced_target": forced_target,
         "requested_filename": requested_filename,
     }
+
+
+def _has_clusters(cluster_labels):
+    """Whether any node belongs to a cluster (the viewer marks noise as -1)."""
+    return cluster_labels is not None and bool(
+        np.any(np.asarray(cluster_labels) != -1)
+    )
+
+
+def _has_groups(group_labels):
+    """Whether any node belongs to a group. Each entry is that node's set of groups."""
+    return group_labels is not None and any(groups for groups in group_labels)
+
+
+def _subsets_without_aligned_members(viewer, target_mode, tasks):
+    """Names of the requested clusters and groups that no task covers.
+
+    A subset none of whose nodes is in the alignment has no row in the report.
+    """
+    covered = {(kind, entity_id) for kind, entity_id, *_ in tasks}
+    missing = []
+    if target_mode in {"all", "clusters"} and viewer.cluster_labels is not None:
+        for cluster_id in np.unique(np.asarray(viewer.cluster_labels)):
+            if cluster_id != -1 and ("cluster", cluster_id) not in covered:
+                missing.append(f"Cluster {cluster_id}")
+    group_labels = getattr(viewer, "group_labels", None)
+    if target_mode in {"all", "groups"} and group_labels:
+        group_names = {name for groups in group_labels if groups for name in groups}
+        for group_name in sorted(group_names, key=str):
+            if ("group", group_name) not in covered:
+                missing.append(f"Group {group_name}")
+    return missing
 
 
 def _build_label_tasks(viewer, target_mode, viewer_to_aln):
@@ -873,10 +949,7 @@ def _label_failed(viewer, message):
 
 
 def _run_label_artifact(viewer, args):
-    if args and args[0].lower() == 'reset':
-        msg = Command_Engine.execute_reset(viewer, ["clusters"])
-        return
-
+    # run() has already handled reset and help and checked the target.
     try:
         alignment = getattr(viewer, 'alignment', None)
         if alignment is None or alignment.aln is None:
@@ -902,37 +975,11 @@ def _run_label_artifact(viewer, args):
             print(msg)
             return
 
-        if args and args[0].lower() in ['help', '-h', '-?']:
-            print_help()
-            if hasattr(viewer, 'console_text'):
-                Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
-            return
-
         parameters = _parse_label_arguments(args)
         global_max = parameters["global_max"]
         cluster_min = parameters["cluster_min"]
         identity_threshold = parameters["identity_threshold"]
         forced_target = parameters["forced_target"]
-
-        # --- Validations ---
-        if forced_target == "clusters" and viewer.cluster_labels is None:
-            _label_failed(viewer, Message("Error: Run 'cluster' first."))
-            print("Error: Run 'cluster' first to use cluster mode.")
-            return
-            
-        if forced_target == "groups" and getattr(viewer, 'group_labels', None) is None:
-            _label_failed(viewer, Message("Error: No groups defined."))
-            print("Error: No groups defined. Use the 'group' command first.")
-            return
-
-        if (
-            forced_target == "all"
-            and viewer.cluster_labels is None
-            and getattr(viewer, 'group_labels', None) is None
-        ):
-            _label_failed(viewer, Message("Error: No clusters or groups defined."))
-            print("Error: No clusters or groups defined. Use 'cluster' or 'group' first.")
-            return
 
         # --- 1. Global Statistics ---
         print("Calculating Global Stats...")
@@ -1020,6 +1067,13 @@ def _run_label_artifact(viewer, args):
         print(f"Splitting Global Alignment for {forced_target.upper()}...")
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         tasks = _build_label_tasks(viewer, forced_target, viewer_to_aln)
+        unaligned_subsets = _subsets_without_aligned_members(viewer, forced_target, tasks)
+        if unaligned_subsets:
+            print(
+                "Warning: no aligned sequence for "
+                + ", ".join(unaligned_subsets)
+                + "; not included in the report."
+            )
 
         # --- 3. Process Tasks ---
         master_labels = set()
@@ -1027,13 +1081,13 @@ def _run_label_artifact(viewer, args):
         candidate_pools = {}
         candidate_amino_acids = {}
         
-        # Build color map for topology clusters using cluster_cmd
-        cluster_ids = [
-            entity_id
-            for entity_type, entity_id, _, _, _ in tasks
-            if entity_type == 'cluster'
-        ]
-        cluster_color_map = cluster_cmd.get_cluster_color_map(cluster_ids)
+        # Build the color map as cluster.run does, from every cluster id, so a
+        # cluster without an aligned node does not shift the others' colors.
+        all_cluster_ids = (
+            [] if viewer.cluster_labels is None
+            else np.unique(np.asarray(viewer.cluster_labels)).tolist()
+        )
+        cluster_color_map = cluster_cmd.get_cluster_color_map(all_cluster_ids)
 
         for entity_type, entity_id, c_aln, c_map, aln_indices in tasks:
             try:
@@ -1104,7 +1158,7 @@ def _run_label_artifact(viewer, args):
                             c_counts_by_label[lbl].items()
                         ):
                             frequency = float(count) / c_effective_n
-                            if frequency < cluster_min:
+                            if frequency < cluster_min - THRESHOLD_TOLERANCE:
                                 continue
                             amino_acid = str(amino_acid).upper()
                             candidate_pools.setdefault(
@@ -1153,7 +1207,11 @@ def _run_label_artifact(viewer, args):
                     excluded_count,
                     excluded_size,
                 )
-                if outside_frequency is None or outside_frequency >= global_max:
+                # gmax is exclusive, so a frequency equal to it up to float noise fails.
+                if (
+                    outside_frequency is None
+                    or outside_frequency >= global_max - THRESHOLD_TOLERANCE
+                ):
                     continue
 
                 master_labels.add(lbl)
@@ -1230,7 +1288,7 @@ def _run_label_artifact(viewer, args):
             cluster_params = "N/A"
 
         label_params = (
-            f"gmax_outside={int(global_max*100)}%, cmin={int(cluster_min*100)}%, "
+            f"gmax_outside={global_max * 100:g}%, cmin={cluster_min * 100:g}%, "
             f"target={forced_target}"
         )
         if identity_threshold is not None:
@@ -1691,6 +1749,12 @@ def run(viewer, args):
         msg = Command_Engine.execute_reset(viewer, ["clusters"])
         Command_Engine.command_succeeded(viewer, msg)
         return
+    if args and args[0].lower() in {"help", "-h", "-?", "--help"}:
+        print_help()
+        if hasattr(viewer, "console_text"):
+            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        return
 
     alignment = getattr(viewer, "alignment", None)
     if alignment is None or alignment.aln is None:
@@ -1714,12 +1778,6 @@ def run(viewer, args):
             ),
         )
         return
-    if args and args[0].lower() in {"help", "-h", "-?"}:
-        print_help()
-        if hasattr(viewer, "console_text"):
-            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
-        return
 
     try:
         parameters = _parse_label_arguments(args)
@@ -1727,18 +1785,18 @@ def run(viewer, args):
         _report_label_error(viewer, error)
         return
 
+    # The viewer keeps a list of (empty) group sets and an all -1 cluster
+    # array when nothing is defined, so "defined" means having a member.
     forced_target = parameters["forced_target"]
-    if forced_target == "clusters" and getattr(viewer, "cluster_labels", None) is None:
+    has_clusters = _has_clusters(getattr(viewer, "cluster_labels", None))
+    has_groups = _has_groups(getattr(viewer, "group_labels", None))
+    if forced_target == "clusters" and not has_clusters:
         _report_label_error(viewer, Message("Run 'cluster' first."))
         return
-    if forced_target == "groups" and getattr(viewer, "group_labels", None) is None:
+    if forced_target == "groups" and not has_groups:
         _report_label_error(viewer, Message("No groups defined."))
         return
-    if (
-        forced_target == "all"
-        and getattr(viewer, "cluster_labels", None) is None
-        and getattr(viewer, "group_labels", None) is None
-    ):
+    if forced_target == "all" and not has_clusters and not has_groups:
         _report_label_error(viewer, Message("No clusters or groups defined."))
         return
 
@@ -1774,6 +1832,23 @@ def run(viewer, args):
                 Message("Output file is already reserved by a background job: {path}", path=output_path),
             )
             return
+        if os.name == "nt" and os.path.exists(output_path):
+            # A report open in Excel cannot be replaced on Windows; learn that
+            # now rather than after the whole analysis. Appending nothing
+            # leaves the file as it is.
+            try:
+                with open(output_path, "ab"):
+                    pass
+            except OSError:
+                _report_label_error(
+                    viewer,
+                    Message(
+                        "Output file cannot be replaced (it may be open in another "
+                        "program or read-only): {path}",
+                        path=output_path,
+                    ),
+                )
+                return
 
     try:
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)

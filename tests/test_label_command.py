@@ -100,7 +100,9 @@ class LabelWorkbookPercentTests(unittest.TestCase):
             last_cluster_params=None,
         )
 
-    def run_label(self, directory, args, viewer=None, identity_weights=None):
+    def run_label(
+        self, directory, args, viewer=None, identity_weights=None, real_colors=False
+    ):
         if viewer is None:
             viewer = SimpleNamespace(
                 alignment=AlignmentStub(),
@@ -123,6 +125,18 @@ class LabelWorkbookPercentTests(unittest.TestCase):
         viewer_to_aln = np.asarray(viewer_to_aln, dtype=int)
         if identity_weights is None:
             identity_weights = np.array([0.5, 0.5, 1.0])
+        if real_colors:
+            color_map_patch = mock.patch.object(
+                label.cluster_cmd,
+                "get_cluster_color_map",
+                wraps=label.cluster_cmd.get_cluster_color_map,
+            )
+        else:
+            color_map_patch = mock.patch.object(
+                label.cluster_cmd,
+                "get_cluster_color_map",
+                return_value={0: (1.0, 0.0, 0.0), 1: (0.0, 1.0, 0.0)},
+            )
 
         with mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
                 mock.patch.object(label.cfg, "NODE_FASTA_FILE", "nodes.fasta"), \
@@ -136,7 +150,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                         np.flatnonzero(viewer_to_aln >= 0),
                     ),
                 ), \
-                mock.patch.object(label.cluster_cmd, "get_cluster_color_map", return_value={0: (1.0, 0.0, 0.0), 1: (0.0, 1.0, 0.0)}), \
+                color_map_patch, \
                 mock.patch.object(
                     label.logo_cmd,
                     "calculate_identity_weights",
@@ -786,6 +800,316 @@ class LabelWorkbookPercentTests(unittest.TestCase):
             self.assertFalse(
                 automatic_job["payload"].viewer_snapshot._label_allow_overwrite
             )
+
+    def reported_cell(self, directory, filename, subset, column=10):
+        worksheet = openpyxl.load_workbook(
+            Path(directory, filename)
+        )["Subset Stats"]
+        return worksheet.cell(find_row(worksheet, subset), column).value
+
+    def test_cmin_allows_for_float_noise_in_weighted_frequencies(self):
+        # Eight weights of 0.1 add up to 0.7999999999999999 one at a time but
+        # to 0.8 pairwise, so a residue in every row scored just under 100%.
+        viewer = self.make_viewer(
+            ["Y"] * 8 + ["A"] * 2, None, [{"G"}] * 8 + [set()] * 2
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(
+                directory,
+                ["groups", "gmax", "50%", "cmin", "100%", "id", "100%", "noisy"],
+                viewer=viewer,
+                identity_weights=[0.1] * 8 + [1.0, 1.0],
+            )
+            self.assertEqual(self.reported_cell(directory, "noisy.xlsx", "Group G", 12), "Y1")
+
+    def test_cmin_99_9_percent_accepts_a_residue_in_999_of_1000_rows(self):
+        viewer = self.make_viewer(
+            ["Y"] * 999 + ["A"] * 11, None, [{"G"}] * 1000 + [set()] * 10
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(
+                directory,
+                ["groups", "gmax", "50%", "cmin", "99.9%", "thousand"],
+                viewer=viewer,
+            )
+            self.assertEqual(self.reported_cell(directory, "thousand.xlsx", "Group G"), "Y1")
+
+    def test_gmax_rejects_a_value_equal_to_it_despite_float_noise(self):
+        # Outside G the weighted Y frequency is 0.1 / 0.2 = 50%, which the
+        # sums give as 0.4999999999999999.
+        for gmax, expected in (("50%", None), ("51%", "Y1")):
+            viewer = self.make_viewer(["Y", "Y", "A"], None, [{"G"}, set(), set()])
+            with self.subTest(gmax=gmax), tempfile.TemporaryDirectory() as directory:
+                self.run_label(
+                    directory,
+                    ["groups", "gmax", gmax, "cmin", "99%", "id", "100%", "noisy"],
+                    viewer=viewer,
+                    identity_weights=[0.1, 0.1, 0.1],
+                )
+                self.assertEqual(
+                    self.reported_cell(directory, "noisy.xlsx", "Group G", 12), expected
+                )
+
+    def test_label_without_a_defined_cluster_or_group_fails_before_queueing(self):
+        # The viewer holds an all -1 cluster array and a list of empty group
+        # sets, not None, when nothing is defined.
+        cases = (
+            ([], [-1, -1, -1], "No clusters or groups defined."),
+            (["clusters"], [-1, -1, -1], "Run 'cluster' first."),
+            (["groups"], [-1, -1, -1], "No groups defined."),
+            (["groups"], [0, 0, 1], "No groups defined."),
+        )
+        for args, cluster_labels, expected in cases:
+            viewer = self.make_viewer(
+                ["A", "A", "C"], cluster_labels, [set(), set(), set()]
+            )
+            viewer.background_job_scheduler = CapturingScheduler()
+            with self.subTest(args=args, cluster_labels=cluster_labels), \
+                    mock.patch.object(label.Command_Engine, "command_failed") as failed, \
+                    redirect_stdout(io.StringIO()):
+                label.run(viewer, args)
+
+            failed.assert_called_once()
+            self.assertEqual(str(failed.call_args.args[1]), "Error: " + expected)
+            self.assertEqual(viewer.console_text.text, "Error: " + expected)
+            self.assertIsNone(viewer.background_job_scheduler.job)
+
+    def test_label_queues_when_only_one_kind_of_subset_is_defined(self):
+        for args, cluster_labels, group_labels in (
+            ([], [-1, -1, -1], [{"G"}, set(), set()]),
+            ([], [0, 0, -1], [set(), set(), set()]),
+            (["groups"], [-1, -1, -1], [{"G"}, set(), set()]),
+            (["clusters"], [0, 0, -1], [set(), set(), set()]),
+        ):
+            viewer = self.make_viewer(["A", "A", "C"], cluster_labels, group_labels)
+            viewer.background_job_scheduler = CapturingScheduler()
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory, \
+                    mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
+                    mock.patch.object(
+                        label.Command_Engine,
+                        "get_alignment_mapping",
+                        return_value=(np.arange(3), np.arange(3)),
+                    ), redirect_stdout(io.StringIO()):
+                label.run(viewer, args)
+
+            self.assertIsNotNone(viewer.background_job_scheduler.job)
+
+    def test_double_dash_help_is_help_and_writes_no_workbook(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with redirect_stdout(io.StringIO()) as output:
+                self.run_label(directory, ["--help"])
+
+            self.assertIn("Differential Labeling", output.getvalue())
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_help_needs_no_alignment_or_reference(self):
+        no_reference = AlignmentStub()
+        no_reference.has_reference = False
+        for alignment in (None, no_reference):
+            for token in ("help", "-h", "-?", "--help"):
+                viewer = SimpleNamespace(
+                    alignment=alignment, console_text=SimpleNamespace(text="")
+                )
+                with self.subTest(alignment=alignment, token=token), \
+                        mock.patch.object(label.Command_Engine, "command_failed") as failed, \
+                        redirect_stdout(io.StringIO()) as output:
+                    label.run(viewer, [token])
+
+                failed.assert_not_called()
+                self.assertIn("Differential Labeling", output.getvalue())
+                self.assertEqual(
+                    viewer.console_text.text, "Help information printed to the terminal"
+                )
+
+    def test_help_describes_reset_and_the_exclusive_gmax(self):
+        with redirect_stdout(io.StringIO()) as output:
+            label.print_help()
+
+        self.assertIn("label reset", output.getvalue())
+        self.assertIn("is rejected when its outside frequency is >= gmax", " ".join(
+            output.getvalue().split()
+        ))
+
+    def test_mistyped_assignments_are_rejected_not_taken_as_filenames(self):
+        for args in (
+            ["gmax=0.4"], ["cmin=90%"], ["id=90"], ["-x"], ["0.4", "--cmin"],
+            ["cmin", "90%", "-h"],
+        ):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                viewer = self.run_label(directory, args)
+
+                self.assertIn("Unrecognized argument", viewer.console_text.text)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+                viewer.identity_weight_mock.assert_not_called()
+
+    def test_thresholds_outside_zero_to_one_hundred_percent_are_rejected(self):
+        for args in (
+            ["cmin", "-1"], ["gmax", "-5"], ["cmin", "150%"], ["gmax", "101"],
+            ["cmin", "-1%"], ["-5"], ["0.4", "150%"],
+        ):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                viewer = self.run_label(directory, args)
+
+                self.assertIn("outside the supported range", viewer.console_text.text)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_thresholds_of_zero_and_one_hundred_percent_are_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(directory, ["gmax", "0", "cmin", "100%", "bounds"])
+
+            self.assertTrue(Path(directory, "bounds.xlsx").is_file())
+
+    def test_label_parameters_show_percentages_without_truncation(self):
+        # int(0.29 * 100) is 28 and int(0.57 * 100) is 56.
+        for gmax, cmin, expected in (
+            ("57%", "29%", "gmax_outside=57%, cmin=29%, target=all"),
+            ("58%", "0.5%", "gmax_outside=58%, cmin=0.5%, target=all"),
+        ):
+            with self.subTest(gmax=gmax, cmin=cmin), \
+                    tempfile.TemporaryDirectory() as directory:
+                self.run_label(directory, ["gmax", gmax, "cmin", cmin, "params"])
+
+                metadata = openpyxl.load_workbook(
+                    Path(directory, "params.xlsx")
+                )["Meta Data"]
+                self.assertEqual(
+                    metadata.cell(find_row(metadata, "Label Parameters"), 2).value,
+                    expected,
+                )
+
+    def test_hex_colors_follow_the_viewer_when_a_cluster_has_no_aligned_node(self):
+        # Cluster 1's nodes are not in the alignment, but cluster.run colours
+        # the viewer from every cluster id, so the report must as well.
+        def viewer_with_clusters():
+            return SimpleNamespace(
+                alignment=AlignmentStub(),
+                active_reference="node0",
+                full_headers=["node0", "node1", "node2", "other0", "other1"],
+                n_nodes=5,
+                cluster_labels=np.array([0, 0, 2, 1, 1]),
+                group_labels=[set() for _ in range(5)],
+                console_text=SimpleNamespace(text=""),
+                last_cluster_params=None,
+            )
+
+        viewer_colors = label.cluster_cmd.get_cluster_color_map([0, 1, 2])
+        self.assertNotEqual(
+            viewer_colors[2], label.cluster_cmd.get_cluster_color_map([0, 2])[2]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(
+                directory, ["clusters", "colors"], viewer=viewer_with_clusters(),
+                real_colors=True,
+            )
+
+            for cluster_id in (0, 2):
+                self.assertEqual(
+                    self.reported_cell(
+                        directory, "colors.xlsx", f"Cluster {cluster_id}", 4
+                    ),
+                    label.mcolors.to_hex(viewer_colors[cluster_id]),
+                )
+
+    def test_subsets_without_an_aligned_node_are_named_in_a_terminal_warning(self):
+        viewer = SimpleNamespace(
+            alignment=AlignmentStub(),
+            active_reference="node0",
+            full_headers=["node0", "node1", "node2", "other0", "other1"],
+            n_nodes=5,
+            cluster_labels=np.array([0, 0, 2, 1, 1]),
+            group_labels=[{"Seen"}, set(), set(), {"Only"}, set()],
+            console_text=SimpleNamespace(text=""),
+            last_cluster_params=None,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with redirect_stdout(io.StringIO()) as output:
+                self.run_label(directory, ["warned"], viewer=viewer)
+
+            self.assertIn(
+                "Warning: no aligned sequence for Cluster 1, Group Only; "
+                "not included in the report.",
+                output.getvalue(),
+            )
+            worksheet = openpyxl.load_workbook(
+                Path(directory, "warned.xlsx")
+            )["Subset Stats"]
+            names = {
+                worksheet.cell(row, 1).value for row in range(1, worksheet.max_row + 1)
+            }
+            self.assertLessEqual({"Cluster 0", "Cluster 2", "Group Seen"}, names)
+            self.assertNotIn("Cluster 1", names)
+            self.assertNotIn("Group Only", names)
+
+    def test_no_warning_when_every_subset_has_an_aligned_node(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with redirect_stdout(io.StringIO()) as output:
+                self.run_label(directory, [])
+
+            self.assertNotIn("Warning", output.getvalue())
+
+    @unittest.skipUnless(os.name == "nt", "Only Windows refuses to replace an open file.")
+    def test_report_held_open_elsewhere_fails_before_the_analysis(self):
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        ]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory, "open_report.xlsx")
+            output_path.write_bytes(b"open in Excel")
+            # Excel reads a workbook with other readers allowed but no writer.
+            handle = kernel32.CreateFileW(
+                str(output_path), 0x80000000, 0x1, None, 3, 0x80, None
+            )
+            self.assertNotEqual(handle, wintypes.HANDLE(-1).value)
+            try:
+                viewer = self.make_viewer(["A", "A", "C"], [0, 0, 1], [set()] * 3)
+                viewer.background_job_scheduler = CapturingScheduler()
+                with mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
+                        redirect_stdout(io.StringIO()):
+                    label.run(viewer, ["open_report"])
+            finally:
+                kernel32.CloseHandle(handle)
+
+            self.assertIsNone(viewer.background_job_scheduler.job)
+            self.assertIn("cannot be replaced", viewer.console_text.text)
+            self.assertIn(str(output_path), viewer.console_text.text)
+            self.assertEqual(output_path.read_bytes(), b"open in Excel")
+
+    def test_replaceable_existing_report_is_still_queued(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory, "again.xlsx")
+            output_path.write_bytes(b"previous")
+            viewer = self.make_viewer(["A", "A", "C"], [0, 0, 1], [set()] * 3)
+            viewer.background_job_scheduler = CapturingScheduler()
+            with mock.patch.object(label, "CLUSTER_LABEL_DIRECTORY", directory), \
+                    mock.patch.object(
+                        label.Command_Engine,
+                        "get_alignment_mapping",
+                        return_value=(np.arange(3), np.arange(3)),
+                    ), redirect_stdout(io.StringIO()):
+                label.run(viewer, ["again"])
+
+            self.assertIsNotNone(viewer.background_job_scheduler.job)
+            self.assertEqual(output_path.read_bytes(), b"previous")
+
+    def test_underscored_numbers_and_trailing_dots_in_filenames(self):
+        for name, expected in (
+            ("2026_01_01", "2026_01_01.xlsx"),
+            ("report.xlsx.", "report.xlsx"),
+            ("report.", "report.xlsx"),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                self.run_label(directory, [name])
+
+                self.assertEqual(
+                    [path.name for path in Path(directory).iterdir()], [expected]
+                )
 
 
 if __name__ == "__main__":

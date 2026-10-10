@@ -286,6 +286,91 @@ class LabelThresholdParsingTests(unittest.TestCase):
         self.assertAlmostEqual(parsed["global_max"], 0.4)
         self.assertEqual(parsed["requested_filename"], "nan.xlsx")
 
+    def test_a_percentage_is_exactly_its_decimal_fraction(self):
+        # 99.9 / 100 is 0.9990000000000001, which 999 of 1000 rows fall short of.
+        for text, expected in (("99.9%", 0.999), ("29%", 0.29), ("57", 0.57), ("0.5%", 0.005)):
+            with self.subTest(text=text):
+                self.assertEqual(label.parse_percentage(text), expected)
+
+    def test_only_plain_numbers_are_thresholds(self):
+        for text in ("2026_01_01", "1_0", "1_000%", "0x10", "1e", "4 0", "٤٠"):
+            with self.subTest(text=text):
+                self.assertIsNone(label.parse_percentage(text))
+        for text, expected in (("+40", 0.4), ("-5%", -0.05), ("-5", -5.0), (".5", 0.5), ("5.", 0.05),
+                               ("1e-1", 0.1), (" 40 % ", 0.4)):
+            with self.subTest(text=text):
+                self.assertAlmostEqual(label.parse_percentage(text), expected)
+
+    def test_an_underscored_number_or_trailing_dot_is_a_filename(self):
+        for args, expected in (
+            (["2026_01_01"], "2026_01_01.xlsx"),
+            (["0.4", "1_000"], "1_000.xlsx"),
+            (["report.xlsx."], "report.xlsx"),
+            (["report."], "report.xlsx"),
+            (["report.xlsx"], "report.xlsx"),
+        ):
+            with self.subTest(args=args):
+                parsed = label._parse_label_arguments(args)
+                self.assertEqual(parsed["requested_filename"], expected)
+        with self.assertRaisesRegex(ValueError, "cannot be empty"):
+            label._parse_label_arguments(["..."])
+
+    def test_assignments_and_flags_are_not_filenames(self):
+        for args in (["gmax=0.4"], ["cmin=90%"], ["id=90"], ["-x"], ["--help"],
+                     ["0.4", "-report"], ["report=1.xlsx"]):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "Unrecognized argument"):
+                    label._parse_label_arguments(args)
+
+    def test_gmax_and_cmin_must_lie_between_zero_and_one_hundred_percent(self):
+        for args in (["cmin", "-1"], ["gmax", "-5"], ["cmin", "150%"], ["gmax", "101"],
+                     ["-5"], ["0.4", "-1%"], ["0.4", "100.1"]):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, "outside the supported range"):
+                    label._parse_label_arguments(args)
+        parsed = label._parse_label_arguments(["gmax", "0", "cmin", "100%"])
+        self.assertEqual((parsed["global_max"], parsed["cluster_min"]), (0.0, 1.0))
+        parsed = label._parse_label_arguments(["0%", "1"])
+        self.assertEqual((parsed["global_max"], parsed["cluster_min"]), (0.0, 1.0))
+
+
+class LabelSubsetDefinitionTests(unittest.TestCase):
+    def test_clusters_are_defined_only_by_a_label_other_than_noise(self):
+        self.assertFalse(label._has_clusters(None))
+        self.assertFalse(label._has_clusters([]))
+        self.assertFalse(label._has_clusters(np.array([-1, -1])))
+        self.assertTrue(label._has_clusters((-1, 0)))
+        self.assertTrue(label._has_clusters(np.array([-1, 3])))
+
+    def test_groups_are_defined_only_by_a_non_empty_set(self):
+        self.assertFalse(label._has_groups(None))
+        self.assertFalse(label._has_groups([]))
+        self.assertFalse(label._has_groups([set(), None, frozenset()]))
+        self.assertTrue(label._has_groups([set(), {"a"}]))
+
+    def test_subsets_without_an_aligned_row_are_listed(self):
+        viewer = SimpleNamespace(
+            cluster_labels=np.array([0, 1, 2, -1]),
+            group_labels=[{"a"}, {"b"}, set(), {"a", "c"}],
+        )
+        tasks = [("cluster", 0, None, None, None), ("group", "a", None, None, None)]
+
+        self.assertEqual(
+            label._subsets_without_aligned_members(viewer, "all", tasks),
+            ["Cluster 1", "Cluster 2", "Group b", "Group c"],
+        )
+        self.assertEqual(
+            label._subsets_without_aligned_members(viewer, "clusters", tasks),
+            ["Cluster 1", "Cluster 2"],
+        )
+        self.assertEqual(
+            label._subsets_without_aligned_members(viewer, "groups", tasks),
+            ["Group b", "Group c"],
+        )
+        viewer.cluster_labels = None
+        viewer.group_labels = None
+        self.assertEqual(label._subsets_without_aligned_members(viewer, "all", []), [])
+
 
 if __name__ == "__main__":
     unittest.main()
