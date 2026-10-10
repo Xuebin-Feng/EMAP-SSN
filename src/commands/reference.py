@@ -67,6 +67,16 @@ def run(viewer, args):
     resolved_header = _resolve_reference_header(viewer, target)
 
     if resolved_header:
+        # A failed reload restores the alignment and reference that were in effect.
+        backup_alignment = viewer.alignment
+        backup_active_ref = viewer.active_reference
+        backup_resolved_ref = getattr(viewer, 'resolved_ref_full', None)
+
+        def restore_previous_state():
+            viewer.alignment = backup_alignment
+            viewer.active_reference = backup_active_ref
+            viewer.resolved_ref_full = backup_resolved_ref
+
         viewer.active_reference = resolved_header
 
         print(f"\nReloading alignment...")
@@ -74,7 +84,11 @@ def run(viewer, args):
             viewer, Message("Reloading alignment with new reference: {reference}...", reference=resolved_header)
         )
 
-        viewer.load_global_alignment()
+        try:
+            viewer.load_global_alignment()
+        except Exception:
+            restore_previous_state()
+            raise
 
         if (
             viewer.alignment
@@ -94,6 +108,7 @@ def run(viewer, args):
             Command_Engine.show_status(viewer, msg)
             print(f"\nWarning: {msg}")
         else:
+            restore_previous_state()
             msg = Message("Error: Could not reload the current MSA for reference '{reference}'.", reference=target)
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.show_status(viewer, msg)

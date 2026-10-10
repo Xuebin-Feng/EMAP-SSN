@@ -77,6 +77,7 @@ def print_help():
       Extracts sanitized sequence subsets from the currently active viewer state and
       saves them as standalone .fasta files. Files are automatically routed to strictly
       organized subdirectories beneath the configured Analysis Results directory.
+      Hidden nodes are included in the exported subsets.
       Group labels become file names and clustering parameters a folder name; if one
       would be a path (as a hand-edited layout cache can carry), the export is
       refused and nothing is written.
@@ -96,7 +97,7 @@ def print_help():
     """)
     
 def run(viewer, args):
-    if args and args[0].lower() in ['help', '-h', '-?']:
+    if args and args[0].lower() in ['help', '-h', '-?', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
@@ -177,7 +178,7 @@ def run(viewer, args):
         Command_Engine.command_failed(viewer, "Error: Run 'cluster' first to export clusters.")
         return
         
-    if target_mode == "groups" and getattr(viewer, 'group_labels', None) is None:
+    if target_mode == "groups" and not any(getattr(viewer, 'group_labels', None) or ()):
         msg = Message("Error: No groups defined.")
         Command_Engine.show_status(viewer, msg)
         Command_Engine.command_failed(viewer, msg)
@@ -331,13 +332,30 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, msg)
         return
 
+    # Names that differ only in letter case are one file on Windows, so one subset
+    # would overwrite the other. Refuse before any folder or file is created.
+    first_name_by_lower = {}
+    for file_name in (file_map if os.name == "nt" else ()):
+        first_name = first_name_by_lower.setdefault(file_name.lower(), file_name)
+        if first_name != file_name:
+            msg = Message(
+                "Error: Export refused: {first} and {second} differ only in letter case, "
+                "so Windows would write them to one file.",
+                first=first_name,
+                second=file_name,
+            )
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
+            return
+
     os.makedirs(out_dir, exist_ok=True)
 
     # --- 5. Write Files ---
     print(f"Exporting to: {out_dir}")
     files_written = 0
     seqs_written = 0
-    
+    files_failed = 0
+
     for filename, recs in file_map.items():
         out_path = os.path.join(out_dir, filename)
         try:
@@ -350,8 +368,25 @@ def run(viewer, args):
             files_written += 1
             seqs_written += len(recs)
         except Exception as e:
+            files_failed += 1
             print(f"Failed to write {filename}: {e}")
-            Command_Engine.command_failed(viewer, f'Failed to write {filename}: {e}')
+            Command_Engine.command_failed(
+                viewer, Message("Failed to write {file}: {error}", file=filename, error=e)
+            )
+
+    if files_failed:
+        # Some files are missing, so report an error rather than the export's success.
+        msg = Message(
+            "Error: Failed to write %n file(s); {written} written.",
+            n=files_failed,
+            written=Message("%n file(s)", n=files_written),
+        )
+        Command_Engine.show_status(viewer, msg)
+        print(f"\n{msg}")
+        if files_written:
+            open_in_file_manager(out_dir)
+        Command_Engine.command_failed(viewer, msg)
+        return
 
     msg = Message(
         "Exported %n file(s) ({sequences}).",

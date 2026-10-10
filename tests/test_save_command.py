@@ -3,7 +3,9 @@ folder manifest and the cache's original provenance, written atomically under
 a validated plain filename, reopenable with the generation settings they came
 from, and never replacing a destination when the provenance is invalid."""
 import copy
+import io
 import pathlib
+from contextlib import redirect_stdout
 from pathlib import Path
 import sys
 import tempfile
@@ -88,6 +90,60 @@ class InteractiveSaveTests(unittest.TestCase):
             self.assertTrue(messages)
             self.assertIn("Error saving layout state", messages[-1])
             self.assertFalse((pathlib.Path(temp_dir) / "escape.h5").exists())
+
+    def test_uppercase_h5_name_keeps_its_suffix(self):
+        compatibility = make_compatibility()
+        manifest = make_manifest(compatibility)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = pathlib.Path(temp_dir) / "cache-folder"
+            Cache_Manifest.write_manifest_atomic(folder, manifest)
+            viewer = SimpleNamespace(
+                cache_manifest_id=manifest["manifest_id"],
+                _cache_provenance=make_provenance(manifest["manifest_id"]),
+                full_headers=["A", "B"],
+                pos=np.zeros((2, 2), dtype=np.float32),
+            )
+            with mock.patch.object(
+                save_command,
+                "resolve_selected_cache",
+                return_value=str(folder / "version_00.h5"),
+            ), mock.patch.object(save_command.Command_Engine, "print_help"):
+                save_command.run(viewer, ["Snap.H5"])
+
+            self.assertTrue((folder / "Snap.H5").exists())
+            self.assertFalse((folder / "Snap.H5.h5").exists())
+
+    def test_colon_in_name_is_refused_before_any_file_is_made(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = pathlib.Path(temp_dir) / "cache-folder"
+            folder.mkdir()
+            viewer = SimpleNamespace(
+                cache_manifest_id="d" * 64,
+                full_headers=["A"],
+                pos=np.zeros((1, 2), dtype=np.float32),
+            )
+            messages = []
+            with mock.patch.object(
+                save_command,
+                "resolve_selected_cache",
+                return_value=str(folder / "version_00.h5"),
+            ), mock.patch.object(
+                save_command.Command_Engine,
+                "print_help",
+                side_effect=lambda _viewer, message: messages.append(str(message)),
+            ):
+                save_command.run(viewer, ["bad:name"])
+
+            self.assertIn("Filename cannot contain ':'", messages[-1])
+            self.assertEqual(list(folder.iterdir()), [])
+
+    def test_help_says_what_a_saved_name_replaces_and_what_reset_restores(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            save_command.run(SimpleNamespace(), ["--help"])
+
+        self.assertIn("save version_00.h5 replaces the original layout file", output.getvalue())
+        self.assertIn("reset network returns to the saved layout", output.getvalue())
 
 
 class SnapshotProvenanceTests(HeadlessSettingsFixture, unittest.TestCase):

@@ -90,6 +90,9 @@ def run(viewer, args):
     else:
         # Treat args as target direct file path
         identifier = " ".join(args).strip()
+        # A quoted path, such as one with spaces, keeps its quotes in args.
+        if len(identifier) >= 2 and identifier[0] == identifier[-1] and identifier[0] in "\"'":
+            identifier = identifier[1:-1]
         selected_file = None
         new_path = None
         
@@ -148,7 +151,10 @@ def run(viewer, args):
         aligned_count = len(getattr(viewer.alignment, 'matched_headers', []))
         total_count = len(getattr(viewer, 'full_headers', []))
         reference_suffix = ""
-        if getattr(viewer, 'active_reference', None) and not getattr(
+        active_reference = getattr(viewer, 'active_reference', None)
+        # The test Alignment_Manager applies: 'none' in any case is no reference.
+        has_configured_reference = bool(active_reference and str(active_reference).strip().lower() != 'none')
+        if has_configured_reference and not getattr(
             viewer.alignment,
             'has_reference',
             False,

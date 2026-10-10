@@ -32,6 +32,8 @@ def run(viewer, args):
             "Description: Takes a snapshot of the current network state (positions, colors, sizes, shapes, "
             "visibility, render order, clusters, groups) and saves it as an HDF5 layout cache.\n"
             "If no filename is provided, it automatically generates a versioned filename (e.g., version_01.h5).\n"
+            "Saving under an existing name replaces that file: save version_00.h5 replaces the original layout file.\n"
+            "After saving, reset network returns to the saved layout.\n"
             "Examples:\n  save\n  save my_layout.h5",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
@@ -46,8 +48,11 @@ def run(viewer, args):
         
         if args:
             save_name = args[0]
-            if not save_name.endswith(".h5"):
+            if not save_name.lower().endswith(".h5"):
                 save_name += ".h5"
+            # NTFS reads ':' as an alternate data stream, and fails with a stray file.
+            if os.name == "nt" and ":" in save_name:
+                raise ValueError(Message("Filename cannot contain ':'."))
             cache_manifest.validate_cache_filename(save_name)
             final_save_path = os.path.join(folder_path, save_name)
         else:

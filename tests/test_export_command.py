@@ -278,6 +278,85 @@ class ExportBranchTests(unittest.TestCase):
         self.assertEqual(os.listdir(self.root), [])
         export_command.open_in_file_manager.assert_not_called()
 
+    def groups_viewer(self, group_labels):
+        """Two nodes, "node_0" (AAAA) and "node_1" (CCCC), in the given groups."""
+        viewer = self.make_viewer(cluster_id=None)
+        viewer.n_nodes = 2
+        viewer.full_headers = ["node_0", "node_1"]
+        viewer.cluster_labels = np.array([1, 1])
+        viewer.group_labels = group_labels
+        viewer._selected_fasta_records = [("node_0", "AAAA"), ("node_1", "CCCC")]
+        return viewer
+
+    def test_every_help_flag_prints_the_help_and_says_hidden_nodes_are_included(self):
+        for flag in ("--help", "help", "-h", "-?"):
+            with self.subTest(flag=flag):
+                viewer = self.make_viewer(cluster_id=None)
+                output = io.StringIO()
+                with mock.patch.object(export_command.Command_Engine, "command_artifact"), \
+                        reported_outcomes() as (succeeded, failed), redirect_stdout(output):
+                    export_command.run(viewer, [flag])
+                self.assertIn("Hidden nodes are included", output.getvalue())
+                succeeded.assert_called_once_with(viewer, "Help information printed to the terminal.")
+                failed.assert_not_called()
+        self.assertEqual(self.written(), [])
+
+    def test_groups_export_refuses_when_no_group_has_members(self):
+        viewer = self.groups_viewer([set(), set()])
+        succeeded, failed = self.export(viewer, "groups")
+
+        failed.assert_called_with(viewer, "Error: No groups defined. Use the 'group' command first.")
+        succeeded.assert_not_called()
+        self.assertEqual(viewer.console_text.text, "Error: No groups defined.")
+        self.assertEqual(self.written(), [])
+
+    def test_group_names_differing_only_in_case_are_refused_before_writing(self):
+        viewer = self.groups_viewer([{"Alpha"}, {"alpha"}])
+        succeeded, failed = self.export(viewer, "groups")
+
+        failed.assert_called_once()
+        self.assertIn("Alpha.fasta and alpha.fasta differ only in letter case", failed.call_args.args[1])
+        self.assertIn("Alpha.fasta", viewer.console_text.text)
+        succeeded.assert_not_called()
+        self.assertEqual(self.written(), [])
+
+    def test_a_file_that_fails_to_write_is_an_error_not_a_success(self):
+        viewer = self.groups_viewer([{"alpha"}, {"beta"}])
+        real_write = export_command.write_fasta_atomic
+
+        def fail_alpha(path, headers, sequences):
+            if os.path.basename(path) == "alpha.fasta":
+                raise OSError("disk full")
+            return real_write(path, headers, sequences)
+
+        output = io.StringIO()
+        with mock.patch.object(export_command, "write_fasta_atomic", side_effect=fail_alpha), \
+                mock.patch.object(export_command.Command_Engine, "command_artifact"), \
+                reported_outcomes() as (succeeded, failed), redirect_stdout(output):
+            export_command.run(viewer, ["groups"])
+
+        reported = [call.args[1] for call in failed.call_args_list]
+        self.assertIn("Failed to write alpha.fasta: disk full", reported)
+        self.assertEqual(reported[-1], "Error: Failed to write 1 file; 1 file written.")
+        self.assertEqual(viewer.console_text.text, "Error: Failed to write 1 file; 1 file written.")
+        succeeded.assert_not_called()
+        self.assertNotIn("Success!", output.getvalue())
+        self.assertEqual([os.path.basename(path) for path in self.written()], ["beta.fasta"])
+        # One file was written, so its folder is still shown.
+        export_command.open_in_file_manager.assert_called_once()
+
+    def test_no_folder_is_opened_when_no_file_is_written(self):
+        viewer = self.groups_viewer([{"alpha"}, {"beta"}])
+        with mock.patch.object(export_command, "write_fasta_atomic", side_effect=OSError("read only")), \
+                mock.patch.object(export_command.Command_Engine, "command_artifact"), \
+                reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+            export_command.run(viewer, ["groups"])
+
+        self.assertEqual(failed.call_args.args[1], "Error: Failed to write 2 files; 0 files written.")
+        self.assertEqual(viewer.console_text.text, "Error: Failed to write 2 files; 0 files written.")
+        succeeded.assert_not_called()
+        export_command.open_in_file_manager.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

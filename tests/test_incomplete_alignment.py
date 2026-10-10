@@ -334,6 +334,61 @@ class IncompleteAlignmentCommandTests(unittest.TestCase):
         self.assertIn("0/2 network nodes aligned", output.getvalue())
         self.assertIn("0/2 aligned", viewer.console_text.text)
 
+    def test_alignment_command_accepts_a_quoted_path_with_spaces(self):
+        from EMAPSSN_Viewer import MainViewer
+
+        with tempfile.TemporaryDirectory() as directory:
+            folder = os.path.join(directory, "My Files")
+            os.mkdir(folder)
+            msa_path = os.path.join(folder, "x.fasta")
+            write_fasta(msa_path, [("node1", "AC"), ("node2", "AC")])
+            viewer = SimpleNamespace(
+                full_headers=["node1", "node2"],
+                active_reference="",
+                alignment_offset=0,
+                alignment=SimpleNamespace(aln=None),
+                console_text=SimpleNamespace(text=""),
+            )
+            viewer.load_global_alignment = lambda: MainViewer.load_global_alignment(viewer)
+            old_msa = cfg.MSA_FILE
+            try:
+                # The dispatcher splits the command line on whitespace and the
+                # command joins the pieces back, quotes included.
+                with redirect_stdout(io.StringIO()) as output:
+                    alignment_command.run(viewer, f'"{msa_path}"'.split())
+            finally:
+                cfg.MSA_FILE = old_msa
+
+        self.assertEqual(len(viewer.alignment.aln), 2)
+        self.assertIn("Success: Loaded alignment 'x.fasta' (2/2 network nodes aligned)", output.getvalue())
+
+    def test_success_report_treats_the_word_none_as_no_reference(self):
+        from EMAPSSN_Viewer import MainViewer
+
+        with tempfile.TemporaryDirectory() as directory:
+            msa_path = os.path.join(directory, "toy.fasta")
+            write_fasta(msa_path, [("node1", "AC"), ("node2", "AC")])
+            for configured, inactive in (("None", False), ("missing", True)):
+                with self.subTest(active_reference=configured):
+                    viewer = SimpleNamespace(
+                        full_headers=["node1", "node2"],
+                        active_reference=configured,
+                        alignment_offset=0,
+                        alignment=SimpleNamespace(aln=None),
+                        console_text=SimpleNamespace(text=""),
+                    )
+                    viewer.load_global_alignment = lambda: MainViewer.load_global_alignment(viewer)
+                    old_msa = cfg.MSA_FILE
+                    try:
+                        with mock.patch.object(alignment_command.Command_Engine, "command_succeeded") as succeeded, \
+                                redirect_stdout(io.StringIO()):
+                            alignment_command.run(viewer, [msa_path])
+                    finally:
+                        cfg.MSA_FILE = old_msa
+
+                    text = str(succeeded.call_args.args[1])
+                    self.assertEqual("reference inactive (occupancy mode)" in text, inactive)
+
     def test_query_logo_and_label_reject_loaded_zero_coverage_clearly(self):
         with tempfile.TemporaryDirectory() as directory:
             msa_path = os.path.join(directory, "zero.fasta")

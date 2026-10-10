@@ -358,6 +358,55 @@ class OffsetCommandTests(unittest.TestCase):
         self.assertEqual(self.manager.offset, 0)
         self.assertEqual(self.viewer.alignment_offset, 0)
 
+    def run_with_portal(self, args):
+        """Run offset on a real console viewer, recording what the portal receives."""
+        viewer = SimpleNamespace(
+            alignment=self.manager, alignment_offset=0, console_text=SimpleNamespace(text="")
+        )
+        with mock.patch("Viewer_Command_Portal.report") as report, \
+                mock.patch.object(offset_command.cfg, "ALIGNMENT_OFFSET", 0), \
+                redirect_stdout(io.StringIO()):
+            offset_command.run(viewer, args)
+        return viewer, report.call_args_list
+
+    def test_each_failure_is_recorded_once_and_shown_on_the_console(self):
+        cases = (
+            (["1", "2"], "Error: Offset accepts exactly one integer."),
+            (["1.5"], "Error: Alignment offset must be an integer, not '1.5'."),
+            (["1_0"], "Error: Alignment offset must be an integer, not '1_0'."),
+            (["١٠"], "Error: Alignment offset must be an integer"),
+            (["1000001"], "Error: Alignment offset must be between -1000000 and 1000000, not '1000001'."),
+            (["-1000001"], "must be between -1000000 and 1000000"),
+            (["9" * 4400], "must be between -1000000 and 1000000"),
+        )
+        for args, text in cases:
+            with self.subTest(args=args[0][:20]):
+                viewer, calls = self.run_with_portal(args)
+
+                self.assertEqual(len(calls), 1)
+                status, reported = calls[0].args[:2]
+                self.assertEqual(status, "failed")
+                self.assertIn(text, reported)
+                self.assertIn(text.split("\n")[0], viewer.console_text.text)
+                self.assertEqual(self.manager.offset, 0)
+
+    def test_accepts_signed_and_boundary_integers_only(self):
+        for text, expected in (("+5", 5), ("-7", -7), ("0010", 10),
+                               ("1000000", 1000000), ("-1000000", -1000000)):
+            with self.subTest(text=text):
+                manager = make_reference_manager()
+                viewer = SimpleNamespace(
+                    alignment=manager, alignment_offset=0, console_text=SimpleNamespace(text="")
+                )
+                with mock.patch.object(offset_command.cfg, "ALIGNMENT_OFFSET", 0), \
+                        mock.patch("Viewer_Command_Portal.report") as report, \
+                        redirect_stdout(io.StringIO()):
+                    offset_command.run(viewer, [text])
+
+                self.assertEqual(manager.offset, expected)
+                self.assertEqual(viewer.alignment_offset, expected)
+                self.assertEqual(report.call_args.args[0], "succeeded")
+
 
 class OffsetPersistenceTests(unittest.TestCase):
     def test_switching_the_msa_keeps_the_session_offset(self):

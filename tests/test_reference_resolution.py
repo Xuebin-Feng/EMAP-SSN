@@ -203,6 +203,60 @@ class ReferenceResolutionTests(unittest.TestCase):
         self.assertEqual(viewer.console_text.text, message)
         self.assertEqual(output.getvalue(), f"\n{message}\n")
 
+    def loaded_viewer_on_node1(self):
+        """A viewer whose MSA is loaded with node1 as its reference."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        msa_path = os.path.join(directory.name, "toy.fasta")
+        write_fasta(msa_path, [("node1", "MKC"), ("node2", "M-C")])
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.full_headers = ["node1", "node2"]
+        viewer.active_reference = "node1"
+        viewer.console_text = SimpleNamespace(text="")
+        viewer.alignment = load_manager(msa_path, viewer.full_headers, reference="node1")
+        viewer.resolved_ref_full = "node1"
+        return viewer
+
+    def test_failed_reload_restores_the_previous_alignment_and_reference(self):
+        viewer = self.loaded_viewer_on_node1()
+        alignment = viewer.alignment
+
+        def reload_returns_no_rows():
+            # The loader ran but produced no alignment.
+            viewer.alignment = SimpleNamespace(aln=None, has_reference=False)
+
+        viewer.load_global_alignment = mock.Mock(side_effect=reload_returns_no_rows)
+        engine = reference_command.Command_Engine
+        with mock.patch.object(engine, "command_failed") as failed, \
+                mock.patch.object(engine, "command_succeeded") as succeeded, \
+                redirect_stdout(io.StringIO()):
+            reference_command.run(viewer, ["node2"])
+
+        viewer.load_global_alignment.assert_called_once()
+        failed.assert_called_once()
+        self.assertEqual(
+            str(failed.call_args.args[1]),
+            "Error: Could not reload the current MSA for reference 'node2'.",
+        )
+        succeeded.assert_not_called()
+        self.assertIs(viewer.alignment, alignment)
+        self.assertTrue(viewer.alignment.has_reference)
+        self.assertEqual(viewer.active_reference, "node1")
+        self.assertEqual(viewer.resolved_ref_full, "node1")
+
+    def test_reload_that_raises_restores_the_previous_state_and_reraises(self):
+        viewer = self.loaded_viewer_on_node1()
+        alignment = viewer.alignment
+        viewer.load_global_alignment = mock.Mock(side_effect=RuntimeError("loader crashed"))
+
+        with self.assertRaisesRegex(RuntimeError, "loader crashed"), \
+                redirect_stdout(io.StringIO()):
+            reference_command.run(viewer, ["node2"])
+
+        self.assertIs(viewer.alignment, alignment)
+        self.assertEqual(viewer.active_reference, "node1")
+        self.assertEqual(viewer.resolved_ref_full, "node1")
+
     def test_bare_reference_marks_an_unresolved_reference_inactive(self):
         viewer, _, _ = self.run_reference(
             [("node1", "AC")], ["node1", "node2"], "node2", ""

@@ -13,9 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+
 import Command_Engine
 import EMAPSSN_Config as cfg
 from utilities.Localization import JoinedMessage, Message
+
+# An optional sign and ASCII digits only; int() would also take "1_0" and
+# non-ASCII digits. The limit matches the ALIGNMENT_OFFSET range in the Config.
+_OFFSET_TEXT = re.compile(r"[+-]?[0-9]+")
+_OFFSET_LIMIT = 1000000
 
 
 def print_help():
@@ -104,30 +111,43 @@ def run(viewer, args):
         message = JoinedMessage(
             [Message("Error: Offset accepts exactly one integer."), "Usage: offset [INTEGER]"], separator="\n"
         )
-        Command_Engine.print_help(viewer, message)
+        # The failure is recorded once, by command_failed; print_help only shows it.
+        Command_Engine.print_help(viewer, message, report_message=False)
         Command_Engine.command_failed(viewer, message)
         return
 
-    try:
-        new_offset = int(args[0])
-    except (TypeError, ValueError):
+    if not _OFFSET_TEXT.fullmatch(args[0]):
         message = Message("Error: Alignment offset must be an integer, not '{value}'.", value=args[0])
-        Command_Engine.print_help(viewer, message)
+        Command_Engine.print_help(viewer, message, report_message=False)
         Command_Engine.command_failed(viewer, message)
         return
+
+    # Compare the magnitude first, so a very long run of digits is never converted.
+    magnitude = args[0].lstrip("+-").lstrip("0") or "0"
+    if len(magnitude) > len(str(_OFFSET_LIMIT)) or int(magnitude) > _OFFSET_LIMIT:
+        message = Message(
+            "Error: Alignment offset must be between {minimum} and {maximum}, not '{value}'.",
+            minimum=-_OFFSET_LIMIT,
+            maximum=_OFFSET_LIMIT,
+            value=args[0],
+        )
+        Command_Engine.print_help(viewer, message, report_message=False)
+        Command_Engine.command_failed(viewer, message)
+        return
+    new_offset = int(args[0])
 
     alignment = getattr(viewer, 'alignment', None)
     if alignment is None or not getattr(alignment, 'has_reference', False):
         message = Message(
             "Error: Alignment offset requires a correctly loaded reference. Use 'reference <ID>' first."
         )
-        Command_Engine.print_help(viewer, message)
+        Command_Engine.print_help(viewer, message, report_message=False)
         Command_Engine.command_failed(viewer, message)
         return
 
     if not alignment.set_offset(new_offset):
         message = Message("Error: Alignment offset could not be applied to the active reference.")
-        Command_Engine.print_help(viewer, message)
+        Command_Engine.print_help(viewer, message, report_message=False)
         Command_Engine.command_failed(viewer, message)
         return
 

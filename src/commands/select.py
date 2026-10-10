@@ -129,7 +129,6 @@ def run(viewer, args):
             "HEADER_LIST_DIR",
             os.path.join("Input_Files", "Header_Lists"),
         )
-        os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, filename)
         
         selected_indices = getattr(viewer, 'selected_indices', [])
@@ -158,7 +157,8 @@ def run(viewer, args):
                 headers_to_save = []
                 sequences_to_save = []
                 missing_count = 0
-                for idx in selected_indices:
+                # Ascending node order: the selection is a set, whose order varies.
+                for idx in sorted(selected_indices):
                     header = viewer.full_headers[idx]
                     sequence = source_records.get(header)
                     if sequence is None:
@@ -178,8 +178,9 @@ def run(viewer, args):
                 else:
                     msg = Message("Saved %n sequence(s) to {path}", n=len(headers_to_save), path=save_path)
             else:
+                os.makedirs(save_dir, exist_ok=True)
                 with open(save_path, "w", encoding="utf-8", newline="\n") as f:
-                    for idx in selected_indices:
+                    for idx in sorted(selected_indices):
                         f.write(f"{viewer.full_headers[idx]}\n")
                 msg = Message("Saved %n header(s) to {path}", n=len(selected_indices), path=save_path)
                 

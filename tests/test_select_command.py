@@ -54,6 +54,48 @@ class SelectSaveTests(unittest.TestCase):
             Path(self.header_dir, "picked.txt").read_text(encoding="utf-8"), "one\nthree\n"
         )
 
+    def test_save_creates_the_folder_only_when_it_writes(self):
+        # The folder used to be created before the empty-selection check, and
+        # before a FASTA save that then failed for lack of sequences.
+        folder = Path(self.header_dir, "Header_Lists")
+        missing = str(Path(self.header_dir, "no_such_source.fasta"))
+        viewer = Viewer(self.header_dir)
+        with mock.patch.object(select.cfg, "HEADER_LIST_DIR", str(folder), create=True), \
+                mock.patch.object(select.cfg, "NODE_FASTA_FILE", missing, create=True), \
+                mock.patch.object(select.Command_Engine, "command_failed") as failed:
+            select.run(viewer, ['save', 'picked.txt'])
+            self.assertFalse(folder.exists())
+
+            viewer.selected_indices = [0]
+            select.run(viewer, ['save', 'picked.fasta'])
+            failed.assert_called_once()
+            self.assertFalse(folder.exists())
+
+            select.run(viewer, ['save', 'picked.txt'])
+        failed.assert_called_once()
+        self.assertEqual(Path(folder, "picked.txt").read_text(encoding="utf-8"), "one\n")
+
+    def test_saved_headers_are_written_in_ascending_node_order(self):
+        # The viewer's selection is a set, so its iteration order is not node order.
+        viewer = Viewer(self.header_dir)
+        viewer.selected_indices = [2, 0]
+        select.run(viewer, ['save', 'reversed.txt'])
+        self.assertEqual(
+            Path(self.header_dir, "reversed.txt").read_text(encoding="utf-8"), "one\nthree\n"
+        )
+
+    def test_saved_fasta_records_are_written_in_ascending_node_order(self):
+        viewer = Viewer(self.header_dir)
+        viewer.selected_indices = [2, 0]
+        viewer._selected_fasta_records = [("one", "MKT"), ("two", "MAA"), ("three", "MCC")]
+        with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+            select.run(viewer, ['save', 'ordered.fasta'])
+        failed.assert_not_called()
+        self.assertEqual(
+            read_fasta(str(Path(self.header_dir, "ordered.fasta"))),
+            (["one", "three"], ["MKT", "MCC"]),
+        )
+
     def test_save_refuses_a_path_and_writes_nothing(self):
         # os.path.join(HEADER_LIST_DIR, name) used to drop the directory for an
         # absolute name, and "..\" climbed out of it.
