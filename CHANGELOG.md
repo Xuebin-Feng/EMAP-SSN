@@ -469,13 +469,18 @@ still change before version 1.0.0.
 ### Fixed
 
 - **Viewer command audit.**
-  - **`label`:** it kept dropping fully conserved residues at exact thresholds: with `id` weighting, a residue in every member could fail `cmin 100%`, and 999 of 1000 failed `cmin 99.9%`. Hex Color now matches the viewer's palette, and thresholds outside 0–100% are refused. `--help` and typos such as `gmax=0.4` no longer become report filenames. With nothing to analyse, it fails before writing an empty workbook.
+  - **`label`:** it kept dropping fully conserved residues at exact thresholds: with `id` weighting, a residue in every member could fail `cmin 100%`, and 999 of 1000 failed `cmin 99.9%`. Hex Color now matches the viewer's palette, and thresholds outside 0–100% are refused. `--help` and typos such as `gmax=0.4` no longer become report filenames. With nothing to analyse, it fails before writing an empty workbook. The ambiguity codes X, B, Z and J are no longer reported as conserved residues; they still count as occupied positions.
   - **`query`:** grouped targets such as `(AC)<=30%` are exact at the boundary, and multi-word metadata values such as `{Organism=Escherichia coli}` work in `query` and `logo`.
   - **`zoom`:** `zoom N` gives a view exactly N wide, not 1.1·N.
-  - **`cluster`:** a NaN or infinite Leiden resolution or weight is an error instead of a crash that escaped every handler. MCL refuses non-positive scores and keeps its minimum size when clusters overlap.
+  - **`cluster`:** a NaN or infinite Leiden resolution or weight is an error instead of a crash that escaped every handler. MCL refuses non-positive scores and keeps its minimum size when clusters overlap. Reclustering removes the previous clustering's `subcluster_N_M` groups, which went on naming nodes of clusters that no longer existed; undo restores them.
+  - **`spectrum`:** a colormap name in another case, such as `Viridis`, works, and an unknown name is an error instead of a silent switch to coolwarm.
+  - **`reference`:** a node with no sequence in the alignment is refused, instead of replacing a working reference with occupancy numbering. When several headers match, one with a sequence in the alignment is used.
+  - **`logo`:** a mistyped keyword such as `nogap` no longer becomes the file `nogap.svg`, overwriting any file of that name: a filename must end in `.svg` or `.png`.
+  - **`alignment`:** says why a file was rejected, such as unequal sequence lengths or an empty file.
+  - **`esmfold`:** no longer leaves its temporary input file behind when PyTorch is missing.
   - **`run`:** reports how many lines failed and treats `#` lines as comments.
-  - **Metadata:** a column named `id` no longer redirects web-table edits to the wrong node.
-  - **`print svg`:** draws nodes in screen order and keeps the colour of `+`, `|` and `-` shapes.
+  - **Metadata:** a column named `id` no longer redirects web-table edits to the wrong node. The advertised `.xls` uploads work: `xlrd` is now a requirement.
+  - **`print svg`:** draws nodes in screen order and keeps the colour of `+`, `|` and `-` shapes. Node sizes, edge widths and outlines keep the proportions shown on screen; they were about twice as thick at a typical zoom.
   - Commands run for MCP or the agent page report whether their browser page opened, and never wait on a dialog.
   - **VR:** `label` and `logo` work, `hide` reaches the headset, and undo restores metadata.
 - MCP `start_session` terminated a healthy Viewer after a fixed 30 s. On a
