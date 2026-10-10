@@ -230,6 +230,14 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Viewer command behaviour, as decided after the command audit.** Results change on purpose:
+  - **`cluster`/`subcluster` jaccard:** compares closed neighbourhoods (each node counts as its own neighbour), so an edge scores (c + 2) / (a + b − c). Isolated pairs, stars and chains are no longer forced into Noise at any threshold above 0, and a clique scores 1. Every Jaccard result changes, and the default threshold of 0.2 now keeps more edges.
+  - **`cluster`/`subcluster` mcl:** each node's self-loop weighs as much as its strongest edge instead of a fixed 1, so the clusters no longer depend on the scale of the scores (identity 0–1 or −log10 E). MCL results change.
+  - **`group`:** skips hidden nodes, as `color`, `spectrum` and `select` do.
+  - **`logo` bits:** the small-sample correction counts the sequences with a residue at the column, as WebLogo does, with or without `id`; it counted gaps too without `id`. Bits logos of gapped columns change.
+  - **`print`:** `print full zoom N` and `print svg zoom N` draw at the scale `zoom N` would set, without moving the view; a `zoom N` full print under 1000 px warns. PNGs leave out the hover colour and click rings, and keep selection borders.
+  - **`run`:** a Python script runs from its own folder, and a typed one runs in the background, so the Viewer stays usable. Typed runs stop at the first failed or cancelled command and refuse scripts of more than 1000 commands, as MCP runs already did; so do VR runs.
+  - **Metadata import:** in text columns, NA, N/A, None, null and NaN stay as written instead of becoming blank; number columns still read them as missing.
 - **A slow Viewer launch is handed back instead of stopped.** When `start_session`'s
   wait ends while the Viewer is still loading, it returns `status: "starting"` with the
   `launch_id`, the Viewer's last output line, its process-tree CPU time and the log
