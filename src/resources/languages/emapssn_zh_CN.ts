@@ -1934,18 +1934,18 @@ Command-line usage:
     </message>
     <message>
         <location line="+6"/>
-        <location line="+452"/>
+        <location line="+497"/>
         <source>Invalid metadata predicate &apos;{{{predicate}}}&apos;. Use &apos;{{PropertyOperatorValue}}&apos;, for example &apos;{{Length&gt;500}}&apos;.</source>
         <translation type="unfinished">无效的元数据条件“{{{predicate}}}”。请使用 &apos;{{PropertyOperatorValue}}&apos; 的形式，例如 &apos;{{Length&gt;500}}&apos;。</translation>
     </message>
     <message>
-        <location line="-443"/>
-        <location line="+449"/>
+        <location line="-488"/>
+        <location line="+494"/>
         <source>Metadata predicate &apos;{{{predicate}}}&apos; is missing a comparison value.</source>
         <translation type="unfinished">元数据条件“{{{predicate}}}”缺少比较值。</translation>
     </message>
     <message>
-        <location line="-439"/>
+        <location line="-484"/>
         <source>Metadata property &apos;{property}&apos; does not exist in the current SSN.</source>
         <translation type="unfinished">当前 SSN 中不存在元数据属性“{property}”。</translation>
     </message>
@@ -1977,12 +1977,12 @@ Command-line usage:
         <translation type="unfinished">{operation}出错：{error}</translation>
     </message>
     <message>
-        <location line="+139"/>
+        <location line="+168"/>
         <source>Selection file &apos;{file}&apos; is not UTF-8 text.</source>
         <translation type="unfinished">选择文件“{file}”不是 UTF-8 文本。</translation>
     </message>
     <message>
-        <location line="+253"/>
+        <location line="+269"/>
         <source>Invalid Boolean expression &apos;{expression}&apos;. Ensure operators and parentheses are complete and do not place spaces inside individual predicates.</source>
         <translation type="unfinished">无效的布尔表达式“{expression}”。请确保运算符和括号完整，且单个条件内部不要有空格。</translation>
     </message>
@@ -2095,7 +2095,7 @@ Command-line usage:
         <location line="+16"/>
         <location filename="../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../commands/print.py" line="+710"/>
+        <location filename="../../commands/print.py" line="+908"/>
         <location line="+51"/>
         <location filename="../../commands/query.py" line="+583"/>
         <location filename="../../commands/reset.py" line="+114"/>
@@ -2558,7 +2558,7 @@ Command-line usage:
         <translation type="unfinished">错误：参数必须成对出现，即 [expression] [group_name]。</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+38"/>
         <source>Group name &apos;{name}&apos; is a reserved keyword. Skipping.</source>
         <translation type="unfinished">分组名称“{name}”是保留关键字，已跳过。</translation>
     </message>
@@ -2578,12 +2578,12 @@ Command-line usage:
         <translation type="unfinished">分组名称“{name}”含有无效字符，已跳过。</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+34"/>
         <source>Group</source>
         <translation type="unfinished">分组</translation>
     </message>
     <message numerus="yes">
-        <location line="+14"/>
+        <location line="+15"/>
         <source>%n node(s) -&gt; &apos;{group}&apos;</source>
         <translation type="unfinished">
             <numerusform>%n 个节点 -&gt;“{group}”</numerusform>
@@ -3067,7 +3067,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../commands/print.py" line="-142"/>
+        <location filename="../../commands/print.py" line="-215"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3077,7 +3077,7 @@ Command-line usage:
         <translation type="unfinished">截取过程中网络显示发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+169"/>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
         <translation type="unfinished">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
@@ -3118,12 +3118,12 @@ Command-line usage:
     <message>
         <location line="+56"/>
         <location line="+11"/>
-        <location line="+115"/>
+        <location line="+112"/>
         <source>Error: No visible nodes to export.</source>
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+32"/>
         <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
@@ -3274,7 +3274,7 @@ Command-line usage:
         <translation type="unfinished">正在用新的参考序列重新加载比对：{reference}…</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+17"/>
         <source>Reference successfully set: {reference}.</source>
         <translation type="unfinished">已设置参考序列：{reference}。</translation>
     </message>
@@ -3810,12 +3810,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="+971"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="+1172"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+665"/>
+        <location line="+702"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -3835,7 +3835,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+721"/>
+        <location line="+726"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3896,7 +3896,7 @@ Command-line usage:
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+266"/>
+        <location line="+263"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -3908,7 +3908,7 @@ Command-line usage:
         <translation type="unfinished">已清除选区。</translation>
     </message>
     <message>
-        <location filename="../../Metadata_Core.py" line="+142"/>
+        <location filename="../../Metadata_Core.py" line="+143"/>
         <source>Metadata columns must be supplied as a list of property names.</source>
         <translation type="unfinished">元数据列必须以属性名称列表的形式提供。</translation>
     </message>
@@ -3974,12 +3974,12 @@ Command-line usage:
         <translation type="unfinished">属性名 {names} 保留给元数据表的行索引使用。请重命名该列，然后重新上传文件。</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+52"/>
         <source>No matching sequence headers found. Enforced strict exact matching against full headers.</source>
         <translation type="unfinished">未找到匹配的序列标题。已对完整序列标题执行严格的精确匹配。</translation>
     </message>
     <message numerus="yes">
-        <location line="+77"/>
+        <location line="+85"/>
         <source>Successfully uploaded metadata from %n file(s): {files}.</source>
         <translation type="unfinished">
             <numerusform>已从 %n 个文件上传元数据：{files}。</numerusform>
@@ -4022,7 +4022,7 @@ Command-line usage:
         <translation type="unfinished">元数据只能下载为 .csv 或 .xlsx，不能是“{extension}”。</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+55"/>
         <source>Error: No metadata available in the viewer to download.</source>
         <translation type="unfinished">错误：查看器中没有可下载的元数据。</translation>
     </message>
@@ -4037,7 +4037,7 @@ Command-line usage:
         <translation type="unfinished">错误：没有节点符合表达式“{expression}”。</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+52"/>
         <source>Metadata successfully downloaded to {path} (filtered by: {expression})</source>
         <translation type="unfinished">元数据已下载到 {path}（过滤条件：{expression}）</translation>
     </message>
@@ -5431,7 +5431,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">阶段 {number}</translation>
     </message>
     <message>
-        <location filename="../../utilities/Network_Kernels.py" line="+806"/>
+        <location filename="../../utilities/Network_Kernels.py" line="+807"/>
         <source>Leiden clustering failed: {error}</source>
         <translation type="unfinished">Leiden 聚类失败：{error}</translation>
     </message>
@@ -5446,7 +5446,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Leiden 的边权重必须是有限数。</translation>
     </message>
     <message>
-        <location filename="../../Alignment_Manager.py" line="+246"/>
+        <location filename="../../Alignment_Manager.py" line="+289"/>
         <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
         <translation type="unfinished">稀疏 HDF5 缺少必需对象“{path}”。</translation>
     </message>
@@ -5556,7 +5556,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">稀疏 HDF5 的 int_to_aa 含有无效的 JSON：{error}。</translation>
     </message>
     <message>
-        <location line="+271"/>
+        <location line="+298"/>
         <location line="+24"/>
         <source>MSA rejected: {error}</source>
         <translation type="unfinished">MSA 被拒绝：{error}</translation>
@@ -7821,12 +7821,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="-2225"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="-2264"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+1168"/>
+        <location line="+1210"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
