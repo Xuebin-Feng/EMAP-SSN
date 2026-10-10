@@ -113,21 +113,55 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         self.assertNotIn("\033[", output.getvalue())
         self.assertIn("(min: 1.0, max: 3.0)", output.getvalue())
 
-    def test_invalid_scheme_uses_fallback_colormap_endpoint_colors(self):
+    def test_unknown_scheme_fails_without_changing_colors_or_saving(self):
         viewer = self.make_viewer([1.0, 3.0])
         output = TTYStringIO()
+        before = viewer.current_colors.copy()
 
         self.run_spectrum(viewer, ["not-a-map", "{Length}"], output)
 
-        cmap, _ = spectrum.get_colormap("coolwarm")
+        self.assertIn("Error: Unknown color scheme 'not-a-map'", viewer.console_text.text)
+        self.assertNotIn("Spectrum coloring applied", output.getvalue())
+        np.testing.assert_array_equal(viewer.current_colors, before)
+        viewer.promote_nodes.assert_not_called()
+        viewer._save_state.assert_not_called()
+
+    def test_missing_property_is_reported_before_an_unknown_scheme(self):
+        viewer = self.make_viewer([1.0, 3.0])
+
+        self.run_spectrum(viewer, ["Length"], io.StringIO())
+
+        self.assertIn("Target property must be specified", viewer.console_text.text)
+        self.assertNotIn("Unknown color scheme", viewer.console_text.text)
+        viewer._save_state.assert_not_called()
+
+    def test_scheme_names_are_case_insensitive_and_reported_canonically(self):
+        viewer = self.make_viewer([1.0, 3.0])
+
+        self.run_spectrum(viewer, ["{Length}", "Viridis"], io.StringIO())
+
+        cmap, _ = spectrum.get_colormap("viridis")
+        np.testing.assert_allclose(viewer.current_colors[0], cmap(0.0))
+        np.testing.assert_allclose(viewer.current_colors[1], cmap(1.0))
+        self.assertIn("with scheme 'viridis'", viewer.console_text.text)
+        self.assertNotIn("not found", viewer.console_text.text)
+        viewer._save_state.assert_called_once_with()
+
+    def test_exact_case_wins_and_ambiguous_case_variants_are_unknown(self):
+        for name, color in (("SpectrumCaseProbe", "red"), ("spectrumcaseprobe", "blue")):
+            mpl.colormaps.register(mcolors.ListedColormap([color, color]), name=name)
+            self.addCleanup(mpl.colormaps.unregister, name)
+
+        viewer = self.make_viewer([1.0, 3.0])
+        self.run_spectrum(viewer, ["{Length}", "spectrumcaseprobe"], io.StringIO())
+        np.testing.assert_allclose(viewer.current_colors[0], mcolors.to_rgba("blue"))
+
+        viewer = self.make_viewer([1.0, 3.0])
+        self.run_spectrum(viewer, ["{Length}", "SPECTRUMCASEPROBE"], io.StringIO())
         self.assertIn(
-            f"{ansi_foreground(cmap(0.0))}min: 1.0\033[0m", output.getvalue()
+            "Error: Unknown color scheme 'SPECTRUMCASEPROBE'", viewer.console_text.text
         )
-        self.assertIn(
-            f"{ansi_foreground(cmap(1.0))}max: 3.0\033[0m", output.getvalue()
-        )
-        self.assertIn("using coolwarm", viewer.console_text.text)
-        self.assertNotIn("\033[", viewer.console_text.text)
+        viewer._save_state.assert_not_called()
 
     def test_flexible_expression_property_and_scheme_order(self):
         viewer = self.make_viewer([1.0, 2.0, 3.0])
@@ -170,6 +204,8 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         cases = (
             (["{Length}", "{Length}"], "exactly one"),
             (["{Length}", "viridis", "plasma"], "at most one color"),
+            (["{Length}", "viridis", "PLASMA"], "at most one color"),
+            (["{Length}", "viridis", "not-a-map"], "Unrecognized extra spectrum argument"),
             (["{Length}", '"node_0"', '"node_1"'], "at most one Boolean"),
             (["viridis"], "{PROPERTY_NAME}"),
         )

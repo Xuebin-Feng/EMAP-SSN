@@ -602,5 +602,210 @@ class SharedGroupNameWarningTests(unittest.TestCase):
         succeeded.assert_called_once_with(viewer, "Done! Found 2 clusters via JACCARD.")
 
 
+class GeneratedSubclusterGroupTests(unittest.TestCase):
+    """cluster replaces the clusters the generated subcluster_N_M groups describe,
+    so it removes those groups, after the undo snapshot and only when it runs."""
+
+    REMOVED = "Removed {count} generated subcluster group{plural} of the previous clustering."
+    # The barbell's two triangles are the new clusters 1 and 2; node 6 is noise.
+    ARGS = ["jaccard", "0.2", "3"]
+    OLD_CLUSTERS = [1, 1, 1, 1, 2, 2, -1]
+    CUSTOM = {"subcluster_0_2", "subcluster_001_2", "subcluster_1_002", "subcluster_1_0", "alpha"}
+
+    def stale_groups(self):
+        """Generated groups of an earlier clustering beside custom groups, per node."""
+        return [
+            {"subcluster_1_1", "alpha"},
+            {"subcluster_1_1", "subcluster_0_2"},
+            {"subcluster_1_2", "subcluster_001_2"},
+            {"subcluster_12_34"},
+            {"subcluster_1_002"},
+            {"subcluster_1_0", "subcluster_2_1"},
+            set(),
+        ]
+
+    def viewer(self, groups):
+        viewer = network_viewer(7, BARBELL_EDGES, cluster_labels=self.OLD_CLUSTERS)
+        viewer.group_labels = [set(names) for names in groups]
+        return viewer
+
+    def test_generated_groups_are_removed_and_the_report_says_so(self):
+        viewer = self.viewer(self.stale_groups())
+
+        succeeded, failed, output = run_command(cluster, viewer, self.ARGS)
+
+        failed.assert_not_called()
+        self.assertEqual(
+            viewer.group_labels,
+            [{"alpha"}, {"subcluster_0_2"}, {"subcluster_001_2"}, set(),
+             {"subcluster_1_002"}, {"subcluster_1_0"}, set()],
+        )
+        # subcluster_1_1, subcluster_1_2, subcluster_12_34 and subcluster_2_1:
+        # each group counts once, however many nodes carried it.
+        removed = self.REMOVED.format(count=4, plural="s")
+        message = f"Done! Found 2 clusters via JACCARD. {removed}"
+        succeeded.assert_called_once_with(viewer, message)
+        self.assertEqual(viewer.console_text.text, message)
+        self.assertIn(message, output)
+        viewer.update_nodes.assert_called_once_with()
+
+    def test_one_removed_group_reads_in_the_singular(self):
+        viewer = self.viewer([{"subcluster_3_1"}] + [set()] * 6)
+
+        succeeded, _failed, _output = run_command(cluster, viewer, self.ARGS)
+
+        removed = self.REMOVED.format(count=1, plural="")
+        succeeded.assert_called_once_with(viewer, f"Done! Found 2 clusters via JACCARD. {removed}")
+
+    def test_the_report_is_unchanged_when_there_is_nothing_to_remove(self):
+        # Custom groups with lookalike names are kept and are not reported.
+        for groups in ([set()] * 7, [set(self.CUSTOM)] + [set()] * 6):
+            with self.subTest(groups=groups):
+                viewer = self.viewer(groups)
+                succeeded, _failed, output = run_command(cluster, viewer, self.ARGS)
+                succeeded.assert_called_once_with(viewer, "Done! Found 2 clusters via JACCARD.")
+                self.assertNotIn("Removed", output)
+                self.assertEqual(viewer.group_labels, [set(names) for names in groups])
+
+    def test_lookalike_and_custom_groups_are_kept(self):
+        viewer = self.viewer([self.CUSTOM | {"subcluster_5_5", "cluster_9"}] + [set()] * 6)
+
+        run_command(cluster, viewer, self.ARGS)
+
+        self.assertEqual(viewer.group_labels[0], self.CUSTOM | {"cluster_9"})
+
+    def test_the_removal_is_reported_before_the_shared_name_warning(self):
+        viewer = self.viewer([{"subcluster_1_1", "cluster_2"}] + [set()] * 6)
+
+        succeeded, _failed, _output = run_command(cluster, viewer, self.ARGS)
+
+        warning = SharedGroupNameWarningTests.WARNING.format(count=1, plural="", names="cluster_2")
+        removed = self.REMOVED.format(count=1, plural="")
+        succeeded.assert_called_once_with(
+            viewer, f"Done! Found 2 clusters via JACCARD. {removed} {warning}"
+        )
+        self.assertEqual(viewer.group_labels[0], {"cluster_2"})
+
+    def test_the_groups_go_after_the_undo_snapshot(self):
+        viewer = self.viewer(self.stale_groups())
+        snapshots = []
+        viewer._save_state = mock.Mock(
+            side_effect=lambda: snapshots.append([set(groups) for groups in viewer.group_labels])
+        )
+
+        run_command(cluster, viewer, self.ARGS)
+
+        viewer._save_state.assert_called_once_with()
+        self.assertEqual(snapshots, [self.stale_groups()])
+        self.assertNotEqual(viewer.group_labels, snapshots[0])
+
+    def test_undo_brings_the_groups_back(self):
+        from EMAPSSN_Viewer import MainViewer
+
+        n_nodes = 7
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.n_nodes = n_nodes
+        viewer.full_headers = [f"n{node}" for node in range(n_nodes)]
+        viewer.edges = np.array(BARBELL_EDGES, dtype=np.int32)
+        viewer.pos = np.zeros((n_nodes, 2), dtype=np.float32)
+        viewer.visible_mask = np.ones(n_nodes, dtype=bool)
+        viewer.current_colors = np.zeros((n_nodes, 4))
+        viewer.current_sizes = np.full(n_nodes, 10.0, dtype=np.float32)
+        viewer.current_shapes = np.full(n_nodes, "disc", dtype=object)
+        viewer.node_render_order = np.arange(n_nodes, dtype=np.int32)
+        viewer.cluster_labels = np.array(self.OLD_CLUSTERS)
+        viewer.last_cluster_params = ("LEIDEN_1.0", 10)
+        viewer.group_labels = [set(groups) for groups in self.stale_groups()]
+        viewer.metadata = {}
+        viewer._cacheable_attrs = set()
+        viewer.selected_indices = []
+        viewer.position_history = []
+        viewer.redo_stack = []
+        viewer.console_text = SimpleNamespace(text="")
+        viewer.update_nodes = mock.Mock()
+        viewer.update_selection_visual = mock.Mock()
+        viewer.update_edges = mock.Mock()
+        viewer.broadcast_event = mock.Mock()
+
+        _succeeded, failed, _output = run_command(cluster, viewer, self.ARGS)
+
+        failed.assert_not_called()
+        np.testing.assert_array_equal(viewer.cluster_labels, [1, 1, 1, 2, 2, 2, -1])
+        self.assertNotIn("subcluster_1_1", set().union(*viewer.group_labels))
+        self.assertEqual(len(viewer.position_history), 1)
+
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(viewer._do_undo())
+
+        self.assertEqual(viewer.group_labels, self.stale_groups())
+        np.testing.assert_array_equal(viewer.cluster_labels, self.OLD_CLUSTERS)
+        self.assertEqual(viewer.last_cluster_params, ("LEIDEN_1.0", 10))
+
+    def test_a_refused_or_failed_run_leaves_the_groups_alone(self):
+        cases = [
+            (["mcl", "1.0", "1"], {}),        # inflation out of range
+            (["jaccard", "1.5", "1"], {}),    # threshold out of range
+            (["leiden", "0", "1"], {}),       # resolution not above 0
+            (["jaccard", "0.2", "0"], {}),    # MIN_SIZE below 1
+            (["jaccard", "0.2", "big"], {}),  # MIN_SIZE not an integer
+            (["jaccard", "many"], {}),        # parameter not a number
+            (["hierarchical"], {}),           # unknown mode
+            (["leiden"], {"graspologic_native": None}),  # library missing
+        ]
+        for args, modules in cases:
+            with self.subTest(args=args):
+                viewer = self.viewer(self.stale_groups())
+                with mock.patch.dict(sys.modules, modules):
+                    succeeded, failed, _output = run_command(cluster, viewer, args)
+                failed.assert_called_once()
+                succeeded.assert_not_called()
+                self.assertEqual(viewer.group_labels, self.stale_groups())
+                np.testing.assert_array_equal(viewer.cluster_labels, self.OLD_CLUSTERS)
+                viewer._save_state.assert_not_called()
+
+    def test_an_mcl_run_that_cannot_use_the_edge_scores_leaves_the_groups_alone(self):
+        viewer = self.viewer(self.stale_groups())
+        viewer.edge_scores = np.array([1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+        succeeded, failed, _output = run_command(cluster, viewer, ["mcl", "2", "1"])
+
+        failed.assert_called_once()
+        succeeded.assert_not_called()
+        self.assertEqual(viewer.group_labels, self.stale_groups())
+        viewer._save_state.assert_not_called()
+
+    def test_list_and_help_leave_the_groups_alone(self):
+        for args in (["list"], ["help"]):
+            with self.subTest(args=args):
+                viewer = self.viewer(self.stale_groups())
+                _succeeded, failed, _output = run_command(cluster, viewer, args)
+                failed.assert_not_called()
+                self.assertEqual(viewer.group_labels, self.stale_groups())
+                viewer._save_state.assert_not_called()
+
+    def test_a_viewer_without_groups_clusters_as_before(self):
+        for group_labels in (None, "absent"):
+            with self.subTest(group_labels=group_labels):
+                viewer = network_viewer(7, BARBELL_EDGES)
+                if group_labels is None:
+                    viewer.group_labels = None
+                succeeded, failed, _output = run_command(cluster, viewer, self.ARGS)
+                failed.assert_not_called()
+                succeeded.assert_called_once_with(viewer, "Done! Found 2 clusters via JACCARD.")
+
+    def test_the_help_and_catalog_say_cluster_removes_the_groups(self):
+        printed = io.StringIO()
+        with redirect_stdout(printed):
+            cluster.print_help()
+        self.assertIn(
+            "removes the subcluster groups (subcluster_N_M)", " ".join(printed.getvalue().split())
+        )
+
+        from desktop.Command_Metadata import COMMAND_METADATA
+
+        action = COMMAND_METADATA["cluster"]["arguments"][0]["description"]
+        self.assertIn("removes the generated subcluster_N_M groups", action)
+
+
 if __name__ == "__main__":
     unittest.main()

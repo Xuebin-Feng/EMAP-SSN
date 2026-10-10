@@ -1170,6 +1170,7 @@
                 <div class="subheading">Important Notes</div>
                 <ul>
                     <li>Clustering is a destructive action to the visual state (overwrites node colors), but can be reverted with the <code>undo</code> command.</li>
+                    <li>Running <code>cluster</code> replaces the current clusters, so it also removes the generated <code>subcluster_N_M</code> groups of the previous clustering and reports how many it removed. Custom groups with lookalike names, such as <code>subcluster_0_2</code>, are kept, and <code>undo</code> brings the removed groups back.</li>
                     <li>Clustering parameters are cached. Downstream sequence alignment tools automatically construct output directories named after your specific parameters (e.g., <code>LEIDEN_1.0_Min10</code>).</li>
                     <li>The command uses a dynamic color generator operating in HLS color space. It automatically scales the balance of distinct hues and lightness shades based on the number of clusters, ensuring maximum readability, visual distinction, and a clean pastel layout without requiring external dependencies.</li>
                 </ul>
@@ -1188,7 +1189,7 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. The terminal report uses the same highly saturated subcluster palette.</p>
+                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. Running <code>cluster</code> again removes these generated groups, because they describe the clusters it replaces. The terminal report uses the same highly saturated subcluster palette.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -1540,7 +1541,7 @@
                 <div class="subheading">Arguments</div>
                 <ul>
                     <li><strong>{&lt;property_name&gt;}:</strong> Exactly one numerical metadata property is required (e.g. <code>{Length}</code>). A bare brace target selects the spectrum property, while a complete predicate such as <code>{Length&gt;500}</code> remains a Boolean node expression.</li>
-                    <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>; an unrecognized name warns and falls back to that default. A token that forms a complete selection expression is read as an expression before it is tried as a colormap name.</li>
+                    <li><strong>&lt;color_scheme&gt;:</strong> (Optional) One standalone Matplotlib colormap name. Defaults to <code>coolwarm</code>. Names are not case-sensitive (<code>Viridis</code> is <code>viridis</code>); an unrecognized name is an error and changes no colors. A token that forms a complete selection expression is read as an expression before it is tried as a colormap name.</li>
                     <li><strong>[expression]:</strong> (Optional) Logical expression to select which visible nodes are colored. If omitted, all visible nodes in the network are colored. Targeted nodes whose property value is missing, non-numeric, or infinite are colored light gray and excluded from the numeric minimum/maximum range.</li>
                     <li><strong>Ordering:</strong> The property, expression, and color scheme may appear in any order because each role is classified before execution. The former <code>prop:</code>, <code>property:</code>, <code>scheme:</code>, and <code>color:</code> forms are no longer accepted.</li>
                 </ul>

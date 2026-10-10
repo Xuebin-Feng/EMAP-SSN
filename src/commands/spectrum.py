@@ -90,6 +90,8 @@ def print_help():
     Arguments:
       {PROPERTY_NAME}         - The required numerical metadata property (e.g., {Length}).
       COLOR_SCHEME            - (Optional) Matplotlib colormap name. Defaults to 'coolwarm'.
+                                Names are not case-sensitive (Viridis is viridis). An unknown
+                                name is an error and changes no colors.
                                 Supported schemes:
                                 * Perceptually Uniform: viridis, plasma, inferno, magma, cividis
                                 * Sequential: Blues, BuGn, BuPu, GnBu, Greens, Greys, Oranges, 
@@ -143,18 +145,17 @@ def get_colormap(scheme_name):
     return cm.get_cmap('coolwarm'), False
 
 
-def is_registered_colormap(scheme_name):
-    try:
-        if hasattr(mpl, 'colormaps'):
-            mpl.colormaps[scheme_name]
-            return True
-    except KeyError:
-        pass
-    try:
-        cm.get_cmap(scheme_name)
-        return True
-    except Exception:
-        return False
+def registered_colormap_name(scheme_name):
+    """Matplotlib's spelling of a colormap name, or None when it is unknown.
+
+    Names are not case-sensitive: an exact match wins, otherwise the name must
+    match exactly one registered name ignoring case.
+    """
+    names = list(mpl.colormaps)
+    if scheme_name in names:
+        return scheme_name
+    matches = [name for name in names if name.lower() == scheme_name.lower()]
+    return matches[0] if len(matches) == 1 else None
 
 def run(viewer, args):
     if not args:
@@ -170,6 +171,7 @@ def run(viewer, args):
     prop_name = None
     scheme_name = 'coolwarm'
     scheme_supplied = False
+    scheme_unknown = False
 
     for arg in args:
         arg_lower = arg.lower()
@@ -208,13 +210,14 @@ def run(viewer, args):
                 return
             expr = arg
             continue
-        if is_registered_colormap(arg):
+        colormap_name = registered_colormap_name(arg)
+        if colormap_name is not None:
             if scheme_supplied:
                 msg = Message("Error: Spectrum accepts at most one color scheme.")
                 Command_Engine.print_help(viewer, msg)
                 Command_Engine.command_failed(viewer, msg)
                 return
-            scheme_name = arg
+            scheme_name = colormap_name
             scheme_supplied = True
             continue
 
@@ -234,10 +237,22 @@ def run(viewer, args):
             return
         scheme_name = arg
         scheme_supplied = True
+        scheme_unknown = True
 
     if not prop_name:
         print_help()
         msg = Message("Error: Target property must be specified as {syntax}.", syntax="{PROPERTY_NAME}")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
+        return
+
+    # Refused before any change: a colormap name that is not registered.
+    if scheme_unknown:
+        msg = Message(
+            "Error: Unknown color scheme '{scheme}'. Use a matplotlib colormap name such as "
+            "viridis; see 'spectrum help' for the list.",
+            scheme=scheme_name,
+        )
         Command_Engine.print_help(viewer, msg)
         Command_Engine.command_failed(viewer, msg)
         return

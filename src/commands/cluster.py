@@ -21,6 +21,10 @@ import sys
 import os
 import colorsys
 import math
+try:
+    import commands.group as group_cmd
+except ImportError:
+    import group as group_cmd
 
 if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')
@@ -199,6 +203,24 @@ def label_mcl_clusters(clusters, n_nodes, min_size):
     return labels
 
 
+def remove_generated_subcluster_groups(viewer):
+    """Remove the groups the subcluster command generated; return their names, sorted.
+
+    They name nodes of the clusters that were just replaced. Custom groups with
+    lookalike names, such as subcluster_0_2 or subcluster_001_2, are kept.
+    """
+    group_labels = getattr(viewer, 'group_labels', None)
+    if group_labels is None:
+        return []
+    removed = set()
+    for g_set in group_labels:
+        generated = [g for g in g_set if group_cmd.is_generated_subcluster_name(g)]
+        for g in generated:
+            g_set.remove(g)
+        removed.update(generated)
+    return sorted(removed)
+
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -249,6 +271,12 @@ def print_help():
     Cluster numbering:
       Retained clusters are numbered from largest to smallest. Equal-size
       clusters are ordered by their lowest member node index.
+
+    Subclusters:
+      Running cluster replaces the current clusters, so it also removes the
+      subcluster groups (subcluster_N_M) the subcluster command generated for
+      them; undo brings them back. Custom groups with lookalike names, such as
+      subcluster_0_2 or subcluster_001_2, are kept.
     """)
 
 def run(viewer, args):
@@ -450,6 +478,9 @@ def run(viewer, args):
     viewer._save_state()
     
     viewer.cluster_labels = labels
+
+    # The generated subcluster groups name nodes of the clusters just replaced.
+    removed_subclusters = remove_generated_subcluster_groups(viewer)
     
     # Store parameters as strings so external commands (align.py, etc.) know what was used
     viewer.last_cluster_params = (f"{mode.upper()}_{param1}", min_sz)
@@ -496,21 +527,26 @@ def run(viewer, args):
     
     n_clusters = len(sorted_clusters)
     msg = Message("Done! Found %n cluster(s) via {mode}.", n=n_clusters, mode=mode.upper())
+    parts = [msg]
+    if removed_subclusters:
+        parts.append(Message(
+            "Removed %n generated subcluster group(s) of the previous clustering.",
+            n=len(removed_subclusters),
+        ))
 
     # A custom group made before this run may already carry a new cluster's
-    # name, which makes #cluster_N# ambiguous. Groups are not renamed or removed.
+    # name, which makes #cluster_N# ambiguous. Custom groups are not renamed or removed.
     group_labels = getattr(viewer, 'group_labels', None)
     group_names = set().union(*group_labels) if group_labels is not None else set()
     shared_names = [f"cluster_{cid}" for cid in sorted_clusters if f"cluster_{cid}" in group_names]
     if shared_names:
-        msg = JoinedMessage([
-            msg,
-            Message(
-                "Warning: custom groups and clusters now share %n name(s): {names}. "
-                "Selecting them with #name# is ambiguous until the group is removed.",
-                n=len(shared_names), names=", ".join(shared_names),
-            ),
-        ])
+        parts.append(Message(
+            "Warning: custom groups and clusters now share %n name(s): {names}. "
+            "Selecting them with #name# is ambiguous until the group is removed.",
+            n=len(shared_names), names=", ".join(shared_names),
+        ))
+    if len(parts) > 1:
+        msg = JoinedMessage(parts)
     Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)
