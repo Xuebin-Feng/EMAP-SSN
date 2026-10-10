@@ -22,7 +22,9 @@ import sys
 import time
 import urllib.request
 
-import torch
+# torch is imported where local folding starts (run_predictions), not here: a
+# missing or broken torch can crash the import, and main() must have read and
+# deleted the private --delete-input file before anything that can.
 
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -343,6 +345,8 @@ def run_predictions(
         }
         close_model = True
     else:
+        import torch
+
         device = torch.device(
             target_device or ("cuda" if torch.cuda.is_available() else "cpu")
         )

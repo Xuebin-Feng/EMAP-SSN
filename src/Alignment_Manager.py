@@ -33,6 +33,7 @@ from utilities.Sequence_Utils import (
     sanitize_msa_headers,
     simplify_node_label,
 )
+from utilities.Localization import Message
 
 
 def _print_red_warning(message):
@@ -46,6 +47,8 @@ class Alignment_Manager:
     def __init__(self, msa_file, full_headers=None, active_reference=None, alignment_offset=0):
         self.msa_file = msa_file
         self.aln = None
+        # Why the alignment failed to load, as a Message, when it did.
+        self.load_failure = None
         self.sanitization_stats = None
         self.valid_cols = None
         self.seq_map = {}
@@ -65,7 +68,7 @@ class Alignment_Manager:
             print("An MSA is not selected and will not be loaded.")
             return
 
-        self.aln = load_alignment_smart(msa_file, filter_headers=full_headers)
+        self.aln, self.load_failure = load_alignment_with_reason(msa_file, filter_headers=full_headers)
         if self.aln is None:
             print('Warning: Failed to load alignment.')
             return
@@ -240,19 +243,21 @@ class SparseAlignmentLoader:
             for object_path in required_paths:
                 link = hf.get(object_path, getlink=True)
                 if link is None:
-                    raise MSAValidationError(
-                        f"Sparse HDF5 is missing required object '{object_path}'."
-                    )
+                    raise MSAValidationError(Message(
+                        "Sparse HDF5 is missing required object '{path}'.",
+                        path=object_path,
+                    ))
                 if not isinstance(link, h5py.HardLink):
-                    raise MSAValidationError(
-                        f"Sparse HDF5 required object '{object_path}' must be a local hard link."
-                    )
+                    raise MSAValidationError(Message(
+                        "Sparse HDF5 required object '{path}' must be a local hard link.",
+                        path=object_path,
+                    ))
 
             mat_group = hf["matrix"]
             if not isinstance(mat_group, h5py.Group):
-                raise MSAValidationError("Sparse HDF5 'matrix' must be a group.")
+                raise MSAValidationError(Message("Sparse HDF5 'matrix' must be a group."))
             if "shape" not in mat_group.attrs:
-                raise MSAValidationError("Sparse HDF5 matrix is missing its shape attribute.")
+                raise MSAValidationError(Message("Sparse HDF5 matrix is missing its shape attribute."))
 
             shape_array = np.asarray(mat_group.attrs["shape"])
             if (
@@ -260,14 +265,14 @@ class SparseAlignmentLoader:
                 or len(shape_array) != 2
                 or not np.issubdtype(shape_array.dtype, np.integer)
             ):
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 matrix shape must contain two integers."
-                )
+                ))
             shape = tuple(int(value) for value in shape_array)
             if shape[0] <= 0 or shape[1] <= 0:
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 matrix must contain at least one row and one column."
-                )
+                ))
 
             data_ds = mat_group["data"]
             indices_ds = mat_group["indices"]
@@ -278,58 +283,63 @@ class SparseAlignmentLoader:
                 ("matrix/indptr", indptr_ds),
             ):
                 if not isinstance(dataset, h5py.Dataset) or dataset.ndim != 1:
-                    raise MSAValidationError(
-                        f"Sparse HDF5 '{name}' must be a one-dimensional dataset."
-                    )
+                    raise MSAValidationError(Message(
+                        "Sparse HDF5 '{name}' must be a one-dimensional dataset.",
+                        name=name,
+                    ))
                 if not np.issubdtype(dataset.dtype, np.integer):
-                    raise MSAValidationError(
-                        f"Sparse HDF5 '{name}' must use an integer dtype."
-                    )
+                    raise MSAValidationError(Message(
+                        "Sparse HDF5 '{name}' must use an integer dtype.",
+                        name=name,
+                    ))
 
             headers_ds = hf["headers"]
             if not isinstance(headers_ds, h5py.Dataset) or headers_ds.ndim != 1:
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 'headers' must be a one-dimensional dataset."
-                )
+                ))
             if len(headers_ds) != shape[0]:
-                raise MSAValidationError(
-                    f"Sparse HDF5 header count ({len(headers_ds)}) does not match "
-                    f"matrix rows ({shape[0]})."
-                )
+                raise MSAValidationError(Message(
+                    "Sparse HDF5 header count ({headers}) does not match "
+                    "matrix rows ({rows}).",
+                    headers=len(headers_ds),
+                    rows=shape[0],
+                ))
 
             if len(data_ds) != len(indices_ds):
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 data and indices datasets have different lengths."
-                )
+                ))
             if len(indptr_ds) != shape[0] + 1:
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 indptr length must equal row count plus one."
-                )
+                ))
 
             indices = indices_ds[:]
             indptr = indptr_ds[:]
             nnz = len(data_ds)
 
             if int(indptr[0]) != 0 or int(indptr[-1]) != nnz:
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 indptr endpoints do not match the stored entries."
-                )
+                ))
             if np.any(indptr < 0) or np.any(indptr[1:] < indptr[:-1]):
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 indptr values must be non-negative and monotonic."
-                )
+                ))
             if np.any(indices < 0) or np.any(indices >= shape[1]):
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 contains column indices outside the matrix shape."
-                )
+                ))
             for row_idx in range(shape[0]):
                 start = int(indptr[row_idx])
                 end = int(indptr[row_idx + 1])
                 row_indices = indices[start:end]
                 if len(row_indices) != len(np.unique(row_indices)):
-                    raise MSAValidationError(
-                        f"Sparse HDF5 row {row_idx} contains duplicate column indices."
-                    )
+                    raise MSAValidationError(Message(
+                        "Sparse HDF5 row {row} contains duplicate column indices.",
+                        row=row_idx,
+                    ))
 
             raw_headers = []
             for row_idx, raw_header in enumerate(headers_ds[:], start=1):
@@ -337,41 +347,44 @@ class SparseAlignmentLoader:
                     try:
                         header = bytes(raw_header).decode("utf-8", errors="strict")
                     except UnicodeDecodeError as exc:
-                        raise MSAValidationError(
-                            f"Sparse HDF5 header {row_idx} is not valid UTF-8."
-                        ) from exc
+                        raise MSAValidationError(Message(
+                            "Sparse HDF5 header {row} is not valid UTF-8.",
+                            row=row_idx,
+                        )) from exc
                 elif isinstance(raw_header, str):
                     header = raw_header
                 else:
-                    raise MSAValidationError(
-                        f"Sparse HDF5 header {row_idx} is not a string."
-                    )
+                    raise MSAValidationError(Message(
+                        "Sparse HDF5 header {row} is not a string.",
+                        row=row_idx,
+                    ))
                 raw_headers.append(header)
             raw_headers = sanitize_msa_headers(raw_headers, stats)
 
             mapping_dataset = hf["int_to_aa"]
             if not isinstance(mapping_dataset, h5py.Dataset) or mapping_dataset.shape != ():
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 'int_to_aa' must be a scalar JSON dataset."
-                )
+                ))
             mapping_text = mapping_dataset[()]
             if isinstance(mapping_text, (bytes, np.bytes_)):
                 try:
                     mapping_text = bytes(mapping_text).decode("utf-8", errors="strict")
                 except UnicodeDecodeError as exc:
-                    raise MSAValidationError(
+                    raise MSAValidationError(Message(
                         "Sparse HDF5 int_to_aa is not valid UTF-8."
-                    ) from exc
+                    )) from exc
             if not isinstance(mapping_text, str):
-                raise MSAValidationError(
+                raise MSAValidationError(Message(
                     "Sparse HDF5 int_to_aa must contain UTF-8 JSON text."
-                )
+                ))
             try:
                 decoded_mapping = json.loads(mapping_text)
             except json.JSONDecodeError as exc:
-                raise MSAValidationError(
-                    f"Sparse HDF5 int_to_aa contains invalid JSON: {exc.msg}."
-                ) from exc
+                raise MSAValidationError(Message(
+                    "Sparse HDF5 int_to_aa contains invalid JSON: {error}.",
+                    error=exc.msg,
+                )) from exc
             source_int_to_aa = parse_int_to_aa_mapping(decoded_mapping)
 
             canonical_data = np.empty(nnz, dtype=np.uint8)
@@ -614,17 +627,21 @@ class InMemorySparseLoader(SparseAlignmentLoader):
 
         print_msa_sanitization_result(stats, fasta_path)
 
-def load_alignment_smart(msa_path, filter_headers=None):
+def load_alignment_with_reason(msa_path, filter_headers=None):
     """
     Strict loader: Respects the exact file extension provided.
     - .h5: Loads the pre-computed sparse matrix from disk.
     - .fasta: Converts the FASTA to a sparse matrix directly in RAM.
 
-    Returns the sparse loader, or None when the path is empty, missing,
-    unsupported, or rejected. Every loaded alignment is sparse.
+    Returns (alignment, reason). The alignment is the sparse loader, or None
+    when the path is empty, missing, unsupported, or rejected; every loaded
+    alignment is sparse. The reason is None unless a path failed to load, and
+    then is a Message: the failure printed to the terminal, without its
+    "ERROR: " prefix. str(reason) is English, and display_text(reason) is
+    what a window shows translated.
     """
     if not msa_path or str(msa_path).strip() == "" or str(msa_path).strip().lower() == "none":
-        return None
+        return None, None
 
     msa_path = os.fspath(msa_path)
     extension = os.path.splitext(msa_path)[1].lower()
@@ -633,29 +650,41 @@ def load_alignment_smart(msa_path, filter_headers=None):
         if os.path.exists(msa_path):
             print(f"--- Loading Sparse Alignment in HDF5 format: {msa_path} ---")
             try:
-                return SparseAlignmentLoader(msa_path, filter_headers)
+                return SparseAlignmentLoader(msa_path, filter_headers), None
             except MSAValidationError as e:
-                _print_red_warning(f"ERROR: MSA rejected: {e}")
-                return None
+                reason = Message("MSA rejected: {error}", error=e)
+                _print_red_warning(f"ERROR: {reason}")
+                return None, reason
             except Exception as e:
-                print(f"Error loading HDF5: {e}")
-                return None
+                reason = Message("Error loading HDF5: {error}", error=e)
+                print(reason)
+                return None, reason
         else:
-            print(f"Error: Specified HDF5 file does not exist: {msa_path}")
-            return None
+            reason = Message("Specified HDF5 file does not exist: {path}", path=msa_path)
+            print(f"Error: {reason}")
+            return None, reason
 
     if extension != ".fasta":
-        _print_red_warning(
-            f"ERROR: MSA rejected: Unsupported alignment extension '{extension or '(none)'}'. "
-            "Expected .fasta or .h5."
+        reason = Message(
+            "MSA rejected: Unsupported alignment extension '{extension}'. "
+            "Expected .fasta or .h5.",
+            extension=extension or '(none)',
         )
-        return None
+        _print_red_warning(f"ERROR: {reason}")
+        return None, reason
 
     try:
-        return InMemorySparseLoader(msa_path, filter_headers)
+        return InMemorySparseLoader(msa_path, filter_headers), None
     except MSAValidationError as e:
-        _print_red_warning(f"ERROR: MSA rejected: {e}")
-        return None
+        reason = Message("MSA rejected: {error}", error=e)
+        _print_red_warning(f"ERROR: {reason}")
+        return None, reason
     except Exception as e:
-        print(f"Error loading FASTA into memory: {e}")
-        return None
+        reason = Message("Error loading FASTA into memory: {error}", error=e)
+        print(reason)
+        return None, reason
+
+
+def load_alignment_smart(msa_path, filter_headers=None):
+    """load_alignment_with_reason without the reason: the sparse loader, or None."""
+    return load_alignment_with_reason(msa_path, filter_headers)[0]

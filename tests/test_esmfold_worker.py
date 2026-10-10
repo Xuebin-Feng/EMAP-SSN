@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -86,6 +87,23 @@ def fake_esm_modules():
     }
 
 
+# Runs the worker script as __main__ in a process where `import torch` raises
+# ImportError, as it does for a missing torch, and where esm imports.
+# argv: worker script, then the worker's arguments.
+TORCH_UNIMPORTABLE_RUNNER = """
+import runpy, sys, types
+worker, *arguments = sys.argv[1:]
+sys.modules["torch"] = None
+for name in ("esm", "esm.sdk", "esm.sdk.api"):
+    sys.modules[name] = types.ModuleType(name)
+sys.modules["esm.sdk.api"].ESMProtein = object
+sys.modules["esm.sdk.api"].ESMProteinError = object
+sys.modules["esm.sdk.api"].GenerationConfig = object
+sys.argv = [worker, *arguments]
+runpy.run_path(worker, run_name="__main__")
+"""
+
+
 class ESMFoldWorkerTests(unittest.TestCase):
     def test_argument_parser_preserves_local_compatibility_and_large_mode(self):
         local = esmfold_worker.parse_arguments(["input.json", "structures", "cuda"])
@@ -147,6 +165,30 @@ class ESMFoldWorkerTests(unittest.TestCase):
             self.assertEqual(
                 esmfold_worker.parse_arguments(["records.json", "--delete-input"]).delete_input, True
             )
+
+    def test_a_torch_that_cannot_be_imported_leaves_no_input_file_behind(self):
+        # The worker used to import torch before reading its arguments, so a
+        # torch that is missing or crashes on import left the private file the
+        # Viewer handed over (--delete-input) in the temporary folder.
+        with tempfile.TemporaryDirectory() as directory:
+            input_path = os.path.join(directory, "records.json")
+            status_path = os.path.join(directory, "status.json")
+            Path(input_path).write_text('[["node_1", "ACDE"]]', encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable, "-c", TORCH_UNIMPORTABLE_RUNNER, esmfold_worker.__file__,
+                    input_path, os.path.join(directory, "structures"), "cpu",
+                    "--delete-input", "--noninteractive", "--portal-status", status_path,
+                ],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+            )
+            self.assertFalse(os.path.exists(input_path), result.stdout + result.stderr)
+            # The failure is still reported: on the terminal, in the exit code and to the Viewer.
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("Error initializing ESM3 prediction:", result.stdout)
+            status = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            self.assertEqual(status["status"], "failed")
+            self.assertIn("torch", status["message"])
 
     def test_large_client_uses_hidden_worker_terminal_prompt(self):
         settings = {

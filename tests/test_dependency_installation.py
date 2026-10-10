@@ -1464,5 +1464,19 @@ class ValidatorProgramTests(unittest.TestCase):
         self.assertEqual(probes, [])
 
 
+class LegacyExcelReaderDependencyTests(unittest.TestCase):
+    """Metadata .xls uploads are read by pandas.read_excel, which needs xlrd."""
+
+    def test_requirements_pin_xlrd_for_legacy_xls_uploads(self):
+        lines = Install_Dependencies._requirement_lines(SRC / "requirements.txt")
+        self.assertIn("xlrd==2.0.2", lines)
+
+    def test_pandas_can_import_its_optional_xlrd_reader(self):
+        from pandas.compat._optional import import_optional_dependency
+
+        # Raises ImportError when xlrd is missing or older than pandas accepts.
+        self.assertIsNotNone(import_optional_dependency("xlrd"))
+
+
 if __name__ == "__main__":
     unittest.main()

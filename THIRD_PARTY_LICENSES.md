@@ -175,6 +175,7 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | umap-learn | BSD-3-Clause |
 | matplotlib | Matplotlib License (PSF-based, BSD-compatible) |
 | logomaker, markov-clustering, openpyxl, jsonschema | MIT |
+| xlrd 2.0.2 | BSD-3-Clause for the main work (Stephen John Machin, Lingfo Pty Ltd); a BSD-4-Clause-style notice, with advertising and acknowledgment clauses, for earlier work by David Giffin |
 | tqdm | MPL-2.0 AND MIT |
 
 The numpy wheel declares `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` for

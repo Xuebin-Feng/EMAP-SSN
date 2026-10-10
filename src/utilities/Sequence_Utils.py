@@ -659,7 +659,11 @@ INT_TO_AA = {code: residue for residue, code in AA_TO_INT.items()}
 
 
 class MSAValidationError(ValueError):
-    """Raised when an alignment is structurally unsafe or ambiguous to load."""
+    """Raised when an alignment is structurally unsafe or ambiguous to load.
+
+    It holds a Message, so str(error) is English for the terminal and
+    display_text(error) is the reason a window shows translated.
+    """
 
 
 @dataclass
@@ -697,7 +701,7 @@ def sanitize_msa_header(header, stats=None):
     if stats is not None and modified:
         stats.headers_modified += 1
     if not safe_header:
-        raise MSAValidationError("MSA headers must not be empty after sanitization.")
+        raise MSAValidationError(Message("MSA headers must not be empty after sanitization."))
     return safe_header
 
 
@@ -737,17 +741,17 @@ def sanitize_msa_headers(headers, stats=None):
     for row_idx, header in enumerate(headers, start=1):
         raw_header = str(header)
         if not raw_header.strip():
-            raise MSAValidationError(f"MSA row {row_idx} has an empty header.")
+            raise MSAValidationError(Message("MSA row {row} has an empty header.", row=row_idx))
         if raw_header in raw_seen:
-            raise MSAValidationError(f"Duplicate MSA header: '{raw_header}'.")
+            raise MSAValidationError(Message("Duplicate MSA header: '{header}'.", header=raw_header))
         raw_seen.add(raw_header)
 
         clean_header = sanitize_msa_header(raw_header, stats)
         if clean_header in clean_seen:
-            raise MSAValidationError(
-                f"MSA header sanitization creates a duplicate header: "
-                f"'{clean_header}'."
-            )
+            raise MSAValidationError(Message(
+                "MSA header sanitization creates a duplicate header: '{header}'.",
+                header=clean_header,
+            ))
         clean_seen.add(clean_header)
         clean_headers.append(clean_header)
 
@@ -758,7 +762,7 @@ def load_sanitized_msa_fasta(file_path):
     """Strictly parse and sanitize an aligned FASTA without modifying the file."""
     source_path = os.fspath(file_path)
     if not os.path.isfile(source_path):
-        raise MSAValidationError(f"MSA FASTA file not found: {source_path}")
+        raise MSAValidationError(Message("MSA FASTA file not found: {path}", path=source_path))
 
     raw_headers = []
     raw_sequences = []
@@ -774,46 +778,50 @@ def load_sanitized_msa_fasta(file_path):
                 if line.startswith(">"):
                     if current_header is not None:
                         if not current_sequence:
-                            raise MSAValidationError(
-                                f"MSA record '{current_header}' has no sequence data."
-                            )
+                            raise MSAValidationError(Message(
+                                "MSA record '{header}' has no sequence data.",
+                                header=current_header,
+                            ))
                         raw_headers.append(current_header)
                         raw_sequences.append("".join(current_sequence))
                     current_header = line[1:]
                     current_sequence = []
                     if not current_header.strip():
-                        raise MSAValidationError(
-                            f"MSA FASTA line {line_number} has an empty header."
-                        )
+                        raise MSAValidationError(Message(
+                            "MSA FASTA line {line} has an empty header.",
+                            line=line_number,
+                        ))
                 else:
                     if current_header is None:
-                        raise MSAValidationError(
-                            f"MSA FASTA line {line_number} contains sequence data "
-                            "before the first header."
-                        )
+                        raise MSAValidationError(Message(
+                            "MSA FASTA line {line} contains sequence data "
+                            "before the first header.",
+                            line=line_number,
+                        ))
                     current_sequence.append(line)
     except UnicodeDecodeError as exc:
-        raise MSAValidationError(f"MSA FASTA is not valid UTF-8: {exc}") from exc
+        raise MSAValidationError(Message("MSA FASTA is not valid UTF-8: {error}", error=exc)) from exc
     except OSError as exc:
-        raise MSAValidationError(f"Unable to read MSA FASTA: {exc}") from exc
+        raise MSAValidationError(Message("Unable to read MSA FASTA: {error}", error=exc)) from exc
 
     if current_header is not None:
         if not current_sequence:
-            raise MSAValidationError(
-                f"MSA record '{current_header}' has no sequence data."
-            )
+            raise MSAValidationError(Message(
+                "MSA record '{header}' has no sequence data.",
+                header=current_header,
+            ))
         raw_headers.append(current_header)
         raw_sequences.append("".join(current_sequence))
 
     if not raw_headers:
-        raise MSAValidationError("MSA FASTA contains no records.")
+        raise MSAValidationError(Message("MSA FASTA contains no records."))
 
     stats = MSASanitizationStats()
     headers = sanitize_msa_headers(raw_headers, stats)
     sequences = [sanitize_aligned_sequence(sequence, stats) for sequence in raw_sequences]
     alignment_length = len(sequences[0])
     if alignment_length == 0:
-        raise MSAValidationError("MSA sequences must not be empty after sanitization.")
+        raise MSAValidationError(Message("MSA sequences must not be empty after sanitization."))
 
     unequal = [
         (headers[idx], len(sequence))
@@ -824,36 +832,41 @@ def load_sanitized_msa_fasta(file_path):
         examples = ", ".join(
             f"'{header}' ({length})" for header, length in unequal[:5]
         )
-        raise MSAValidationError(
-            f"MSA sequences must have equal aligned lengths; expected "
-            f"{alignment_length}, found {examples}."
-        )
+        raise MSAValidationError(Message(
+            "MSA sequences must have equal aligned lengths; expected "
+            "{expected}, found {examples}.",
+            expected=alignment_length,
+            examples=examples,
+        ))
     return headers, sequences, stats
 
 
 def parse_int_to_aa_mapping(raw_mapping):
     """Validate and normalize a decoded sparse-HDF5 residue mapping."""
     if not isinstance(raw_mapping, dict):
-        raise MSAValidationError("HDF5 int_to_aa must decode to a JSON object.")
+        raise MSAValidationError(Message("HDF5 int_to_aa must decode to a JSON object."))
 
     mapping = {}
     for raw_code, symbol in raw_mapping.items():
         try:
             code = int(raw_code)
         except (TypeError, ValueError) as exc:
-            raise MSAValidationError(
-                f"HDF5 int_to_aa contains a non-integer code: {raw_code!r}."
-            ) from exc
+            raise MSAValidationError(Message(
+                "HDF5 int_to_aa contains a non-integer code: {code}.",
+                code=repr(raw_code),
+            )) from exc
         if str(code) != str(raw_code).strip():
-            raise MSAValidationError(
-                f"HDF5 int_to_aa contains a non-canonical code: {raw_code!r}."
-            )
+            raise MSAValidationError(Message(
+                "HDF5 int_to_aa contains a non-canonical code: {code}.",
+                code=repr(raw_code),
+            ))
         if code in mapping:
-            raise MSAValidationError(f"Duplicate HDF5 residue code: {code}.")
+            raise MSAValidationError(Message("Duplicate HDF5 residue code: {code}.", code=code))
         if not isinstance(symbol, str):
-            raise MSAValidationError(
-                f"HDF5 residue code {code} must map to a string."
-            )
+            raise MSAValidationError(Message(
+                "HDF5 residue code {code} must map to a string.",
+                code=code,
+            ))
         mapping[code] = symbol
     return mapping
 

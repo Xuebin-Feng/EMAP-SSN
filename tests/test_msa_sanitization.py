@@ -104,6 +104,55 @@ class MSAFastaSanitizationTests(unittest.TestCase):
         self.assertIn("ERROR: MSA rejected", output.getvalue())
         self.assertIn("equal aligned lengths", output.getvalue())
 
+    def test_a_rejected_alignment_says_why_and_the_manager_keeps_the_reason(self):
+        from utilities.Localization import Message, display_text, set_translator
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "unequal.fasta")
+            write_fasta(path, [("one", "AC-"), ("two", "AC")])
+            good = os.path.join(directory, "good.fasta")
+            write_fasta(good, [("one", "AC"), ("two", "AC")])
+            with redirect_stdout(io.StringIO()) as output:
+                loader, reason = Alignment_Manager.load_alignment_with_reason(path)
+                manager = Alignment_Manager.Alignment_Manager(path, full_headers=["one"])
+                loaded, no_reason = Alignment_Manager.load_alignment_with_reason(good)
+                loaded_manager = Alignment_Manager.Alignment_Manager(good, full_headers=["one"])
+
+        self.assertIsNone(loader)
+        self.assertIsInstance(reason, Message)
+        self.assertEqual(
+            str(reason),
+            "MSA rejected: MSA sequences must have equal aligned lengths; expected 3, found 'two' (2).",
+        )
+        # The terminal still shows the reason as it did.
+        self.assertIn(f"ERROR: {reason}", output.getvalue())
+        self.assertIsNone(manager.aln)
+        self.assertEqual(str(manager.load_failure), str(reason))
+        self.assertIsNotNone(loaded)
+        self.assertIsNone(no_reason)
+        self.assertIsNone(loaded_manager.load_failure)
+
+        previous = set_translator(lambda template, n: f"<{template}>")
+        try:
+            self.assertEqual(
+                display_text(reason),
+                "<MSA rejected: <MSA sequences must have equal aligned lengths; expected 3, found 'two' (2).>>",
+            )
+        finally:
+            set_translator(previous)
+
+    def test_load_alignment_smart_keeps_returning_only_the_alignment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            good = os.path.join(directory, "good.fasta")
+            write_fasta(good, [("one", "AC")])
+            with redirect_stdout(io.StringIO()):
+                self.assertIsNone(Alignment_Manager.load_alignment_smart(""))
+                self.assertIsNone(Alignment_Manager.load_alignment_smart("none"))
+                self.assertEqual(Alignment_Manager.load_alignment_with_reason("None"), (None, None))
+                self.assertIsNone(Alignment_Manager.load_alignment_smart(os.path.join(directory, "x.txt")))
+                self.assertIsNone(Alignment_Manager.load_alignment_smart(os.path.join(directory, "x.h5")))
+                self.assertIsNotNone(Alignment_Manager.load_alignment_smart(good))
+
     def test_header_sanitization_collision_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "collision.fasta")

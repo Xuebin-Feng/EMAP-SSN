@@ -362,6 +362,73 @@ class IncompleteAlignmentCommandTests(unittest.TestCase):
         self.assertEqual(len(viewer.alignment.aln), 2)
         self.assertIn("Success: Loaded alignment 'x.fasta' (2/2 network nodes aligned)", output.getvalue())
 
+    def failed_alignment_command(self, directory, name, content):
+        """Run `alignment` on a file the loader rejects: (viewer, previous alignment, failures, console line)."""
+        from EMAPSSN_Viewer import MainViewer
+
+        path = os.path.join(directory, name)
+        with open(path, "wb") as handle:
+            handle.write(content)
+        previous = SimpleNamespace(aln=None)
+        viewer = SimpleNamespace(
+            full_headers=["node1", "node2"],
+            active_reference="node1",
+            alignment_offset=0,
+            alignment=previous,
+            console_text=SimpleNamespace(text=""),
+        )
+        viewer.load_global_alignment = lambda: MainViewer.load_global_alignment(viewer)
+        old_msa = cfg.MSA_FILE
+        try:
+            with mock.patch.object(alignment_command.Command_Engine, "command_failed") as failed, \
+                    mock.patch.object(alignment_command.Command_Engine, "command_succeeded") as succeeded, \
+                    redirect_stdout(io.StringIO()):
+                alignment_command.run(viewer, [path])
+            self.assertEqual(cfg.MSA_FILE, old_msa)
+        finally:
+            cfg.MSA_FILE = old_msa
+        succeeded.assert_not_called()
+        self.assertIs(viewer.alignment, previous)
+        return viewer, [str(call.args[1]) for call in failed.call_args_list]
+
+    def test_a_failed_load_reports_the_loaders_reason(self):
+        cases = (
+            ("unequal.fasta", b">node1\nAC-\n>node2\nAC\n",
+             "MSA rejected: MSA sequences must have equal aligned lengths; expected 3, found 'node2' (2)."),
+            ("empty.fasta", b"", "MSA rejected: MSA FASTA contains no records."),
+            ("duplicate.fasta", b">node1\nAC\n>node1\nAC\n", "MSA rejected: Duplicate MSA header: 'node1'."),
+            ("notes.txt", b">node1\nAC\n", "MSA rejected: Unsupported alignment extension '.txt'. Expected .fasta or .h5."),
+            ("broken.h5", b"not an HDF5 file", "Error loading HDF5: "),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content, reason in cases:
+                with self.subTest(file=name):
+                    viewer, failures = self.failed_alignment_command(directory, name, content)
+
+                    self.assertTrue(failures[0].startswith(f"\nFailed to load alignment '{name}': {reason}"), failures)
+                    self.assertNotIn("failed to return an alignment", failures[0])
+                    # The record of the failure keeps its one summary, and the console line adds the reason.
+                    self.assertEqual(failures[1:], ["Load failed. Reverted to previous alignment."])
+                    self.assertTrue(
+                        viewer.console_text.text.startswith("Load failed. Reverted to previous alignment. " + reason),
+                        viewer.console_text.text,
+                    )
+
+    def test_the_failure_reason_on_the_console_line_is_translated(self):
+        from utilities import Localization
+
+        previous = Localization.set_translator(lambda template, n: f"<{template}>")
+        self.addCleanup(Localization.set_translator, previous)
+        with tempfile.TemporaryDirectory() as directory:
+            viewer, failures = self.failed_alignment_command(directory, "empty.fasta", b"")
+
+        # The terminal and the command record stay English.
+        self.assertEqual(failures[0], "\nFailed to load alignment 'empty.fasta': MSA rejected: MSA FASTA contains no records.")
+        self.assertEqual(
+            viewer.console_text.text,
+            "<Load failed. Reverted to previous alignment.> <MSA rejected: <MSA FASTA contains no records.>>",
+        )
+
     def test_success_report_treats_the_word_none_as_no_reference(self):
         from EMAPSSN_Viewer import MainViewer
 

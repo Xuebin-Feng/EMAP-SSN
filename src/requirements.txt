@@ -42,6 +42,8 @@ networkx==3.6.1
 numba==0.67.0
 numpy==2.5.3
 openpyxl==3.1.5
+# Reads legacy .xls metadata uploads through pandas.read_excel.
+xlrd==2.0.2
 # pandas 3.0 makes copy-on-write mandatory and infers a dedicated string dtype
 # instead of object. The exposure here is narrow — six files import pandas, none
 # use inplace=True or applymap — but web_ui/meta_backend.py reads metadata via

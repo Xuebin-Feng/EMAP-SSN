@@ -19,7 +19,7 @@ import EMAPSSN_Config as cfg
 import Command_Engine
 from PySide6 import QtWidgets
 from desktop.Desktop_App import translate
-from utilities.Localization import Message
+from utilities.Localization import JoinedMessage, Message
 from Viewer_Command_Portal import user_interaction, CURRENT
 
 def print_help():
@@ -139,14 +139,19 @@ def run(viewer, args):
     backup_active_ref = viewer.active_reference
 
     cfg.MSA_FILE = new_path
+    reason = None
 
     try:
         viewer.load_global_alignment()
 
         # A parseable partial or zero-overlap MSA is valid. Only a genuine loader
-        # failure leaves aln as None and triggers rollback.
+        # failure leaves aln as None and triggers rollback. The loader says why
+        # on the manager it leaves behind.
         if viewer.alignment is None or viewer.alignment.aln is None:
-            raise ValueError("Alignment loader failed to return an alignment.")
+            reason = getattr(viewer.alignment, 'load_failure', None)
+            raise ValueError(
+                "Alignment loader failed to return an alignment." if reason is None else reason
+            )
 
         aligned_count = len(getattr(viewer.alignment, 'matched_headers', []))
         total_count = len(getattr(viewer, 'full_headers', []))
@@ -186,5 +191,7 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             # The console line shows it translated; the command's record keeps the English.
             failure = Message("Load failed. Reverted to previous alignment.")
-            Command_Engine.show_status(viewer, failure)
+            # The loader's reason, when it gave one, follows on the console line;
+            # the failure reported above already holds it.
+            Command_Engine.show_status(viewer, failure if reason is None else JoinedMessage([failure, reason]))
             Command_Engine.command_failed(viewer, failure)
