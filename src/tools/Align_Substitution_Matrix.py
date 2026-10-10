@@ -93,6 +93,11 @@ NCBI_BIN_DIR    = r"C:\Program Files\NCBI"
 MAKEBLASTDB_CMD = "makeblastdb"
 BLASTP_CMD      = "blastp"
 
+# ADVANCED
+E_VALUE_CUTOFF = 1e300 # Maximum E-value threshold; sequence hit pairs evaluated above this cutoff are entirely discarded.
+MAX_TARGET_SEQS = 1000000 # The maximum threshold of mathematically aligned sequence hit traces retained per query.
+COMP_BASED_STATS = 2 # Standard BLASTP conditional composition-based score adjustment.
+
 from tools.tool_helpers.Tool_Pipeline import (
     inherited_settings_path,
     load_tool_settings,
@@ -214,11 +219,6 @@ else:
             else:
                 MAKEBLASTDB_CMD = "makeblastdb"
                 BLASTP_CMD = "blastp"
-
-# ADVANCED
-E_VALUE_CUTOFF = 1e300 # Maximum E-value threshold; sequence hit pairs evaluated above this cutoff are entirely discarded.
-MAX_TARGET_SEQS = 1000000 # The maximum threshold of mathematically aligned sequence hit traces retained per query.
-COMP_BASED_STATS = 2 # Standard BLASTP conditional composition-based score adjustment.
 
 SEQUENCE_SET = ""
 FULL_INPUT_FASTA = None

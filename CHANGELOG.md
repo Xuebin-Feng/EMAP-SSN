@@ -819,6 +819,11 @@ still change before version 1.0.0.
   of its worker processes, even when the tool ran from an exported settings file or an
   MCP job's settings. The plugin lookup now lives in `tools/tool_helpers/Model_Plugins.py`,
   so no tool imports another.
+- The Substitution Matrix Alignment (`Align_Substitution_Matrix.py`) defined
+  `E_VALUE_CUTOFF`, `MAX_TARGET_SEQS` and `COMP_BASED_STATS` after the block that applies
+  saved settings when a worker process starts, so its BLASTP workers always used 1,000,000
+  target sequences and composition-based statistics 2, whatever was saved. The three
+  settings are now defined before that block.
 
 ### Removed
 

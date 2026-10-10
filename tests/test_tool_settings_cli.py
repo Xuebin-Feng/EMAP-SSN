@@ -472,6 +472,16 @@ class ToolSettingsHandOffTests(unittest.TestCase):
             self.assertEqual(inherited_settings_path("/elsewhere/Example.py"), expected)
 
 
+def _import_time_settings_block(tree):
+    """Return a tool's `if __name__ != "__main__" and ... SETTINGS_FILE` block."""
+    for node in tree.body:
+        if isinstance(node, ast.If):
+            test = ast.unparse(node.test)
+            if "__main__" in test and "SETTINGS_FILE" in test:
+                return node
+    return None
+
+
 def _module_level_statements(tree):
     """Yield the statements that run when a module is imported."""
     pending = list(tree.body)
@@ -505,6 +515,69 @@ class ToolWorkerImportTests(unittest.TestCase):
                     if module.removeprefix("tools.") in tool_names:
                         found.append(f"{path.name}:{node.lineno} imports {module}")
         self.assertEqual(found, [])
+
+    def test_every_documented_setting_is_defined_before_the_import_time_block(self):
+        contracts = json.loads(
+            (SRC_DIR / "mcp_server" / "pipeline" / "Pipeline_Settings_Contracts.json")
+            .read_text(encoding="utf-8")
+        )
+        late = []
+        for script, contract in sorted(contracts.items()):
+            tree = ast.parse((SRC_DIR / "tools" / script).read_text(encoding="utf-8"))
+            block = _import_time_settings_block(tree)
+            if block is None:
+                continue
+            defined_before = {
+                target.id
+                for node in tree.body
+                if isinstance(node, ast.Assign) and node.lineno < block.lineno
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            }
+            late.extend(
+                f"{script}: {name}"
+                for name in contract["properties"]
+                if name not in defined_before
+            )
+        self.assertEqual(late, [])
+
+    def test_blast_workers_apply_the_advanced_settings(self):
+        script = "Align_Substitution_Matrix.py"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = os.path.join(temp_dir, "snapshot.json")
+            pathlib.Path(settings_path).write_text(
+                json.dumps({
+                    "DIRECTORIES": {},
+                    script: {
+                        "E_VALUE_CUTOFF": 0.5,
+                        "MAX_TARGET_SEQS": 7,
+                        "COMP_BASED_STATS": 0,
+                    },
+                }),
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env["SSN_TOOL_SETTINGS_SCRIPT"] = script
+            env["SSN_TOOL_SETTINGS_FILE"] = settings_path
+            # A fresh interpreter imports the tool as a spawned worker does.
+            code = (
+                "import json, sys\n"
+                f"sys.path.insert(0, {str(SRC_DIR)!r})\n"
+                "import tools.Align_Substitution_Matrix as tool\n"
+                "print(json.dumps([tool.E_VALUE_CUTOFF, tool.MAX_TARGET_SEQS, "
+                "tool.COMP_BASED_STATS]))\n"
+            )
+            completed = subprocess.run(
+                [os.sys.executable, "-c", code],
+                cwd=temp_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=120,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(json.loads(completed.stdout.strip().splitlines()[-1]), [0.5, 7, 0])
 
 
 class SharedToolSettingsTests(unittest.TestCase):
