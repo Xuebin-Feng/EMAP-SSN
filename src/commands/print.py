@@ -18,6 +18,7 @@ import os
 import math
 import time
 import datetime
+import uuid
 import numpy as np
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
@@ -50,6 +51,9 @@ CAPTURE_HIDDEN_OVERLAYS = (
     'instr_text', 'zoom_text', 'tooltip', 'hidden_text', 'console_bg',
     'console_text', 'background_job_status_text', 'selection_box',
 )
+# The SVG is written as it is made, this many edges or nodes at a time, so a
+# large network never holds the whole document in memory.
+SVG_CHUNK_SIZE = 100_000
 # Longest stretch of a full capture without letting Qt paint and run timers.
 CAPTURE_EVENT_INTERVAL_S = 0.1
 
@@ -178,6 +182,216 @@ def _scene_units_per_pixel(viewer, view_width=None):
     return scale if math.isfinite(scale) and scale > 0.0 else 1.0
 
 
+def _svg_color_attrs(rgba, is_stroke=False):
+    """A colour as fill or stroke attributes, for strict SVG 1.1/Illustrator compatibility."""
+    r, g, b, a = rgba
+    prefix = "stroke" if is_stroke else "fill"
+    color_val = f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"
+    return f'{prefix}="{color_val}" {prefix}-opacity="{a:.3f}"'
+
+
+def _svg_points(count):
+    return " ".join(["%.3f,%.3f"] * count)
+
+
+def _svg_star(cx, cy, r, d):
+    columns = []
+    for j in range(10):
+        angle = -math.pi / 2.0 + j * math.pi / 5.0
+        rad = r if j % 2 == 0 else r * 0.4
+        columns += [cx + rad * math.cos(angle), cy + rad * math.sin(angle)]
+    return columns
+
+
+def _svg_pentagon(cx, cy, r, d):
+    columns = []
+    for j in range(5):
+        angle = -math.pi / 2.0 + j * 2.0 * math.pi / 5.0
+        columns += [cx + r * math.cos(angle), cy + r * math.sin(angle)]
+    return columns
+
+
+def _svg_x(cx, cy, r, d):
+    off = 0.707 * r
+    return [cx - off, cy - off, cx + off, cy + off, cx - off, cy + off, cx + off, cy - off]
+
+
+def _svg_cross_lines(cx, cy, r, d):
+    w = r * 0.4
+    return [cx-r, cy-w, cx-w, cy-r, cx+w, cy-w, cx+r, cy+w, cx+w, cy+r, cx-w, cy+w, cx-r]
+
+
+# The element each canonical marker name is drawn as: a %-template whose last
+# field is the node's attributes, and the coordinates that fill the others,
+# worked out for many nodes at once from their centres (cx, cy), radii r and
+# diameters d in scene units.
+_SVG_NODE_ELEMENTS = {
+    'circle': (
+        '    <circle cx="%.3f" cy="%.3f" r="%.3f" %s />',
+        lambda cx, cy, r, d: [cx, cy, r],
+    ),
+    'square': (
+        '    <rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" %s />',
+        lambda cx, cy, r, d: [cx - r, cy - r, d, d],
+    ),
+    'triangle_up': (
+        f'    <polygon points="{_svg_points(3)}" %s />',
+        lambda cx, cy, r, d: [cx, cy - r, cx + 0.866 * r, cy + 0.5 * r, cx - 0.866 * r, cy + 0.5 * r],
+    ),
+    'triangle_down': (
+        f'    <polygon points="{_svg_points(3)}" %s />',
+        lambda cx, cy, r, d: [cx, cy + r, cx + 0.866 * r, cy - 0.5 * r, cx - 0.866 * r, cy - 0.5 * r],
+    ),
+    'diamond': (
+        f'    <polygon points="{_svg_points(4)}" %s />',
+        lambda cx, cy, r, d: [cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy],
+    ),
+    'star': (f'    <polygon points="{_svg_points(10)}" %s />', _svg_star),
+    'cross': (
+        '    <path d="M %.3f %.3f L %.3f %.3f M %.3f %.3f L %.3f %.3f" %s />',
+        lambda cx, cy, r, d: [cx - r, cy, cx + r, cy, cx, cy - r, cx, cy + r],
+    ),
+    'x': ('    <path d="M %.3f %.3f L %.3f %.3f M %.3f %.3f L %.3f %.3f" %s />', _svg_x),
+    'vbar': (
+        '    <line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f" %s />',
+        lambda cx, cy, r, d: [cx, cy - r, cx, cy + r],
+    ),
+    'hbar': (
+        '    <line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f" %s />',
+        lambda cx, cy, r, d: [cx - r, cy, cx + r, cy],
+    ),
+    'arrow': (
+        f'    <polygon points="{_svg_points(3)}" %s />',
+        lambda cx, cy, r, d: [cx + r, cy, cx - r * 0.5, cy - 0.866 * r, cx - r * 0.5, cy + 0.866 * r],
+    ),
+    'clobber': (f'    <polygon points="{_svg_points(5)}" %s />', _svg_pentagon),
+    'cross_lines': (
+        '    <path d="M %.3f %.3f H %.3f V %.3f H %.3f V %.3f H %.3f V %.3f H %.3f V %.3f H %.3f V %.3f H %.3f Z" %s />',
+        _svg_cross_lines,
+    ),
+}
+_SVG_NODE_KINDS = tuple(_SVG_NODE_ELEMENTS)
+
+
+def _svg_node_kind(shape):
+    """The element a canonical marker name is drawn as; anything else is a circle."""
+    if shape in ['circle', 'disc', 'o', 'ring']:
+        return 'circle'
+    if shape in ['square', 's']:
+        return 'square'
+    if shape in ['triangle', 'triangle_up', '^']:
+        return 'triangle_up'
+    if shape in ['triangle_down', 'v']:
+        return 'triangle_down'
+    if shape in ['diamond', 'D']:
+        return 'diamond'
+    if shape in ['star', '*']:
+        return 'star'
+    if shape in ['cross', '+']:
+        return 'cross'
+    if shape == 'x':
+        return 'x'
+    if shape in ['vbar', '|']:
+        return 'vbar'
+    if shape in ['hbar', '-', '_']:
+        return 'hbar'
+    if shape in ['arrow', 'tailed_arrow', '->', '>']:
+        return 'arrow'
+    if shape in ['clobber', 'p']:
+        return 'clobber'
+    if shape in ['cross_lines', 'P', '++']:
+        return 'cross_lines'
+    return 'circle'
+
+
+def _svg_node_codes(shapes):
+    """Each node's element (an index into _SVG_NODE_KINDS) and whether it is stroke-only."""
+    known = {}
+    codes = []
+    for shape in shapes:
+        try:
+            code = known[shape]
+        except KeyError:
+            code = known[shape] = (
+                2 * _SVG_NODE_KINDS.index(_svg_node_kind(shape)) + (shape in _STROKE_ONLY_SHAPES)
+            )
+        except TypeError:
+            code = 2 * _SVG_NODE_KINDS.index(_svg_node_kind(shape)) + (shape in _STROKE_ONLY_SHAPES)
+        codes.append(code)
+    codes = np.asarray(codes, dtype=np.int64)
+    return codes >> 1, (codes & 1).astype(bool)
+
+
+def _distinct_colors(colors):
+    """Return (rows, colour_of): one row index per distinct colour, and each
+    node's index into them.
+
+    Colours are told apart bit for bit, so 0.0 and -0.0 stay apart, as the
+    text written for them differs.
+    """
+    colors = np.asarray(colors)
+    if colors.dtype.hasobject or colors.ndim != 2:
+        everyone = np.arange(len(colors))
+        return everyone, everyone
+    colors = np.ascontiguousarray(colors)
+    keys = colors.view(np.dtype((np.void, colors.dtype.itemsize * colors.shape[1]))).ravel()
+    _, rows, colour_of = np.unique(keys, return_index=True, return_inverse=True)
+    return rows, colour_of.ravel()
+
+
+def _svg_edge_chunks(pos, edges, target_min_x, target_max_y, tail):
+    """The edge lines, SVG_CHUNK_SIZE edges at a time, each line ending in a newline."""
+    edges = np.asarray(edges)
+    if edges.size == 0:
+        return
+    edges = edges.reshape(-1, 2)
+    template = '    <line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f"' + tail.replace('%', '%%') + '\n'
+    for start in range(0, len(edges), SVG_CHUNK_SIZE):
+        chunk = edges[start:start + SVG_CHUNK_SIZE]
+        first = pos[chunk[:, 0]]
+        second = pos[chunk[:, 1]]
+        coordinates = np.column_stack((
+            first[:, 0] - target_min_x, target_max_y - first[:, 1],
+            second[:, 0] - target_min_x, target_max_y - second[:, 1],
+        ))
+        yield (template * len(chunk)) % tuple(coordinates.ravel().tolist())
+
+
+def _svg_node_chunks(cx, cy, d, shapes, colors, boundary_stroke):
+    """The node lines in drawing order, SVG_CHUNK_SIZE nodes at a time.
+
+    A filled shape takes its colour as the fill and the node boundary as its
+    outline; a stroke-only shape is drawn in its colour, with no fill and a
+    stroke 0.4 of its radius wide.
+    """
+    r = d / 2.0
+    kinds, stroke_only = _svg_node_codes(shapes)
+    rows, colour_of = _distinct_colors(colors)
+    fills = [_svg_color_attrs(colors[row]) + ' ' + boundary_stroke for row in rows]
+    strokes = [_svg_color_attrs(colors[row], is_stroke=True) for row in rows]
+    count = len(cx)
+    for start in range(0, count, SVG_CHUNK_SIZE):
+        stop = min(start + SVG_CHUNK_SIZE, count)
+        lines = [None] * (stop - start)
+        chunk_kinds = kinds[start:stop]
+        for kind in np.unique(chunk_kinds).tolist():
+            slots = np.flatnonzero(chunk_kinds == kind)
+            members = slots + start
+            template, coordinates = _SVG_NODE_ELEMENTS[_SVG_NODE_KINDS[kind]]
+            values = np.column_stack(coordinates(cx[members], cy[members], r[members], d[members])).tolist()
+            stroke_widths = (r[members] * 0.4).tolist()
+            for slot, row, colour, stroked, stroke_width in zip(
+                slots.tolist(), values, colour_of[members].tolist(),
+                stroke_only[members].tolist(), stroke_widths,
+            ):
+                if stroked:
+                    attrs = f'fill="none" {strokes[colour]} stroke-width="{stroke_width:.3f}"'
+                else:
+                    attrs = fills[colour]
+                lines[slot] = template % (*row, attrs)
+        yield '\n'.join(lines) + '\n'
+
+
 def _export_svg(viewer, filepath, view_width=None):
     """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility.
 
@@ -235,29 +449,19 @@ def _export_svg(viewer, filepath, view_width=None):
     height = target_max_y - target_min_y
     if height == 0: height = 1.0
     
-    # Coordinate conversion helpers
-    def get_svg_coords(x, y):
-        # Flip Y axis so Cartesian +Y goes upward, matching viewer coordinates
-        return x - target_min_x, target_max_y - y
-        
-    # Color translation helper for strict SVG 1.1/Illustrator compatibility
-    def get_color_attrs(rgba, is_stroke=False):
-        r, g, b, a = rgba
-        prefix = "stroke" if is_stroke else "fill"
-        color_val = f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"
-        return f'{prefix}="{color_val}" {prefix}-opacity="{a:.3f}"'
-
-    # 3. Generate SVG XML lines
-    svg_lines = []
-    svg_lines.append(f'<?xml version="1.0" encoding="UTF-8" standalone="no"?>')
-    svg_lines.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.3f} {height:.3f}" width="{width:.3f}" height="{height:.3f}">')
-    
-    # 4. Background layer
+    # 3. Write the SVG as it is made: the edges and then the nodes go out a
+    # chunk at a time into a partial file, which replaces the target only once
+    # it is complete, so a failure leaves any earlier file of that name alone.
     bg_color = viewer.canvas.bgcolor.rgba
     bg_color_str = f"rgb({int(bg_color[0]*255)},{int(bg_color[1]*255)},{int(bg_color[2]*255)})"
-    svg_lines.append(f'  <!-- Background -->')
-    svg_lines.append(f'  <rect width="{width:.3f}" height="{height:.3f}" fill="{bg_color_str}" fill-opacity="{bg_color[3]:.3f}" />')
-    
+    header = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.3f} {height:.3f}" width="{width:.3f}" height="{height:.3f}">',
+        # 4. Background layer
+        '  <!-- Background -->',
+        f'  <rect width="{width:.3f}" height="{height:.3f}" fill="{bg_color_str}" fill-opacity="{bg_color[3]:.3f}" />',
+    ]
+
     # 5. Edges layer: the on-screen filter (similarity threshold, visible
     # endpoints, UMAP selection edges) in the configured edge color and alpha.
     active_edges, _ = edge_stages(viewer, cfg)
@@ -265,120 +469,41 @@ def _export_svg(viewer, filepath, view_width=None):
     edge_alpha = getattr(cfg, 'EDGE_ALPHA', 0.2)
     edge_width = getattr(cfg, 'EDGE_WIDTH', 0.5) * unit
     edge_rgba = mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000'))
-    edge_stroke = get_color_attrs((*edge_rgba[:3], edge_alpha), is_stroke=True)
+    edge_stroke = _svg_color_attrs((*edge_rgba[:3], edge_alpha), is_stroke=True)
     boundary_rgba = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
     boundary_width = getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5) * unit
-    boundary_stroke = get_color_attrs(boundary_rgba, is_stroke=True) + f' stroke-width="{boundary_width:.3f}"'
+    boundary_stroke = _svg_color_attrs(boundary_rgba, is_stroke=True) + f' stroke-width="{boundary_width:.3f}"'
+    edge_tail = f' {edge_stroke} stroke-width="{edge_width:.3f}" />'
 
-    svg_lines.append(f'  <!-- Edges -->')
-    svg_lines.append(f'  <g id="edges" name="Edges">')
-    for edge in active_edges:
-        x1, y1 = get_svg_coords(viewer.pos[edge[0], 0], viewer.pos[edge[0], 1])
-        x2, y2 = get_svg_coords(viewer.pos[edge[1], 0], viewer.pos[edge[1], 1])
-        svg_lines.append(f'    <line x1="{x1:.3f}" y1="{y1:.3f}" x2="{x2:.3f}" y2="{y2:.3f}" {edge_stroke} stroke-width="{edge_width:.3f}" />')
-    svg_lines.append(f'  </g>')
-    
-    # 6. Nodes layer
-    svg_lines.append(f'  <!-- Nodes -->')
-    svg_lines.append(f'  <g id="nodes" name="Nodes">')
-    
-    for i in range(len(pos)):
-        cx, cy = get_svg_coords(pos[i, 0], pos[i, 1])
-        d = sizes[i] * unit
-        r = d / 2.0
-        shape = shapes[i]
-        rgba = colors[i]
-        
-        # Check if shape is stroke-only
-        stroke_only = shape in _STROKE_ONLY_SHAPES
-        
-        if stroke_only:
-            fill_attrs = 'fill="none"'
-            stroke_attrs = get_color_attrs(rgba, is_stroke=True) + f' stroke-width="{r * 0.4:.3f}"'
-        else:
-            fill_attrs = get_color_attrs(rgba)
-            stroke_attrs = boundary_stroke
-            
-        attrs = f'{fill_attrs} {stroke_attrs}'
-        
-        # Write shape elements
-        if shape in ['circle', 'disc', 'o', 'ring']:
-            svg_lines.append(f'    <circle cx="{cx:.3f}" cy="{cy:.3f}" r="{r:.3f}" {attrs} />')
-            
-        elif shape in ['square', 's']:
-            svg_lines.append(f'    <rect x="{cx - r:.3f}" y="{cy - r:.3f}" width="{d:.3f}" height="{d:.3f}" {attrs} />')
-            
-        elif shape in ['triangle', 'triangle_up', '^']:
-            points = f"{cx:.3f},{cy - r:.3f} {cx + 0.866 * r:.3f},{cy + 0.5 * r:.3f} {cx - 0.866 * r:.3f},{cy + 0.5 * r:.3f}"
-            svg_lines.append(f'    <polygon points="{points}" {attrs} />')
-            
-        elif shape in ['triangle_down', 'v']:
-            points = f"{cx:.3f},{cy + r:.3f} {cx + 0.866 * r:.3f},{cy - 0.5 * r:.3f} {cx - 0.866 * r:.3f},{cy - 0.5 * r:.3f}"
-            svg_lines.append(f'    <polygon points="{points}" {attrs} />')
-            
-        elif shape in ['diamond', 'D']:
-            points = f"{cx:.3f},{cy - r:.3f} {cx + r:.3f},{cy:.3f} {cx:.3f},{cy + r:.3f} {cx - r:.3f},{cy:.3f}"
-            svg_lines.append(f'    <polygon points="{points}" {attrs} />')
-            
-        elif shape in ['star', '*']:
-            pts = []
-            for j in range(10):
-                angle = -math.pi / 2.0 + j * math.pi / 5.0
-                rad = r if j % 2 == 0 else r * 0.4
-                px = cx + rad * math.cos(angle)
-                py = cy + rad * math.sin(angle)
-                pts.append(f"{px:.3f},{py:.3f}")
-            points = " ".join(pts)
-            svg_lines.append(f'    <polygon points="{points}" {attrs} />')
-            
-          # Write shape elements
-        elif shape in ['cross', '+']:
-            path_d = f"M {cx - r:.3f} {cy:.3f} L {cx + r:.3f} {cy:.3f} M {cx:.3f} {cy - r:.3f} L {cx:.3f} {cy + r:.3f}"
-            svg_lines.append(f'    <path d="{path_d}" {attrs} />')
-            
-        elif shape == 'x':
-            off = 0.707 * r
-            path_d = f"M {cx - off:.3f} {cy - off:.3f} L {cx + off:.3f} {cy + off:.3f} M {cx - off:.3f} {cy + off:.3f} L {cx + off:.3f} {cy - off:.3f}"
-            svg_lines.append(f'    <path d="{path_d}" {attrs} />')
-            
-        elif shape in ['vbar', '|']:
-            svg_lines.append(f'    <line x1="{cx:.3f}" y1="{cy - r:.3f}" x2="{cx:.3f}" y2="{cy + r:.3f}" {attrs} />')
-            
-        elif shape in ['hbar', '-', '_']:
-            svg_lines.append(f'    <line x1="{cx - r:.3f}" y1="{cy:.3f}" x2="{cx + r:.3f}" y2="{cy:.3f}" {attrs} />')
-            
-        elif shape in ['arrow', 'tailed_arrow', '->', '>']:
-            points = f"{cx + r:.3f},{cy:.3f} {cx - r * 0.5:.3f},{cy - 0.866 * r:.3f} {cx - r * 0.5:.3f},{cy + 0.866 * r:.3f}"
-            svg_lines.append(f'    <polygon points="{points}" {attrs} />')
-            
-        elif shape in ['clobber', 'p']:
-            pts = []
-            for j in range(5):
-                angle = -math.pi / 2.0 + j * 2.0 * math.pi / 5.0
-                px = cx + r * math.cos(angle)
-                py = cy + r * math.sin(angle)
-                pts.append(f"{px:.3f},{py:.3f}")
-            points = " ".join(pts)
-            svg_lines.append(f'    <polygon points="{points}" {attrs} />')
-            
-        elif shape in ['cross_lines', 'P', '++']:
-            w = r * 0.4
-            path_d = f"M {cx-r:.3f} {cy-w:.3f} H {cx-w:.3f} V {cy-r:.3f} H {cx+w:.3f} V {cy-w:.3f} H {cx+r:.3f} V {cy+w:.3f} H {cx+w:.3f} V {cy+r:.3f} H {cx-w:.3f} V {cy+w:.3f} H {cx-r:.3f} Z"
-            svg_lines.append(f'    <path d="{path_d}" {attrs} />')
-            
-        else:
-            # Failsafe: circle
-            svg_lines.append(f'    <circle cx="{cx:.3f}" cy="{cy:.3f}" r="{r:.3f}" {attrs} />')
-            
-    svg_lines.append(f'  </g>')
-    svg_lines.append(f'</svg>')
-    
-    # 7. Write to file, making the save folder only now that there is a file for it
+    # 6. Nodes layer. Y is flipped so Cartesian +Y goes upward, matching the
+    # viewer's coordinates, and sizes in screen pixels become scene units.
+    node_x = pos[:, 0] - target_min_x
+    node_y = target_max_y - pos[:, 1]
+    diameters = sizes * unit
+
+    # 7. Write the file, making the save folder only now that there is a file for it
     save_dir = os.path.dirname(filepath)
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(svg_lines))
+    stem = os.path.splitext(os.path.basename(filepath))[0]
+    partial_path = os.path.join(save_dir, f".{stem}.{uuid.uuid4().hex}.partial.svg")
+    try:
+        with open(partial_path, 'x', encoding='utf-8') as handle:
+            handle.write('\n'.join(header) + '\n')
+            handle.write('  <!-- Edges -->\n  <g id="edges" name="Edges">\n')
+            for text in _svg_edge_chunks(viewer.pos, active_edges, target_min_x, target_max_y, edge_tail):
+                handle.write(text)
+            handle.write('  </g>\n  <!-- Nodes -->\n  <g id="nodes" name="Nodes">\n')
+            for text in _svg_node_chunks(node_x, node_y, diameters, shapes, colors, boundary_stroke):
+                handle.write(text)
+            handle.write('  </g>\n</svg>')
+        os.replace(partial_path, filepath)
+    except BaseException:
+        try:
+            os.remove(partial_path)
+        except OSError:
+            pass
+        raise
     print(f"Successfully generated structured SVG at: {filepath}")
     return True
 
@@ -605,28 +730,101 @@ def _trim_png_margins(
     image = np.asarray(image)
     if image.ndim != 3 or image.shape[2] < 3:
         raise ValueError("PNG image must have height, width, and RGB channels.")
+    if is_transparent and image.shape[2] < 4:
+        raise ValueError("Transparent PNG trimming requires an alpha channel.")
 
-    if is_transparent:
-        if image.shape[2] < 4:
-            raise ValueError("Transparent PNG trimming requires an alpha channel.")
-        content_mask = image[..., 3] > PNG_ALPHA_TOLERANCE
-    else:
-        background_rgb = _background_rgb(background_color)
-        content_mask = np.any(
-            np.abs(image[..., :3] - background_rgb) > PNG_BACKGROUND_TOLERANCE,
-            axis=2,
-        )
-
-    content_rows, content_cols = np.nonzero(content_mask)
-    if content_rows.size == 0:
+    background_rgb = None if is_transparent else _background_rgb(background_color)
+    content_mask = _content_mask(image, is_transparent, background_rgb)
+    box = _trim_box(content_mask.any(axis=1), content_mask.any(axis=0), padding_px)
+    if box is None:
         return image
-
-    padding_px = max(int(padding_px), 0)
-    top = max(int(content_rows.min()) - padding_px, 0)
-    bottom = min(int(content_rows.max()) + padding_px + 1, image.shape[0])
-    left = max(int(content_cols.min()) - padding_px, 0)
-    right = min(int(content_cols.max()) + padding_px + 1, image.shape[1])
+    top, bottom, left, right = box
     return image[top:bottom, left:right]
+
+
+def _content_mask(image, is_transparent, background_rgb):
+    """The pixels of a float RGBA image that are not background."""
+    if is_transparent:
+        return image[..., 3] > PNG_ALPHA_TOLERANCE
+    return np.any(
+        np.abs(image[..., :3] - background_rgb) > PNG_BACKGROUND_TOLERANCE,
+        axis=2,
+    )
+
+
+def _trim_box(content_rows, content_cols, padding_px=PNG_TRIM_PADDING_PX):
+    """Return (top, bottom, left, right), the content plus padding_px around it.
+
+    content_rows and content_cols say which rows and columns hold content.
+    Returns None when nothing does.
+    """
+    rows = np.flatnonzero(content_rows)
+    cols = np.flatnonzero(content_cols)
+    if rows.size == 0 or cols.size == 0:
+        return None
+    padding_px = max(int(padding_px), 0)
+    top = max(int(rows[0]) - padding_px, 0)
+    bottom = min(int(rows[-1]) + padding_px + 1, len(content_rows))
+    left = max(int(cols[0]) - padding_px, 0)
+    right = min(int(cols[-1]) + padding_px + 1, len(content_cols))
+    return top, bottom, left, right
+
+
+def _png_bytes(image):
+    """A float RGBA image in 0..1 as the 8-bit RGBA that imsave writes for it.
+
+    It is matplotlib's own conversion: a pixel with any NaN channel becomes
+    transparent black, a value outside 0..1 is an error, and the rest are
+    scaled by 255 and truncated.
+    """
+    nans = np.isnan(image)
+    if np.any(nans):
+        image = image.copy()
+        image[np.any(nans, axis=2), :] = 0
+    if image.size and (image.max() > 1 or image.min() < 0):
+        raise ValueError("Floating point image RGB values must be in the [0,1] range")
+    return (image * 255).astype(np.uint8)
+
+
+class _PngMosaic:
+    """A full capture's picture, assembled tile by tile as 8-bit RGBA.
+
+    Each tile is converted as imsave converts a float image, so the PNG holds
+    the bytes the float mosaic gave, in a quarter of its memory. The rows and
+    columns with content inside the crop are noted as the tiles arrive, from
+    the float pixels, so the trim finds the margins _trim_png_margins finds
+    in the float picture.
+    """
+
+    def __init__(self, height, width, crop_height, crop_width, is_transparent, background_color):
+        self.image = np.zeros((height, width, 4), dtype=np.uint8)
+        self.crop_height = min(crop_height, height)
+        self.crop_width = min(crop_width, width)
+        self.content_rows = np.zeros(self.crop_height, dtype=bool)
+        self.content_cols = np.zeros(self.crop_width, dtype=bool)
+        self.is_transparent = is_transparent
+        self.background_rgb = None if is_transparent else _background_rgb(background_color)
+
+    def paste(self, tile, top, left):
+        """Put TILE, float RGBA, with its top left corner at (top, left)."""
+        height, width = tile.shape[:2]
+        self.image[top:top + height, left:left + width, :] = _png_bytes(tile)
+        inside = tile[:max(self.crop_height - top, 0), :max(self.crop_width - left, 0)]
+        content = _content_mask(inside, self.is_transparent, self.background_rgb)
+        self.content_rows[top:top + content.shape[0]] |= content.any(axis=1)
+        self.content_cols[left:left + content.shape[1]] |= content.any(axis=0)
+
+    def cropped_size(self):
+        return self.crop_height, self.crop_width
+
+    def trimmed(self, padding_px=PNG_TRIM_PADDING_PX):
+        """The cropped picture without its background-only margins."""
+        image = self.image[:self.crop_height, :self.crop_width]
+        box = _trim_box(self.content_rows, self.content_cols, padding_px)
+        if box is None:
+            return image
+        top, bottom, left, right = box
+        return image[top:bottom, left:right]
 
 
 def _refuse(viewer, msg):
@@ -860,12 +1058,17 @@ def run(viewer, args):
             total_tiles = n_cols * n_rows
             
             print(f"Network bounding box requires {n_cols}x{n_rows} safe tiles ({total_tiles} total renders).")
-            
-            # 7. Initialize giant mosaic canvas
+
+            # 7. Initialize giant mosaic canvas, cropped in the end to the
+            # exact requested world bounds
             canvas_w = n_cols * keep_px_w
             canvas_h = n_rows * keep_px_h
-            final_img = np.zeros((canvas_h, canvas_w, 4), dtype=np.float32)
-            
+            target_px_w = int((world_right - world_left) / upp_x)
+            target_px_h = int((world_top - world_bottom) / upp_y)
+            mosaic = _PngMosaic(
+                canvas_h, canvas_w, target_px_h, target_px_w, is_transparent, original_bgcolor,
+            )
+
             # 8. Tiling Loop
             tile_count = 0
             for r in range(n_rows):
@@ -896,21 +1099,13 @@ def run(viewer, args):
                     # Paste the perfectly safe center block side-by-side
                     paste_x = c * keep_px_w
                     paste_y = r * keep_px_h
-                    final_img[paste_y : paste_y + keep_px_h, paste_x : paste_x + keep_px_w, :] = cropped_tile
+                    mosaic.paste(cropped_tile, paste_y, paste_x)
 
                     # Let the window paint and timers run; input stays queued
                     events.pause_if_due()
-                    
-            # 9. Crop to exact requested world bounds
+
+            # 9. Crop to exact requested world bounds (clamped to the mosaic)
             print("Stitching complete. Cropping to exact bounds...")
-            target_px_w = int((world_right - world_left) / upp_x)
-            target_px_h = int((world_top - world_bottom) / upp_y)
-            
-            # Clamp to be safe
-            target_px_w = min(target_px_w, final_img.shape[1])
-            target_px_h = min(target_px_h, final_img.shape[0])
-            
-            final_img = final_img[:target_px_h, :target_px_w]
 
         else:
             # Standard single-shot render
@@ -926,12 +1121,16 @@ def run(viewer, args):
             final_img = _render_capture(viewer, is_transparent, overlays)
 
         if not is_svg:
-            original_height, original_width = final_img.shape[:2]
-            final_img = _trim_png_margins(
-                final_img,
-                is_transparent,
-                original_bgcolor,
-            )
+            if is_full:
+                original_height, original_width = mosaic.cropped_size()
+                final_img = mosaic.trimmed()
+            else:
+                original_height, original_width = final_img.shape[:2]
+                final_img = _trim_png_margins(
+                    final_img,
+                    is_transparent,
+                    original_bgcolor,
+                )
             trimmed_height, trimmed_width = final_img.shape[:2]
             if (trimmed_width, trimmed_height) != (original_width, original_height):
                 print(

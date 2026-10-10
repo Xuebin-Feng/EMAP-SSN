@@ -235,33 +235,58 @@ class PrintMarginTrimTests(unittest.TestCase):
                 self.assertEqual(saved_image.shape, (50, 50, 4))
                 self.assertIn("120x100 -> 50x50 px", output.getvalue())
 
-    def test_full_stitched_png_uses_shared_final_trim_before_save(self):
-        viewer = self.make_viewer()
-        camera_rect = SimpleNamespace(width=100.0, height=100.0)
-        viewer.view.camera.rect = camera_rect
-        viewer.view.camera._real_rect = camera_rect
-        viewer.visible_mask = np.array([True, True])
-        viewer.pos = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
-        captured_tile = np.ones((100, 100, 4), dtype=np.float32)
-        trimmed_image = np.ones((2, 3, 4), dtype=np.float32)
+    def test_full_stitched_png_saves_the_float_picture_trimmed_as_eight_bit(self):
+        # Pixels at one scene unit each; the network spans 165 units with its
+        # padding, so 9 tiles keep their 70-pixel middles (15-pixel margins)
+        # and the 210-pixel mosaic is cropped to 165.
+        for is_transparent in (False, True):
+            with self.subTest(is_transparent=is_transparent):
+                viewer = self.make_viewer()
+                camera_rect = SimpleNamespace(width=100.0, height=100.0)
+                viewer.view.camera.rect = camera_rect
+                viewer.view.camera._real_rect = camera_rect
+                viewer.visible_mask = np.array([True, True])
+                viewer.pos = np.array([[0.0, 0.0, 0.0], [150.0, 150.0, 0.0]])
+                rng = np.random.default_rng(4)
+                tiles = []
+                for index in range(10):
+                    tile = np.zeros((100, 100, 4), dtype=np.float32)
+                    if not is_transparent:
+                        tile[...] = 1.0
+                    # Marks in the middle tile only (call 6: row 1, column 1),
+                    # so the trim has margins to take off.
+                    if index == 5:
+                        spots = np.zeros((100, 100), dtype=bool)
+                        spots[40:60, 40:60] = rng.random((20, 20)) < 0.2
+                        tile[spots] = rng.random((int(spots.sum()), 4)).astype(np.float32) * 0.5
+                    tiles.append(tile)
+                # The float picture the stitching used to hold, cropped and trimmed.
+                mosaic = np.zeros((210, 210, 4), dtype=np.float32)
+                for index, tile in enumerate(tiles[1:]):
+                    row, col = divmod(index, 3)
+                    mosaic[row * 70:(row + 1) * 70, col * 70:(col + 1) * 70] = tile[15:85, 15:85]
+                expected = print_command._trim_png_margins(mosaic[:165, :165], is_transparent, "white")
 
-        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            print_command, "PRINT_DIRECTORY", temp_dir
-        ), mock.patch.object(
-            print_command, "_capture_tile", return_value=captured_tile
-        ), mock.patch.object(
-            print_command, "_trim_png_margins", return_value=trimmed_image
-        ) as trim, mock.patch.object(
-            print_command.mpimg, "imsave"
-        ) as save, mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), mock.patch.object(
-            print_command.app, "process_events"
-        ):
-            print_command.run(viewer, ["stitched", "full"])
+                output = io.StringIO()
+                with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                    print_command, "PRINT_DIRECTORY", temp_dir
+                ), mock.patch.object(
+                    print_command, "_capture_tile", side_effect=tiles
+                ), mock.patch.object(
+                    print_command.mpimg, "imsave"
+                ) as save, mock.patch.object(
+                    print_command, "open_in_file_manager"
+                ), mock.patch.object(
+                    print_command.app, "process_events"
+                ), redirect_stdout(output):
+                    print_command.run(viewer, ["stitched", "full"] + (["transparent"] if is_transparent else []))
 
-        trim.assert_called_once()
-        self.assertIs(save.call_args.args[1], trimmed_image)
+                saved = save.call_args.args[1]
+                self.assertEqual(saved.dtype, np.uint8)
+                np.testing.assert_array_equal(saved, (expected * 255).astype(np.uint8))
+                self.assertLess(saved.shape[:2], (165, 165))
+                self.assertIn(f"165x165 -> {saved.shape[1]}x{saved.shape[0]} px", output.getvalue())
+
 
     def test_svg_export_does_not_use_png_trimming(self):
         viewer = self.make_viewer()
@@ -281,6 +306,74 @@ class PrintMarginTrimTests(unittest.TestCase):
         export_svg.assert_called_once()
         trim.assert_not_called()
 
+
+class PrintPngMosaicTests(unittest.TestCase):
+    """The full capture holds its picture as the 8-bit RGBA imsave writes."""
+
+    def test_eight_bit_pixels_are_those_matplotlib_writes_for_the_float_image(self):
+        from matplotlib.colorizer import Colorizer
+
+        rng = np.random.default_rng(9)
+        image = rng.random((40, 50, 4)).astype(np.float32)
+        image[rng.random((40, 50)) < 0.05] = 1.0
+        image[rng.random((40, 50)) < 0.05] = 0.0
+        image[3, 4, 2] = np.nan
+
+        np.testing.assert_array_equal(
+            print_command._png_bytes(image), Colorizer().to_rgba(image, bytes=True)
+        )
+        # The float tile is left as it is.
+        self.assertTrue(np.isnan(image[3, 4, 2]))
+        with self.assertRaisesRegex(ValueError, r"must be in the \[0,1\] range"):
+            print_command._png_bytes(np.full((2, 2, 4), 1.5, dtype=np.float32))
+
+    def test_the_trim_finds_the_margins_of_the_float_picture(self):
+        rng = np.random.default_rng(12)
+        for case in range(60):
+            is_transparent = bool(case % 2)
+            background = "white" if case % 3 else (0.2, 0.4, 0.6, 1.0)
+            tile_h, tile_w = int(rng.integers(5, 30)), int(rng.integers(5, 30))
+            rows, cols = int(rng.integers(1, 4)), int(rng.integers(1, 4))
+            crop_h = int(rng.integers(1, rows * tile_h + 5))
+            crop_w = int(rng.integers(1, cols * tile_w + 5))
+            with self.subTest(case=case):
+                mosaic = print_command._PngMosaic(
+                    rows * tile_h, cols * tile_w, crop_h, crop_w, is_transparent, background
+                )
+                picture = np.zeros((rows * tile_h, cols * tile_w, 4), dtype=np.float32)
+                for row in range(rows):
+                    for col in range(cols):
+                        tile = np.zeros((tile_h, tile_w, 4), dtype=np.float32)
+                        if not is_transparent:
+                            tile[..., :3] = print_command._background_rgb(
+                                SimpleNamespace(rgba=background) if isinstance(background, tuple) else background
+                            )
+                            tile[..., 3] = 1.0
+                        spots = rng.random((tile_h, tile_w)) < 0.01
+                        tile[spots] = rng.random((int(spots.sum()), 4)).astype(np.float32)
+                        mosaic.paste(tile, row * tile_h, col * tile_w)
+                        picture[row * tile_h:(row + 1) * tile_h, col * tile_w:(col + 1) * tile_w] = tile
+                padding = int(rng.integers(0, 25))
+                expected = print_command._trim_png_margins(
+                    picture[:crop_h, :crop_w], is_transparent,
+                    SimpleNamespace(rgba=background) if isinstance(background, tuple) else background,
+                    padding_px=padding,
+                )
+
+                self.assertEqual(mosaic.cropped_size(), picture[:crop_h, :crop_w].shape[:2])
+                np.testing.assert_array_equal(
+                    mosaic.trimmed(padding), (expected * 255).astype(np.uint8)
+                )
+
+    def test_content_cut_off_by_the_crop_does_not_widen_the_trim(self):
+        # The only mark in rows 10-11 lies right of the crop; the trim ignores it.
+        tile = np.zeros((20, 30, 4), dtype=np.float32)
+        tile[2, 3, 3] = 1.0
+        tile[10:12, 25, 3] = 1.0
+        mosaic = print_command._PngMosaic(20, 30, 20, 20, True, "white")
+        mosaic.paste(tile, 0, 0)
+
+        self.assertEqual(mosaic.trimmed(padding_px=0).shape, (1, 1, 4))
 
 class PrintOutputNameTests(unittest.TestCase):
     def run_print(self, save_dir, arguments):
@@ -430,6 +523,54 @@ class PrintSvgExportTests(unittest.TestCase):
         self.assertTrue(all('stroke="rgb(255,0,0)" stroke-opacity="0.400"' in line for line in lines))
         self.assertEqual(len(circles), 4)
         self.assertTrue(all('stroke="rgb(0,255,0)"' in circle for circle in circles))
+
+
+class PrintSvgStreamingTests(unittest.TestCase):
+    """The SVG is written a chunk at a time into a file that replaces the target when done."""
+
+    @staticmethod
+    def mixed_network(count=23):
+        rng = np.random.default_rng(5)
+        shapes = ["disc", "ring", "square", "^", "v", "D", "*", "+", "x", "|", "-", ">", "p", "P", "blob"]
+        return square_network(
+            visible_mask=rng.random(count) < 0.9,
+            pos=(rng.random((count, 2)) * 50).astype(np.float32),
+            current_colors=rng.random((count, 4)).astype(np.float32),
+            current_sizes=rng.choice([4.0, 10.0, 17.5], count).astype(np.float32),
+            current_shapes=np.array([shapes[i % len(shapes)] for i in range(count)], dtype=object),
+            edges=rng.integers(0, count, (60, 2)).astype(np.int32),
+            edge_scores=rng.random(60),
+            current_slider_threshold=0.3,
+        )
+
+    def test_the_file_is_the_same_whatever_the_chunk_size(self):
+        viewer = self.mixed_network()
+        whole = export_svg(viewer)
+        self.assertGreater(len(elements(whole, "line")), 10)
+        for chunk in (1, 2, 7):
+            with self.subTest(chunk=chunk), mock.patch.object(print_command, "SVG_CHUNK_SIZE", chunk):
+                self.assertEqual(export_svg(viewer), whole)
+
+    def test_a_failure_while_writing_keeps_the_earlier_file_and_leaves_nothing_behind(self):
+        viewer = self.mixed_network()
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "network.svg")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("earlier picture")
+
+            def broken_nodes(*arguments):
+                yield "    <circle />\n"
+                raise RuntimeError("disk full")
+
+            with mock.patch.multiple(print_command.cfg, create=True, UMAP_MODE=False), \
+                    mock.patch.object(print_command, "_svg_node_chunks", broken_nodes), \
+                    redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(RuntimeError, "disk full"):
+                print_command._export_svg(viewer, path)
+
+            self.assertEqual(os.listdir(directory), ["network.svg"])
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "earlier picture")
 
 
 class PrintSvgOutcomeTests(unittest.TestCase):
