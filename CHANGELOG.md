@@ -981,6 +981,13 @@ still change before version 1.0.0.
 - The Agent page could show light for a moment before turning dark, when dark mode had
   been chosen: it set its theme only once the page had loaded. Like the Meta Data page,
   it now sets the theme before the page is drawn.
+- Launching the Viewer or the VR viewer could leave its one-time settings file
+  (`ssn_viewer_*.json`) in the temporary folder. The Viewer deleted it only once the
+  settings were accepted, the layout generator only after the new layout was
+  generated, and the VR viewer only once its server started. So a rejected launch, a
+  failed generation, a window closed during generation, or a VR launch refused because
+  another VR viewer was running left the file behind. Each now deletes the file as soon
+  as it has read it; the VR layout launcher does the same for its layout settings file.
 
 ### Removed
 
