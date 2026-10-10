@@ -978,6 +978,9 @@ still change before version 1.0.0.
   can draw a text a pixel past it. They now get the width the labels ask for, as the
   label column does; on Windows the widths are unchanged. VR Configuration sizes the
   same labels the same way.
+- The Agent page could show light for a moment before turning dark, when dark mode had
+  been chosen: it set its theme only once the page had loaded. Like the Meta Data page,
+  it now sets the theme before the page is drawn.
 
 ### Removed
 

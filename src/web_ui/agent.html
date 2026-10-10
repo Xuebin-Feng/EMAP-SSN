@@ -931,6 +931,19 @@
         #attachment-notice:not(:empty) { margin-top: 8px; }
         .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 6px; }
     </style>
+    <!-- The theme chosen on this page or the Metadata page (both keep it as
+         ssn_theme), else the system's, set before the page is drawn so a dark
+         page never shows light first. -->
+    <script>
+        (() => {
+            let theme = null;
+            try { theme = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (theme !== "dark" && theme !== "light") {
+                theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
 </head>
 <body>
     <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
@@ -1089,11 +1102,9 @@
         });
 
         // ─── Theme ────────────────────────────────────────────────────────────────
+        // The head script set the starting theme before the page was drawn.
         function initTheme() {
-            const saved = localStorage.getItem("ssn_theme");
-            const theme = saved || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-            document.documentElement.setAttribute("data-theme", theme);
-            updateThemeBtn(theme);
+            updateThemeBtn(document.documentElement.getAttribute("data-theme"));
         }
 
         function toggleTheme() {

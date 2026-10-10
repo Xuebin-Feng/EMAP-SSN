@@ -104,6 +104,9 @@ class ComposerTests(unittest.TestCase):
 
     def setUp(self):
         self.actions.clear()
+        self.open_page()
+
+    def open_page(self):
         loaded = []
         callback = lambda ok: loaded.append(ok)
         self.view.loadFinished.connect(callback)
@@ -337,6 +340,29 @@ class ComposerTests(unittest.TestCase):
                                 'page': 'rgb(9, 9, 11)', 'card': 'rgb(24, 24, 27)', 'primary': '#fafafa'})
         self.js("document.getElementById('theme-toggle-btn').click()")
         self.assertEqual(json.loads(self.js(state))['theme'], 'light')
+
+    def test_a_saved_theme_is_in_place_before_the_page_can_be_drawn(self):
+        # The theme chosen last, here or on the Metadata page, is set when the
+        # page's <body> first exists, so a dark page never shows light first.
+        probe = QWebEngineScript()
+        probe.setInjectionPoint(QWebEngineScript.DocumentCreation)
+        probe.setWorldId(QWebEngineScript.MainWorld)
+        probe.setSourceCode(
+            "new MutationObserver((records, observer) => {"
+            "  if (!document.body) return;"
+            "  window.themeWhenDrawable = document.documentElement.getAttribute('data-theme');"
+            "  observer.disconnect();"
+            "}).observe(document, {childList: true, subtree: true});"
+        )
+        self.view.page().scripts().insert(probe)
+        self.addCleanup(self.view.page().scripts().remove, probe)
+        self.addCleanup(self.js, "localStorage.removeItem('ssn_theme')")
+        for theme, icon in (('dark', '#i-sun'), ('light', '#i-moon')):
+            self.js(f"localStorage.setItem('ssn_theme', '{theme}')")
+            self.open_page()
+            with self.subTest(theme=theme):
+                self.assertEqual(self.js('window.themeWhenDrawable'), theme)
+                self.assertEqual(self.js("document.querySelector('#theme-toggle-btn use').getAttribute('href')"), icon)
 
     def test_every_icon_draws_a_symbol_of_the_pages_sprite(self):
         # The page in the states that show icons: the cards panel with a card
