@@ -228,6 +228,40 @@ always use 2D layouts. Headless and MCP layout jobs also accept
 
 ![EMAP-SSN Viewer GUI](docs/assets/emapssn_viewer_gui.png)
 
+### 🌐 Language
+
+The windows can show their text in another language. The **🌐** dropdown at the
+bottom right of the Configuration and Tools windows, and of the optional VR
+viewer's Configuration window, offers
+**System default** (the operating system's display language when EMAP-SSN has
+it, English otherwise), **English**, and each bundled language, named in itself.
+The first is Simplified Chinese (**简体中文**); its translations are drafts that
+a native speaker has yet to review.
+
+The choice is saved in `app_settings.json` in the project folder and applies to
+every window. The Configuration and Tools windows redraw in the new language at
+once and keep everything entered. The Viewer, its browser pages and any dialog
+use it the next time they open. Number formats keep following the system's
+regional settings.
+
+The chosen language covers:
+
+- the Configuration, Tools and VR Configuration windows, with their tips,
+  messages and the Tools help pages;
+- the Viewer's window, sidebar and dialogs, the text on its canvas (the HUD and
+  the console line), and the Agent and metadata pages it opens in the browser;
+- the benchmark's text report.
+
+These stay English in every language: the commands typed in the Viewer's
+console, terminal output and logs, MCP replies, settings files, the benchmark's
+`.json` results, and the ESMFold structure page, which is Mol*'s own interface.
+
+Simplified Chinese brings a font of its own, Noto Sans SC cut down to the GB2312
+character set (4.37 MiB). The windows, the Viewer's canvas and the browser pages
+use it only while that language shows, so Chinese draws correctly on a system
+without a Chinese font. To review a translation, add a language or mark new text
+for translation, see the [translations guide](src/resources/languages/README.md).
+
 ---
 ## 🧬 System Workflow
 
@@ -569,7 +603,9 @@ for the export-first workflow and overlay format.
 The application bundles a 4.68 MiB Noto Sans/Noto Sans Mono desktop core with
 Latin, Greek, Cyrillic, IPA, combining-mark, and common scientific punctuation
 coverage. Qt uses fonts installed in the operating system when this core does
-not contain a requested glyph.
+not contain a requested glyph. Simplified Chinese, the bundled translation,
+brings its own font, which loads only while that language shows (see
+**🌐 Language** above).
 
 For another writing system, download the appropriate family from the
 [official Noto Fonts site](https://notofonts.github.io/) and install it normally:
@@ -584,7 +620,8 @@ Copying a font into `src/resources/fonts/desktop/` is not sufficient: Qt does
 not scan that directory, and the application registers only the files declared
 in its bundled manifest. System-installed fonts become available after the
 application is restarted. They can provide fallback in PySide6/Qt widgets, but
-VisPy network labels remain limited to the bundled Noto Sans face.
+VisPy network labels remain limited to the bundled faces: Noto Sans, and Noto
+Sans SC while Simplified Chinese shows.
 
 ---
 
