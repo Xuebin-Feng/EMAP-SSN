@@ -262,6 +262,10 @@ still change before version 1.0.0.
   - `cluster`/`subcluster` jaccard counts shared neighbours from the shorter neighbour
     list of each edge: the filter takes 0.30 s instead of 0.80 s at 200,000 nodes and
     7.2 million edges.
+  - `print` encodes a PNG on a thread of its own, so the window keeps painting while a
+    large `full` capture is saved, and the hover colour and click halo come back as
+    soon as the picture is taken. The first `print` of a session no longer loads
+    pyplot, which it never used.
 - **Viewer command behaviour, as decided after the command audit.** Results change on purpose:
   - **`cluster`/`subcluster` jaccard:** compares closed neighbourhoods (each node counts as its own neighbour), so an edge scores (c + 2) / (a + b − c). Isolated pairs, stars and chains are no longer forced into Noise at any threshold above 0, and a clique scores 1. Every Jaccard result changes, and the default threshold of 0.2 now keeps more edges.
   - **`cluster`/`subcluster` mcl:** each node's self-loop weighs as much as its strongest edge instead of a fixed 1, so the clusters no longer depend on the scale of the scores (identity 0–1 or −log10 E). MCL results change.
