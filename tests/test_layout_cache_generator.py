@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -467,6 +467,73 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 self.assertIn("--delete-settings", called_cmd[0])
                 self.assertFalse(snapshot.exists())
                 self.assertFalse(settings_file.exists())
+
+    def _launch_with_config_snapshot(self, temp_path, snapshot_text, generate):
+        """Run main() as the Config does: --launch-viewer and a snapshot in the environment."""
+        _write_inputs(temp_path)
+        settings_file = temp_path / "settings.json"
+        settings_file.write_text(json.dumps(_settings_document(temp_path)), encoding="utf-8")
+        snapshot = temp_path / "ssn_viewer_config.json"
+        snapshot.write_text(snapshot_text, encoding="utf-8")
+        launched = {}
+
+        def capture_launch(command, **kwargs):
+            launched.update(json.loads(pathlib.Path(command[4]).read_text(encoding="utf-8")))
+            return 42
+
+        errors = io.StringIO()
+        with mock.patch(
+            "Layout_Cache_Generator.generate_layout_cache", side_effect=generate,
+        ) as mock_gen, mock.patch(
+            "desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc,
+        ), mock.patch("subprocess.call", side_effect=capture_launch) as mock_call, mock.patch.dict(
+            os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(snapshot)},
+        ), redirect_stdout(io.StringIO()), redirect_stderr(errors):
+            code = Layout_Cache_Generator.main(
+                [str(settings_file), "--launch-viewer", "--delete-settings"]
+            )
+        self.assertFalse(snapshot.exists())
+        self.assertFalse(settings_file.exists())
+        return SimpleNamespace(code=code, generate=mock_gen, call=mock_call,
+                               launched=launched, errors=errors.getvalue(), snapshot=snapshot)
+
+    def test_launch_viewer_consumes_the_config_snapshot_before_generating(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            snapshot = temp_path / "ssn_viewer_config.json"
+            cache_path = str(temp_path / "layouts" / "folder" / "cli_test.h5")
+
+            def generate(settings):
+                # Closing the window from here on must leave no snapshot behind.
+                self.assertFalse(snapshot.exists())
+                return SimpleNamespace(cache_path=cache_path)
+
+            run = self._launch_with_config_snapshot(
+                temp_path, json.dumps({"inputs": {}, "alignment": {"MSA_FILE": "chosen.fasta"}}), generate,
+            )
+        self.assertEqual(run.code, 42)
+        run.generate.assert_called_once()
+        # The Viewer gets the Config's choices, with the published cache.
+        self.assertEqual(run.launched["alignment"], {"MSA_FILE": "chosen.fasta"})
+        self.assertEqual(run.launched["inputs"]["TARGET_CACHE_PATH"], cache_path)
+
+    def test_a_failed_generation_leaves_no_config_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = self._launch_with_config_snapshot(
+                pathlib.Path(temp_dir), json.dumps({"inputs": {}}),
+                LayoutGenerationError("no edges above the threshold"),
+            )
+        self.assertEqual(run.code, 1)
+        self.assertIn("no edges above the threshold", run.errors)
+        run.call.assert_not_called()
+
+    def test_an_unreadable_config_snapshot_stops_before_generating(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = self._launch_with_config_snapshot(pathlib.Path(temp_dir), "{", None)
+        self.assertEqual(run.code, 1)
+        self.assertIn("settings_path", run.errors)
+        run.generate.assert_not_called()
+        run.call.assert_not_called()
 
     def test_cli_output_is_utf8_whatever_the_stream_encoding(self):
         """A run on its own whose output goes to a file or a pipe prints UTF-8.

@@ -825,11 +825,31 @@ def _argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _take_viewer_snapshot() -> dict | None:
+    """Read the Viewer settings snapshot the Config handed over, and delete it.
+
+    It is deleted before generation starts, so closing the window while the
+    layout is generated, or a failed generation, leaves no snapshot behind.
+    """
+    snapshot_source = os.environ.get("SSN_VIEWER_SETTINGS_PATH")
+    if not snapshot_source:
+        return None
+    from desktop.Viewer_State import read_viewer_settings
+
+    try:
+        return read_viewer_settings(settings_path=snapshot_source, project_root=PROJECT_ROOT)
+    finally:
+        Path(snapshot_source).unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _argument_parser()
     args = parser.parse_args(argv)
     settings_path = Path(args.settings_json)
+    viewer_document = None
     try:
+        if args.launch_viewer:
+            viewer_document = _take_viewer_snapshot()
         settings = LayoutGenerationSettings.from_json_file(settings_path)
         if args.delete_settings:
             try:
@@ -853,12 +873,11 @@ def main(argv: list[str] | None = None) -> int:
         from desktop.Viewer_State import (
             DEFAULTS,
             encode_document,
-            read_viewer_settings,
             validate_viewer_document,
         )
-        snapshot_source = env.pop("SSN_VIEWER_SETTINGS_PATH", None)
-        if snapshot_source:
-            document = read_viewer_settings(settings_path=snapshot_source, project_root=PROJECT_ROOT)
+        env.pop("SSN_VIEWER_SETTINGS_PATH", None)
+        if viewer_document is not None:
+            document = viewer_document
         else:
             document = encode_document("viewer", {**DEFAULTS,
                 "NODE_FASTA_FILE": settings.NODE_FASTA_FILE, "INPUT_HDF5": settings.INPUT_HDF5,
@@ -868,8 +887,6 @@ def main(argv: list[str] | None = None) -> int:
         descriptor, viewer_snapshot = tempfile.mkstemp(prefix="ssn_viewer_", suffix=".json")
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             json.dump(document, handle)
-        if snapshot_source:
-            os.unlink(snapshot_source)
         for key in ("SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE"):
             env.pop(key, None)
         print(
