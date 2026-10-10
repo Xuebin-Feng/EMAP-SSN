@@ -55,6 +55,15 @@ def _pending_opens(viewer):
     return pending
 
 
+def page_is_open(viewer, client_id):
+    """Whether client_id's page is connected to the Viewer or is being opened."""
+    web_server = getattr(viewer, "web_server", None)
+    has_event_client = getattr(web_server, "has_event_client", None)
+    if callable(has_event_client) and has_event_client(client_id):
+        return True
+    return _pending_opens(viewer).get(client_id, 0.0) > time.monotonic()
+
+
 def open_browser_page(
     viewer,
     path,

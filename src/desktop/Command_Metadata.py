@@ -79,7 +79,7 @@ COMMAND_METADATA = {
         argument('action', 'Omit to open the spreadsheet. upload accepts files; download writes metadata; delete removes columns; show enables the HUD. A filename without upload also imports it.',
             choice('upload', 'import'), choice('download', 'retrieve', 'export'), choice('delete', 'remove', 'clear'), choice('show', 'display'), choice('--register-only')),
         argument('filenames', 'Upload one or more CSV/XLS/XLSX paths or names from the metadata directory. Download accepts an optional plain filename, not a path, written to the metadata directory: .csv or .xlsx in any case, .csv when the extension is omitted; an explicit name overwrites, automatic names avoid overwrite.'),
-        argument('properties', 'delete requires one or more existing column names, case-insensitive; deleting all with all is unsupported. show takes one property name; an unknown name prints a warning listing the available properties.'),
+        argument('properties', 'delete requires one or more existing column names, case-insensitive; deleting all with all is unsupported. show takes one property name; an unknown name fails, listing the available properties.'),
         argument('display_action', 'Only after show/display: clear the metadata HUD.', choice('clear', 'off'))),
     'offset': entry('Inspect or change reference-position numbering without changing alignment columns.',
         argument('integer', 'Omit to inspect. A supplied integer offset requires a loaded alignment with active reference; default launch offset is configured separately.')),

@@ -24,8 +24,10 @@ import re
 import pandas as pd
 import Command_Engine
 import EMAPSSN_Config as cfg
+from Viewer_Command_Portal import CURRENT
 from desktop.Desktop_App import translate
 from utilities.Localization import Message
+from web_ui.Browser_Page import page_is_open
 from web_ui.meta_backend import (
     MetadataColumnDeleteError,
     delete_metadata_columns,
@@ -48,6 +50,7 @@ def print_help(meta_dir):
           Uploads and merges one or more metadata files (.xlsx, .xls, .csv; the
           extension may be omitted) into the current viewer session. Each path can
           be absolute, relative, or located inside the metadata directory: {meta_dir}
+          A single path may contain spaces, with or without quotes around it.
       meta download
           Downloads the current session metadata to a generic file (e.g. metadata.csv, 
           or metadata1.csv if already taken) in {meta_dir}.
@@ -82,10 +85,29 @@ def print_help(meta_dir):
       meta clear Source
     """)
 
+def _strip_matching_quotes(text):
+    """Remove one pair of matching single or double quotes around text."""
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        return text[1:-1]
+    return text
+
+def _find_metadata_file(path, meta_dir):
+    """Return the absolute path a metadata file name refers to, or None."""
+    if os.path.exists(path):
+        return os.path.abspath(path)
+    path_in_dir = os.path.join(meta_dir, path)
+    if os.path.exists(path_in_dir):
+        return os.path.abspath(path_in_dir)
+    for ext in ['.xlsx', '.xls', '.csv']:
+        if os.path.exists(path + ext):
+            return os.path.abspath(path + ext)
+        elif os.path.exists(os.path.join(meta_dir, path + ext)):
+            return os.path.abspath(os.path.join(meta_dir, path + ext))
+    return None
+
 def run(viewer, args):
     # Retrieve configuration directory for metadata files
     meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Input_Files", "Meta_Data"))
-    os.makedirs(meta_dir, exist_ok=True)
 
     # 1. Registration callback support
     # Register sidebar button when called alone, or with upload, or via startup flag
@@ -102,8 +124,16 @@ def run(viewer, args):
 
     # 2. No arguments: Open spreadsheet browser page
     if not args:
-        viewer.open_metadata_ui()
-        Command_Engine.command_succeeded(viewer, "Opened the metadata interface.")
+        # A command from the MCP or the agent has nobody at the Viewer to
+        # dismiss a dialog, so an already-open page is reported on the status
+        # line only.
+        options = {"show_existing_dialog": False} if CURRENT.get() is not None else {}
+        if viewer.open_metadata_ui(**options):
+            Command_Engine.command_succeeded(viewer, "Opened the metadata interface.")
+        elif page_is_open(viewer, "meta"):
+            Command_Engine.command_failed(viewer, "The metadata interface is already open in your browser.")
+        else:
+            Command_Engine.command_failed(viewer, "Could not open the metadata interface.")
         return
 
     first_arg = args[0].lower()
@@ -170,16 +200,23 @@ def run(viewer, args):
             return
 
         available_props = list(viewer.metadata.keys()) if getattr(viewer, 'metadata', None) else []
-        resolved_prop = None
-        for p in available_props:
-            if p.lower() == prop_name.lower():
-                resolved_prop = p
-                break
+        # An exact name wins over a name that differs only in case.
+        resolved_prop = prop_name if prop_name in available_props else None
+        if resolved_prop is None:
+            for p in available_props:
+                if p.lower() == prop_name.lower():
+                    resolved_prop = p
+                    break
 
         if not resolved_prop:
-            resolved_prop = prop_name
-            if available_props:
-                print(f"Warning: Property '{prop_name}' not found in current metadata. Available properties: {', '.join(available_props)}")
+            msg = Message(
+                "Error: Property '{property}' not found in current metadata. Available properties: {available}.",
+                property=prop_name,
+                available=", ".join(available_props) if available_props else Message("none"),
+            )
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
+            return
 
         viewer.meta_display_prop = resolved_prop
 
@@ -233,6 +270,7 @@ def run(viewer, args):
 
     # 6. Download Check
     if first_arg in ['download', 'retrieve', 'export']:
+        os.makedirs(meta_dir, exist_ok=True)
         try:
             filepath = metadata_download_path(meta_dir, " ".join(args[1:]).strip())
         except ValueError as error:
@@ -254,34 +292,39 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, msg)
             return
 
+    # A path with spaces reaches here as several arguments: try the whole
+    # remainder as one file first, and treat the arguments as separate files
+    # only when no such file exists.
     file_paths = []
-    for arg in upload_args:
-        path = arg.strip()
-        if os.path.exists(path):
-            file_paths.append(os.path.abspath(path))
-        else:
-            path_in_dir = os.path.join(meta_dir, path)
-            if os.path.exists(path_in_dir):
-                file_paths.append(os.path.abspath(path_in_dir))
+    whole_path = None
+    if len(upload_args) > 1:
+        whole_path = _find_metadata_file(_strip_matching_quotes(" ".join(upload_args).strip()), meta_dir)
+    if whole_path:
+        file_paths.append(whole_path)
+    else:
+        for arg in upload_args:
+            path = _strip_matching_quotes(arg.strip())
+            found = _find_metadata_file(path, meta_dir)
+            if found:
+                file_paths.append(found)
+                continue
+            if first_arg in ['off', 'deactivate'] and not file_paths:
+                # These belong to the agent command and are not metadata
+                # options; say so instead of looking for a file of that name
+                # (one that exists is still uploaded, as it always was).
+                msg = Message(
+                    "Error: '{option}' is not a metadata option. To clear the metadata display, use {syntax}.",
+                    option=path,
+                    syntax="meta show clear",
+                )
             else:
-                found = False
-                for ext in ['.xlsx', '.xls', '.csv']:
-                    if os.path.exists(path + ext):
-                        file_paths.append(os.path.abspath(path + ext))
-                        found = True
-                        break
-                    elif os.path.exists(os.path.join(meta_dir, path + ext)):
-                        file_paths.append(os.path.abspath(os.path.join(meta_dir, path + ext)))
-                        found = True
-                        break
-                if not found:
-                    msg = Message(
-                        "Error: Metadata file '{file}' not found (checked absolute, relative, and {folder}).",
-                        file=path,
-                        folder=meta_dir,
-                    )
-                    Command_Engine.print_help(viewer, msg)
-                    Command_Engine.command_failed(viewer, msg)
-                    return
+                msg = Message(
+                    "Error: Metadata file '{file}' not found (checked absolute, relative, and {folder}).",
+                    file=path,
+                    folder=meta_dir,
+                )
+            Command_Engine.print_help(viewer, msg)
+            Command_Engine.command_failed(viewer, msg)
+            return
 
     upload_metadata(viewer, file_paths)

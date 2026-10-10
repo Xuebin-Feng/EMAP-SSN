@@ -390,5 +390,113 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
         open_ui.assert_called_once_with(viewer)
 
 
+class ViewerPageOpenerTests(unittest.TestCase):
+    """MainViewer.open_metadata_ui / open_agent_ui and `meta` with no arguments."""
+
+    def test_viewer_openers_pass_show_existing_dialog_through(self):
+        for opener, path, client_id in (
+            (MainViewer.open_metadata_ui, "/meta.html", "meta"),
+            (MainViewer.open_agent_ui, "/agent.html", "agent"),
+        ):
+            for options, expected in (({}, True), ({"show_existing_dialog": False}, False)):
+                with self.subTest(client_id=client_id, options=options):
+                    viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False))
+                    self.assertFalse(opener(viewer, **options))
+                    viewer._open_web_ui.assert_called_once_with(
+                        path, mock.ANY, client_id, show_existing_dialog=expected
+                    )
+
+    def test_a_button_click_does_not_change_the_default(self):
+        # The sidebar buttons connect the openers to clicked(bool), whose
+        # checked flag must not reach the keyword.
+        from PySide6.QtWidgets import QApplication, QPushButton
+
+        QApplication.instance() or QApplication([])
+
+        class Viewer:
+            open_metadata_ui = MainViewer.open_metadata_ui
+            open_agent_ui = MainViewer.open_agent_ui
+
+            def __init__(self):
+                self._open_web_ui = mock.Mock(return_value=True)
+
+        viewer = Viewer()
+        for opener in (viewer.open_metadata_ui, viewer.open_agent_ui):
+            button = QPushButton()
+            button.clicked.connect(opener)
+            button.click()
+
+        self.assertEqual(viewer._open_web_ui.call_count, 2)
+        for call in viewer._open_web_ui.call_args_list:
+            self.assertIs(call.kwargs["show_existing_dialog"], True)
+
+    def test_page_is_open_reports_a_connected_or_opening_page(self):
+        viewer = BrowserPageOpeningTests.make_viewer({"meta"})
+        self.assertTrue(Browser_Page.page_is_open(viewer, "meta"))
+        self.assertFalse(Browser_Page.page_is_open(viewer, "agent"))
+
+        viewer = BrowserPageOpeningTests.make_viewer()
+        self.assertFalse(Browser_Page.page_is_open(viewer, "meta"))
+        with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True):
+            Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta")
+        self.assertTrue(Browser_Page.page_is_open(viewer, "meta"))
+        self.assertFalse(Browser_Page.page_is_open(SimpleNamespace(), "meta"))
+
+    def make_viewer(self, connected_clients=()):
+        viewer = BrowserPageOpeningTests.make_viewer(connected_clients)
+        viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(
+            viewer, *args, **kwargs
+        )
+        viewer.open_metadata_ui = lambda **kwargs: MainViewer.open_metadata_ui(viewer, **kwargs)
+        return viewer
+
+    def run_meta(self, viewer, portal):
+        from contextlib import nullcontext
+
+        import Viewer_Command_Portal
+        from tests.command_fixtures import reported_outcomes
+
+        context = nullcontext()
+        if portal:
+            context = Viewer_Command_Portal.bind(
+                SimpleNamespace(portal=SimpleNamespace(viewer=viewer), report=mock.Mock())
+            )
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(meta, "register"), \
+                mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
+                mock.patch.object(Browser_Page.QMessageBox, "information") as information, \
+                reported_outcomes() as (succeeded, failed), context:
+            meta.run(viewer, [])
+        return succeeded, failed, information
+
+    def test_meta_reports_success_only_when_the_page_opened(self):
+        viewer = self.make_viewer()
+        with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True):
+            succeeded, failed, _ = self.run_meta(viewer, portal=False)
+        succeeded.assert_called_once_with(viewer, "Opened the metadata interface.")
+        failed.assert_not_called()
+
+    def test_meta_says_an_open_page_is_already_open(self):
+        for portal, dialogs in ((False, 1), (True, 0)):
+            with self.subTest(portal=portal):
+                viewer = self.make_viewer({"meta"})
+                with mock.patch.object(Browser_Page.webbrowser, "open") as browser_open:
+                    succeeded, failed, information = self.run_meta(viewer, portal)
+                browser_open.assert_not_called()
+                succeeded.assert_not_called()
+                failed.assert_called_once_with(
+                    viewer, "The metadata interface is already open in your browser."
+                )
+                # A command from the MCP or the agent has nobody to dismiss a dialog.
+                self.assertEqual(information.call_count, dialogs)
+
+    def test_meta_says_when_the_page_could_not_be_opened(self):
+        viewer = self.make_viewer()
+        with mock.patch.object(Browser_Page.webbrowser, "open", return_value=False):
+            succeeded, failed, _ = self.run_meta(viewer, portal=False)
+        succeeded.assert_not_called()
+        failed.assert_called_once_with(viewer, "Could not open the metadata interface.")
+
+
 if __name__ == "__main__":
     unittest.main()

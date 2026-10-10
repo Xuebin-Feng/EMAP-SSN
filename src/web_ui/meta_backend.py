@@ -63,11 +63,33 @@ def handle_delete_columns(viewer, data):
     return True
 
 
+def _refresh_metadata_hud(viewer, column=None, row=None):
+    """Redraw the `meta show` HUD after a change to the value it may show.
+
+    Without column and row, any change might have touched it. The HUD is
+    redrawn only while it is visible, for the clicked node it shows.
+    """
+    display = getattr(viewer, "hud_displays", {}).get("meta_display")
+    prop = getattr(viewer, "meta_display_prop", None)
+    node_idx = getattr(viewer, "selected_node_idx", None)
+    if display is None or not getattr(display, "visible", False):
+        return
+    if not prop or node_idx is None or prop not in getattr(viewer, "metadata", {}):
+        return
+    if (column is not None and column != prop) or (row is not None and row != node_idx):
+        return
+    redraw = getattr(display, "on_node_clicked", None)
+    if callable(redraw):
+        redraw(node_idx)
+
+
 def handle_metadata_undo(viewer, _data):
+    # The viewer's undo and redo redraw the metadata HUD themselves.
     return bool(viewer._do_undo())
 
 
 def handle_metadata_redo(viewer, _data):
+    # The viewer's undo and redo redraw the metadata HUD themselves.
     return bool(viewer._do_redo())
 
 
@@ -97,6 +119,7 @@ def handle_edit_cell(viewer, data):
     meta_entry["values"][row] = parsed_val
     viewer.update_nodes()
     viewer.canvas.update()
+    _refresh_metadata_hud(viewer, col, row)
     return True
 
 def handle_import_metadata(viewer, data):

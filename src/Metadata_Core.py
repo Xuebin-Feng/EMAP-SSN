@@ -38,6 +38,7 @@ grammar used below.
 
 import os
 import re
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -48,6 +49,15 @@ from utilities.Output_Names import validate_output_basename
 
 # Spreadsheet formats `meta download` writes, matched in any case.
 METADATA_DOWNLOAD_EXTENSIONS = (".csv", ".xlsx")
+
+# Row keys the metadata web table adds to every row; a metadata column of the
+# same name would overwrite them, so an upload refuses these names.
+RESERVED_METADATA_COLUMN_NAMES = ("id", "Node ID")
+
+# Type-row values `meta upload` reads as a number or as text; any other value
+# in the type row is read as text, with a warning.
+NUMBER_TYPE_NAMES = ("number", "num", "numerical")
+TEXT_TYPE_NAMES = ("text", "string", "str")
 
 
 class MetadataColumnDeleteError(ValueError):
@@ -219,7 +229,9 @@ def delete_metadata_columns(viewer, requested_names, broadcast=True):
 
 def upload_metadata(viewer, file_paths):
     """Parses and merges Excel/CSV metadata into viewer.metadata."""
-    viewer._save_state()
+    # One undo entry for the whole upload, taken just before the first file
+    # changes metadata, so an upload that fails validation leaves history alone.
+    state_saved = False
 
     successful_files = []
     failed_files = []
@@ -236,7 +248,13 @@ def upload_metadata(viewer, file_paths):
 
         try:
             if ext.lower() == ".csv":
-                df = pd.read_csv(filepath, header=None, dtype=str)
+                try:
+                    df = pd.read_csv(filepath, header=None, dtype=str)
+                except UnicodeDecodeError:
+                    # Excel saves a plain "CSV" in the system's Windows code
+                    # page, not in UTF-8.
+                    print(f"Note: {filename} is not valid UTF-8; reading it as Windows-1252 (cp1252).")
+                    df = pd.read_csv(filepath, header=None, dtype=str, encoding="cp1252")
             else:
                 df = pd.read_excel(filepath, header=None)
 
@@ -264,14 +282,33 @@ def upload_metadata(viewer, file_paths):
                     names=", ".join([repr(p) for p in illegal_props]),
                 ))
 
+            reserved_props = [prop for prop in prop_names if prop in RESERVED_METADATA_COLUMN_NAMES]
+            if reserved_props:
+                raise ValueError(Message(
+                    "Property names {names} are reserved for the metadata table's row index. "
+                    "Rename the column and upload the file again.",
+                    names=", ".join([repr(p) for p in reserved_props]),
+                ))
+
+            seen_props = set()
+            for prop in prop_names:
+                if prop in seen_props:
+                    print(f"Warning: Property '{prop}' appears in more than one column of {filename}; "
+                          "the columns are merged, and a later column's values replace an earlier one's.")
+                seen_props.add(prop)
+
             prop_types = []
-            for col_idx in valid_cols:
+            for prop, col_idx in zip(prop_names, valid_cols):
                 val = df.iloc[1, col_idx]
                 if pd.notna(val) and str(val).strip():
                     t = str(val).strip().lower()
-                    if t in ['number', 'num', 'numerical']:
+                    if t in NUMBER_TYPE_NAMES:
                         prop_types.append('number')
                     else:
+                        if t not in TEXT_TYPE_NAMES:
+                            print(f"Warning: Property '{prop}' in {filename} has the unrecognized type "
+                                  f"'{str(val).strip()}'; treating it as text. "
+                                  "Recognized types are: number, num, numerical, text.")
                         prop_types.append('text')
                 else:
                     prop_types.append('text')
@@ -299,6 +336,10 @@ def upload_metadata(viewer, file_paths):
                 raise ValueError(Message(
                     "No matching sequence headers found. Enforced strict exact matching against full headers."
                 ))
+
+            if not state_saved:
+                viewer._save_state()
+                state_saved = True
 
             for p_idx, prop_name in enumerate(prop_names):
                 prop_type = prop_types[p_idx]
@@ -484,17 +525,30 @@ def download_metadata(viewer, filepath, expr=None):
 
         df = pd.DataFrame(rows)
 
-        _, ext = os.path.splitext(filepath)
-        if ext.lower() == ".csv":
-            df.to_csv(filepath, header=False, index=False)
-        elif ext.lower() == ".xlsx":
-            # pandas checks a path's extension case-sensitively and refuses
-            # ".XLSX"; a file handle has none to check and gets the same
-            # default writer as ".xlsx".
-            with open(filepath, "wb") as handle:
-                df.to_excel(handle, header=False, index=False)
-        else:
-            df.to_excel(filepath, header=False, index=False)
+        # Write beside the target and move the finished file over it, so a
+        # failure part-way (a control character in a text value, say) leaves
+        # an earlier export in place instead of a partial file.
+        folder, name = os.path.split(filepath)
+        stem, ext = os.path.splitext(name)
+        temp_path = os.path.join(folder, f"{stem}.{uuid.uuid4().hex[:8]}.partial{ext}")
+        try:
+            if ext.lower() == ".csv":
+                df.to_csv(temp_path, header=False, index=False)
+            elif ext.lower() == ".xlsx":
+                # pandas checks a path's extension case-sensitively and refuses
+                # ".XLSX"; a file handle has none to check and gets the same
+                # default writer as ".xlsx".
+                with open(temp_path, "wb") as handle:
+                    df.to_excel(handle, header=False, index=False)
+            else:
+                df.to_excel(temp_path, header=False, index=False)
+            os.replace(temp_path, filepath)
+        except BaseException:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            raise
 
         if expr:
             msg = Message(

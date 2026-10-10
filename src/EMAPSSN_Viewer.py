@@ -1626,8 +1626,20 @@ class MainViewer:
         Command_Engine.show_status(self, msg)
         print(msg)
         if changed:
+            self._redraw_metadata_hud()
             self.broadcast_metadata_state()
         return changed
+
+    def _redraw_metadata_hud(self):
+        """Redraw the visible `meta show` HUD for the clicked node, as undo or
+        redo may have changed the value it shows."""
+        display = getattr(self, "hud_displays", {}).get("meta_display")
+        redraw = getattr(display, "on_node_clicked", None)
+        prop = getattr(self, "meta_display_prop", None)
+        node_idx = getattr(self, "selected_node_idx", None)
+        if (callable(redraw) and getattr(display, "visible", False) and prop
+                and node_idx is not None and prop in getattr(self, "metadata", {})):
+            redraw(node_idx)
 
     def _do_redo(self):
         if len(self.redo_stack) > 0:
@@ -1646,6 +1658,7 @@ class MainViewer:
         Command_Engine.show_status(self, msg)
         print(msg)
         if changed:
+            self._redraw_metadata_hud()
             self.broadcast_metadata_state()
         return changed
 
@@ -2738,11 +2751,23 @@ class MainViewer:
             if hasattr(self, '_update_hud_elements'):
                 self._update_hud_elements()
 
-    def open_metadata_ui(self):
-        return self._open_web_ui("/meta.html", Message("Metadata UI"), "meta")
+    # show_existing_dialog is keyword-only so that a Qt signal connected to
+    # these (the sidebar button's clicked(bool)) never passes it a value.
+    def open_metadata_ui(self, *, show_existing_dialog=True):
+        return self._open_web_ui(
+            "/meta.html",
+            Message("Metadata UI"),
+            "meta",
+            show_existing_dialog=show_existing_dialog,
+        )
 
-    def open_agent_ui(self):
-        return self._open_web_ui("/agent.html", Message("Agent UI"), "agent")
+    def open_agent_ui(self, *, show_existing_dialog=True):
+        return self._open_web_ui(
+            "/agent.html",
+            Message("Agent UI"),
+            "agent",
+            show_existing_dialog=show_existing_dialog,
+        )
 
     def _open_web_ui(
         self,
@@ -2884,9 +2909,17 @@ class MainViewer:
                 "Node ID": str(self.full_headers[row_idx])
             }
             for key, entry in self.metadata.items():
+                if key in ("id", "Node ID"):
+                    # The web table finds a row by these two keys, so no
+                    # metadata column may overwrite them.
+                    continue
                 val = entry["values"][row_idx]
                 if isinstance(val, (float, np.floating)) and np.isnan(val):
                     val = ""
+                elif isinstance(val, (float, np.floating)) and np.isinf(val):
+                    # json.dumps writes Infinity, which the browser's
+                    # JSON.parse rejects; a number cell takes "inf" back.
+                    val = "inf" if val > 0 else "-inf"
                 else:
                     val = val.item() if hasattr(val, 'item') else val
                 row_dict[key] = val
