@@ -668,6 +668,40 @@ if __name__ == "__main__":
         NavigationToolbar2QT,
     )
 
+    def statistics_report_html(summary, headings, rows):
+        """The statistics report: its summary lines, which wrap, then the threshold table.
+
+        A table keeps each threshold's figures on one row however narrow the
+        report is, which spaced-out plain text couldn't: it wrapped or ran off
+        the side. The figures align right under their headings.
+        """
+        muted = TOKENS["text_muted"]
+        lines = "".join(
+            f'<p style="margin-top: 0px; margin-bottom: 4px;">{html.escape(line)}</p>'
+            for line in summary
+        )
+        def cell(index):
+            # The first column starts flush with the summary; the others keep a gap.
+            return f"padding: 2px 0px 2px {0 if index == 0 else 12}px; white-space: nowrap;"
+
+        head = "".join(
+            f'<th align="{"left" if index == 0 else "right"}" style="{cell(index)} color: {muted}; '
+            f'font-weight: 600; border-bottom: 1px solid {TOKENS["border"]};">'
+            f'{html.escape(heading)}</th>'
+            for index, heading in enumerate(headings)
+        )
+        body = "".join(
+            "<tr>" + "".join(
+                f'<td align="{"left" if index == 0 else "right"}" style="{cell(index)}">{html.escape(value)}</td>'
+                for index, value in enumerate(row)
+            ) + "</tr>"
+            for row in rows
+        )
+        return (
+            f"{lines}<table width=\"100%\" cellspacing=\"0\" style=\"margin-top: 8px;\">"
+            f"<tr>{head}</tr>{body}</table>"
+        )
+
     # --- Custom Widget Classes ---
     class ScoreHistogramDialog(QDialog):
         """Qt-owned modal container for a Matplotlib score histogram."""
@@ -946,8 +980,6 @@ if __name__ == "__main__":
             ))
             self.stat_display.setFont(qt_monospace_font(self.stat_display.font()))
             set_role(self.stat_display, "report")
-            # The report is a table: a row scrolls sideways rather than wrapping.
-            self.stat_display.setLineWrapMode(WrappedPlaceholderTextEdit.LineWrapMode.NoWrap)
             self.right_layout.addWidget(self.stat_label)
             self.right_layout.addWidget(self.stat_display)
             self.language_selector = LanguageSelector()
@@ -2954,14 +2986,7 @@ if __name__ == "__main__":
                         normalization=norm_names.get(norm_mode, norm_mode.replace('_', ' ').title()),
                     )
 
-                def column(heading, width=10):
-                    # A wide character, as in Chinese, takes two columns of the report.
-                    used = sum(2 if unicodedata.east_asian_width(character) in "WF" else 1
-                               for character in heading)
-                    return heading + " " * max(0, width - used)
-
-                lines = [
-                    translate("Config", "====== Network Statistics ======"),
+                summary = [
                     translate("Config", "Network Model: {model}").format(model=model_name),
                     translate("Config", "Fasta Node Subset: {name}").format(name=os.path.basename(fasta_path)),
                     translate("Config", "Total Nodes Processed: {count}").format(count=total_nodes),
@@ -2972,23 +2997,18 @@ if __name__ == "__main__":
                     translate("Config", "Max: {maximum:.4f} | Min: {minimum:.4f} | Avg: {mean:.4f}").format(
                         maximum=max_score, minimum=min_score, mean=avg_score
                     ),
-                    "-" * 40,
-                    " | ".join(column(heading) for heading in (
-                        translate("Config", "Threshold", "statistics column"),
-                        translate("Config", "Count", "statistics column"),
-                        translate("Config", "Percentage", "statistics column"),
-                    )),
-                    "-" * 40,
                 ]
-                
+                headings = (
+                    translate("Config", "Threshold", "statistics column"),
+                    translate("Config", "Count", "statistics column"),
+                    translate("Config", "Percentage", "statistics column"),
+                )
+                rows = []
                 for thresh, count in zip(thresholds, counts):
                     pct = (count / theoretical_max_edges) * 100.0 if theoretical_max_edges > 0 else 0
-                    if is_blast:
-                         lines.append(f"{int(thresh):<10} | {count:<10} | {pct:<9.2f}%")
-                    else:
-                         lines.append(f"{thresh:<10.1f} | {count:<10} | {pct:<9.2f}%")
-                         
-                self.stat_display.setText("\n".join(lines))
+                    value = f"{int(thresh)}" if is_blast else f"{thresh:.1f}"
+                    rows.append((value, f"{count}", f"{pct:.2f}%"))
+                self.stat_display.setHtml(statistics_report_html(summary, headings, rows))
                 self.tip_panel.setText(translate("Config", "Network statistics computed successfully."))
 
             except Exception as e:

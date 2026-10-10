@@ -1063,10 +1063,6 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>====== Network Statistics ======</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Network Model: {model}</source>
         <translation type="unfinished"></translation>
     </message>

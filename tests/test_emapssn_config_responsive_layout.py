@@ -322,6 +322,31 @@ class ResponsiveConfigTests(unittest.TestCase):
                 self.assertEqual(starts[0], starts[1])
                 self.assert_geometry(page)
 
+    def test_the_statistics_report_fits_at_launch_size_and_keeps_markup_as_text(self):
+        report_html = self.namespace["statistics_report_html"]
+        summary = [
+            "Fasta Node Subset: a<b>&c.fasta",
+            "Stored Edges: 1904331 (Max possible: 90872421)",
+            "Max: 0.9971 | Min: 0.1120 | Avg: 0.4021",
+        ]
+        headings = ("Threshold", "Count", "Percentage")
+        rows = [(f"{step / 10:.1f}", "1904331", "2.10%") for step in range(1, 10)]
+        self.window.resize(1000, 650)
+        self.flush()
+        report = self.window.stat_display
+        report.setHtml(report_html(summary, headings, rows))
+        self.flush()
+        text = report.toPlainText()
+        # File names and translations are text, not markup.
+        self.assertIn("Fasta Node Subset: a<b>&c.fasta", text)
+        # The summary wraps and the table keeps each row whole: nothing scrolls sideways.
+        self.assertEqual(report.horizontalScrollBar().maximum(), 0)
+        tables = [frame for frame in report.document().rootFrame().childFrames()
+                  if frame.__class__.__name__ == "QTextTable"]
+        self.assertEqual(len(tables), 1)
+        self.assertEqual((tables[0].rows(), tables[0].columns()), (10, 3))
+        self.assertEqual(tables[0].cellAt(0, 0).firstCursorPosition().block().text(), "Threshold")
+
     def test_alignment_offset_spans_stacked_rows_and_keeps_its_wide_width(self):
         from PySide6.QtCore import QPoint
         page = self.window.tabs.currentWidget().widget()

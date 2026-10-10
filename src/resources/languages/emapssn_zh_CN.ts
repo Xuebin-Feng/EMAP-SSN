@@ -564,23 +564,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3143"/>
+        <location line="+3163"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3142"/>
+        <location line="-3162"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3653"/>
+        <location line="+3673"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3645"/>
+        <location line="-3665"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -595,7 +595,7 @@
         <translation type="unfinished">（新建）</translation>
     </message>
     <message>
-        <location line="+461"/>
+        <location line="+495"/>
         <source>Score Histogram</source>
         <translation type="unfinished">分数直方图</translation>
     </message>
@@ -621,12 +621,12 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3197"/>
+        <location line="+3183"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3194"/>
+        <location line="-3180"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -651,7 +651,7 @@
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+212"/>
+        <location line="+210"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
@@ -667,12 +667,12 @@
     </message>
     <message>
         <location line="+221"/>
-        <location line="+2010"/>
+        <location line="+1998"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1929"/>
+        <location line="-1917"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1209,12 +1209,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+48"/>
-        <location line="+1444"/>
+        <location line="+1432"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1410"/>
+        <location line="-1398"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1371,20 +1371,20 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message numerus="yes">
         <location line="+28"/>
-        <location line="+202"/>
+        <location line="+190"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的严格子集。网络中缺少 %n 条序列。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="-135"/>
-        <location line="+202"/>
+        <location line="-123"/>
+        <location line="+190"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-168"/>
+        <location line="-156"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(E 值)</translation>
     </message>
@@ -1430,12 +1430,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">指标：{score}比对分数，按{normalization}归一化</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>====== Network Statistics ======</source>
-        <translation type="unfinished">====== 网络统计 ======</translation>
+        <translation type="obsolete">====== 网络统计 ======</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+8"/>
         <source>Network Model: {model}</source>
         <translation type="unfinished">网络模型：{model}</translation>
     </message>
@@ -1478,7 +1477,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">百分比</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+8"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
@@ -3741,7 +3740,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Config.py" line="-3959"/>
+        <location filename="../../EMAPSSN_Config.py" line="-3979"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3786,7 +3785,7 @@ Command-line usage:
         <translation type="unfinished">分数分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+673"/>
+        <location line="+705"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>

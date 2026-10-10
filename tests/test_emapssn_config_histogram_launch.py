@@ -204,7 +204,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     window.run_statistics()
 
                 report = window.stat_display.toPlainText()
-                assert "====== Network Statistics ======" in report
+                assert "Stored Edges:" in report
                 assert "Network statistics computed successfully." in window.tip_panel.text()
 
                 class FakeHistogramDialog:

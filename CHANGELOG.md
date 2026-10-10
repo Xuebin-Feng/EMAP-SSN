@@ -930,6 +930,11 @@ still change before version 1.0.0.
   (`Hits_*.fasta`) in Windows' default encoding, so a header with a character outside it,
   such as a Greek letter, stopped the search before the Excel report was written. Both
   files are now UTF-8.
+- The Configuration and VR Configuration windows' statistics report fits its panel at
+  the launch size. Its threshold figures were spaced-out text that wrapped mid-row in
+  the narrow panel; they now sit in a table under their column headings, and the
+  summary lines above it wrap. The report's own "Network Statistics" banner line is gone,
+  since the panel's title already says it.
 
 ### Removed
 
