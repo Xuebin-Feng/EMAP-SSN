@@ -609,7 +609,7 @@ def every_kind_of_stage():
     child = {"tool_seconds": 15.0, "import_seconds": 1.0, "gpu_peak_bytes": 1 << 20,
              "steps": {"alignment": {"started_at": 1000.0, "finished_at": 1015.0}},
              "details": {"nodes": 4, "edges": 6, "tree_seconds": 1.5, "merge_seconds": 0.5}}
-    ranking = {"unit": "pairs/s", "ranking": [1, 0], "winner": 1, "time": 1010.0, "size_class": "2", "candidates": [
+    ranking = {"unit": "pairs/s", "ranking": [1, 0], "winner": 1, "time": 1010.0, "size_class": "small", "candidates": [
         {"device": "#1", "backend": "cpu", "variant": "1", "lanes": 1, "value": 5.0, "error": None},
         {"device": "#2", "backend": "cuda", "variant": "2", "lanes": 2, "value": 50.0, "error": None,
          "profile": "3", "peak_memory_bytes": 1 << 20},
@@ -672,6 +672,17 @@ class BenchmarkLanguageTests(unittest.TestCase):
             text = text.replace(name, "")
         text = re.sub(r"\d[\d,.]* (?:ms|s|B|KiB|MiB|GiB|TiB)\b", "", text)
         self.assertEqual(outside_the_catalog(text), "")
+
+    def test_a_layout_decision_names_its_size_class_in_the_reports_language(self):
+        # A value filled into a translated text shows inside the pseudo-language's
+        # brackets, where the check above can't tell it from the text: check it here.
+        from tests.translation_fixtures import pseudo_language
+
+        pseudo_language(self, qt_application())
+        for size in ("small", "medium", "massive"):
+            with self.subTest(size=size):
+                title = benchmark.decision_blocks({"kind": "layout_device", "size_class": size})[0][1]
+                self.assertIn(f" {Localization.pseudo_translate(size)} ", Localization.display_text(title))
 
     def test_a_run_in_the_pseudo_language_writes_only_the_txt_in_it(self):
         qt_application()

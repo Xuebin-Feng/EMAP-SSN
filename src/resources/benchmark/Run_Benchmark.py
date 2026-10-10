@@ -1887,6 +1887,12 @@ DECISION_TITLES = {
     "layout_device": Message("Device for the layout, by estimated time"),
     "search_plan": Message("Search plan, by predicted search time"),
 }
+# The layout's size classes (Hardware_Acceleration.layout_size_class), as a decision's title names them.
+LAYOUT_SIZE_NAMES = {
+    "small": Message("small"),
+    "medium": Message("medium"),
+    "massive": Message("massive"),
+}
 
 
 def value_text(value, unit):
@@ -1926,7 +1932,9 @@ def decision_blocks(decision):
         ))]
     title = DECISION_TITLES.get(kind, kind or "?")
     if kind == "layout_device" and decision.get("size_class"):
-        title = Message("Device for the layout of {size} components, by estimated time", size=decision["size_class"])
+        size = decision["size_class"]
+        title = Message("Device for the layout of {size} components, by estimated time",
+                        size=LAYOUT_SIZE_NAMES.get(size, size))
     candidates = decision.get("candidates") or []
     ranking = [index for index in decision.get("ranking") or [] if 0 <= index < len(candidates)]
     order = ranking + [index for index in range(len(candidates)) if index not in ranking]

@@ -3114,6 +3114,18 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>small</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>medium</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>massive</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Matrix-product precision {choice}, because {reason}.</source>
         <translation type="unfinished"></translation>
     </message>

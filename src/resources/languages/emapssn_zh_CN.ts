@@ -1789,7 +1789,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+1518"/>
+        <location filename="../../desktop/Desktop_App.py" line="+1522"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -4046,7 +4046,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location filename="../benchmark/Run_Benchmark.py" line="+111"/>
         <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
-        <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在你有写入权限的 EMAP-SSN 副本中运行它。</translation>
+        <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在有写入权限的 EMAP-SSN 副本中运行它。</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -4106,52 +4106,52 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+38"/>
         <source>{rate} sequences/s</source>
-        <translation type="unfinished">{rate} 条序列/秒</translation>
+        <translation type="unfinished">{rate} 序列/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} residues/s</source>
-        <translation type="unfinished">{rate} 个残基/秒</translation>
+        <translation type="unfinished">{rate} 残基/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} pairs/s</source>
-        <translation type="unfinished">{rate} 个序列对/秒</translation>
+        <translation type="unfinished">{rate} 序列对/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} billion DP cells/s</source>
-        <translation type="unfinished">{rate} 十亿个 DP 单元/秒</translation>
+        <translation type="unfinished">{rate} 十亿 DP 单元/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} layout steps/s</source>
-        <translation type="unfinished">{rate} 个布局步/秒</translation>
+        <translation type="unfinished">{rate} 布局步/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} targets/s</source>
-        <translation type="unfinished">{rate} 个目标/秒</translation>
+        <translation type="unfinished">{rate} 目标/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} queries/s</source>
-        <translation type="unfinished">{rate} 次查询/秒</translation>
+        <translation type="unfinished">{rate} 查询/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} edges/s</source>
-        <translation type="unfinished">{rate} 条边/秒</translation>
+        <translation type="unfinished">{rate} 边/秒</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>{rate} sequences/s after the Auto trials</source>
-        <translation type="unfinished">自动试验后 {rate} 条序列/秒</translation>
+        <translation type="unfinished">自动试验后 {rate} 序列/秒</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>{rate} pairs/s after the Auto trials</source>
-        <translation type="unfinished">自动试验后 {rate} 个序列对/秒</translation>
+        <translation type="unfinished">自动试验后 {rate} 序列对/秒</translation>
     </message>
     <message numerus="yes">
         <location line="+60"/>
@@ -4256,12 +4256,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+381"/>
+        <location line="+389"/>
         <source>CPU</source>
         <translation type="unfinished">CPU</translation>
     </message>
     <message>
-        <location line="-367"/>
+        <location line="-375"/>
         <source>not recorded</source>
         <translation type="unfinished">未记录</translation>
     </message>
@@ -4346,6 +4346,21 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">搜索方案，按预计搜索时间选择</translation>
     </message>
     <message>
+        <location line="+4"/>
+        <source>small</source>
+        <translation type="unfinished">小型</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>medium</source>
+        <translation type="unfinished">中型</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>massive</source>
+        <translation type="unfinished">大型</translation>
+    </message>
+    <message>
         <location line="+21"/>
         <source>Matrix-product precision {choice}, because {reason}.</source>
         <translation type="unfinished">矩阵乘法精度为 {choice}，因为 {reason}。</translation>
@@ -4362,12 +4377,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+0"/>
-        <location line="+19"/>
+        <location line="+21"/>
         <source>Measured</source>
         <translation type="unfinished">测量值</translation>
     </message>
     <message>
-        <location line="-12"/>
+        <location line="-14"/>
         <source>Host cache: {choice} ({size} of embeddings, limit {limit}).</source>
         <translation type="unfinished">主机缓存：{choice}（嵌入共 {size}，上限 {limit}）。</translation>
     </message>
@@ -4376,12 +4391,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">（{size} 连通分量）</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <source>Device for the layout of {size} components, by estimated time</source>
-        <translation type="unfinished">{size} 连通分量的布局所用设备，按估计时间选择</translation>
+        <translation type="unfinished">{size}连通分量的布局所用设备，按估计时间选择</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Candidate</source>
         <translation type="unfinished">候选项</translation>
     </message>
@@ -5155,7 +5170,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1227"/>
+        <location line="-1231"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
