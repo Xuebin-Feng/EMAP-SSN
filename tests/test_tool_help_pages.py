@@ -258,6 +258,22 @@ class HelpPanelPageTests(unittest.TestCase):
                 self.assertIn("<html>", shown)
                 self.assertNotIn("@font-face", shown)
 
+    def test_the_panel_shows_its_page_in_the_windows_language(self):
+        import EMAPSSN_Tools
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+
+        QApplication.instance() or QApplication([])
+        # The page the panel hands Chromium, taken without starting Chromium.
+        browser = EMAPSSN_Tools.ResponsiveTextBrowser.__new__(EMAPSSN_Tools.ResponsiveTextBrowser)
+        for language in ("zh_CN", None):
+            with self.subTest(language=language), \
+                    mock.patch.object(EMAPSSN_Tools, "installed_language", return_value=language), \
+                    mock.patch.object(QWebEngineView, "setHtml") as shown:
+                browser.setHtml("<p>帮助</p>")
+                html, base_url = shown.call_args.args
+                self.assertEqual(html, EMAPSSN_Tools.ResponsiveTextBrowser.page_html("<p>帮助</p>", language))
+                self.assertEqual(Path(base_url.toLocalFile()), Path(EMAPSSN_Tools._SRC_DIR) / "resources")
+
 
 if __name__ == "__main__":
     unittest.main()

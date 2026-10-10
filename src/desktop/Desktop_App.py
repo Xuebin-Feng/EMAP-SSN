@@ -518,6 +518,10 @@ def configure_qt_application_fonts(
         failed_files.extend(font_files)
         _warn_once(f"Bundled Noto font directory is unavailable: {resolved_dir}.")
     else:
+        # Removing an application font (a language's, when the language
+        # changes) leaves Qt listing no family for any of them until its font
+        # database is read again; reading it now registers the rest anew.
+        QFontDatabase.families()
         for relative_path in font_files:
             font_path = resolved_dir / Path(relative_path)
             font_id = _qt_font_ids.get(font_path)

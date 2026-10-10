@@ -247,6 +247,23 @@ class ApplicationFontTests(unittest.TestCase):
         self.app.setFont(original)
         configure_qt_application_fonts(self.app)
 
+    def test_the_core_faces_stay_registered_after_leaving_a_language_with_its_own_font(self):
+        # Removing the Chinese font leaves Qt listing no family for any
+        # application font until its font database is read again.
+        configure_qt_application_fonts(self.app)
+        self.addCleanup(Desktop_App.install_translations, self.app, None)
+        Desktop_App.install_translations(self.app, "zh_CN")
+        Desktop_App.install_translations(self.app, None)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            status = configure_qt_application_fonts(self.app)
+
+        self.assertEqual(set(status.loaded_files), set(FONT_FILES))
+        self.assertEqual(status.failed_files, ())
+        self.assertTrue(status.ui_family_available)
+        self.assertEqual([str(warning.message) for warning in caught], [])
+
     def test_native_widgets_inherit_noto_and_monospace_helper_prefers_noto_mono(self):
         configure_qt_application_fonts(self.app)
         widgets = (
