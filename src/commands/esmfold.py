@@ -34,7 +34,8 @@ def print_help():
     Usage:
       esmfold
           With exactly 1 node selected, folds it using ESM3 1.4B (biohub/esm3-sm-open-v1).
-          With no node selected, registers the sidebar button "🧬 Fold View" and opens the Mol* viewer in the browser.
+          With no node selected, folds the node last clicked and says so. With no node
+          clicked either, registers the sidebar button "🧬 Fold View" and opens the Mol* viewer in the browser.
       esmfold multi
           Folds all currently selected nodes sequentially using ESM3 1.4B (biohub/esm3-sm-open-v1).
       esmfold large
@@ -44,6 +45,9 @@ def print_help():
           Folds all selected nodes sequentially through the configured Biohub ESM3 API model.
       esmfold help
           Displays this help message.
+
+    Only one folding worker runs at a time: while one is running, esmfold refuses to
+    start another. Wait for it to finish, or close its console window.
     """)
 
 # A command's outcome names the selected nodes it skipped when there are this few.
@@ -93,6 +97,28 @@ def _discard_worker_input(path):
         pass
 
 
+def _worker_running(viewer):
+    """Whether the folding worker this Viewer started is still running.
+
+    A run for the MCP or the agent page has a WorkerTracker, which polls the
+    worker until it reports a final result or exits, so it answers: a terminal
+    left open after a failure is not a running worker. A typed run has none, so
+    the terminal process that hosts the worker answers instead, which lasts as
+    long as the worker does. (Some Linux terminals hand their window to another
+    process and exit at once; only a tracker can tell for those.)
+    """
+    worker = getattr(viewer, "esmfold_worker", None)
+    if worker is None:
+        return False
+    process, tracker = worker
+    if tracker is not None:
+        try:
+            return bool(tracker.timer.isActive())
+        except RuntimeError:
+            pass  # The tracker's Qt object is already deleted.
+    return process is not None and process.poll() is None
+
+
 def _parse_options(viewer, args):
     normalized = [str(argument).lower() for argument in args]
     allowed = {"large", "multi"}
@@ -137,12 +163,18 @@ def run(viewer, args):
     is_large = options["large"]
     is_multi = options["multi"]
 
-    # 3. Determine selected nodes
+    # 3. Determine selected nodes. With nothing selected, the node last clicked
+    # (the left-click focus) is folded, and the outcome says so.
     selected_indices = getattr(viewer, 'selected_indices', [])
+    clicked_note = None
     if not selected_indices:
         node_idx = getattr(viewer, 'selected_node_idx', None)
         if node_idx is not None:
             selected_indices = [node_idx]
+            clicked_note = Message(
+                "Nothing is selected, so the last clicked node is folded: {node}.",
+                node=viewer.full_headers[node_idx].split()[0],
+            )
 
     if not selected_indices:
         if not args:
@@ -170,6 +202,20 @@ def run(viewer, args):
             failure = Message("Error: Multiple nodes selected. Use 'esmfold multi'.")
             Command_Engine.show_status(viewer, failure)
         return
+
+    # 4b. One worker at a time: a second would load a second large model into
+    # GPU memory, so it is refused before any hardware or sequence work.
+    if _worker_running(viewer):
+        failure = Message(
+            "An esmfold worker is still running. Wait for it to finish, or close its "
+            "console window, before folding again."
+        )
+        print(f"Error: {failure}")
+        Command_Engine.command_failed(viewer, f'Error: {failure}')
+        _set_console_text(viewer, Message("Error: {error}", error=failure))
+        return
+    if clicked_note is not None:
+        print(clicked_note)
 
     # 5. Select hardware only for local inference. Biohub runs remotely.
     device_str = None
@@ -301,7 +347,7 @@ def run(viewer, args):
             cmd += ['--portal-status', str(tracker.path)]
             if os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
                 cmd += ['--noninteractive']
-        launch_in_terminal(
+        process = launch_in_terminal(
             cmd,
             cwd=project_root,
             hold=HoldMode.NEVER,
@@ -327,6 +373,8 @@ def run(viewer, args):
             tracker.fail(str(error))
         _discard_worker_input(tmp_path)
         raise
+    # A second esmfold is refused while this worker runs (step 4b).
+    viewer.esmfold_worker = (process, tracker)
 
     # 10. Open Mol* web browser tab immediately
     page_opened = esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
@@ -342,6 +390,9 @@ def run(viewer, args):
         outcome += f" {skipped}"
         if len(skipped_ids) <= MAX_LISTED_SKIPPED:
             outcome += f" ({', '.join(skipped_ids)})"
+    if clicked_note is not None:
+        spawning = JoinedMessage([clicked_note, spawning])
+        outcome += f" {clicked_note}"
     if not page_opened and not _structure_viewer_connected(viewer):
         outcome += " The structure viewer page was not opened; use the Fold View button if it does not appear."
     _set_console_text(viewer, spawning)

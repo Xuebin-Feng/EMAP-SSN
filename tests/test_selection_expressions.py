@@ -296,6 +296,33 @@ class StrictExpressionTests(unittest.TestCase):
         with self.assertRaisesRegex(Command_Engine.SelectionExpressionError, "not numeric"):
             self.gravy("{GRAVY>(-1)-0}")
 
+    def test_property_names_may_contain_periods(self):
+        metadata = dict(self.metadata)
+        metadata["pI.calc"] = {"type": "number", "values": np.array([6.5, 7.2, 8.0])}
+        np.testing.assert_array_equal(self.evaluate("{pI.calc>7}", metadata=metadata), [False, True, True])
+        np.testing.assert_array_equal(self.evaluate("{pI.calc>=7.5}", metadata=metadata), [False, False, True])
+        # Property names still match case-insensitively.
+        np.testing.assert_array_equal(self.evaluate("{PI.CALC<7}", metadata=metadata), [True, False, False])
+        np.testing.assert_array_equal(self.evaluate("{Length>1.5}", metadata=metadata), [True, True, True])
+        np.testing.assert_array_equal(self.evaluate("{pI.calc=6-7.5}", metadata=metadata), [True, True, False])
+        self.assertEqual(
+            Command_Engine.classify_selection_expression("{pI.calc>7}").kind,
+            Command_Engine.SelectionClassificationKind.VALID_EXPRESSION,
+        )
+        with self.assertRaisesRegex(Command_Engine.SelectionContextError, "property 'pI.missing'"):
+            self.evaluate("{pI.missing>7}", metadata=metadata)
+
+    def test_the_metadata_pattern_splits_a_dotted_property_from_its_value(self):
+        pattern = Command_Engine._METADATA_QUERY_PATTERN
+        for text, groups in (
+            ("pI.calc>=7.5", ("pI.calc", ">=", "7.5")),
+            ("Length>1.5", ("Length", ">", "1.5")),
+            ("GRAVY=(-1)-0", ("GRAVY", "=", "(-1)-0")),
+            ("pI.calc!=7", ("pI.calc", "!=", "7")),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(pattern.fullmatch(text).groups(), groups)
+
     def test_missing_file_raises_but_existing_empty_file_is_valid(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir, create=True):
@@ -694,8 +721,82 @@ class HeaderListFileTests(unittest.TestCase):
             f"Header list folder: {self.header_dir}",
         )
 
+    def test_every_fasta_ending_reads_the_header_lines_in_any_case(self):
+        # The endings `select save` writes sequences under: a file with one is
+        # read as FASTA and is found under the name as given.
+        self.assertEqual(Command_Engine.FASTA_EXTENSIONS, (".fa", ".faa", ".fas", ".fasta"))
+        endings = (".fa", ".faa", ".fas", ".fasta", ".FA", ".Faa", ".FAS", ".FASTA")
+        for index, ending in enumerate(endings):
+            name = f"picked{index}{ending}"
+            self.write_list(name, ">beta_7\nMKVL\n>alpha\nMKVLAAA\n")
+            with self.subTest(name=name):
+                np.testing.assert_array_equal(
+                    Command_Engine.evaluate_file_mask(self.HEADERS, name),
+                    [True, False, True, False],
+                )
+
+    def test_a_fasta_ending_name_is_read_as_given_and_not_given_txt(self):
+        self.write_list("hits.fa", ">beta_7\nMKVL\n")
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "hits.fa"),
+            [False, False, True, False],
+        )
+        # A name that only ends like an ending, without the dot, still reads <name>.txt.
+        self.write_list("alfa.txt", "Alpha\n")
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "alfa"),
+            [True, False, False, False],
+        )
+
+    def test_an_older_header_list_saved_as_name_fa_txt_is_still_read(self):
+        # Before .fa, .faa and .fas were FASTA endings, `select save hits.fa`
+        # wrote the header list hits.fa.txt, and @hits.fa@ read it.
+        for index, ending in enumerate((".fa", ".faa", ".fas", ".FA", ".Faa")):
+            name = f"older{index}{ending}"
+            self.write_list(name + ".txt", "ALPHA\n  beta_7  \n\nAlp\n")
+            with self.subTest(name=name):
+                Command_Engine._validate_file_target(name)
+                np.testing.assert_array_equal(
+                    Command_Engine.evaluate_file_mask(self.HEADERS, name),
+                    [True, False, True, False],
+                )
+
+    def test_the_exact_name_wins_over_name_txt_when_both_exist(self):
+        self.write_list("hits.fa", ">beta_7\nMKVL\n")
+        self.write_list("hits.fa.txt", "Alpha\n")
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "hits.fa"),
+            [False, False, True, False],
+        )
+
+    def test_only_the_endings_that_became_fasta_fall_back_to_name_txt(self):
+        # .fasta always meant FASTA: hits.fasta.txt was never what @hits.fasta@ read.
+        self.write_list("hits.fasta.txt", "Alpha\n")
+        with self.assertRaises(Command_Engine.SelectionContextError) as caught:
+            Command_Engine._validate_file_target("hits.fasta")
+        self.assertIn("Selection file 'hits.fasta' does not exist.", str(caught.exception))
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "hits.fasta"), [False] * 4
+        )
+        # A directory of that name is no list: the .txt file is read instead.
+        os.mkdir(os.path.join(self.header_dir, "dir.fa"))
+        self.write_list("dir.fa.txt", "Alpha\n")
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "dir.fa"),
+            [True, False, False, False],
+        )
+
+    def test_neither_file_existing_names_the_exact_name_as_missing(self):
+        with self.assertRaises(Command_Engine.SelectionContextError) as caught:
+            Command_Engine._validate_file_target("hits.fa")
+        self.assertIn("Selection file 'hits.fa' does not exist.", str(caught.exception))
+        np.testing.assert_array_equal(
+            Command_Engine.evaluate_file_mask(self.HEADERS, "hits.fa"), [False] * 4
+        )
+        self.assertIn("Could not find file 'hits.fa'", self.output.getvalue())
+
     def test_plain_names_still_read_from_the_header_list_folder(self):
-        # .txt is appended unless the name ends in .txt or .fasta.
+        # .txt is appended unless the name ends in .txt or a FASTA ending.
         self.write_list("v1.2_hits.txt", "Alpha\n")
         self.write_list("v1.2_hits.fasta", ">beta_7\nMKVL\n")
         for name, expected in (

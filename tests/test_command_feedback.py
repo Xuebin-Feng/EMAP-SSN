@@ -96,7 +96,9 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
 
     def test_failures_never_append_success_messages(self):
         for command in ('color', 'select', 'select {Missing=1}', 'query', 'logo',
-                        'label', 'run', 'alignment', 'reference absent', 'zoom invalid'):
+                        'label', 'run', 'alignment', 'reference absent', 'zoom invalid',
+                        'hide "one 1"', 'hide reset oops', 'hide single extra',
+                        'select add subtract "one"', 'select save my list.txt'):
             with self.subTest(command=command):
                 record = self.execute(command, 'failed')
                 self.assertFalse(any(m['status'] == 'succeeded' for m in record['messages']), record)

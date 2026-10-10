@@ -372,13 +372,16 @@ def run(viewer, args):
     viewer.promote_nodes(mask)
     viewer.update_nodes()
 
-    # Automatically invoke "meta display" to show the property used for the spectrum
-    try:
-        import importlib
-        meta_module = importlib.import_module("commands.meta")
-        meta_module.run(viewer, ["display", matched_key])
-    except Exception as e:
-        print(f"Warning: Failed to automatically enable metadata display: {e}")
+    # Automatically invoke "meta display" to show the property used for the spectrum.
+    # Only a viewer that has the metadata HUD does: the VR viewer and the other
+    # headless viewers keep no hud_displays, and have nothing to show it on.
+    if hasattr(viewer, 'hud_displays'):
+        try:
+            import importlib
+            meta_module = importlib.import_module("commands.meta")
+            meta_module.run(viewer, ["display", matched_key])
+        except Exception as e:
+            print(f"Warning: Failed to automatically enable metadata display: {e}")
     
     count = int(np.sum(full_valid_mask))
     invalid_count = int(np.sum(nan_mask))

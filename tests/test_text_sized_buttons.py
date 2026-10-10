@@ -222,6 +222,44 @@ class ViewerSidebarTests(TextSizedTestCase):
         viewer.add_sidebar_button("metaDataBtn", "📊 Meta Data", lambda: None)
         self.assert_panel_fits(viewer)
 
+    def test_only_a_new_button_opens_the_sidebar(self):
+        viewer = self.make_viewer()
+        opened = []
+        viewer.set_sidebar_visible = opened.append
+        viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)
+        self.assertEqual(opened, [True])
+
+        # Asked for a button it already has, it leaves the sidebar as the user left it.
+        again = viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)
+        self.assertIs(again, viewer.sidebar_buttons["agentBtn"])
+        self.assertEqual(opened, [True])
+
+        viewer.add_sidebar_button("metaDataBtn", "📊 Meta Data", lambda: None)
+        self.assertEqual(opened, [True, True])
+
+    def test_a_repeated_meta_agent_or_esmfold_call_leaves_a_closed_sidebar_closed(self):
+        import contextlib
+        import io
+
+        from web_ui import agent_backend, esmfold_backend, meta_backend
+
+        viewer = self.make_viewer()
+        opened = []
+        viewer.set_sidebar_visible = opened.append
+        plugins = (agent_backend, esmfold_backend, meta_backend)
+        with contextlib.redirect_stdout(io.StringIO()):
+            for plugin in plugins:
+                plugin.activate(viewer)
+            self.assertEqual(opened, [True, True, True])
+
+            # The user closes the sidebar; the commands run again.
+            opened.clear()
+            for plugin in plugins:
+                plugin.activate(viewer)
+        self.assertEqual(opened, [])
+        self.assertEqual(len(viewer.sidebar_buttons), 3)
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+
     def test_a_longer_label_widens_every_button_and_the_panel(self):
         viewer = self.make_viewer()
         viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)

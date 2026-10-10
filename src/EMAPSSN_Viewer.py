@@ -427,6 +427,12 @@ CUSTOM_ATTRIBUTES_INIT = {
     "sidebar_buttons_to_persist": []
 }
 
+# Cacheable attributes that undo and redo leave alone. The sidebar's list of
+# buttons to register at startup follows what the user has opened, not the
+# network's history: restoring an older list would drop a button that a later
+# `save` or `meta` call added. `save` still writes it into the cache.
+UNDO_EXCLUDED_ATTRIBUTES = frozenset({"sidebar_buttons_to_persist"})
+
 # Fix High-DPI scaling
 class HUDDisplay:
     def __init__(self, viewer, name, pos_fn, anchor_x='right', anchor_y='bottom'):
@@ -1452,6 +1458,8 @@ class MainViewer:
             'groups': [g.copy() for g in self.group_labels] if getattr(self, 'group_labels', None) is not None else None,
             'last_cluster_params': self.last_cluster_params if getattr(self, 'last_cluster_params', None) is not None else None,
             'metadata': {k: {'type': v['type'], 'values': v['values'].copy()} for k, v in self.metadata.items()} if getattr(self, 'metadata', None) else {},
+            # Just the name of the property the metadata HUD displays, which `spectrum` and `meta show` set.
+            'meta_display_prop': getattr(self, 'meta_display_prop', None),
             '_custom_data': self._get_custom_attributes_snapshot()
         }
 
@@ -1488,7 +1496,12 @@ class MainViewer:
             
         if '_custom_data' in state and state['_custom_data'] is not None:
             self._apply_custom_attributes_snapshot(state['_custom_data'])
-            
+
+        # The HUD follows the property the restored state displayed; the redraw
+        # of its value comes with the undo or redo that called this.
+        if 'meta_display_prop' in state and state['meta_display_prop'] != getattr(self, 'meta_display_prop', None):
+            self._set_metadata_hud_property(state['meta_display_prop'])
+
         # Clean up any active selections if those nodes are now hidden in this restored state
         if hasattr(self, 'selected_indices'):
             self.selected_indices = [i for i in self.selected_indices if self.visible_mask[i]]
@@ -1500,7 +1513,7 @@ class MainViewer:
         if not getattr(self, '_cacheable_attrs', None):
             return {}
         snapshot = {}
-        for attr_name in self._cacheable_attrs:
+        for attr_name in self._cacheable_attrs - UNDO_EXCLUDED_ATTRIBUTES:
             val = getattr(self, attr_name, None)
             if isinstance(val, np.ndarray):
                 snapshot[attr_name] = val.copy()
@@ -1513,6 +1526,8 @@ class MainViewer:
         if not hasattr(self, '_cacheable_attrs'):
             self._cacheable_attrs = set()
         for attr_name, val in snapshot.items():
+            if attr_name in UNDO_EXCLUDED_ATTRIBUTES:
+                continue
             if isinstance(val, np.ndarray):
                 setattr(self, attr_name, val.copy())
             else:
@@ -2800,10 +2815,10 @@ class MainViewer:
         if not hasattr(self, 'sidebar_buttons'):
             self.sidebar_buttons = {}
         
-        # If button already exists, just show it and expand the sidebar
+        # A button that already exists is shown again, and the sidebar is left
+        # open or closed as the user left it: only a new button opens it.
         if name in self.sidebar_buttons:
             self.sidebar_buttons[name].show()
-            self.set_sidebar_visible(True)
             return self.sidebar_buttons[name]
         
         btn = QtWidgets.QPushButton(label, self.right_panel)

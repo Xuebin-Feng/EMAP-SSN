@@ -24,6 +24,10 @@ from enum import Enum
 import EMAPSSN_Config as cfg
 from utilities.Localization import JoinedMessage, Message, display_text
 
+# The endings of a FASTA file, in any case. `select save` writes sequences under
+# them, and an @file@ selection reads the header lines of a file that has one.
+FASTA_EXTENSIONS = (".fa", ".faa", ".fas", ".fasta")
+
 
 class SelectionExpressionError(ValueError):
     """Raised when a Boolean selection expression is invalid."""
@@ -79,8 +83,9 @@ class _NotSelectionExpression(Exception):
     """Internal signal that a plain argument is not expression-shaped."""
 
 
+# Property names as Metadata_Core accepts them: letters, digits, _, - and periods.
 _METADATA_QUERY_PATTERN = re.compile(
-    r'^([a-zA-Z0-9_\-]+)\s*(>=|<=|!=|==|>|<|=)\s*(.*)$'
+    r'^([a-zA-Z0-9_.\-]+)\s*(>=|<=|!=|==|>|<|=)\s*(.*)$'
 )
 # Numeric metadata values. A range is LOW-HIGH; a negative bound must be in
 # parentheses, as a negative alignment position must: {GRAVY=(-1)-0}. Any
@@ -192,9 +197,17 @@ def _selection_file_path(target):
             error,
             f"Header list folder: {header_dir}",
         ], separator="\n")) from error
+    path = os.path.join(header_dir, file_name)
     if file_name.lower().endswith(('.fasta', '.txt')):
-        return os.path.join(header_dir, file_name), header_dir
-    return os.path.join(header_dir, file_name + ".txt"), header_dir
+        return path, header_dir
+    if file_name.lower().endswith(FASTA_EXTENSIONS):
+        # Before .fa, .faa and .fas were FASTA endings, `select save hits.fa`
+        # wrote the header list hits.fa.txt. That list is still read when no
+        # file of the exact name exists; the exact name wins when both do.
+        if not os.path.isfile(path) and os.path.isfile(path + ".txt"):
+            return path + ".txt", header_dir
+        return path, header_dir
+    return path + ".txt", header_dir
 
 
 def _validate_file_target(target):
@@ -550,7 +563,7 @@ def _read_header_list(load_path):
     Text that is not UTF-8 raises SelectionContextError: decoding it anyway
     would change characters and leave those entries matching nothing.
     """
-    is_fasta = load_path.lower().endswith('.fasta')
+    is_fasta = load_path.lower().endswith(FASTA_EXTENSIONS)
     entries = []
     try:
         with open(load_path, 'r', encoding='utf-8-sig') as handle:

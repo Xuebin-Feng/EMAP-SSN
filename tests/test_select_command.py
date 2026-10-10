@@ -162,6 +162,101 @@ class SelectSaveTests(unittest.TestCase):
         self.assertIn("no in-memory sequence set", str(failed.call_args.args[1]))
         self.assertEqual(os.listdir(self.header_dir), [])
 
+    def test_the_save_name_is_one_word_and_extra_words_are_refused(self):
+        # "save my list.txt" used to write my.txt and ignore the rest.
+        template = "Error: Unrecognized select save argument '{}'. A file name is one word."
+        for args, argument, selected in (
+            (['save', 'my', 'list.txt'], 'list.txt', [0]),
+            (['save', 'picked.txt', 'extra'], 'extra', [0]),
+            (['save', 'a', 'b', 'c'], 'b', [0]),
+            (['SAVE', 'my', 'list.fasta'], 'list.fasta', [0]),
+            # Refused before the empty selection is noticed.
+            (['save', 'my', 'list.txt'], 'list.txt', []),
+        ):
+            with self.subTest(args=args, selected=selected):
+                viewer = Viewer(self.header_dir)
+                viewer.selected_indices = list(selected)
+                with mock.patch.object(select.Command_Engine, "command_failed") as failed, \
+                        mock.patch.object(select.Command_Engine, "command_succeeded") as succeeded:
+                    select.run(viewer, args)
+                failed.assert_called_once()
+                succeeded.assert_not_called()
+                self.assertEqual(str(failed.call_args.args[1]), template.format(argument))
+                self.assertEqual(viewer.console_text.text, template.format(argument))
+                self.assertEqual(os.listdir(self.header_dir), [])
+
+    def test_fasta_endings_save_sequences_in_any_case(self):
+        # Only .fasta was FASTA; hits.fa became the header list hits.fa.txt.
+        endings = (".fasta", ".fa", ".faa", ".fas", ".FA", ".Faa", ".FASTA", ".fAs")
+        viewer = Viewer(self.header_dir)
+        viewer.selected_indices = [2, 0]
+        viewer._selected_fasta_records = [("one", "MKT"), ("two", "MAA"), ("three", "MCC")]
+        with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+            for index, ending in enumerate(endings):
+                select.run(viewer, ['save', f"hits{index}{ending}"])
+        failed.assert_not_called()
+        self.assertEqual(
+            sorted(os.listdir(self.header_dir)), sorted(f"hits{i}{e}" for i, e in enumerate(endings))
+        )
+        for index, ending in enumerate(endings):
+            with self.subTest(ending=ending):
+                self.assertEqual(
+                    read_fasta(str(Path(self.header_dir, f"hits{index}{ending}"))),
+                    (["one", "three"], ["MKT", "MCC"]),
+                )
+
+    def test_a_saved_file_is_read_back_by_an_at_file_selection(self):
+        # select save hits.fa used to write the header list hits.fa.txt, which
+        # @hits.fa@ read; saving FASTA under .fa must not lose that round trip.
+        for index, name in enumerate(("hits.fasta", "hits.fa", "hits.faa", "hits.fas", "HITS.FA", "hits.txt", "hits")):
+            name = f"{index}_{name}"
+            with self.subTest(name=name):
+                viewer = Viewer(self.header_dir)
+                viewer.selected_indices = [2, 0]
+                viewer._selected_fasta_records = [("one", "MKT"), ("two", "MAA"), ("three", "MCC")]
+                with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+                    select.run(viewer, ['save', name])
+                    viewer.selected_indices = []
+                    select.run(viewer, [f'@{name}@'])
+                failed.assert_not_called()
+                self.assertEqual(sorted(viewer.selected_indices), [0, 2])
+
+    def test_a_list_saved_before_fa_became_fasta_is_still_selected_by_its_name(self):
+        # Then `select save hits.fa` wrote the header list hits.fa.txt.
+        Path(self.header_dir, "hits.fa.txt").write_text("one\nthree\n", encoding="utf-8")
+        viewer = Viewer(self.header_dir)
+        with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+            select.run(viewer, ['@hits.fa@'])
+        failed.assert_not_called()
+        self.assertEqual(sorted(viewer.selected_indices), [0, 2])
+
+    def test_other_endings_still_save_headers_with_txt_added(self):
+        cases = {
+            "hits.fastq": "hits.fastq.txt", "hits.csv": "hits.csv.txt", "alfa": "alfa.txt",
+            "fa": "fa.txt", "pfam": "pfam.txt", "hits": "hits.txt", "hits.txt": "hits.txt",
+            "other.TXT": "other.TXT", "hits.fa.txt": "hits.fa.txt", "hits.faa.txt": "hits.faa.txt",
+        }
+        viewer = Viewer(self.header_dir)
+        viewer.selected_indices = [0, 2]
+        with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+            for name in cases:
+                select.run(viewer, ['save', name])
+        failed.assert_not_called()
+        self.assertEqual(sorted(os.listdir(self.header_dir)), sorted(set(cases.values())))
+        for written in set(cases.values()):
+            with self.subTest(written=written):
+                self.assertEqual(
+                    Path(self.header_dir, written).read_text(encoding="utf-8"), "one\nthree\n"
+                )
+
+    def test_help_describes_the_one_word_name_and_the_fasta_endings(self):
+        with mock.patch("builtins.print") as printed:
+            select.print_help()
+        text = " ".join(printed.call_args.args[0].split())
+        self.assertIn("FILENAME is a plain file name of one word", text)
+        self.assertIn("or .fasta (also .fa, .faa, .fas) for sequences", text)
+        self.assertIn("A command takes one mode; two modes that differ are refused.", text)
+
     def test_modes_still_work_before_and_after_the_expression(self):
         viewer = Viewer(self.header_dir)
         select.run(viewer, ['"one"'])
@@ -231,6 +326,52 @@ class SelectModeTests(unittest.TestCase):
         self.assertEqual(
             viewer.console_text.text, "Nothing to filter: No nodes are currently selected."
         )
+
+    def test_two_different_modes_are_refused_naming_both(self):
+        # The last mode used to win silently: "add subtract" subtracted.
+        for args, first, second in (
+            (['add', 'subtract', '"t"'], 'add', 'subtract'),
+            (['"t"', 'add', 'remove'], 'add', 'remove'),
+            (['add', '"t"', 'keep'], 'add', 'keep'),
+            (['change', '"t"', 'add'], 'change', 'add'),
+            (['keep', 'intersect', 'minus', '"t"'], 'keep', 'minus'),
+            (['invert', 'add'], 'invert', 'add'),
+            (['"t"', 'subtract', 'invert'], 'subtract', 'invert'),
+            # The words are named as typed.
+            (['ADD', 'Minus', '"t"'], 'ADD', 'Minus'),
+            # Two words for one mode agree; the conflict is with the third.
+            (['add', 'plus', 'subtract', '"t"'], 'add', 'subtract'),
+        ):
+            with self.subTest(args=args):
+                viewer = self.three_nodes(selected=[1])
+                with mock.patch.object(select.Command_Engine, "command_failed") as failed, \
+                        mock.patch.object(select.Command_Engine, "command_succeeded") as succeeded:
+                    select.run(viewer, args)
+                message = f"Error: Select modes '{first}' and '{second}' conflict. Use one mode."
+                failed.assert_called_once()
+                succeeded.assert_not_called()
+                self.assertEqual(str(failed.call_args.args[1]), message)
+                self.assertEqual(viewer.console_text.text, message)
+                self.assertEqual(viewer.selected_indices, [1])
+
+    def test_the_same_mode_twice_is_accepted(self):
+        # Visible nodes are one and two, so "t" matches two; node one is selected.
+        for args in (['add', 'add', '"t"'], ['add', '"t"', 'add'], ['ADD', 'add', '"t"'],
+                     ['add', 'plus', '"t"'], ['"t"', 'include', 'add']):
+            with self.subTest(args=args):
+                viewer = self.three_nodes(selected=[0])
+                with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+                    select.run(viewer, args)
+                failed.assert_not_called()
+                self.assertEqual(sorted(viewer.selected_indices), [0, 1])
+        for args in (['invert', 'invert'], ['change', 'change', '"one"']):
+            with self.subTest(args=args):
+                viewer = self.three_nodes(selected=[0])
+                with mock.patch.object(select.Command_Engine, "command_failed") as failed:
+                    select.run(viewer, args)
+                failed.assert_not_called()
+                # Inverting twice in one command inverts once.
+                self.assertEqual(sorted(viewer.selected_indices), [1] if args[0] == 'invert' else [0])
 
     def test_two_expressions_or_invert_with_an_expression_change_nothing(self):
         for args, message in (

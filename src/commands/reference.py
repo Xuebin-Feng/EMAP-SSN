@@ -90,10 +90,22 @@ def run(viewer, args):
             "    first one that has a sequence in the loaded alignment is used.\n"
             "  - The reference must have a sequence in the loaded alignment. A target without one is refused,\n"
             "    and the reference and offset stay as they were.\n"
+            "  - Only one TARGET is accepted. A further argument is refused, and the reference and offset\n"
+            "    stay as they were.\n"
             "Examples:\n  reference\n  reference SeqA",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        return
+
+    if len(args) > 1:
+        # Refused before anything changes; the first argument after TARGET is named.
+        message = Message(
+            "Error: {syntax} takes one target; '{argument}' was not used. The reference is unchanged.",
+            syntax="reference [TARGET]", argument=args[1],
+        )
+        Command_Engine.print_help(viewer, message, report_message=False)
+        Command_Engine.command_failed(viewer, message)
         return
 
     target = args[0]

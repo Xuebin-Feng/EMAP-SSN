@@ -56,10 +56,35 @@ class SpectrumTerminalLegendTests(unittest.TestCase):
         )
 
     def run_spectrum(self, viewer, args, output):
-        # spectrum ends by running `meta display` for the property; only that
-        # call is replaced, so every other import stays real.
+        # spectrum ends by running `meta display` for the property when the
+        # viewer has the metadata HUD; only that call is replaced, so every
+        # other import stays real.
         with mock.patch("commands.meta.run"), mock.patch.object(sys, "stdout", output):
             spectrum.run(viewer, args)
+
+    def test_the_property_goes_to_the_metadata_hud_only_when_there_is_one(self):
+        # The desktop viewer keeps hud_displays; the VR viewer and other
+        # headless viewers have no HUD, so there is nothing to display it on.
+        for has_hud in (True, False):
+            with self.subTest(has_hud=has_hud):
+                viewer = self.make_viewer([1.0, 3.0])
+                if has_hud:
+                    viewer.hud_displays = {}
+                with mock.patch("commands.meta.run") as meta_run,                         mock.patch.object(sys, "stdout", io.StringIO()):
+                    spectrum.run(viewer, ["{Length}"])
+                if has_hud:
+                    meta_run.assert_called_once_with(viewer, ["display", "Length"])
+                else:
+                    meta_run.assert_not_called()
+                self.assertIn("Spectrum coloring applied", viewer.console_text.text)
+
+    def test_a_viewer_without_the_hud_prints_no_warning_about_it(self):
+        viewer = self.make_viewer([1.0, 3.0])
+        output = io.StringIO()
+        with mock.patch.object(sys, "stdout", output):
+            spectrum.run(viewer, ["{Length}"])
+        self.assertIn("Spectrum coloring applied", output.getvalue())
+        self.assertNotIn("metadata display", output.getvalue())
 
     def test_terminal_colors_min_and_max_with_colormap_endpoints(self):
         viewer = self.make_viewer([1.0, np.nan, 3.0])

@@ -26,6 +26,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import Command_Engine  # noqa: E402
+from commands import redo as redo_command, undo as undo_command  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 
 
@@ -52,8 +53,9 @@ def make_viewer():
     viewer.metadata = {
         "Length": {"type": "number", "values": np.array([10, 20, 30, 40])}
     }
-    viewer._cacheable_attrs = {"sidebar_buttons_to_persist"}
+    viewer._cacheable_attrs = {"sidebar_buttons_to_persist", "custom_scores"}
     viewer.sidebar_buttons_to_persist = []
+    viewer.custom_scores = np.array([1.0, 2.0, 3.0, 4.0])
     viewer.selected_indices = []
     viewer.position_history = []
     viewer.redo_stack = []
@@ -81,7 +83,31 @@ def change_every_field(viewer):
         "type": "text",
         "values": np.array(["a", "b", "c", "d"], dtype=object),
     }
-    viewer.sidebar_buttons_to_persist.append("Kinase view")
+    viewer.custom_scores[0] = 99.0
+
+
+class FakeMetadataHud:
+    """The metadata HUD's display: what it shows, and whether it is showing."""
+
+    def __init__(self, viewer):
+        self.viewer = viewer
+        self.visible = False
+        self.text = ""
+        self.redrawn_for = []
+
+    def show(self, text):
+        self.visible = True
+        self.text = text
+
+    def hide(self):
+        self.visible = False
+        self.text = ""
+
+    def on_node_clicked(self, node_idx):
+        # As the real one: the displayed property's value for the clicked node.
+        self.redrawn_for.append(node_idx)
+        prop = self.viewer.meta_display_prop
+        self.show(f"{prop}: {self.viewer.metadata[prop]['values'][node_idx]}")
 
 
 def quietly(action):
@@ -113,7 +139,7 @@ class ViewerUndoRedoTests(unittest.TestCase):
         np.testing.assert_array_equal(
             viewer.metadata["Length"]["values"], [10, 20, 30, 40]
         )
-        self.assertEqual(viewer.sidebar_buttons_to_persist, [])
+        np.testing.assert_array_equal(viewer.custom_scores, [1.0, 2.0, 3.0, 4.0])
 
     def assert_changed_state(self, viewer):
         np.testing.assert_array_equal(
@@ -136,7 +162,7 @@ class ViewerUndoRedoTests(unittest.TestCase):
         self.assertEqual(
             viewer.metadata["Note"]["values"].tolist(), ["a", "b", "c", "d"]
         )
-        self.assertEqual(viewer.sidebar_buttons_to_persist, ["Kinase view"])
+        np.testing.assert_array_equal(viewer.custom_scores, [99.0, 2.0, 3.0, 4.0])
 
     def test_undo_restores_every_saved_field_and_redo_reapplies_the_change(self):
         viewer = make_viewer()
@@ -168,6 +194,35 @@ class ViewerUndoRedoTests(unittest.TestCase):
         self.assertEqual(event["type"], "state_updated")
         self.assertEqual(event["visible_mask"], [True, True, True, True])
         self.assertEqual(event["columns"], ["Node ID", "Length"])
+
+    def test_undo_and_redo_leave_the_sidebar_list_alone(self):
+        # A `save` writes this list into the cache. Restoring an older one
+        # would drop a button that a later `meta` call added.
+        viewer = make_viewer()
+        viewer._save_state()
+        viewer.sidebar_buttons_to_persist.append("meta")
+        viewer.custom_scores[0] = 99.0
+
+        self.assertTrue(quietly(viewer._do_undo))
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+        # Any other custom attribute is still restored.
+        np.testing.assert_array_equal(viewer.custom_scores, [1.0, 2.0, 3.0, 4.0])
+
+        viewer.sidebar_buttons_to_persist.append("agent")
+        self.assertTrue(quietly(viewer._do_redo))
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta", "agent"])
+        np.testing.assert_array_equal(viewer.custom_scores, [99.0, 2.0, 3.0, 4.0])
+
+        # It stays a cacheable attribute, so `save` still writes it.
+        self.assertIn("sidebar_buttons_to_persist", viewer._cacheable_attrs)
+
+    def test_the_snapshot_holds_every_custom_attribute_but_the_sidebar_list(self):
+        viewer = make_viewer()
+        viewer.sidebar_buttons_to_persist.append("meta")
+        viewer._save_state()
+        self.assertEqual(
+            list(viewer.position_history[-1]["_custom_data"]), ["custom_scores"]
+        )
 
     def test_new_change_after_undo_discards_the_redo_branch(self):
         viewer = make_viewer()
@@ -273,6 +328,84 @@ class ViewerUndoRedoTests(unittest.TestCase):
         viewer.update_selection_visual.assert_not_called()
         viewer.broadcast_event.assert_not_called()
 
+    def hud_viewer(self, selected_node=1):
+        viewer = make_viewer()
+        viewer.meta_display_prop = None
+        viewer.selected_node_idx = selected_node
+        viewer.hud_displays = {"meta_display": FakeMetadataHud(viewer)}
+        return viewer
+
+    def test_the_snapshot_holds_just_the_name_of_the_displayed_property(self):
+        viewer = self.hud_viewer()
+        viewer.meta_display_prop = "Length"
+        viewer._save_state()
+        self.assertEqual(viewer.position_history[-1]["meta_display_prop"], "Length")
+
+        viewer.meta_display_prop = None
+        viewer._save_state()
+        self.assertIsNone(viewer.position_history[-1]["meta_display_prop"])
+
+    def test_undo_and_redo_restore_the_property_the_hud_displays(self):
+        # What `spectrum` does after its colours: display the property.
+        viewer = self.hud_viewer()
+        hud = viewer.hud_displays["meta_display"]
+        viewer._save_state()
+        viewer.current_colors[1] = RED
+        viewer.meta_display_prop = "Length"
+        hud.show("Length: 20")
+
+        self.assertTrue(quietly(viewer._do_undo))
+        self.assertIsNone(viewer.meta_display_prop)
+        self.assertFalse(hud.visible)
+
+        self.assertTrue(quietly(viewer._do_redo))
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertTrue(hud.visible)
+        self.assertEqual(hud.text, "Length: 20")
+
+    def test_undo_brings_back_the_property_a_later_command_replaced(self):
+        viewer = self.hud_viewer()
+        viewer.metadata["Mass"] = {"type": "number", "values": np.array([1, 2, 3, 4])}
+        hud = viewer.hud_displays["meta_display"]
+        viewer.meta_display_prop = "Length"
+        viewer._save_state()
+        viewer.meta_display_prop = "Mass"
+        hud.show("Mass: 2")
+
+        quietly(viewer._do_undo)
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertEqual(hud.text, "Length: 20")
+
+    def test_an_unchanged_property_is_redrawn_not_hidden(self):
+        viewer = self.hud_viewer()
+        hud = viewer.hud_displays["meta_display"]
+        viewer.meta_display_prop = "Length"
+        hud.show("Length: 20")
+        viewer._save_state()
+        viewer.metadata["Length"]["values"][1] = 99
+
+        quietly(viewer._do_undo)
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertTrue(hud.visible)
+        self.assertEqual(hud.redrawn_for, [1])
+
+    def test_a_viewer_without_the_hud_still_restores_the_property_name(self):
+        viewer = make_viewer()
+        viewer.meta_display_prop = None
+        viewer._save_state()
+        viewer.meta_display_prop = "Length"
+
+        quietly(viewer._do_undo)
+        self.assertIsNone(viewer.meta_display_prop)
+
+    def test_a_state_saved_without_the_property_leaves_it_alone(self):
+        viewer = self.hud_viewer()
+        viewer.meta_display_prop = "Length"
+        state = viewer._get_current_state()
+        del state["meta_display_prop"]
+        viewer._apply_state(state)
+        self.assertEqual(viewer.meta_display_prop, "Length")
+
     def test_restored_state_drops_selected_nodes_it_hides(self):
         viewer = make_viewer()
         viewer.visible_mask[1] = False
@@ -289,6 +422,123 @@ class ViewerUndoRedoTests(unittest.TestCase):
         event = viewer.broadcast_event.call_args.args[0]
         self.assertEqual(event["visible_mask"], [True, False, True, True])
         self.assertEqual(event["selected_indices"], [0, 3])
+
+
+class UndoRedoStepTests(unittest.TestCase):
+    """`undo N` and `redo N` run up to N steps and report how many ran; other arguments are refused."""
+
+    def viewer_with_history(self, count):
+        """A viewer holding COUNT saved states, each taken before a change; its size ends at 20 + COUNT - 1."""
+        viewer = make_viewer()
+        for step in range(count):
+            viewer._save_state()
+            viewer.current_sizes[0] = 20.0 + step
+        return viewer
+
+    def run_step_command(self, viewer, module, args):
+        """Run undo or redo on VIEWER; return the mocks that recorded its success and its failure."""
+        with mock.patch.object(Command_Engine, "command_succeeded") as succeeded, \
+                mock.patch.object(Command_Engine, "command_failed") as failed, \
+                redirect_stdout(io.StringIO()):
+            module.run(viewer, args)
+        return succeeded, failed
+
+    def test_a_count_undoes_that_many_steps(self):
+        viewer = self.viewer_with_history(3)
+
+        succeeded, failed = self.run_step_command(viewer, undo_command, ["2"])
+
+        self.assertEqual((len(viewer.position_history), len(viewer.redo_stack)), (1, 2))
+        self.assertEqual(viewer.current_sizes[0], 20.0)
+        self.assertEqual(str(succeeded.call_args.args[1]), "Undid 2 steps.")
+        failed.assert_not_called()
+
+    def test_a_count_stops_when_the_history_runs_out(self):
+        viewer = self.viewer_with_history(2)
+
+        succeeded, _ = self.run_step_command(viewer, undo_command, ["9"])
+
+        self.assertEqual((viewer.position_history, len(viewer.redo_stack)), ([], 2))
+        self.assertEqual(viewer.current_sizes[0], 10.0)
+        self.assertEqual(str(succeeded.call_args.args[1]), "Undid 2 steps.")
+
+    def test_one_step_is_reported_in_the_singular(self):
+        viewer = self.viewer_with_history(2)
+
+        succeeded, _ = self.run_step_command(viewer, undo_command, ["1"])
+
+        self.assertEqual(str(succeeded.call_args.args[1]), "Undid 1 step.")
+        self.assertEqual(len(viewer.position_history), 1)
+
+    def test_a_count_of_ten_digits_or_more_undoes_all_the_history(self):
+        viewer = self.viewer_with_history(2)
+
+        succeeded, failed = self.run_step_command(viewer, undo_command, ["9" * 40])
+
+        self.assertEqual(viewer.position_history, [])
+        self.assertEqual(str(succeeded.call_args.args[1]), "Undid 2 steps.")
+        failed.assert_not_called()
+
+    def test_redo_count_reapplies_that_many_steps(self):
+        viewer = self.viewer_with_history(3)
+        self.run_step_command(viewer, undo_command, ["3"])
+        self.assertEqual(viewer.current_sizes[0], 10.0)
+
+        succeeded, failed = self.run_step_command(viewer, redo_command, ["2"])
+
+        self.assertEqual((len(viewer.position_history), len(viewer.redo_stack)), (2, 1))
+        self.assertEqual(viewer.current_sizes[0], 21.0)
+        self.assertEqual(str(succeeded.call_args.args[1]), "Redid 2 steps.")
+        failed.assert_not_called()
+
+    def test_a_count_with_nothing_to_undo_or_redo_reports_that(self):
+        viewer = make_viewer()
+
+        undone, _ = self.run_step_command(viewer, undo_command, ["3"])
+        redone, _ = self.run_step_command(viewer, redo_command, ["3"])
+
+        self.assertEqual(str(undone.call_args.args[1]), "Nothing to undo.")
+        self.assertEqual(str(redone.call_args.args[1]), "Nothing to redo.")
+        self.assertEqual((viewer.position_history, viewer.redo_stack), ([], []))
+        viewer.update_edges.assert_not_called()
+
+    def test_without_a_count_one_step_is_reported_as_before(self):
+        viewer = self.viewer_with_history(2)
+
+        undone, _ = self.run_step_command(viewer, undo_command, [])
+        redone, _ = self.run_step_command(viewer, redo_command, [])
+
+        self.assertEqual(str(undone.call_args.args[1]), "Undo successful.")
+        self.assertEqual(str(redone.call_args.args[1]), "Redo successful.")
+        self.assertEqual(viewer.current_sizes[0], 21.0)
+
+    def test_a_refused_count_changes_nothing(self):
+        refused = (["0"], ["00"], ["-1"], ["+2"], ["1.5"], ["two"], ["2", "3"], ["3", "extra"])
+        for name, module in (("undo", undo_command), ("redo", redo_command)):
+            for args in refused:
+                with self.subTest(command=name, args=args):
+                    viewer = self.viewer_with_history(2)
+                    if name == "redo":
+                        self.run_step_command(viewer, undo_command, ["2"])
+                    before = (len(viewer.position_history), len(viewer.redo_stack), viewer.current_sizes[0])
+                    viewer.update_edges.reset_mock()
+
+                    succeeded, failed = self.run_step_command(viewer, module, args)
+
+                    failed.assert_called_once()
+                    succeeded.assert_not_called()
+                    self.assertEqual(
+                        (len(viewer.position_history), len(viewer.redo_stack), viewer.current_sizes[0]), before
+                    )
+                    viewer.update_edges.assert_not_called()
+
+    def test_a_refusal_names_the_argument_that_is_wrong(self):
+        viewer = make_viewer()
+
+        _, failed = self.run_step_command(viewer, undo_command, ["2", "extra"])
+        self.assertIn("'extra' was not used", str(failed.call_args.args[1]))
+        _, failed = self.run_step_command(viewer, redo_command, ["-1"])
+        self.assertIn("not '-1'", str(failed.call_args.args[1]))
 
 
 if __name__ == "__main__":

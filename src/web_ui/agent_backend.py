@@ -357,6 +357,9 @@ def deactivate_agent(viewer, quiet=False):
 
 # ─── API call ────────────────────────────────────────────────────────────────
 
+# A local model can take minutes to write a whole reply; urllib's timeout limits each read, not the reply.
+AGENT_REPLY_TIMEOUT_SECONDS = 300.0
+
 def call_api(url, model, system_prompt, user_query, history=None, temperature=0.0, api_key=None, options=None):
     """Sends an OpenAI-compatible chat completion request."""
     if history is None:
@@ -381,7 +384,7 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=0.
 
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=15.0) as response:
+        with urllib.request.urlopen(req, timeout=AGENT_REPLY_TIMEOUT_SECONDS) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             if "choices" in res_data and res_data["choices"]:
                 msg = res_data["choices"][0]["message"]

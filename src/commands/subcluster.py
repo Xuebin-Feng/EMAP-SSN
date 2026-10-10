@@ -18,7 +18,7 @@ import numpy as np
 import re
 import os
 from utilities import Network_Kernels as network_clustering
-from utilities.Localization import Message
+from utilities.Localization import JoinedMessage, Message
 import sys
 import colorsys
 import math
@@ -71,6 +71,14 @@ def get_subcluster_colors(n_subclusters):
             colors.append(rgb)
     return colors
 
+def extra_argument_error(argument, syntax):
+    """Return the error Message for an argument the command does not take, with its usage."""
+    return JoinedMessage([
+        Message("Error: Unrecognized subcluster argument '{argument}'.", argument=argument),
+        Message("Usage: {syntax}", syntax=syntax),
+    ], separator="\n")
+
+
 def print_help():
     print("""
     Cluster Subclustering Tool
@@ -89,7 +97,9 @@ def print_help():
       ordered by their lowest member node index.
 
     Arguments:
-      <CLUSTER_NAME>    - Name of the cluster to subcluster (e.g., cluster_2, cluster_5).
+      <CLUSTER_NAME>    - Name of the cluster to subcluster (e.g., cluster_2, cluster_5),
+                          written as in an expression, without leading zeros:
+                          cluster_01 is refused.
       clear             - Clears the generated subcluster groups (subcluster_N_M) from the
                           viewer session. Custom groups with lookalike names, such as
                           subcluster_0_2 or subcluster_001_2, are kept.
@@ -101,7 +111,12 @@ def print_help():
                           Uses Numba when installed, and a slower pure-Python fallback otherwise.
 
     [MIN_SIZE]          - (Optional) Minimum size of subclusters to keep, at least 1 (Default: 10).
-                          Smaller groups are treated as Noise.
+                          Smaller groups are treated as Noise. When no subcluster reaches
+                          MIN_SIZE, nothing changes: the cluster keeps its colours and
+                          its earlier subclusters, and no undo step is added.
+
+    Anything after the arguments above (or after clear) is refused with an error that
+    names the first extra argument, and nothing changes.
 
     What is clustered:
       - Subclustering uses every loaded edge between the cluster's own nodes,
@@ -111,8 +126,8 @@ def print_help():
         shared, scores (c + 2) / (a + b - c), so an edge outside every triangle
         still scores above 0, while an isolated pair and every edge of a clique
         score 1.
-      - Isolated nodes are always Noise in Leiden, but can be singleton subclusters
-        in MCL and Jaccard when MIN_SIZE is 1.
+      - Isolated nodes (no edge within the cluster) are alike in all three modes:
+        singleton subclusters when MIN_SIZE is 1, Noise when it is larger.
       - MCL gives every node a self-loop as heavy as its strongest edge within
         the cluster (1 for a node with no edge), so multiplying every score by a
         constant does not change the subclusters.
@@ -136,6 +151,11 @@ def run(viewer, args):
 
     # --- CLEAR COMMAND ---
     if args[0].lower() == 'clear':
+        if len(args) > 1:
+            refusal = extra_argument_error(args[1], "subcluster clear")
+            Command_Engine.print_help(viewer, refusal, report_message=False)
+            Command_Engine.command_failed(viewer, refusal)
+            return
         if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
             msg = Message("No groups are currently defined.")
             Command_Engine.print_help(viewer, msg)
@@ -179,7 +199,20 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
         return
-        
+
+    # Expressions know #cluster_N# only without leading zeros, as group.py's
+    # canonical cluster names are, so cluster_01 names a cluster no expression
+    # can select. Refused before anything changes.
+    digits = match.group(1)
+    if len(digits) > 1 and digits.startswith('0'):
+        msg = Message(
+            "Error: Write the cluster as {canonical}, without leading zeros.",
+            canonical=f"cluster_{digits.lstrip('0') or '0'}",
+        )
+        Command_Engine.print_help(viewer, msg, report_message=False)
+        Command_Engine.command_failed(viewer, msg)
+        return
+
     cluster_id = int(match.group(1))
 
     if getattr(viewer, 'cluster_labels', None) is None:
@@ -202,6 +235,8 @@ def run(viewer, args):
     mode = "leiden"
     param1 = None
     min_sz = 10
+    # [MODE] PARAM_1 MIN_SIZE take three arguments; a bare PARAM_1 MIN_SIZE two.
+    taken = 3
     
     if len(sub_args) >= 1:
         first_arg = sub_args[0].lower()
@@ -220,6 +255,7 @@ def run(viewer, args):
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
                     return
         else:
+            taken = 2
             # A bare number is the resolution of the default mode, Leiden.
             try: param1 = float(sub_args[0])
             except ValueError:
@@ -232,6 +268,15 @@ def run(viewer, args):
                     print("Error: Min Size must be an integer.")
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
                     return
+
+    # Nothing may follow the arguments the form takes.
+    if len(sub_args) > taken:
+        refusal = extra_argument_error(
+            sub_args[taken], "subcluster <CLUSTER_NAME> [MODE] [PARAM_1] [MIN_SIZE]"
+        )
+        Command_Engine.print_help(viewer, refusal, report_message=False)
+        Command_Engine.command_failed(viewer, refusal)
+        return
 
     # Apply defaults if param1 wasn't provided
     if param1 is None:
@@ -349,14 +394,29 @@ def run(viewer, args):
         else:
             print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
 
-        # Nodes with no edges are always returned as Noise (-1), even if
-        # Isolated nodes remain Noise even when min_sz is 1.
+        # A node with no edge inside the cluster is a singleton subcluster
+        # when min_sz is 1, as in MCL and Jaccard, and Noise (-1) otherwise.
         local_labels = network_clustering.leiden_partition(
             n_sub, local_edges, local_edge_scores, resolution, min_sz, seed=42
         )
 
     # Number subclusters by size in every mode, as cluster numbers clusters.
     local_labels = cluster_cmd.renumber_clusters_by_size(local_labels)
+
+    # No subcluster reaches MIN_SIZE: change nothing, so the cluster keeps its
+    # colours and its earlier subclusters, and no undo step is added.
+    if not np.any(local_labels != -1):
+        msg = Message(
+            "No subcluster of {cluster} reached the minimum size {min_size}; "
+            "nothing was changed.",
+            cluster=f"cluster_{cluster_id}",
+            min_size=min_sz,
+        )
+        if hasattr(viewer, 'console_text'):
+            Command_Engine.show_status(viewer, msg)
+        print(msg)
+        Command_Engine.command_succeeded(viewer, msg)
+        return
 
     # --- 4. Update Viewer State ---
     viewer._save_state()

@@ -84,6 +84,26 @@ class ReferenceResolutionTests(unittest.TestCase):
             )
         return manager, output.getvalue()
 
+    def test_a_second_argument_is_refused_before_anything_changes(self):
+        records = [("E1_RA", "MAKLCD"), ("S3", "MAKLCD")]
+        viewer, _, _ = self.run_reference(records, [h for h, _ in records], "E1_RA")
+        alignment = viewer.alignment
+        engine = reference_command.Command_Engine
+
+        with mock.patch.object(viewer, "load_global_alignment") as reload, \
+                mock.patch.object(engine, "command_failed", wraps=engine.command_failed) as failed, \
+                redirect_stdout(io.StringIO()):
+            reference_command.run(viewer, ["S3", "WP_EXTRA", "E1_RA"])
+
+        reload.assert_not_called()
+        failed.assert_called_once()
+        # The first argument after the target is the one named.
+        self.assertIn("'WP_EXTRA' was not used", str(failed.call_args.args[1]))
+        self.assertIn("was not used", viewer.console_text.text)
+        self.assertEqual(viewer.active_reference, "E1_RA")
+        self.assertIs(viewer.alignment, alignment)
+        self.assertEqual(viewer.alignment.resolved_ref_full, "E1_RA")
+
     def test_wildcard_target_resolves_and_activates_the_reference(self):
         records = [("WP1_E1_RA_protein", "MAC-D"), ("WP2_other_protein", "MACKD")]
 

@@ -4,7 +4,8 @@ output-name confinement, and the layered SVG export (edges filtered like the
 screen, configured colours, a failure with nothing written when every node is
 hidden), plus what the command checks before it writes (options, visible nodes),
 when it makes the save folder, and its automatic names; the `zoom N` scale of
-full and svg, and the hover colour and click halo a PNG leaves out."""
+full and svg, and the hover colour and click halo a PNG leaves out; the file
+name as one word, an .svg name selecting SVG, and the report of a file replaced."""
 
 import contextlib
 import datetime
@@ -324,7 +325,7 @@ class PrintOutputNameTests(unittest.TestCase):
 
     def test_plain_names_are_joined_into_the_save_directory(self):
         with tempfile.TemporaryDirectory() as save_dir:
-            _, failed, _, _, save = self.run_print(save_dir, ["my", "network"])
+            _, failed, _, _, save = self.run_print(save_dir, ["my_network"])
         failed.assert_not_called()
         self.assertEqual(save.call_args.args[0], os.path.join(save_dir, "my_network.png"))
 
@@ -1012,6 +1013,21 @@ class PrintAutomaticNameTests(unittest.TestCase):
                 self.print_in_this_second(save_dir, ["mine"])
             self.assertEqual(os.listdir(save_dir), ["mine.png"])
 
+    def test_an_overwritten_file_is_reported_after_a_real_write(self):
+        # The file is looked for before the write: the first print of a name
+        # does not report itself, the second one reports the file it replaced.
+        replaced = "It replaced an existing file of that name."
+        for arguments, svg_viewer, written in (
+            (["mine"], False, "Saved PNG: mine.png"),
+            (["mine", "svg"], True, "Saved SVG: mine.svg"),
+        ):
+            with self.subTest(arguments=arguments):
+                with tempfile.TemporaryDirectory() as save_dir:
+                    first = self.print_in_this_second(save_dir, arguments, svg_viewer=svg_viewer)
+                    second = self.print_in_this_second(save_dir, arguments, svg_viewer=svg_viewer)
+                self.assertEqual(first.console_text.text, written)
+                self.assertEqual(second.console_text.text, f"{written} {replaced}")
+
 
 # A rendered tile, rows by columns: the 800 x 600 canvas of zoom_viewer().
 TILE_SHAPE = (600, 800)
@@ -1100,7 +1116,7 @@ class PrintZoomTests(unittest.TestCase):
             (["fig1", "full", "zoom", "500"], "fig1.png"),
             (["zoom", "500", "fig1", "full"], "fig1.png"),
             (["fig1", "zoom", "500", "full", "transparent"], "fig1.png"),
-            (["my", "zoom", "500", "net", "full"], "my_net.png"),
+            (["my_net", "zoom", "500", "full"], "my_net.png"),
             (["ZOOM", "500", "Full"], None),
         )
         for arguments, name in cases:
@@ -1141,7 +1157,7 @@ class PrintZoomTests(unittest.TestCase):
         for arguments, name in (
             (["zoom.png"], "zoom.png"),
             (["zoom.png", "full", "zoom", "500"], "zoom.png"),
-            (["my", "zoom.png"], "my_zoom.png"),
+            (["my_zoom.png"], "my_zoom.png"),
         ):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments)
@@ -1199,9 +1215,11 @@ class PrintZoomTests(unittest.TestCase):
             ["svg", "full", "zoom", "500"],
             "Error: 'SVG' export is not compatible with 'transparent' or 'full'.",
         )
+        # A second word is refused as a name before the svg rules apply.
         self.assert_refused(
             ["my", "net", "svg", "zoom", "500"],
-            "Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg').",
+            "Error: Unrecognized print argument 'net'. A file name is one word; "
+            "the modifiers are transparent, full, svg, zoom N.",
         )
 
     # --- full ------------------------------------------------------------
@@ -1324,6 +1342,275 @@ class PrintSvgZoomTests(unittest.TestCase):
         viewer = SimpleNamespace(view=view_at(0.2))
         self.assertAlmostEqual(print_command._scene_units_per_pixel(viewer), 0.2)
         self.assertAlmostEqual(print_command._scene_units_per_pixel(viewer, 400.0), 0.5)
+
+
+class PrintFileNameTests(unittest.TestCase):
+    """The file name is one word, an .svg name selects SVG, a replaced file is reported."""
+
+    REPLACED = "It replaced an existing file of that name."
+
+    def run_print(self, arguments, existing=()):
+        """Run print with rendering and saving mocked; `existing` are files already saved."""
+        viewer = zoom_viewer()
+        engine = print_command.Command_Engine
+        for reporter in (engine.command_artifact, engine.command_succeeded, engine.command_failed):
+            reporter.reset_mock()
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        save_dir = os.path.join(root.name, "Saved_Images")
+        if existing:
+            os.makedirs(save_dir)
+            for name in existing:
+                open(os.path.join(save_dir, name), "w").close()
+        with mock.patch.object(
+            print_command, "PRINT_DIRECTORY", save_dir
+        ), mock.patch.object(
+            print_command, "_capture_tile",
+            return_value=np.ones(TILE_SHAPE + (4,), dtype=np.float32),
+        ) as capture, mock.patch.object(
+            print_command, "_export_svg", return_value=True
+        ) as export_svg, mock.patch.object(
+            print_command.mpimg, "imsave"
+        ) as save, mock.patch.object(
+            print_command, "open_in_file_manager"
+        ), redirect_stdout(io.StringIO()) as output:
+            print_command.run(viewer, arguments)
+        return SimpleNamespace(
+            viewer=viewer, engine=engine, capture=capture, export_svg=export_svg,
+            save=save, save_dir=save_dir, output=output.getvalue(),
+        )
+
+    def written(self, result):
+        """The base name of the one file the run wrote, as a PNG or an SVG."""
+        if result.export_svg.called:
+            result.save.assert_not_called()
+            result.export_svg.assert_called_once()
+            return os.path.basename(result.export_svg.call_args.args[1])
+        result.export_svg.assert_not_called()
+        result.save.assert_called_once()
+        return os.path.basename(result.save.call_args.args[0])
+
+    def assert_refused(self, arguments, message):
+        result = self.run_print(arguments)
+        result.capture.assert_not_called()
+        result.export_svg.assert_not_called()
+        result.save.assert_not_called()
+        result.engine.command_succeeded.assert_not_called()
+        result.engine.command_failed.assert_called_once()
+        self.assertEqual(str(result.engine.command_failed.call_args.args[1]), message)
+        self.assertEqual(result.viewer.console_text.text, message)
+        self.assertTrue(result.viewer.instr_text.visible)
+        self.assertFalse(os.path.exists(result.save_dir))
+
+    # --- one word --------------------------------------------------------
+
+    def test_a_second_word_is_refused_and_named_instead_of_joining_the_name(self):
+        # "fig1 ful" used to save fig1_ful.png, "my full network" my_network.png
+        # and "a b" a_b.png; "a b svg" was refused for another reason.
+        template = (
+            "Error: Unrecognized print argument '{}'. A file name is one word; "
+            "the modifiers are transparent, full, svg, zoom N."
+        )
+        for arguments, second in (
+            (["fig1", "ful"], "ful"),
+            (["my", "full", "network"], "network"),
+            (["a", "b"], "b"),
+            (["a", "b", "svg"], "b"),
+            (["my", "zoom.png"], "zoom.png"),
+            (["fig1", "transparent", "fig2", "full"], "fig2"),
+            (["one", "two", "three"], "two"),
+        ):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, template.format(second))
+
+    def test_modifiers_may_still_stand_anywhere_around_the_name(self):
+        for arguments, name in (
+            (["fig1"], "fig1.png"),
+            (["transparent", "fig1"], "fig1.png"),
+            (["fig1", "transparent"], "fig1.png"),
+            (["full", "transparent", "fig1"], "fig1.png"),
+            (["fig1", "FULL", "Transparent"], "fig1.png"),
+            (["full", "zoom", "500", "fig1"], "fig1.png"),
+            (["svg", "fig1"], "fig1.svg"),
+            (["fig1", "svg"], "fig1.svg"),
+            (["zoom", "500", "svg", "fig1"], "fig1.svg"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(self.written(result), name)
+
+    def test_a_repeated_modifier_is_accepted(self):
+        # The SVG "maximum of 2 keywords" rule counted words; with one name word
+        # and the modifiers refused beside svg, nothing is left for it to catch.
+        for arguments, name in ((["fig1", "svg", "svg", "svg"], "fig1.svg"),
+                                (["fig1", "full", "full"], "fig1.png"),
+                                (["fig1", "transparent", "transparent"], "fig1.png")):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(self.written(result), name)
+
+    # --- the extension picks the format ----------------------------------
+
+    def test_a_name_ending_in_svg_saves_an_svg_as_the_modifier_does(self):
+        # `print foo.svg` in PNG mode used to write foo.svg.png.
+        for arguments, name in (
+            (["foo.svg"], "foo.svg"),
+            (["FOO.SVG"], "FOO.SVG"),
+            (["Foo.Svg", "svg"], "Foo.Svg"),
+            (["svg", "foo.svg"], "foo.svg"),
+            (["a.b.svg"], "a.b.svg"),
+            (["foo.png.svg"], "foo.png.svg"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                result.capture.assert_not_called()
+                self.assertEqual(self.written(result), name)
+                self.assertIsNone(result.export_svg.call_args.kwargs["view_width"])
+                self.assertEqual(result.viewer.console_text.text, f"Saved SVG: {name}")
+                self.assertTrue(
+                    str(result.engine.command_succeeded.call_args.args[1]).startswith(
+                        "Successfully saved SVG snapshot: "
+                    )
+                )
+
+    def test_an_svg_name_takes_zoom_n_like_the_modifier(self):
+        for arguments in (["foo.svg", "zoom", "500"], ["zoom", "500", "foo.svg"]):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(self.written(result), "foo.svg")
+                self.assertEqual(result.export_svg.call_args.kwargs["view_width"], 500.0)
+
+    def test_the_svg_rules_apply_to_an_svg_name(self):
+        message = "Error: 'SVG' export is not compatible with 'transparent' or 'full'."
+        for arguments in (["foo.svg", "full"], ["foo.svg", "transparent"],
+                          ["transparent", "full", "foo.svg"], ["foo.svg", "full", "zoom", "500"]):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, message)
+
+    def test_a_png_name_with_svg_is_refused_as_a_mismatch(self):
+        for arguments, message in (
+            (["foo.png", "svg"],
+             "Error: 'foo.png' ends in .png, but svg saves an SVG file. "
+             "Use 'foo.svg' or leave the extension off."),
+            (["svg", "FOO.PNG"],
+             "Error: 'FOO.PNG' ends in .PNG, but svg saves an SVG file. "
+             "Use 'FOO.svg' or leave the extension off."),
+            (["foo.png", "svg", "zoom", "500"],
+             "Error: 'foo.png' ends in .png, but svg saves an SVG file. "
+             "Use 'foo.svg' or leave the extension off."),
+        ):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, message)
+
+    def test_a_png_name_in_png_mode_is_unchanged(self):
+        for arguments, name in (
+            (["foo.png"], "foo.png"),
+            (["FOO.PNG"], "FOO.PNG"),
+            (["foo.png", "full"], "foo.png"),
+            (["foo.png", "transparent"], "foo.png"),
+            (["foo.jpg"], "foo.jpg.png"),
+            (["foo"], "foo.png"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                result.export_svg.assert_not_called()
+                self.assertEqual(self.written(result), name)
+
+    def test_a_name_that_is_only_an_extension_is_refused(self):
+        # `print .svg` would write a file named .svg; logo refuses such a name too.
+        for arguments, shown in (
+            ([".svg"], ".svg"), ([".png"], ".png"), ([".SVG"], ".SVG"), ([".Png"], ".Png"),
+            (["svg", ".svg"], ".svg"), ([".png", "full"], ".png"),
+            ([".png", "transparent"], ".png"), ([".svg", "zoom", "500"], ".svg"),
+            # A mismatch would otherwise suggest the nonsense name ".svg".
+            ([".png", "svg"], ".png"),
+        ):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(
+                    arguments, f"Error: Filename '{shown}' needs a name before its extension."
+                )
+
+    def test_a_name_with_something_before_its_extension_is_still_accepted(self):
+        for arguments, name in ((["a.svg"], "a.svg"), (["a.png"], "a.png"),
+                                ([".hidden"], ".hidden.png"), (["x.jpg"], "x.jpg.png")):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(self.written(result), name)
+
+    def test_an_svg_name_that_is_a_path_is_still_refused(self):
+        result = self.run_print(["../foo.svg"])
+        result.export_svg.assert_not_called()
+        result.engine.command_failed.assert_called_once()
+        self.assertIn("path separators", str(result.engine.command_failed.call_args.args[1]))
+        self.assertFalse(os.path.exists(result.save_dir))
+
+    # --- an explicit name replaces a file, and the report says so ---------
+
+    def test_a_replaced_file_is_reported(self):
+        for arguments, existing, shown in (
+            (["mine"], "mine.png", "Saved PNG: mine.png"),
+            (["mine.png", "transparent"], "mine.png", "Saved PNG: mine.png"),
+            (["mine", "full"], "mine.png", "Saved PNG: mine.png"),
+            (["mine", "svg"], "mine.svg", "Saved SVG: mine.svg"),
+            (["mine.svg"], "mine.svg", "Saved SVG: mine.svg"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments, existing=(existing,))
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(result.viewer.console_text.text, f"{shown} {self.REPLACED}")
+                report = str(result.engine.command_succeeded.call_args.args[1])
+                self.assertTrue(report.startswith("Successfully saved "), report)
+                self.assertTrue(report.endswith(f" {self.REPLACED}"), report)
+                self.assertIn(self.REPLACED, result.output)
+
+    def test_a_new_name_is_not_reported_as_replacing_anything(self):
+        # Another file in the folder, or a file of the other format, is no replacement.
+        for arguments, existing in (
+            (["mine"], ()),
+            (["mine"], ("other.png", "mine.svg")),
+            (["mine", "svg"], ("mine.png",)),
+            ([], ("mine.png",)),
+        ):
+            with self.subTest(arguments=arguments, existing=existing):
+                result = self.run_print(arguments, existing=existing)
+                result.engine.command_failed.assert_not_called()
+                self.assertNotIn(self.REPLACED, result.viewer.console_text.text)
+                self.assertNotIn(self.REPLACED, str(result.engine.command_succeeded.call_args.args[1]))
+                self.assertNotIn(self.REPLACED, result.output)
+
+    def test_the_replacement_note_and_the_size_warning_both_ride_along(self):
+        # 500 units across 800 pixels gives a 176 x 96 picture: the warning applies.
+        result = self.run_print(["mine", "full", "zoom", "500"], existing=("mine.png",))
+        warning = (
+            "Warning: the image is only 176×96 px. N in zoom N is the view width, "
+            "so a smaller N zooms in and gives a larger image."
+        )
+        self.assertEqual(
+            result.viewer.console_text.text, f"Saved PNG: mine.png {self.REPLACED} {warning}"
+        )
+        report = str(result.engine.command_succeeded.call_args.args[1])
+        self.assertTrue(report.endswith(f"{self.REPLACED} {warning}"), report)
+
+    def test_a_refusal_never_reports_a_replacement(self):
+        result = self.run_print(["mine", "ful"], existing=("mine.png",))
+        result.engine.command_succeeded.assert_not_called()
+        self.assertNotIn(self.REPLACED, result.viewer.console_text.text)
+
+    def test_the_help_describes_the_one_word_name_the_extension_and_the_replacement(self):
+        with mock.patch("builtins.print") as printed:
+            print_command.print_help()
+        text = " ".join(printed.call_args.args[0].split())
+        self.assertIn("FILENAME is a plain file name of one word", text)
+        self.assertIn("A name ending in .svg saves an SVG, as the svg modifier does", text)
+        self.assertIn("a name ending in .png cannot be combined with svg", text)
+        self.assertIn("A file of the same name is replaced, and the report says so", text)
+        self.assertIn("print my_network.svg", text)
 
 
 class FakeMarkers:

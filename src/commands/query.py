@@ -345,6 +345,34 @@ def _subset_column_counts(matrix, target_rows):
 
     return column
 
+
+# Under this percentage a residue has no column of its own in a position's line.
+_MIN_LISTED_PERCENT = 1.0
+
+
+def _print_position_composition(label, gap_percent, residue_percents):
+    """Print one position's gap and residue percentages, the largest residue first.
+
+    A residue under 1% has no column of its own; one extra line sums them, so
+    the two lines together account for every residue present. X and the other
+    symbols are residues here, as everywhere in query.
+    """
+    listed = sorted(
+        ((residue, percent) for residue, percent in residue_percents.items()
+         if percent >= _MIN_LISTED_PERCENT),
+        key=lambda item: item[1], reverse=True,
+    )
+    omitted = [percent for percent in residue_percents.values() if 0.0 < percent < _MIN_LISTED_PERCENT]
+
+    line = f"Pos {label:<8}\tGap {gap_percent:>5.1f}%"
+    for residue, percent in listed:
+        line += f" | {residue} {percent:>5.1f}%"
+    print(line)
+    if omitted:
+        # Indented to the Gap column: the tab after the 12-character "Pos " and label reaches it.
+        print(" " * 12 + "\t" + str(Message("other (<1% each): {percent}", percent=f"{sum(omitted):>5.1f}%")))
+
+
 def print_help():
     print("""
     Subsection Query & Alignment Statistics Tool
@@ -389,6 +417,12 @@ def print_help():
          In multi-condition logic, an outer pair still encloses each comparison:
          [((RHK)>50%)&((DE)>20%)] or [((RHK)>50%)&(GAP<20%)].
 
+    Output:
+      Each position prints its gap percentage and then each residue of at least 1%,
+      largest first. X and any other symbol in the alignment count as residues.
+      Residues under 1% are summed on one extra line, 'other (<1% each)', so no
+      residue present goes unreported.
+
     Sequence Selection Expression Targets (Do NOT use spaces inside expressions!):
       1. AA Position:  [AA][Pos] (e.g., P106, _100), or ([AA...])[Pos] for
                        alternatives (e.g., (RHK)71); negative positions require
@@ -408,7 +442,9 @@ def print_help():
     Selection Validation:
       Referenced clusters, groups, alignment positions, metadata properties, and
       files must exist. Invalid references abort the query. A valid selection
-      expression may match zero nodes.
+      expression may match zero nodes: the query then reports that no sequences
+      matched and succeeds. Nodes that match but are not in the alignment leave
+      nothing to query, and the query fails.
 
     Examples:
       query [10, 15, 20-30]                         (Queries pos 10, 15, and 20 to 30)
@@ -536,7 +572,10 @@ def run(viewer, args):
     n_seqs = len(target_rows)
 
     if n_seqs == 0:
-        if len(valid_nodes) == 0:
+        # A valid expression may match no node, which is not a failure. Nodes
+        # that match but are not in the alignment leave nothing to query, which is.
+        nothing_matched = len(valid_nodes) == 0
+        if nothing_matched:
             msg = Message("No sequences matched the expression '{expression}'. Aborting query.", expression=expr)
         else:
             msg = Message(
@@ -548,7 +587,10 @@ def run(viewer, args):
         print("-" * 50)
         print(msg)
         print("-" * 50)
-        Command_Engine.command_succeeded(viewer, msg)
+        if nothing_matched:
+            Command_Engine.command_succeeded(viewer, msg)
+        else:
+            Command_Engine.command_failed(viewer, msg)
         return
 
     # --- 4. Detect Mode: Position Breakdown (Mode 1) vs Frequency Search (Mode 2) ---
@@ -659,20 +701,11 @@ def run(viewer, args):
             print("-" * 50)
 
             for idx in matching_indices:
-                pos_label = ordered_pos_labels[idx]
-                gap_pct = all_gap_fracs[idx] * 100.0
-
-                valid_aas = []
-                for aa_char, fracs in all_aa_fracs.items():
-                    pct = fracs[idx] * 100.0
-                    if pct >= 1.0:
-                        valid_aas.append((aa_char, pct))
-                valid_aas.sort(key=lambda x: x[1], reverse=True)
-
-                out_str = f"Pos {pos_label:<8}\tGap {gap_pct:>5.1f}%"
-                for aa, pct in valid_aas:
-                    out_str += f" | {aa} {pct:>5.1f}%"
-                print(out_str)
+                _print_position_composition(
+                    ordered_pos_labels[idx],
+                    all_gap_fracs[idx] * 100.0,
+                    {aa_char: fracs[idx] * 100.0 for aa_char, fracs in all_aa_fracs.items()},
+                )
         else:
             print("[No positions matched the search criteria]")
 
@@ -723,20 +756,11 @@ def run(viewer, args):
 
         # Gap-Diluted Calculation
         gap_pct = (n_gaps / n_seqs) * 100.0 if n_seqs > 0 else 0.0
-        
-        valid_aas = []
-        for aa, count in aa_counts.items():
-            pct = (count / n_seqs) * 100.0 if n_seqs > 0 else 0.0
-            if pct >= 1.0:
-                valid_aas.append((aa, pct))
-                
-        valid_aas.sort(key=lambda x: x[1], reverse=True)
-        
-        out_str = f"Pos {pos:<8}\tGap {gap_pct:>5.1f}%"
-        for aa, pct in valid_aas:
-            out_str += f" | {aa} {pct:>5.1f}%"
-            
-        print(out_str)
+        residue_percents = {
+            aa: (count / n_seqs) * 100.0 if n_seqs > 0 else 0.0
+            for aa, count in aa_counts.items()
+        }
+        _print_position_composition(pos, gap_pct, residue_percents)
         
     print("-" * 50)
     

@@ -807,8 +807,22 @@ def _call_graspologic(function, *args, **kwargs):
         ) from error
 
 
+def _label_isolated_nodes(labels, isolated, min_size):
+    """Label each node of the ``isolated`` mask as a singleton cluster, in node
+    order after the clusters ``labels`` already holds, when ``min_size`` is 1;
+    with a larger ``min_size`` a lone node is too small and stays Noise."""
+    if min_size <= 1 and isolated.any():
+        first = int(labels.max(initial=0)) + 1
+        labels[isolated] = np.arange(first, first + int(isolated.sum()))
+    return labels
+
+
 def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     """Partition a network with Leiden and return 1-based cluster labels.
+
+    A node with no edge is a community of one: a singleton cluster when
+    ``min_size`` is 1, like the Jaccard and MCL partitions, and Noise (-1)
+    otherwise. Such nodes are numbered after the other clusters, in node order.
 
     Raises ValueError for a NaN or infinite resolution or edge weight, which
     would panic graspologic_native, and RuntimeError when it panics anyway.
@@ -826,7 +840,7 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     labels = np.full(n_nodes, -1, dtype=int)
     edges = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
     if edges.shape[0] == 0:
-        return labels
+        return _label_isolated_nodes(labels, np.ones(n_nodes, dtype=bool), min_size)
 
     if weights is not None and len(weights) != edges.shape[0]:
         print(
@@ -891,12 +905,12 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     cluster_ids = np.where(kept, np.cumsum(kept), -1)
     labels[members] = cluster_ids[communities]
 
-    # Isolated nodes are always Noise, even when min_size == 1.
+    # graspologic_native returns only the nodes that appear in an edge. The
+    # others are isolated: singleton clusters when min_size is 1, else Noise.
     connected = np.zeros(n_nodes, dtype=bool)
     connected[edges[:, 0]] = True
     connected[edges[:, 1]] = True
-    labels[~connected] = -1
-    return labels
+    return _label_isolated_nodes(labels, ~connected, min_size)
 
 
 def sorted_neighbour_csr(edges, n_nodes):

@@ -291,14 +291,118 @@ class QueryPositionBreakdownTests(unittest.TestCase):
         )
         self.assertEqual(viewer.console_text.text, "Queried 1 position. Check terminal.")
 
-    def test_residues_under_one_percent_are_omitted(self):
+    @staticmethod
+    def other_lines(output):
+        return [line for line in output.splitlines() if "other (<1% each)" in line]
+
+    def test_residues_under_one_percent_are_omitted_and_summed_on_an_other_line(self):
         headers = [f"s{index}" for index in range(101)]
         records = [(header, "A") for header in headers[:100]] + [(headers[100], "C")]
 
         _, output = self.run_query(records, headers, ['"*"', "[1]"])
 
-        # C is 1 of 101 sequences (0.99%).
+        # C is 1 of 101 sequences (0.99%): no column of its own, but a line that sums it.
         self.assertEqual(self.position_lines(output), ["Pos 1       \tGap   0.0% | A  99.0%"])
+        self.assertEqual(self.other_lines(output), [" " * 12 + "\tother (<1% each):   1.0%"])
+        lines = output.splitlines()
+        self.assertEqual(
+            lines.index(self.other_lines(output)[0]),
+            lines.index(self.position_lines(output)[0]) + 1,
+        )
+
+    def test_the_other_line_sums_every_residue_under_one_percent(self):
+        # 200 sequences: C, D and E are 0.5% each, so 1.5% together, and A is 98.5%.
+        headers = [f"s{index}" for index in range(200)]
+        residues = ["A"] * 197 + ["C", "D", "E"]
+
+        _, output = self.run_query(list(zip(headers, residues)), headers, ['"*"', "[1]"])
+
+        self.assertEqual(self.position_lines(output), ["Pos 1       \tGap   0.0% | A  98.5%"])
+        self.assertEqual(self.other_lines(output), [" " * 12 + "\tother (<1% each):   1.5%"])
+
+    def test_every_position_with_omitted_residues_gets_its_own_other_line(self):
+        # 200 sequences; the last one differs at positions 1 and 2 (0.5% each),
+        # and position 3 omits nothing.
+        headers = [f"s{index}" for index in range(200)]
+        records = [(header, "AGM") for header in headers[:199]] + [(headers[199], "CTM")]
+
+        _, output = self.run_query(records, headers, ['"*"', "[1,2,3]"])
+
+        position_lines = self.position_lines(output)
+        self.assertEqual(
+            position_lines,
+            [
+                "Pos 1       \tGap   0.0% | A  99.5%",
+                "Pos 2       \tGap   0.0% | G  99.5%",
+                "Pos 3       \tGap   0.0% | M 100.0%",
+            ],
+        )
+        note = " " * 12 + "\tother (<1% each):   0.5%"
+        self.assertEqual(self.other_lines(output), [note, note])
+        # Each note sits directly under its own position; the last position has none.
+        lines = output.splitlines()
+        self.assertEqual(lines[lines.index(position_lines[0]) + 1], note)
+        self.assertEqual(lines[lines.index(position_lines[1]) + 1], note)
+        self.assertEqual(lines[lines.index(position_lines[2]) + 1], "-" * 50)
+
+    def test_there_is_no_other_line_when_every_residue_is_listed(self):
+        headers = [f"s{index}" for index in range(100)]
+        # C is exactly 1%, which is listed, so nothing is omitted.
+        records = [(header, "A") for header in headers[:99]] + [(headers[99], "C")]
+
+        _, output = self.run_query(records, headers, ['"*"', "[1]"])
+
+        self.assertEqual(
+            self.position_lines(output), ["Pos 1       \tGap   0.0% | A  99.0% | C   1.0%"]
+        )
+        self.assertEqual(self.other_lines(output), [])
+
+        _, output = self.run_query(
+            [("arginine", "R"), ("histidine", "H")], ["arginine", "histidine"], ['"*"', "[1]"]
+        )
+        self.assertEqual(self.other_lines(output), [])
+
+    def test_gaps_are_not_residues_and_never_make_an_other_line(self):
+        headers = [f"s{index}" for index in range(10)]
+        records = list(zip(headers, ["A"] * 6 + ["-"] * 4))
+
+        _, output = self.run_query(records, headers, ['"*"', "[1]"])
+
+        self.assertEqual(self.position_lines(output), ["Pos 1       \tGap  40.0% | A  60.0%"])
+        self.assertEqual(self.other_lines(output), [])
+
+    def test_x_and_other_symbols_are_listed_as_residues(self):
+        headers = [f"s{index}" for index in range(10)]
+        records = list(zip(headers, ["A"] * 5 + ["X"] * 4 + ["B"]))
+
+        _, output = self.run_query(records, headers, ['"*"', "[1]"])
+
+        self.assertEqual(
+            self.position_lines(output), ["Pos 1       \tGap   0.0% | A  50.0% | X  40.0% | B  10.0%"]
+        )
+        self.assertEqual(self.other_lines(output), [])
+
+    def test_the_frequency_search_prints_the_other_line_too(self):
+        headers = [f"s{index}" for index in range(101)]
+        records = [(header, "A") for header in headers[:100]] + [(headers[100], "C")]
+
+        _, output = self.run_query(records, headers, ['"*"', "[A>50%]"])
+
+        self.assertIn("Matching Positions (1 found)", output)
+        self.assertEqual(self.position_lines(output), ["Pos 1       \tGap   0.0% | A  99.0%"])
+        self.assertEqual(self.other_lines(output), [" " * 12 + "\tother (<1% each):   1.0%"])
+
+    def test_help_describes_the_listing_and_the_other_line(self):
+        output = StringIO()
+        with redirect_stdout(output):
+            print_help()
+        text = " ".join(output.getvalue().split())
+
+        self.assertIn("each residue of at least 1%", text)
+        self.assertIn("X and any other symbol in the alignment count as residues", text)
+        self.assertIn("summed on one extra line, 'other (<1% each)'", text)
+        self.assertIn("matched and succeeds", text)
+        self.assertIn("leave nothing to query, and the query fails", text)
 
     def test_expression_without_aligned_matches_aborts(self):
         headers = ["arginine", "histidine"]
@@ -318,6 +422,19 @@ class QueryPositionBreakdownTests(unittest.TestCase):
                 mock.patch.object(Command_Engine, "command_succeeded") as succeeded:
             viewer, output = self.run_query(*arguments, **options)
         return viewer, output, failed, succeeded
+
+    def test_a_valid_expression_that_matches_no_node_succeeds_and_says_so(self):
+        headers = ["arginine", "histidine"]
+
+        viewer, output, failed, succeeded = self.run_reporting(
+            list(zip(headers, ["R", "H"])), headers, ['"zzz"', "[1]"]
+        )
+
+        message = "No sequences matched the expression '\"zzz\"'. Aborting query."
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        self.assertEqual(str(succeeded.call_args.args[1]), message)
+        self.assertEqual(viewer.console_text.text, message)
 
     def test_expression_tokens_are_joined_with_spaces(self):
         headers = ["Escherichia_a", "Escherichia_b", "Bacillus_c"]
@@ -397,7 +514,7 @@ class QueryPositionBreakdownTests(unittest.TestCase):
         headers = ["arginine", "histidine", "unaligned"]
         records = list(zip(headers[:2], ["R", "H"]))
 
-        viewer, output, _, _ = self.run_reporting(
+        viewer, output, failed, succeeded = self.run_reporting(
             records, headers, ["#cluster_2#", "[1]"], cluster_labels=[1, 1, 2]
         )
 
@@ -408,6 +525,10 @@ class QueryPositionBreakdownTests(unittest.TestCase):
         self.assertIn(message, output)
         self.assertEqual(viewer.console_text.text, message)
         self.assertNotIn("No sequences matched", output)
+        # Nothing to analyse is a failure, unlike an expression that matches no node.
+        succeeded.assert_not_called()
+        failed.assert_called_once()
+        self.assertEqual(str(failed.call_args.args[1]), message)
 
     def test_grouped_frequency_search_uses_exact_counts_at_the_boundary(self):
         # Ten sequences: one A, two C and seven G, so (AC) is exactly 30%.

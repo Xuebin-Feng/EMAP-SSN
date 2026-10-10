@@ -2,7 +2,8 @@
 
 Covers position parsing and compact plot coordinates, the y axis, letter
 heights with and without identity weighting, the identity kernels and their
-thread budget, the background SVG renderer, and the job `logo` enqueues.
+thread budget, the background SVG renderer, the size limit of a PNG logo, the
+x axis label, and the job `logo` enqueues and the outcome it reports.
 """
 
 import io
@@ -24,6 +25,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 import Alignment_Manager
+import Command_Engine
 from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
 from commands.logo import (
@@ -1180,6 +1182,334 @@ class LogoPositionAxisLabelTests(unittest.TestCase):
             label({"numbering": "reference", "ref_id": "WP_1"}),
             "Position (relative to WP_1)",
         )
+
+
+class LogoPngSizeTests(unittest.TestCase):
+    """A PNG logo is one raster at 600 dpi, so its size is limited; an SVG is not."""
+
+    def test_raster_estimate_reads_the_figure_and_dpi_the_renderer_uses(self):
+        # Capture the figure size and dpi of a real render instead of restating them.
+        seen = {}
+
+        def save(figure, partial_path, **kwargs):
+            seen["inches"] = tuple(figure.get_size_inches())
+            seen["dpi"] = kwargs["dpi"]
+            with open(partial_path, "wb") as output:
+                output.write(b"x")
+
+        for positions in (1, 11, 25):
+            with self.subTest(positions=positions), tempfile.TemporaryDirectory() as directory:
+                payload = LogoSynchronousArtifactTests.make_payload(directory, "size.png")
+                payload["selected_seqs"] = ("A" * positions, "C" * positions)
+                payload["valid_cols"] = tuple(range(positions))
+                payload["plot_positions"] = tuple(range(1, positions + 1))
+                with mock.patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=save):
+                    logo_command._generate_logo_artifact(payload)
+
+                width, height, raster_bytes = logo_command._png_logo_raster(positions)
+                self.assertEqual(
+                    (width, height),
+                    (round(seen["inches"][0] * seen["dpi"]), round(seen["inches"][1] * seen["dpi"])),
+                )
+                self.assertEqual(raster_bytes, width * height * 4)
+
+    def test_raster_estimate_bounds_the_png_that_is_saved(self):
+        # Agg draws the whole figure, then bbox_inches='tight' crops it by about
+        # 0.1 inch a side, so the estimate is a little over the saved size.
+        with tempfile.TemporaryDirectory() as directory:
+            payload = LogoSynchronousArtifactTests.make_payload(directory, "measured.png")
+            payload["selected_seqs"] = ("A" * 12, "C" * 12)
+            payload["valid_cols"] = tuple(range(12))
+            payload["plot_positions"] = tuple(range(1, 13))
+            path = logo_command._generate_logo_artifact(payload)["save_path"]
+            with open(path, "rb") as image:
+                header = image.read(24)
+        saved = (int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big"))
+
+        estimate = logo_command._png_logo_raster(12)[:2]
+        margin = 0.25 * logo_command._LOGO_DPI
+        for estimated, actual in zip(estimate, saved):
+            self.assertGreaterEqual(estimated, actual)
+            self.assertLess(estimated - actual, margin)
+
+    def test_the_agg_limit_is_the_one_matplotlib_enforces(self):
+        from matplotlib.backends.backend_agg import RendererAgg
+
+        limit = logo_command._AGG_MAX_SIDE_PIXELS
+        RendererAgg(limit - 1, 1, 100)
+        RendererAgg(1, limit - 1, 100)
+        with self.assertRaisesRegex(ValueError, "too large"):
+            RendererAgg(limit, 1, 100)
+        with self.assertRaisesRegex(ValueError, "too large"):
+            RendererAgg(1, limit, 100)
+
+    def test_a_raster_just_under_the_memory_budget_fits_and_just_over_does_not(self):
+        budget = logo_command._png_logo_raster(20)[2]
+
+        with mock.patch.object(logo_command, "_MAX_PNG_RASTER_BYTES", budget):
+            self.assertTrue(logo_command._png_logo_fits(20))
+            self.assertFalse(logo_command._png_logo_fits(21))
+            self.assertEqual(logo_command._max_png_logo_positions(), 20)
+        with mock.patch.object(logo_command, "_MAX_PNG_RASTER_BYTES", budget - 1):
+            self.assertFalse(logo_command._png_logo_fits(20))
+            self.assertTrue(logo_command._png_logo_fits(19))
+
+    def test_a_side_just_under_the_agg_limit_fits_and_just_over_does_not(self):
+        width, height, _ = logo_command._png_logo_raster(20)
+        # Leave the memory budget out of it.
+        with mock.patch.object(logo_command, "_MAX_PNG_RASTER_BYTES", 1 << 60):
+            with mock.patch.object(logo_command, "_AGG_MAX_SIDE_PIXELS", width + 1):
+                self.assertTrue(logo_command._png_logo_fits(20))
+                self.assertFalse(logo_command._png_logo_fits(21))
+            with mock.patch.object(logo_command, "_AGG_MAX_SIDE_PIXELS", width):
+                self.assertFalse(logo_command._png_logo_fits(20))
+            # The height counts too.
+            with mock.patch.object(logo_command, "_AGG_MAX_SIDE_PIXELS", height):
+                self.assertFalse(logo_command._png_logo_fits(1))
+
+    def test_the_real_limits_keep_ordinary_logos_and_stop_the_audits_case(self):
+        largest = logo_command._max_png_logo_positions()
+
+        self.assertTrue(logo_command._png_logo_fits(largest))
+        self.assertFalse(logo_command._png_logo_fits(largest + 1))
+        self.assertTrue(logo_command._png_logo_fits(1))
+        self.assertTrue(logo_command._png_logo_fits(100))
+        self.assertFalse(logo_command._png_logo_fits(1000))
+        self.assertLessEqual(logo_command._png_logo_raster(largest)[2], 1 << 30)
+
+
+class LogoOutcomeTests(unittest.TestCase):
+    """What `logo` reports, and queues, for the nodes an expression matches."""
+
+    HEADERS = ["node0", "node1", "node2"]
+
+    def run_logo(self, args, columns=4):
+        """Run `logo` over a viewer whose node2 is not in the alignment.
+
+        Returns the viewer, the queued job (or None), and the mocks of
+        command_failed and command_succeeded.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        alignment = SimpleNamespace(
+            aln=sparse_alignment([("node0", "A" * columns), ("node1", "C" * columns)]),
+            viewer_to_aln=np.array([0, 1, -1]),
+            col_to_label={index: str(index + 1) for index in range(columns)},
+            label_to_col={str(index + 1): index for index in range(columns)},
+            has_reference=True,
+        )
+        scheduler = CapturingScheduler()
+        viewer = SimpleNamespace(
+            alignment=alignment,
+            full_headers=list(self.HEADERS),
+            selected_indices=[],
+            cluster_labels=np.array([1, 1, 2]),
+            group_labels=None,
+            active_reference="node0",
+            console_text=SimpleNamespace(text=""),
+            background_job_scheduler=scheduler,
+        )
+        with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory.name), \
+                mock.patch.object(logo_command.cfg, "HEADER_LIST_DIR", directory.name), \
+                mock.patch.object(Command_Engine, "command_failed") as failed, \
+                mock.patch.object(Command_Engine, "command_succeeded") as succeeded, \
+                redirect_stdout(io.StringIO()):
+            logo_command.run(viewer, list(args))
+        return viewer, scheduler.job, failed, succeeded
+
+    def test_a_valid_expression_that_matches_no_node_succeeds_and_says_so(self):
+        viewer, job, failed, succeeded = self.run_logo(['"zzz"', "[1]", "out.svg"])
+
+        message = "No nodes matched the criteria for logo generation."
+        self.assertIsNone(job)
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        self.assertEqual(str(succeeded.call_args.args[1]), message)
+        self.assertEqual(viewer.console_text.text, message)
+
+    def test_nodes_that_match_but_are_not_in_the_alignment_are_a_failure(self):
+        # node2 is the only member of cluster 2, and the alignment lacks it.
+        viewer, job, failed, succeeded = self.run_logo(["#cluster_2#", "[1]", "out.svg"])
+
+        message = "Error: No aligned nodes matched the logo selection criteria."
+        self.assertIsNone(job)
+        succeeded.assert_not_called()
+        failed.assert_called_once()
+        self.assertEqual(str(failed.call_args.args[1]), message)
+        self.assertEqual(viewer.console_text.text, message)
+
+    def test_a_match_that_is_partly_aligned_is_queued(self):
+        # Everything, including node2, matches; the aligned two are drawn.
+        _, job, failed, _ = self.run_logo(['"*"', "[1]", "out.svg"])
+
+        failed.assert_not_called()
+        self.assertEqual(len(job["payload"]["selected_seqs"]), 2)
+
+    def test_a_png_over_the_size_limit_is_refused_before_a_job_is_queued(self):
+        largest = logo_command._max_png_logo_positions()
+        columns = largest + 1
+
+        for name in ("big.png", "BIG.PNG"):
+            with self.subTest(name=name):
+                viewer, job, failed, succeeded = self.run_logo(
+                    [f"[1-{columns}]", name], columns=columns
+                )
+
+                message = (
+                    f"Error: A PNG logo of {columns} positions is too large to draw; "
+                    f"at most {largest} positions fit. Use an .svg filename, which has "
+                    "no such limit, or fewer positions."
+                )
+                self.assertIsNone(job)
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                self.assertEqual(str(failed.call_args.args[1]), message)
+                self.assertEqual(viewer.console_text.text, message)
+
+    def test_the_most_a_png_holds_is_queued(self):
+        largest = logo_command._max_png_logo_positions()
+
+        _, job, failed, _ = self.run_logo([f"[1-{largest}]", "full.png"], columns=largest)
+
+        failed.assert_not_called()
+        self.assertEqual(job["payload"]["filename"], "full.png")
+        self.assertEqual(len(job["payload"]["plot_positions"]), largest)
+
+    def test_the_limit_counts_the_positions_that_are_plotted(self):
+        # Positions the alignment lacks are not drawn, so they do not count.
+        largest = logo_command._max_png_logo_positions()
+
+        _, job, failed, _ = self.run_logo([f"[1-{largest + 50}]", "full.png"], columns=largest)
+
+        failed.assert_not_called()
+        self.assertEqual(len(job["payload"]["plot_positions"]), largest)
+
+    def test_an_svg_is_never_refused_for_its_size(self):
+        largest = logo_command._max_png_logo_positions()
+        columns = largest + 100
+
+        for args in (
+            [f"[1-{columns}]", "wide.svg"],
+            [f"[1-{columns}]"],
+            [f"[1-{columns}]", "WIDE.SVG"],
+        ):
+            with self.subTest(args=args):
+                _, job, failed, _ = self.run_logo(args, columns=columns)
+
+                failed.assert_not_called()
+                self.assertEqual(len(job["payload"]["plot_positions"]), columns)
+
+    def test_help_states_the_png_limit_and_the_outcomes(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            logo_command.print_help()
+        text = " ".join(output.getvalue().split())
+
+        self.assertIn(
+            f"a PNG logo may have at most {logo_command._max_png_logo_positions()} positions",
+            text,
+        )
+        self.assertIn("An SVG has no such limit", text)
+        self.assertIn("the command reports that none matched and queues no job", text)
+        self.assertIn("leave nothing to analyse, and the command fails", text)
+        self.assertIn("cut short with an ellipsis", text)
+
+
+class LogoLongHeaderTests(unittest.TestCase):
+    """A reference header too long for the x axis is shortened, never widening the image."""
+
+    LONG_HEADER = "WP_0123456789.1_" + "very_long_protein_description_" * 12
+
+    @staticmethod
+    def svg_width(path):
+        with open(path, encoding="utf-8") as svg:
+            match = re.search(r'<svg[^>]*?width="([\d.]+)pt"', svg.read(2000), re.S)
+        return float(match.group(1))
+
+    def render(self, header, numbering="reference", filename="header.svg"):
+        """Render a three-position logo; return its saved width and the x label drawn."""
+        from matplotlib.figure import Figure
+
+        drawn = {}
+        real_savefig = Figure.savefig
+
+        def save(figure, partial_path, **kwargs):
+            drawn["label"] = figure.axes[0].get_xlabel()
+            return real_savefig(figure, partial_path, **kwargs)
+
+        with tempfile.TemporaryDirectory() as directory:
+            payload = LogoSynchronousArtifactTests.make_payload(directory, filename)
+            payload["selected_seqs"] = ("ACD", "ACD")
+            payload["valid_cols"] = (0, 1, 2)
+            payload["plot_positions"] = (1, 2, 3)
+            payload["ref_id"] = header
+            payload["numbering"] = numbering
+            with mock.patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=save):
+                path = logo_command._generate_logo_artifact(payload)["save_path"]
+            with open(path, "rb") as image:
+                head = image.read(24)
+            width = (
+                int.from_bytes(head[16:20], "big") if filename.endswith(".png")
+                else self.svg_width(path)
+            )
+        return width, drawn["label"]
+
+    def test_a_300_character_header_gives_the_same_width_as_a_short_one(self):
+        short_width, short_label = self.render("WP_1.1")
+        long_width, long_label = self.render("A" * 300)
+        wordy_width, wordy_label = self.render(self.LONG_HEADER)
+
+        self.assertEqual(short_label, "Position (relative to WP_1.1)")
+        self.assertEqual(long_width, short_width)
+        self.assertEqual(wordy_width, short_width)
+        # The header was cut and ends in the ellipsis, inside the closing parenthesis.
+        for label in (long_label, wordy_label):
+            self.assertTrue(label.startswith("Position (relative to "), label)
+            self.assertTrue(label.endswith("…)"), label)
+        self.assertLess(len(long_label), 100)
+
+    def test_a_header_that_fits_is_left_whole(self):
+        for header in ("WP_1.1", "Escherichia_coli_K12_protein_A", "x"):
+            with self.subTest(header=header):
+                _, label = self.render(header)
+                self.assertEqual(label, f"Position (relative to {header})")
+
+    def test_the_png_is_as_wide_with_a_long_header_as_with_a_short_one(self):
+        long_width, _ = self.render("A" * 300, filename="header.png")
+        short_width, _ = self.render("WP_1.1", filename="header.png")
+
+        self.assertEqual(long_width, short_width)
+
+    def test_the_shortened_label_is_no_wider_than_the_axes_and_as_long_as_it_can_be(self):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        fig = Figure(figsize=(6, 4))
+        FigureCanvasAgg(fig)
+        ax = fig.subplots()
+        fig.tight_layout()
+        payload = {"numbering": "reference", "ref_id": self.LONG_HEADER}
+
+        logo_command._fit_position_axis_label(ax, payload)
+
+        renderer = fig.canvas.get_renderer()
+        label = ax.xaxis.label
+        axes_width = ax.get_window_extent(renderer).width
+        self.assertLessEqual(label.get_window_extent(renderer).width, axes_width)
+        # One more character of the header would not fit.
+        kept = len(label.get_text()) - len("Position (relative to ") - len("…)")
+        label.set_text(
+            logo_command._position_axis_label(payload, self.LONG_HEADER[:kept + 1] + "…")
+        )
+        self.assertGreater(
+            label.get_window_extent(renderer).width,
+            axes_width * logo_command._AXIS_LABEL_FIT,
+        )
+
+    def test_the_occupancy_label_is_never_shortened(self):
+        _, label = self.render("ignored", numbering="occupancy")
+
+        self.assertEqual(label, "Position (occupancy numbering)")
 
 
 if __name__ == "__main__":

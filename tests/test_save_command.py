@@ -4,6 +4,7 @@ a validated plain filename, reopenable with the generation settings they came
 from, and never replacing a destination when the provenance is invalid."""
 import copy
 import io
+import json
 import pathlib
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -65,6 +66,36 @@ class InteractiveSaveTests(unittest.TestCase):
                     cache["node_render_order"][:], viewer.node_render_order
                 )
             np.testing.assert_array_equal(viewer.original_pos, viewer.pos)
+
+    def test_the_sidebar_button_list_is_written_into_the_cache(self):
+        # The list the viewer registers its sidebar buttons from at startup is a
+        # cacheable attribute: undo leaves it alone, and `save` still writes it.
+        compatibility = make_compatibility()
+        manifest = make_manifest(compatibility)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = pathlib.Path(temp_dir) / "cache-folder"
+            Cache_Manifest.write_manifest_atomic(folder, manifest)
+            default_path = folder / "version_00.h5"
+            viewer = SimpleNamespace(
+                cache_manifest_id=manifest["manifest_id"],
+                _cache_provenance=make_provenance(manifest["manifest_id"]),
+                full_headers=["A", "B"],
+                pos=np.zeros((2, 2), dtype=np.float32),
+                _cacheable_attrs={"sidebar_buttons_to_persist"},
+                sidebar_buttons_to_persist=["meta"],
+            )
+
+            with mock.patch.object(
+                save_command,
+                "resolve_selected_cache",
+                return_value=str(default_path),
+            ), mock.patch.object(save_command.Command_Engine, "print_help"):
+                save_command.run(viewer, [])
+
+            with h5py.File(default_path, "r") as cache:
+                dataset = cache["sidebar_buttons_to_persist"]
+                self.assertTrue(dataset.attrs["is_json"])
+                self.assertEqual(json.loads(dataset[()]), ["meta"])
 
     def test_unsafe_interactive_filename_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -281,19 +281,26 @@ class ESMFoldCommandTests(unittest.TestCase):
 
     # --- What the command reports -------------------------------------------
 
-    def run_reporting(self, viewer, arguments, *, launch=None, opened=True):
-        """Run the command with the worker and the page stubbed; return (succeeded, failed, launch)."""
+    def run_reporting(self, viewer, arguments, *, launch=None, opened=True, process=None, output=None):
+        """Run the command with the worker and the page stubbed; return (succeeded, failed, launch).
+
+        process is the terminal process the stubbed launch returns, and output
+        collects what the command prints.
+        """
         engine = esmfold_command.Command_Engine
+        launch_options = {"side_effect": launch} if launch else {}
+        if process is not None:
+            launch_options["return_value"] = process
         with tempfile.TemporaryDirectory() as structures_dir:
             with (
                 mock.patch.object(esmfold_command.esmfold_backend, "get_structures_directory", return_value=structures_dir),
-                mock.patch.object(esmfold_command, "launch_in_terminal", **({"side_effect": launch} if launch else {})) as launch_mock,
+                mock.patch.object(esmfold_command, "launch_in_terminal", **launch_options) as launch_mock,
                 mock.patch.object(esmfold_command.esmfold_backend, "register"),
                 mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui", return_value=opened),
                 mock.patch.object(engine, "command_succeeded") as succeeded,
                 mock.patch.object(engine, "command_failed") as failed,
                 mock.patch.object(esmfold_command.QMessageBox, "critical"),
-                redirect_stdout(io.StringIO()),
+                redirect_stdout(output if output is not None else io.StringIO()),
             ):
                 try:
                     esmfold_command.run(viewer, arguments)
@@ -379,6 +386,182 @@ class ESMFoldCommandTests(unittest.TestCase):
                 self.assertIn(text, failed.call_args.args[1])
                 # The console line shows its own, shorter sentence.
                 self.assertTrue(viewer.console_text.text.startswith("Error:"), viewer.console_text.text)
+
+    # --- Nothing selected: the node last clicked ----------------------------
+
+    CLICKED = "Nothing is selected, so the last clicked node is folded: node_1."
+
+    def clicked_viewer(self):
+        viewer = self.make_viewer(2)
+        viewer.selected_indices = []
+        viewer.selected_node_idx = 1
+        return viewer
+
+    def test_the_last_clicked_node_is_folded_and_every_report_says_so(self):
+        for arguments in ([], ["large"]):
+            with self.subTest(arguments=arguments):
+                viewer = self.clicked_viewer()
+                output = io.StringIO()
+                with mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cuda")):
+                    succeeded, failed, launch = self.run_reporting(viewer, arguments, output=output)
+
+                failed.assert_not_called()
+                launch.assert_called_once()
+                self.assertIn(self.CLICKED, output.getvalue())
+                self.assertTrue(succeeded.call_args.args[1].endswith(self.CLICKED), succeeded.call_args.args[1])
+                self.assertTrue(viewer.console_text.text.startswith(self.CLICKED), viewer.console_text.text)
+                self.assertIn("Spawning separate console to fold 1 structure", viewer.console_text.text)
+
+    def test_the_clicked_node_is_what_the_worker_folds(self):
+        viewer = self.clicked_viewer()
+        folded = []
+
+        def launch(command, **options):
+            with open(command[2], "r", encoding="utf-8") as handle:
+                folded.extend(json.load(handle))
+
+        self.run_reporting(viewer, ["large"], launch=launch)
+        self.assertEqual(folded, [["node_1", "ACDE"]])
+
+    def test_the_note_names_the_node_by_its_first_word(self):
+        viewer = self.clicked_viewer()
+        succeeded, _, _ = self.run_reporting(viewer, ["large"])
+        self.assertNotIn("description", succeeded.call_args.args[1])
+
+    def test_a_selection_wins_over_the_clicked_node_and_needs_no_note(self):
+        viewer = self.make_viewer(2)
+        viewer.selected_indices = [0]
+        viewer.selected_node_idx = 1
+        output = io.StringIO()
+        succeeded, _, _ = self.run_reporting(viewer, ["large"], output=output)
+
+        self.assertNotIn("Nothing is selected", output.getvalue())
+        self.assertNotIn("Nothing is selected", succeeded.call_args.args[1])
+        self.assertNotIn("Nothing is selected", viewer.console_text.text)
+
+    def test_nothing_selected_and_nothing_clicked_still_fails_as_before(self):
+        viewer = self.make_viewer(2)
+        viewer.selected_indices = []
+        succeeded, failed, launch = self.run_reporting(viewer, ["large"])
+        launch.assert_not_called()
+        succeeded.assert_not_called()
+        self.assertIn("No nodes selected", failed.call_args.args[1])
+
+    def test_the_note_is_not_printed_for_a_run_that_is_refused(self):
+        viewer = self.clicked_viewer()
+        viewer.esmfold_worker = (self.running_process(), None)
+        output = io.StringIO()
+        self.run_reporting(viewer, ["large"], output=output)
+        self.assertNotIn("Nothing is selected", output.getvalue())
+
+    # --- One worker at a time ----------------------------------------------
+
+    REFUSED = (
+        "An esmfold worker is still running. Wait for it to finish, or close its "
+        "console window, before folding again."
+    )
+
+    def running_process(self, running=True):
+        process = mock.Mock()
+        process.poll.return_value = None if running else 0
+        return process
+
+    def test_a_second_run_is_refused_while_the_first_worker_runs(self):
+        viewer = self.make_viewer(1)
+        first, _, launch = self.run_reporting(viewer, ["large"], process=self.running_process())
+        launch.assert_called_once()
+        first.assert_called_once()
+
+        output = io.StringIO()
+        succeeded, failed, launch = self.run_reporting(viewer, ["large"], output=output)
+        launch.assert_not_called()
+        succeeded.assert_not_called()
+        failed.assert_called_once_with(viewer, f"Error: {self.REFUSED}")
+        self.assertIn(f"Error: {self.REFUSED}", output.getvalue())
+        self.assertEqual(viewer.console_text.text, f"Error: {self.REFUSED}")
+
+    def test_the_refusal_comes_before_any_hardware_or_sequence_work(self):
+        viewer = self.make_viewer(1)
+        viewer.esmfold_worker = (self.running_process(), None)
+        with mock.patch.object(Hardware_Utils, "get_optimal_device") as get_device:
+            _, failed, launch = self.run_reporting(viewer, [])
+        get_device.assert_not_called()
+        launch.assert_not_called()
+        failed.assert_called_once()
+
+    def test_a_finished_worker_no_longer_blocks_a_run(self):
+        viewer = self.make_viewer(1)
+        self.run_reporting(viewer, ["large"], process=self.running_process(running=False))
+
+        succeeded, failed, launch = self.run_reporting(viewer, ["large"], process=self.running_process())
+        launch.assert_called_once()
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+
+    def test_a_tracked_worker_blocks_a_run_until_its_tracker_stops(self):
+        # A terminal that hands its window to another process exits at once,
+        # so for a run the MCP or agent page started only the tracker knows.
+        viewer = self.make_viewer(1)
+        tracker = SimpleNamespace(timer=SimpleNamespace(isActive=mock.Mock(return_value=True)))
+        viewer.esmfold_worker = (self.running_process(running=False), tracker)
+
+        _, failed, launch = self.run_reporting(viewer, ["large"])
+        launch.assert_not_called()
+        failed.assert_called_once()
+
+        tracker.timer.isActive.return_value = False
+        succeeded, failed, launch = self.run_reporting(viewer, ["large"])
+        launch.assert_called_once()
+        failed.assert_not_called()
+
+    def test_a_tracked_worker_that_reported_its_result_is_done_though_its_terminal_stays_open(self):
+        # A failed worker waits for Enter in its terminal, which is not computation.
+        viewer = self.make_viewer(1)
+        tracker = SimpleNamespace(timer=SimpleNamespace(isActive=lambda: False))
+        viewer.esmfold_worker = (self.running_process(), tracker)
+        self.assertFalse(esmfold_command._worker_running(viewer))
+
+    def test_a_deleted_tracker_leaves_the_judgement_to_the_process(self):
+        def deleted():
+            raise RuntimeError("Internal C++ object already deleted.")
+
+        viewer = self.make_viewer(1)
+        tracker = SimpleNamespace(timer=SimpleNamespace(isActive=deleted))
+        viewer.esmfold_worker = (self.running_process(running=False), tracker)
+        self.assertFalse(esmfold_command._worker_running(viewer))
+        viewer.esmfold_worker = (self.running_process(), tracker)
+        self.assertTrue(esmfold_command._worker_running(viewer))
+
+    def test_opening_the_viewer_page_is_not_refused_while_a_worker_runs(self):
+        viewer = self.make_viewer()
+        viewer.esmfold_worker = (self.running_process(), None)
+        succeeded, failed, launch = self.run_reporting(viewer, [])
+        launch.assert_not_called()
+        failed.assert_not_called()
+        self.assertIn("Opened the structure viewer", succeeded.call_args.args[1])
+
+    def test_a_launch_that_failed_leaves_no_worker_to_wait_for(self):
+        def refused_launch(command, **options):
+            raise OSError("no terminal")
+
+        viewer = self.make_viewer(1)
+        self.run_reporting(viewer, ["large"], launch=refused_launch)
+        self.assertFalse(hasattr(viewer, "esmfold_worker"))
+        self.assertFalse(esmfold_command._worker_running(viewer))
+
+    def test_the_refusal_reaches_the_console_as_a_message(self):
+        viewer = self.make_viewer(1)
+        viewer.esmfold_worker = (self.running_process(), None)
+        shown = []
+        with (
+            mock.patch.object(esmfold_command.Command_Engine, "show_status", side_effect=lambda v, message: shown.append(message)),
+            mock.patch.object(esmfold_command.Command_Engine, "command_failed"),
+            redirect_stdout(io.StringIO()),
+        ):
+            esmfold_command.run(viewer, ["large"])
+        [message] = shown
+        self.assertEqual(str(message), f"Error: {self.REFUSED}")
+        self.assertIsInstance(message.values["error"], esmfold_command.Message)
 
     def test_the_worker_input_is_removed_when_no_worker_started(self):
         for label, failure in (("terminal unavailable", OSError("no terminal")), ("unexpected", RuntimeError("boom"))):

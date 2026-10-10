@@ -69,6 +69,72 @@ class HideCommandTests(unittest.TestCase):
         viewer._save_state.assert_not_called()
         viewer.update_edges.assert_not_called()
 
+    def test_more_than_one_expression_word_is_refused_before_anything_changes(self):
+        # The console splits a line at spaces, so hide "node 1" arrives as '"node'
+        # and '1"'. hide used to join them into "node 1", which matches nothing,
+        # while select refuses the same input.
+        message = "Error: Hide accepts exactly one whitespace-free Boolean expression."
+        for args in (['"node', '1"'], ['"node0"', '"node1"'], ['#noise#', 'extra'], ['"node0"', 'single']):
+            with self.subTest(args=args):
+                viewer = graph_viewer([True, True], [], [], selected=[0])
+                succeeded, failed = run_hide(viewer, args)
+
+                failed.assert_called_once_with(viewer, message)
+                succeeded.assert_not_called()
+                self.assertEqual(viewer.console_text.text, message)
+                np.testing.assert_array_equal(viewer.visible_mask, [True, True])
+                self.assertEqual(viewer.selected_indices, [0])
+                viewer._save_state.assert_not_called()
+                viewer.update_selection_visual.assert_not_called()
+                viewer.update_edges.assert_not_called()
+
+    def test_a_word_after_single_free_or_reset_is_refused_before_anything_changes(self):
+        # The extra word used to be ignored: "hide reset oops" unhid every node.
+        for args, argument, keyword in (
+            (['reset', 'oops'], 'oops', 'reset'),
+            (['RESET', '"node0"', 'more'], '"node0"', 'RESET'),
+            (['single', 'extra'], 'extra', 'single'),
+            (['free', '#noise#'], '#noise#', 'free'),
+            (['Single', 'free'], 'free', 'Single'),
+        ):
+            with self.subTest(args=args):
+                viewer = graph_viewer([False, True, True], [(1, 2)], [0.9], selected=[1])
+                succeeded, failed = run_hide(viewer, args)
+
+                message = (
+                    f"Error: Unrecognized hide argument '{argument}'. "
+                    f"'{keyword}' takes no other arguments."
+                )
+                failed.assert_called_once_with(viewer, message)
+                succeeded.assert_not_called()
+                self.assertEqual(viewer.console_text.text, message)
+                np.testing.assert_array_equal(viewer.visible_mask, [False, True, True])
+                self.assertEqual(viewer.selected_indices, [1])
+                viewer._save_state.assert_not_called()
+                viewer.update_nodes.assert_not_called()
+                viewer.update_edges.assert_not_called()
+
+    def test_single_free_and_reset_alone_still_work(self):
+        for word in ("single", "free", "reset", "RESET"):
+            with self.subTest(word=word):
+                viewer = graph_viewer([False, True, True], [], [])
+                succeeded, failed = run_hide(viewer, [word])
+                failed.assert_not_called()
+                succeeded.assert_called_once()
+
+    def test_one_expression_word_is_still_accepted(self):
+        for expression in ('"node0"', '"node 0"'):
+            with self.subTest(expression=expression):
+                viewer = graph_viewer([True, True], [], [])
+                succeeded, failed = run_hide(viewer, [expression])
+                failed.assert_not_called()
+                succeeded.assert_called_once()
+
+    def test_hide_help_says_the_expression_is_one_word(self):
+        with mock.patch.object(hide_command.Command_Engine, "print_help") as shown:
+            run_hide(graph_viewer([True], [], []), ["help"])
+        self.assertIn("The expression is one word: do not use spaces inside it.", str(shown.call_args.args[1]))
+
     def test_expression_with_no_visible_match_succeeds_without_an_undo_step(self):
         # '"node"' matches the only node, which is already hidden; '"absent"'
         # matches nothing. A valid expression may match zero nodes, so this

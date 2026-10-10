@@ -161,6 +161,14 @@ def parameter_error(mode, param1, min_size):
     return leiden_resolution_error(param1)
 
 
+def extra_argument_error(argument, syntax):
+    """Return the error Message for an argument the command does not take, with its usage."""
+    return JoinedMessage([
+        Message("Error: Unrecognized cluster argument '{argument}'.", argument=argument),
+        Message("Usage: {syntax}", syntax=syntax),
+    ], separator="\n")
+
+
 def mcl_edge_score_error(scores):
     """Return the error Message for edge scores MCL cannot use, or None.
 
@@ -241,6 +249,9 @@ def print_help():
                     - Groups smaller than this are designated as 'Noise' (Cluster -1).
                     - Default: 10
 
+      Anything after the arguments above (or after list) is refused with an
+      error that names the first extra argument, and nothing changes.
+
     What is clustered:
       - Clustering uses every loaded edge and node, regardless of the similarity
         slider and hidden nodes.
@@ -249,8 +260,8 @@ def print_help():
         shared, scores (c + 2) / (a + b - c), so an edge outside every triangle
         still scores above 0, while an isolated pair and every edge of a clique
         score 1.
-      - Isolated nodes are always Noise in Leiden, but can be singleton clusters
-        in MCL and Jaccard when MIN_SIZE is 1.
+      - Isolated nodes (no edge) are alike in all three modes: singleton
+        clusters when MIN_SIZE is 1, Noise when it is larger.
       - MCL gives every node a self-loop as heavy as its strongest edge (1 for a
         node with no edge), so multiplying every score by a constant does not
         change the clusters.
@@ -278,6 +289,11 @@ def run(viewer, args):
 
     # --- LIST COMMAND ---
     if args and args[0].lower() == 'list':
+        if len(args) > 1:
+            refusal = extra_argument_error(args[1], "cluster list")
+            Command_Engine.print_help(viewer, refusal, report_message=False)
+            Command_Engine.command_failed(viewer, refusal)
+            return
         if getattr(viewer, 'cluster_labels', None) is None:
             msg = Message("No clusters are currently defined.")
             Command_Engine.print_help(viewer, msg)
@@ -319,6 +335,8 @@ def run(viewer, args):
     mode = "leiden"
     param1 = None
     min_sz = 10
+    # [MODE] PARAM_1 MIN_SIZE take three arguments; a bare PARAM_1 MIN_SIZE two.
+    taken = 3
     
     if len(args) >= 1:
         first_arg = args[0].lower()
@@ -337,6 +355,7 @@ def run(viewer, args):
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
                     return
         else:
+            taken = 2
             # A bare number is the resolution of the default mode, Leiden.
             try: param1 = float(args[0])
             except ValueError:
@@ -349,6 +368,13 @@ def run(viewer, args):
                     print("Error: Min Size must be an integer.")
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
                     return
+
+    # Nothing may follow the arguments the form takes.
+    if len(args) > taken:
+        refusal = extra_argument_error(args[taken], "cluster [MODE] [PARAM_1] [MIN_SIZE]")
+        Command_Engine.print_help(viewer, refusal, report_message=False)
+        Command_Engine.command_failed(viewer, refusal)
+        return
 
     # Apply defaults if param1 wasn't provided
     if param1 is None:
@@ -451,8 +477,8 @@ def run(viewer, args):
             weights = None
             print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
 
-        # Nodes with no edges are always returned as Noise (-1), even if
-        # Isolated nodes remain Noise even when min_sz is 1.
+        # A node with no edge is a singleton cluster when min_sz is 1, as in
+        # MCL and Jaccard, and Noise (-1) otherwise.
         labels = network_clustering.leiden_partition(
             n_nodes, edges, weights, resolution, min_sz, seed=42
         )

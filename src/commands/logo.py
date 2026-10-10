@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import os
 import re
 import tempfile
@@ -51,6 +52,23 @@ _POSITION_RANGE_RE = re.compile(
 # Ranges expand to one entry per position before the alignment is consulted,
 # so a range, and the whole list, is capped far above any alignment's length.
 _MAX_LOGO_RANGE_POSITIONS = 1_000_000
+
+# The logo figure: it is wide enough for every position (never narrower than
+# the minimum), and is saved at one dpi. The renderer and the PNG size check
+# both read these, so the check measures what the renderer draws.
+_LOGO_FIGURE_HEIGHT_INCHES = 4
+_LOGO_MIN_FIGURE_WIDTH_INCHES = 6
+_LOGO_WIDTH_PER_POSITION_INCHES = 0.5
+_LOGO_FIGURE_PADDING_INCHES = 1
+_LOGO_DPI = 600
+
+# A PNG logo is drawn as one raster of 4 bytes (RGBA) per pixel. Agg, the
+# renderer, refuses a side of 2^23 pixels or more (matplotlib 3.11, the pinned
+# version; older versions stopped at 2^16), and the raster of a logo of a few
+# hundred positions already takes about a gigabyte, with about as much again
+# while it is saved. A test reads the Agg limit from matplotlib itself.
+_AGG_MAX_SIDE_PIXELS = 2 ** 23
+_MAX_PNG_RASTER_BYTES = 1 << 30
 
 
 def choose_balanced_thread_count(configured_threads, logical_cpus=None):
@@ -585,6 +603,46 @@ def _configure_logo_y_axis(ax, mode, gap_mode):
     ax.set_ylabel(ylabel)
 
 
+def _logo_figure_width(position_count):
+    """The logo figure's width in inches for that many plotted positions."""
+    return max(
+        _LOGO_MIN_FIGURE_WIDTH_INCHES,
+        position_count * _LOGO_WIDTH_PER_POSITION_INCHES + _LOGO_FIGURE_PADDING_INCHES,
+    )
+
+
+def _png_logo_raster(position_count):
+    """The (width, height, RGBA bytes) of the raster a PNG logo of that many positions is drawn on.
+
+    Agg draws the whole figure at the save dpi before bbox_inches='tight' crops
+    it by about 0.1 inch on a side, so the full figure is the size that counts.
+    """
+    width = math.ceil(_logo_figure_width(position_count) * _LOGO_DPI)
+    height = math.ceil(_LOGO_FIGURE_HEIGHT_INCHES * _LOGO_DPI)
+    return width, height, width * height * 4
+
+
+def _png_logo_fits(position_count):
+    """Whether a PNG logo of that many positions is within Agg's size limit and the memory budget."""
+    width, height, raster_bytes = _png_logo_raster(position_count)
+    return (
+        max(width, height) < _AGG_MAX_SIDE_PIXELS
+        and raster_bytes <= _MAX_PNG_RASTER_BYTES
+    )
+
+
+def _max_png_logo_positions():
+    """The most positions a PNG logo can have and still fit, or 0 if none can."""
+    fitting, too_many = 0, _MAX_LOGO_RANGE_POSITIONS + 1
+    while too_many - fitting > 1:
+        middle = (fitting + too_many) // 2
+        if _png_logo_fits(middle):
+            fitting = middle
+        else:
+            too_many = middle
+    return fitting
+
+
 def _generate_logo_artifact(payload):
     """Calculate and render one logo without accessing live viewer state."""
     import logomaker
@@ -632,8 +690,8 @@ def _generate_logo_artifact(payload):
     if not allow_overwrite and os.path.exists(save_path):
         raise FileExistsError(Message("Output file already exists: {path}", path=save_path))
 
-    fig_width = max(6, len(plot_positions) * 0.5 + 1)
-    fig = Figure(figsize=(fig_width, 4))
+    fig_width = _logo_figure_width(len(plot_positions))
+    fig = Figure(figsize=(fig_width, _LOGO_FIGURE_HEIGHT_INCHES))
     FigureCanvasAgg(fig)
     ax = fig.subplots()
 
@@ -666,10 +724,13 @@ def _generate_logo_artifact(payload):
         ax.set_xticks(plot_coordinates)
         ax.set_xticklabels(plot_positions)
         ax.set_xlim(-0.5, len(plot_coordinates) - 0.5)
-        ax.set_xlabel(_position_axis_label(payload))
 
         _configure_logo_y_axis(ax, mode, gap_mode)
 
+        # The x label is fitted to the axes, whose width the layout settles
+        # first (the label sits below them and does not narrow them).
+        fig.tight_layout()
+        _fit_position_axis_label(ax, payload)
         fig.tight_layout()
         suffix = os.path.splitext(filename)[1].lower()
         file_descriptor, partial_path = tempfile.mkstemp(
@@ -682,7 +743,7 @@ def _generate_logo_artifact(payload):
             partial_path,
             format=suffix.lstrip("."),
             transparent=filename.lower().endswith('.png'),
-            dpi=600,
+            dpi=_LOGO_DPI,
             bbox_inches='tight',
         )
         if not allow_overwrite and os.path.exists(save_path):
@@ -789,11 +850,56 @@ def _available_automatic_filename(scheduler, directory, filename):
         index += 1
 
 
-def _position_axis_label(payload):
-    """Describe the numbering the plotted position labels actually use."""
+def _position_axis_label(payload, header=None):
+    """Describe the numbering the plotted position labels actually use.
+
+    HEADER is the reference header the label names, in place of the payload's.
+    """
     if payload.get("numbering") == "occupancy":
         return "Position (occupancy numbering)"
-    return f"Position (relative to {payload['ref_id']})"
+    if header is None:
+        header = payload["ref_id"]
+    return f"Position (relative to {header})"
+
+
+# The label is fitted a little narrower than the axes: its width is measured at
+# the figure's dpi and drawn at the save dpi, where the glyph widths differ a little.
+_AXIS_LABEL_FIT = 0.97
+
+
+def _fit_position_axis_label(ax, payload):
+    """Label the x axis, shortening a long reference header so the label is no wider than the axes.
+
+    The label is centered under the axes, so a wider one would make the saved
+    image wider than the logo. The header is cut at the longest length that
+    fits and ends in an ellipsis; a label that fits is left as it is.
+    """
+    label = ax.set_xlabel(_position_axis_label(payload))
+    if payload.get("numbering") == "occupancy":
+        return
+    renderer = ax.figure.canvas.get_renderer()
+    available = ax.get_window_extent(renderer).width * _AXIS_LABEL_FIT
+    header = str(payload["ref_id"])
+
+    def fits(header_text):
+        label.set_text(_position_axis_label(payload, header_text))
+        return label.get_window_extent(renderer).width <= available
+
+    def shortened(kept):
+        return header[:kept].rstrip() + "\u2026"
+
+    if fits(header):
+        return
+    # Binary search for the longest cut that fits; the whole header does not,
+    # and a cut of nothing but the ellipsis is the least the label can say.
+    longest, too_long = 0, len(header)
+    while too_long - longest > 1:
+        middle = (longest + too_long) // 2
+        if fits(shortened(middle)):
+            longest = middle
+        else:
+            too_long = middle
+    label.set_text(_position_axis_label(payload, shortened(longest)))
 
 
 def resolve_reference_columns(alignment, requested_positions):
@@ -902,7 +1008,7 @@ def parse_logo_positions(position_spec):
 
 
 def print_help():
-    print("""
+    print(f"""
     Sequence Logo Generator
     =======================
     Usage: logo [EXPRESSION] [POSITIONS] [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]
@@ -922,6 +1028,10 @@ def print_help():
 
       * Hidden nodes are included: they are used whenever the selection or
         expression covers them.
+
+      * The x axis names the reference header the positions are numbered
+        against. A header too long for the axis is cut short with an ellipsis,
+        so it never widens the image.
 
     Arguments (Can be provided in almost any order):
       1. [POSITIONS] : (Required) Comma-separated displayed positions or integer
@@ -944,6 +1054,9 @@ def print_help():
                        expression, so a mistyped keyword such as 'nogap' is an error
                        and is never used as a filename. Strings of an expression are
                        joined with spaces, as in '#c1# & #c2#'.)
+                       A PNG is drawn as one 600 dpi image, so a PNG logo may have at
+                       most {_max_png_logo_positions()} positions (about 1 GB of image) and is refused
+                       beyond that, before any job is queued. An SVG has no such limit.
       4. MODE        : 'bits' (Default, Information Content) or 'pcts' (Percentages).
                        Bits mode subtracts a small-sample correction computed from the
                        number of sequences with a residue at the position (gaps are
@@ -967,7 +1080,9 @@ def print_help():
     Selection Validation:
       Referenced clusters, groups, alignment positions, metadata properties, and
       files must exist. Invalid references abort before a logo job is submitted.
-      A valid expression may match zero nodes.
+      A valid expression may match zero nodes: the command reports that none
+      matched and queues no job. Nodes that match but are not in the alignment
+      leave nothing to analyse, and the command fails.
 
     Examples:
       logo [10-20]                        (Logos pos 10-20 for selected or all nodes)
@@ -1268,6 +1383,18 @@ def run(viewer, args):
         msg = Message("Error: Requested positions are outside the sequence bounds.")
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.show_status(viewer, msg)
+        return
+
+    # A PNG is one raster at 600 dpi, so a logo of enough positions cannot be
+    # drawn; SVG has no such limit. Refuse it here, not in the background job.
+    if os.path.splitext(filename)[1].lower() == ".png" and not _png_logo_fits(len(plot_positions)):
+        msg = Message(
+            "Error: A PNG logo of %n position(s) is too large to draw; at most {limit} "
+            "positions fit. Use an .svg filename, which has no such limit, or fewer positions.",
+            n=len(plot_positions), limit=_max_png_logo_positions(),
+        )
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg)
         return
 
     # 8. Extract Sequences for Selected Nodes

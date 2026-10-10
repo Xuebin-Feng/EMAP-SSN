@@ -26,7 +26,9 @@ def run(viewer, args):
             "Description:\n"
             "  Without arguments: Immediately hides all currently selected nodes and their connected edges.\n"
             "  With 'single' or 'free': Hides all visible nodes that have no active edges at the current similarity threshold.\n"
-            "  With EXPRESSION: Hides all visible nodes matching the logical expression.\n\n"
+            "  With EXPRESSION: Hides all visible nodes matching the logical expression.\n"
+            "  The expression is one word: do not use spaces inside it.\n"
+            "  'single', 'free' and 'reset' take no other arguments.\n\n"
             "Validation:\n"
             "  Referenced clusters, groups, alignment positions, metadata properties, and files must exist.\n"
             "  An invalid reference aborts without hiding nodes; a valid expression may match zero nodes.\n\n"
@@ -34,6 +36,17 @@ def run(viewer, args):
         ], separator="\n\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        return
+
+    # reset, single and free are whole commands: a word after one would be
+    # ignored, so it is refused before anything changes.
+    if len(args) > 1 and args[0].lower() in ['reset', 'single', 'free']:
+        msg = Message(
+            "Error: Unrecognized hide argument '{argument}'. '{keyword}' takes no other arguments.",
+            argument=args[1], keyword=args[0],
+        )
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg)
         return
 
     if args and args[0].lower() == 'reset':
@@ -92,8 +105,16 @@ def run(viewer, args):
     # If logic argument is given, parse it to find nodes to hide.
     # If not, default to currently selected nodes.
     if args:
-        expr = " ".join(args)
-        
+        # The console splits a line at spaces, so a quoted name with a space,
+        # "node 1", arrives as two words and would match no header. select
+        # refuses such input; so does hide, before anything changes.
+        if len(args) > 1:
+            msg = Message("Error: Hide accepts exactly one whitespace-free Boolean expression.")
+            Command_Engine.command_failed(viewer, msg)
+            Command_Engine.print_help(viewer, msg)
+            return
+        expr = args[0]
+
         viewer_to_aln, valid_indices = Command_Engine.get_alignment_mapping(viewer)
         
         try:

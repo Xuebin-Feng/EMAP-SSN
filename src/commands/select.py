@@ -20,6 +20,11 @@ import Command_Engine
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 
+# `select save` writes sequences under these endings, in any case (the same
+# that an @file@ selection reads as FASTA); any other name is a header list,
+# and gets .txt unless it ends in it.
+FASTA_EXTENSIONS = Command_Engine.FASTA_EXTENSIONS
+
 
 def _nodes(count):
     """'1 node' or '2 nodes', for a message that holds more than one count."""
@@ -49,12 +54,15 @@ def print_help():
       subtract / minus / remove   : Removes matches from the current selection.
       filter / keep / intersect   : Keeps ONLY currently selected nodes that match the expression.
       invert                      : Inverts current selection (takes no expression).
+      A command takes one mode; two modes that differ are refused.
 
     Saving:
       select save <FILENAME>      : Saves the current selection to the header list
                                     directory (Input_Files/Header_Lists/ by default).
-                                    FILENAME is a plain file name, not a path.
-                                    Use .txt for headers or .fasta for sequences.
+                                    FILENAME is a plain file name of one word,
+                                    not a path. Use .txt for headers, or .fasta
+                                    (also .fa, .faa, .fas) for sequences; any
+                                    other name gets .txt added.
                                     'save' must come first; to save new matches,
                                     select them before saving.
 
@@ -107,7 +115,17 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
-            
+
+        # The name is one word: "save my list.txt" would otherwise write my.txt.
+        if len(args) > 2:
+            msg = Message(
+                "Error: Unrecognized select save argument '{argument}'. A file name is one word.",
+                argument=args[2],
+            )
+            Command_Engine.command_failed(viewer, msg)
+            Command_Engine.print_help(viewer, msg)
+            return
+
         # A plain name keeps the file in the header list directory; the web
         # agent and MCP clients name files too, not only the console.
         try:
@@ -118,8 +136,8 @@ def run(viewer, args):
             Command_Engine.print_help(viewer, msg)
             return
         is_fasta = False
-        
-        if filename.lower().endswith('.fasta'):
+
+        if filename.lower().endswith(FASTA_EXTENSIONS):
             is_fasta = True
         elif not filename.lower().endswith('.txt'):
             filename += ".txt"
@@ -217,10 +235,24 @@ def run(viewer, args):
         "invert": "invert"
     }
 
+    mode_keyword = None
     for arg in args:
         clean_arg = arg.lower()
         if clean_arg in mode_map:
+            # Two modes that differ cannot both apply, and the last one winning
+            # silently would turn "add subtract" into a subtraction. The same
+            # mode twice, or two words for it (add plus), say one thing.
+            if mode_keyword is not None and mode_map[clean_arg] != mode:
+                msg = Message(
+                    "Error: Select modes '{first}' and '{second}' conflict. Use one mode.",
+                    first=mode_keyword, second=arg,
+                )
+                Command_Engine.command_failed(viewer, msg)
+                Command_Engine.print_help(viewer, msg)
+                return
             mode = mode_map[clean_arg]
+            if mode_keyword is None:
+                mode_keyword = arg
         else:
             expr_args.append(arg)
 

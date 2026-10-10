@@ -37,6 +37,8 @@ from Viewer_Visual_State import edge_stages
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
 # The words print reads as modifiers rather than as part of the file name.
 PRINT_MODIFIERS = ("transparent", "full", "svg", "zoom")
+# The modifiers as an error lists them: zoom is written with its N.
+PRINT_MODIFIER_SYNTAX = "transparent, full, svg, zoom N"
 # A full PNG drawn at a `zoom N` scale whose longest side is shorter than this
 # is still saved, with a warning that a smaller N gives a larger image.
 ZOOMED_IMAGE_MIN_SIDE_PX = 1000
@@ -62,7 +64,13 @@ def print_help():
       Exports a high-resolution snapshot of the current viewer state.
       Images are saved beneath the configured Analysis Results directory
       (default: 'Analysis_Results/Saved_Images/'). FILENAME is a plain file
-      name, not a path; .png (or .svg) is added when it is missing.
+      name of one word, not a path; .png (or .svg) is added when it is
+      missing. A name ending in .svg saves an SVG, as the svg modifier does,
+      and cannot be combined with transparent or full; a name ending in .png
+      cannot be combined with svg; .png or .svg alone is not a name. A file
+      of the same name is replaced, and the report says so; a name left out
+      is made from the time and never replaces a file. Modifiers may stand
+      anywhere among the words.
       PNG exports automatically trim empty margins while retaining a 20-pixel
       border around all rendered content. SVG view-box padding is unchanged.
 
@@ -96,6 +104,7 @@ def print_help():
       print my_network transparent        (Saves as a transparent PNG)
       print my_network full transparent   (Stitches a massive transparent PNG)
       print my_network svg                (Saves view as a vector SVG file)
+      print my_network.svg                (The same: a .svg name selects SVG)
       print my_network full zoom 500      (Whole network, 500 units per view width)
       print my_network svg zoom 500       (SVG sized as on a view 500 units wide)
     """)
@@ -645,8 +654,8 @@ def run(viewer, args):
     is_full = False
     is_svg = False
     zoom_text = None
-    final_args = []
-    
+    name = None
+
     words = iter(args)
     for a in words:
         if a.lower() == "transparent":
@@ -680,9 +689,39 @@ def run(viewer, args):
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
             return
+        elif name is not None:
+            # The file name is one word, so a second one is a mistyped modifier
+            # (print fig1 ful) rather than the rest of the name.
+            _refuse(viewer, Message(
+                "Error: Unrecognized print argument '{argument}'. A file name is one word; "
+                "the modifiers are {modifiers}.",
+                argument=a, modifiers=PRINT_MODIFIER_SYNTAX,
+            ))
+            return
         else:
-            final_args.append(a)
-            
+            name = a
+
+    # A name ending in .svg selects SVG as the svg modifier does; one ending
+    # in .png cannot be an SVG's name; one that is only .png or .svg is no name.
+    if name is not None:
+        stem, extension = name.strip()[:-4], name.strip()[-4:]
+        if not stem and extension.lower() in (".png", ".svg"):
+            # A name that is only an extension, as logo refuses one too.
+            _refuse(viewer, Message(
+                "Error: {error}",
+                error=Message("Filename '{file}' needs a name before its extension.", file=name.strip()),
+            ))
+            return
+        if extension.lower() == ".svg":
+            is_svg = True
+        elif is_svg and extension.lower() == ".png":
+            _refuse(viewer, Message(
+                "Error: '{file}' ends in {extension}, but {modifier} saves an SVG file. "
+                "Use '{suggestion}' or leave the extension off.",
+                file=name, extension=extension, modifier="svg", suggestion=stem + ".svg",
+            ))
+            return
+
     # zoom N sets the scale of the whole network, which a capture of the
     # view on screen does not draw.
     if zoom_text is not None and not (is_full or is_svg):
@@ -700,14 +739,6 @@ def run(viewer, args):
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
             return
-            
-        # zoom N is not counted: the name and svg are.
-        if len(args) - (0 if zoom_text is None else 2) > 2:
-            msg = Message("Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg').")
-            Command_Engine.command_failed(viewer, msg)
-            print(f"\n{msg}")
-            Command_Engine.show_status(viewer, msg)
-            return
 
     # N is checked as `zoom N` checks it, against the current canvas and view.
     zoom_width = None
@@ -718,16 +749,14 @@ def run(viewer, args):
             _refuse(viewer, error.args[0])
             return
 
-    args = final_args
-        
     # 3. Determine filename
     ext = ".svg" if is_svg else ".png"
     image_format = ext[1:].upper()
 
-    automatic_filename = len(args) == 0
+    automatic_filename = name is None
     if not automatic_filename:
         try:
-            filename = validate_output_basename("_".join(args))
+            filename = validate_output_basename(name)
         except ValueError as error:
             msg = Message("Error: {error}", error=error)
             Command_Engine.command_failed(viewer, msg)
@@ -744,7 +773,10 @@ def run(viewer, args):
         filename = _available_automatic_filename(save_dir, filename)
         
     filepath = os.path.join(save_dir, filename)
-    
+    # A name the user typed is written over a file that has it, and the report
+    # says so. Asked here, before anything is written.
+    replaced_existing = not automatic_filename and os.path.exists(filepath)
+
     # 4. A capture leaves the live view alone: each render hides the HUD and
     # moves the camera only between reading and restoring the live state,
     # with no event processed in between (see _render_capture). A PNG also
@@ -927,11 +959,17 @@ def run(viewer, args):
         Command_Engine.command_artifact(viewer, filepath)
         print(f"\n{saved}")
         status = Message("Saved {format}: {file}", format=image_format, file=filename)
+        notes = []
+        if replaced_existing:
+            notes.append(Message("It replaced an existing file of that name."))
         if size_warning is not None:
-            print(size_warning)
-            saved = JoinedMessage([saved, size_warning])
-            status = JoinedMessage([status, size_warning])
-        
+            notes.append(size_warning)
+        for note in notes:
+            print(note)
+        if notes:
+            saved = JoinedMessage([saved, *notes])
+            status = JoinedMessage([status, *notes])
+
         Command_Engine.show_status(viewer, status)
         
         # Open the save folder in the system file explorer

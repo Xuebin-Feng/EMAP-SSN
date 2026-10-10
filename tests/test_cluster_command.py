@@ -401,13 +401,176 @@ class ParameterValidationTests(unittest.TestCase):
                 with self.subTest(args=args):
                     self.assert_refused(args, message)
 
-    def test_trailing_tokens_are_left_alone(self):
+
+class ExtraArgumentTests(unittest.TestCase):
+    """An argument after those the command takes is refused, naming the first
+    one, before any change; the arguments it does take are read as before."""
+
+    USAGE = "Usage: cluster [MODE] [PARAM_1] [MIN_SIZE]"
+
+    def assert_refused(self, args, argument, usage=USAGE):
+        viewer = network_viewer(7, BARBELL_EDGES)
+        with mock.patch.object(
+            cluster.network_clustering, "leiden_partition"
+        ) as leiden, mock.patch.object(
+            cluster.network_clustering, "jaccard_partition"
+        ) as jaccard, mock.patch.object(
+            cluster.network_clustering, "markov_clusters"
+        ) as mcl:
+            succeeded, failed, output = run_command(cluster, viewer, args)
+        first_line = f"Error: Unrecognized cluster argument '{argument}'."
+        failed.assert_called_once_with(viewer, f"{first_line}\n{usage}")
+        succeeded.assert_not_called()
+        # The console line shows the first line; the terminal all of it.
+        self.assertEqual(viewer.console_text.text, first_line)
+        self.assertEqual(output.count(first_line), 1)
+        self.assertIn(usage, output)
+        for kernel in (leiden, jaccard, mcl):
+            kernel.assert_not_called()
+        self.assertFalse(hasattr(viewer, "cluster_labels"))
+        viewer._save_state.assert_not_called()
+        viewer.update_nodes.assert_not_called()
+
+    def test_extra_tokens_after_each_form_are_refused_naming_the_first(self):
+        cases = [
+            (["leiden", "1.0", "10", "foo"], "foo"),
+            (["leiden", "1.0", "10", "foo", "bar"], "foo"),
+            (["Leiden", "1.0", "10", "Foo"], "Foo"),
+            (["mcl", "2", "3", "x"], "x"),
+            (["MCL", "2", "3", "x", "y", "z"], "x"),
+            (["jaccard", "0.5", "3", "extra", "tokens"], "extra"),
+            (["jaccard", "0.5", "3", "4"], "4"),
+            # MODE omitted: PARAM_1 and MIN_SIZE take two arguments.
+            (["1.0", "10", "foo"], "foo"),
+            (["1.0", "10", "foo", "bar"], "foo"),
+            (["1.5", "3", "leiden"], "leiden"),
+        ]
+        for args, argument in cases:
+            with self.subTest(args=args):
+                self.assert_refused(args, argument)
+
+    def test_extra_tokens_after_list_are_refused(self):
+        for args, argument in ((["list", "foo"], "foo"), (["LIST", "1", "2"], "1")):
+            with self.subTest(args=args):
+                self.assert_refused(args, argument, "Usage: cluster list")
+
+    def test_a_parameter_error_before_the_extra_token_is_reported_first(self):
         viewer = network_viewer(7, BARBELL_EDGES)
         succeeded, failed, _output = run_command(
-            cluster, viewer, ["jaccard", "0.5", "3", "extra", "tokens"]
+            cluster, viewer, ["jaccard", "many", "3", "extra"]
         )
+        failed.assert_called_once_with(viewer, "Error: Parameter must be a number.")
+        succeeded.assert_not_called()
+
+    def test_every_form_without_extras_is_read_as_before(self):
+        cases = [
+            ([], 1.0, 10),
+            (["leiden"], 1.0, 10),
+            (["leiden", "1.5"], 1.5, 10),
+            (["leiden", "1.5", "4"], 1.5, 4),
+            (["1.5"], 1.5, 10),
+            (["1.5", "4"], 1.5, 4),
+            (["LEIDEN", "0.5", "1"], 0.5, 1),
+        ]
+        for args, resolution, min_size in cases:
+            with self.subTest(args=args):
+                viewer = network_viewer(7, BARBELL_EDGES)
+                with mock.patch.dict(
+                    sys.modules, {"graspologic_native": SimpleNamespace()}
+                ), mock.patch.object(
+                    cluster.network_clustering,
+                    "leiden_partition",
+                    return_value=np.array([1, 1, 1, 2, 2, 2, -1]),
+                ) as partition:
+                    _succeeded, failed, _output = run_command(cluster, viewer, args)
+                failed.assert_not_called()
+                partition.assert_called_once()
+                self.assertEqual(partition.call_args.args[3:5], (resolution, min_size))
+        for args, params in (
+            (["jaccard"], ("JACCARD_0.2", 10)),
+            (["jaccard", "0.5"], ("JACCARD_0.5", 10)),
+            (["jaccard", "0.5", "3"], ("JACCARD_0.5", 3)),
+            (["mcl"], ("MCL_2.0", 10)),
+            (["mcl", "3"], ("MCL_3.0", 10)),
+            (["mcl", "3", "3"], ("MCL_3.0", 3)),
+        ):
+            with self.subTest(args=args):
+                viewer = network_viewer(7, BARBELL_EDGES)
+                _succeeded, failed, _output = run_command(cluster, viewer, args)
+                failed.assert_not_called()
+                self.assertEqual(viewer.last_cluster_params, params)
+
+    def test_help_and_list_are_unchanged(self):
+        for args in (["help"], ["-h"], ["--help"], ["help", "leiden"]):
+            with self.subTest(args=args):
+                viewer = network_viewer(7, BARBELL_EDGES)
+                succeeded, failed, _output = run_command(cluster, viewer, args)
+                failed.assert_not_called()
+                succeeded.assert_called_once()
+                viewer._save_state.assert_not_called()
+        viewer = network_viewer(7, BARBELL_EDGES, cluster_labels=[1, 1, 1, 2, 2, 2, -1])
+        succeeded, failed, _output = run_command(cluster, viewer, ["list"])
         failed.assert_not_called()
-        np.testing.assert_array_equal(viewer.cluster_labels, [1, 1, 1, 2, 2, 2, -1])
+        succeeded.assert_called_once_with(viewer, "Listed 2 clusters in console.")
+
+
+class IsolatedNodeTests(unittest.TestCase):
+    """A node with no edge is a singleton cluster with a MIN_SIZE of 1 and Noise
+    above it, in Leiden as in MCL and Jaccard."""
+
+    def setUp(self):
+        try:
+            import graspologic_native  # noqa: F401
+        except ImportError:
+            self.skipTest("graspologic_native is not installed")
+
+    def cluster(self, args, n_nodes=7, edges=BARBELL_EDGES):
+        viewer = network_viewer(n_nodes, edges)
+        _succeeded, failed, _output = run_command(cluster, viewer, args)
+        failed.assert_not_called()
+        return viewer
+
+    def test_all_three_modes_treat_the_isolated_node_alike(self):
+        # Node 6 of the barbell network has no edge.
+        modes = (("leiden", "1.0"), ("mcl", "2.0"), ("jaccard", "0.5"))
+        for min_size, labels in (
+            ("1", [1, 1, 1, 2, 2, 2, 3]),
+            ("2", [1, 1, 1, 2, 2, 2, -1]),
+            ("3", [1, 1, 1, 2, 2, 2, -1]),
+        ):
+            for mode, param in modes:
+                with self.subTest(mode=mode, min_size=min_size):
+                    viewer = self.cluster([mode, param, min_size])
+                    np.testing.assert_array_equal(viewer.cluster_labels, labels)
+
+    def test_a_leiden_singleton_is_grey_only_when_it_is_noise(self):
+        kept = self.cluster(["leiden", "1.0", "1"])
+        self.assertEqual(kept.current_colors[6][3], 1.0)
+        self.assertFalse(np.array_equal(kept.current_colors[6], kept.current_colors[0]))
+        noise = self.cluster(["leiden", "1.0", "2"])
+        np.testing.assert_array_equal(noise.current_colors[6], (0.8, 0.8, 0.8, 0.4))
+
+    def test_singletons_are_numbered_last_by_size_then_lowest_node_index(self):
+        # Nodes 0 and 5 have no edge; 1-2 and 3-4 are pairs. The pairs are
+        # larger, so they come first; the singletons follow in node order.
+        for mode, param in (("leiden", "1.0"), ("mcl", "2.0")):
+            with self.subTest(mode=mode):
+                viewer = self.cluster([mode, param, "1"], 6, ((1, 2), (3, 4)))
+                np.testing.assert_array_equal(
+                    viewer.cluster_labels, [3, 1, 1, 2, 2, 4]
+                )
+
+    def test_a_network_of_isolated_nodes_in_leiden(self):
+        viewer = self.cluster(["leiden", "1.0", "1"], 3, ())
+        np.testing.assert_array_equal(viewer.cluster_labels, [1, 2, 3])
+        viewer = self.cluster(["leiden", "1.0", "2"], 3, ())
+        np.testing.assert_array_equal(viewer.cluster_labels, [-1, -1, -1])
+
+    def test_the_report_counts_the_singletons(self):
+        viewer = network_viewer(7, BARBELL_EDGES)
+        succeeded, _failed, output = run_command(cluster, viewer, ["leiden", "1.0", "1"])
+        succeeded.assert_called_once_with(viewer, "Done! Found 3 clusters via LEIDEN.")
+        self.assertIn("Cluster 3", output)
 
 
 class MCLEdgeScoreTests(unittest.TestCase):
@@ -548,8 +711,9 @@ class ClusterModuleTests(unittest.TestCase):
             "a node counts as its own neighbour",
             "an edge outside every triangle still scores above 0",
             "MCL gives every node a self-loop as heavy as its strongest edge",
-            "Isolated nodes are always Noise in Leiden",
-            "singleton clusters in MCL and Jaccard when MIN_SIZE is 1",
+            "Isolated nodes (no edge) are alike in all three modes",
+            "singleton clusters when MIN_SIZE is 1, Noise when it is larger",
+            "Anything after the arguments above (or after list) is refused",
         ):
             self.assertIn(line, text)
 
@@ -593,7 +757,7 @@ class NetworksWithoutEdgesTests(unittest.TestCase):
             for mode, param, labels in (
                 ("mcl", "2", [1, 2, 3]),
                 ("jaccard", "0.2", [1, 2, 3]),
-                ("leiden", "1.0", [-1, -1, -1]),
+                ("leiden", "1.0", [1, 2, 3]),
             ):
                 with self.subTest(mode=mode, edges=type(edges).__name__):
                     viewer = network_viewer(3, ())
@@ -606,6 +770,19 @@ class NetworksWithoutEdgesTests(unittest.TestCase):
                         )
                     failed.assert_not_called()
                     np.testing.assert_array_equal(viewer.cluster_labels, labels)
+
+    def test_without_edges_every_node_is_noise_above_a_min_size_of_one(self):
+        for mode, param in (("mcl", "2"), ("jaccard", "0.2"), ("leiden", "1.0")):
+            with self.subTest(mode=mode):
+                viewer = network_viewer(3, ())
+                with mock.patch.dict(
+                    sys.modules, {"graspologic_native": SimpleNamespace()}
+                ):
+                    _succeeded, failed, _output = run_command(
+                        cluster, viewer, [mode, param, "2"]
+                    )
+                failed.assert_not_called()
+                np.testing.assert_array_equal(viewer.cluster_labels, [-1, -1, -1])
 
     def test_an_empty_edge_list_with_scores_clusters_with_mcl(self):
         viewer = network_viewer(3, (), edge_scores=[])

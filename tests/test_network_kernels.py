@@ -321,12 +321,45 @@ class LeidenPartitionTests(unittest.TestCase):
                 )
                 native.leiden.assert_not_called()
 
-    def test_a_network_without_edges_returns_noise(self):
-        with mock.patch.dict(sys.modules, {"graspologic_native": fake_graspologic(mock.Mock())}):
-            labels = network_kernels.leiden_partition(
-                3, np.zeros((0, 2), dtype=np.int32), None, 1.0, 1
-            )
-        np.testing.assert_array_equal(labels, [-1, -1, -1])
+    def test_a_network_without_edges_has_singletons_for_a_min_size_of_one_else_noise(self):
+        native = fake_graspologic(mock.Mock())
+        for min_size, expected in ((1, [1, 2, 3]), (2, [-1, -1, -1]), (10, [-1, -1, -1])):
+            with self.subTest(min_size=min_size):
+                with mock.patch.dict(sys.modules, {"graspologic_native": native}):
+                    labels = network_kernels.leiden_partition(
+                        3, np.zeros((0, 2), dtype=np.int32), None, 1.0, min_size
+                    )
+                np.testing.assert_array_equal(labels, expected)
+        native.leiden.assert_not_called()
+
+    def test_isolated_nodes_are_singleton_clusters_only_when_min_size_is_one(self):
+        # Nodes 0 and 4 have no edge; nodes 1-3 form one community. The native
+        # library returns only the nodes that appear in an edge.
+        native = fake_graspologic(mock.Mock(return_value=(0.5, {"1": 0, "2": 0, "3": 0})))
+        edges = np.asarray([[1, 2], [2, 3]], dtype=np.int32)
+        for min_size, expected in (
+            # Singletons follow the clusters the library found, in node order.
+            (1, [2, 1, 1, 1, 3]),
+            (2, [-1, 1, 1, 1, -1]),
+            (3, [-1, 1, 1, 1, -1]),
+            # The community itself is below min_size too.
+            (4, [-1, -1, -1, -1, -1]),
+        ):
+            with self.subTest(min_size=min_size):
+                with mock.patch.dict(sys.modules, {"graspologic_native": native}):
+                    labels = network_kernels.leiden_partition(5, edges, None, 1.0, min_size)
+                np.testing.assert_array_equal(labels, expected)
+
+    def test_a_node_with_only_a_self_loop_is_not_isolated(self):
+        # The library gives it a community of its own, so min_size decides as
+        # for any community of one.
+        native = fake_graspologic(mock.Mock(return_value=(0.1, {"0": 0, "1": 0, "2": 1})))
+        edges = np.asarray([[0, 1], [2, 2]], dtype=np.int32)
+        for min_size, expected in ((1, [1, 1, 2, 3]), (2, [1, 1, -1, -1])):
+            with self.subTest(min_size=min_size):
+                with mock.patch.dict(sys.modules, {"graspologic_native": native}):
+                    labels = network_kernels.leiden_partition(4, edges, None, 1.0, min_size)
+                np.testing.assert_array_equal(labels, expected)
 
     def test_a_panic_becomes_a_runtime_error(self):
         native = fake_graspologic(mock.Mock(side_effect=PanicLikeError("boom")))
@@ -361,9 +394,11 @@ class LeidenPartitionTests(unittest.TestCase):
         except ImportError:
             self.skipTest("graspologic_native is not installed")
         cases = (
-            (None, 1.0, 1, [1, 1, 1, 2, 2, 2, -1]),
-            (np.arange(1.0, 8.0), 1.0, 1, [1, 1, 1, 2, 2, 2, -1]),
-            (np.arange(1.0, 8.0), 0.3, 1, [1, 1, 1, 1, 1, 1, -1]),
+            # Node 6 has no edge: a singleton with min_size 1, Noise above it.
+            (None, 1.0, 1, [1, 1, 1, 2, 2, 2, 3]),
+            (np.arange(1.0, 8.0), 1.0, 1, [1, 1, 1, 2, 2, 2, 3]),
+            (np.arange(1.0, 8.0), 0.3, 1, [1, 1, 1, 1, 1, 1, 2]),
+            (None, 1.0, 2, [1, 1, 1, 2, 2, 2, -1]),
             (None, 2.0, 3, [1, 1, 1, 2, 2, 2, -1]),
         )
         for weights, resolution, min_size, labels in cases:

@@ -59,7 +59,9 @@ def register(viewer):
 only connect backend capabilities; it must not open a browser, show a sidebar
 button, create output directories, start a model, or perform other activation
 work. `activate` retains command-driven UI behavior and may be called more than
-once, so the Viewer-side button identifier must remain stable.
+once, so the Viewer-side button identifier must remain stable. `add_sidebar_button`
+opens the sidebar only when it adds a new button; a call that finds the button
+already there leaves the sidebar open or closed as the user left it.
 
 ## Registration rules
 

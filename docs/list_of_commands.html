@@ -780,7 +780,7 @@
                     <div class="collapsible-content">
                         <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory. The name must be a plain file name in that directory: a name with a folder, <code>..</code>, a drive such as <code>C:</code> or a network share is refused, and the command changes nothing. The file must be UTF-8 text; entries that match no node are listed in the terminal.</p>
                         <ul>
-                            <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case; a FASTA file contributes its <code>&gt;</code> header lines. Each line is first cleaned up as headers were when the network was built (runs of spaces become one <code>_</code>, square brackets become parentheses), so a header copied from the original FASTA still matches. <code>.txt</code> is appended when the name ends in neither <code>.txt</code> nor <code>.fasta</code>.</li>
+                            <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case; a FASTA file contributes its <code>&gt;</code> header lines. Each line is first cleaned up as headers were when the network was built (runs of spaces become one <code>_</code>, square brackets become parentheses), so a header copied from the original FASTA still matches. <code>.txt</code> is appended when the name ends in none of <code>.txt</code>, <code>.fasta</code>, <code>.fa</code>, <code>.faa</code> and <code>.fas</code> (any case), so a file written by <code>select save hits.fa</code> is read back with <code>@hits.fa@</code>. A header list saved under an older version as <code>hits.fa.txt</code> is still read by <code>@hits.fa@</code> when no file named <code>hits.fa</code> exists (the same for <code>.faa</code> and <code>.fas</code>); the exact name wins when both exist.</li>
                             <li><strong>NCBI Extraction:</strong> <code>@[NCBI]my_targets.txt@</code> automatically scans the text file for standard NCBI accession codes (e.g., <code>WP_01234.1</code>) and matches the network headers containing those codes, ignoring surrounding text.</li>
                             <li><strong>PDB Extraction:</strong> <code>@[PDB]my_targets.txt@</code> performs the same extraction but for Protein Data Bank codes (e.g., <code>1XYZ</code>).</li>
                         </ul>
@@ -797,7 +797,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>6. Metadata Queries (<code>{KeyOpVal}</code>)</span></div>
                     <div class="collapsible-content">
-                        <p>Allows targeting based on node metadata: the FASTA-derived numeric columns <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> written when the layout cache is generated (caches from v0.2.0 and earlier lack them until regenerated), plus fields uploaded from Excel or CSV tables. Property names inside braces may contain only letters, digits, <code>_</code>, and <code>-</code>.</p>
+                        <p>Allows targeting based on node metadata: the FASTA-derived numeric columns <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> written when the layout cache is generated (caches from v0.2.0 and earlier lack them until regenerated), plus fields uploaded from Excel or CSV tables. Property names inside braces may contain only letters, digits, <code>_</code>, <code>-</code>, and <code>.</code>.</p>
                         <ul>
                             <li><strong>Numerical:</strong> <code>{Length>500}</code> targets nodes where sequence length is greater than 500. Numeric properties accept <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>=</code>, <code>==</code>, and <code>!=</code>, plus inclusive ranges with <code>=</code> such as <code>{Length=300-500}</code>. A negative range bound must be written in parentheses, as a negative alignment position is: <code>{GRAVY=(-1)-0}</code> or <code>{GRAVY=(-1.5)-(-0.5)}</code>. A single negative value needs none: <code>{GRAVY&gt;=-1}</code>. Every numeric comparison, <code>!=</code> included, skips nodes with no value; <code>!{Length=100}</code> selects every other node, those included.</li>
                             <li><strong>Text:</strong> <code>{Organism=coli}</code> targets nodes whose Organism value contains "coli", ignoring case, so <code>=</code> and <code>==</code> test containment rather than exact equality; <code>!=</code> selects the nodes that test rejects. With a <code>*</code> or <code>?</code> wildcard the pattern must match the whole value: <code>{Organism=*coli}</code> requires a value ending in "coli".</li>
@@ -916,8 +916,8 @@
                 <div class="subheading">Arguments &amp; Modes</div>
                 <ul>
                     <li><strong>Without arguments:</strong> Immediately hides all currently selected nodes and their connected edges.</li>
-                    <li><strong>With <code>single</code> or <code>free</code>:</strong> Hides all visible nodes that have no active edges at the current similarity threshold.</li>
-                    <li><strong>With <code>expression</code>:</strong> Hides all visible nodes matching the logical expression (e.g. <code>hide #noise#</code>).</li>
+                    <li><strong>With <code>single</code> or <code>free</code>:</strong> Hides all visible nodes that have no active edges at the current similarity threshold. These, like <code>reset</code>, take no other arguments: a word after one is refused.</li>
+                    <li><strong>With <code>expression</code>:</strong> Hides all visible nodes matching the logical expression (e.g. <code>hide #noise#</code>). The expression is exactly one word without spaces: more words are refused, so a quoted header with a space (<code>"node 1"</code>) is refused rather than matching nothing.</li>
                 </ul>
                 <div class="callout">
                     <div class="callout-title">💡 Unhiding Nodes</div>
@@ -941,14 +941,17 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">undo   |   redo</div>
+                    <div class="syntax-content">undo [N]   |   redo [N]</div>
                     <button class="copy-btn" onclick="copyText('undo', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> <code>undo</code> restores the preceding saved visual/spatial state; <code>redo</code> reapplies a state that was undone. Commands that call the viewer state-saving hook participate in this history.</p>
+                <p><strong>Function:</strong> <code>undo</code> restores the preceding saved visual/spatial state; <code>redo</code> reapplies a state that was undone. Commands that call the viewer state-saving hook participate in this history. The state includes which metadata property the HUD displays (set by <code>meta show</code> and by <code>spectrum</code>), so undoing a <code>spectrum</code> also takes its property off the HUD. It does not include the sidebar: undo and redo leave its buttons, and whether it is open, as they are.</p>
+                <p>With <code>N</code>, a positive whole number, <code>undo N</code> restores up to N states and <code>redo N</code> reapplies up to N undone states. Each stops early when its history runs out and reports how many steps were done. A zero, negative, non-integer, or extra argument is refused, and nothing changes.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>undo</span><button class="copy-btn" onclick="copyText('undo', this)">Copy</button></li>
                     <li class="example-item"><span>redo</span><button class="copy-btn" onclick="copyText('redo', this)">Copy</button></li>
+                    <li class="example-item"><span>undo 3</span><button class="copy-btn" onclick="copyText('undo 3', this)">Copy</button></li>
+                    <li class="example-item"><span>redo 2</span><button class="copy-btn" onclick="copyText('redo 2', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -994,7 +997,7 @@
                     <div class="syntax-content">reference [target]</div>
                     <button class="copy-btn" onclick="copyText('reference', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; can be a full header, a leading identifier such as <code>WP_0123.1</code> (a leading part of the header that ends at <code>_</code> or <code>|</code>), a case-insensitive substring, or a wildcard pattern such as <code>WP_01*</code> or <code>*.1</code> matching a network FASTA header or its identifier. An exact header or identifier takes priority, so <code>WP_0123.1</code> selects <code>WP_0123.1_protein_A</code> rather than <code>WP_0123.10_protein_B</code>; otherwise, if several headers match, the first one that has a sequence in the loaded MSA is used and a warning names it. The resolved full header anchors the alignment numbering, so the reported reference is always the sequence actually used. A target whose sequence is absent from the loaded MSA is refused: the command fails and the previous reference and offset stay as they were. A configured reference that does not resolve, such as one left by loading another alignment, stays configured but inactive, and the MSA is used in reference-free occupancy mode with positions numbered sequentially. Calling <code>reference</code> without an argument displays the active reference, or marks the configured reference as inactive when it does not resolve.</p>
+                <p><strong>Function:</strong> Dynamically changes the requested sequence used for alignment numbering and reloads the multiple sequence alignment. The &lt;target&gt; can be a full header, a leading identifier such as <code>WP_0123.1</code> (a leading part of the header that ends at <code>_</code> or <code>|</code>), a case-insensitive substring, or a wildcard pattern such as <code>WP_01*</code> or <code>*.1</code> matching a network FASTA header or its identifier. An exact header or identifier takes priority, so <code>WP_0123.1</code> selects <code>WP_0123.1_protein_A</code> rather than <code>WP_0123.10_protein_B</code>; otherwise, if several headers match, the first one that has a sequence in the loaded MSA is used and a warning names it. The resolved full header anchors the alignment numbering, so the reported reference is always the sequence actually used. A target whose sequence is absent from the loaded MSA is refused: the command fails and the previous reference and offset stay as they were. A configured reference that does not resolve, such as one left by loading another alignment, stays configured but inactive, and the MSA is used in reference-free occupancy mode with positions numbered sequentially. Calling <code>reference</code> without an argument displays the active reference, or marks the configured reference as inactive when it does not resolve. Only one target is accepted: a further argument is refused, and the reference and offset stay as they were.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>reference</span><button class="copy-btn" onclick="copyText('reference', this)">Copy</button></li>
@@ -1088,6 +1091,7 @@
                     <li><strong>Explicit Expression:</strong> Runs query on nodes matching the expression (e.g. <code>#cluster_1#</code>).</li>
                     <li><strong>Mouse Selection (Fallback 1):</strong> If expression is omitted, queries the nodes currently selected in the viewer.</li>
                     <li><strong>Global Network (Fallback 2):</strong> If no expression is provided and no selection exists, queries ALL nodes in the network.</li>
+                    <li><strong>No match:</strong> An expression that matches no node succeeds with a note that no sequences matched. Nodes that match but are not in the loaded MSA leave nothing to query, and the command fails.</li>
                 </ul>
 
                 <div class="subheading">Core Arguments</div>
@@ -1095,6 +1099,7 @@
                     <li><strong>Position breakdown:</strong> Columns inside brackets, supporting lists, ranges, decimal insertion positions, and <code>E</code>/<code>END</code> for the last mapped position label, which may be an insertion or occupancy label (for example, <code>[10,15.1,20-30,250-E]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),(-1.1),0]</code> or <code>[(-3)-2]</code>; bare forms such as <code>[-1]</code> and <code>[-3--1]</code> are invalid.</li>
                     <li><strong>Insertions (Decimals):</strong> Insertion residues are marked using decimals (e.g., <code>106.1</code>, <code>106.2</code>). Querying <code>[106-107]</code> natively prints statistics for 106, 106.1, 106.2, and 107 in order.</li>
                     <li><strong>Frequency search:</strong> Use residue or gap criteria with <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, or <code>&lt;=</code>, fractions or percentages, and Boolean operators. Frequencies divide by all MSA rows mapped from the selected/global node subset, so gaps dilute residue percentages. A grouped target sums its residue frequencies, as in <code>[(RHK)&gt;50%]</code>. Multi-condition searches still require parentheses around each complete comparison: <code>[((RHK)&gt;50%)&amp;((DE)&gt;20%)]</code> or <code>[((RHK)&gt;50%)&amp;(GAP&lt;20%)]</code>. Use <code>GAP</code> or <code>_</code> for gaps.</li>
+                    <li><strong>Output:</strong> Each position prints its gap percentage and then each residue of at least 1%, largest first; X and any other symbol in the alignment count as residues. Residues under 1% are summed on one extra line, <code>other (&lt;1% each)</code>, so no residue present goes unreported.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1131,7 +1136,8 @@
                 <ul>
                     <li><strong>MODE:</strong> The clustering algorithm to apply: <code>leiden</code>, <code>mcl</code>, or <code>jaccard</code>. Defaults to <code>leiden</code>.</li>
                     <li><strong>PARAMETER:</strong> The primary tuning variable for the chosen algorithm (Leiden resolution, MCL inflation, or Jaccard threshold).</li>
-                    <li><strong>MIN_SIZE:</strong> An integer defining the minimum number of nodes required to form a valid cluster. Smaller communities are classified as Noise (grey) and ignored by downstream tools. Defaults to 10.</li>
+                    <li><strong>MIN_SIZE:</strong> An integer of at least 1 defining the minimum number of nodes required to form a valid cluster. Smaller communities are classified as Noise (grey) and ignored by downstream tools. Defaults to 10. A node with no edge is its own community in all three modes: a singleton cluster when MIN_SIZE is 1, and Noise when it is larger.</li>
+                    <li><strong>Extra arguments:</strong> Anything after MODE, PARAMETER and MIN_SIZE (or after <code>list</code>) is refused with an error that names the first extra argument, and nothing changes.</li>
                     <li><strong>Scope and Numbering:</strong> Clustering uses every loaded edge and node, regardless of the similarity-threshold slider or hidden nodes. Retained clusters are numbered by size, so <code>cluster_1</code> is the largest.</li>
                 </ul>
 
@@ -1195,9 +1201,10 @@
                 
                 <div class="subheading">Arguments</div>
                 <ul>
-                    <li><strong>&lt;cluster_name&gt;:</strong> Name of the cluster to subcluster (e.g. <code>cluster_2</code>, <code>cluster_5</code>).</li>
+                    <li><strong>&lt;cluster_name&gt;:</strong> Name of the cluster to subcluster (e.g. <code>cluster_2</code>, <code>cluster_5</code>), written as in a selection expression, without leading zeros: <code>cluster_01</code> is refused and the error names <code>cluster_1</code>.</li>
                     <li><strong>clear:</strong> Clears the generated subcluster group labels (<code>subcluster_N_M</code>) from the viewer session and keeps custom groups with lookalike names. It does not restore the colors applied by earlier subclustering.</li>
-                    <li><strong>[min_size]:</strong> (Optional) Minimum size of subclusters to keep (Default: 10). Smaller groups are treated as Noise.</li>
+                    <li><strong>[min_size]:</strong> (Optional) Minimum size of subclusters to keep, at least 1 (Default: 10). Smaller groups are treated as Noise. A node with no edge inside the cluster is a singleton subcluster when min_size is 1, in every mode, and Noise when it is larger. When no subcluster reaches min_size, the command reports success but changes nothing: the cluster keeps its colors and its earlier subclusters, and no undo step is added.</li>
+                    <li><strong>Extra arguments:</strong> Anything after the cluster name, mode, param_1 and min_size (or after <code>clear</code>) is refused with an error that names the first extra argument, and nothing changes.</li>
                 </ul>
 
                 <div class="subheading">Modes &amp; Parameters</div>
@@ -1327,7 +1334,7 @@
                 
                 <div class="subheading">Selection Modes</div>
                 <ul>
-                    <li><strong>Mode position:</strong> A mode may appear immediately before or after the expression.</li>
+                    <li><strong>Mode position:</strong> A mode may appear immediately before or after the expression. Two different modes in one command (for example <code>add</code> and <code>subtract</code>) are refused, naming both; the same mode twice is accepted.</li>
                     <li><strong>change (Default):</strong> Wipes your current selection clean and selects only nodes matching the expression.</li>
                     <li><strong>add / plus / include:</strong> Keeps the current selection and adds new matches to it.</li>
                     <li><strong>subtract / minus / remove:</strong> Keeps the current selection but deselects nodes matching the expression.</li>
@@ -1336,10 +1343,10 @@
                 </ul>
 
                 <div class="subheading">Exporting Selections (<code>select save</code>)</div>
-                <p>Simple tools to write output lists to the disk. Files are saved to <code>Input_Files/Header_Lists/</code>, and the filename must be a plain file name: a directory or path is refused.</p>
+                <p>Simple tools to write output lists to the disk. Files are saved to <code>Input_Files/Header_Lists/</code>, and the filename must be one word and a plain file name: a directory or path, or a second word, is refused.</p>
                 <ul>
                     <li><strong>Saving Headers (<code>.txt</code>):</strong> If you provide a <code>.txt</code> filename (e.g. <code>select save targets.txt</code>), generates a text file containing the full canonical headers of the selected nodes, as the network and layout cache store them. Any other extension receives an appended <code>.txt</code>, so <code>hits.csv</code> becomes <code>hits.csv.txt</code>.</li>
-                    <li><strong>Saving Sequences (<code>.fasta</code>):</strong> If you provide a <code>.fasta</code> filename (e.g. <code>select save targets.fasta</code>), writes the selected nodes' sanitized sequences under the same headers to a standalone FASTA file. The sequences come from the set the Viewer loaded and checked against the layout cache, not from a new read of the source file.</li>
+                    <li><strong>Saving Sequences (<code>.fasta</code>):</strong> If you provide a <code>.fasta</code>, <code>.fa</code>, <code>.faa</code> or <code>.fas</code> filename in any case (e.g. <code>select save targets.fasta</code>), writes the selected nodes' sanitized sequences under the same headers to a standalone FASTA file. The sequences come from the set the Viewer loaded and checked against the layout cache, not from a new read of the source file.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1459,11 +1466,11 @@
                     <div class="syntax-content">esmfold [large] [multi]  |  esmfold help</div>
                     <button class="copy-btn" onclick="copyText('esmfold', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The esmfold command predicts protein structures with ESM3 and opens them in a web-based Mol* 3D structure visualizer. Without the <code>large</code> modifier, it runs the EvolutionaryScale ESM3 1.4B open-weights model (<code>biohub/esm3-sm-open-v1</code>) locally and writes backbone-coordinate PDB files containing N, C&alpha;, C, and geometrically inferred carbonyl O atoms. Adding <code>large</code> sends the prediction to the ESM3 model configured for Biohub&mdash;currently <code>esm3-large-2024-03</code> (98B)&mdash;whose current output includes side-chain heavy-atom coordinates. Neither mode adds hydrogen atoms. The command also registers the "🧬 Fold View" sidebar button.</p>
+                <p><strong>Overview:</strong> The esmfold command predicts protein structures with ESM3 and opens them in a web-based Mol* 3D structure visualizer. Without the <code>large</code> modifier, it runs the EvolutionaryScale ESM3 1.4B open-weights model (<code>biohub/esm3-sm-open-v1</code>) locally and writes backbone-coordinate PDB files containing N, C&alpha;, C, and geometrically inferred carbonyl O atoms. Adding <code>large</code> sends the prediction to the ESM3 model configured for Biohub&mdash;currently <code>esm3-large-2024-03</code> (98B)&mdash;whose current output includes side-chain heavy-atom coordinates. Neither mode adds hydrogen atoms. The command also registers the "🧬 Fold View" sidebar button; the sidebar opens when the button is new, and later runs leave it open or closed as you left it.</p>
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>No Arguments:</strong> Predicts one selected node locally with ESM3 1.4B and produces a backbone-coordinate PDB file. With no selection, registers the Fold View button and opens Mol* without launching a prediction. If several nodes are selected, the command fails unless <code>multi</code> is given.</li>
+                    <li><strong>No Arguments:</strong> Predicts one selected node locally with ESM3 1.4B and produces a backbone-coordinate PDB file. With no selection, folds the node you last clicked and says so (&ldquo;Nothing is selected, so the last clicked node is folded: &lt;node&gt;.&rdquo;); with no node clicked either, registers the Fold View button and opens Mol* without launching a prediction. If several nodes are selected, the command fails unless <code>multi</code> is given.</li>
                     <li><strong>multi:</strong> Processes all currently selected nodes sequentially in the background console. It uses the local backbone-only mode unless combined with <code>large</code>.</li>
                     <li><strong>large:</strong> Predicts one selected node remotely using the model in <code>src/resources/Biohub_API.json</code>, currently ESM3 Large 98B. The current Biohub output includes side-chain heavy atoms, unlike the local backbone-only output. Combine with <code>multi</code> in either order for a sequential remote batch.</li>
                     <li><strong>help:</strong> Prints CLI help and usage instructions.</li>
@@ -1473,7 +1480,7 @@
                 <ul>
                     <li><strong>Local Acceleration:</strong> Local inference automatically selects among CUDA/ROCm, Intel XPU, Apple Metal (MPS), and CPU devices supported by the installed runtime.</li>
                     <li><strong>Biohub Mode:</strong> Remote inference bypasses local hardware selection, keeps local and remote PDB files separate, and prompts for a hidden shared API token in the worker terminal on first use.</li>
-                    <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the desktop Viewer.</li>
+                    <li><strong>Worker Process:</strong> Launches as an independent background console window to prevent freezing the desktop Viewer. Only one worker runs at a time: while one is still running, <code>esmfold</code> refuses to start another, which would load a second model into GPU memory. Wait for the worker to finish, or close its console window. Opening Mol* with nothing selected or clicked is not refused.</li>
                     <li><strong>Mol* Interface:</strong> Hosts a web server that loads the predicted structure in a rich interactive 3D viewer.</li>
                 </ul>
 
@@ -1506,7 +1513,7 @@
                 
                 <div class="subheading">Subcommands &amp; Usage</div>
                 <ul>
-                    <li><strong><code>meta</code> (no arguments):</strong> Opens the viewer's HTML5 metadata spreadsheet page in the default browser and registers its sidebar shortcut.</li>
+                    <li><strong><code>meta</code> (no arguments):</strong> Opens the viewer's HTML5 metadata spreadsheet page in the default browser and registers its sidebar shortcut. The sidebar opens when the shortcut is new; running <code>meta</code> again leaves it open or closed as you left it.</li>
                     <li><strong><code>meta &lt;filename&gt; [filename ...]</code>, <code>meta upload ...</code>, or <code>meta import ...</code>:</strong> Loads and merges one or more <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> metadata files in argument order. Paths may be absolute, relative, or names inside the configured metadata directory; supported extensions are tried when omitted. Input tables use sequence headers in the first column, property names in the first row, and property types in the second row. In a text column the words <code>NA</code>, <code>N/A</code>, <code>None</code>, <code>null</code> and <code>NaN</code> are kept as written, since they can be real values (such as NA for North America); only an empty cell is blank. In a number column they are missing, like any other non-number.</li>
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>:</strong> Activates a HUD text box in the bottom-right corner of the viewer displaying the value of the specified property when a node is clicked.</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>:</strong> Deactivates and hides the metadata property HUD.</li>
@@ -1540,7 +1547,7 @@
                     <div class="syntax-content">spectrum [expression] {&lt;property_name&gt;} [&lt;color_scheme&gt;]</div>
                     <button class="copy-btn" onclick="copyText('spectrum', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Colors visible nodes along a color gradient (spectrum) based on the values of a numerical property and brings all nodes colored by that invocation to the top in stable node-index order. Automatically calls the <code>meta display</code> command to display the selected property in the HUD when a node is clicked.</p>
+                <p><strong>Overview:</strong> Colors visible nodes along a color gradient (spectrum) based on the values of a numerical property and brings all nodes colored by that invocation to the top in stable node-index order. Automatically calls the <code>meta display</code> command to display the selected property in the HUD when a node is clicked; a viewer that has no metadata HUD, such as the VR viewer, skips this step.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -1582,7 +1589,7 @@
                     <div class="syntax-content">print [filename] [modifiers]</div>
                     <button class="copy-btn" onclick="copyText('print', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The print command exports the network view while temporarily suppressing interactive overlays such as instructions, zoom/tooltip text, hidden-node count, metadata HUD, and command-console text. PNG captures also leave out the hover colour of the node under the mouse and the halo of the clicked node, which return afterwards; selection borders stay. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>); a filename must be a plain file name, not a path, and receives <code>.png</code> or <code>.svg</code> when missing. Every PNG mode automatically trims background-only margins after rendering while retaining a fixed 20-pixel border around the rendered content; SVG view-box padding is unchanged.</p>
+                <p><strong>Overview:</strong> The print command exports the network view while temporarily suppressing interactive overlays such as instructions, zoom/tooltip text, hidden-node count, metadata HUD, and command-console text. PNG captures also leave out the hover colour of the node under the mouse and the halo of the clicked node, which return afterwards; selection borders stay. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>); a filename must be one word and a plain file name, not a path, and receives <code>.png</code> or <code>.svg</code> when missing. A name ending in <code>.svg</code> selects SVG as the <code>svg</code> modifier does (so it cannot be combined with <code>transparent</code> or <code>full</code>), and a name ending in <code>.png</code> cannot be combined with <code>svg</code>; a bare <code>.png</code> or <code>.svg</code> is not a name and is refused. A second word that is not a modifier is refused, so a mistyped modifier is never saved as part of the name. An explicit name replaces an existing file of that name, and the report says so; the automatic timestamped name never replaces a file. Every PNG mode automatically trims background-only margins after rendering while retaining a fixed 20-pixel border around the rendered content; SVG view-box padding is unchanged.</p>
                 
                 <div class="subheading">Modifiers</div>
                 <ul>
@@ -1598,6 +1605,7 @@
                     <li class="example-item"><span>print my_network transparent</span><button class="copy-btn" onclick="copyText('print my_network transparent', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network full transparent</span><button class="copy-btn" onclick="copyText('print my_network full transparent', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network svg</span><button class="copy-btn" onclick="copyText('print my_network svg', this)">Copy</button></li>
+                    <li class="example-item"><span>print my_network.svg</span><button class="copy-btn" onclick="copyText('print my_network.svg', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network full zoom 500</span><button class="copy-btn" onclick="copyText('print my_network full zoom 500', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network svg zoom 500</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 500', this)">Copy</button></li>
                 </ul>
@@ -1632,6 +1640,13 @@
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>
                     <li><strong>COLOR_SCHEME:</strong> Preset color scheme. Defaults to <code>chemistry</code>. Presets: chemistry, classic, grays, base_pairing, colorblind_safe, charge, hydrophobicity, etc.</li>
                     <li><strong>IDENTITY:</strong> Optional sequence-redundancy threshold. Reweighting is disabled when omitted. <code>0.9</code>, <code>90</code>, and <code>90%</code> are equivalent. Weighted amino-acid frequencies apply to percentage and bits modes; bits mode also uses the effective sample size for its small-sample correction. The correction at each position counts only the sequences that have a residue there (gaps are not counted), or with IDENTITY their summed weight.</li>
+                </ul>
+
+                <div class="subheading">Outcomes &amp; Limits</div>
+                <ul>
+                    <li><strong>No match:</strong> An expression that matches no node succeeds with a note and queues no job. Nodes that match but are not in the loaded MSA leave nothing to analyse, and the command fails.</li>
+                    <li><strong>PNG size:</strong> A PNG is drawn as one 600 dpi image, so a PNG logo of more than a few hundred positions is refused before it is queued, and the error names the exact limit. Use an <code>.svg</code> filename, which has no such limit, or fewer positions.</li>
+                    <li><strong>Axis label:</strong> The x axis names the reference header the positions are numbered against. A header too long for the axis is cut short with an ellipsis, so it never widens the image.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>

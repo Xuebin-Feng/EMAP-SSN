@@ -108,5 +108,15 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(viewer.broadcast_event.call_args.args[0]['submission_id'], 'invalid')
 
 
+class ReplyTimeoutTests(unittest.TestCase):
+    def test_a_model_reply_waits_for_the_reply_timeout(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({'choices': [{'message': {'content': 'slow'}}]}).encode()
+        with mock.patch.object(agent.urllib.request, 'urlopen', return_value=response) as send:
+            self.assertEqual(agent.call_api('http://local/v1', 'slow', 'system', 'question')['content'], 'slow')
+        self.assertEqual(send.call_args.kwargs['timeout'], agent.AGENT_REPLY_TIMEOUT_SECONDS)
+        self.assertEqual(agent.AGENT_REPLY_TIMEOUT_SECONDS, 300.0)
+
+
 if __name__ == '__main__':
     unittest.main()
