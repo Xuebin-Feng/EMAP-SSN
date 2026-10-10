@@ -139,13 +139,50 @@ class Message:
             return str(self)
 
 
+# Chinese and Japanese put no space after their full-width punctuation, and
+# write a list's comma and semicolon full width.
+_FULL_WIDTH_ENDINGS = frozenset("。！？；：，、）」』】》")
+_FULL_WIDTH_SEPARATORS = {", ": "，", "; ": "；"}
+
+
+def _is_cjk(character):
+    """Whether character is a CJK ideograph, kana, or CJK or full-width punctuation."""
+    code = ord(character)
+    return 0x2E80 <= code <= 0x9FFF or 0xF900 <= code <= 0xFAFF or 0xFF00 <= code <= 0xFFEF
+
+
+def _joined_for_display(texts, separator):
+    """texts joined by separator as a window shows them, in the punctuation of the language they are in.
+
+    Only the shown texts tell the language: after a full-width sentence end
+    a space separator is dropped, and a ", " or "; " next to CJK text
+    becomes "，" or "；". English, and every other separator, joins as given.
+    """
+    if _translator is None or separator not in (" ", *_FULL_WIDTH_SEPARATORS):
+        return separator.join(texts)
+    shown = []
+    for index, text in enumerate(texts):
+        if index:
+            previous = texts[index - 1]
+            if separator == " ":
+                shown.append("" if previous and previous[-1] in _FULL_WIDTH_ENDINGS else " ")
+            elif any(map(_is_cjk, previous)) or any(map(_is_cjk, text)):
+                shown.append(_FULL_WIDTH_SEPARATORS[separator])
+            else:
+                shown.append(separator)
+        shown.append(text)
+    return "".join(shown)
+
+
 class JoinedMessage(Message):
     """Messages shown one after another, such as the sentences of a report.
 
     str() joins their English, and display() their translations, so a
     message put together from parts is still one Message: the console line
     shows it translated and the terminal prints it in English. A part may
-    also be plain text, such as a file name, which shows as it is.
+    also be plain text, such as a file name, which shows as it is. The
+    translations are joined in their own punctuation: a Chinese sentence
+    ends without a space after it, and a Chinese list uses "，" and "；".
     """
 
     __slots__ = ("parts", "separator")
@@ -162,7 +199,7 @@ class JoinedMessage(Message):
         return f"JoinedMessage({list(self.parts)!r}, separator={self.separator!r})"
 
     def display(self):
-        return self.separator.join(display_text(part) for part in self.parts)
+        return _joined_for_display([display_text(part) for part in self.parts], self.separator)
 
 
 def display_text(message):

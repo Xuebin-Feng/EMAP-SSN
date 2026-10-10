@@ -120,7 +120,7 @@ Each window files its texts under one context, which translators see as a group:
 | A message put together from sentences | `JoinedMessage([Message("Matched %n node(s).", n=nodes), Message("Ignored %n row(s).", n=rows)])` |
 | Text from code without Qt that a window shows, such as an error | `ValueError(Message("Enter a profile name."))`, shown with `display_text(error)` |
 
-A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. `QT_TRANSLATE_NOOP`, `Message` and `JoinedMessage` come from `utilities.Localization`, which code without Qt can import.
+A `Message` keeps its English text for the terminal, the logs and MCP clients. Only a window shows the translation. A `JoinedMessage` shows its translations in their own punctuation: where a part is Chinese (or other CJK) text, no space follows a full-width sentence end such as "。", and its ", " and "; " separators show as "，" and "；". Its English is joined as given. `QT_TRANSLATE_NOOP`, `Message` and `JoinedMessage` come from `utilities.Localization`, which code without Qt can import.
 
 A value that is text to translate too, such as a page's name in a message, is a `Message` itself: `Message("{page} opened at {url}", page=Message("Agent UI"), url=url)`. The pseudo-language check can't see an untranslated value, which shows inside the translated text's brackets, so a test checks such a value on its own.
 

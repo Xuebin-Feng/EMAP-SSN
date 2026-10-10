@@ -144,6 +144,33 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(display_text(error), "«Found 3 nodes.» 1.csv «Done.»")
         self.assertEqual(str(error), "Found 3 nodes. 1.csv Done.")
 
+    def test_a_joined_message_joins_chinese_in_its_own_punctuation(self):
+        chinese = {
+            "Load failed.": "加载失败。",
+            "MSA rejected: {error}": "MSA 被拒绝：{error}",
+            "driver {driver}": "驱动程序 {driver}",
+            "{rate} sequences/s": "{rate} 序列/秒",
+        }
+        previous = Localization.set_translator(lambda template, n: chinese.get(template, template))
+        self.addCleanup(Localization.set_translator, previous)
+        sentences = JoinedMessage([Message("Load failed."), Message("MSA rejected: {error}", error="x")])
+        self.assertEqual(sentences.display(), "加载失败。MSA 被拒绝：x")
+        self.assertEqual(str(sentences), "Load failed. MSA rejected: x")
+        listed = JoinedMessage(["RTX 5070", Message("driver {driver}", driver="1.0")], separator=", ")
+        self.assertEqual(listed.display(), "RTX 5070，驱动程序 1.0")
+        self.assertEqual(str(listed), "RTX 5070, driver 1.0")
+        rates = JoinedMessage([Message("{rate} sequences/s", rate=1), Message("{rate} sequences/s", rate=2)],
+                              separator="; ")
+        self.assertEqual(rates.display(), "1 序列/秒；2 序列/秒")
+        # Text with no CJK keeps its own punctuation, and other separators join as given.
+        self.assertEqual(JoinedMessage([Message("Done."), "1.csv"]).display(), "Done. 1.csv")
+        self.assertEqual(JoinedMessage(["a", "b"], separator=", ").display(), "a, b")
+        self.assertEqual(JoinedMessage([Message("Load failed."), "next"], separator="\n").display(), "加载失败。\nnext")
+        # In English, with no translator, nothing changes, even beside CJK text such as a file name.
+        Localization.set_translator(None)
+        self.assertEqual(JoinedMessage(["数据.csv", "x.csv"], separator="; ").display(), "数据.csv; x.csv")
+        self.assertEqual(JoinedMessage(["完成。", "x"]).display(), "完成。 x")
+
     def test_qt_translate_noop_marks_text_and_returns_it(self):
         self.assertEqual(Localization.QT_TRANSLATE_NOOP("Config", "Input File Directory:"), "Input File Directory:")
 
