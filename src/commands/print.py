@@ -79,6 +79,50 @@ def print_help():
       print my_network svg                (Saves view as a vector SVG file)
     """)
 
+# The marker names a node's shape can hold: vispy's own aliases, which the
+# color command stores as typed, and the extra spellings the export draws.
+# Each maps to the canonical name the drawing code below is written for.
+_SHAPE_ALIASES = {
+    'o': 'disc', 'circle': 'disc',
+    's': 'square',
+    '^': 'triangle_up', 'triangle': 'triangle_up',
+    'v': 'triangle_down',
+    'D': 'diamond',
+    '*': 'star',
+    '+': 'cross',
+    '|': 'vbar',
+    '-': 'hbar', '_': 'hbar',
+    '>': 'arrow', '->': 'tailed_arrow',
+    'p': 'clobber',
+    'P': 'cross_lines', '++': 'cross_lines',
+}
+# Shapes drawn as coloured strokes rather than as a filled, outlined area.
+_STROKE_ONLY_SHAPES = ('cross', 'x', 'vbar', 'hbar', 'ring')
+
+
+def _canonical_shape(shape):
+    """Return a marker's canonical name, so an alias draws like its name."""
+    if isinstance(shape, str):
+        return _SHAPE_ALIASES.get(shape, shape)
+    return shape
+
+
+def _available_automatic_filename(directory, filename):
+    """Add a numeric suffix when a generated timestamped name is taken.
+
+    Two prints in the same second share a timestamp: the second one is saved
+    as name_2.png rather than over the first. A name typed by the user is not
+    passed here, and is overwritten as before.
+    """
+    stem, suffix = os.path.splitext(filename)
+    candidate = filename
+    index = 2
+    while os.path.exists(os.path.join(directory, candidate)):
+        candidate = f"{stem}_{index}{suffix}"
+        index += 1
+    return candidate
+
+
 def _export_svg(viewer, filepath):
     """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility.
 
@@ -91,22 +135,34 @@ def _export_svg(viewer, filepath):
 
     print("Generating layered, editable SVG for Illustrator...")
 
-    pos = viewer.pos[vis]
-    colors = viewer.current_colors[vis]
-    sizes = viewer.current_sizes[vis]
-    shapes = viewer.current_shapes[vis]
-    
+    # Nodes go in the order the screen draws them, the later covering the
+    # earlier, so those the color command or a selection raised stay on top.
+    render_order = getattr(viewer, 'visible_node_render_order', None)
+    visible = render_order() if callable(render_order) else vis
+
+    pos = viewer.pos[visible]
+    colors = viewer.current_colors[visible]
+    sizes = viewer.current_sizes[visible]
+    shapes = [_canonical_shape(shape) for shape in viewer.current_shapes[visible]]
+
     # 2. Calculate bounding box
     min_x, min_y = np.min(pos[:, :2], axis=0)
     max_x, max_y = np.max(pos[:, :2], axis=0)
-    
+
     w_bounds = max_x - min_x
     h_bounds = max_y - min_y
-    
-    # Add 5% padding so outer nodes aren't clipped by the viewport boundaries
-    pad_x = max(w_bounds * 0.05, 5.0) 
-    pad_y = max(h_bounds * 0.05, 5.0)
-    
+
+    # Add 5% padding so outer nodes aren't clipped by the viewport boundaries,
+    # and at least what the largest node reaches past its centre: its radius,
+    # or the ring's wider stroke. Below the 5-unit minimum nothing changes.
+    radii = np.asarray(sizes, dtype=np.float64) / 2.0
+    is_ring = np.array([shape == 'ring' for shape in shapes], dtype=bool)
+    reach = np.where(is_ring, radii * 1.2, radii)
+    reach = reach[np.isfinite(reach)]
+    node_pad = float(reach.max()) if reach.size else 0.0
+    pad_x = max(w_bounds * 0.05, 5.0, node_pad)
+    pad_y = max(h_bounds * 0.05, 5.0, node_pad)
+
     target_min_x = min_x - pad_x
     target_max_x = max_x + pad_x
     target_min_y = min_y - pad_y
@@ -170,7 +226,7 @@ def _export_svg(viewer, filepath):
         rgba = colors[i]
         
         # Check if shape is stroke-only
-        stroke_only = shape in ['cross', 'x', 'vbar', 'hbar', 'ring']
+        stroke_only = shape in _STROKE_ONLY_SHAPES
         
         if stroke_only:
             fill_attrs = 'fill="none"'
@@ -253,7 +309,10 @@ def _export_svg(viewer, filepath):
     svg_lines.append(f'  </g>')
     svg_lines.append(f'</svg>')
     
-    # 7. Write to file
+    # 7. Write to file, making the save folder only now that there is a file for it
+    save_dir = os.path.dirname(filepath)
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write('\n'.join(svg_lines))
     print(f"Successfully generated structured SVG at: {filepath}")
@@ -472,7 +531,6 @@ def run(viewer, args):
 
     # 1. Setup paths
     save_dir = cfg.resolve_directory_path(PRINT_DIRECTORY)
-    os.makedirs(save_dir, exist_ok=True)
     
     # Check for help
     if args and args[0].lower() in ['help', '-h', '--help']:
@@ -495,6 +553,17 @@ def run(viewer, args):
             is_full = True
         elif a.lower() == "svg":
             is_svg = True
+        elif a.strip().startswith("-"):
+            # Not a modifier, and not a name: it would be saved as "--flag.png".
+            msg = Message(
+                "Error: Unknown option '{option}'. Modifiers are written without dashes: "
+                "transparent, full or svg.",
+                option=a,
+            )
+            Command_Engine.command_failed(viewer, msg)
+            print(f"\n{msg}")
+            Command_Engine.show_status(viewer, msg)
+            return
         else:
             final_args.append(a)
             
@@ -520,7 +589,8 @@ def run(viewer, args):
     ext = ".svg" if is_svg else ".png"
     image_format = ext[1:].upper()
 
-    if len(args) > 0:
+    automatic_filename = len(args) == 0
+    if not automatic_filename:
         try:
             filename = validate_output_basename("_".join(args))
         except ValueError as error:
@@ -535,6 +605,8 @@ def run(viewer, args):
         
     if not filename.lower().endswith(ext):
         filename += ext
+    if automatic_filename:
+        filename = _available_automatic_filename(save_dir, filename)
         
     filepath = os.path.join(save_dir, filename)
     
@@ -664,6 +736,14 @@ def run(viewer, args):
 
         else:
             # Standard single-shot render
+            visible_mask = getattr(viewer, 'visible_mask', None)
+            if visible_mask is not None and not np.any(visible_mask):
+                msg = Message("Error: No visible nodes to export.")
+                Command_Engine.command_failed(viewer, msg)
+                print(f"\n{msg}")
+                Command_Engine.show_status(viewer, msg)
+                return
+
             final_img = _render_capture(viewer, is_transparent, overlays)
 
         if not is_svg:
@@ -681,6 +761,7 @@ def run(viewer, args):
                     f"{trimmed_width}x{trimmed_height} px "
                     f"({PNG_TRIM_PADDING_PX} px border)."
                 )
+            os.makedirs(save_dir, exist_ok=True)
             mpimg.imsave(filepath, final_img)
         
         msg_type = "SVG snapshot" if is_svg else "snapshot"
