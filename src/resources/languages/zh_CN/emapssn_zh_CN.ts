@@ -70,7 +70,7 @@
     </message>
     <message>
         <location filename="../../../web_ui/agent.html" line="+22"/>
-        <location line="+936"/>
+        <location line="+949"/>
         <source>EMAP-SSN Agent Chat</source>
         <translation type="unfinished">EMAP-SSN 智能体对话</translation>
     </message>
@@ -94,12 +94,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+716"/>
+        <location line="+714"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-715"/>
+        <location line="-713"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -205,7 +205,7 @@
         <translation type="obsolete">☀️ 浅色模式</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+80"/>
         <source>the Viewer answered HTTP {status}</source>
         <translation type="unfinished">查看器返回了 HTTP {status}</translation>
     </message>
@@ -245,13 +245,13 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-233"/>
-        <location line="+149"/>
+        <location line="-231"/>
+        <location line="+147"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="-131"/>
+        <location line="-129"/>
         <source>Models</source>
         <translation type="unfinished">模型</translation>
     </message>
@@ -271,7 +271,7 @@
         <translation type="unfinished">保存</translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+101"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
