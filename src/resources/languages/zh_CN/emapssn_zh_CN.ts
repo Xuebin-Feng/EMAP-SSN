@@ -978,7 +978,7 @@ Auto Benchmark measures representative workloads and may choose a different back
         <location line="+1"/>
         <source>Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.
 Every retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.</source>
-        <translation type="unfinished">胡克弹簧引力常数，把由保留的网络边相连的节点拉近。
+        <translation type="unfinished">胡克弹簧常数：弹簧以引力把由保留的网络边相连的节点拉近。
 每条保留的边弹簧强度相同；其相似性得分只决定是否被过滤，不决定引力大小。</translation>
     </message>
     <message>
