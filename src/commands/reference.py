@@ -130,7 +130,9 @@ def run(viewer, args):
         )
 
         try:
-            viewer.load_global_alignment()
+            # A new reference renumbers the columns; the rows already loaded
+            # are kept when the MSA file has not changed.
+            viewer.load_global_alignment(reuse_loaded=True)
         except Exception:
             restore_previous_state()
             raise

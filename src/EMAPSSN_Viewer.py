@@ -1915,9 +1915,13 @@ class MainViewer:
             self.broadcast_metadata_state()
         return changed
 
-    def load_global_alignment(self):
+    def load_global_alignment(self, reuse_loaded=False):
         """
         Loads alignment using the new standalone Alignment_Manager.
+
+        With REUSE_LOADED, the rows already loaded are kept when the MSA file
+        is unchanged on disk, and only the numbering is rebuilt; `reference`
+        asks for this, since a new reference changes nothing else.
         """
         import Alignment_Manager
         self.alignment = Alignment_Manager.Alignment_Manager(
@@ -1925,6 +1929,7 @@ class MainViewer:
             full_headers=self.full_headers,
             active_reference=self.active_reference,
             alignment_offset=self.alignment_offset,
+            reuse=getattr(self, 'alignment', None) if reuse_loaded else None,
         )
 
 

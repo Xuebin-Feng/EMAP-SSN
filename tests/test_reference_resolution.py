@@ -9,6 +9,8 @@ from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
+
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")
@@ -249,7 +251,7 @@ class ReferenceResolutionTests(unittest.TestCase):
         viewer = self.loaded_viewer_on_node1()
         alignment = viewer.alignment
 
-        def reload_returns_no_rows():
+        def reload_returns_no_rows(reuse_loaded=False):
             # The loader ran but produced no alignment.
             viewer.alignment = SimpleNamespace(aln=None, has_reference=False)
 
@@ -260,7 +262,7 @@ class ReferenceResolutionTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()):
             reference_command.run(viewer, ["node2"])
 
-        viewer.load_global_alignment.assert_called_once()
+        viewer.load_global_alignment.assert_called_once_with(reuse_loaded=True)
         failed.assert_called_once()
         self.assertEqual(
             str(failed.call_args.args[1]),
@@ -277,7 +279,7 @@ class ReferenceResolutionTests(unittest.TestCase):
         alignment = viewer.alignment
         reason = Message("MSA rejected: {error}", error="MSA FASTA contains no records.")
 
-        def reload_is_rejected():
+        def reload_is_rejected(reuse_loaded=False):
             # The loader leaves its reason on the manager that the restore replaces.
             viewer.alignment = SimpleNamespace(aln=None, has_reference=False, load_failure=reason)
 
@@ -443,7 +445,7 @@ class ReferenceResolutionTests(unittest.TestCase):
         viewer = self.loaded_viewer_on_node1()
         alignment = viewer.alignment
 
-        def reload_without_the_reference():
+        def reload_without_the_reference(reuse_loaded=False):
             viewer.alignment = SimpleNamespace(aln=object(), has_reference=False)
 
         viewer.load_global_alignment = mock.Mock(side_effect=reload_without_the_reference)
@@ -564,6 +566,158 @@ class ReferenceResolutionTests(unittest.TestCase):
         self.assertFalse(manager.has_reference)
         self.assertEqual(manager.resolved_ref_full, "None")
         self.assertIn("Configured reference 'E1_RA' is missing", log)
+
+
+class ReferenceReuseTests(unittest.TestCase):
+    """`reference` renumbers the loaded rows instead of reading the MSA again."""
+
+    RECORDS = [
+        ("alpha", "MK-LC-D"),
+        ("beta", "M--LCAD"),
+        ("gamma", "-KQL--D"),
+        ("delta", "MKQLCA-"),
+    ]
+    # epsilon is a network node the MSA lacks.
+    HEADERS = ["alpha", "beta", "gamma", "delta", "epsilon"]
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        self.msa_path = os.path.join(self.directory, "toy.fasta")
+        write_fasta(self.msa_path, self.RECORDS)
+        for name, value in (("MSA_FILE", self.msa_path), ("FILTER_MIN_OCCUPANCY", 60)):
+            patcher = mock.patch.object(Alignment_Manager.cfg, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def started_viewer(self, reference="alpha", offset=0):
+        """A viewer that loaded the MSA at startup, as the Viewer does."""
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.full_headers = list(self.HEADERS)
+        viewer.active_reference = reference
+        viewer.alignment_offset = offset
+        viewer.console_text = SimpleNamespace(text="")
+        with redirect_stdout(io.StringIO()):
+            viewer.load_global_alignment()
+        return viewer
+
+    def run_reference(self, viewer, target):
+        """Run `reference TARGET`, counting the MSA reads. Returns (reads, terminal log)."""
+        output = io.StringIO()
+        with mock.patch.object(
+            Alignment_Manager, "load_alignment_with_reason", wraps=Alignment_Manager.load_alignment_with_reason
+        ) as read, redirect_stdout(output):
+            reference_command.run(viewer, [target])
+        return read.call_count, output.getvalue()
+
+    def assert_numbered_as_a_fresh_load(self, manager, reference, offset):
+        with redirect_stdout(io.StringIO()):
+            fresh = Alignment_Manager.Alignment_Manager(
+                self.msa_path, full_headers=list(self.HEADERS),
+                active_reference=reference, alignment_offset=offset,
+            )
+        for name in (
+            "valid_cols", "col_to_label", "label_to_col", "resolved_ref_full", "has_reference",
+            "offset", "matched_headers", "missing_headers", "seq_map", "_base_col_to_label",
+        ):
+            self.assertEqual(getattr(manager, name), getattr(fresh, name), name)
+        for name in ("viewer_to_aln", "aligned_node_mask"):
+            np.testing.assert_array_equal(getattr(manager, name), getattr(fresh, name), name)
+        self.assertEqual(vars(manager.sanitization_stats), vars(fresh.sanitization_stats))
+        self.assertEqual(manager.aln.headers, fresh.aln.headers)
+        self.assertEqual((manager.aln.matrix != fresh.aln.matrix).nnz, 0)
+
+    def test_a_new_reference_keeps_the_loaded_rows_and_numbers_them_afresh(self):
+        viewer = self.started_viewer(offset=5)
+        rows = viewer.alignment.aln
+
+        for target in ("gamma", "beta", "alpha", "delta"):
+            with self.subTest(reference=target):
+                reads, log = self.run_reference(viewer, target)
+
+                self.assertEqual(reads, 0)
+                self.assertIs(viewer.alignment.aln, rows)
+                self.assertIn("Reusing the loaded alignment; the file is unchanged", log)
+                self.assertEqual(viewer.alignment.resolved_ref_full, target)
+                self.assert_numbered_as_a_fresh_load(viewer.alignment, target, 5)
+
+    def test_an_edited_file_is_read_again(self):
+        viewer = self.started_viewer()
+        rows = viewer.alignment.aln
+        edited = [("alpha", "MKKLC-D"), *self.RECORDS[1:]]
+
+        # The same size, so only the modification time tells the edit apart.
+        write_fasta(self.msa_path, edited)
+        status = os.stat(self.msa_path)
+        os.utime(self.msa_path, ns=(status.st_atime_ns, status.st_mtime_ns + 2_000_000_000))
+        reads, log = self.run_reference(viewer, "beta")
+
+        self.assertEqual(reads, 1)
+        self.assertIsNot(viewer.alignment.aln, rows)
+        self.assertNotIn("Reusing", log)
+        self.assertEqual(viewer.alignment.aln[0].seq, "MKKLC-D")
+        self.assert_numbered_as_a_fresh_load(viewer.alignment, "beta", 0)
+
+        # A longer file is read again too.
+        write_fasta(self.msa_path, [(header, sequence + "W") for header, sequence in self.RECORDS])
+        reads, _ = self.run_reference(viewer, "gamma")
+
+        self.assertEqual(reads, 1)
+        self.assertEqual(viewer.alignment.aln.get_alignment_length(), 8)
+
+    def test_another_file_or_other_network_headers_are_read_afresh(self):
+        with redirect_stdout(io.StringIO()):
+            loaded = Alignment_Manager.Alignment_Manager(
+                self.msa_path, full_headers=list(self.HEADERS), active_reference="alpha"
+            )
+        copy_path = os.path.join(self.directory, "copy.fasta")
+        write_fasta(copy_path, self.RECORDS)
+        os.utime(copy_path, ns=(os.stat(self.msa_path).st_atime_ns, os.stat(self.msa_path).st_mtime_ns))
+
+        for path, headers in (
+            (copy_path, self.HEADERS),
+            (self.msa_path, self.HEADERS[:3]),
+            (self.msa_path, list(reversed(self.HEADERS))),
+        ):
+            with self.subTest(path=os.path.basename(path), headers=headers), \
+                    mock.patch.object(
+                        Alignment_Manager, "load_alignment_with_reason",
+                        wraps=Alignment_Manager.load_alignment_with_reason,
+                    ) as read, redirect_stdout(io.StringIO()):
+                manager = Alignment_Manager.Alignment_Manager(
+                    path, full_headers=list(headers), active_reference="beta", reuse=loaded
+                )
+                self.assertEqual(read.call_count, 1)
+                self.assertIsNot(manager.aln, loaded.aln)
+                # The rows keep the MSA's order.
+                self.assertEqual(manager.aln.headers, [h for h, _ in self.RECORDS if h in headers])
+
+    def test_loading_without_reuse_always_reads_the_file(self):
+        # `alignment` and the startup load read the file even when it is unchanged.
+        viewer = self.started_viewer()
+        rows = viewer.alignment.aln
+
+        with mock.patch.object(
+            Alignment_Manager, "load_alignment_with_reason", wraps=Alignment_Manager.load_alignment_with_reason
+        ) as read, redirect_stdout(io.StringIO()):
+            viewer.load_global_alignment()
+
+        self.assertEqual(read.call_count, 1)
+        self.assertIsNot(viewer.alignment.aln, rows)
+
+    def test_a_deleted_file_is_not_reused_and_the_reference_is_kept(self):
+        viewer = self.started_viewer()
+        previous = viewer.alignment
+        os.remove(self.msa_path)
+
+        with mock.patch.object(reference_command.Command_Engine, "command_failed") as failed:
+            reads, _ = self.run_reference(viewer, "beta")
+
+        self.assertEqual(reads, 1)
+        failed.assert_called_once()
+        self.assertIs(viewer.alignment, previous)
+        self.assertEqual(viewer.active_reference, "alpha")
 
 
 if __name__ == "__main__":

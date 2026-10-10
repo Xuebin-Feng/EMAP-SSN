@@ -43,12 +43,30 @@ def _print_red_warning(message):
     else:
         print(message)
 
+def _source_signature(msa_file):
+    """The MSA file's (size, modification time), or None when it cannot be read."""
+    try:
+        status = os.stat(msa_file)
+    except (OSError, TypeError, ValueError):
+        return None
+    return (status.st_size, status.st_mtime_ns)
+
+
 class Alignment_Manager:
-    def __init__(self, msa_file, full_headers=None, active_reference=None, alignment_offset=0):
+    def __init__(self, msa_file, full_headers=None, active_reference=None, alignment_offset=0, reuse=None):
+        """Load MSA_FILE's rows for FULL_HEADERS and number its columns.
+
+        REUSE is a manager loaded earlier, or None. When it loaded this same
+        file, unchanged on disk, for the same network headers, its loaded rows
+        are taken as they are instead of reading and parsing the file again;
+        a new reference changes only the column numbering, which is rebuilt.
+        """
         self.msa_file = msa_file
         self.aln = None
         # Why the alignment failed to load, as a Message, when it did.
         self.load_failure = None
+        # The file's (size, modification time) when its rows were read.
+        self._source_signature = None
         self.sanitization_stats = None
         self.valid_cols = None
         self.seq_map = {}
@@ -68,7 +86,15 @@ class Alignment_Manager:
             print("An MSA is not selected and will not be loaded.")
             return
 
-        self.aln, self.load_failure = load_alignment_with_reason(msa_file, filter_headers=full_headers)
+        if self._can_reuse_rows_of(reuse):
+            print(f"--- Reusing the loaded alignment; the file is unchanged: {msa_file} ---")
+            self.aln = reuse.aln
+            self._source_signature = reuse._source_signature
+        else:
+            # Taken before reading, so a file that changes during the read is
+            # read again next time rather than reused.
+            self._source_signature = _source_signature(msa_file)
+            self.aln, self.load_failure = load_alignment_with_reason(msa_file, filter_headers=full_headers)
         if self.aln is None:
             print('Warning: Failed to load alignment.')
             return
@@ -112,6 +138,23 @@ class Alignment_Manager:
                 "The MSA remains loaded in pure occupancy mode; reference numbering and "
                 "alignment offsets are inactive."
             )
+
+    def _can_reuse_rows_of(self, previous):
+        """Whether PREVIOUS holds this file's rows, read for these network headers.
+
+        The loaded rows depend only on the file's content and on the network
+        headers that filter them, never on the reference, the offset or the
+        occupancy setting, which every manager applies afresh.
+        """
+        if previous is None or getattr(previous, 'aln', None) is None:
+            return False
+        signature = getattr(previous, '_source_signature', None)
+        return (
+            signature is not None
+            and getattr(previous, 'msa_file', None) == self.msa_file
+            and getattr(previous, 'network_headers', None) == self.network_headers
+            and _source_signature(self.msa_file) == signature
+        )
 
     def _initialize_coverage(self):
         """Build the exact network-node to alignment-row mapping once per load."""
