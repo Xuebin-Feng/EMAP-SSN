@@ -935,6 +935,10 @@ still change before version 1.0.0.
   the narrow panel; they now sit in a table under their column headings, and the
   summary lines above it wrap. The report's own "Network Statistics" banner line is gone,
   since the panel's title already says it.
+- The Tools window's help pane wraps its text to the pane. A help page kept a 600 px
+  minimum width, so in a narrower pane every line ran past the right edge and had to be
+  scrolled sideways. A table wider than the pane now scrolls on its own, and long names
+  such as a script's break onto the next line.
 
 ### Removed
 

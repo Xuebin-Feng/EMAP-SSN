@@ -772,11 +772,13 @@ class ResponsiveTextBrowser(QWebEngineView):
         .help-card::-webkit-scrollbar-thumb:vertical { border-right-width: 2px; min-height: 32px; }
         .help-card::-webkit-scrollbar-thumb:horizontal { border-bottom-width: 2px; min-width: 32px; }
         .help-card::-webkit-scrollbar-thumb:hover { background-color: __TEXT_DISABLED__; }
+        /* The page wraps to the pane however narrow it is: an over-long word, such
+           as a script name, breaks rather than widening the page past the pane. */
         .help-page {
             padding: 20px 24px 24px;
             max-width: 800px;
-            min-width: 600px;
             margin: 0 auto;
+            overflow-wrap: break-word;
         }
         .help-page > :first-child {
             margin-top: 0;
@@ -832,6 +834,7 @@ class ResponsiveTextBrowser(QWebEngineView):
             padding: 2px 4px;
             border-radius: 4px;
             color: __TEXT__;
+            overflow-wrap: anywhere;
         }
         pre {
             font-family: __MONOSPACE_FONT_STACK__;
@@ -847,13 +850,25 @@ class ResponsiveTextBrowser(QWebEngineView):
         pre code {
             padding: 0;
             background-color: transparent;
+            overflow-wrap: normal;
+        }
+        .table-scroll {
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }
+        .table-scroll::-webkit-scrollbar { height: 10px; }
+        .table-scroll::-webkit-scrollbar-thumb {
+            background-color: __SCROLL__;
+            background-clip: padding-box;
+            border: 0px solid transparent;
+            border-top-width: 2px;
+            border-radius: 5px;
         }
         table {
             border-collapse: collapse;
             border: 1px solid __BORDER__;
             width: 100%;
-            margin-top: 0;
-            margin-bottom: 16px;
+            margin: 0;
         }
         table th {
             font-weight: 600;
@@ -1224,6 +1239,8 @@ def render_markdown_with_math(text):
     
     # Compile markdown to HTML
     html = markdown.markdown(text, extensions=['tables', 'fenced_code', 'md_in_html'])
+    # A table wider than the pane scrolls on its own, so the text around it still fits.
+    html = html.replace("<table>", '<div class="table-scroll"><table>').replace("</table>", "</table></div>")
     
     # Restore inline math
     for i, math_str in enumerate(inline_math):

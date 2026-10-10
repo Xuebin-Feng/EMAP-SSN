@@ -269,6 +269,19 @@ class HelpHeadingIconTests(unittest.TestCase):
                 self.assertEqual(shown.count('class="heading-icon"'), len(major), major)
 
 
+    def test_a_help_page_wraps_to_the_pane_and_a_wide_table_scrolls_on_its_own(self):
+        html = self.tools.render_markdown_with_math(
+            "Text.\n\n| Parameter | Description |\n|---|---|\n| `INPUT_FASTA` | A long description |\n"
+        )
+        self.assertIn('<div class="table-scroll"><table>', html)
+        self.assertIn("</table></div>", html)
+        page = self.tools.ResponsiveTextBrowser.page_html(html, None)
+        # No minimum width pushes the page past a narrow pane; long words break.
+        self.assertNotRegex(page, r"\.help-page \{[^}]*min-width")
+        self.assertRegex(page, r"\.help-page \{[^}]*overflow-wrap: break-word")
+        self.assertRegex(page, r"\.table-scroll \{\s*overflow-x: auto;")
+
+
 def page_structure(text):
     """What a help page's translation keeps of its English page.
 
