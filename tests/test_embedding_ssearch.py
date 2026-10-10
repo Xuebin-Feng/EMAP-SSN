@@ -448,6 +448,58 @@ class EmbeddingSsearchMetadataReportTests(unittest.TestCase):
         )
         self.assertIn("| 120      | 30.0   | node_gamma", report_text)
 
+    def test_text_report_and_hit_fasta_are_written_as_utf8(self):
+        # Neither header fits cp1252, the default text encoding of a Windows
+        # PC without the system-wide UTF-8 option. Text files opened without
+        # an encoding get that default here, whatever this PC uses.
+        def open_with_windows_default(file, mode="r", *args, **kwargs):
+            if "b" not in mode and len(args) < 2 and kwargs.get("encoding") is None:
+                kwargs["encoding"] = "cp1252"
+            return open(file, mode, *args, **kwargs)
+
+        header = "node_α_酶"
+        results = pd.DataFrame(
+            [
+                {
+                    "index": 2,
+                    "header": header,
+                    "raw_score": 12.0,
+                    "norm_score": 0.1,
+                    "length": 120,
+                    "seq_len": 120,
+                    "aln_len": 120,
+                    "identity": 30.0,
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                mock.patch.object(Embedding_SSEARCH, "REPORT_DIR", temp_dir),
+                mock.patch.object(Embedding_SSEARCH, "ALIGNMENT_MODE", "global"),
+                mock.patch.object(Embedding_SSEARCH, "GENERATE_FASTA", True),
+                mock.patch.object(
+                    Embedding_SSEARCH, "open", open_with_windows_default, create=True
+                ),
+                redirect_stdout(StringIO()),
+            ):
+                Embedding_SSEARCH.save_results(
+                    results,
+                    ("query_β", 100),
+                    1,
+                    {header: "MKV"},
+                    "utf8_test",
+                    "A" * 100,
+                    "alignment_length",
+                    0.0,
+                )
+            with open(os.path.join(temp_dir, "Report_utf8_test.txt"), "rb") as handle:
+                report_text = handle.read().decode("utf-8")
+            with open(os.path.join(temp_dir, "Hits_utf8_test.fasta"), "rb") as handle:
+                hits_text = handle.read().decode("utf-8").replace("\r\n", "\n")
+        self.assertIn(header, report_text)
+        self.assertIn("query_β", report_text)
+        self.assertEqual(hits_text, f">query_β\n{'A' * 100}\n>{header}\nMKV\n")
+
 
 if __name__ == "__main__":
     unittest.main()

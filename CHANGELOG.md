@@ -824,6 +824,10 @@ still change before version 1.0.0.
   saved settings when a worker process starts, so its BLASTP workers always used 1,000,000
   target sequences and composition-based statistics 2, whatever was saved. The three
   settings are now defined before that block.
+- The Embedding Database Search wrote its text report (`Report_*.txt`) and its hit FASTA
+  (`Hits_*.fasta`) in Windows' default encoding, so a header with a character outside it,
+  such as a Greek letter, stopped the search before the Excel report was written. Both
+  files are now UTF-8.
 
 ### Removed
 

@@ -1411,7 +1411,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
     os.makedirs(output_dir, exist_ok=True)
     
     report_text = "\n".join(report_lines)
-    with open(os.path.join(output_dir, f"Report_{base_filename}.txt"), "w") as f: f.write(report_text)
+    with open(os.path.join(output_dir, f"Report_{base_filename}.txt"), "w", encoding="utf-8") as f: f.write(report_text)
     
     # Generate and save Excel Report
     xlsx_path = os.path.join(output_dir, f"Report_{base_filename}.xlsx")
@@ -1459,7 +1459,7 @@ def save_results(df, query_meta, db_size, seq_lookup, base_filename, query_seq, 
     if GENERATE_FASTA:
         # OUTPUT FASTA (Ranked with query at the top)
         count = 1 
-        with open(os.path.join(output_dir, f"Hits_{base_filename}.fasta"), "w") as f:
+        with open(os.path.join(output_dir, f"Hits_{base_filename}.fasta"), "w", encoding="utf-8") as f:
             f.write(f">{q_head}\n{query_seq}\n")
             if not df.empty and seq_lookup:
                 for i, row in df.iterrows():
