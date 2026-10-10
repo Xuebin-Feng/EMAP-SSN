@@ -1783,6 +1783,14 @@ Command-line usage:
         <source>Error: Min Size must be at least 1; got {min_size}.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Error: Unrecognized cluster argument &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Usage: {syntax}</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.</source>
         <translation type="unfinished">
@@ -1880,11 +1888,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: No nodes selected.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: Multiple nodes selected. Use &apos;esmfold multi&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2092,7 +2108,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Usage: {syntax}</source>
+        <source>Error: Unrecognized hide argument &apos;{argument}&apos;. &apos;{keyword}&apos; takes no other arguments.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2104,6 +2120,10 @@ Command-line usage:
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Error: Hide accepts exactly one whitespace-free Boolean expression.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Hide</source>
@@ -2349,6 +2369,12 @@ Command-line usage:
         <source>Error: Requested positions are outside the sequence bounds.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Error: A PNG logo of %n position(s) is too large to draw; at most {limit} positions fit. Use an .svg filename, which has no such limit, or fewer positions.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Error: No aligned nodes matched the logo selection criteria.</source>
         <translation type="unfinished"></translation>
@@ -2454,15 +2480,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Unrecognized print argument &apos;{argument}&apos;. A file name is one word; the modifiers are {modifiers}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{file}&apos; ends in {extension}, but {modifier} saves an SVG file. Use &apos;{suggestion}&apos; or leave the extension off.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: {syntax} works only with {full} or {svg}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: &apos;SVG&apos; export is not compatible with &apos;transparent&apos; or &apos;full&apos;.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Maximum of 2 keywords allowed when using &apos;SVG&apos; (e.g., &apos;print [filename] svg&apos;).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2475,6 +2505,10 @@ Command-line usage:
     </message>
     <message>
         <source>Saved {format}: {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It replaced an existing file of that name.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2495,6 +2529,10 @@ Command-line usage:
     </message>
     <message>
         <source>Frequency logic did not resolve to one value per alignment position.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>other (&lt;1% each): {percent}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2556,6 +2594,20 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: {syntax} takes one number of steps; &apos;{argument}&apos; was not used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Redid %n step(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
         <source>Warning: Multiple matches found for &apos;{target}&apos;. Using &apos;{reference}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2573,6 +2625,10 @@ Command-line usage:
     </message>
     <message>
         <source>Current Reference: None</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: {syntax} takes one target; &apos;{argument}&apos; was not used. The reference is unchanged.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2674,6 +2730,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Unrecognized select save argument &apos;{argument}&apos;. A file name is one word.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Warning: No nodes are currently selected.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2705,6 +2765,10 @@ Command-line usage:
     </message>
     <message>
         <source>Error: &apos;save&apos; must come first. Use &apos;select save &lt;FILENAME&gt;&apos; to save the current selection; to save new matches, select them first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Select modes &apos;{first}&apos; and &apos;{second}&apos; conflict. Use one mode.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2828,6 +2892,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Unrecognized subcluster argument &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No subcluster groups to clear.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2839,6 +2907,10 @@ Command-line usage:
     </message>
     <message>
         <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2857,8 +2929,18 @@ Command-line usage:
         <source>Error: No edges exist within {cluster} to perform subclustering.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>Done! Found %n subcluster(s) in {cluster} via {mode}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Undid %n step(s).</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>

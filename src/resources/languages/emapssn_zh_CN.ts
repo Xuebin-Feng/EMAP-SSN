@@ -1824,15 +1824,15 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../commands/label.py" line="+1267"/>
         <location line="+447"/>
-        <location filename="../../commands/logo.py" line="+633"/>
-        <location line="+56"/>
+        <location filename="../../commands/logo.py" line="+691"/>
+        <location line="+59"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
     <message>
         <location line="+2"/>
         <location filename="../../commands/label.py" line="+140"/>
-        <location filename="../../commands/logo.py" line="+619"/>
+        <location filename="../../commands/logo.py" line="+685"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -1862,7 +1862,7 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 在 {seconds} 秒后失败（{command}）：{error}</translation>
     </message>
     <message>
-        <location filename="../../Command_Engine.py" line="+118"/>
+        <location filename="../../Command_Engine.py" line="+123"/>
         <source>Negative range bound in &apos;{text}&apos; must be written in parentheses, for example &apos;(-1)-0&apos; or &apos;(-1.5)-(-0.5)&apos;. Parentheses are required around negative values in a range.</source>
         <translation type="unfinished">“{text}”中的负数范围边界必须写在括号中，例如 &apos;(-1)-0&apos; 或 &apos;(-1.5)-(-0.5)&apos;。范围中的负值必须加括号。</translation>
     </message>
@@ -1872,7 +1872,7 @@ Command-line usage:
         <translation type="unfinished">选择文件“{file}”必须是序列标题列表文件夹中的普通文件名。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+24"/>
         <source>Selection file &apos;{file}&apos; does not exist.</source>
         <translation type="unfinished">选择文件“{file}”不存在。</translation>
     </message>
@@ -1966,7 +1966,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+15"/>
-        <location filename="../../commands/select.py" line="+240"/>
+        <location filename="../../commands/select.py" line="+272"/>
         <location line="+56"/>
         <source>Selection</source>
         <translation type="unfinished">选择</translation>
@@ -2085,19 +2085,21 @@ Command-line usage:
         <location line="+6"/>
         <location filename="../../commands/agent.py" line="+73"/>
         <location line="+121"/>
-        <location filename="../../commands/esmfold.py" line="+69"/>
+        <location filename="../../commands/esmfold.py" line="+73"/>
+        <location line="+142"/>
         <location filename="../../commands/label.py" line="-115"/>
         <location line="+20"/>
-        <location filename="../../commands/logo.py" line="-209"/>
+        <location filename="../../commands/logo.py" line="-221"/>
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
         <location filename="../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../commands/print.py" line="+732"/>
-        <location filename="../../commands/query.py" line="+550"/>
+        <location filename="../../commands/print.py" line="+710"/>
+        <location line="+51"/>
+        <location filename="../../commands/query.py" line="+583"/>
         <location filename="../../commands/reset.py" line="+114"/>
-        <location filename="../../commands/select.py" line="-180"/>
+        <location filename="../../commands/select.py" line="-194"/>
         <location filename="../../web_ui/agent_backend.py" line="+280"/>
         <location filename="../../web_ui/meta_backend.py" line="+56"/>
         <source>Error: {error}</source>
@@ -2106,21 +2108,21 @@ Command-line usage:
     <message>
         <location filename="../../commands/agent.py" line="-87"/>
         <location filename="../../commands/alignment.py" line="+49"/>
-        <location filename="../../commands/cluster.py" line="+275"/>
+        <location filename="../../commands/cluster.py" line="+286"/>
         <location filename="../../commands/color.py" line="+95"/>
-        <location filename="../../commands/esmfold.py" line="+61"/>
+        <location filename="../../commands/esmfold.py" line="-59"/>
         <location filename="../../commands/export.py" line="+103"/>
         <location filename="../../commands/group.py" line="+138"/>
         <location filename="../../commands/label.py" line="+18"/>
         <location filename="../../commands/logo.py" line="-149"/>
         <location filename="../../commands/meta.py" line="-132"/>
         <location filename="../../commands/offset.py" line="+92"/>
-        <location filename="../../commands/print.py" line="-93"/>
-        <location filename="../../commands/query.py" line="-263"/>
+        <location filename="../../commands/print.py" line="-113"/>
+        <location filename="../../commands/query.py" line="-260"/>
         <location filename="../../commands/reset.py" line="-9"/>
-        <location filename="../../commands/select.py" line="-16"/>
+        <location filename="../../commands/select.py" line="-26"/>
         <location filename="../../commands/spectrum.py" line="+181"/>
-        <location filename="../../commands/subcluster.py" line="+133"/>
+        <location filename="../../commands/subcluster.py" line="+148"/>
         <source>Help information printed to the terminal</source>
         <translation type="unfinished">帮助信息已打印到终端</translation>
     </message>
@@ -2177,7 +2179,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../commands/cluster.py" line="-159"/>
+        <location filename="../../commands/cluster.py" line="-170"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL 膨胀参数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -2196,15 +2198,20 @@ Command-line usage:
         <source>Error: Min Size must be at least 1; got {min_size}.</source>
         <translation type="unfinished">错误：最小簇大小必须至少为 1；实际为 {min_size}。</translation>
     </message>
+    <message>
+        <location line="+18"/>
+        <source>Error: Unrecognized cluster argument &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
-        <location line="+30"/>
+        <location line="+20"/>
         <source>Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.</source>
         <translation type="unfinished">
             <numerusform>错误：MCL 要求每条边的分数都是大于 0 的有限值，但有 %n 条边的分数不符合要求。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+111"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -2216,7 +2223,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+66"/>
         <source>Clustering ({mode})...</source>
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
@@ -2241,7 +2248,7 @@ Command-line usage:
     </message>
     <message>
         <location line="-138"/>
-        <location filename="../../commands/subcluster.py" line="+164"/>
+        <location filename="../../commands/subcluster.py" line="+194"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
@@ -2329,7 +2336,12 @@ Command-line usage:
         <translation type="unfinished">help 不能与其他关键字同时使用。</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+21"/>
+        <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Error: No nodes selected.</source>
         <translation type="unfinished">错误：未选择任何节点。</translation>
     </message>
@@ -2339,7 +2351,12 @@ Command-line usage:
         <translation type="unfinished">错误：选择了多个节点。请使用 &apos;esmfold multi&apos;。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+7"/>
+        <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
         <source>Error: PyTorch/Hardware_Utils missing</source>
         <translation type="unfinished">错误：缺少 PyTorch/Hardware_Utils</translation>
     </message>
@@ -2373,7 +2390,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法启动 ESMFold 终端。</translation>
     </message>
     <message numerus="yes">
-        <location line="+14"/>
+        <location line="+16"/>
         <source>Spawning separate console to fold %n structure(s) with Biohub ESM3...</source>
         <translation type="unfinished">
             <numerusform>正在打开单独的控制台，用 Biohub ESM3 折叠 %n 个结构…</numerusform>
@@ -2495,7 +2512,7 @@ Command-line usage:
     <message>
         <location filename="../../commands/group.py" line="+7"/>
         <location line="+11"/>
-        <location filename="../../commands/subcluster.py" line="-199"/>
+        <location filename="../../commands/subcluster.py" line="-224"/>
         <source>No groups are currently defined.</source>
         <translation type="unfinished">当前未定义任何分组。</translation>
     </message>
@@ -2593,19 +2610,28 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
+        <location filename="../../commands/cluster.py" line="-375"/>
         <location filename="../../commands/hide.py" line="+25"/>
         <location filename="../../commands/meta.py" line="+10"/>
-        <location filename="../../commands/redo.py" line="+22"/>
+        <location filename="../../commands/redo.py" line="+48"/>
+        <location line="+15"/>
         <location filename="../../commands/reference.py" line="+84"/>
         <location filename="../../commands/run.py" line="-41"/>
         <location filename="../../commands/save.py" line="+31"/>
-        <location filename="../../commands/undo.py" line="+22"/>
+        <location filename="../../commands/subcluster.py" line="-82"/>
+        <location filename="../../commands/undo.py" line="+48"/>
+        <location line="+16"/>
         <location filename="../../commands/zoom.py" line="+87"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location filename="../../commands/hide.py" line="+19"/>
+        <source>Error: Unrecognized hide argument &apos;{argument}&apos;. &apos;{keyword}&apos; takes no other arguments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+37"/>
         <source>No single/free nodes found to hide at the current edge threshold.</source>
         <translation type="unfinished">在当前边阈值下，没有可隐藏的孤立节点。</translation>
     </message>
@@ -2617,7 +2643,12 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+12"/>
+        <source>Error: Hide accepts exactly one whitespace-free Boolean expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>Hide</source>
         <translation type="unfinished">隐藏</translation>
     </message>
@@ -2790,7 +2821,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/logo.py" line="-814"/>
+        <location filename="../../commands/logo.py" line="-911"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -2810,7 +2841,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+428"/>
+        <location line="+471"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -2825,11 +2856,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+66"/>
+        <location filename="../../commands/print.py" line="+64"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+111"/>
         <source>Invalid insertion position &apos;{value}&apos;; the fractional suffix must be positive.</source>
         <translation type="unfinished">无效的插入位置“{value}”：小数后缀必须为正数。</translation>
     </message>
@@ -2858,7 +2890,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+139"/>
+        <location line="+148"/>
         <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
         <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或使用 red 或 #ff0000 这样的颜色。</translation>
     </message>
@@ -2884,7 +2916,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+9"/>
-        <location filename="../../commands/select.py" line="+138"/>
+        <location filename="../../commands/select.py" line="+162"/>
         <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished">“{expression}”不是布尔选择表达式。</translation>
     </message>
@@ -2925,8 +2957,15 @@ Command-line usage:
         <source>Error: Requested positions are outside the sequence bounds.</source>
         <translation type="unfinished">错误：请求的位置超出序列范围。</translation>
     </message>
+    <message numerus="yes">
+        <location line="+8"/>
+        <source>Error: A PNG logo of %n position(s) is too large to draw; at most {limit} positions fit. Use an .svg filename, which has no such limit, or fewer positions.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+13"/>
+        <location line="+17"/>
         <source>Error: No aligned nodes matched the logo selection criteria.</source>
         <translation type="unfinished">错误：没有已比对的节点符合序列标识图的选择条件。</translation>
     </message>
@@ -3028,7 +3067,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../commands/print.py" line="-78"/>
+        <location filename="../../commands/print.py" line="-142"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3053,7 +3092,17 @@ Command-line usage:
         <translation type="unfinished">错误：未知的选项“{option}”。修饰词不带短横线：transparent、full 或 svg。</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+12"/>
+        <source>Error: Unrecognized print argument &apos;{argument}&apos;. A file name is one word; the modifiers are {modifiers}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Error: &apos;{file}&apos; ends in {extension}, but {modifier} saves an SVG file. Use &apos;{suggestion}&apos; or leave the extension off.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Error: {syntax} works only with {full} or {svg}.</source>
         <translation type="unfinished">错误：{syntax} 只能与 {full} 或 {svg} 一起使用。</translation>
     </message>
@@ -3063,12 +3112,11 @@ Command-line usage:
         <translation type="unfinished">错误：&apos;SVG&apos; 导出不能与 &apos;transparent&apos; 或 &apos;full&apos; 同时使用。</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>Error: Maximum of 2 keywords allowed when using &apos;SVG&apos; (e.g., &apos;print [filename] svg&apos;).</source>
-        <translation type="unfinished">错误：使用 &apos;SVG&apos; 时最多只能有 2 个关键字（例如 &apos;print [filename] svg&apos;）。</translation>
+        <translation type="obsolete">错误：使用 &apos;SVG&apos; 时最多只能有 2 个关键字（例如 &apos;print [filename] svg&apos;）。</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+56"/>
         <location line="+11"/>
         <location line="+115"/>
         <source>Error: No visible nodes to export.</source>
@@ -3085,7 +3133,12 @@ Command-line usage:
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+3"/>
+        <source>It replaced an existing file of that name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
     </message>
@@ -3095,7 +3148,7 @@ Command-line usage:
         <translation type="unfinished">保存 {format} 出错。请查看终端。</translation>
     </message>
     <message>
-        <location filename="../../commands/query.py" line="-435"/>
+        <location filename="../../commands/query.py" line="-471"/>
         <source>Invalid frequency Boolean expression. Ensure operators and parentheses are complete.</source>
         <translation type="unfinished">无效的频率布尔表达式。请确保运算符和括号完整。</translation>
     </message>
@@ -3110,7 +3163,12 @@ Command-line usage:
         <translation type="unfinished">频率逻辑没有为每个比对位置得出一个值。</translation>
     </message>
     <message>
-        <location line="+171"/>
+        <location line="+115"/>
+        <source>other (&lt;1% each): {percent}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+92"/>
         <source>Error: Query command requires a POSITIONS or LOGIC_ARGUMENT parameter.</source>
         <translation type="unfinished">错误：query 命令需要 POSITIONS 或 LOGIC_ARGUMENT 参数。</translation>
     </message>
@@ -3135,7 +3193,7 @@ Command-line usage:
         <translation type="unfinished">查询</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+14"/>
         <source>No sequences matched the expression &apos;{expression}&apos;. Aborting query.</source>
         <translation type="unfinished">没有序列符合表达式“{expression}”，已中止查询。</translation>
     </message>
@@ -3147,7 +3205,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+63"/>
         <source>No valid alignment columns mapped.</source>
         <translation type="unfinished">没有映射到有效的比对列。</translation>
     </message>
@@ -3162,14 +3220,14 @@ Command-line usage:
         <translation type="unfinished">解析位置逻辑“[{logic}]”出错：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+34"/>
+        <location line="+25"/>
         <source>Found %n matching position(s). Check terminal.</source>
         <translation type="unfinished">
             <numerusform>找到 %n 个匹配的位置。请查看终端。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+64"/>
+        <location line="+55"/>
         <source>Queried %n position(s). Check terminal.</source>
         <translation type="unfinished">
             <numerusform>已查询 %n 个位置。请查看终端。</numerusform>
@@ -3206,7 +3264,12 @@ Command-line usage:
         <translation type="unfinished">当前参考序列：无</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+32"/>
+        <source>Error: {syntax} takes one target; &apos;{argument}&apos; was not used. The reference is unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
         <source>Reloading alignment with new reference: {reference}...</source>
         <translation type="unfinished">正在用新的参考序列重新加载比对：{reference}…</translation>
     </message>
@@ -3321,14 +3384,14 @@ Command-line usage:
         <translation type="unfinished">保存布局状态出错：{error}</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../commands/select.py" line="-212"/>
+        <location filename="../../commands/select.py" line="-239"/>
         <source>%n node(s)</source>
         <translation type="unfinished">
             <numerusform>%n 个节点</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+67"/>
         <source>Error: Select command requires an expression or invert/save action.</source>
         <translation type="unfinished">错误：select 命令需要一个表达式，或 invert/save 操作。</translation>
     </message>
@@ -3338,7 +3401,12 @@ Command-line usage:
         <translation type="unfinished">错误：请提供要保存的文件名（例如 &apos;select save top_nodes.txt&apos; 或 &apos;my_seqs.fasta&apos;）。</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+7"/>
+        <source>Error: Unrecognized select save argument &apos;{argument}&apos;. A file name is one word.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+33"/>
         <source>Warning: No nodes are currently selected.</source>
         <translation type="unfinished">警告：当前未选择任何节点。</translation>
     </message>
@@ -3380,6 +3448,11 @@ Command-line usage:
     </message>
     <message>
         <location line="+28"/>
+        <source>Error: Select modes &apos;{first}&apos; and &apos;{second}&apos; conflict. Use one mode.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Error: Select accepts exactly one whitespace-free Boolean expression.</source>
         <translation type="unfinished">错误：select 只接受一个不含空白的布尔表达式。</translation>
     </message>
@@ -3523,12 +3596,17 @@ Command-line usage:
         <translation type="unfinished">警告：所选节点的“{property}”中没有有效的数值。</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+48"/>
         <source>(min: {min}, max: {max})</source>
         <translation type="unfinished">（最小值：{min}，最大值：{max}）</translation>
     </message>
     <message>
-        <location filename="../../commands/subcluster.py" line="+13"/>
+        <location filename="../../commands/subcluster.py" line="-1"/>
+        <source>Error: Unrecognized subcluster argument &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+96"/>
         <source>No subcluster groups to clear.</source>
         <translation type="unfinished">没有要清除的子簇分组。</translation>
     </message>
@@ -3545,6 +3623,11 @@ Command-line usage:
         <translation type="unfinished">错误：第一个参数必须是 &apos;clear&apos; 或形如 &apos;cluster_N&apos; 的簇名称（实际为“{argument}”）。</translation>
     </message>
     <message>
+        <location line="+13"/>
+        <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+11"/>
         <source>Error: No clusters are currently defined. Run &apos;cluster&apos; first.</source>
         <translation type="unfinished">错误：当前未定义任何簇。请先运行 &apos;cluster&apos;。</translation>
@@ -3555,7 +3638,7 @@ Command-line usage:
         <translation type="unfinished">错误：簇 {cluster} 为空或不存在。</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+67"/>
         <source>Subclustering {cluster} ({mode})...</source>
         <translation type="unfinished">正在对 {cluster} 进行子聚类（{mode}）…</translation>
     </message>
@@ -3564,8 +3647,13 @@ Command-line usage:
         <source>Error: No edges exist within {cluster} to perform subclustering.</source>
         <translation type="unfinished">错误：{cluster} 内部没有边，无法进行子聚类。</translation>
     </message>
+    <message>
+        <location line="+105"/>
+        <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
-        <location line="+167"/>
+        <location line="+77"/>
         <source>Done! Found %n subcluster(s) in {cluster} via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 在 {cluster} 中找到 %n 个子簇。</numerusform>
@@ -3722,12 +3810,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="+965"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="+971"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+656"/>
+        <location line="+665"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -4235,7 +4323,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">LLM 智能体已停用。已卸载：{model}（{backend}）</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+68"/>
         <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
         <translation type="unfinished">模型请求失败（HTTP {code}）：{response}。带图片的消息需要支持视觉的模型或服务商。</translation>
     </message>
@@ -5348,7 +5436,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Leiden 聚类失败：{error}</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+28"/>
         <source>Leiden resolution must be a finite number; got {resolution}.</source>
         <translation type="unfinished">Leiden 分辨率必须是有限数；实际为 {resolution}。</translation>
     </message>
@@ -5492,6 +5580,32 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+15"/>
         <source>Error loading FASTA into memory: {error}</source>
         <translation type="unfinished">将 FASTA 加载到内存时出错：{error}</translation>
+    </message>
+    <message>
+        <location filename="../../commands/redo.py" line="-31"/>
+        <location filename="../../commands/undo.py" line="-32"/>
+        <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <location filename="../../commands/undo.py" line="+5"/>
+        <source>Error: {syntax} takes one number of steps; &apos;{argument}&apos; was not used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+35"/>
+        <source>Redid %n step(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../../commands/undo.py" line="+36"/>
+        <source>Undid %n step(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -7665,7 +7779,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../commands/esmfold.py" line="-92"/>
+        <location filename="../../commands/esmfold.py" line="-94"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>
@@ -7707,12 +7821,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="-2216"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="-2225"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+1159"/>
+        <location line="+1168"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
