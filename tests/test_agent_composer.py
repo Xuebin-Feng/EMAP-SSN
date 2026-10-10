@@ -181,6 +181,22 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(self.js('pendingAttachments.length'), 0)
         self.assertEqual(self.js("document.querySelectorAll('#chat-log img').length"), 0)
 
+    def test_a_turn_dropped_with_its_model_stops_the_spinner_and_returns_the_draft(self):
+        # The event is the one agent_backend sends when the model is switched
+        # or turned off during a turn, whether from this page or the console.
+        self.js("document.getElementById('chat-input-field').value = 'select cluster 1'; sendAgentQuery()")
+        self.wait_for('pendingSubmission !== null')
+        self.js("handleServerEvent({type:'agent_accepted',submission_id:pendingSubmission.submission_id}); handleServerEvent({type:'agent_thinking',model_name:'Test vision model',submission_id:pendingSubmission.submission_id})")
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') !== null"))
+        self.assertEqual(self.js("document.getElementById('chat-input-field').value"), '')
+
+        self.js("handleServerEvent({type:'agent_error',submission_id:pendingSubmission.submission_id,error:'The agent turn was stopped because the model was changed or switched off.'}); handleServerEvent({type:'backend_state',llm_loaded:true,llm_model_name:'Other model'})")
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') === null"))
+        self.assertTrue(self.js('pendingSubmission === null'))
+        self.assertEqual(self.js("document.getElementById('chat-input-field').value"), 'select cluster 1')
+        self.assertIn('stopped', self.js("document.querySelector('#chat-log .msg-error').textContent"))
+        self.assertFalse(self.js("document.getElementById('chat-send-btn').disabled"))
+
     def test_limits_clear_during_processing_and_layout(self):
         self.js(f'addImageFiles(Array.from({{length:11}},()=>{self.file_expression()}))')
         self.wait_for('pendingAttachments.length === 10 && pendingAttachments.every(i=>!i.processing)')

@@ -27,6 +27,7 @@ from web_ui.agent_backend import (
     activate_agent,
     deactivate_agent,
     run_web_agent_query,
+    broadcast_backend_state,
     register,
     call_api,
 )
@@ -74,6 +75,23 @@ def _load_saved_cards(viewer):
         Command_Engine.command_failed(viewer, message)
         return None
 
+def _open_agent_page(viewer):
+    """Open the Agent page; return whether it opened.
+
+    A command run for the MCP or the agent page cannot wait for someone to
+    close the dialog that says the page is already open.
+    """
+    from Viewer_Command_Portal import CURRENT
+    if CURRENT.get() is None:
+        return viewer.open_agent_ui()
+    return viewer.open_agent_ui(show_existing_dialog=False)
+
+
+def _agent_page_connected(viewer):
+    has_event_client = getattr(getattr(viewer, "web_server", None), "has_event_client", None)
+    return bool(callable(has_event_client) and has_event_client("agent"))
+
+
 def run(viewer, args):
     """Called by EMAPSSN_Viewer at startup (--register-only) and when user types 'agent'."""
     register(viewer)
@@ -82,8 +100,8 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, 'Registered the Agent interface.')
         return
 
-    # Help check
-    if args and args[0].lower() in ['help', '-h', '--help']:
+    # Help check: a message may start with the word "help"
+    if len(args) == 1 and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
@@ -92,16 +110,23 @@ def run(viewer, args):
 
     # 1. Calling 'agent' alone: Open browser UI (current behavior)
     if not args:
-        viewer.open_agent_ui()
-        Command_Engine.command_succeeded(viewer, "Opened the Agent interface; no model request was started.")
+        if _open_agent_page(viewer):
+            Command_Engine.command_succeeded(viewer, "Opened the Agent interface; no model request was started.")
+        elif _agent_page_connected(viewer):
+            Command_Engine.command_succeeded(viewer, "The Agent interface is already open; no model request was started.")
+        else:
+            Command_Engine.command_failed(viewer, "The Agent interface was not opened; the Viewer's console line says why.")
         return
 
     full_arg = " ".join(args).strip()
 
     # 2. Deactivate check
     if full_arg.lower() in ["off", "deactivate"]:
-        deactivate_agent(viewer)
-        Command_Engine.command_succeeded(viewer, 'Agent deactivated.')
+        if deactivate_agent(viewer):
+            broadcast_backend_state(viewer)
+            Command_Engine.command_succeeded(viewer, 'Agent deactivated.')
+        else:
+            Command_Engine.command_succeeded(viewer, 'Agent is already inactive.')
         return
 
     # Helper to check if a string matches any loaded model card custom name
@@ -125,6 +150,7 @@ def run(viewer, args):
             if not activate_agent_from_card(viewer, card):
                 Command_Engine.command_failed(viewer, "Agent backend activation failed")
             else:
+                broadcast_backend_state(viewer)
                 Command_Engine.command_succeeded(viewer, f"Activated Agent model {model_custom_name!r}.")
         else:
             available_names = ", ".join([f"<{c.get('name')}>" for c in cards if c.get("name")])
@@ -151,7 +177,10 @@ def run(viewer, args):
         if cards is None:
             return
         if cards:
-            activate_agent_from_card(viewer, cards[0], quiet=True)
+            if not activate_agent_from_card(viewer, cards[0], quiet=True):
+                Command_Engine.command_failed(viewer, "Agent backend activation failed")
+                return
+            broadcast_backend_state(viewer)
         else:
             message = Message("Error: LLM agent is not loaded. Please configure a model in the Agent UI first.")
             Command_Engine.print_help(viewer, message)
@@ -159,5 +188,11 @@ def run(viewer, args):
             return
 
     # Forward the message to the agent backend
-    run_web_agent_query(viewer, message)
+    rejections = []
+    if not run_web_agent_query(viewer, message, on_rejected=rejections.append):
+        reason = rejections[0] if rejections else Message("The Agent backend did not accept the message.")
+        failure = Message("Error: {error}", error=reason)
+        Command_Engine.print_help(viewer, failure)
+        Command_Engine.command_failed(viewer, failure)
+        return
     Command_Engine.command_succeeded(viewer, 'Submitted the message to the Agent backend.')

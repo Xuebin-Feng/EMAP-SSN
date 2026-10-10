@@ -206,15 +206,25 @@ def detect_running_servers():
 # ─── Activation / deactivation ────────────────────────────────────────────────
 
 def activate_agent_from_card(viewer, card, quiet=False):
-    """Activates the LLM agent using a model card dict."""
-    deactivate_agent(viewer, quiet=True)
+    """Activates the LLM agent using a model card dict.
 
+    A card that cannot be used is refused before the active model, if any,
+    is unloaded, so a refused card leaves that model as it was.
+    """
     url         = (card.get("url") or "").strip().rstrip("/")
     model       = (card.get("model") or "").strip() or "default"
     api_key     = card.get("api_key") or None
-    temperature = float(card.get("temperature") or 0.0)
     name        = card.get("name", "Model")
     options     = card.get("options") or None
+
+    try:
+        temperature = float(card.get("temperature") or 0.0)
+    except (TypeError, ValueError):
+        Command_Engine.print_help(viewer, Message(
+            "Error: Model card '{card}' has an invalid temperature ({temperature}). Open ⚙ Models to edit it.",
+            card=name, temperature=card.get("temperature"),
+        ))
+        return False
 
     if not url:
         Command_Engine.print_help(viewer, Message(
@@ -247,6 +257,8 @@ def activate_agent_from_card(viewer, card, quiet=False):
                             model = detected
         except Exception:
             pass
+
+    deactivate_agent(viewer, quiet=True)
 
     viewer.llm_backend     = "server"
     viewer.llm_url         = url
@@ -308,15 +320,24 @@ def activate_agent(viewer, force_backend=None, quiet=False):
         return False
 
 def deactivate_agent(viewer, quiet=False):
-    """Deactivates the LLM agent and frees memory."""
-    _invalidate_agent_turn(viewer)
+    """Deactivates the LLM agent and frees memory.
+
+    Returns True when a model was unloaded, and False when none was loaded.
+    A turn still running is dropped, and the Agent page is told so, since
+    its spinner waits for the turn's reply.
+    """
+    turn = _invalidate_agent_turn(viewer)
+    if turn is not None:
+        _agent_event(viewer, {'type': 'agent_error', 'error': display_text(Message(
+            'The agent turn was stopped because the model was changed or switched off.'
+        ))}, turn)
     if hasattr(viewer, "llm_history"):
         viewer.llm_history = []
 
     if not getattr(viewer, "llm_loaded", False):
         if not quiet:
             Command_Engine.print_help(viewer, Message("Agent is already inactive."))
-        return
+        return False
 
     backend    = getattr(viewer, "llm_backend", None)
     model_name = getattr(viewer, "llm_model_name", "Unknown")
@@ -332,6 +353,7 @@ def deactivate_agent(viewer, quiet=False):
         Command_Engine.print_help(viewer, Message(
             "LLM Agent Deactivated. Unloaded: {model} ({backend})", model=model_name, backend=backend
         ))
+    return True
 
 # ─── API call ────────────────────────────────────────────────────────────────
 
@@ -487,6 +509,7 @@ def get_viewer_session_context(viewer):
 
 
 def _invalidate_agent_turn(viewer):
+    """Drop the running turn; return it, or None when no turn was running."""
     # A command the abandoned turn left waiting for approval would otherwise
     # hold the Viewer's command queue.
     request_id = getattr(viewer, '_agent_request_id', None)
@@ -496,9 +519,12 @@ def _invalidate_agent_turn(viewer):
             portal.discard_pending(request_id)
         except ValueError:  # Evicted from the portal's history.
             pass
+    turn = getattr(viewer, '_agent_turn', None) if getattr(viewer, '_agent_busy', False) else None
     viewer._agent_generation = getattr(viewer, '_agent_generation', 0) + 1
     viewer._agent_busy = False
     viewer._agent_request_id = None
+    viewer._agent_turn = None
+    return turn
 
 
 def _retain_worker(viewer, worker):
@@ -551,53 +577,57 @@ def _agent_event(viewer, event, turn=None):
     viewer.broadcast_event(event)
 
 
-def run_web_agent_query(viewer, query, attachments=None, submission_id=None):
+def _reject_turn(viewer, error, turn, on_rejected):
+    """Tell the Agent page, and on_rejected when given, why a turn was not accepted."""
+    _agent_event(viewer, {'type': 'agent_error', 'error': display_text(error)}, turn)
+    if on_rejected is not None:
+        on_rejected(error)
+    return False
+
+
+def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, on_rejected=None):
+    """Start a turn for query; return whether it was accepted.
+
+    A turn that is not accepted is reported to the Agent page, as an
+    agent_error event, and to on_rejected, a function that takes the reason
+    as a Message or an error raised with one. A repeated submission_id
+    answers again with the outcome its first submission had.
+    """
     if submission_id is not None and (not isinstance(submission_id, str) or len(submission_id) > 100):
-        viewer.broadcast_event({'type': 'agent_error', 'error': display_text(Message('Invalid submission ID.'))})
-        return
+        return _reject_turn(viewer, Message('Invalid submission ID.'), None, on_rejected)
     previous = getattr(viewer, '_agent_submissions', {}).get(submission_id)
     if previous:
         viewer.broadcast_event(previous)
-        return
+        return previous.get('type') != 'agent_error'
     turn = {'submission_id': submission_id, 'attachments': []}
     if getattr(viewer, '_agent_busy', False):
-        _agent_event(viewer, {'type': 'agent_error', 'error': display_text(Message(
-            'This Viewer already has an active agent turn.'
-        ))}, turn)
-        return
+        return _reject_turn(viewer, Message('This Viewer already has an active agent turn.'), turn, on_rejected)
 
     if not getattr(viewer, "llm_loaded", False):
-        _agent_event(viewer, {"type": "agent_error", "error": display_text(Message(
+        return _reject_turn(viewer, Message(
             "LLM is not loaded. Select a model and activate it in the Agent UI."
-        ))}, turn)
-        return
+        ), turn, on_rejected)
 
     try:
         turn['attachments'] = validate_attachments(attachments)
         if not isinstance(query, str) or (not query.strip() and not turn['attachments']):
             raise ValueError(Message('Enter a message or attach an image.'))
     except ValueError as error:
-        _agent_event(viewer, {'type': 'agent_error', 'error': display_text(error)}, turn)
-        return
+        return _reject_turn(viewer, error, turn, on_rejected)
 
     prompt_path = os.path.join(_SRC_DIR, "resources", "agent", "system_prompt.md")
     if not os.path.exists(prompt_path):
-        _agent_event(viewer, {"type": "agent_error", "error": display_text(Message(
-            "System prompt file missing at {path}", path=prompt_path
-        ))}, turn)
-        return
+        return _reject_turn(viewer, Message("System prompt file missing at {path}", path=prompt_path), turn, on_rejected)
 
     try:
         with open(prompt_path, "r", encoding="utf-8") as f:
             system_prompt = f.read()
     except Exception as e:
-        _agent_event(viewer, {"type": "agent_error", "error": display_text(Message(
-            "Could not read prompt file: {error}", error=e
-        ))}, turn)
-        return
+        return _reject_turn(viewer, Message("Could not read prompt file: {error}", error=e), turn, on_rejected)
 
     system_prompt += get_viewer_session_context(viewer)
     viewer._agent_busy = True
+    viewer._agent_turn = turn
     generation = getattr(viewer, "_agent_generation", 0)
 
     model_name = getattr(viewer, "llm_model_name", "LLM")
@@ -619,6 +649,7 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None):
     viewer._web_agent_worker.finished.connect(lambda res, reasoning, tokens, err: on_web_worker_finished(viewer, query, res, reasoning, tokens, err, generation, turn))
     _agent_event(viewer, {'type': 'agent_accepted', 'query': query, 'attachments': turn['attachments']}, turn)
     viewer._web_agent_worker.start()
+    return True
 
 # ─── Response handling ────────────────────────────────────────────────────────
 
@@ -628,6 +659,7 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
     if error_msg:
         viewer._agent_busy = False
         _agent_event(viewer, {"type": "agent_error", "error": display_text(error_msg)}, turn)
+        print(f"Agent error: {error_msg}")
         return
 
     cmd_lines         = []
@@ -663,6 +695,7 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
         except ValueError as error:
             viewer._agent_busy = False
             _agent_event(viewer, {'type': 'agent_error', 'error': display_text(error)}, turn)
+            print(f"Agent error: {error}")
             return
         request_id = request['request_id']
         viewer._agent_request_id = request_id
@@ -773,6 +806,8 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
             combined_reasoning = (original_reasoning + "\n\n[Analysis Thought]\n" + refinement_reasoning).strip() if original_reasoning else refinement_reasoning
 
         save_and_broadcast_agent_response(viewer, query, final_explanation, commands, terminal_output, combined_tokens_json, combined_reasoning, turn=turn)
+        if err:
+            print(f"Agent error: result analysis failed: {err}")
 
     viewer._refinement_worker.finished.connect(on_refinement_finished)
     viewer._refinement_worker.start()
@@ -782,6 +817,21 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
 def handle_agent_query(viewer, data):
     query = data.get("query", "")
     run_web_agent_query(viewer, query, data.get('attachments'), data.get('submission_id'))
+
+def broadcast_backend_state(viewer, error=None):
+    """Tell the Agent page which model is loaded, as set_backend answers it.
+
+    error, a Message, says why the model the page asked for is not the one loaded.
+    """
+    event = {
+        "type": "backend_state",
+        "llm_loaded": getattr(viewer, 'llm_loaded', False),
+        "llm_backend": getattr(viewer, 'llm_backend', None),
+        "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown")
+    }
+    if error:
+        event["error"] = display_text(error)
+    viewer.broadcast_event(event)
 
 def handle_set_backend(viewer, data):
     """Activate the saved model card data["card_id"] names; no id deactivates.
@@ -812,15 +862,7 @@ def handle_set_backend(viewer, data):
         else:
             activate_agent_from_card(viewer, card, quiet=True)
 
-    event = {
-        "type": "backend_state",
-        "llm_loaded": getattr(viewer, 'llm_loaded', False),
-        "llm_backend": getattr(viewer, 'llm_backend', None),
-        "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown")
-    }
-    if error:
-        event["error"] = display_text(error)
-    viewer.broadcast_event(event)
+    broadcast_backend_state(viewer, error)
 
 def handle_save_model_cards(viewer, data):
     """Save the Agent page's cards and tell the page whether they were saved."""

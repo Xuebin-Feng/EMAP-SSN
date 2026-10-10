@@ -279,5 +279,180 @@ class ESMFoldCommandTests(unittest.TestCase):
         self.assertEqual(viewer.console_text.text, "Error: Viewer web server unavailable.")
 
 
+    # --- What the command reports -------------------------------------------
+
+    def run_reporting(self, viewer, arguments, *, launch=None, opened=True):
+        """Run the command with the worker and the page stubbed; return (succeeded, failed, launch)."""
+        engine = esmfold_command.Command_Engine
+        with tempfile.TemporaryDirectory() as structures_dir:
+            with (
+                mock.patch.object(esmfold_command.esmfold_backend, "get_structures_directory", return_value=structures_dir),
+                mock.patch.object(esmfold_command, "launch_in_terminal", **({"side_effect": launch} if launch else {})) as launch_mock,
+                mock.patch.object(esmfold_command.esmfold_backend, "register"),
+                mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui", return_value=opened),
+                mock.patch.object(engine, "command_succeeded") as succeeded,
+                mock.patch.object(engine, "command_failed") as failed,
+                mock.patch.object(esmfold_command.QMessageBox, "critical"),
+                redirect_stdout(io.StringIO()),
+            ):
+                try:
+                    esmfold_command.run(viewer, arguments)
+                finally:
+                    self.remove_worker_input(launch_mock)
+        return succeeded, failed, launch_mock
+
+    def test_nodes_without_a_sequence_are_named_in_the_outcome(self):
+        viewer = self.make_viewer(3)
+        del viewer.sequences_map["node_1 description"]
+        succeeded, failed, _ = self.run_reporting(viewer, ["large", "multi"])
+
+        failed.assert_not_called()
+        [(_, message)] = [call.args for call in succeeded.call_args_list]
+        self.assertEqual(
+            message,
+            "Started Biohub ESM3 folding for 2 structure(s); waiting for the worker. "
+            "Skipped 1 selected node without a sequence. (node_1)",
+        )
+        self.assertEqual(
+            viewer.console_text.text,
+            "Spawning separate console to fold 2 structures with Biohub ESM3... "
+            "Skipped 1 selected node without a sequence.",
+        )
+
+    def test_many_skipped_nodes_are_counted_without_listing_them(self):
+        viewer = self.make_viewer(9)
+        for index in range(1, 9):
+            del viewer.sequences_map[f"node_{index} description"]
+        succeeded, _, _ = self.run_reporting(viewer, ["multi", "large"])
+
+        [(_, message)] = [call.args for call in succeeded.call_args_list]
+        self.assertTrue(message.endswith("Skipped 8 selected nodes without a sequence."), message)
+        self.assertNotIn("node_1", message)
+
+    def test_a_run_that_skips_nothing_reports_as_before(self):
+        viewer = self.make_viewer(2)
+        succeeded, failed, _ = self.run_reporting(viewer, ["large", "multi"])
+
+        failed.assert_not_called()
+        self.assertEqual(
+            succeeded.call_args.args[1],
+            "Started Biohub ESM3 folding for 2 structure(s); waiting for the worker.",
+        )
+        self.assertEqual(
+            viewer.console_text.text,
+            "Spawning separate console to fold 2 structures with Biohub ESM3...",
+        )
+
+    def test_an_unopened_page_is_mentioned_after_the_job_started(self):
+        viewer = self.make_viewer(1)
+        viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: False)
+        succeeded, _, launch = self.run_reporting(viewer, ["large"], opened=False)
+        launch.assert_called_once()
+        self.assertIn("The structure viewer page was not opened", succeeded.call_args.args[1])
+
+        # A page that is already open needs no remark.
+        viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: client_id == "esmfold")
+        succeeded, _, _ = self.run_reporting(viewer, ["large"], opened=False)
+        self.assertNotIn("not opened", succeeded.call_args.args[1])
+
+    def test_each_failure_is_reported_once(self):
+        def selected(count, sequences=True):
+            viewer = self.make_viewer(count)
+            if not sequences:
+                viewer.sequences_map.clear()
+            return viewer
+
+        def refused_launch(command, **options):
+            raise OSError("no terminal")
+
+        cases = {
+            "no node": (self.make_viewer(), ["multi"], None, "No nodes selected"),
+            "several nodes": (selected(2), [], None, "Multiple nodes selected"),
+            "no sequence": (selected(1, sequences=False), ["large"], None, "Could not retrieve sequences"),
+            "terminal": (selected(1), ["large"], refused_launch, "no terminal"),
+        }
+        for label, (viewer, arguments, launch, text) in cases.items():
+            with self.subTest(label):
+                succeeded, failed, _ = self.run_reporting(viewer, arguments, launch=launch)
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                self.assertIn(text, failed.call_args.args[1])
+                # The console line shows its own, shorter sentence.
+                self.assertTrue(viewer.console_text.text.startswith("Error:"), viewer.console_text.text)
+
+    def test_the_worker_input_is_removed_when_no_worker_started(self):
+        for label, failure in (("terminal unavailable", OSError("no terminal")), ("unexpected", RuntimeError("boom"))):
+            with self.subTest(label):
+                created = []
+
+                def launch(command, **options):
+                    created.append(command[2])
+                    self.assertTrue(os.path.exists(command[2]))
+                    raise failure
+
+                viewer = self.make_viewer(1)
+                if isinstance(failure, RuntimeError):
+                    with self.assertRaises(RuntimeError):
+                        self.run_reporting(viewer, ["large"], launch=launch)
+                else:
+                    self.run_reporting(viewer, ["large"], launch=launch)
+                [path] = created
+                self.assertFalse(os.path.exists(path))
+
+    def test_the_duplicate_keyword_error_reaches_the_console_as_a_message(self):
+        viewer = self.make_viewer(1)
+        shown = []
+        with (
+            mock.patch.object(esmfold_command.Command_Engine, "show_status", side_effect=lambda v, message: shown.append(message)),
+            redirect_stdout(io.StringIO()),
+        ):
+            esmfold_command.run(viewer, ["large", "large"])
+        [message] = shown
+        self.assertEqual(str(message), "Error: Duplicate esmfold keyword: large")
+        self.assertIsInstance(message.values["error"], esmfold_command.Message)
+
+    # --- Opening the page --------------------------------------------------
+
+    def open_page(self, opened, connected=False):
+        viewer = self.make_viewer()
+        viewer.web_server = SimpleNamespace(
+            has_event_client=lambda client_id: connected and client_id == "esmfold"
+        )
+        engine = esmfold_command.Command_Engine
+        with (
+            mock.patch.object(esmfold_command.esmfold_backend, "register"),
+            mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui", return_value=opened) as open_ui,
+            mock.patch.object(engine, "command_succeeded") as succeeded,
+            mock.patch.object(engine, "command_failed") as failed,
+        ):
+            esmfold_command.run(viewer, [])
+        return open_ui, succeeded, failed
+
+    def test_the_page_is_reported_opened_only_when_it_opened(self):
+        _, succeeded, failed = self.open_page(True)
+        self.assertIn("Opened the structure viewer", succeeded.call_args.args[1])
+        failed.assert_not_called()
+
+        _, succeeded, failed = self.open_page(False, connected=True)
+        self.assertIn("already open", succeeded.call_args.args[1])
+        self.assertNotIn("Opened", succeeded.call_args.args[1])
+        failed.assert_not_called()
+
+        _, succeeded, failed = self.open_page(False)
+        succeeded.assert_not_called()
+        self.assertIn("was not opened", failed.call_args.args[1])
+
+    def test_a_portal_command_never_waits_on_an_already_open_dialog(self):
+        from Viewer_Command_Portal import CURRENT
+
+        open_ui, _, _ = self.open_page(False, connected=True)
+        open_ui.assert_called_once_with(mock.ANY)
+
+        token = CURRENT.set(object())
+        self.addCleanup(CURRENT.reset, token)
+        open_ui, _, _ = self.open_page(False, connected=True)
+        open_ui.assert_called_once_with(mock.ANY, show_existing_dialog=False)
+
+
 if __name__ == "__main__":
     unittest.main()

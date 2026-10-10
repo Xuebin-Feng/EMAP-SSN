@@ -373,3 +373,364 @@ class AgentCommandApprovalTests(unittest.TestCase):
         viewer._agent_request_id = 'r2'
         agent.deactivate_agent(viewer, quiet=True)
         self.assertIsNone(viewer._agent_request_id)
+
+
+class TurnAcceptanceTests(unittest.TestCase):
+    """run_web_agent_query says whether it accepted the turn, and why not."""
+
+    @staticmethod
+    def viewer(**attributes):
+        viewer = SimpleNamespace(events=[], **{'llm_loaded': True, 'llm_backend': 'server', 'llm_model_name': 'm', **attributes})
+        viewer.broadcast_event = viewer.events.append
+        return viewer
+
+    def submit(self, viewer, query, **options):
+        reasons = []
+        accepted = agent.run_web_agent_query(viewer, query, on_rejected=reasons.append, **options)
+        return accepted, reasons
+
+    def test_a_turn_that_is_not_accepted_returns_false_with_its_reason(self):
+        for label, query, setup, reason in (
+            ('busy', 'hello', {'_agent_busy': True}, 'already has an active agent turn'),
+            ('not loaded', 'hello', {'llm_loaded': False}, 'LLM is not loaded'),
+            ('empty', '', {}, 'Enter a message'),
+            ('blank', '  ', {}, 'Enter a message'),
+        ):
+            with self.subTest(label):
+                viewer = self.viewer(**setup)
+                accepted, reasons = self.submit(viewer, query)
+                self.assertIs(accepted, False)
+                self.assertIn(reason, str(reasons[0]))
+                # The Agent page is told as before.
+                [event] = viewer.events
+                self.assertEqual(event['type'], 'agent_error')
+                self.assertIn(reason, event['error'])
+
+    def test_other_rejections_return_false(self):
+        accepted, reasons = self.submit(self.viewer(), 'hello', attachments='x')
+        self.assertIs(accepted, False)
+        self.assertIn('at most 10 image attachments', str(reasons[0]))
+
+        accepted, reasons = self.submit(self.viewer(), 'hello', submission_id=7)
+        self.assertIs(accepted, False)
+        self.assertEqual(str(reasons[0]), 'Invalid submission ID.')
+
+        with mock.patch.object(agent.os.path, 'exists', return_value=False):
+            accepted, reasons = self.submit(self.viewer(), 'hello')
+        self.assertIs(accepted, False)
+        self.assertIn('System prompt file missing', str(reasons[0]))
+
+        with mock.patch('builtins.open', side_effect=OSError('denied')):
+            accepted, reasons = self.submit(self.viewer(), 'hello')
+        self.assertIs(accepted, False)
+        self.assertIn('Could not read prompt file: denied', str(reasons[0]))
+
+    def test_a_rejection_needs_no_callback(self):
+        viewer = self.viewer(llm_loaded=False)
+        self.assertIs(agent.run_web_agent_query(viewer, 'hello'), False)
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_error'])
+
+    def accept(self, viewer, query='hello', **options):
+        with mock.patch.object(agent, 'get_viewer_session_context', return_value=''), \
+                mock.patch.object(agent, 'load_agent_history', return_value=[]), \
+                mock.patch.object(agent, 'AgentWorker') as worker:
+            reasons = []
+            accepted = agent.run_web_agent_query(viewer, query, on_rejected=reasons.append, **options)
+        return accepted, reasons, worker
+
+    def test_an_accepted_turn_returns_true(self):
+        viewer = self.viewer()
+        accepted, reasons, worker = self.accept(viewer, submission_id='s1')
+        self.assertIs(accepted, True)
+        self.assertEqual(reasons, [])
+        worker.return_value.start.assert_called_once_with()
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_thinking', 'agent_accepted'])
+        self.assertTrue(viewer._agent_busy)
+
+    def test_a_repeated_submission_reports_its_first_outcome(self):
+        viewer = self.viewer()
+        self.assertTrue(self.accept(viewer, submission_id='s1')[0])
+        self.assertTrue(agent.run_web_agent_query(viewer, 'hello', submission_id='s1'))
+        viewer = self.viewer(_agent_busy=True)
+        self.assertFalse(self.submit(viewer, 'hello', submission_id='s2')[0])
+        viewer._agent_busy = False
+        self.assertFalse(agent.run_web_agent_query(viewer, 'hello', submission_id='s2'))
+
+    def test_a_model_error_after_acceptance_reaches_the_terminal(self):
+        viewer = self.viewer(_agent_busy=True)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.on_web_worker_finished(viewer, 'hello', '', '', '', ValueError('The server refused the request.'))
+        self.assertIn('The server refused the request.', output.getvalue())
+        self.assertFalse(viewer._agent_busy)
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_error'])
+
+
+class CardRefusalTests(unittest.TestCase):
+    """A card that cannot be used leaves the model already loaded in place."""
+
+    def loaded_viewer(self):
+        viewer = SimpleNamespace(events=[])
+        viewer.broadcast_event = viewer.events.append
+        with mock.patch.object(agent.Command_Engine, 'print_help'):
+            self.assertTrue(agent.activate_agent_from_card(
+                viewer, {'name': 'Old', 'url': 'http://old.example/v1', 'model': 'old-model', 'temperature': 0.5}, quiet=True))
+        return viewer
+
+    def assert_old_model_kept(self, viewer):
+        self.assertTrue(viewer.llm_loaded)
+        self.assertEqual((viewer.llm_url, viewer.llm_model_name, viewer.llm_temperature),
+                         ('http://old.example/v1', 'old-model', 0.5))
+
+    def test_a_card_without_a_url_keeps_the_loaded_model(self):
+        viewer = self.loaded_viewer()
+        with mock.patch.object(agent.Command_Engine, 'print_help') as print_help:
+            self.assertFalse(agent.activate_agent_from_card(viewer, {'name': 'New', 'model': 'x'}, quiet=True))
+        self.assert_old_model_kept(viewer)
+        self.assertIn("Model card 'New' has no URL", str(print_help.call_args.args[1]))
+
+    def test_a_card_with_a_temperature_that_is_not_a_number_keeps_the_loaded_model(self):
+        for temperature in ('warm', [0.2], {'t': 1}):
+            with self.subTest(temperature=temperature):
+                viewer = self.loaded_viewer()
+                card = {'name': 'New', 'url': 'http://new.example/v1', 'model': 'x', 'temperature': temperature}
+                with mock.patch.object(agent.Command_Engine, 'print_help') as print_help:
+                    self.assertFalse(agent.activate_agent_from_card(viewer, card, quiet=True))
+                self.assert_old_model_kept(viewer)
+                self.assertIn("Model card 'New' has an invalid temperature", str(print_help.call_args.args[1]))
+
+    def test_a_usable_card_still_replaces_the_loaded_model(self):
+        viewer = self.loaded_viewer()
+        viewer.llm_history = [{'role': 'user', 'content': 'earlier'}]
+        card = {'name': 'New', 'url': 'http://new.example/v1', 'model': 'x', 'temperature': '0.25'}
+        self.assertTrue(agent.activate_agent_from_card(viewer, card, quiet=True))
+        self.assertEqual((viewer.llm_url, viewer.llm_model_name, viewer.llm_temperature, viewer.llm_loaded),
+                         ('http://new.example/v1', 'x', 0.25, True))
+        self.assertEqual(viewer.llm_history, [])
+
+
+class DroppedTurnTests(unittest.TestCase):
+    """The Agent page's spinner waits for a reply; a turn dropped with its model gets one."""
+
+    @staticmethod
+    def running_viewer(submission_id='s1'):
+        turn = {'submission_id': submission_id, 'attachments': []}
+        viewer = SimpleNamespace(events=[], llm_loaded=True, llm_backend='server', llm_model_name='m',
+                                 _agent_busy=True, _agent_turn=turn, _agent_generation=3)
+        viewer.broadcast_event = viewer.events.append
+        return viewer
+
+    def test_deactivating_during_a_turn_ends_it_on_the_page(self):
+        viewer = self.running_viewer()
+        self.assertTrue(agent.deactivate_agent(viewer, quiet=True))
+        [event] = viewer.events
+        self.assertEqual((event['type'], event['submission_id']), ('agent_error', 's1'))
+        self.assertIn('stopped', event['error'])
+        # A page that reconnects and asks again about the submission gets the same answer.
+        self.assertEqual(viewer._agent_submissions['s1'], event)
+        self.assertEqual((viewer._agent_busy, viewer._agent_generation), (False, 4))
+
+    def test_switching_models_during_a_turn_ends_it_once(self):
+        viewer = self.running_viewer()
+        card = {'name': 'New', 'url': 'http://new.example/v1', 'model': 'x'}
+        self.assertTrue(agent.activate_agent_from_card(viewer, card, quiet=True))
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_error'])
+
+    def test_a_refused_card_does_not_end_the_turn(self):
+        viewer = self.running_viewer()
+        with mock.patch.object(agent.Command_Engine, 'print_help'):
+            self.assertFalse(agent.activate_agent_from_card(viewer, {'name': 'New'}, quiet=True))
+        self.assertEqual(viewer.events, [])
+        self.assertEqual((viewer._agent_busy, viewer._agent_generation), (True, 3))
+
+    def test_an_idle_agent_sends_nothing(self):
+        viewer = self.running_viewer()
+        viewer._agent_busy = False
+        agent.deactivate_agent(viewer, quiet=True)
+        self.assertEqual(viewer.events, [])
+
+    def test_clearing_the_history_leaves_the_pages_own_reset_alone(self):
+        viewer = self.running_viewer()
+        with mock.patch.object(agent, 'save_agent_history'):
+            agent.handle_clear_history(viewer, {})
+        self.assertEqual(viewer.events, [])
+        self.assertFalse(viewer._agent_busy)
+
+    def test_deactivation_says_whether_a_model_was_unloaded(self):
+        viewer = SimpleNamespace(llm_loaded=True, llm_backend='server', llm_model_name='m')
+        with mock.patch.object(agent.Command_Engine, 'print_help'):
+            self.assertTrue(agent.deactivate_agent(viewer))
+            self.assertFalse(agent.deactivate_agent(viewer))
+        self.assertFalse(viewer.llm_loaded)
+
+
+class AgentCommandTests(unittest.TestCase):
+    """The `agent` command: what it reports, and what the Agent page is told."""
+    CARDS = {'cards': [{'id': 'a', 'name': 'Alpha', 'url': 'http://alpha.example/v1', 'model': 'alpha-1'},
+                       {'id': 'b', 'name': 'Beta', 'url': 'http://beta.example/v1', 'model': 'beta-1'}]}
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.agent_folder = Path(directory.name, 'resources', 'agent')
+        self.agent_folder.mkdir(parents=True)
+        (self.agent_folder / 'model_card.json').write_text(json.dumps(self.CARDS), encoding='utf-8')
+        (self.agent_folder / 'system_prompt.md').write_text('Prompt.', encoding='utf-8')
+        from commands import agent as agent_command
+        self.command = agent_command
+        engine = agent_command.Command_Engine
+        patchers = [mock.patch.object(agent, '_SRC_DIR', directory.name),
+                    mock.patch.object(agent, 'get_viewer_session_context', return_value=''),
+                    mock.patch.object(agent, 'load_agent_history', return_value=[]),
+                    mock.patch.object(agent, 'AgentWorker'),
+                    mock.patch.object(agent_command, 'register'),
+                    mock.patch.object(engine, 'print_help'),
+                    mock.patch.object(engine, 'command_failed'),
+                    mock.patch.object(engine, 'command_succeeded')]
+        started = [patcher.start() for patcher in patchers]
+        for patcher in patchers:
+            self.addCleanup(patcher.stop)
+        self.print_help, self.failed, self.succeeded = started[-3:]
+
+    @staticmethod
+    def viewer(**attributes):
+        viewer = SimpleNamespace(events=[], **attributes)
+        viewer.broadcast_event = viewer.events.append
+        return viewer
+
+    def run_command(self, viewer, *args):
+        with redirect_stdout(io.StringIO()) as output:
+            self.command.run(viewer, list(args))
+        return output.getvalue()
+
+    def states(self, viewer):
+        return [event for event in viewer.events if event['type'] == 'backend_state']
+
+    def test_a_message_that_starts_with_help_is_sent(self):
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_model_name='m')
+        with mock.patch.object(self.command, 'run_web_agent_query', return_value=True) as query:
+            output = self.run_command(viewer, 'help', 'me', 'select', 'cluster', '1')
+        self.assertEqual(query.call_args.args[1], 'help me select cluster 1')
+        self.assertNotIn('LLM Agent CLI Portal', output)
+        self.succeeded.assert_called_once()
+
+    def test_help_alone_prints_the_help(self):
+        for word in ('help', 'HELP', '-h', '--help'):
+            with self.subTest(word=word):
+                viewer = self.viewer()
+                with mock.patch.object(self.command, 'run_web_agent_query') as query:
+                    output = self.run_command(viewer, word)
+                query.assert_not_called()
+                self.assertIn('LLM Agent CLI Portal', output)
+
+    def test_a_turn_the_backend_rejects_is_reported_as_a_failure(self):
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_model_name='m', _agent_busy=True)
+        self.run_command(viewer, 'hello')
+        self.succeeded.assert_not_called()
+        reason = 'This Viewer already has an active agent turn.'
+        self.assertEqual(str(self.failed.call_args.args[1]), f'Error: {reason}')
+        # The reason also reaches the terminal and the console line.
+        self.assertEqual(str(self.print_help.call_args.args[1]), f'Error: {reason}')
+
+    def test_an_empty_message_and_a_missing_prompt_file_are_failures(self):
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_model_name='m')
+        self.run_command(viewer, '""')
+        self.assertIn('Enter a message', str(self.failed.call_args.args[1]))
+        self.succeeded.assert_not_called()
+
+        (self.agent_folder / 'system_prompt.md').unlink()
+        self.failed.reset_mock()
+        self.run_command(viewer, 'hello')
+        self.assertIn('System prompt file missing', str(self.failed.call_args.args[1]))
+        self.succeeded.assert_not_called()
+
+    def test_an_accepted_message_is_still_a_success(self):
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_model_name='m')
+        self.run_command(viewer, 'hello')
+        self.failed.assert_not_called()
+        self.assertEqual(self.succeeded.call_args.args[1], 'Submitted the message to the Agent backend.')
+
+    def test_a_failed_automatic_activation_is_reported_and_sends_nothing(self):
+        (self.agent_folder / 'model_card.json').write_text(
+            json.dumps({'cards': [{'id': 'a', 'name': 'Alpha', 'url': '', 'model': 'm'}]}), encoding='utf-8')
+        viewer = self.viewer(llm_loaded=False)
+        with mock.patch.object(self.command, 'run_web_agent_query') as query:
+            self.run_command(viewer, 'hello')
+        query.assert_not_called()
+        self.succeeded.assert_not_called()
+        self.failed.assert_called_once()
+        self.assertEqual(self.states(viewer), [])
+
+    def test_automatic_activation_tells_the_agent_page(self):
+        viewer = self.viewer(llm_loaded=False)
+        self.run_command(viewer, 'hello')
+        [state] = self.states(viewer)
+        self.assertEqual((state['llm_loaded'], state['llm_model_name']), (True, 'alpha-1'))
+        self.succeeded.assert_called_once()
+
+    def test_choosing_a_model_tells_the_agent_page(self):
+        viewer = self.viewer()
+        self.run_command(viewer, '<Beta>')
+        [state] = self.states(viewer)
+        self.assertEqual((state['llm_loaded'], state['llm_model_name']), (True, 'beta-1'))
+        self.assertIn("Activated Agent model 'Beta'", self.succeeded.call_args.args[1])
+
+    def test_a_refused_model_card_is_a_failure_and_the_page_hears_nothing(self):
+        (self.agent_folder / 'model_card.json').write_text(
+            json.dumps({'cards': [{'id': 'a', 'name': 'Alpha', 'url': '', 'model': 'm'}]}), encoding='utf-8')
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_url='http://old/v1', llm_model_name='old')
+        self.run_command(viewer, '<Alpha>')
+        self.failed.assert_called_once()
+        self.succeeded.assert_not_called()
+        self.assertEqual((viewer.llm_loaded, viewer.llm_model_name), (True, 'old'))
+        self.assertEqual(viewer.events, [])
+
+    def test_turning_the_agent_off_tells_the_page_and_ends_a_running_turn(self):
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_model_name='m',
+                             _agent_busy=True, _agent_turn={'submission_id': 's1', 'attachments': []})
+        self.run_command(viewer, 'off')
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_error', 'backend_state'])
+        self.assertFalse(self.states(viewer)[0]['llm_loaded'])
+        self.assertEqual(self.succeeded.call_args.args[1], 'Agent deactivated.')
+
+    def test_switching_models_during_a_turn_ends_the_turn_before_the_new_state(self):
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_model_name='m',
+                             _agent_busy=True, _agent_turn={'submission_id': 's1', 'attachments': []})
+        self.run_command(viewer, '<Beta>')
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_error', 'backend_state'])
+
+    def test_turning_off_an_agent_that_is_off_reports_that(self):
+        viewer = self.viewer(llm_loaded=False)
+        self.run_command(viewer, 'off')
+        self.assertEqual(self.succeeded.call_args.args[1], 'Agent is already inactive.')
+        self.assertEqual(viewer.events, [])
+
+    def open_viewer(self, opened, connected=False):
+        viewer = self.viewer(open_agent_ui=mock.Mock(return_value=opened))
+        viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: connected and client_id == 'agent')
+        return viewer
+
+    def test_the_page_is_reported_opened_only_when_it_opened(self):
+        for opened, connected, outcome, text in (
+            (True, False, self.succeeded, 'Opened the Agent interface'),
+            (False, True, self.succeeded, 'already open'),
+            (False, False, self.failed, 'was not opened'),
+        ):
+            with self.subTest(opened=opened, connected=connected):
+                self.succeeded.reset_mock()
+                self.failed.reset_mock()
+                self.run_command(self.open_viewer(opened, connected))
+                outcome.assert_called_once()
+                self.assertIn(text, outcome.call_args.args[1])
+
+    def test_a_command_from_the_portal_never_waits_on_an_already_open_dialog(self):
+        from Viewer_Command_Portal import CURRENT
+        viewer = self.open_viewer(False, connected=True)
+        self.run_command(viewer)
+        viewer.open_agent_ui.assert_called_once_with()
+
+        token = CURRENT.set(object())
+        self.addCleanup(CURRENT.reset, token)
+        viewer = self.open_viewer(False, connected=True)
+        self.run_command(viewer)
+        viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)

@@ -20,7 +20,7 @@ import EMAPSSN_Config as cfg
 import web_ui.esmfold_backend as esmfold_backend
 from PySide6.QtWidgets import QApplication, QMessageBox
 from desktop.Desktop_App import translate
-from utilities.Localization import Message
+from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Launcher import (
     HoldMode,
     TerminalUnavailableError,
@@ -46,6 +46,10 @@ def print_help():
           Displays this help message.
     """)
 
+# A command's outcome names the selected nodes it skipped when there are this few.
+MAX_LISTED_SKIPPED = 5
+
+
 def sanitize_filename(name):
     import re
     # Replace any character that is not alphanumeric, a dash, dot, or underscore with '_'
@@ -65,6 +69,30 @@ def _report_usage_error(viewer, message):
     _set_console_text(viewer, Message("Error: {error}", error=message))
 
 
+def _open_structure_viewer(viewer):
+    """Open the Mol* page; return whether it opened.
+
+    A command run for the MCP or the agent page cannot wait for someone to
+    close the dialog that says the page is already open.
+    """
+    from Viewer_Command_Portal import CURRENT
+    if CURRENT.get() is None:
+        return esmfold_backend.open_esmfold_ui(viewer)
+    return esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
+
+
+def _structure_viewer_connected(viewer):
+    has_event_client = getattr(getattr(viewer, "web_server", None), "has_event_client", None)
+    return bool(callable(has_event_client) and has_event_client("esmfold"))
+
+
+def _discard_worker_input(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def _parse_options(viewer, args):
     normalized = [str(argument).lower() for argument in args]
     allowed = {"large", "multi"}
@@ -74,7 +102,7 @@ def _parse_options(viewer, args):
         return None
     duplicates = sorted({argument for argument in normalized if normalized.count(argument) > 1})
     if duplicates:
-        _report_usage_error(viewer, f"Duplicate esmfold keyword: {duplicates[0]}")
+        _report_usage_error(viewer, Message("Duplicate esmfold keyword: {keyword}", keyword=duplicates[0]))
         return None
     return {
         "large": "large" in normalized,
@@ -119,8 +147,12 @@ def run(viewer, args):
     if not selected_indices:
         if not args:
             esmfold_backend.register(viewer)
-            esmfold_backend.open_esmfold_ui(viewer)
-            Command_Engine.command_succeeded(viewer, "Opened the structure viewer; no folding job was requested.")
+            if _open_structure_viewer(viewer):
+                Command_Engine.command_succeeded(viewer, "Opened the structure viewer; no folding job was requested.")
+            elif _structure_viewer_connected(viewer):
+                Command_Engine.command_succeeded(viewer, "The structure viewer is already open; no folding job was requested.")
+            else:
+                Command_Engine.command_failed(viewer, "The structure viewer was not opened; the Viewer's console line says why.")
             return
 
         print("Error: No nodes selected. Please select a node in the visualizer first.")
@@ -128,7 +160,6 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             failure = Message("Error: No nodes selected.")
             Command_Engine.show_status(viewer, failure)
-            Command_Engine.command_failed(viewer, failure)
         return
 
     # 4. Check for multiple selections vs "multi" command flag
@@ -138,7 +169,6 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             failure = Message("Error: Multiple nodes selected. Use 'esmfold multi'.")
             Command_Engine.show_status(viewer, failure)
-            Command_Engine.command_failed(viewer, failure)
         return
 
     # 5. Select hardware only for local inference. Biohub runs remotely.
@@ -174,6 +204,7 @@ def run(viewer, args):
 
     # Resolve target sequences to fold
     nodes_to_fold = []
+    skipped_ids = []
     for idx in selected_indices:
         full_header = viewer.full_headers[idx]
         rec_id = full_header.split()[0]
@@ -188,6 +219,7 @@ def run(viewer, args):
             nodes_to_fold.append((rec_id, sequence))
         else:
             print(f"Warning: Sequence not found in FASTA for node: {rec_id}")
+            skipped_ids.append(rec_id)
 
     if not nodes_to_fold:
         print("Error: Could not retrieve sequences for selected nodes.")
@@ -195,7 +227,6 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             failure = Message("Error: Sequence retrieval failed.")
             Command_Engine.show_status(viewer, failure)
-            Command_Engine.command_failed(viewer, failure)
         return
 
     # 8. Set up Directory & Web Registration
@@ -263,13 +294,13 @@ def run(viewer, args):
     from Viewer_Command_Portal import CURRENT
     context = CURRENT.get()
     tracker = None
-    if context is not None:
-        from Viewer_Worker_Tracking import WorkerTracker
-        tracker = WorkerTracker(context)
-        cmd += ['--portal-status', str(tracker.path)]
-        if os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
-            cmd += ['--noninteractive']
     try:
+        if context is not None:
+            from Viewer_Worker_Tracking import WorkerTracker
+            tracker = WorkerTracker(context)
+            cmd += ['--portal-status', str(tracker.path)]
+            if os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
+                cmd += ['--noninteractive']
         launch_in_terminal(
             cmd,
             cwd=project_root,
@@ -279,12 +310,8 @@ def run(viewer, args):
     except (OSError, TerminalUnavailableError) as error:
         if tracker is not None:
             tracker.fail(str(error))
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _discard_worker_input(tmp_path)
         message = Message("Could not launch the ESMFold worker in a terminal:\n{error}", error=error)
-        Command_Engine.command_failed(viewer, message)
         print(f"Error: {message}")
         Command_Engine.command_failed(viewer, f'Error: {message}')
         parent = getattr(viewer, 'main_window', None)
@@ -293,15 +320,29 @@ def run(viewer, args):
         if hasattr(viewer, 'console_text'):
             failure = Message("Error: Could not launch the ESMFold terminal.")
             Command_Engine.show_status(viewer, failure)
-            Command_Engine.command_failed(viewer, failure)
         return
+    except Exception as error:
+        # No worker was started, so nothing else will delete the file.
+        if tracker is not None:
+            tracker.fail(str(error))
+        _discard_worker_input(tmp_path)
+        raise
 
     # 10. Open Mol* web browser tab immediately
-    esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
+    page_opened = esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
     mode_label = "Biohub ESM3" if is_large else "local ESM3"
     if is_large:
         spawning = Message("Spawning separate console to fold %n structure(s) with Biohub ESM3...", n=len(nodes_to_fold))
     else:
         spawning = Message("Spawning separate console to fold %n structure(s) with local ESM3...", n=len(nodes_to_fold))
+    outcome = f"Started {mode_label} folding for {len(nodes_to_fold)} structure(s); waiting for the worker."
+    if skipped_ids:
+        skipped = Message("Skipped %n selected node(s) without a sequence.", n=len(skipped_ids))
+        spawning = JoinedMessage([spawning, skipped])
+        outcome += f" {skipped}"
+        if len(skipped_ids) <= MAX_LISTED_SKIPPED:
+            outcome += f" ({', '.join(skipped_ids)})"
+    if not page_opened and not _structure_viewer_connected(viewer):
+        outcome += " The structure viewer page was not opened; use the Fold View button if it does not appear."
     _set_console_text(viewer, spawning)
-    Command_Engine.command_succeeded(viewer, f"Started {mode_label} folding for {len(nodes_to_fold)} structure(s); waiting for the worker.")
+    Command_Engine.command_succeeded(viewer, outcome)
