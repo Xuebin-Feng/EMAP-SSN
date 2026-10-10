@@ -604,6 +604,68 @@ class ClosedNeighbourhoodJaccardTests(unittest.TestCase):
                 self.assert_matches(kernel, 3, edges, expected)
 
 
+@unittest.skipUnless(network_kernels.NUMBA_AVAILABLE, "the marker kernel is Numba code")
+class MarkerJaccardKernelTests(unittest.TestCase):
+    """jaccard_partition filters simple graphs with a kernel that scans only
+    the smaller row of each edge; it keeps exactly the edges the general one does."""
+
+    def both(self, n_nodes, edges, threshold):
+        edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+        indptr, indices = network_kernels.sorted_neighbour_csr(edges, n_nodes)
+        return (
+            network_kernels._jaccard_filter_own_csr(edges, indptr, indices, threshold),
+            network_kernels.fast_jaccard_filter(edges, indptr, indices, threshold),
+        )
+
+    def test_simple_graphs_take_the_marker_kernel_and_others_do_not(self):
+        rows = network_kernels.sorted_neighbour_csr
+        no_repeats = network_kernels._rows_hold_no_repeats
+        self.assertTrue(no_repeats(*rows(np.asarray([(0, 1), (1, 2), (0, 2)]), 4)))
+        self.assertTrue(no_repeats(*rows(np.zeros((0, 2), dtype=np.int32), 3)))
+        # A self-loop, a repeated pair, and a pair in both orientations each
+        # list a node twice in one row.
+        for edges in ([(0, 1), (1, 1)], [(0, 1), (0, 1)], [(0, 1), (1, 0)]):
+            with self.subTest(edges=edges):
+                self.assertFalse(no_repeats(*rows(np.asarray(edges), 3)))
+        # The same node at the end of one row and the start of the next is no repeat.
+        self.assertTrue(no_repeats(np.array([0, 2, 4]), np.array([1, 2, 2, 3])))
+
+    def test_the_marker_kernel_keeps_what_the_general_kernel_keeps(self):
+        rng = np.random.default_rng(23)
+        for trial in range(60):
+            n_nodes = int(rng.integers(2, 80))
+            simple = trial % 3 != 0
+            edges = random_edges(rng, n_nodes, int(rng.integers(1, 300)), simple)
+            if not len(edges):
+                continue
+            if simple and trial % 4 == 1:
+                # A hub joined to every node: rows of very unequal length, so
+                # each endpoint in turn anchors an edge.
+                hub = np.array([(0, k) for k in range(1, n_nodes)], dtype=np.int32)
+                edges = np.unique(np.sort(np.vstack([edges, hub]), axis=1), axis=0).astype(np.int32)
+            counts = closed_jaccard_counts(n_nodes, edges, multiset=True)
+            indices = {shared / union for shared, union in counts}
+            thresholds = indices | {float(np.nextafter(i, 2)) for i in indices} | {0.0, 0.2, 1.0}
+            for threshold in sorted(thresholds):
+                with self.subTest(trial=trial, simple=simple, threshold=threshold):
+                    marker, general = self.both(n_nodes, edges, threshold)
+                    np.testing.assert_array_equal(marker, general)
+
+    def test_the_partition_is_the_same_as_with_the_general_kernel(self):
+        rng = np.random.default_rng(31)
+        for trial in range(20):
+            n_nodes = int(rng.integers(5, 120))
+            edges = random_edges(rng, n_nodes, int(rng.integers(1, 400)), True)
+            for threshold in (0.0, 0.2, 0.4, 0.75):
+                with self.subTest(trial=trial, threshold=threshold), mock.patch.object(
+                    network_kernels, "_jaccard_filter_own_csr", network_kernels.fast_jaccard_filter
+                ):
+                    general = network_kernels.jaccard_partition(n_nodes, edges, threshold, 2)
+                np.testing.assert_array_equal(
+                    network_kernels.jaccard_partition(n_nodes, edges, threshold, 2), general
+                )
+
+
 class ClosedNeighbourhoodPartitionTests(unittest.TestCase):
     """jaccard_partition keeps pairs, stars and chains: they are not Noise."""
 

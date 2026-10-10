@@ -19,6 +19,7 @@ import sys
 import numpy as np
 
 try:
+    import numba
     from numba import jit, njit, prange
     NUMBA_AVAILABLE = True
 except ImportError:
@@ -941,7 +942,7 @@ def jaccard_partition(n_nodes, edges, threshold, min_size):
 
     edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
     indptr, indices = sorted_neighbour_csr(edges, n_nodes)
-    keep_mask = fast_jaccard_filter(edges, indptr, indices, threshold)
+    keep_mask = _jaccard_filter_own_csr(edges, indptr, indices, threshold)
     kept = edges[keep_mask]
     graph = coo_matrix(
         (np.ones(kept.shape[0], dtype=bool), (kept[:, 0], kept[:, 1])),
@@ -1110,6 +1111,93 @@ if NUMBA_AVAILABLE:
         with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
             return _jaccard_keep_mask(edges, indptr, indices, threshold)
 
+    def _jaccard_filter_own_csr(edges, indptr, indices, threshold):
+        """``fast_jaccard_filter`` for the CSR ``sorted_neighbour_csr`` built
+        from these very edges, faster on the simple graphs networks are.
+
+        When no row lists a node twice, there is no repeated pair and no
+        self-loop (each puts an entry in a row twice), so every edge (u, v) has
+        v in N(u), u in N(v) and neither in its own row. Its closed index is
+        then (c + 2) / (|N(u)| + |N(v)| - c), c being the neighbours u and v
+        share: the same integers, so the same decision, as
+        ``_jaccard_keep_mask``, which takes every other graph.
+        """
+        with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+            if _rows_hold_no_repeats(indptr, indices):
+                keep_half = _jaccard_half_edge_keep(
+                    indptr, indices, threshold, numba.config.NUMBA_NUM_THREADS
+                )
+                return _jaccard_edge_keep(edges, indptr, indices, keep_half)
+            return _jaccard_keep_mask(edges, indptr, indices, threshold)
+
+    def _rows_hold_no_repeats(indptr, indices):
+        """True when no row of the CSR (each row ascending) lists a node twice."""
+        if indices.size < 2:
+            return True
+        repeats = indices[1:] == indices[:-1]
+        # Two equal entries either side of a row boundary are in different rows.
+        starts = np.asarray(indptr[1:-1], dtype=np.int64)
+        repeats[starts[(starts > 0) & (starts < indices.size)] - 1] = False
+        return not repeats.any()
+
+    # Each node marks its neighbours once and, for every edge it anchors (the
+    # endpoint with more neighbours, the lower index on a tie), counts the
+    # other endpoint's neighbours it marked. The work is the smaller row per
+    # edge, sum(min(du, dv)), where merging both rows costs sum(du + dv). The
+    # decision lands on the anchor's half of the edge, its row's entry for
+    # the other endpoint. Every node writes only its own row's entries, and
+    # every thread marks in its own array.
+    @njit(parallel=True, cache=True)
+    def _jaccard_half_edge_keep(indptr, indices, threshold, n_threads):
+        n_nodes = indptr.size - 1
+        keep_half = np.zeros(indices.size, dtype=np.bool_)
+        # A row per thread the pool may run, whatever the current limit.
+        markers = np.zeros((n_threads, n_nodes), dtype=np.int32)
+        for a in prange(n_nodes):
+            start_a, end_a = indptr[a], indptr[a + 1]
+            size_a = end_a - start_a
+            marker = markers[numba.get_thread_id()]
+            stamp = a + 1
+            marked = False
+            for p in range(start_a, end_a):
+                b = indices[p]
+                size_b = indptr[b + 1] - indptr[b]
+                if size_a > size_b or (size_a == size_b and a < b):
+                    if not marked:
+                        for q in range(start_a, end_a):
+                            marker[indices[q]] = stamp
+                        marked = True
+                    shared = 0
+                    for q in range(indptr[b], indptr[b + 1]):
+                        if marker[indices[q]] == stamp:
+                            shared += 1
+                    # a and b each add themselves, and each is in the other's row.
+                    if ((shared + 2) / (size_a + size_b - shared)) >= threshold:
+                        keep_half[p] = True
+        return keep_half
+
+    @njit(parallel=True, cache=True)
+    def _jaccard_edge_keep(edges, indptr, indices, keep_half):
+        """Each edge's decision, read from its anchor's half of it."""
+        keep_mask = np.zeros(edges.shape[0], dtype=np.bool_)
+        for edge_index in prange(edges.shape[0]):
+            u, v = edges[edge_index, 0], edges[edge_index, 1]
+            size_u = indptr[u + 1] - indptr[u]
+            size_v = indptr[v + 1] - indptr[v]
+            if size_u > size_v or (size_u == size_v and u < v):
+                a, b = u, v
+            else:
+                a, b = v, u
+            low, high = indptr[a], indptr[a + 1]
+            while low < high:  # the position of b in a's ascending row
+                middle = (low + high) // 2
+                if indices[middle] < b:
+                    low = middle + 1
+                else:
+                    high = middle
+            keep_mask[edge_index] = keep_half[low]
+        return keep_mask
+
     @njit(cache=True)
     def _sorted_row_count(indices, start, end, value):
         """How many entries of the ascending run indices[start:end] equal value."""
@@ -1184,6 +1272,8 @@ else:
             if (intersection / union) >= threshold:
                 keep_mask[edge_index] = True
         return keep_mask
+
+    _jaccard_filter_own_csr = fast_jaccard_filter
 
 
 __all__ = [
