@@ -46,7 +46,8 @@ class GroupCommandTests(unittest.TestCase):
 
         self.assertEqual(viewer.group_labels, [{"first", "second"}])
         viewer._save_state.assert_called_once_with()
-        viewer.update_nodes.assert_called_once_with()
+        # Group labels are not drawn, so nothing is redrawn for them.
+        viewer.update_nodes.assert_not_called()
 
     def test_group_name_position_overrides_expression_classification(self):
         viewer = self.make_viewer()
@@ -106,7 +107,7 @@ class GroupCommandTests(unittest.TestCase):
 
                 self.assertEqual(viewer.group_labels, [{name}])
                 viewer._save_state.assert_called_once_with()
-                viewer.update_nodes.assert_called_once_with()
+                viewer.update_nodes.assert_not_called()
 
     def test_group_rejects_any_loaded_canonical_cluster_name(self):
         for cluster_id in (0, 27):
@@ -158,7 +159,7 @@ class GroupCommandTests(unittest.TestCase):
 
         self.assertEqual(viewer.group_labels, [{"beta"}])
         viewer._save_state.assert_called_once_with()
-        viewer.update_nodes.assert_called_once_with()
+        viewer.update_nodes.assert_not_called()
         failed.assert_not_called()
         self.assertEqual(
             succeeded.call_args.args[1],
@@ -270,7 +271,7 @@ class GroupHiddenNodeTests(unittest.TestCase):
         self.assertEqual(viewer.group_labels, [set(), set(), {"big"}, {"big"}])
         self.assertEqual(message, "Groups Applied: 2 nodes -> 'big'")
         viewer._save_state.assert_called_once_with()
-        viewer.update_nodes.assert_called_once_with()
+        viewer.update_nodes.assert_not_called()
 
     def test_every_expression_target_skips_hidden_nodes(self):
         for expression in ('"node1"', "#cluster_1#", "{Length=200-200}", "!#cluster_2#&!$sele$"):
@@ -312,6 +313,33 @@ class GroupHiddenNodeTests(unittest.TestCase):
             self.run_group(empty, ['"absent"', "ghost"]),
             "No nodes matched criteria for grouping.",
         )
+
+    def test_a_later_pair_sees_only_the_nodes_an_earlier_pair_labelled(self):
+        # Without groups yet, and with groups already set: the staged labels
+        # of the first pair reach node 0 alone, and the viewer's own sets
+        # change only once every pair is valid.
+        for existing in (None, [{"old"}, set(), {"old"}, set()]):
+            with self.subTest(existing=existing):
+                viewer = self.make_viewer(hidden=())
+                viewer.group_labels = existing
+                untouched = None if existing is None else existing[2]
+
+                self.run_group(viewer, ['"node0"', "first", "#first#", "second"])
+
+                expected = [{"first", "second"}, set(), set(), set()]
+                if existing is not None:
+                    expected[0] |= {"old"}
+                    expected[2] |= {"old"}
+                self.assertEqual(viewer.group_labels, expected)
+                if untouched is not None:
+                    self.assertIs(viewer.group_labels[2], untouched)
+
+        viewer = self.make_viewer(hidden=())
+        viewer.group_labels = [{"old"}, set(), set(), set()]
+        before = [set(groups) for groups in viewer.group_labels]
+        with reported_outcomes(), redirect_stdout(io.StringIO()):
+            group_command.run(viewer, ['"node0"', "first", "#first#&#missing#", "second"])
+        self.assertEqual(viewer.group_labels, before)
 
     def test_a_selection_of_only_hidden_nodes_matches_nothing(self):
         viewer = self.make_viewer(hidden=(1,), selected=(1,))

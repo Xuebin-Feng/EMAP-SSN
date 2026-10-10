@@ -222,7 +222,7 @@ def run(viewer, args):
                     g_set.remove(g_target)
                     total_removed += 1
 
-        viewer.update_nodes()
+        # Group labels are not drawn, so the network is not redrawn for them.
         msg = Message(
             "Removed %n group(s) from {instances}.",
             n=len(groups_to_remove),
@@ -252,10 +252,16 @@ def run(viewer, args):
     skipped_names = []
 
     current_group_labels = getattr(viewer, 'group_labels', None)
+    # The labels each expression sees: the current ones plus those the earlier
+    # pairs of this command assign. A node gets a set of its own only when an
+    # earlier pair adds to it; the rest share the viewer's sets, which nothing
+    # here changes, so a single pair copies nothing.
     if current_group_labels is None:
-        staged_group_labels = [set() for _ in range(viewer.n_nodes)]
+        no_groups = set()
+        staged_group_labels = [no_groups] * viewer.n_nodes
     else:
-        staged_group_labels = [set(groups) for groups in current_group_labels]
+        staged_group_labels = list(current_group_labels)
+    restaged = set()
 
     evaluated_pairs = []
 
@@ -320,8 +326,12 @@ def run(viewer, args):
             mask = mask & viewer.visible_mask
             count = int(np.sum(mask))
 
-            if count > 0:
-                for idx in np.where(mask)[0]:
+            # Only a later pair reads the staged labels.
+            if count > 0 and i + 2 < len(args):
+                for idx in np.flatnonzero(mask).tolist():
+                    if idx not in restaged:
+                        staged_group_labels[idx] = set(staged_group_labels[idx])
+                        restaged.add(idx)
                     staged_group_labels[idx].add(name)
 
             evaluated_pairs.append((name, mask, count))
@@ -337,13 +347,14 @@ def run(viewer, args):
         for name, mask, count in evaluated_pairs:
             if count <= 0:
                 continue
-            for idx in np.where(mask)[0]:
-                viewer.group_labels[idx].add(name)
+            group_labels = viewer.group_labels
+            for idx in np.flatnonzero(mask).tolist():
+                group_labels[idx].add(name)
             total_modified += count
             stats.append(Message("%n node(s) -> '{group}'", n=count, group=name))
-            
+
+    # Group labels are not drawn, so the network is not redrawn for them.
     if total_modified > 0:
-        viewer.update_nodes()
         applied = JoinedMessage(stats, separator="; ")
         if warnings_issued:
             # Pairs with a skipped name were left out; the others were applied.
