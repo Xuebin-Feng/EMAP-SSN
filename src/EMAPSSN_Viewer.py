@@ -71,13 +71,19 @@ if __name__ == "__main__":
     _settings_path = _startup_args.settings_file or os.environ.get("SSN_VIEWER_SETTINGS_PATH")
     _document = json.loads(_startup_args.settings_json) if _startup_args.settings_json else None
     _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _startup_settings = resolve_viewer_document(
-        read_viewer_settings(settings_document=_document, settings_path=_settings_path,
-                             project_root=_project_root), _project_root
-    )
+    try:
+        _startup_settings = resolve_viewer_document(
+            read_viewer_settings(settings_document=_document, settings_path=_settings_path,
+                                 project_root=_project_root), _project_root
+        )
+    finally:
+        # Consumed even when rejected, so a launch that fails here leaves no snapshot behind.
+        if _startup_args.delete_settings and _settings_path:
+            try:
+                os.unlink(_settings_path)
+            except FileNotFoundError:
+                pass
     os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
-    if _startup_args.delete_settings and _settings_path:
-        os.unlink(_settings_path)
     os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
 
 
