@@ -1824,7 +1824,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+1526"/>
+        <location filename="../../desktop/Desktop_App.py" line="+1587"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -2130,7 +2130,7 @@ Command-line usage:
         <location line="+16"/>
         <location filename="../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../commands/print.py" line="+908"/>
+        <location filename="../../commands/print.py" line="+934"/>
         <location line="+51"/>
         <location filename="../../commands/query.py" line="+583"/>
         <location filename="../../commands/reset.py" line="+114"/>
@@ -3158,7 +3158,7 @@ Command-line usage:
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+37"/>
         <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
@@ -5905,7 +5905,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1227"/>
+        <location line="-1288"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
@@ -6116,14 +6116,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1056"/>
+        <location line="+1073"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均嵌入余弦距离与网络分数之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-914"/>
+        <location line="-931"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -6190,7 +6190,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+330"/>
+        <location line="+345"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
@@ -6220,7 +6220,7 @@ Fedora / RHEL：
         <translation type="unfinished">不可用的已保存文件 [{file}]</translation>
     </message>
     <message>
-        <location line="+263"/>
+        <location line="+265"/>
         <source>Sequence Set (.fasta): The raw FASTA sequence database to clean.
 Uppercases residues, trims terminal non-residues, masks invalid characters with &apos;X&apos;, and deduplicates headers.</source>
         <translation type="unfinished">序列集（.fasta）：要清理的原始 FASTA 序列库。
@@ -7793,7 +7793,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-4419"/>
+        <location line="-4436"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">嵌入多序列比对</translation>
     </message>
@@ -7863,7 +7863,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">嵌入裁剪</translation>
     </message>
     <message>
-        <location line="+2243"/>
+        <location line="+2260"/>
         <location line="+176"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
