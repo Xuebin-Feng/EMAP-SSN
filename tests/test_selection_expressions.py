@@ -810,5 +810,96 @@ class HeaderListFileTests(unittest.TestCase):
                 )
 
 
+class HeaderTextMatchTests(unittest.TestCase):
+    """A header text target matches a header that contains it, case ignored, or
+    that fnmatch matches with it: the definition, checked header by header."""
+
+    HEADERS = [
+        "WP_0123.1_kinase_[Escherichia_coli]", "wp_0124.1_Kinase", "ΑΣ_x", "Straße", "İstanbul",
+        "a/b_c", "A\\B", "x*y", "[ab]", "MiXeD", "", "ǅ_title", "Σ", "a\nb",
+    ]
+    TARGETS = [
+        "", "*", "**", "kinase", "WP_012", "wp_0123.1_kinase_[escherichia_coli]", "*coli*", "?", "????",
+        "[ab]", "[!a]*", "*σ*", "ας", "a/b_c", "a\\b_c", "A/B", "*/b*", "x[*]y", "straße", "ǆ_title",
+        "i̇stanbul", "*\\*", "a?b",
+    ]
+
+    def test_every_header_matches_as_substring_or_fnmatch_say(self):
+        import fnmatch
+        for target in self.TARGETS:
+            expected = [
+                target.lower() in header.lower() or fnmatch.fnmatch(header.lower(), target.lower())
+                for header in self.HEADERS
+            ]
+            with self.subTest(target=target):
+                mask = Command_Engine.evaluate_string_mask(self.HEADERS, target)
+                self.assertEqual(mask.dtype, bool)
+                self.assertEqual(mask.tolist(), expected)
+
+    def test_a_star_pattern_matches_every_header_and_no_headers_match_nothing(self):
+        self.assertTrue(Command_Engine.evaluate_string_mask(self.HEADERS, "**").all())
+        self.assertEqual(Command_Engine.evaluate_string_mask([], "kinase").shape, (0,))
+
+
+class ResidueGroupTests(unittest.TestCase):
+    """(RHK)71 and _71 on a real sparse alignment: one read of the column gives
+    what checking each residue on its own gives."""
+
+    def setUp(self):
+        from tests.sparse_alignment import load_manager, write_fasta
+
+        rng = np.random.default_rng(8)
+        letters = list("ACDEFGHIKLMNPQRSTVWYXBZJ-.")
+        self.network = [f"s{i}" for i in range(40)] + ["absent"]
+        records = [(f"s{i}", "".join(rng.choice(letters, 12))) for i in range(40)]
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = os.path.join(directory.name, "msa.fasta")
+        write_fasta(path, records)
+        self.manager = load_manager(path, self.network)
+        self.mapping, self.valid = Command_Engine.get_alignment_mapping(
+            SimpleNamespace(full_headers=self.network, alignment=self.manager)
+        )
+
+    def test_the_group_check_is_the_residue_checks_ored(self):
+        rows = self.manager.aln
+        groups = [[], ["R"], ["R", "H", "K"], ["-"], ["."], ["-", "A"], ["X", "B", "Z", "J"], ["O", "*"], ["k"]]
+        for column in (-1, 0, 5, rows.n_cols - 1, rows.n_cols):
+            for group in groups:
+                expected = np.zeros(rows.n_seqs, dtype=bool)
+                for residue in group:
+                    expected |= rows.bulk_residue_check(column, residue)
+                with self.subTest(column=column, group=group):
+                    np.testing.assert_array_equal(rows.bulk_residue_group_check(column, group), expected)
+
+    def test_group_and_gap_predicates_match_residue_by_residue(self):
+        labels = list(self.manager.label_to_col)[:6] + ["999"]
+        for label in labels:
+            for group in (["R", "H", "K"], ["_"], ["a", "_", "G"], ["X"]):
+                expected = np.zeros(len(self.network), dtype=bool)
+                for residue in group:
+                    expected |= Command_Engine.evaluate_aa_mask(
+                        self.network, self.manager, residue, label, self.mapping, self.valid
+                    )
+                with self.subTest(label=label, group=group):
+                    np.testing.assert_array_equal(
+                        Command_Engine.evaluate_aa_group_mask(
+                            self.network, self.manager, group, label, self.mapping, self.valid
+                        ),
+                        expected,
+                    )
+        # A gap is '-' or '.', which the loader stores alike.
+        label = labels[0]
+        gap = Command_Engine.evaluate_aa_mask(self.network, self.manager, "_", label, self.mapping, self.valid)
+        column = self.manager.label_to_col[label]
+        rows = self.manager.aln
+        expected = np.zeros(len(self.network), dtype=bool)
+        expected[self.valid] = (rows.bulk_residue_check(column, "-") | rows.bulk_residue_check(column, "."))[
+            self.mapping[self.valid]
+        ]
+        np.testing.assert_array_equal(gap, expected)
+        self.assertTrue(gap.any())
+
+
 if __name__ == "__main__":
     unittest.main()

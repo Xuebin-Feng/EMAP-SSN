@@ -619,6 +619,33 @@ class SparseAlignmentLoader:
         # 3. Compare data
         return (dense_col == target_code)
 
+    def bulk_residue_group_check(self, col_idx, target_aa_chars):
+        """Which sequences have any of TARGET_AA_CHARS at a column.
+
+        The same as bulk_residue_check for each character, the results ORed
+        together, from a single read of the column.
+        """
+        if col_idx < 0 or col_idx >= self.n_cols:
+            return np.zeros(self.n_seqs, dtype=bool)
+
+        dense_col = self.matrix[:, col_idx].toarray().flatten()
+        target_codes = []
+        any_gap = False
+        for target_aa_char in target_aa_chars:
+            if target_aa_char in cfg.GAP_CHARS:
+                any_gap = True
+                continue
+            # The first code that stands for the character, as bulk_residue_check finds it.
+            for code, aa in self.int_to_aa.items():
+                if aa == target_aa_char:
+                    target_codes.append(code)
+                    break
+
+        mask = np.isin(dense_col, target_codes)
+        if any_gap:
+            mask |= dense_col == 0
+        return mask
+
 # --- Sparse In-Memory Conversion Assets ---
 
 class InMemorySparseLoader(SparseAlignmentLoader):

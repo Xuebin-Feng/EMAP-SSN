@@ -522,23 +522,52 @@ def get_alignment_mapping(viewer):
                 viewer_to_aln[i] = seq_map[header]
     return viewer_to_aln, np.flatnonzero(viewer_to_aln >= 0)
 
-def evaluate_string_mask(full_headers, target):
-    """Evaluates a raw string, NCBI ID, or wildcard pattern into a boolean mask."""
-    mask = np.zeros(len(full_headers), dtype=bool)
-    t_lower = target.lower()
+def _lowercase_all(strings):
+    """Each string's str.lower(), lowering them all in one call where that is the same.
 
-    for i, full_header in enumerate(full_headers):
-        fh_lower = full_header.lower()
-        
-        
-        # 1. Standard sub-string matching
-        if t_lower in fh_lower:
+    They are joined by newlines, which are neither cased nor case-ignorable,
+    so a context-dependent mapping (the Greek final sigma) never reaches
+    across from one to the next. A string holding a newline itself, or one
+    that is not text, is lowered on its own.
+    """
+    try:
+        joined = "\n".join(strings)
+    except TypeError:
+        return [s.lower() for s in strings]
+    if joined.count("\n") != len(strings) - 1:
+        return [s.lower() for s in strings]
+    return joined.lower().split("\n")
+
+
+def evaluate_string_mask(full_headers, target):
+    """Evaluates a raw string, NCBI ID, or wildcard pattern into a boolean mask.
+
+    A header matches when it contains TARGET, letter case ignored, or matches
+    it as an fnmatch pattern (*, ?, [seq]).
+    """
+    t_lower = target.lower()
+    count = len(full_headers)
+    # A pattern of stars alone matches every header.
+    if t_lower and not t_lower.strip("*"):
+        return np.ones(count, dtype=bool)
+
+    # 1. Standard sub-string matching
+    lowered = _lowercase_all(full_headers)
+    mask = np.fromiter((t_lower in fh_lower for fh_lower in lowered), dtype=bool, count=count)
+
+    # 2. Comprehensive wildcard evaluation (*, ?, [seq]) of the headers left.
+    # A pattern without a wildcard matches only a header equal to it, which
+    # the substring test has found already. fnmatch compares through
+    # os.path.normcase, which also folds / into \ on Windows and lowercases
+    # through the system's own tables there, so a pattern with a slash, or
+    # with letters outside ASCII, is still matched as fnmatch matches it.
+    if t_lower.isascii() and not any(character in t_lower for character in "*?[/\\"):
+        return mask
+    match = re.compile(fnmatch.translate(os.path.normcase(t_lower))).match
+    normcase = os.path.normcase
+    for i in np.flatnonzero(~mask).tolist():
+        if match(normcase(lowered[i])) is not None:
             mask[i] = True
-            
-        # 2. Comprehensive wildcard evaluation (*, ?, [seq])
-        elif fnmatch.fnmatch(fh_lower, t_lower):
-            mask[i] = True
-            
     return mask
 
 # Identifiers that [NCBI] and [PDB] header lists select by: RefSeq (WP_0123.1)
@@ -685,8 +714,12 @@ def evaluate_aa_mask(full_headers, alignment, target_aa, target_pos_label, viewe
     aln_rows = viewer_to_aln[valid_indices]
 
     # The viewer's sparse alignment and frozen snapshot adapters both answer
-    # whole-column residue checks.
-    if is_gap_query:
+    # whole-column residue checks; the sparse alignment also answers several
+    # residues at once, reading the column only once.
+    group_check = getattr(alignment.aln, 'bulk_residue_group_check', None)
+    if is_gap_query and group_check is not None:
+        aln_mask = group_check(col_idx, ('-', '.'))
+    elif is_gap_query:
         mask_dash = alignment.aln.bulk_residue_check(col_idx, '-')
         mask_dot = alignment.aln.bulk_residue_check(col_idx, '.')
         aln_mask = mask_dash | mask_dot
@@ -707,6 +740,18 @@ def evaluate_aa_group_mask(
 ):
     """Evaluate membership in a residue set at one displayed alignment position."""
     mask = np.zeros(len(full_headers), dtype=bool)
+    # Each residue as evaluate_aa_mask checks it, from one read of the column
+    # when the alignment can check several residues at once.
+    aln = getattr(alignment, 'aln', None)
+    group_check = getattr(aln, 'bulk_residue_group_check', None)
+    if group_check is not None and alignment.label_to_col and target_pos_label in alignment.label_to_col:
+        residues = []
+        for target_aa in target_aas:
+            target_aa = target_aa.upper()
+            residues.extend(('-', '.') if target_aa == '_' else (target_aa,))
+        aln_mask = group_check(alignment.label_to_col[target_pos_label], residues)
+        mask[valid_indices] = aln_mask[viewer_to_aln[valid_indices]]
+        return mask
     for target_aa in target_aas:
         mask |= evaluate_aa_mask(
             full_headers,
