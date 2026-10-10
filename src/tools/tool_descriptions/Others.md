@@ -131,3 +131,59 @@ This script queries a single sequence against an entire database using residue-l
      Collects results, filters by `NORM_THRESHOLD`, sorts in descending order of $S_{\text{norm}}$, and keeps the top $K$ hits.
 
 </details>
+
+---
+
+# ⏱️ Benchmark
+
+**Run Benchmark** times EMAP-SSN's heavy calculations on a fixed set of public protein sequences, so reports from different computers and versions can be compared. It asks before it starts, then runs `src/resources/benchmark/Run_Benchmark.py` in a console window of its own, which shows the progress and, at the end, the report.
+
+### 📥 Input
+
+#### Bundled Sequence Set
+*   **Sequences**: 860 reviewed UniProtKB/Swiss-Prot entries of the metallo-β-lactamase superfamily (InterPro IPR001279, release 2026_03), with 92 more held out for the injection stage. `src/resources/benchmark/README.md` says where they come from and how they were made.
+*   **Model**: ESM-2 8M (`esm2_t6_8m`). The first run downloads it into the Hugging Face cache, about 30 MB; the download is not timed.
+
+### ⚙️ Stages
+
+| Stage | What It Times |
+| :--- | :--- |
+| 1. Sanitize sequences | `Sanitize_Sequences.py` on the main set. |
+| 2. Embeddings | `Generate_Embeddings.py` with ESM-2 8M. |
+| 3. All-against-all embedding alignment | `Align_Similarity_Matrix.py`: 369,370 pairs. |
+| 4. SSN layout | The force-directed layout of the top 5% of edges. |
+| 5. UMAP layout | The same network laid out with UMAP. |
+| 6. Clustering | Leiden, MCL and the Jaccard filter, as the Viewer's `cluster` command runs them. |
+| 7. Embedding database search | `Embedding_SSEARCH.py`: one query against the main set. |
+| 8. Injection of new sequences | `Embedding_Injection.py` and `Network_Injection.py` with the 92 held-out sequences. |
+| 9. Embedding MSA | `Embedding_MSA.py` on 100 glyoxalase II sequences. |
+| 10. BLAST all-against-all alignment | `Align_Substitution_Matrix.py`, with NCBI BLAST+. |
+
+Every device setting stays on **Auto**, so each tool runs its own hardware trials, and the report records what each one chose. A stage this computer can't run, such as BLAST without NCBI BLAST+, is skipped with the reason, and so are the stages that need it.
+
+### 📤 Output
+
+#### Benchmark Report
+*   **Text Report**: `Benchmark_Report_<date>_<time>.txt` in the benchmark folder, which **Report Folder** opens. It is written in the window's language and records each stage's time, throughput, CPU time, memory peaks and device; every Auto decision; the hardware and software; and the conditions that affect the numbers.
+*   **Data**: An English `.json` with the same results beside the report.
+*   **Kept**: Reports are never deleted. A second run started in the same second adds `_2` to the name.
+
+<details markdown="1">
+<summary><b>How a Run Works</b></summary>
+
+1. **Its own files**:
+     A run keeps every file it makes in the benchmark folder's `temp/`, with a lock that stops a second benchmark while one runs, and clears `temp/` when it starts and when it ends. It never reads or changes the saved tool settings or the directories set in this window.
+
+2. **One process per stage**:
+     Each stage runs in a process of its own, which the benchmark measures from outside: wall time, CPU time and the peak memory of every process the stage starts.
+
+3. **Time and space**:
+     A run took about 6 minutes on a computer with an RTX 5070 Ti and a Core Ultra 7 265KF, and takes longer without a GPU. It needs about 1 GB of free disk space.
+
+4. **Stopping**:
+     Pressing Ctrl+C in the console stops the run and still writes the report of the stages that ran. Closing the console stops it without a report; the next run clears what it left.
+
+5. **Comparing**:
+     Compare reports only when their benchmark protocol and sequence set match. Other programs running at the same time, a laptop on battery, or a first run that still compiles its kernels make a run slower, and the report notes each of these.
+
+</details>

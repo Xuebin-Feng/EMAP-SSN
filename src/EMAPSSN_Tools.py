@@ -266,6 +266,13 @@ TOOL_TITLES = {
     "Embedding_Cropping.py": QT_TRANSLATE_NOOP("Tools", "✂️ Embedding Cropping"),
 }
 
+# The benchmark (src/resources/benchmark) has a card of its own at the end of
+# the Manual Tools tab. It is no pipeline tool: it takes no settings, and its
+# help-page heading names no script, so it stays out of TOOL_TITLES.
+BENCHMARK_TAB = "Others"
+BENCHMARK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources", "benchmark")
+BENCHMARK_SCRIPT = os.path.join(BENCHMARK_DIR, "Run_Benchmark.py")
+
 
 # What a dropdown shows for each stored mode. Code that rebuilds a dropdown
 # takes its labels from these too, so it reads the same.
@@ -3919,6 +3926,11 @@ class ToolsGUI(QMainWindow):
             self._tool_form_layouts.append(layout)
             script_idx += 1
 
+        if tab_key == BENCHMARK_TAB:
+            benchmark_card, benchmark_layout = self._create_benchmark_card()
+            main_layout.addWidget(benchmark_card)
+            self._tool_form_layouts.append(benchmark_layout)
+
         main_layout.addStretch()
 
         pseudo_path = os.path.join(tools_dir, tab_key) + "_GUI_tab"
@@ -3931,6 +3943,121 @@ class ToolsGUI(QMainWindow):
         else:
             tab_name = tab_key.replace("_", " ")
         self.tabs.addTab(scroll, tab_name)
+
+    def _create_benchmark_card(self):
+        """The Benchmark card: Run Benchmark in its header, and the folder its reports go to.
+
+        The header holds one button, as narrow as a tool card's two, so the
+        card shares every card's left section without widening it.
+        """
+        card = QFrame()
+        card.setObjectName("toolSectionCard")
+        card.setStyleSheet(SECTION_CARD_STYLE)
+        layout = QFormLayout(card)
+        layout.setHorizontalSpacing(30)
+        layout.setVerticalSpacing(12)
+
+        header = QWidget()
+        header.setObjectName("toolHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+
+        title_label = QLabel(translate("Tools", "⏱️ Benchmark"))
+        title_label.setObjectName("toolTitle")
+        title_label.setStyleSheet(PRIMARY_TITLE_STYLE)
+
+        run_button = QPushButton(translate("Tools", "Run Benchmark"))
+        run_button.setObjectName("runBenchmarkButton")
+        run_button.setToolTip(translate(
+            "Tools",
+            "Time EMAP-SSN's heavy calculations on the bundled sequence set and "
+            "write a report. It asks before it starts.",
+        ))
+        run_button.setStyleSheet(action_button_stylesheet("#4CAF50"))
+        fit_buttons_to_text(run_button)
+        run_button.clicked.connect(self.run_benchmark)
+
+        button_row = QWidget()
+        button_row.setObjectName("toolActionButtons")
+        button_layout = QHBoxLayout(button_row)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(10)
+        button_layout.addWidget(run_button)
+        button_layout.addStretch()
+        button_row.setProperty("originalSingleButtonHeight", run_button.sizeHint().height())
+
+        header_layout.addWidget(
+            button_row,
+            0,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        header_layout.addWidget(title_label, 1)
+        layout.addRow(header)
+
+        folder_row = QWidget()
+        folder_layout = QHBoxLayout(folder_row)
+        folder_layout.setContentsMargins(0, 0, 0, 0)
+        folder_edit = QLineEdit(os.path.normpath(BENCHMARK_DIR))
+        folder_edit.setReadOnly(True)
+        open_button = QPushButton("📂")
+        open_button.setObjectName("openBenchmarkFolderButton")
+        open_button.setFixedWidth(30)
+        open_button.setToolTip(translate("Tools", "Open Folder"))
+        open_button.clicked.connect(self.open_benchmark_folder)
+        folder_layout.addWidget(folder_edit)
+        folder_layout.addWidget(open_button)
+
+        folder_label = QLabel(translate("Tools", "Report Folder:"))
+        layout.addRow(folder_label, folder_row)
+        tip = translate(
+            "Tools",
+            "The benchmark's folder. Each run saves its report here as a .txt "
+            "named by the date and time the run started, in the window's "
+            "language, with an English .json beside it. Reports are never deleted.",
+        )
+        folder_row.setToolTip(tip)
+        for widget in (folder_row, folder_label, folder_edit):
+            self.tip_db[widget] = tip
+            widget.installEventFilter(self)
+        return card, layout
+
+    def run_benchmark(self):
+        """Ask, then start the benchmark in a console of its own, as Save & Run starts a tool."""
+        answer = QMessageBox.question(
+            self,
+            translate("Tools", "Run Benchmark"),
+            translate(
+                "Tools",
+                "The benchmark times EMAP-SSN's heavy calculations on a bundled set "
+                "of 860 public protein sequences and writes a report in its folder.\n\n"
+                "A run takes about 6 minutes on a recent GPU workstation, and longer "
+                "on a computer without a GPU. It uses the CPU and the GPU fully, so "
+                "close other heavy programs for results you can compare. The first "
+                "run downloads the ESM-2 8M model, about 30 MB.\n\n"
+                "Start the benchmark?",
+            ),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            launch_in_terminal(
+                [sys.executable, "-u", BENCHMARK_SCRIPT],
+                cwd=BENCHMARK_DIR,
+                hold=HoldMode.ALWAYS,
+                title=os.path.basename(BENCHMARK_SCRIPT),
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self, translate("Tools", "Error"),
+                translate("Tools", "Failed to run {path}:\n{error}").format(path=BENCHMARK_SCRIPT, error=e),
+            )
+
+    def open_benchmark_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(BENCHMARK_DIR))
 
     def switch_language(self, language, **options):
         """Redraw this window in language (None for English), keeping all it shows.

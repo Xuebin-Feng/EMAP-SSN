@@ -5493,7 +5493,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">✂️ 嵌入裁剪</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+15"/>
         <source>global</source>
         <comment>alignment mode</comment>
         <translation type="unfinished">全局</translation>
@@ -6906,11 +6906,12 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+12"/>
         <location line="+521"/>
+        <location line="+1100"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-519"/>
+        <location line="-1619"/>
         <location line="+636"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
@@ -6943,13 +6944,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1879"/>
+        <location line="+1573"/>
+        <location line="+426"/>
         <location line="+30"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-1921"/>
+        <location line="-2041"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -6957,12 +6959,12 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1911"/>
+        <location line="+2031"/>
         <source>Success</source>
         <translation type="unfinished">成功</translation>
     </message>
     <message>
-        <location line="-1910"/>
+        <location line="-2030"/>
         <source>Global directories saved to JSON successfully.</source>
         <translation type="unfinished">全局目录已保存到 JSON。</translation>
     </message>
@@ -7073,7 +7075,42 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">将此工具的当前设置连同目录导出为“设置导出目录”中的独立 JSON 文件，并显示据此运行该工具的命令。共享设置文件不会改变，工具也不会运行。</translation>
     </message>
     <message>
-        <location line="+366"/>
+        <location line="+284"/>
+        <source>⏱️ Benchmark</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+59"/>
+        <source>Run Benchmark</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-57"/>
+        <source>Time EMAP-SSN&apos;s heavy calculations on the bundled sequence set and write a report. It asks before it starts.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>Report Folder:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The benchmark&apos;s folder. Each run saves its report here as a .txt named by the date and time the run started, in the window&apos;s language, with an English .json beside it. Reports are never deleted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>The benchmark times EMAP-SSN&apos;s heavy calculations on a bundled set of 860 public protein sequences and writes a report in its folder.
+
+A run takes about 6 minutes on a recent GPU workstation, and longer on a computer without a GPU. It uses the CPU and the GPU fully, so close other heavy programs for results you can compare. The first run downloads the ESM-2 8M model, about 30 MB.
+
+Start the benchmark?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+138"/>
         <source>Enter a name for the exported settings file.</source>
         <translation type="unfinished">请输入导出的设置文件的名称。</translation>
     </message>
@@ -7236,7 +7273,8 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">已将配置保存到 JSON 并启动 {tool}。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="-450"/>
+        <location line="+456"/>
         <source>Failed to run {path}:
 {error}</source>
         <translation type="unfinished">无法运行 {path}：

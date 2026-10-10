@@ -730,6 +730,99 @@ class BenchmarkLanguageTests(unittest.TestCase):
         self.assertIn("unreadable", shown.getvalue())
 
 
+class BenchmarkToolsCardTests(unittest.TestCase):
+    """The Benchmark card at the end of the Tools window's Manual Tools tab."""
+
+    def open_window(self):
+        import EMAPSSN_Tools
+        from PySide6.QtWidgets import QTextBrowser
+        from tests.tools_gui_fixtures import isolated_tools_project
+
+        qt_application()
+        isolated_tools_project(self)
+        with mock.patch.object(EMAPSSN_Tools, "ResponsiveTextBrowser", QTextBrowser):
+            window = EMAPSSN_Tools.ToolsGUI()
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        return EMAPSSN_Tools, window
+
+    def benchmark_card(self, window):
+        from PySide6.QtWidgets import QFrame
+
+        for index in range(window.tabs.count()):
+            page = window.tabs.widget(index)
+            if page.property("descriptionKey") == "Others":
+                return page.widget().findChildren(QFrame, "toolSectionCard")[-1]
+        self.fail("The Tools window has no Manual Tools tab.")
+
+    def test_the_manual_tools_tab_ends_with_the_benchmark_card(self):
+        from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
+
+        tools, window = self.open_window()
+        card = self.benchmark_card(window)
+        self.assertEqual(card.findChild(QLabel, "toolTitle").text(), "⏱️ Benchmark")
+        actions = card.findChild(QWidget, "toolActionButtons").findChildren(QPushButton)
+        self.assertEqual([button.text() for button in actions], ["Run Benchmark"])
+        self.assertIn(card.layout(), window._tool_form_layouts, "it shares the cards' left section")
+        folder = card.findChild(QLineEdit)
+        self.assertTrue(folder.isReadOnly())
+        self.assertEqual(Path(folder.text()), BENCHMARK_DIR)
+        self.assertEqual(Path(tools.BENCHMARK_SCRIPT), BENCHMARK_DIR / "Run_Benchmark.py")
+        self.assertNotIn("Run_Benchmark.py", tools.get_tool_titles(), "the help heading names no script")
+
+    def test_run_benchmark_asks_then_starts_the_benchmark_in_a_console(self):
+        from PySide6.QtWidgets import QPushButton
+
+        tools, window = self.open_window()
+        button = self.benchmark_card(window).findChild(QPushButton, "runBenchmarkButton")
+        answers = tools.QMessageBox.StandardButton
+        with mock.patch.object(tools.QMessageBox, "question", return_value=answers.No) as asked, \
+                mock.patch.object(tools, "launch_in_terminal") as launch:
+            button.click()
+        asked.assert_called_once()
+        launch.assert_not_called()
+        with mock.patch.object(tools.QMessageBox, "question", return_value=answers.Yes), \
+                mock.patch.object(tools, "launch_in_terminal") as launch:
+            button.click()
+        launch.assert_called_once_with(
+            [sys.executable, "-u", tools.BENCHMARK_SCRIPT], cwd=tools.BENCHMARK_DIR,
+            hold=tools.HoldMode.ALWAYS, title="Run_Benchmark.py",
+        )
+
+    def test_a_benchmark_that_can_t_start_is_reported(self):
+        tools, window = self.open_window()
+        answers = tools.QMessageBox.StandardButton
+        with mock.patch.object(tools.QMessageBox, "question", return_value=answers.Yes), \
+                mock.patch.object(tools, "launch_in_terminal", side_effect=OSError("no console")), \
+                mock.patch.object(tools.QMessageBox, "critical") as reported:
+            window.run_benchmark()
+        reported.assert_called_once()
+        self.assertIn("no console", reported.call_args.args[2])
+        self.assertIn(tools.BENCHMARK_SCRIPT, reported.call_args.args[2])
+
+    def test_the_folder_button_opens_the_benchmark_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QPushButton
+
+        _tools, window = self.open_window()
+        button = self.benchmark_card(window).findChild(QPushButton, "openBenchmarkFolderButton")
+        with mock.patch.object(QDesktopServices, "openUrl") as opened:
+            button.click()
+        opened.assert_called_once_with(QUrl.fromLocalFile(str(BENCHMARK_DIR)))
+
+    def test_the_question_before_a_run_shows_in_the_window_s_language(self):
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+
+        tools, window = self.open_window()
+        pseudo_language(self, qt_application())
+        with mock.patch.object(tools.QMessageBox, "question",
+                               return_value=tools.QMessageBox.StandardButton.No) as asked:
+            window.run_benchmark()
+        _parent, title, text = asked.call_args.args[:3]
+        self.assertEqual((outside_the_catalog(title), outside_the_catalog(text)), ("", ""))
+
+
 @unittest.skipUnless(
     os.environ.get("EMAPSSN_BENCHMARK_SMOKE_TEST") == "1",
     "runs the real benchmark on 20 sequences for about two minutes; set EMAPSSN_BENCHMARK_SMOKE_TEST=1",

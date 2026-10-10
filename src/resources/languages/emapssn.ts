@@ -5448,6 +5448,39 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>⏱️ Benchmark</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Run Benchmark</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Time EMAP-SSN&apos;s heavy calculations on the bundled sequence set and write a report. It asks before it starts.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Report Folder:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark&apos;s folder. Each run saves its report here as a .txt named by the date and time the run started, in the window&apos;s language, with an English .json beside it. Reports are never deleted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark times EMAP-SSN&apos;s heavy calculations on a bundled set of 860 public protein sequences and writes a report in its folder.
+
+A run takes about 6 minutes on a recent GPU workstation, and longer on a computer without a GPU. It uses the CPU and the GPU fully, so close other heavy programs for results you can compare. The first run downloads the ESM-2 8M model, about 30 MB.
+
+Start the benchmark?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to run {path}:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Enter a name for the exported settings file.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5568,11 +5601,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Saved configuration to JSON and launched {tool}.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Failed to run {path}:
-{error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
