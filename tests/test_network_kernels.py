@@ -420,6 +420,99 @@ class LeidenPartitionTests(unittest.TestCase):
         self.assertTrue(str(caught.exception).startswith("Leiden clustering failed: "))
 
 
+def planted_network(rng, n_nodes, n_communities, p_in, p_out):
+    """A simple weighted graph with planted communities, its node ids shuffled,
+    its edges in random order and orientation, and some nodes left isolated."""
+    community = rng.integers(0, n_communities, n_nodes)
+    upper = np.triu_indices(n_nodes, 1)
+    same = community[upper[0]] == community[upper[1]]
+    keep = rng.random(len(same)) < np.where(same, p_in, p_out)
+    edges = np.column_stack((upper[0][keep], upper[1][keep]))
+    edges = rng.permutation(n_nodes)[edges]
+    flip = rng.random(len(edges)) < 0.5
+    edges[flip] = edges[flip][:, ::-1]
+    edges = edges[rng.permutation(len(edges))]
+    weights = np.round(rng.random(len(edges)) * 50 + 0.5, 3)
+    return edges, weights
+
+
+class LeidenFastPathTests(unittest.TestCase):
+    """leiden_partition hands simple graphs to graspologic_native's leiden_csr,
+    whose input reproduces the node numbering and neighbour order leiden builds
+    from its string edge list. On the real library both paths give the same
+    partition, community ids and modularity."""
+
+    def setUp(self):
+        try:
+            import graspologic_native
+        except ImportError:
+            self.skipTest("graspologic_native is not installed")
+        if not hasattr(graspologic_native, "leiden_csr"):
+            self.skipTest("this graspologic_native has no leiden_csr")
+        self.native = graspologic_native
+
+    def list_path(self):
+        """graspologic_native as leiden_partition sees it without leiden_csr."""
+        return mock.patch.dict(sys.modules, {"graspologic_native": SimpleNamespace(leiden=self.native.leiden)})
+
+    def test_both_paths_label_every_network_alike(self):
+        rng = np.random.default_rng(2026)
+        csr = mock.Mock(wraps=self.native.leiden_csr)
+        spied = SimpleNamespace(leiden=self.native.leiden, leiden_csr=csr)
+        for trial in range(12):
+            n_nodes = int(rng.integers(20, 400))
+            edges, weights = planted_network(
+                rng, n_nodes, int(rng.integers(2, 12)), float(rng.uniform(0.1, 0.5)), float(rng.uniform(0.0, 0.02))
+            )
+            for resolution, min_size, seed in ((1.0, 1, 42), (0.5, 3, 42), (2.0, 2, 7)):
+                for weighted in (True, False):
+                    with self.subTest(trial=trial, resolution=resolution, min_size=min_size, weighted=weighted):
+                        args = (n_nodes, edges, weights if weighted else None, resolution, min_size, seed)
+                        calls = csr.call_count
+                        with mock.patch.dict(sys.modules, {"graspologic_native": spied}):
+                            fast = network_kernels.leiden_partition(*args)
+                        self.assertEqual(csr.call_count, calls + 1)
+                        with self.list_path():
+                            plain = network_kernels.leiden_partition(*args)
+                        np.testing.assert_array_equal(fast, plain)
+
+    def test_both_calls_give_the_same_modularity_and_community_ids(self):
+        rng = np.random.default_rng(7)
+        for trial in range(8):
+            n_nodes = int(rng.integers(30, 300))
+            edges, weights = planted_network(rng, n_nodes, 6, 0.3, 0.01)
+            nodes, indptr, indices, data = network_kernels._leiden_csr_input(edges, weights, n_nodes)
+            fast_modularity, fast = self.native.leiden_csr(
+                indptr, indices, data, int(nodes.size), resolution=1.0, use_modularity=True, seed=42
+            )
+            plain_modularity, plain = self.native.leiden(
+                edges=list(zip(map(str, edges[:, 0].tolist()), map(str, edges[:, 1].tolist()), weights.tolist())),
+                resolution=1.0, use_modularity=True, seed=42,
+            )
+            with self.subTest(trial=trial):
+                self.assertEqual(fast_modularity, plain_modularity)
+                self.assertEqual(
+                    {int(nodes[local]): community for local, community in fast.items()},
+                    {int(node): community for node, community in plain.items()},
+                )
+
+    def test_repeated_pairs_and_self_loops_take_the_list_path(self):
+        edges = np.asarray([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3)])
+        for extra in ((0, 1), (1, 0), (2, 2)):
+            with self.subTest(extra=extra):
+                looped = np.vstack([edges, extra])
+                self.assertIsNone(network_kernels._leiden_csr_input(looped, np.ones(len(looped)), 6))
+                csr = mock.Mock()
+                spied = SimpleNamespace(leiden=self.native.leiden, leiden_csr=csr)
+                with mock.patch.dict(sys.modules, {"graspologic_native": spied}):
+                    labels = network_kernels.leiden_partition(6, looped, None, 1.0, 1)
+                csr.assert_not_called()
+                with self.list_path():
+                    np.testing.assert_array_equal(
+                        labels, network_kernels.leiden_partition(6, looped, None, 1.0, 1)
+                    )
+
+
 def load_without_numba():
     """A copy of Network_Kernels imported as it is when Numba is missing."""
     path = os.path.join(SRC_DIR, "utilities", "Network_Kernels.py")
