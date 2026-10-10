@@ -78,6 +78,51 @@
             --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
         }
 
+        /* Dark mode: the Agent page's dark palette (agent.html), with the
+           spreadsheet's own colours in the same greys. */
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --bg-main: #09090b;
+            --bg-card: #18181b;
+            --bg-muted: #27272a;
+            --bg-table-header: #111113;
+            --border-color: #27272a;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
+            --text-primary: #fafafa;
+            --text-soft: #d4d4d8;
+            --text-secondary: #a1a1aa;
+            --text-subtle: #8e8e96;
+            --text-disabled: #52525b;
+            --primary: #fafafa;
+            --primary-hover: #e4e4e7;
+            --primary-pressed: #d4d4d8;
+            --primary-text: #18181b;
+            --accent: #8b8bf0;
+            --accent-soft: #26264d;
+            --selection: rgba(139, 139, 240, 0.16);
+            --success: #4ade80;
+            --success-soft: rgba(34, 197, 94, 0.12);
+            --warning: #fbbf24;
+            --warning-soft: rgba(245, 158, 11, 0.14);
+            --danger: #f87171;
+            --danger-soft: rgba(239, 68, 68, 0.12);
+            --number-badge-bg: rgba(34, 197, 94, 0.12);
+            --number-badge-border: rgba(74, 222, 128, 0.35);
+            --number-badge-text: #4ade80;
+            --text-badge-bg: #26264d;
+            --text-badge-border: rgba(139, 139, 240, 0.4);
+            --text-badge-text: #a5a5f5;
+            --highlight-bg: rgba(245, 158, 11, 0.18);
+            --highlight-ring: #fbbf24;
+            --overlay: rgba(0, 0, 0, 0.6);
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-control: none;
+            --shadow-dialog: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -641,6 +686,19 @@
             to { opacity: 1; transform: translateY(0); }
         }
     </style>
+    <!-- The theme chosen on this page or the Agent page (both keep it as
+         ssn_theme), else the system's, set before the page is drawn so a dark
+         page never shows light first. -->
+    <script>
+        (() => {
+            let theme = null;
+            try { theme = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (theme !== "dark" && theme !== "light") {
+                theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            }
+            document.documentElement.setAttribute("data-theme", theme);
+        })();
+    </script>
 </head>
 <body>
     <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
@@ -655,6 +713,8 @@
         <symbol id="i-mouse-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/></symbol>
         <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
         <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
     </svg>
 
     <header>
@@ -666,6 +726,7 @@
                 <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)"><svg class="icon" aria-hidden="true"><use href="#i-undo-2"/></svg><span data-i18n>Undo</span></button>
                 <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)"><svg class="icon" aria-hidden="true"><use href="#i-redo-2"/></svg><span data-i18n>Redo</span></button>
             </div>
+            <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <button class="btn btn-ghost" id="help-btn"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Help</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
@@ -703,6 +764,9 @@
             svg.appendChild(use);
             return svg;
         }
+
+        // Show another of the sprite's icons in an icon made above or in the markup.
+        function setIcon(svg, name) { svg.querySelector("use").setAttribute("href", "#i-" + name); }
 
         // The type badges of the columns' filters, which the page's style draws.
         document.documentElement.style.setProperty("--number-badge", JSON.stringify(t("NUM")));
@@ -945,7 +1009,34 @@
         }
 
         document.addEventListener("DOMContentLoaded", () => {
+            updateThemeBtn(document.documentElement.getAttribute("data-theme"));
+            document.getElementById("theme-toggle-btn").addEventListener("click", toggleTheme);
             connectEventStream();
+        });
+
+        // ─── Theme ───────────────────────────────────────────────────────────
+        // The head script set the starting theme. The choice is kept as
+        // ssn_theme, which the Agent page keeps too, so the two pages match.
+        function toggleTheme() {
+            const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", next);
+            try { localStorage.setItem("ssn_theme", next); } catch (error) {}
+            updateThemeBtn(next);
+        }
+
+        function updateThemeBtn(theme) {
+            document.getElementById("theme-toggle-label").textContent =
+                theme === "dark" ? t("Light Mode") : t("Dark Mode");
+            const themeIcon = document.getElementById("theme-toggle-icon");
+            setIcon(themeIcon, theme === "dark" ? "sun" : "moon");
+        }
+
+        // A choice made on the Agent page while both are open applies here at once.
+        window.addEventListener("storage", (event) => {
+            if (event.key === "ssn_theme" && (event.newValue === "dark" || event.newValue === "light")) {
+                document.documentElement.setAttribute("data-theme", event.newValue);
+                updateThemeBtn(event.newValue);
+            }
         });
 
         function connectEventStream() {

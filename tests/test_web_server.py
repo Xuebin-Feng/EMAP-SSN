@@ -71,12 +71,15 @@ class PagePolicyTests(unittest.TestCase):
         self.assertEqual(script_src, ["'self'", sha256_source('\nlet a = 1;\n'), sha256_source('b()\n')])
 
     def test_bundled_pages_cannot_run_injected_markup(self):
-        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+        # The pages' own inline scripts, each allowed by its hash. meta.html's
+        # first sets its theme in <head>, before the page is drawn.
+        inline_scripts = {'agent.html': 1, 'meta.html': 2, 'esmfold.html': 1}
+        for page, count in inline_scripts.items():
             with self.subTest(page=page):
                 policy = directives(content_security_policy(page, (PAGES / page).read_bytes()))
                 script_src = policy['script-src']
                 self.assertNotIn("'unsafe-inline'", script_src)
-                self.assertEqual(sum(source.startswith("'sha256-") for source in script_src), 1)
+                self.assertEqual(sum(source.startswith("'sha256-") for source in script_src), count)
                 self.assertEqual(policy['default-src'], ["'self'"])
                 self.assertEqual(policy['object-src'], ["'none'"])
                 self.assertEqual(policy['base-uri'], ["'none'"])

@@ -94,12 +94,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+708"/>
+        <location line="+716"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-707"/>
+        <location line="-715"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -205,7 +205,7 @@
         <translation type="obsolete">☀️ 浅色模式</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+82"/>
         <source>the Viewer answered HTTP {status}</source>
         <translation type="unfinished">查看器返回了 HTTP {status}</translation>
     </message>
@@ -245,7 +245,7 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-225"/>
+        <location line="-233"/>
         <location line="+149"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
@@ -276,7 +276,7 @@
         <translation type="unfinished">浅色模式</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+84"/>
         <source>Using the saved settings of &quot;{model}&quot;: press Save to use the edits made here.</source>
         <translation type="unfinished">正在使用“{model}”已保存的设置：要使用此处的修改，请点击保存。</translation>
     </message>
@@ -5659,7 +5659,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">+ 导入</translation>
     </message>
     <message>
-        <location line="+642"/>
+        <location line="+702"/>
         <source>Export Spreadsheet (CSV / Excel)</source>
         <translation type="unfinished">导出电子表格（CSV / Excel）</translation>
     </message>
@@ -5690,12 +5690,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">帮助 ?</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+41"/>
         <source>NUM</source>
         <translation type="unfinished">数值</translation>
     </message>
@@ -5721,7 +5721,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">序列标题</translation>
     </message>
     <message>
-        <location line="+159"/>
+        <location line="+186"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
@@ -5745,7 +5745,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">🔍 搜索过滤规则</translation>
     </message>
     <message>
-        <location line="-368"/>
+        <location line="-399"/>
         <source>EMAP-SSN Metadata Spreadsheet</source>
         <translation type="unfinished">EMAP-SSN 元数据电子表格</translation>
     </message>
@@ -5771,11 +5771,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+2"/>
+        <location line="+300"/>
+        <source>Dark Mode</source>
+        <translation type="unfinished">深色模式</translation>
+    </message>
+    <message>
+        <location line="-299"/>
         <source>Help</source>
         <translation type="unfinished">帮助</translation>
     </message>
     <message>
-        <location line="+618"/>
+        <location line="+299"/>
+        <source>Light Mode</source>
+        <translation type="unfinished">浅色模式</translation>
+    </message>
+    <message>
+        <location line="+349"/>
         <source>Search Filter Rules</source>
         <translation type="unfinished">搜索过滤规则</translation>
     </message>

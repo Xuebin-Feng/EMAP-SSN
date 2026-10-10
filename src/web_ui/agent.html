@@ -1111,6 +1111,14 @@
             if (themeIcon) setIcon(themeIcon, theme === "dark" ? "sun" : "moon");
         }
 
+        // A choice made on the Metadata page while both are open applies here at once.
+        window.addEventListener("storage", (event) => {
+            if (event.key === "ssn_theme" && (event.newValue === "dark" || event.newValue === "light")) {
+                document.documentElement.setAttribute("data-theme", event.newValue);
+                updateThemeBtn(event.newValue);
+            }
+        });
+
         // ─── Model Cards ──────────────────────────────────────────────────────────
         async function loadModelCards() {
             // The defaults are saved only when there is no file or it holds no

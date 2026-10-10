@@ -666,6 +666,7 @@ class MetadataPageTests(WebPageTestCase):
         self.assertEqual(badges, [f'"{pseudo_translate(badge)}"' for badge in ("NUM", "TXT")])
         self.shown += badges
         self.run_and_collect("eventSource.onopen()", "eventSource.onerror()",
+                             "toggleTheme()", "toggleTheme()",
                              "document.getElementById('help-btn').click()")
         self.assertEqual(self.js("document.getElementById('help-modal').style.display"), "flex")
         self.js("document.querySelector('.metadata-delete-column').click()")
@@ -693,6 +694,70 @@ class MetadataPageTests(WebPageTestCase):
             self.app.processEvents()
             time.sleep(0.02)
         self.assertEqual(self.actions, [{"action": "clear_selection"}])
+
+    def test_the_theme_is_the_agent_pages(self):
+        """The page keeps its theme as ssn_theme, as the Agent page does: it opens
+        in the theme chosen last on either page, and while both are open a choice
+        made on one shows on the other at once."""
+        state = """JSON.stringify({
+            theme: document.documentElement.dataset.theme,
+            icon: document.querySelector('#theme-toggle-btn use').getAttribute('href'),
+            page: getComputedStyle(document.body).backgroundColor,
+            table: getComputedStyle(document.getElementById('spreadsheet-table')).backgroundColor,
+        })"""
+        light = {"theme": "light", "icon": "#i-moon", "page": "rgb(250, 250, 250)", "table": "rgb(255, 255, 255)"}
+        dark = {"theme": "dark", "icon": "#i-sun", "page": "rgb(9, 9, 11)", "table": "rgb(24, 24, 27)"}
+        self.open(self.TABLE)
+        self.addCleanup(self.js, "localStorage.removeItem('ssn_theme')")
+        self.js("localStorage.setItem('ssn_theme', 'dark')")
+        self.open(self.TABLE)
+        self.assertEqual(json.loads(self.js(state)), dark)
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        self.assertEqual(json.loads(self.js(state)), light)
+        self.assertEqual(self.js("localStorage.getItem('ssn_theme')"), "light")
+
+        # The Agent page in a second view of the same browser profile.
+        PageHandler.body = (200, json.dumps(CARDS).encode())
+        agent = QWebEngineView()
+        self.addCleanup(agent.deleteLater)
+        self.addCleanup(agent.close)
+        no_events = QWebEngineScript()
+        no_events.setInjectionPoint(QWebEngineScript.DocumentCreation)
+        no_events.setWorldId(QWebEngineScript.MainWorld)
+        no_events.setSourceCode("window.EventSource = class { close() {} };")
+        agent.page().scripts().insert(no_events)
+        loaded = []
+        agent.loadFinished.connect(loaded.append)
+        agent.load(QUrl(f"http://127.0.0.1:{self.server.server_port}/agent.html"))
+
+        def agent_js(source):
+            result = []
+            agent.page().runJavaScript(source, lambda value: result.append(value))
+            deadline = time.monotonic() + 5
+            while not result and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.005)
+            self.assertTrue(result, source)
+            return result[0]
+
+        deadline = time.monotonic() + 10
+        while not (loaded and agent_js("document.getElementById('theme-toggle-btn') !== null")
+                   and agent_js("document.documentElement.dataset.theme || ''")):
+            self.assertLess(time.monotonic(), deadline, "the Agent page did not open")
+            self.app.processEvents()
+            time.sleep(0.02)
+        self.assertEqual(agent_js("document.documentElement.dataset.theme"), "light")
+        agent_js("document.getElementById('theme-toggle-btn').click()")
+        self.wait_for("document.documentElement.dataset.theme === 'dark'")
+        self.assertEqual(json.loads(self.js(state)), dark)
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        deadline = time.monotonic() + 5
+        while agent_js("document.documentElement.dataset.theme") != "light":
+            self.assertLess(time.monotonic(), deadline, "the Agent page kept its dark theme")
+            self.app.processEvents()
+            time.sleep(0.02)
+        self.assertEqual(agent_js("document.querySelector('#theme-toggle-btn use').getAttribute('href')"),
+                         "#i-moon")
 
     def test_an_empty_table(self):
         self.open({"columns": ["Node ID"], "types": {}, "rows": [], "selected_indices": [], "visible_mask": []})

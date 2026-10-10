@@ -108,6 +108,12 @@ still change before version 1.0.0.
   only as written, `zh_CN` and not `zh_cn`, on Windows and macOS as on Linux. The update
   command checks every `language.json` and reports a translated help page left beside
   the English pages.
+- **Dark mode on the Meta Data page.** Its header has the Agent page's Dark Mode / Light
+  Mode button, and its spreadsheet, filters and help take the Agent page's dark colours.
+  The two pages share the choice: each opens in the theme chosen last on either, and
+  while both are open, a choice made on one shows on the other at once. Until a choice
+  is made, a page follows the system's dark setting. The Meta Data page sets its theme
+  before it is drawn, so a dark page never shows light first.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts
