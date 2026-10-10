@@ -239,6 +239,29 @@ still change before version 1.0.0.
   between steps and groups stored compactly: about 50 ms and 3 MB per command, and undo
   and redo take about 185 ms instead of 620–910 ms. What the page shows and what undo
   restores are unchanged.
+- More Viewer commands are faster or leaner on large networks, with the same results
+  (files byte for byte, labels, masks and numbering exactly):
+  - `reference` reuses the alignment already loaded while the MSA file is unchanged and
+    only renumbers its columns: 34 s became 0.25 s for 50,000 sequences × 3,000 columns.
+    The terminal says the loaded alignment was reused.
+  - `print svg` writes the file as it goes, into a partial file that replaces the target
+    when complete: 14.8 s and 3.3 GB became 4.9 s and 0.15 GB at 500,000 nodes and
+    5 million edges. `print full` keeps the stitched picture as 8-bit pixels: 2.4 GB
+    became 0.5 GB at 58 megapixels.
+  - `meta` upload reads each column once instead of each cell: 31 s became 1.2 s for
+    100,000 rows × 30 properties. `meta download` builds its table a column at a time:
+    10.2 s became 7.7 s at 500,000 × 30.
+  - `group` copies the current groups only when a later pair reads them, and no longer
+    redraws the network, which does not show groups: 189 ms became 32 ms for 150,000 of
+    500,000 nodes, before the redraw it saves.
+  - Expressions: header text without wildcards no longer goes through fnmatch, and `*`,
+    also `query`'s default with nothing selected, matches every header at once (460 ms
+    became 100 ms, and 500 ms almost nothing, at 500,000 headers). Residue groups and
+    gaps such as `(RHKDE)71` and `_71` read their column once: 167 ms became 33 ms at
+    50,000 sequences.
+  - `cluster`/`subcluster` jaccard counts shared neighbours from the shorter neighbour
+    list of each edge: the filter takes 0.30 s instead of 0.80 s at 200,000 nodes and
+    7.2 million edges.
 - **Viewer command behaviour, as decided after the command audit.** Results change on purpose:
   - **`cluster`/`subcluster` jaccard:** compares closed neighbourhoods (each node counts as its own neighbour), so an edge scores (c + 2) / (a + b − c). Isolated pairs, stars and chains are no longer forced into Noise at any threshold above 0, and a clique scores 1. Every Jaccard result changes, and the default threshold of 0.2 now keeps more edges.
   - **`cluster`/`subcluster` mcl:** each node's self-loop weighs as much as its strongest edge instead of a fixed 1, so the clusters no longer depend on the scale of the scores (identity 0–1 or −log10 E). MCL results change.
