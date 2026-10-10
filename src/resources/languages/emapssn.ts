@@ -1622,6 +1622,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The Agent backend did not accept the message.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1654,6 +1658,24 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Leiden resolution must be a finite number above 0; got {resolution}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Jaccard threshold must be between {low} and {high}; got {threshold}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Min Size must be at least 1; got {min_size}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1665,10 +1687,6 @@ Command-line usage:
     </message>
     <message>
         <source>Clustering ({mode})...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Numba library missing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1685,12 +1703,22 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: Invalid scale &apos;{scale}&apos;. A scale is a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Scale &apos;{scale}&apos; is too large to make a valid node size.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1719,8 +1747,18 @@ Command-line usage:
         <source>No nodes matched criteria.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Skipped %n expression(s) with no color, scale or shape: {skipped}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Unknown esmfold keyword: {keyword}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate esmfold keyword: {keyword}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1773,6 +1811,12 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>Skipped %n selected node(s) without a sequence.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Error: Export refused {source}: {error}</source>
         <translation type="unfinished"></translation>
@@ -1820,6 +1864,26 @@ Command-line usage:
     <message>
         <source>No valid subsets found to export.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Export refused: {first} and {second} differ only in letter case, so Windows would write them to one file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to write {file}: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Error: Failed to write %n file(s); {written} written.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n file(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message numerus="yes">
         <source>Exported %n file(s) ({sequences}).</source>
@@ -1952,6 +2016,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>gmin is fixed at 97% and cannot be set by the label command.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1973,6 +2041,10 @@ Command-line usage:
     </message>
     <message>
         <source>Invalid percentage &apos;{value}&apos;: thresholds must be finite. Add .xlsx to use it as the report filename.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unrecognized argument &apos;{argument}&apos;. A filename cannot start with &apos;-&apos; or contain &apos;=&apos;; write a threshold as a keyword and a value, such as &apos;cmin 90%&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2001,10 +2073,6 @@ Command-line usage:
     </message>
     <message>
         <source>Error: No active alignment reference. Use &apos;reference &lt;ID&gt;&apos; with a node present in the current MSA.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: No clusters or groups defined.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2052,6 +2120,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Output file cannot be replaced (it may be open in another program or read-only): {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Could not snapshot label inputs: {error}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2084,6 +2156,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Invalid insertion position &apos;{value}&apos;; the fractional suffix must be positive.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2095,12 +2171,32 @@ Command-line usage:
         <source>Position range &apos;{range}&apos; must be written from lower to higher.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Position range &apos;{range}&apos; is too large; a range may span at most %n position(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>The position list is too large; it may name at most %n position(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>Error: Logo command requires a POSITIONS parameter.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: No positions provided. Use [...] syntax.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Give the positions in one [...] argument; found a second one: &apos;{argument}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2164,11 +2260,23 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Property &apos;{property}&apos; not found in current metadata. Available properties: {available}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>none</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Metadata display enabled for property: &apos;{property}&apos;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: Please specify a file path or filename to upload.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{option}&apos; is not a metadata option. To clear the metadata display, use {syntax}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2192,6 +2300,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Alignment offset must be between {minimum} and {maximum}, not &apos;{value}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Alignment offset requires a correctly loaded reference. Use &apos;reference &lt;ID&gt;&apos; first.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2209,6 +2321,10 @@ Command-line usage:
     </message>
     <message>
         <source>the network display changed during the capture, so nothing was saved. Run print again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unknown option &apos;{option}&apos;. Modifiers are written without dashes: transparent, full or svg.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2240,6 +2356,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Unknown frequency target &apos;{target}&apos;. Use one residue letter, GAP, _, or a parenthesized group such as (KR).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Frequency logic did not resolve to one value per alignment position.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2266,6 +2386,12 @@ Command-line usage:
     <message>
         <source>No sequences matched the expression &apos;{expression}&apos;. Aborting query.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment. Aborting query.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>No valid alignment columns mapped.</source>
@@ -2352,6 +2478,12 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
+        <source>Batch execution finished: {failed} of %n command(s) failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <source>Batch execution completed: %n command(s) run.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -2359,6 +2491,10 @@ Command-line usage:
     </message>
     <message>
         <source>Error reading/executing command file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filename cannot contain &apos;:&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2586,6 +2722,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Zoom width is too small to draw accurately at the current view centre.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom could not be applied: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Zoom snapped to View Width: {width}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2784,10 +2928,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>none</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Cannot delete metadata columns ({problems}). Available properties: {available}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2805,6 +2945,10 @@ Command-line usage:
     </message>
     <message>
         <source>Property names {names} contain illegal characters. Allowed characters are: letters, numbers, underscores (_), hyphens (-), and periods (.)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Property names {names} are reserved for the metadata table&apos;s row index. Rename the column and upload the file again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3602,6 +3746,18 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Leiden clustering failed: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leiden resolution must be a finite number; got {resolution}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leiden edge weights must be finite numbers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Filename cannot be empty.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3686,6 +3842,10 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Model card &apos;{card}&apos; has an invalid temperature ({temperature}). Open ⚙ Models to edit it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Model card &apos;{card}&apos; has no URL configured. Open ⚙ Models to edit it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3704,6 +3864,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Error: No model cards configured. Open the Agent UI and add one in ⚙ Models.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The agent turn was stopped because the model was changed or switched off.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
