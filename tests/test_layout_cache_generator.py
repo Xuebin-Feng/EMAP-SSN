@@ -15,6 +15,12 @@ from unittest import mock
 
 import h5py
 import numpy as np
+# prepare_network imports pandas lazily on the UMAP path, and pandas' isna
+# then loads numpy.rec. Loading both here keeps the patch.dict(sys.modules)
+# windows below from dropping them on exit, which leaves a second pandas
+# whose C parser rejects its own "str" dtype.
+import pandas  # noqa: F401
+import numpy.rec  # noqa: F401
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
