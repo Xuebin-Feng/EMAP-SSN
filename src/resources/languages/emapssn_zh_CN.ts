@@ -3040,12 +3040,12 @@ Command-line usage:
     <message>
         <location line="+96"/>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Error: {syntax} can be given only once.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{syntax} 只能给出一次。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -3055,7 +3055,7 @@ Command-line usage:
     <message>
         <location line="+15"/>
         <source>Error: {syntax} works only with {full} or {svg}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{syntax} 只能与 {full} 或 {svg} 一起使用。</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3077,7 +3077,7 @@ Command-line usage:
     <message>
         <location line="+28"/>
         <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -3247,23 +3247,23 @@ Command-line usage:
     <message>
         <location filename="../../commands/run.py" line="-62"/>
         <source>Error: The script holds {count} commands, more than the {limit} a script may run. None were run.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：该脚本含有 {count} 条命令，超过了脚本最多可运行的 {limit} 条。未运行任何命令。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; failed.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">批量执行在第 {index} 条命令（共 {total} 条）处停止：“{command}”失败。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; was cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">批量执行在第 {index} 条命令（共 {total} 条）处停止：“{command}”已取消。</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Not run: the remaining %n command(s).</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>未运行：其余 %n 条命令。</numerusform>
         </translation>
     </message>
     <message>
@@ -3274,7 +3274,7 @@ Command-line usage:
     <message>
         <location line="+21"/>
         <source>A Python script is already running; wait for it to finish before running another.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已有一个 Python 脚本正在运行；请等它结束后再运行另一个。</translation>
     </message>
     <message>
         <location line="+5"/>
