@@ -2,10 +2,13 @@
 labels it generates, replaces and clears, and its Jaccard and MCL modes on one
 cluster's own edges."""
 
+import importlib
+import io
 import os
 import sys
 import unittest
-from types import ModuleType
+from contextlib import redirect_stdout
+from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -20,6 +23,7 @@ if SRC_DIR not in sys.path:
 # PySide6) on first use. Imported here, that first import cannot happen inside
 # the sys.modules window below, whose exit would drop the modules again.
 import Viewer_Command_Portal  # noqa: F401
+from Viewer_Command_Portal import ExecutionContext, bind
 from commands import subcluster as subcluster_command
 from tests.command_fixtures import (
     BARBELL_EDGES,
@@ -349,6 +353,231 @@ class JaccardAndMCLSubclusterTests(unittest.TestCase):
                 succeeded.assert_not_called()
                 viewer._save_state.assert_not_called()
                 self.assert_groups(viewer, {})
+
+
+class SubclusterParameterTests(unittest.TestCase):
+    """Parameters the algorithms cannot use are refused before any change."""
+
+    def assert_refused(self, args, message):
+        viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        with mock.patch.object(
+            subcluster_command.network_clustering, "leiden_partition"
+        ) as leiden, mock.patch.object(
+            subcluster_command.network_clustering, "jaccard_partition"
+        ) as jaccard, mock.patch.object(
+            subcluster_command.network_clustering, "markov_clusters"
+        ) as mcl:
+            succeeded, failed, output = run_command(
+                subcluster_command, viewer, ["cluster_1", *args]
+            )
+        failed.assert_called_once_with(viewer, message)
+        succeeded.assert_not_called()
+        self.assertEqual(viewer.console_text.text, message)
+        self.assertEqual(output.count(message), 1)
+        for kernel in (leiden, jaccard, mcl):
+            kernel.assert_not_called()
+        viewer._save_state.assert_not_called()
+        self.assertEqual(viewer.group_labels, [set() for _ in range(10)])
+
+    def test_leiden_resolution_must_be_finite_and_above_zero(self):
+        for resolution in ("nan", "inf", "0", "-1"):
+            message = (
+                "Error: Leiden resolution must be a finite number above 0; "
+                f"got {float(resolution)}."
+            )
+            for args in (["leiden", resolution, "1"], [resolution, "1"]):
+                with self.subTest(args=args):
+                    self.assert_refused(args, message)
+
+    def test_jaccard_threshold_must_lie_in_zero_to_one(self):
+        for threshold in ("nan", "inf", "1.5", "-0.1"):
+            with self.subTest(threshold=threshold):
+                self.assert_refused(
+                    ["jaccard", threshold, "1"],
+                    "Error: Jaccard threshold must be between 0.0 and 1.0; "
+                    f"got {float(threshold)}.",
+                )
+
+    def test_min_size_must_be_at_least_one(self):
+        for min_size in ("0", "-3"):
+            message = f"Error: Min Size must be at least 1; got {int(min_size)}."
+            for args in (
+                ["leiden", "1", min_size],
+                ["jaccard", "0.2", min_size],
+                ["mcl", "2", min_size],
+            ):
+                with self.subTest(args=args):
+                    self.assert_refused(args, message)
+
+
+class SubclusterMCLScoreTests(unittest.TestCase):
+    # Cluster 1 is the 4-cycle 1-2-3-4-1; edges (0, 5) lie in cluster 2.
+    EDGES = ((0, 5), (1, 2), (2, 3), (3, 4), (4, 1))
+    CLUSTERS = [2, 1, 1, 1, 1, 2]
+
+    def subcluster(self, scores):
+        viewer = network_viewer(6, self.EDGES, scores, cluster_labels=self.CLUSTERS)
+        succeeded, failed, output = run_command(
+            subcluster_command, viewer, ["cluster_1", "mcl", "2", "1"]
+        )
+        return viewer, succeeded, failed, output
+
+    def test_unusable_scores_inside_the_cluster_are_refused(self):
+        for scores in (
+            (1.0, 0.0, 1.0, 1.0, 1.0),
+            (1.0, 1.0, -0.2, 1.0, 1.0),
+            (1.0, 1.0, 1.0, float("nan"), 1.0),
+            (1.0, 1.0, 1.0, 1.0, float("inf")),
+        ):
+            with self.subTest(scores=scores):
+                viewer, succeeded, failed, output = self.subcluster(scores)
+                first_line = (
+                    "Error: MCL needs every edge score to be finite and above 0, "
+                    "but found 1 edge with a score that is not."
+                )
+                failed.assert_called_once()
+                self.assertEqual(failed.call_args.args[1].splitlines()[0], first_line)
+                succeeded.assert_not_called()
+                self.assertEqual(viewer.console_text.text, first_line)
+                self.assertEqual(output.count(first_line), 1)
+                viewer._save_state.assert_not_called()
+                self.assertEqual(viewer.group_labels, [set() for _ in range(6)])
+
+    def test_scores_outside_the_cluster_do_not_matter(self):
+        # Only the edge (0, 5) of cluster 2 has an unusable score.
+        viewer, _succeeded, failed, _output = self.subcluster(
+            (0.0, 1.0, 1.0, 1.0, 1.0)
+        )
+        failed.assert_not_called()
+        self.assertEqual(sum(bool(groups) for groups in viewer.group_labels), 4)
+
+
+class OverlappingMCLSubclusterTests(unittest.TestCase):
+    def test_a_subcluster_left_below_min_size_by_an_overlap_is_noise(self):
+        # MCL gives the path 0-1-2-3-4 the overlapping clusters (0, 1, 2) and
+        # (2, 3, 4); the later one takes node 2, leaving (0, 1) below 3.
+        edges = ((0, 1), (1, 2), (2, 3), (3, 4))
+        viewer = network_viewer(5, edges, cluster_labels=[1] * 5)
+        _succeeded, failed, _output = run_command(
+            subcluster_command, viewer, ["cluster_1", "mcl", "2.0", "3"]
+        )
+        failed.assert_not_called()
+        self.assertEqual(
+            viewer.group_labels,
+            [set(), set(), {"subcluster_1_1"}, {"subcluster_1_1"}, {"subcluster_1_1"}],
+        )
+        for node in (0, 1):
+            np.testing.assert_array_equal(viewer.current_colors[node], GREY)
+
+
+class SubclusterWithoutNumbaTests(unittest.TestCase):
+    def test_jaccard_does_not_need_numba_to_run(self):
+        viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        with mock.patch.object(
+            subcluster_command.network_clustering, "NUMBA_AVAILABLE", False
+        ):
+            succeeded, failed, output = run_command(
+                subcluster_command, viewer, ["cluster_1", "jaccard", "0.2", "3"]
+            )
+        failed.assert_not_called()
+        self.assertNotIn("Numba", output)
+        self.assertEqual(
+            viewer.group_labels[2:8],
+            [
+                {"subcluster_1_1"},
+                {"subcluster_1_1"},
+                {"subcluster_1_1"},
+                {"subcluster_1_2"},
+                {"subcluster_1_2"},
+                {"subcluster_1_2"},
+            ],
+        )
+
+
+class SubclusterSingleReportTests(unittest.TestCase):
+    """A failure is recorded once, as the real command portal records it."""
+
+    def record(self, viewer, args):
+        record = {"messages": [], "outcome": None, "artifacts": [], "jobs": []}
+        context = ExecutionContext(SimpleNamespace(viewer=viewer), "test", record)
+        with bind(context), redirect_stdout(io.StringIO()):
+            subcluster_command.run(viewer, args)
+        return record
+
+    def test_refusals_are_recorded_once(self):
+        unclustered = network_viewer(10, NETWORK_EDGES)
+        clustered = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+        for viewer, args, text in (
+            (
+                clustered,
+                ["cluster_x"],
+                "Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got 'cluster_x').",
+            ),
+            (unclustered, ["cluster_1"], "Error: No clusters are currently defined. Run 'cluster' first."),
+            (clustered, ["cluster_9"], "Error: Cluster 9 is empty or does not exist."),
+            (
+                clustered,
+                ["cluster_3"],
+                "Error: No edges exist within cluster_3 to perform subclustering.",
+            ),
+            (
+                clustered,
+                ["cluster_1", "mcl", "0.5"],
+                "Error: MCL inflation must be between 1.1 and 10.0; got 0.5.",
+            ),
+        ):
+            with self.subTest(args=args):
+                record = self.record(viewer, args)
+                self.assertEqual(record["outcome"], "failed")
+                self.assertEqual([m["text"] for m in record["messages"]], [text])
+                self.assertEqual(record["messages"][0]["status"], "failed")
+
+
+class SubclusterModuleTests(unittest.TestCase):
+    def test_colour_codes_are_printed_only_for_a_terminal(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        escape = chr(27) + "["
+        color_map = {1: (1.0, 0.0, 0.0)}
+        with redirect_stdout(io.StringIO()):
+            plain = subcluster_command.get_colored_subcluster_name(1, "name", color_map)
+        with redirect_stdout(Terminal()):
+            colored = subcluster_command.get_colored_subcluster_name(1, "name", color_map)
+        self.assertEqual(plain, "● name")
+        self.assertEqual(colored, f"{escape}38;2;255;0;0m●{escape}0m name")
+
+    def test_the_windows_ansi_switch_is_made_once_per_process(self):
+        flag = "_WINDOWS_ANSI_ENABLED"
+        had_flag = flag in vars(subcluster_command)
+        try:
+            vars(subcluster_command).pop(flag, None)
+            with mock.patch.object(sys, "platform", "win32"), mock.patch(
+                "os.system"
+            ) as system:
+                importlib.reload(subcluster_command)
+                importlib.reload(subcluster_command)
+            system.assert_called_once_with("")
+        finally:
+            if had_flag:
+                vars(subcluster_command)[flag] = True
+            else:
+                vars(subcluster_command).pop(flag, None)
+
+    def test_help_states_what_is_clustered(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            subcluster_command.print_help()
+        text = " ".join(output.getvalue().split())
+        for line in (
+            "regardless of the similarity slider and hidden nodes",
+            "Jaccard compares open neighbourhoods",
+            "an edge whose endpoints share no neighbour scores 0",
+            "Isolated nodes are always Noise in Leiden",
+            "singleton subclusters in MCL and Jaccard when MIN_SIZE is 1",
+        ):
+            self.assertIn(line, text)
 
 
 if __name__ == "__main__":

@@ -15,16 +15,21 @@
 
 import Command_Engine
 import numpy as np
-import matplotlib.pyplot as plt
 from utilities import Network_Kernels as network_clustering
-from utilities.Localization import Message
+from utilities.Localization import JoinedMessage, Message
 import sys
 import os
 import colorsys
 import math
 
-if sys.platform == 'win32':
+if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')
+    _WINDOWS_ANSI_ENABLED = True
+
+
+def _stdout_supports_color():
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
 
 def get_colored_cluster_name(cid, name_str, color_map=None):
     if cid == -1:
@@ -35,6 +40,8 @@ def get_colored_cluster_name(cid, name_str, color_map=None):
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
     else:
         r, g, b = 180, 180, 180
+    if not _stdout_supports_color():
+        return f"● {name_str}"
     return f"\033[38;2;{r};{g};{b}m●\033[0m {name_str}"
 
 def get_combined_colors(n_clusters):
@@ -108,6 +115,90 @@ def mcl_inflation_error(inflation):
     )
 
 
+def leiden_resolution_error(resolution):
+    """Return the error Message for a Leiden resolution that is not a finite number above 0, or None."""
+    # Written so that nan, which compares false, is refused too.
+    if math.isfinite(resolution) and resolution > 0:
+        return None
+    return Message(
+        "Error: Leiden resolution must be a finite number above 0; got {resolution}.",
+        resolution=resolution,
+    )
+
+
+def jaccard_threshold_error(threshold):
+    """Return the error Message for a Jaccard threshold outside 0.0 - 1.0, or None."""
+    low, high = 0.0, 1.0
+    # Written so that nan, which compares false, is refused too.
+    if low <= threshold <= high:
+        return None
+    return Message(
+        "Error: Jaccard threshold must be between {low} and {high}; got {threshold}.",
+        low=low, high=high, threshold=threshold,
+    )
+
+
+def min_size_error(min_size):
+    """Return the error Message for a MIN_SIZE below 1, or None."""
+    if min_size >= 1:
+        return None
+    return Message("Error: Min Size must be at least 1; got {min_size}.", min_size=min_size)
+
+
+def parameter_error(mode, param1, min_size):
+    """Return the error Message for a MIN_SIZE or mode parameter the clustering cannot use, or None."""
+    error = min_size_error(min_size)
+    if error is not None:
+        return error
+    if mode == "mcl":
+        return mcl_inflation_error(param1)
+    if mode == "jaccard":
+        return jaccard_threshold_error(param1)
+    return leiden_resolution_error(param1)
+
+
+def mcl_edge_score_error(scores):
+    """Return the error Message for edge scores MCL cannot use, or None.
+
+    MCL needs every score finite and above 0; scores is None for an
+    unweighted network. A score of 0 or below (-log10 of an E-value of 1 or
+    more is 0 or negative) or a non-finite one makes MCL fail with a NaN error.
+    """
+    if scores is None:
+        return None
+    scores = np.asarray(scores, dtype=float)
+    # Written so that nan, which compares false, is counted too.
+    unusable = int(np.count_nonzero(~(np.isfinite(scores) & (scores > 0))))
+    if unusable == 0:
+        return None
+    return JoinedMessage([
+        Message(
+            "Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.",
+            n=unusable,
+        ),
+        "MCL cannot use a score of 0 or below, such as -log10 of an E-value of 1 or more, or a score that is not finite.",
+    ], separator="\n")
+
+
+def label_mcl_clusters(clusters, n_nodes, min_size):
+    """Label nodes by the clusters markov_clusters returns, 1-based; the rest are -1.
+
+    MCL clusters can overlap. A cluster of at least min_size nodes labels its
+    members, a later cluster overwriting an earlier one on shared nodes, and
+    a cluster left with fewer than min_size nodes by that is Noise.
+    """
+    labels = np.full(n_nodes, -1, dtype=int)
+    cluster_id = 1
+    for comp in clusters:
+        if len(comp) >= min_size:
+            for node in comp:
+                labels[node] = cluster_id
+            cluster_id += 1
+    kept_ids, kept_sizes = np.unique(labels[labels != -1], return_counts=True)
+    labels[np.isin(labels, kept_ids[kept_sizes < min_size])] = -1
+    return labels
+
+
 def print_help():
     print("""
     Topology Clustering Tool
@@ -121,7 +212,7 @@ def print_help():
           - Leiden Community Detection (Modularity & Density optimization).
           - Automatically uses network edge scores as structural weights if available.
           - Requires: pip install graspologic-native
-          - PARAM_1: Resolution (Higher = more clusters). Default: 1.0
+          - PARAM_1: Resolution (a finite number above 0; higher = more clusters). Default: 1.0
           - Example: cluster leiden 1.0 10  (OR simply: cluster 1.0 10)
           
       mcl
@@ -133,7 +224,8 @@ def print_help():
 
       jaccard
           - Filters edges based on shared neighbors and cuts weak connections.
-          - Requires: Numba (JIT compilation)
+          - Uses Numba (JIT compilation) when installed, and a slower pure-Python
+            fallback otherwise.
           - PARAM_1: Threshold (0.0 - 1.0). Default: 0.2
           - Example: cluster jaccard 0.3 10
           
@@ -141,9 +233,18 @@ def print_help():
       list          - Prints current cluster statistics and node distributions to the console.
 
     Arguments:
-      [MIN_SIZE]    (Optional) Minimum Cluster Size (Integer).
+      [MIN_SIZE]    (Optional) Minimum Cluster Size (Integer, at least 1).
                     - Groups smaller than this are designated as 'Noise' (Cluster -1).
                     - Default: 10
+
+    What is clustered:
+      - Clustering uses every loaded edge and node, regardless of the similarity
+        slider and hidden nodes.
+      - Jaccard compares open neighbourhoods (a node does not count as its own
+        neighbour), so an edge whose endpoints share no neighbour scores 0.
+      - Isolated nodes are always Noise in Leiden, but can be singleton clusters
+        in MCL and Jaccard when MIN_SIZE is 1.
+      - MCL needs every edge score to be finite and above 0.
 
     Cluster numbering:
       Retained clusters are numbered from largest to smallest. Equal-size
@@ -169,17 +270,12 @@ def run(viewer, args):
             
         labels = viewer.cluster_labels
         n_nodes = viewer.n_nodes
-        print(f"\n--- Current Cluster Statistics (Total Nodes: {n_nodes}) ---")
         unique_labels, counts = np.unique(labels, return_counts=True)
         label_counts = dict(zip(unique_labels, counts))
-        
+
         sorted_clusters = sorted([k for k in label_counts.keys() if k != -1])
         color_map = get_cluster_color_map(sorted_clusters)
-            
-        noise_count = label_counts.get(-1, 0)
-        noise_colored = get_colored_cluster_name(-1, "Noise (Unclustered)", color_map)
-        print(f"{noise_colored}: {noise_count} nodes ({noise_count/n_nodes*100:.2f}%)")
-        
+
         print(f"\n{'='*54}")
         print(f"--- Current Cluster Statistics (Total: {n_nodes}) ---")
         print(f"{'='*54}")
@@ -244,15 +340,14 @@ def run(viewer, args):
         elif mode == "mcl": param1 = 2.0
         elif mode == "leiden": param1 = 1.0
 
-    if mode == "mcl":
-        inflation_error = mcl_inflation_error(param1)
-        if inflation_error:
-            Command_Engine.print_help(viewer, inflation_error, report_message=False)
-            Command_Engine.command_failed(viewer, inflation_error)
-            return
+    refusal = parameter_error(mode, param1, min_sz)
+    if refusal:
+        Command_Engine.print_help(viewer, refusal, report_message=False)
+        Command_Engine.command_failed(viewer, refusal)
+        return
 
     n_nodes = viewer.n_nodes
-    edges = np.array(viewer.edges, dtype=np.int32)
+    edges = np.array(viewer.edges, dtype=np.int32).reshape(-1, 2)
     labels = np.full(n_nodes, -1, dtype=int)
     
     Command_Engine.show_status(viewer, Message("Clustering ({mode})...", mode=mode.upper()))
@@ -263,13 +358,6 @@ def run(viewer, args):
     # =======================================================
     if mode == "jaccard":
         thresh = param1
-        if not network_clustering.NUMBA_AVAILABLE:
-            print("Error: Numba required for topology clustering.")
-            Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
-            status = Message("Error: Numba library missing.")
-            Command_Engine.show_status(viewer, status)
-            Command_Engine.command_failed(viewer, status)
-            return
 
         # Connected components of the edges the Jaccard filter keeps.
         labels = network_clustering.jaccard_partition(
@@ -291,7 +379,15 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
             return
-            
+
+        score_error = mcl_edge_score_error(
+            viewer.edge_scores if hasattr(viewer, 'edge_scores') else None
+        )
+        if score_error:
+            Command_Engine.print_help(viewer, score_error, report_message=False)
+            Command_Engine.command_failed(viewer, score_error)
+            return
+
         print("Building Sparse Adjacency Matrix...")
         row = np.concatenate([edges[:, 0], edges[:, 1]])
         col = np.concatenate([edges[:, 1], edges[:, 0]])
@@ -304,20 +400,16 @@ def run(viewer, args):
             
         matrix = sp.csr_matrix((d_vals, (row, col)), shape=(n_nodes, n_nodes))
         
-        # ---> NEW: Safely suppress SciPy sparsity warnings triggered by MCL <---
+        # Suppress SciPy sparsity warnings triggered by MCL, for this call only.
         import warnings
         from scipy.sparse import SparseEfficiencyWarning
-        warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
         
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        clusters = network_clustering.markov_clusters(matrix, inflation)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
+            clusters = network_clustering.markov_clusters(matrix, inflation)
         
-        cluster_id = 1
-        for comp in clusters:
-            if len(comp) >= min_sz:
-                for node in comp:
-                    labels[node] = cluster_id
-                cluster_id += 1
+        labels = label_mcl_clusters(clusters, n_nodes, min_sz)
 
     # =======================================================
     # MODE 3: LEIDEN COMMUNITY DETECTION
@@ -404,6 +496,21 @@ def run(viewer, args):
     
     n_clusters = len(sorted_clusters)
     msg = Message("Done! Found %n cluster(s) via {mode}.", n=n_clusters, mode=mode.upper())
+
+    # A custom group made before this run may already carry a new cluster's
+    # name, which makes #cluster_N# ambiguous. Groups are not renamed or removed.
+    group_labels = getattr(viewer, 'group_labels', None)
+    group_names = set().union(*group_labels) if group_labels is not None else set()
+    shared_names = [f"cluster_{cid}" for cid in sorted_clusters if f"cluster_{cid}" in group_names]
+    if shared_names:
+        msg = JoinedMessage([
+            msg,
+            Message(
+                "Warning: custom groups and clusters now share %n name(s): {names}. "
+                "Selecting them with #name# is ambiguous until the group is removed.",
+                n=len(shared_names), names=", ".join(shared_names),
+            ),
+        ])
     Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)

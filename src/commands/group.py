@@ -64,6 +64,9 @@ def print_help():
       * QUICK USE: If no expression is provided, the command automatically applies
         the group name to the nodes currently selected in the viewer.
 
+      Hidden nodes are included: an expression matches them like any other node,
+      and they receive the group label.
+
     Expression Targets (Do NOT use spaces inside expressions!):
       1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap), or ([AA...])[Pos]
                        for alternatives (e.g., (RHK)71); negative positions require
@@ -225,6 +228,7 @@ def run(viewer, args):
     total_modified = 0
     stats = []
     warnings_issued = []
+    skipped_names = []
 
     current_group_labels = getattr(viewer, 'group_labels', None)
     if current_group_labels is None:
@@ -244,7 +248,7 @@ def run(viewer, args):
         # Validation checks
         name = raw_name.lower()
         if name in _RESERVED_GROUP_NAMES:
-            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
+            skipped_names.append(raw_name)
             msg = Message("Group name '{name}' is a reserved keyword. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
@@ -258,19 +262,19 @@ def run(viewer, args):
                 == int(cluster_name_match.group(1))
             )
         ):
-            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
+            skipped_names.append(raw_name)
             msg = Message("Group name '{name}' conflicts with an existing topology cluster. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
         if is_generated_subcluster_name(name):
-            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
+            skipped_names.append(raw_name)
             msg = Message("Group name '{name}' is reserved for subclusters. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
             continue
         if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
-            Command_Engine.command_failed(viewer, f"Invalid group name: {raw_name}")
+            skipped_names.append(raw_name)
             msg = Message("Group name '{name}' contains invalid characters. Skipping.", name=raw_name)
             print(f"Warning: {msg}")
             warnings_issued.append(msg)
@@ -316,16 +320,25 @@ def run(viewer, args):
         viewer.update_nodes()
         applied = JoinedMessage(stats, separator="; ")
         if warnings_issued:
-            msg = Message("Groups Applied: {applied} ({skipped} skipped)", applied=applied, skipped=len(warnings_issued))
+            # Pairs with a skipped name were left out; the others were applied.
+            # The console line shows the count; the terminal and MCP clients
+            # also get the names.
+            shown = Message("Groups Applied: {applied} ({skipped} skipped)", applied=applied, skipped=len(warnings_issued))
+            msg = JoinedMessage(
+                [shown, f"Skipped group names: {', '.join(dict.fromkeys(skipped_names))}."],
+                separator="\n",
+            )
         else:
-            msg = Message("Groups Applied: {applied}", applied=applied)
-        Command_Engine.show_status(viewer, msg)
+            shown = msg = Message("Groups Applied: {applied}", applied=applied)
+        Command_Engine.show_status(viewer, shown)
         print(f"\nSuccess! {msg}")
     elif warnings_issued:
         # If nothing was modified but we had warnings, show the first warning on the HUD
         msg = Message("Skipped: {warning}", warning=warnings_issued[0])
         Command_Engine.show_status(viewer, msg)
         print(f"\nOperation skipped or aborted due to warnings.")
+        Command_Engine.command_failed(viewer, msg)
+        return
     else:
         msg = Message("No nodes matched criteria for grouping.")
         Command_Engine.show_status(viewer, msg)

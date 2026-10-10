@@ -39,7 +39,7 @@ def print_help():
       1. Color: Name (red, blue) or Hex (#ff0000)
          Valid selection expressions take precedence over colors and other modifiers.
       2. Scale: Suffix with 'x' (e.g., 2x, 0.5x, 0x). Scales must be finite and
-         non-negative.
+         non-negative, and small enough to give a finite node size.
          Old x2 scale syntax is removed; x2 now selects residue X at position 2.
       3. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
 
@@ -110,6 +110,7 @@ def run(viewer, args):
     current_color = None
     current_scale = None
     current_shape = None
+    skipped_expressions = []
 
     def push_assignment():
         nonlocal current_expr, current_color, current_scale, current_shape
@@ -126,6 +127,7 @@ def run(viewer, args):
             assignments.append((current_expr, current_color, current_scale, current_shape))
         elif current_expr:
             print(f"Warning: Skipping '{current_expr}' (No valid color, scale, or shape provided)")
+            skipped_expressions.append(current_expr)
 
     for arg in args:
         # Classify a complete Boolean expression.
@@ -152,6 +154,18 @@ def run(viewer, args):
                         scale=arg,
                     )
                     Command_Engine.print_help(viewer, msg)
+                    Command_Engine.command_failed(viewer, msg)
+                    return
+                if scale == 0:
+                    scale = 0.0  # '-0x' is the scale 0, not -0.0
+                with np.errstate(over='ignore'):
+                    size_is_finite = bool(np.isfinite(np.float32(cfg.NODE_SIZE * scale)))
+                if not size_is_finite:
+                    msg = Message(
+                        "Error: Scale '{scale}' is too large to make a valid node size.",
+                        scale=arg,
+                    )
+                    Command_Engine.print_help(viewer, msg, report_message=False)
                     Command_Engine.command_failed(viewer, msg)
                     return
                 current_scale = scale
@@ -280,10 +294,20 @@ def run(viewer, args):
         viewer.promote_nodes(modified_nodes)
         viewer.update_nodes()
         msg = Message("Applied: {stats}", stats=JoinedMessage(stats, separator="; "))
-        Command_Engine.show_status(viewer, msg)
-        print(f"\nSuccess! {msg}")
     else:
         msg = Message("No nodes matched criteria.")
-        Command_Engine.show_status(viewer, msg)
+    if skipped_expressions:
+        # An expression given no color, scale or shape is left out; the rest was applied.
+        msg = JoinedMessage([
+            msg,
+            Message(
+                "Skipped %n expression(s) with no color, scale or shape: {skipped}.",
+                n=len(skipped_expressions), skipped=', '.join(skipped_expressions),
+            ),
+        ])
+    Command_Engine.show_status(viewer, msg)
+    if total_modified > 0:
+        print(f"\nSuccess! {msg}")
+    else:
         print("\nNo nodes matched your criteria.")
     Command_Engine.command_succeeded(viewer, msg)

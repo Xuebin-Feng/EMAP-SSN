@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -16,6 +17,7 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from Viewer_Command_Portal import ExecutionContext, bind
 from commands import group as group_command
 from tests.command_fixtures import one_node_viewer, reported_outcomes
 
@@ -162,6 +164,90 @@ class GroupCommandTests(unittest.TestCase):
             succeeded.call_args.args[1],
             "Removed 1 group from 1 total node instance.",
         )
+
+    def record(self, viewer, arguments):
+        """Run group under a real execution context and return what it recorded."""
+        record = {"messages": [], "outcome": None, "artifacts": [], "jobs": []}
+        context = ExecutionContext(SimpleNamespace(viewer=viewer), "test", record)
+        with bind(context), redirect_stdout(io.StringIO()):
+            group_command.run(viewer, arguments)
+        return record
+
+    def test_skipped_names_do_not_fail_a_command_that_grouped_nodes(self):
+        viewer = self.make_viewer()
+        record = self.record(viewer, ['"node"', "mutant", '"node"', "noise"])
+
+        self.assertEqual(viewer.group_labels, [{"mutant"}])
+        viewer._save_state.assert_called_once_with()
+        self.assertEqual(record["outcome"], "succeeded")
+        self.assertEqual(
+            record["messages"],
+            [
+                {
+                    "status": "succeeded",
+                    "text": (
+                        "Groups Applied: 1 node -> 'mutant' (1 skipped)\n"
+                        "Skipped group names: noise."
+                    ),
+                    "truncated": False,
+                }
+            ],
+        )
+        # The console line shows the first line; the report names what was skipped.
+        self.assertEqual(
+            viewer.console_text.text,
+            "Groups Applied: 1 node -> 'mutant' (1 skipped)",
+        )
+
+    def test_every_skipped_name_is_listed_once(self):
+        viewer = self.make_viewer()
+        record = self.record(
+            viewer,
+            ['"node"', "ok", '"node"', "noise", '"node"', "bad!", '"node"', "Noise"],
+        )
+
+        self.assertEqual(viewer.group_labels, [{"ok"}])
+        self.assertEqual(record["outcome"], "succeeded")
+        self.assertEqual(
+            record["messages"][-1]["text"],
+            "Groups Applied: 1 node -> 'ok' (3 skipped)\n"
+            "Skipped group names: noise, bad!, Noise.",
+        )
+
+    def test_a_command_that_grouped_nothing_because_of_skipped_names_fails(self):
+        viewer = self.make_viewer()
+        record = self.record(viewer, ['"node"', "noise"])
+
+        self.assertEqual(viewer.group_labels, [set()])
+        viewer._save_state.assert_not_called()
+        self.assertEqual(record["outcome"], "failed")
+        self.assertEqual(
+            [(m["status"], m["text"]) for m in record["messages"]],
+            [("failed", "Skipped: Group name 'noise' is a reserved keyword. Skipping.")],
+        )
+        self.assertTrue(viewer.console_text.text.startswith("Skipped:"))
+
+    def test_a_command_without_skips_still_succeeds(self):
+        viewer = self.make_viewer()
+        record = self.record(viewer, ['"node"', "ok"])
+
+        self.assertEqual(record["outcome"], "succeeded")
+        self.assertEqual(
+            [m["text"] for m in record["messages"]],
+            ["Groups Applied: 1 node -> 'ok'"],
+        )
+
+    def test_hidden_nodes_are_grouped_and_the_help_says_so(self):
+        viewer = self.make_viewer()
+        viewer.visible_mask = np.array([False])
+
+        self.record(viewer, ['"node"', "ok"])
+        self.assertEqual(viewer.group_labels, [{"ok"}])
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            group_command.print_help()
+        self.assertIn("Hidden nodes are included", output.getvalue())
 
 
 if __name__ == "__main__":

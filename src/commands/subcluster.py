@@ -31,8 +31,14 @@ try:
 except ImportError:
     import cluster as cluster_cmd
 
-if sys.platform == 'win32':
+if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')
+    _WINDOWS_ANSI_ENABLED = True
+
+
+def _stdout_supports_color():
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
 
 def get_colored_subcluster_name(sub_id, name_str, color_map=None):
     if sub_id == -1:
@@ -43,6 +49,8 @@ def get_colored_subcluster_name(sub_id, name_str, color_map=None):
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
     else:
         r, g, b = 180, 180, 180
+    if not _stdout_supports_color():
+        return f"● {name_str}"
     return f"\033[38;2;{r};{g};{b}m●\033[0m {name_str}"
 
 def get_subcluster_colors(n_subclusters):
@@ -87,12 +95,22 @@ def print_help():
                           subcluster_0_2 or subcluster_001_2, are kept.
 
     Modes:
-      leiden (Default)  - Leiden Community Detection. PARAM_1: Resolution (Default: 1.0)
+      leiden (Default)  - Leiden Community Detection. PARAM_1: Resolution, a finite number above 0 (Default: 1.0)
       mcl               - Markov Clustering Algorithm. PARAM_1: Inflation, 1.1 - 10.0 (Default: 2.0)
-      jaccard           - Topology Jaccard filtering. PARAM_1: Threshold (Default: 0.2)
+      jaccard           - Topology Jaccard filtering. PARAM_1: Threshold, 0.0 - 1.0 (Default: 0.2)
+                          Uses Numba when installed, and a slower pure-Python fallback otherwise.
 
-    [MIN_SIZE]          - (Optional) Minimum size of subclusters to keep (Default: 10).
+    [MIN_SIZE]          - (Optional) Minimum size of subclusters to keep, at least 1 (Default: 10).
                           Smaller groups are treated as Noise.
+
+    What is clustered:
+      - Subclustering uses every loaded edge between the cluster's own nodes,
+        regardless of the similarity slider and hidden nodes.
+      - Jaccard compares open neighbourhoods (a node does not count as its own
+        neighbour), so an edge whose endpoints share no neighbour scores 0.
+      - Isolated nodes are always Noise in Leiden, but can be singleton subclusters
+        in MCL and Jaccard when MIN_SIZE is 1.
+      - MCL needs every edge score within the cluster to be finite and above 0.
 
     Examples:
       subcluster cluster_2
@@ -152,7 +170,7 @@ def run(viewer, args):
             "Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{argument}').",
             argument=args[0],
         )
-        Command_Engine.print_help(viewer, msg)
+        Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
         return
         
@@ -160,7 +178,7 @@ def run(viewer, args):
 
     if getattr(viewer, 'cluster_labels', None) is None:
         msg = Message("Error: No clusters are currently defined. Run 'cluster' first.")
-        Command_Engine.print_help(viewer, msg)
+        Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
         return
 
@@ -169,7 +187,7 @@ def run(viewer, args):
 
     if len(subgraph_nodes) == 0:
         msg = Message("Error: Cluster {cluster} is empty or does not exist.", cluster=cluster_id)
-        Command_Engine.print_help(viewer, msg)
+        Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
         return
 
@@ -215,12 +233,11 @@ def run(viewer, args):
         elif mode == "mcl": param1 = 2.0
         elif mode == "leiden": param1 = 1.0
 
-    if mode == "mcl":
-        inflation_error = cluster_cmd.mcl_inflation_error(param1)
-        if inflation_error:
-            Command_Engine.print_help(viewer, inflation_error, report_message=False)
-            Command_Engine.command_failed(viewer, inflation_error)
-            return
+    refusal = cluster_cmd.parameter_error(mode, param1, min_sz)
+    if refusal:
+        Command_Engine.print_help(viewer, refusal, report_message=False)
+        Command_Engine.command_failed(viewer, refusal)
+        return
 
     if hasattr(viewer, 'console_text'):
         Command_Engine.show_status(
@@ -236,7 +253,7 @@ def run(viewer, args):
         msg = Message(
             "Error: No edges exist within {cluster} to perform subclustering.", cluster=f"cluster_{cluster_id}"
         )
-        Command_Engine.print_help(viewer, msg)
+        Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
         return
 
@@ -256,13 +273,6 @@ def run(viewer, args):
     # =======================================================
     if mode == "jaccard":
         thresh = param1
-        if not network_clustering.NUMBA_AVAILABLE:
-            print("Error: Numba required for topology clustering.")
-            Command_Engine.command_failed(viewer, 'Error: Numba required for topology clustering.')
-            status = Message("Error: Numba library missing.")
-            Command_Engine.show_status(viewer, status)
-            Command_Engine.command_failed(viewer, status)
-            return
 
         # Connected components of the edges the Jaccard filter keeps.
         local_labels = network_clustering.jaccard_partition(
@@ -283,7 +293,13 @@ def run(viewer, args):
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
             return
-            
+
+        score_error = cluster_cmd.mcl_edge_score_error(local_edge_scores)
+        if score_error:
+            Command_Engine.print_help(viewer, score_error, report_message=False)
+            Command_Engine.command_failed(viewer, score_error)
+            return
+
         print("Building Sparse Adjacency Matrix...")
         row = np.concatenate([local_edges[:, 0], local_edges[:, 1]])
         col = np.concatenate([local_edges[:, 1], local_edges[:, 0]])
@@ -295,19 +311,16 @@ def run(viewer, args):
             
         matrix = sp.csr_matrix((d_vals, (row, col)), shape=(n_sub, n_sub))
         
+        # Suppress SciPy sparsity warnings triggered by MCL, for this call only.
         import warnings
         from scipy.sparse import SparseEfficiencyWarning
-        warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
         
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        clusters = network_clustering.markov_clusters(matrix, inflation)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
+            clusters = network_clustering.markov_clusters(matrix, inflation)
         
-        sub_id = 1
-        for comp in clusters:
-            if len(comp) >= min_sz:
-                for node in comp:
-                    local_labels[node] = sub_id
-                sub_id += 1
+        local_labels = cluster_cmd.label_mcl_clusters(clusters, n_sub, min_sz)
 
     # =======================================================
     # MODE 3: LEIDEN COMMUNITY DETECTION

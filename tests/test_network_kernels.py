@@ -7,11 +7,15 @@ objects. The batched microbatch kernels are covered in
 test_network_kernels_batch.
 """
 
+import builtins
+import importlib.util
 import io
 import os
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -23,6 +27,7 @@ for directory in (SRC_DIR, TOOLS_DIR):
     if directory not in sys.path:
         sys.path.insert(0, directory)
 
+from utilities import Network_Kernels as network_kernels  # noqa: E402
 from utilities.Network_Kernels import (  # noqa: E402
     global_local_scores,
     global_score_length_identity,
@@ -265,6 +270,153 @@ class AlignmentScoreKernelTests(unittest.TestCase):
             embedding_ssearch.local_score_length_identity,
             local_score_length_identity,
         )
+
+
+BARBELL = np.asarray(
+    [(0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5)], dtype=np.int32
+)
+
+
+class PanicLikeError(BaseException):
+    """Stands in for pyo3's PanicException, which is no Exception."""
+
+
+def fake_graspologic(leiden):
+    return SimpleNamespace(leiden=leiden)
+
+
+class LeidenPartitionTests(unittest.TestCase):
+    """leiden_partition keeps graspologic_native's panics away from its callers."""
+
+    PATH = np.asarray([[0, 1], [1, 2]], dtype=np.int32)
+
+    def partition(self, weights, resolution, native):
+        with mock.patch.dict(sys.modules, {"graspologic_native": native}):
+            return network_kernels.leiden_partition(
+                3, self.PATH, weights, resolution, 1
+            )
+
+    def test_a_nan_or_infinite_resolution_is_refused_before_the_native_call(self):
+        for resolution in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(resolution=resolution):
+                native = fake_graspologic(mock.Mock())
+                with self.assertRaises(ValueError) as caught:
+                    self.partition(None, resolution, native)
+                self.assertEqual(
+                    str(caught.exception),
+                    f"Leiden resolution must be a finite number; got {resolution}.",
+                )
+                native.leiden.assert_not_called()
+
+    def test_nan_or_infinite_weights_are_refused_before_the_native_call(self):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(weight=bad):
+                native = fake_graspologic(mock.Mock())
+                with self.assertRaises(ValueError) as caught:
+                    self.partition(np.asarray([1.0, bad]), 1.0, native)
+                self.assertEqual(
+                    str(caught.exception), "Leiden edge weights must be finite numbers."
+                )
+                native.leiden.assert_not_called()
+
+    def test_a_network_without_edges_returns_noise(self):
+        with mock.patch.dict(sys.modules, {"graspologic_native": fake_graspologic(mock.Mock())}):
+            labels = network_kernels.leiden_partition(
+                3, np.zeros((0, 2), dtype=np.int32), None, 1.0, 1
+            )
+        np.testing.assert_array_equal(labels, [-1, -1, -1])
+
+    def test_a_panic_becomes_a_runtime_error(self):
+        native = fake_graspologic(mock.Mock(side_effect=PanicLikeError("boom")))
+        with self.assertRaises(RuntimeError) as caught:
+            self.partition(None, 1.0, native)
+        self.assertEqual(str(caught.exception), "Leiden clustering failed: boom")
+        self.assertIsInstance(caught.exception.__cause__, PanicLikeError)
+
+    def test_exceptions_and_interrupts_pass_through_unchanged(self):
+        for error in (
+            ValueError("range"),
+            KeyboardInterrupt(),
+            SystemExit(2),
+            GeneratorExit(),
+        ):
+            with self.subTest(error=type(error).__name__):
+                native = fake_graspologic(mock.Mock(side_effect=error))
+                with self.assertRaises(type(error)) as caught:
+                    self.partition(None, 1.0, native)
+                self.assertIs(caught.exception, error)
+
+    def test_the_csr_call_is_guarded_too(self):
+        csr = mock.Mock(side_effect=PanicLikeError("csr boom"))
+        native = SimpleNamespace(leiden=mock.Mock(), leiden_csr=csr)
+        with self.assertRaises(RuntimeError):
+            self.partition(np.asarray([1.0, 2.0]), 1.0, native)
+        csr.assert_called_once()
+
+    def test_valid_input_gives_the_same_partitions(self):
+        try:
+            import graspologic_native  # noqa: F401
+        except ImportError:
+            self.skipTest("graspologic_native is not installed")
+        cases = (
+            (None, 1.0, 1, [1, 1, 1, 2, 2, 2, -1]),
+            (np.arange(1.0, 8.0), 1.0, 1, [1, 1, 1, 2, 2, 2, -1]),
+            (np.arange(1.0, 8.0), 0.3, 1, [1, 1, 1, 1, 1, 1, -1]),
+            (None, 2.0, 3, [1, 1, 1, 2, 2, 2, -1]),
+        )
+        for weights, resolution, min_size, labels in cases:
+            with self.subTest(resolution=resolution, min_size=min_size):
+                actual = network_kernels.leiden_partition(
+                    7, BARBELL, weights, resolution, min_size
+                )
+                np.testing.assert_array_equal(actual, labels)
+
+    def test_the_real_library_panic_on_zero_weights_becomes_a_runtime_error(self):
+        try:
+            import graspologic_native  # noqa: F401
+        except ImportError:
+            self.skipTest("graspologic_native is not installed")
+        with self.assertRaises(RuntimeError) as caught:
+            network_kernels.leiden_partition(
+                3, self.PATH, np.zeros(2), 1.0, 1
+            )
+        self.assertTrue(str(caught.exception).startswith("Leiden clustering failed: "))
+
+
+def load_without_numba():
+    """A copy of Network_Kernels imported as it is when Numba is missing."""
+    path = os.path.join(SRC_DIR, "utilities", "Network_Kernels.py")
+    spec = importlib.util.spec_from_file_location("Network_Kernels_without_numba", path)
+    module = importlib.util.module_from_spec(spec)
+    real_import = builtins.__import__
+
+    def refuse_numba(name, *args, **kwargs):
+        if name == "numba" or name.startswith("numba."):
+            raise ImportError("numba is blocked for this test")
+        return real_import(name, *args, **kwargs)
+
+    sys.modules[spec.name] = module
+    try:
+        with mock.patch("builtins.__import__", refuse_numba):
+            spec.loader.exec_module(module)
+    finally:
+        # The copy registers itself under the module's other names too.
+        for name in [name for name, loaded in sys.modules.items() if loaded is module]:
+            del sys.modules[name]
+    return module
+
+
+class JaccardPartitionWithoutNumbaTests(unittest.TestCase):
+    def test_the_pure_python_fallback_matches_the_numba_kernel(self):
+        plain = load_without_numba()
+        self.assertFalse(plain.NUMBA_AVAILABLE)
+        for threshold in (0.0, 0.2, 0.26, 0.5, 1.0):
+            for min_size in (1, 3):
+                with self.subTest(threshold=threshold, min_size=min_size):
+                    np.testing.assert_array_equal(
+                        plain.jaccard_partition(7, BARBELL, threshold, min_size),
+                        network_kernels.jaccard_partition(7, BARBELL, threshold, min_size),
+                    )
 
 
 if __name__ == "__main__":

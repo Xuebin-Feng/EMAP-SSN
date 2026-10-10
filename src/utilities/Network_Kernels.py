@@ -41,6 +41,11 @@ try:
 except ImportError:
     import Numba_Threads
 
+try:
+    from utilities.Localization import Message
+except ImportError:
+    from Localization import Message
+
 
 # Module aliasing to prevent duplicate JIT caches in long-running processes
 _THIS_MODULE = sys.modules[__name__]
@@ -782,9 +787,41 @@ def _leiden_csr_input(edges, weights, n_nodes):
     )
 
 
+def _call_graspologic(function, *args, **kwargs):
+    """Call a graspologic_native function, turning its panics into RuntimeError.
+
+    pyo3 raises a Rust panic as PanicException, a BaseException that escapes
+    every ``except Exception`` of the callers (the command dispatcher, the MCP
+    portal, the VR terminal). Ordinary exceptions, KeyboardInterrupt,
+    SystemExit and GeneratorExit pass through unchanged.
+    """
+    try:
+        return function(*args, **kwargs)
+    except Exception:
+        raise
+    except (KeyboardInterrupt, SystemExit, GeneratorExit):
+        raise
+    except BaseException as error:
+        raise RuntimeError(
+            Message("Leiden clustering failed: {error}", error=str(error))
+        ) from error
+
+
 def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
-    """Partition a network with Leiden and return 1-based cluster labels."""
+    """Partition a network with Leiden and return 1-based cluster labels.
+
+    Raises ValueError for a NaN or infinite resolution or edge weight, which
+    would panic graspologic_native, and RuntimeError when it panics anyway.
+    """
     import graspologic_native as gn
+
+    if not np.isfinite(float(resolution)):
+        raise ValueError(
+            Message(
+                "Leiden resolution must be a finite number; got {resolution}.",
+                resolution=resolution,
+            )
+        )
 
     labels = np.full(n_nodes, -1, dtype=int)
     edges = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
@@ -803,13 +840,17 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     else:
         weights = np.asarray(weights, dtype=float).ravel()
 
+    if not np.isfinite(weights).all():
+        raise ValueError(Message("Leiden edge weights must be finite numbers."))
+
     # leiden_csr refuses negative and non-finite weights, which leiden takes.
     csr_input = None
     if hasattr(gn, "leiden_csr") and np.all((weights >= 0) & (weights < np.inf)):
         csr_input = _leiden_csr_input(edges, weights, n_nodes)
     if csr_input is not None:
         nodes, indptr, indices, data = csr_input
-        _, membership = gn.leiden_csr(
+        _, membership = _call_graspologic(
+            gn.leiden_csr,
             indptr,
             indices,
             data,
@@ -829,7 +870,8 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
                 weights.tolist(),
             )
         )
-        _, membership = gn.leiden(
+        _, membership = _call_graspologic(
+            gn.leiden,
             edges=edge_list,
             resolution=float(resolution),
             use_modularity=True,
