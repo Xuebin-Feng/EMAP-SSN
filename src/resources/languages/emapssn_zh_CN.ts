@@ -4484,12 +4484,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+390"/>
+        <location line="+406"/>
         <source>CPU</source>
         <translation type="unfinished">CPU</translation>
     </message>
     <message>
-        <location line="-376"/>
+        <location line="-392"/>
         <source>not recorded</source>
         <translation type="unfinished">未记录</translation>
     </message>
@@ -4635,12 +4635,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+219"/>
+        <location line="+235"/>
         <source>Result</source>
         <translation type="unfinished">结果</translation>
     </message>
     <message>
-        <location line="-215"/>
+        <location line="-231"/>
         <source>Chosen</source>
         <translation type="unfinished">已选择</translation>
     </message>
@@ -4655,7 +4655,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">第 {place} 名</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+8"/>
+        <source>Results within {percent} % of the best count as a tie, which goes to the CPU, a scalar plan, less peak memory and fewer lanes, in that order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <location line="+13"/>
         <source>{sequences} sequences, {residues} residues</source>
         <translation type="unfinished">{sequences} 条序列，{residues} 个残基</translation>

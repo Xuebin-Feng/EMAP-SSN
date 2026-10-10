@@ -3346,6 +3346,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Results within {percent} % of the best count as a tie, which goes to the CPU, a scalar plan, less peak memory and fewer lanes, in that order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{sequences} sequences, {residues} residues</source>
         <translation type="unfinished"></translation>
     </message>

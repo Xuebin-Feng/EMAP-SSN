@@ -1972,7 +1972,23 @@ def decision_blocks(decision):
         peak = [format_bytes(candidate.get("peak_memory_bytes")) if candidate.get("peak_memory_bytes") else "-"]
         rows.append([candidate_text(candidate, kind), value_text(candidate.get("value"), decision.get("unit"))]
                     + (peak if memory else []) + [result])
-    return [("line", title), ("table", rows)]
+    blocks = [("line", title), ("table", rows)]
+    if decision.get("tie_fraction") and tie_reordered(decision, [candidates[index] for index in ranking]):
+        blocks.append(("line", Message(
+            "Results within {percent} % of the best count as a tie, which goes to the CPU, a scalar plan, "
+            "less peak memory and fewer lanes, in that order.",
+            percent=f"{decision['tie_fraction'] * 100:g}",
+        )))
+    return blocks
+
+
+def tie_reordered(decision, ranked):
+    """Whether a ranking puts a candidate above one that measured better, as only a tie
+    (Hardware_Acceleration.rank_benchmark_results) does, so the table needs the rule beside it."""
+    values = [float(candidate["value"]) for candidate in ranked if candidate.get("value") is not None]
+    if decision.get("direction") == "lower":
+        values = [-value for value in values]
+    return any(later > earlier for place, earlier in enumerate(values) for later in values[place + 1:])
 
 
 def work_text(outcome, inputs):

@@ -565,6 +565,32 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertEqual(str(benchmark.candidate_text(cpu, "alignment_plan")), "CPU, scalar plan")
         self.assertEqual(benchmark.candidate_text(tiled, "embedding_device"), "GPU")
 
+    def test_a_table_that_a_tie_reordered_states_the_tie_rule(self):
+        # rank_benchmark_results gives a near-tie to fewer lanes, as stage 8 of a real run showed.
+        decision = {"kind": "injection_plan", "unit": "pairs/s", "direction": "higher", "tie_fraction": 0.03,
+                    "ranking": [0, 1], "winner": 0, "candidates": [
+                        {"device": "GPU", "backend": "cuda", "variant": "tiled", "lanes": 2, "value": 15769.0},
+                        {"device": "GPU", "backend": "cuda", "variant": "tiled", "lanes": 8, "value": 16096.0},
+                    ]}
+        blocks = benchmark.decision_blocks(decision)
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual(str(blocks[-1][1]), "Results within 3 % of the best count as a tie, which goes to the CPU, "
+                                             "a scalar plan, less peak memory and fewer lanes, in that order.")
+        self.assertEqual(len(benchmark.decision_blocks(dict(decision, ranking=[1, 0], winner=1))), 2,
+                         "a ranking in measured order needs no rule")
+        self.assertEqual(len(benchmark.decision_blocks(dict(decision, tie_fraction=None))), 2,
+                         "a record without the tie says nothing about it")
+
+    def test_for_times_a_faster_candidate_ranked_lower_states_the_tie_rule(self):
+        decision = {"kind": "layout_device", "unit": "s", "direction": "lower", "tie_fraction": 0.05,
+                    "ranking": [0, 1], "winner": 0, "candidates": [
+                        {"device": "CPU", "backend": "cpu", "value": 0.44},
+                        {"device": "GPU", "backend": "cuda", "value": 1.31},
+                    ]}
+        self.assertEqual(len(benchmark.decision_blocks(decision)), 2)
+        decision["candidates"][1]["value"] = 0.43
+        self.assertIn("within 5 % of the best", str(benchmark.decision_blocks(decision)[-1][1]))
+
     def test_the_auto_trials_are_told_apart_from_the_work_after_them(self):
         outcome = benchmark.StageResult(benchmark.STAGES_BY_KEY["alignment"], status="completed")
         outcome.decisions = [{"kind": "matmul_precision", "time": 1003.0}, {"kind": "alignment_plan", "time": 1010.0},
@@ -610,11 +636,14 @@ def every_kind_of_stage():
     child = {"tool_seconds": 15.0, "import_seconds": 1.0, "gpu_peak_bytes": 1 << 20,
              "steps": {"alignment": {"started_at": 1000.0, "finished_at": 1015.0}},
              "details": {"nodes": 4, "edges": 6, "tree_seconds": 1.5, "merge_seconds": 0.5}}
-    ranking = {"unit": "pairs/s", "ranking": [1, 0], "winner": 1, "time": 1010.0, "size_class": "small", "candidates": [
+    # #4 measured better than the winner, #2, but lost the tie, so the tie rule shows too.
+    ranking = {"unit": "pairs/s", "direction": "higher", "tie_fraction": 0.03, "ranking": [1, 3, 0], "winner": 1,
+               "time": 1010.0, "size_class": "small", "candidates": [
         {"device": "#1", "backend": "cpu", "variant": "1", "lanes": 1, "value": 5.0, "error": None},
         {"device": "#2", "backend": "cuda", "variant": "2", "lanes": 2, "value": 50.0, "error": None,
          "profile": "3", "peak_memory_bytes": 1 << 20},
         {"device": "#3", "backend": "cuda", "variant": "2", "lanes": 8, "value": None, "error": "4"},
+        {"device": "#4", "backend": "cuda", "variant": "2", "lanes": 4, "value": 51.0, "error": None},
     ]}
     decisions = [dict(ranking, kind=kind) for kind in benchmark.DECISION_TITLES] + [
         {"kind": "matmul_precision", "choice": "ieee_fp32", "reason": reason, "unit": "pairs/s", "time": 1003.0,
