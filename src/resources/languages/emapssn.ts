@@ -1701,6 +1701,12 @@ Command-line usage:
         <source>Reset successful: {targets}.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Running {command}...</source>
         <translation type="unfinished"></translation>
@@ -1807,12 +1813,6 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <source>Done! Found %n cluster(s) via {mode}.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -2442,7 +2442,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: {syntax} needs a view width, as in {example}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: {syntax} can be given only once.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Unknown option &apos;{option}&apos;. Modifiers are written without dashes: transparent, full or svg.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: {syntax} works only with {full} or {svg}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2455,6 +2467,10 @@ Command-line usage:
     </message>
     <message>
         <source>Error: No visible nodes to export.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2588,19 +2604,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>File selection cancelled.</source>
+        <source>Error: The script holds {count} commands, more than the {limit} a script may run. None were run.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Executing Python script...</source>
+        <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; failed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Python script failed (exit code {code}):</source>
+        <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; was cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <source>Batch execution finished: {failed} of %n command(s) failed.</source>
+        <source>Not run: the remaining %n command(s).</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -2612,7 +2628,23 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Error: Python script failed (exit code {code}):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error reading/executing command file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File selection cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A Python script is already running; wait for it to finish before running another.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Executing Python script...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

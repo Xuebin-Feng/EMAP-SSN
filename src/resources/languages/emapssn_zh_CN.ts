@@ -1824,7 +1824,7 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../commands/label.py" line="+1267"/>
         <location line="+447"/>
-        <location filename="../../commands/logo.py" line="+634"/>
+        <location filename="../../commands/logo.py" line="+633"/>
         <location line="+56"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
@@ -1832,7 +1832,7 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location filename="../../commands/label.py" line="+140"/>
-        <location filename="../../commands/logo.py" line="+616"/>
+        <location filename="../../commands/logo.py" line="+619"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -2062,12 +2062,12 @@ Command-line usage:
         <translation type="unfinished">布尔表达式没有为每个 SSN 节点得出一个选择值。请检查是否有空的或格式错误的目标。</translation>
     </message>
     <message>
-        <location line="+179"/>
+        <location line="+186"/>
         <source>Reset successful: {targets}.</source>
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location line="+134"/>
+        <location line="+139"/>
         <source>Running {command}...</source>
         <translation type="unfinished">正在运行 {command}…</translation>
     </message>
@@ -2092,11 +2092,11 @@ Command-line usage:
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../commands/meta.py" line="+163"/>
+        <location filename="../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../commands/print.py" line="+627"/>
+        <location filename="../../commands/print.py" line="+732"/>
         <location filename="../../commands/query.py" line="+550"/>
-        <location filename="../../commands/reset.py" line="+112"/>
+        <location filename="../../commands/reset.py" line="+114"/>
         <location filename="../../commands/select.py" line="-180"/>
         <location filename="../../web_ui/agent_backend.py" line="+280"/>
         <location filename="../../web_ui/meta_backend.py" line="+56"/>
@@ -2106,21 +2106,21 @@ Command-line usage:
     <message>
         <location filename="../../commands/agent.py" line="-87"/>
         <location filename="../../commands/alignment.py" line="+49"/>
-        <location filename="../../commands/cluster.py" line="+287"/>
+        <location filename="../../commands/cluster.py" line="+275"/>
         <location filename="../../commands/color.py" line="+95"/>
         <location filename="../../commands/esmfold.py" line="+61"/>
         <location filename="../../commands/export.py" line="+103"/>
-        <location filename="../../commands/group.py" line="+117"/>
+        <location filename="../../commands/group.py" line="+138"/>
         <location filename="../../commands/label.py" line="+18"/>
         <location filename="../../commands/logo.py" line="-149"/>
         <location filename="../../commands/meta.py" line="-132"/>
         <location filename="../../commands/offset.py" line="+92"/>
-        <location filename="../../commands/print.py" line="-58"/>
+        <location filename="../../commands/print.py" line="-93"/>
         <location filename="../../commands/query.py" line="-263"/>
         <location filename="../../commands/reset.py" line="-9"/>
         <location filename="../../commands/select.py" line="-16"/>
         <location filename="../../commands/spectrum.py" line="+181"/>
-        <location filename="../../commands/subcluster.py" line="+127"/>
+        <location filename="../../commands/subcluster.py" line="+133"/>
         <source>Help information printed to the terminal</source>
         <translation type="unfinished">帮助信息已打印到终端</translation>
     </message>
@@ -2141,7 +2141,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../commands/alignment.py" line="+22"/>
-        <location filename="../../commands/run.py" line="+89"/>
+        <location filename="../../commands/run.py" line="+176"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -2177,7 +2177,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../commands/cluster.py" line="-171"/>
+        <location filename="../../commands/cluster.py" line="-159"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL 膨胀参数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -2204,7 +2204,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+103"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -2221,14 +2221,15 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location line="+151"/>
+        <location filename="../../Command_Engine.py" line="-163"/>
+        <location filename="../../commands/cluster.py" line="+151"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+11"/>
+        <location filename="../../commands/cluster.py" line="+11"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -2560,7 +2561,7 @@ Command-line usage:
         <translation type="unfinished">分组名称“{name}”含有无效字符，已跳过。</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+30"/>
         <source>Group</source>
         <translation type="unfinished">分组</translation>
     </message>
@@ -2596,10 +2597,10 @@ Command-line usage:
         <location filename="../../commands/meta.py" line="+10"/>
         <location filename="../../commands/redo.py" line="+22"/>
         <location filename="../../commands/reference.py" line="+84"/>
-        <location filename="../../commands/run.py" line="-38"/>
+        <location filename="../../commands/run.py" line="-41"/>
         <location filename="../../commands/save.py" line="+31"/>
         <location filename="../../commands/undo.py" line="+22"/>
-        <location filename="../../commands/zoom.py" line="+43"/>
+        <location filename="../../commands/zoom.py" line="+87"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -2789,7 +2790,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/logo.py" line="-812"/>
+        <location filename="../../commands/logo.py" line="-814"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -2809,7 +2810,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+429"/>
+        <location line="+428"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -2857,7 +2858,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+136"/>
+        <location line="+139"/>
         <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
         <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或使用 red 或 #ff0000 这样的颜色。</translation>
     </message>
@@ -3027,7 +3028,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../commands/print.py" line="-70"/>
+        <location filename="../../commands/print.py" line="-78"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3037,34 +3038,54 @@ Command-line usage:
         <translation type="unfinished">截取过程中网络显示发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+96"/>
+        <source>Error: {syntax} needs a view width, as in {example}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Error: {syntax} can be given only once.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Error: Unknown option &apos;{option}&apos;. Modifiers are written without dashes: transparent, full or svg.</source>
         <translation type="unfinished">错误：未知的选项“{option}”。修饰词不带短横线：transparent、full 或 svg。</translation>
     </message>
     <message>
         <location line="+15"/>
+        <source>Error: {syntax} works only with {full} or {svg}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Error: &apos;SVG&apos; export is not compatible with &apos;transparent&apos; or &apos;full&apos;.</source>
         <translation type="unfinished">错误：&apos;SVG&apos; 导出不能与 &apos;transparent&apos; 或 &apos;full&apos; 同时使用。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <source>Error: Maximum of 2 keywords allowed when using &apos;SVG&apos; (e.g., &apos;print [filename] svg&apos;).</source>
         <translation type="unfinished">错误：使用 &apos;SVG&apos; 时最多只能有 2 个关键字（例如 &apos;print [filename] svg&apos;）。</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+55"/>
         <location line="+11"/>
-        <location line="+107"/>
+        <location line="+115"/>
         <source>Error: No visible nodes to export.</source>
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+28"/>
+        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>Saved {format}: {file}</source>
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+16"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
     </message>
@@ -3204,12 +3225,12 @@ Command-line usage:
         <translation type="obsolete">参考序列“{reference}”已设置但未生效，因为当前 MSA 中没有它。仍使用纯占有率模式。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+12"/>
         <source>Error: Could not reload the current MSA for reference &apos;{reference}&apos;.</source>
         <translation type="unfinished">错误：无法为参考序列“{reference}”重新加载当前 MSA。</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+12"/>
         <source>Error: Reference &apos;{reference}&apos; not found.</source>
         <translation type="unfinished">错误：找不到参考序列“{reference}”。</translation>
     </message>
@@ -3224,36 +3245,63 @@ Command-line usage:
         <translation type="unfinished">未知的重置目标：{targets}。未重置任何内容。</translation>
     </message>
     <message>
-        <location filename="../../commands/run.py" line="+32"/>
+        <location filename="../../commands/run.py" line="-62"/>
+        <source>Error: The script holds {count} commands, more than the {limit} a script may run. None were run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; was cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Not run: the remaining %n command(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+77"/>
         <source>File selection cancelled.</source>
         <translation type="unfinished">已取消选择文件。</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+21"/>
+        <source>A Python script is already running; wait for it to finish before running another.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Executing Python script...</source>
         <translation type="unfinished">正在执行 Python 脚本…</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="-78"/>
         <source>Error: Python script failed (exit code {code}):</source>
         <translation type="unfinished">错误：Python 脚本运行失败（退出代码 {code}）：</translation>
     </message>
     <message numerus="yes">
-        <location line="+46"/>
         <source>Batch execution finished: {failed} of %n command(s) failed.</source>
-        <translation type="unfinished">
+        <translation type="obsolete">
             <numerusform>批量执行结束：%n 条命令中有 {failed} 条失败。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+6"/>
+        <location line="-17"/>
         <source>Batch execution completed: %n command(s) run.</source>
         <translation type="unfinished">
             <numerusform>批量执行完成：已运行 %n 条命令。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+25"/>
+        <location line="+100"/>
         <source>Error reading/executing command file: {error}</source>
         <translation type="unfinished">读取或执行命令文件出错：{error}</translation>
     </message>
@@ -3524,32 +3572,32 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/zoom.py" line="+11"/>
+        <location filename="../../commands/zoom.py" line="-37"/>
         <source>Error: Zoom width must be a valid number.</source>
         <translation type="unfinished">错误：缩放宽度必须是有效的数字。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Error: Zoom width must be a positive, finite number.</source>
         <translation type="unfinished">错误：缩放宽度必须是有限的正数。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>Error: The canvas has no visible area, so the zoom cannot be applied.</source>
         <translation type="unfinished">错误：画布没有可见区域，因此无法应用缩放。</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+17"/>
         <source>Error: Zoom width is too large for the current view.</source>
         <translation type="unfinished">错误：缩放宽度对当前视图来说过大。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Error: Zoom width is too small to draw accurately at the current view centre.</source>
         <translation type="unfinished">错误：缩放宽度过小，在当前视图中心无法精确绘制。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+37"/>
         <source>Error: Zoom could not be applied: {error}</source>
         <translation type="unfinished">错误：无法应用缩放：{error}</translation>
     </message>
@@ -3699,7 +3747,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+717"/>
+        <location line="+721"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3772,7 +3820,7 @@ Command-line usage:
         <translation type="unfinished">已清除选区。</translation>
     </message>
     <message>
-        <location filename="../../Metadata_Core.py" line="+130"/>
+        <location filename="../../Metadata_Core.py" line="+142"/>
         <source>Metadata columns must be supplied as a list of property names.</source>
         <translation type="unfinished">元数据列必须以属性名称列表的形式提供。</translation>
     </message>
@@ -3818,7 +3866,7 @@ Command-line usage:
         <translation type="unfinished">找不到文件。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+24"/>
         <source>Invalid file format. Must contain at least sequence headers and one property column.</source>
         <translation type="unfinished">文件格式无效。必须至少包含序列标题和一个属性列。</translation>
     </message>
@@ -3843,7 +3891,7 @@ Command-line usage:
         <translation type="unfinished">未找到匹配的序列标题。已对完整序列标题执行严格的精确匹配。</translation>
     </message>
     <message numerus="yes">
-        <location line="+70"/>
+        <location line="+77"/>
         <source>Successfully uploaded metadata from %n file(s): {files}.</source>
         <translation type="unfinished">
             <numerusform>已从 %n 个文件上传元数据：{files}。</numerusform>
@@ -4064,7 +4112,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../Viewer_Command_Portal.py" line="+184"/>
+        <location filename="../../Viewer_Command_Portal.py" line="+186"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -7612,7 +7660,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../commands/run.py" line="-119"/>
+        <location filename="../../commands/run.py" line="-66"/>
         <source>All Files (*)</source>
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
@@ -7659,12 +7707,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="-2212"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="-2216"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+1155"/>
+        <location line="+1159"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
