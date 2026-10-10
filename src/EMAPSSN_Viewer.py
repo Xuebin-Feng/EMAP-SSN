@@ -389,6 +389,60 @@ def _build_adjacency_index(edges, node_count):
     )
 
 
+def _web_table_cell(value):
+    """One metadata value as the web table receives it."""
+    if isinstance(value, (float, np.floating)) and np.isnan(value):
+        return ""
+    if isinstance(value, (float, np.floating)) and np.isinf(value):
+        # json.dumps writes Infinity, which the browser's JSON.parse rejects;
+        # a number cell takes "inf" back.
+        return "inf" if value > 0 else "-inf"
+    return value.item() if hasattr(value, "item") else value
+
+
+def _web_table_column(values, row_count):
+    """The first ``row_count`` values of a metadata column as web table cells.
+
+    The result equals ``[_web_table_cell(values[i]) for i in
+    range(row_count)]``. A numpy column is converted in one pass instead of
+    one Python call per cell, which is what makes a 500,000-node table cost
+    less than a second.
+    """
+    if (
+        type(values) is np.ndarray
+        and values.ndim == 1
+        and len(values) >= row_count
+    ):
+        kind = values.dtype.kind
+        column = values[:row_count]
+        if kind == "O":
+            # Python objects are converted one by one, as a single value is.
+            return [
+                value if type(value) is str else _web_table_cell(value)
+                for value in column.tolist()
+            ]
+        # tolist() applies item() to every element, as _web_table_cell does.
+        cells = column.tolist()
+        if kind == "f":
+            for row in np.flatnonzero(np.isnan(column)).tolist():
+                cells[row] = ""
+            for row in np.flatnonzero(np.isinf(column)).tolist():
+                cells[row] = "inf" if column[row] > 0 else "-inf"
+        return cells
+    # A list, a masked array or a column too short for the nodes keeps the
+    # per-cell path, and with it the error a missing cell raises.
+    return [_web_table_cell(values[row]) for row in range(row_count)]
+
+
+def _web_clients_connected(viewer):
+    """Whether any browser page is listening for the Viewer's events."""
+    server = getattr(viewer, "web_server", None)
+    if not server:
+        return False
+    with server.queues_lock:
+        return bool(server.event_queues)
+
+
 def _topmost_nearest_visible_node_index(
     positions,
     visible_mask,
@@ -2902,6 +2956,11 @@ class MainViewer:
 
     def broadcast_metadata_state(self):
         """Broadcast metadata rows and schema as one authoritative state."""
+        if not _web_clients_connected(self):
+            # Building the rows costs seconds on a large network, and no page
+            # is listening. A page that connects later is sent the full
+            # current state by get_initial_web_state.
+            return
         self.broadcast_event({
             "type": "state_updated",
             "visible_mask": self.visible_mask.tolist(),
@@ -2921,29 +2980,21 @@ class MainViewer:
             print(f"Warning: No handler registered for web action '{action}'")
 
     def get_serializable_metadata(self):
-        rows = []
-        for row_idx in range(self.n_nodes):
-            row_dict = {
-                "id": row_idx,
-                "Node ID": str(self.full_headers[row_idx])
-            }
-            for key, entry in self.metadata.items():
-                if key in ("id", "Node ID"):
-                    # The web table finds a row by these two keys, so no
-                    # metadata column may overwrite them.
-                    continue
-                val = entry["values"][row_idx]
-                if isinstance(val, (float, np.floating)) and np.isnan(val):
-                    val = ""
-                elif isinstance(val, (float, np.floating)) and np.isinf(val):
-                    # json.dumps writes Infinity, which the browser's
-                    # JSON.parse rejects; a number cell takes "inf" back.
-                    val = "inf" if val > 0 else "-inf"
-                else:
-                    val = val.item() if hasattr(val, 'item') else val
-                row_dict[key] = val
-            rows.append(row_dict)
-        return rows
+        row_count = self.n_nodes
+        node_ids = [str(header) for header in self.full_headers[:row_count]]
+        if len(node_ids) < row_count:
+            raise IndexError("full_headers is shorter than n_nodes")
+        keys = ["id", "Node ID"]
+        columns = [range(row_count), node_ids]
+        for key, entry in self.metadata.items():
+            if key in ("id", "Node ID"):
+                # The web table finds a row by these two keys, so no
+                # metadata column may overwrite them.
+                continue
+            keys.append(key)
+            columns.append(_web_table_column(entry["values"], row_count))
+        # Each column is converted once, then the columns are zipped into rows.
+        return [dict(zip(keys, row)) for row in zip(*columns)]
 
     def get_initial_web_state(self):
         state = {

@@ -10,6 +10,7 @@ test_node_render_order."""
 import io
 import os
 import sys
+import threading
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
@@ -63,6 +64,10 @@ def make_viewer():
     viewer.update_selection_visual = mock.Mock()
     viewer.update_edges = mock.Mock()
     viewer.broadcast_event = mock.Mock()
+    # A page is connected, so the state is built and broadcast.
+    viewer.web_server = SimpleNamespace(
+        queues_lock=threading.Lock(), event_queues=[object()]
+    )
     return viewer
 
 

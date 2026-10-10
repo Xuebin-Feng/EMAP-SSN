@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,6 +74,10 @@ def make_viewer():
     viewer.update_nodes = mock.Mock()
     viewer.canvas = SimpleNamespace(update=mock.Mock())
     viewer.broadcast_event = mock.Mock()
+    # A page is connected, so the state is built and broadcast.
+    viewer.web_server = SimpleNamespace(
+        queues_lock=threading.Lock(), event_queues=[object()]
+    )
     return viewer
 
 
