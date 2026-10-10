@@ -1402,6 +1402,114 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
+        <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 required object &apos;{path}&apos; must be a local hard link.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 &apos;matrix&apos; must be a group.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 matrix is missing its shape attribute.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 matrix shape must contain two integers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 matrix must contain at least one row and one column.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 &apos;{name}&apos; must be a one-dimensional dataset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 &apos;{name}&apos; must use an integer dtype.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 &apos;headers&apos; must be a one-dimensional dataset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 header count ({headers}) does not match matrix rows ({rows}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 data and indices datasets have different lengths.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 indptr length must equal row count plus one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 indptr endpoints do not match the stored entries.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 indptr values must be non-negative and monotonic.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 contains column indices outside the matrix shape.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 row {row} contains duplicate column indices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 header {row} is not valid UTF-8.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 header {row} is not a string.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 &apos;int_to_aa&apos; must be a scalar JSON dataset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 int_to_aa is not valid UTF-8.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 int_to_aa must contain UTF-8 JSON text.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sparse HDF5 int_to_aa contains invalid JSON: {error}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA rejected: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error loading HDF5: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Specified HDF5 file does not exist: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA rejected: Unsupported alignment extension &apos;{extension}&apos;. Expected .fasta or .h5.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error loading FASTA into memory: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1699,6 +1807,12 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <source>Done! Found %n cluster(s) via {mode}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -2200,6 +2314,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Unrecognized logo argument &apos;{argument}&apos;. A filename must end in .svg or .png.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2422,6 +2540,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Warning: Multiple matches found for &apos;{target}&apos;. Using &apos;{reference}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{name}&apos; is not in the loaded alignment, so it cannot be the reference. The reference is unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Current Reference: {reference}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2443,10 +2569,6 @@ Command-line usage:
     </message>
     <message>
         <source>Reference successfully set.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Reference &apos;{reference}&apos; is configured but inactive because it is not present in the current MSA. Pure occupancy mode remains active.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2643,6 +2765,10 @@ Command-line usage:
     </message>
     <message>
         <source>Error: Target property must be specified as {syntax}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unknown color scheme &apos;{scheme}&apos;. Use a matplotlib colormap name such as viridis; see &apos;spectrum help&apos; for the list.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3811,6 +3937,78 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>Invalid position label &apos;{value}&apos;; expected a non-negative integer or insertion label, or a negative position enclosed in parentheses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA headers must not be empty after sanitization.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA row {row} has an empty header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate MSA header: &apos;{header}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA header sanitization creates a duplicate header: &apos;{header}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA FASTA file not found: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA record &apos;{header}&apos; has no sequence data.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA FASTA line {line} has an empty header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA FASTA line {line} contains sequence data before the first header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA FASTA is not valid UTF-8: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unable to read MSA FASTA: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA FASTA contains no records.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA sequences must not be empty after sanitization.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MSA sequences must have equal aligned lengths; expected {expected}, found {examples}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>HDF5 int_to_aa must decode to a JSON object.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>HDF5 int_to_aa contains a non-integer code: {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>HDF5 int_to_aa contains a non-canonical code: {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate HDF5 residue code: {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>HDF5 residue code {code} must map to a string.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

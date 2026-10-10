@@ -1822,7 +1822,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../commands/label.py" line="+1245"/>
+        <location filename="../../commands/label.py" line="+1267"/>
         <location line="+447"/>
         <location filename="../../commands/logo.py" line="+634"/>
         <location line="+56"/>
@@ -1832,7 +1832,7 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location filename="../../commands/label.py" line="+140"/>
-        <location filename="../../commands/logo.py" line="+598"/>
+        <location filename="../../commands/logo.py" line="+616"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -2088,13 +2088,13 @@ Command-line usage:
         <location filename="../../commands/esmfold.py" line="+69"/>
         <location filename="../../commands/label.py" line="-115"/>
         <location line="+20"/>
-        <location filename="../../commands/logo.py" line="-194"/>
+        <location filename="../../commands/logo.py" line="-209"/>
         <location line="+15"/>
-        <location line="+57"/>
+        <location line="+72"/>
         <location line="+16"/>
         <location filename="../../commands/meta.py" line="+163"/>
         <location line="+114"/>
-        <location filename="../../commands/print.py" line="+597"/>
+        <location filename="../../commands/print.py" line="+627"/>
         <location filename="../../commands/query.py" line="+550"/>
         <location filename="../../commands/reset.py" line="+112"/>
         <location filename="../../commands/select.py" line="-180"/>
@@ -2106,20 +2106,20 @@ Command-line usage:
     <message>
         <location filename="../../commands/agent.py" line="-87"/>
         <location filename="../../commands/alignment.py" line="+49"/>
-        <location filename="../../commands/cluster.py" line="+259"/>
+        <location filename="../../commands/cluster.py" line="+287"/>
         <location filename="../../commands/color.py" line="+95"/>
         <location filename="../../commands/esmfold.py" line="+61"/>
         <location filename="../../commands/export.py" line="+103"/>
         <location filename="../../commands/group.py" line="+117"/>
         <location filename="../../commands/label.py" line="+18"/>
-        <location filename="../../commands/logo.py" line="-134"/>
+        <location filename="../../commands/logo.py" line="-149"/>
         <location filename="../../commands/meta.py" line="-132"/>
         <location filename="../../commands/offset.py" line="+92"/>
         <location filename="../../commands/print.py" line="-58"/>
         <location filename="../../commands/query.py" line="-263"/>
         <location filename="../../commands/reset.py" line="-9"/>
         <location filename="../../commands/select.py" line="-16"/>
-        <location filename="../../commands/spectrum.py" line="+179"/>
+        <location filename="../../commands/spectrum.py" line="+181"/>
         <location filename="../../commands/subcluster.py" line="+127"/>
         <source>Help information printed to the terminal</source>
         <translation type="unfinished">帮助信息已打印到终端</translation>
@@ -2167,7 +2167,7 @@ Command-line usage:
         <translation type="unfinished">正在加载 {file}…</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+41"/>
         <source>Loaded {file}: {aligned}/{total} aligned</source>
         <translation type="unfinished">已加载 {file}：已比对 {aligned}/{total}</translation>
     </message>
@@ -2177,7 +2177,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../commands/cluster.py" line="-147"/>
+        <location filename="../../commands/cluster.py" line="-171"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL 膨胀参数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -2204,7 +2204,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+115"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -2221,7 +2221,14 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location line="+155"/>
+        <location line="+151"/>
+        <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+11"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -2232,7 +2239,7 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-131"/>
+        <location line="-138"/>
         <location filename="../../commands/subcluster.py" line="+164"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
@@ -2244,7 +2251,7 @@ Command-line usage:
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+76"/>
+        <location line="+79"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -2588,7 +2595,7 @@ Command-line usage:
         <location filename="../../commands/hide.py" line="+25"/>
         <location filename="../../commands/meta.py" line="+10"/>
         <location filename="../../commands/redo.py" line="+22"/>
-        <location filename="../../commands/reference.py" line="+54"/>
+        <location filename="../../commands/reference.py" line="+84"/>
         <location filename="../../commands/run.py" line="-38"/>
         <location filename="../../commands/save.py" line="+31"/>
         <location filename="../../commands/undo.py" line="+22"/>
@@ -2638,7 +2645,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../commands/label.py" line="-1275"/>
+        <location filename="../../commands/label.py" line="-1288"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
@@ -2698,7 +2705,7 @@ Command-line usage:
         <translation type="unfinished">输入有歧义：“{key}”既以位置参数又以关键字参数给出。</translation>
     </message>
     <message>
-        <location line="+377"/>
+        <location line="+385"/>
         <source>Error: Global Alignment not loaded.</source>
         <translation type="unfinished">错误：未加载全局比对。</translation>
     </message>
@@ -2717,7 +2724,7 @@ Command-line usage:
         <translation type="obsolete">错误：未定义任何簇或分组。</translation>
     </message>
     <message>
-        <location line="+331"/>
+        <location line="+336"/>
         <source>Error: &apos;openpyxl&apos; is required for XLSX export. Run: {command}</source>
         <translation type="unfinished">错误：导出 XLSX 需要 &apos;openpyxl&apos;。请运行：{command}</translation>
     </message>
@@ -2782,7 +2789,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../commands/logo.py" line="-809"/>
+        <location filename="../../commands/logo.py" line="-812"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -2850,7 +2857,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+136"/>
         <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
         <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或使用 red 或 #ff0000 这样的颜色。</translation>
     </message>
@@ -2870,7 +2877,12 @@ Command-line usage:
         <translation type="unfinished">错误：请在一个 [...] 参数中给出位置；发现了第二个：“{argument}”。</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+35"/>
+        <source>Error: Unrecognized logo argument &apos;{argument}&apos;. A filename must end in .svg or .png.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <location filename="../../commands/select.py" line="+138"/>
         <source>&apos;{expression}&apos; is not a Boolean selection expression.</source>
         <translation type="unfinished">“{expression}”不是布尔选择表达式。</translation>
@@ -3148,7 +3160,17 @@ Command-line usage:
         <translation type="unfinished">没有查询到有效的位置。</translation>
     </message>
     <message>
-        <location filename="../../commands/reference.py" line="-19"/>
+        <location filename="../../commands/reference.py" line="-41"/>
+        <source>Warning: Multiple matches found for &apos;{target}&apos;. Using &apos;{reference}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Error: &apos;{name}&apos; is not in the loaded alignment, so it cannot be the reference. The reference is unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
         <source>Current Reference: {reference}</source>
         <translation type="unfinished">当前参考序列：{reference}</translation>
     </message>
@@ -3163,7 +3185,7 @@ Command-line usage:
         <translation type="unfinished">当前参考序列：无</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+46"/>
         <source>Reloading alignment with new reference: {reference}...</source>
         <translation type="unfinished">正在用新的参考序列重新加载比对：{reference}…</translation>
     </message>
@@ -3178,9 +3200,8 @@ Command-line usage:
         <translation type="unfinished">已设置参考序列。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Reference &apos;{reference}&apos; is configured but inactive because it is not present in the current MSA. Pure occupancy mode remains active.</source>
-        <translation type="unfinished">参考序列“{reference}”已设置但未生效，因为当前 MSA 中没有它。仍使用纯占有率模式。</translation>
+        <translation type="obsolete">参考序列“{reference}”已设置但未生效，因为当前 MSA 中没有它。仍使用纯占有率模式。</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3188,7 +3209,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法为参考序列“{reference}”重新加载当前 MSA。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+10"/>
         <source>Error: Reference &apos;{reference}&apos; not found.</source>
         <translation type="unfinished">错误：找不到参考序列“{reference}”。</translation>
     </message>
@@ -3364,7 +3385,7 @@ Command-line usage:
         <translation type="unfinished">错误：不支持的选择模式“{mode}”。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../commands/spectrum.py" line="-116"/>
+        <location filename="../../commands/spectrum.py" line="-118"/>
         <source>Spectrum coloring applied to %n node(s) using property &apos;{property}&apos; {range} with scheme &apos;{scheme}&apos;.</source>
         <translation type="unfinished">
             <numerusform>已按属性“{property}”{range}，用配色方案“{scheme}”为 %n 个节点应用色谱着色。</numerusform>
@@ -3383,12 +3404,12 @@ Command-line usage:
         <translation type="unfinished">[警告：找不到“{scheme}”，改用 coolwarm]</translation>
     </message>
     <message>
-        <location line="+90"/>
+        <location line="+91"/>
         <source>Error: Missing arguments for spectrum coloring.</source>
         <translation type="unfinished">错误：色谱着色缺少参数。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Error: Legacy spectrum prefixes are no longer supported. Use &apos;{syntax}&apos;.</source>
         <translation type="unfinished">错误：不再支持旧的 spectrum 前缀。请使用“{syntax}”。</translation>
     </message>
@@ -3403,28 +3424,33 @@ Command-line usage:
         <translation type="unfinished">错误：spectrum 最多只接受一个布尔表达式。</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Error: Spectrum accepts at most one color scheme.</source>
         <translation type="unfinished">错误：spectrum 最多只接受一个配色方案。</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+69"/>
+        <location line="+81"/>
         <source>Spectrum</source>
         <translation type="unfinished">色谱</translation>
     </message>
     <message>
-        <location line="-65"/>
+        <location line="-77"/>
         <source>Error: Unrecognized extra spectrum argument &apos;{argument}&apos;. Only one color scheme may be supplied.</source>
         <translation type="unfinished">错误：无法识别多余的 spectrum 参数“{argument}”。只能提供一个配色方案。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Error: Target property must be specified as {syntax}.</source>
         <translation type="unfinished">错误：目标属性必须以 {syntax} 的形式指定。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
+        <source>Error: Unknown color scheme &apos;{scheme}&apos;. Use a matplotlib colormap name such as viridis; see &apos;spectrum help&apos; for the list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Error: No metadata loaded in the viewer.</source>
         <translation type="unfinished">错误：查看器中未加载元数据。</translation>
     </message>
@@ -3945,6 +3971,97 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <location line="+5"/>
         <source>Invalid position label &apos;{value}&apos;; expected a non-negative integer or insertion label, or a negative position enclosed in parentheses.</source>
         <translation type="unfinished">无效的位置标签“{value}”；应为非负整数或插入位置标签，或者用括号括起来的负位置。</translation>
+    </message>
+    <message>
+        <location line="+624"/>
+        <source>MSA headers must not be empty after sanitization.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+40"/>
+        <source>MSA row {row} has an empty header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Duplicate MSA header: &apos;{header}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>MSA header sanitization creates a duplicate header: &apos;{header}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>MSA FASTA file not found: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <location line="+28"/>
+        <source>MSA record &apos;{header}&apos; has no sequence data.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-19"/>
+        <source>MSA FASTA line {line} has an empty header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>MSA FASTA line {line} contains sequence data before the first header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>MSA FASTA is not valid UTF-8: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unable to read MSA FASTA: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>MSA FASTA contains no records.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>MSA sequences must not be empty after sanitization.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>MSA sequences must have equal aligned lengths; expected {expected}, found {examples}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>HDF5 int_to_aa must decode to a JSON object.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>HDF5 int_to_aa contains a non-integer code: {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>HDF5 int_to_aa contains a non-canonical code: {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Duplicate HDF5 residue code: {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>HDF5 residue code {code} must map to a string.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../Viewer_Command_Portal.py" line="+184"/>
@@ -5191,6 +5308,142 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+24"/>
         <source>Leiden edge weights must be finite numbers.</source>
         <translation type="unfinished">Leiden 的边权重必须是有限数。</translation>
+    </message>
+    <message>
+        <location filename="../../Alignment_Manager.py" line="+246"/>
+        <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Sparse HDF5 required object &apos;{path}&apos; must be a local hard link.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Sparse HDF5 &apos;matrix&apos; must be a group.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sparse HDF5 matrix is missing its shape attribute.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sparse HDF5 matrix shape must contain two integers.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Sparse HDF5 matrix must contain at least one row and one column.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Sparse HDF5 &apos;{name}&apos; must be a one-dimensional dataset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Sparse HDF5 &apos;{name}&apos; must use an integer dtype.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Sparse HDF5 &apos;headers&apos; must be a one-dimensional dataset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Sparse HDF5 header count ({headers}) does not match matrix rows ({rows}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sparse HDF5 data and indices datasets have different lengths.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Sparse HDF5 indptr length must equal row count plus one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Sparse HDF5 indptr endpoints do not match the stored entries.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Sparse HDF5 indptr values must be non-negative and monotonic.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Sparse HDF5 contains column indices outside the matrix shape.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sparse HDF5 row {row} contains duplicate column indices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Sparse HDF5 header {row} is not valid UTF-8.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Sparse HDF5 header {row} is not a string.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Sparse HDF5 &apos;int_to_aa&apos; must be a scalar JSON dataset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Sparse HDF5 int_to_aa is not valid UTF-8.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Sparse HDF5 int_to_aa must contain UTF-8 JSON text.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Sparse HDF5 int_to_aa contains invalid JSON: {error}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+271"/>
+        <location line="+24"/>
+        <source>MSA rejected: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-20"/>
+        <source>Error loading HDF5: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Specified HDF5 file does not exist: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>MSA rejected: Unsupported alignment extension &apos;{extension}&apos;. Expected .fasta or .h5.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Error loading FASTA into memory: {error}</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -7338,7 +7591,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>Viewer</name>
     <message>
-        <location filename="../../commands/alignment.py" line="-127"/>
+        <location filename="../../commands/alignment.py" line="-132"/>
         <source>Select Alignment File</source>
         <translation type="unfinished">选择比对文件</translation>
     </message>
