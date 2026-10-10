@@ -123,6 +123,50 @@ class LogoPositionParsingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "list insertion positions explicitly"):
             parse_logo_positions("[10.1-11.2]")
 
+    def test_ordinary_ranges_are_unchanged_by_the_size_cap(self):
+        self.assertEqual(parse_logo_positions("[1-5]"), [1, 2, 3, 4, 5])
+        self.assertEqual(
+            parse_logo_positions("[2-3, 7, 1.1]"), ["1.1", 2, 3, 7]
+        )
+        with mock.patch.object(logo_command, "_MAX_LOGO_RANGE_POSITIONS", 10):
+            self.assertEqual(
+                parse_logo_positions("[1-10]"), list(range(1, 11))
+            )
+
+    def test_a_range_over_the_cap_is_refused_before_it_is_expanded(self):
+        with mock.patch.object(logo_command, "_MAX_LOGO_RANGE_POSITIONS", 10):
+            with self.assertRaisesRegex(ValueError, "too large.*at most 10 positions"):
+                parse_logo_positions("[1-11]")
+        # The real cap refuses a huge range at once instead of expanding it.
+        for position_spec in ("[1-5000000]", "[1-99999999999999999999999]"):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaisesRegex(ValueError, "too large"):
+                    parse_logo_positions(position_spec)
+
+    def test_a_list_of_ranges_over_the_cap_is_refused(self):
+        with mock.patch.object(logo_command, "_MAX_LOGO_RANGE_POSITIONS", 10):
+            with self.assertRaisesRegex(ValueError, "position list is too large"):
+                parse_logo_positions("[1-6, 7-12]")
+            # Overlapping ranges name each position once.
+            self.assertEqual(
+                parse_logo_positions("[1-8, 3-9]"), list(range(1, 10))
+            )
+
+
+class LogoFilenameTests(unittest.TestCase):
+    def test_a_name_that_is_only_an_extension_is_refused(self):
+        for name in (".svg", ".png", ".SVG", " .png "):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "needs a name before its extension"):
+                    logo_command._normalize_logo_filename(name)
+
+    def test_ordinary_names_keep_their_extension_rule(self):
+        normalize = logo_command._normalize_logo_filename
+        self.assertEqual(normalize("motif"), "motif.svg")
+        self.assertEqual(normalize("motif.png"), "motif.png")
+        self.assertEqual(normalize("a.b.svg"), "a.b.svg")
+        self.assertEqual(normalize(".hidden"), ".hidden.svg")
+
 
 class LogoIdentityThresholdParsingTests(unittest.TestCase):
     def test_fraction_and_percentage_forms_are_equivalent(self):
@@ -757,6 +801,177 @@ class LogoSnapshotTests(unittest.TestCase):
             self.assertFalse(automatic_job["allow_overwrite"])
             self.assertFalse(automatic_job["payload"]["allow_overwrite"])
             self.assertEqual(viewer.console_text.text, "")
+
+
+class LogoArgumentTests(unittest.TestCase):
+    """How `logo` reads its arguments before it queues the job."""
+
+    HEADERS = ["Escherichia_a", "Escherichia_b", "Bacillus_c"]
+
+    def run_logo(self, args, selected=(0, 1, 2)):
+        """Run `logo` with ARGS; return the viewer, queued job and the terminal text."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        alignment = SimpleNamespace(
+            aln=sparse_alignment(zip(self.HEADERS, ["AAAA", "ACAA", "GGGG"])),
+            viewer_to_aln=np.array([0, 1, 2]),
+            col_to_label={0: "1", 1: "2", 2: "3", 3: "4"},
+            label_to_col={"1": 0, "2": 1, "3": 2, "4": 3},
+            has_reference=True,
+        )
+        scheduler = CapturingScheduler()
+        viewer = SimpleNamespace(
+            alignment=alignment,
+            full_headers=list(self.HEADERS),
+            selected_indices=list(selected),
+            cluster_labels=np.array([1, 2, 3]),
+            group_labels=None,
+            metadata={
+                "Organism": {
+                    "type": "text",
+                    "values": ["Escherichia coli", "Escherichia coli", "Bacillus subtilis"],
+                }
+            },
+            active_reference="Escherichia_a",
+            console_text=SimpleNamespace(text=""),
+            background_job_scheduler=scheduler,
+        )
+        output = io.StringIO()
+        with mock.patch.object(logo_command, "LOGO_DIRECTORY", directory.name), \
+                mock.patch.object(logo_command.cfg, "HEADER_LIST_DIR", directory.name), \
+                redirect_stdout(output):
+            logo_command.run(viewer, list(args))
+        return viewer, scheduler.job, output.getvalue()
+
+    def test_a_second_bracket_argument_is_refused_not_used_as_the_filename(self):
+        for args in (
+            ["[1-2]", "[3-4]"],
+            ["[1-2]", "#cluster_1#", "[3-4]"],
+            ["[1-2]", "[3-4]", "out.svg"],
+            ["[1-2]", "[3,", "out.svg"],
+        ):
+            with self.subTest(args=args):
+                viewer, job, _ = self.run_logo(args)
+                self.assertIsNone(job)
+                self.assertIn("second one", viewer.console_text.text)
+
+    def test_bracket_looking_filenames_with_an_extension_remain_filenames(self):
+        viewer, job, _ = self.run_logo(["[1-2]", "[3-4].svg"])
+
+        self.assertEqual(job["payload"]["filename"], "[3-4].svg")
+        self.assertEqual(job["payload"]["plot_positions"], (1, 2))
+
+    def test_positions_split_by_spaces_are_joined(self):
+        for args in (["[1,", "3]"], ["[1", ",", "3", "]"], ["[", "1,3", "]"]):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args + ["pcts", "out.svg"])
+                self.assertEqual(job["payload"]["plot_positions"], (1, 3))
+                self.assertEqual(job["payload"]["mode"], "pcts")
+                self.assertEqual(job["payload"]["filename"], "out.svg")
+                self.assertIsNone(job["payload"]["identity_threshold"])
+
+    def test_a_number_inside_split_brackets_is_not_an_identity_threshold(self):
+        _, job, _ = self.run_logo(["[1,", "5", "]", "out.svg"])
+
+        # Position 5 is not in the alignment; 5 is not read as "5%" either.
+        self.assertEqual(job["payload"]["plot_positions"], (1,))
+        self.assertIsNone(job["payload"]["identity_threshold"])
+
+    def test_expression_tokens_are_joined_with_spaces(self):
+        # Selects the two Escherichia nodes; "Escherichiacoli" matches none.
+        _, job, _ = self.run_logo(
+            ["{Organism=Escherichia", "coli}", "[1]", "out.svg"], selected=()
+        )
+
+        self.assertEqual(len(job["payload"]["selected_seqs"]), 2)
+
+    def test_operators_between_separate_tokens_parse_as_before(self):
+        for args in (
+            ["#cluster_1#", "|", "#cluster_2#", "[1]", "out.svg"],
+            ["#cluster_1#", "|", "#cluster_2#", "out.svg", "[1]"],
+            ["!", "#cluster_3#", "[1]", "out.svg"],
+            ["(#cluster_1#", "|", "#cluster_2#)", "&", "!", "#cluster_3#", "[1]", "out.svg"],
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args, selected=())
+                self.assertEqual(len(job["payload"]["selected_seqs"]), 2)
+
+    def test_color_values_are_validated_before_the_job_is_queued(self):
+        for value in ("nonsense", "", "classicc", "#12", "notacolor"):
+            with self.subTest(value=value):
+                viewer, job, _ = self.run_logo(["[1]", f"color={value}", "out.svg"])
+                self.assertIsNone(job)
+                self.assertIn("Unknown color scheme", viewer.console_text.text)
+                self.assertIn(f"'{value}'", viewer.console_text.text)
+
+    def test_preset_names_match_any_case_and_other_colors_pass_through(self):
+        cases = (
+            ("color=Classic", "classic"),
+            ("color=NAJAFABADIETAL2017", "NajafabadiEtAl2017"),
+            ("scheme=najafabadietal2017", "NajafabadiEtAl2017"),
+            ("colors=Colorblind_Safe", "colorblind_safe"),
+            ("color=classic", "classic"),
+            ("color=red", "red"),
+            ("color=Red", "Red"),
+            ("color=#ff0000", "#ff0000"),
+            ("color=0.5", "0.5"),
+            ("Classic", "classic"),
+            ("NajafabadiEtAl2017", "NajafabadiEtAl2017"),
+        )
+        for argument, expected in cases:
+            with self.subTest(argument=argument):
+                _, job, _ = self.run_logo(["[1]", argument, "out.svg"])
+                self.assertEqual(job["payload"]["color_scheme"], expected)
+
+    def test_default_color_scheme_is_unchanged(self):
+        _, job, _ = self.run_logo(["[1]", "out.svg"])
+
+        self.assertEqual(job["payload"]["color_scheme"], "chemistry")
+
+    def test_every_accepted_color_value_renders_in_logomaker(self):
+        # What the command accepts must be what the job's logomaker accepts.
+        import logomaker
+        import pandas as pd
+        from matplotlib.figure import Figure
+
+        frame = pd.DataFrame([[0.5] * 20], columns=list(logo_command.STANDARD_AAS))
+        for value in ("classic", "NajafabadiEtAl2017", "red", "#ff0000", "0.5"):
+            with self.subTest(value=value):
+                logomaker.Logo(frame, ax=Figure().subplots(), color_scheme=value)
+
+    def test_a_filename_that_is_only_an_extension_is_refused(self):
+        for name in (".svg", ".png"):
+            with self.subTest(name=name):
+                viewer, job, _ = self.run_logo(["[1]", name])
+                self.assertIsNone(job)
+                self.assertEqual(
+                    viewer.console_text.text,
+                    f"Error: Filename '{name}' needs a name before its extension.",
+                )
+
+    def test_a_range_too_large_to_expand_is_refused(self):
+        viewer, job, _ = self.run_logo(["[1-5000000]", "out.svg"])
+
+        self.assertIsNone(job)
+        self.assertIn("too large", viewer.console_text.text)
+
+    def test_ordinary_range_still_warns_about_positions_not_found(self):
+        _, job, output = self.run_logo(["[3-6]", "out.svg"])
+
+        self.assertEqual(job["payload"]["plot_positions"], (3, 4))
+        self.assertIn("Warning: Position 5 was not found", output)
+        self.assertIn("Warning: Position 6 was not found", output)
+
+    def test_help_documents_hidden_nodes_and_bare_threshold_numbers(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            logo_command.print_help()
+        text = " ".join(output.getvalue().split())
+
+        self.assertIn("Hidden nodes are included", text)
+        self.assertIn("1 means 100%", text)
+        self.assertIn("5 means 5%", text)
+        self.assertIn("not case-sensitive", text)
 
 
 class LogoPositionAxisLabelTests(unittest.TestCase):

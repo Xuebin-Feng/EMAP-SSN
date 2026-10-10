@@ -155,6 +155,12 @@ def _normalize_frequency_target(target_raw):
                 target=target,
             ))
         return tuple(dict.fromkeys(target_aas))
+    if len(target) != 1 and target != 'GAP':
+        raise ValueError(Message(
+            "Unknown frequency target '{target}'. Use one residue letter, GAP, _, "
+            "or a parenthesized group such as (KR).",
+            target=target_raw.strip(),
+        ))
     return target
 
 
@@ -172,6 +178,7 @@ def _evaluate_frequency_condition(
     value_text,
     gap_fractions,
     aa_fractions,
+    sequence_count=None,
 ):
     target = _normalize_frequency_target(target_raw)
     threshold = _parse_frequency_threshold(value_text)
@@ -179,10 +186,17 @@ def _evaluate_frequency_condition(
     if isinstance(target, tuple):
         column_frequencies = np.zeros_like(gap_fractions, dtype=float)
         for target_aa in target:
-            column_frequencies += aa_fractions.get(
+            fractions = aa_fractions.get(
                 target_aa,
                 np.zeros_like(gap_fractions, dtype=float),
             )
+            if sequence_count:
+                # Add whole counts, so the group's fraction is one division,
+                # exactly as a single residue's is: 0.1 + 0.2 is not 0.3.
+                fractions = np.rint(fractions * sequence_count)
+            column_frequencies += fractions
+        if sequence_count:
+            column_frequencies = column_frequencies / sequence_count
     elif target in {'_', 'GAP'}:
         column_frequencies = gap_fractions
     else:
@@ -200,8 +214,12 @@ def _evaluate_frequency_condition(
     return comparisons[operator](column_frequencies, threshold)
 
 
-def evaluate_frequency_logic(inner, gap_fractions, aa_fractions):
-    """Evaluate query frequency logic against precomputed per-column fractions."""
+def evaluate_frequency_logic(inner, gap_fractions, aa_fractions, sequence_count=None):
+    """Evaluate query frequency logic against precomputed per-column fractions.
+
+    SEQUENCE_COUNT, the number of sequences the fractions divide by, lets a
+    grouped target add whole counts instead of fractions.
+    """
     masks = {}
     mask_idx = 0
 
@@ -215,6 +233,7 @@ def evaluate_frequency_logic(inner, gap_fractions, aa_fractions):
             value_text,
             gap_fractions,
             aa_fractions,
+            sequence_count,
         )
         mask_idx += 1
         return mask_key
@@ -275,8 +294,16 @@ def parse_query_positions(position_spec, valid_labels):
             continue
 
         normalized = normalize_displayed_position_atom(part, allow_end=True)
-        if normalized in {"E", "END"} and valid_labels:
-            normalized = valid_labels[-1][1]
+        if normalized in {"E", "END"}:
+            if valid_labels:
+                normalized = valid_labels[-1][1]
+        else:
+            # Spell the label as the alignment does, as logo does: 01 is 1 and
+            # (-0) is 0, and a range already reads its ends as numbers.
+            major_text, separator, insertion_text = normalized.partition('.')
+            normalized = str(int(major_text))
+            if separator:
+                normalized += f".{int(insertion_text)}"
         if normalized not in seen_positions:
             seen_positions.add(normalized)
             expanded_positions.append(normalized)
@@ -337,6 +364,9 @@ def print_help():
         the nodes currently selected in the viewer. If no nodes are selected, it 
         defaults to querying ALL nodes in the entire network.
 
+      * Hidden nodes are included: they are used whenever the selection or
+        expression covers them.
+
     Syntax Modes:
       1. Position Breakdown Mode:
          [POSITIONS] - Comma-separated list or ranges enclosed in brackets.
@@ -349,7 +379,10 @@ def print_help():
          logical operators (&, |, !, ^). Single arguments do NOT require ().
          Multi-condition queries MUST enclose each individual argument in ().
          Spaces are allowed. Accepts percentages (e.g. 10%) or decimals (e.g. 0.1).
+         A bare number up to 1 is a fraction (1 means 100%, 0.5 means 50%); a larger
+         bare number is a percentage (5 means 5%). Write 1% for 1 percent.
          Accepts residue codes (A-Z) and 'GAP' or '_' for gaps (case-insensitive).
+         A residue code is one letter: write several residues as a group, (KR).
          Parenthesized residue sets sum their frequencies, e.g. [(RHK)>50%].
          Frequencies divide by all mapped sequences in the selected subset, so gaps
          reduce residue percentages.
@@ -467,7 +500,7 @@ def run(viewer, args):
     # --- 2. Isolate Expression & Apply Smart Fallbacks ---
     expr = "$sele$"
     if len(args) > 0:
-        expr = "".join(args) # Join remaining to reconstruct expression without spaces
+        expr = " ".join(args) # Join the remaining tokens as one expression, as hide does
 
     # Smart Fallback to ALL Nodes
     if expr == "$sele$" and not getattr(viewer, 'selected_indices', []):
@@ -503,7 +536,14 @@ def run(viewer, args):
     n_seqs = len(target_rows)
 
     if n_seqs == 0:
-        msg = Message("No sequences matched the expression '{expression}'. Aborting query.", expression=expr)
+        if len(valid_nodes) == 0:
+            msg = Message("No sequences matched the expression '{expression}'. Aborting query.", expression=expr)
+        else:
+            msg = Message(
+                "The expression '{expression}' matched %n node(s), but none is in the alignment. "
+                "Aborting query.",
+                n=len(valid_nodes), expression=expr,
+            )
         Command_Engine.show_status(viewer, msg)
         print("-" * 50)
         print(msg)
@@ -589,14 +629,15 @@ def run(viewer, args):
                 inner,
                 all_gap_fracs,
                 all_aa_fracs,
+                n_seqs,
             )
         except _FrequencyParenthesesError as error:
             # The terminal gets the full explanation with examples, in English.
             details = str(error)
+            status = Message("Error: Individual frequency arguments must be enclosed in ()")
             if hasattr(viewer, 'console_text'):
-                status = Message("Error: Individual frequency arguments must be enclosed in ()")
                 Command_Engine.show_status(viewer, status)
-                Command_Engine.command_failed(viewer, status)
+            Command_Engine.command_failed(viewer, status)
             print("-" * 50)
             print(details)
             print("-" * 50)
@@ -701,7 +742,10 @@ def run(viewer, args):
     
     if found_count > 0:
         message = Message("Queried %n position(s). Check terminal.", n=found_count)
+        Command_Engine.show_status(viewer, message)
+        Command_Engine.command_succeeded(viewer, message)
     else:
+        # Nothing was queried, so the command did not do what it was asked.
         message = Message("No valid positions queried.")
-    Command_Engine.show_status(viewer, message)
-    Command_Engine.command_succeeded(viewer, message)
+        Command_Engine.show_status(viewer, message)
+        Command_Engine.command_failed(viewer, message)

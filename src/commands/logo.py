@@ -48,6 +48,9 @@ _POSITION_LABEL_PATTERN = DISPLAYED_POSITION_ATOM_PATTERN
 _POSITION_RANGE_RE = re.compile(
     rf"^({_POSITION_LABEL_PATTERN})\s*-\s*({_POSITION_LABEL_PATTERN})$"
 )
+# Ranges expand to one entry per position before the alignment is consulted,
+# so a range, and the whole list, is capped far above any alignment's length.
+_MAX_LOGO_RANGE_POSITIONS = 1_000_000
 
 
 def choose_balanced_thread_count(configured_threads, logical_cpus=None):
@@ -765,6 +768,12 @@ def _normalize_logo_filename(filename):
     filename = validate_output_basename(filename)
     if not filename.lower().endswith((".png", ".svg")):
         filename += ".svg"
+    # A name that is only an extension (".svg") has no extension to os.path:
+    # the job would fail later on a format of "".
+    if not os.path.splitext(filename)[1]:
+        raise ValueError(Message(
+            "Filename '{file}' needs a name before its extension.", file=filename
+        ))
     return filename
 
 
@@ -872,8 +881,19 @@ def parse_logo_positions(position_spec):
                 raise ValueError(Message(
                     "Position range '{range}' must be written from lower to higher.", range=part
                 ))
+            if end - start + 1 > _MAX_LOGO_RANGE_POSITIONS:
+                raise ValueError(Message(
+                    "Position range '{range}' is too large; a range may span at most "
+                    "%n position(s).",
+                    n=_MAX_LOGO_RANGE_POSITIONS, range=part,
+                ))
             for position in range(start, end + 1):
                 positions[str(position)] = position
+            if len(positions) > _MAX_LOGO_RANGE_POSITIONS:
+                raise ValueError(Message(
+                    "The position list is too large; it may name at most %n position(s).",
+                    n=_MAX_LOGO_RANGE_POSITIONS,
+                ))
             continue
 
         position = _normalize_logo_position_label(part)
@@ -901,6 +921,9 @@ def print_help():
         the nodes currently selected in the viewer. If no nodes are selected, it 
         defaults to analyzing ALL nodes in the entire network.
 
+      * Hidden nodes are included: they are used whenever the selection or
+        expression covers them.
+
     Arguments (Can be provided in almost any order):
       1. [POSITIONS] : (Required) Comma-separated displayed positions or integer
                        ranges enclosed in brackets: reference numbering when a
@@ -908,7 +931,8 @@ def print_help():
                        labels 'query' uses. Fractional insertion positions
                        (alignment columns where the reference has a gap) are accepted
                        when listed explicitly. Negative positions must be enclosed
-                       individually in parentheses.
+                       individually in parentheses. Spaces inside the brackets
+                       are allowed, and only one bracketed argument is accepted.
                        Examples: [1,2,9-12], [10,10.1,10.2,11],
                        or [(-3)-(-1),0]
                        Non-contiguous positions are plotted adjacently while retaining
@@ -925,8 +949,13 @@ def print_help():
                        Presets: chemistry, classic, grays, base_pairing, colorblind_safe,
                        weblogo_protein, skylign_protein, dmslogo_charge, dmslogo_funcgroup,
                        hydrophobicity, charge, NajafabadiEtAl2017.
+                       Preset names are not case-sensitive. Any matplotlib color,
+                       such as color=red or color=#ff0000, colors every letter.
       7. IDENTITY    : Optional sequence-redundancy threshold. Reweighting is OFF
                        unless supplied. Equivalent forms: 0.9, 90, or 90%.
+                       A bare number up to 1 is a fraction (1 means 100%, 0.5 means
+                       50%); a larger bare number is a percentage (5 means 5%).
+                       Write 1% for 1 percent.
                        Applies weighted frequencies to both modes
                        and effective-sample correction to bits mode.
 
@@ -947,6 +976,61 @@ def print_help():
       logo K10 [1] target_logo.png        (Logos pos 1 for K10 expr, saves as target_logo.png)
     """)
 
+def _rejoin_split_brackets(args):
+    """Join the tokens of a bracketed argument that spaces split, e.g. "[1," "5]".
+
+    Tokens whose brackets never balance are returned as they were.
+    """
+    rejoined = []
+    pending = []
+    in_bracket = False
+
+    for arg in args:
+        if '[' in arg and not in_bracket:
+            if arg.count('[') > arg.count(']'):
+                in_bracket = True
+                pending.append(arg)
+            else:
+                rejoined.append(arg)
+        elif in_bracket:
+            pending.append(arg)
+            if ']' in arg:
+                joined = " ".join(pending)
+                if joined.count('[') <= joined.count(']'):
+                    rejoined.append(joined)
+                    pending = []
+                    in_bracket = False
+        else:
+            rejoined.append(arg)
+
+    rejoined.extend(pending)
+    return rejoined
+
+
+def _resolve_color_scheme(value, known_schemes):
+    """Return the color scheme logomaker is given for VALUE, or raise ValueError.
+
+    logomaker takes a preset's exact name, or else any matplotlib color, so a
+    preset is matched case-insensitively here and anything else must be a
+    color matplotlib reads (red, #ff0000, 0.5).
+    """
+    for scheme in known_schemes:
+        if scheme.lower() == value.lower():
+            return scheme
+
+    from matplotlib.colors import to_rgb
+
+    try:
+        to_rgb(value)
+    except ValueError:
+        raise ValueError(Message(
+            "Unknown color scheme '{value}'. Use a preset from the help, "
+            "or a color such as red or #ff0000.",
+            value=value,
+        )) from None
+    return value
+
+
 def run(viewer, args):
     if not args:
         # The console line shows the first line; the usage is for the terminal.
@@ -964,6 +1048,10 @@ def run(viewer, args):
             Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
+
+    # 0.5. Join positions that spaces split, e.g. [1, 5], before any token is
+    # read on its own (a lone "5" would otherwise be an identity threshold).
+    args = _rejoin_split_brackets(args)
 
     # 1. Extract Mode Keywords (Aggressively filter to prevent filename confusion)
     mode = "bits"
@@ -998,8 +1086,15 @@ def run(viewer, args):
     for arg in args:
         match = re.match(r'^(color_scheme|colors|color|scheme)=(.*)$', arg, re.IGNORECASE)
         if match:
-            # Direct streaming to logomaker to support future presets/updates
-            color_scheme = match.group(2)
+            # A preset (any case) or a color matplotlib reads, as logomaker does;
+            # anything else would only fail later in the background job.
+            try:
+                color_scheme = _resolve_color_scheme(match.group(2), KNOWN_SCHEMES)
+            except ValueError as exc:
+                msg = Message("Error: {error}", error=exc)
+                Command_Engine.command_failed(viewer, msg)
+                Command_Engine.print_help(viewer, msg)
+                return
         elif arg.lower() in [s.lower() for s in KNOWN_SCHEMES]:
             # Case-insensitive standalone known preset matched
             color_scheme = [s for s in KNOWN_SCHEMES if s.lower() == arg.lower()][0]
@@ -1028,6 +1123,17 @@ def run(viewer, args):
     pos_idx = bracket_indices[0]
     pos_str = args.pop(pos_idx)
     
+    # A second bracket argument is neither a filename nor part of an expression.
+    for arg in args:
+        if arg.startswith('[') and not arg.lower().endswith(('.png', '.svg')):
+            msg = Message(
+                "Error: Give the positions in one [...] argument; found a second one: '{argument}'.",
+                argument=arg,
+            )
+            Command_Engine.command_failed(viewer, msg)
+            Command_Engine.print_help(viewer, msg)
+            return
+
     # 3. Handle Ambiguity & Assign Filename/Expression
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"logo_{timestamp}.svg"
@@ -1035,7 +1141,7 @@ def run(viewer, args):
     expr = "$sele$" 
     
     if len(args) == 1:
-        if args[0].lower().endswith(('.png', '.svg')) or args[0].startswith('['): 
+        if args[0].lower().endswith(('.png', '.svg')):
             filename = args[0]
             automatic_filename = False
         else:
@@ -1043,7 +1149,7 @@ def run(viewer, args):
     elif len(args) >= 2:
         filename = args.pop(-1)
         automatic_filename = False
-        expr = "".join(args)
+        expr = " ".join(args)
 
     if expr != "$sele$":
         classification = Command_Engine.classify_selection_expression(expr)
