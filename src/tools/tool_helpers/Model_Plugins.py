@@ -10,6 +10,7 @@ import ast
 from datetime import datetime, timezone
 import glob
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -175,6 +176,40 @@ def validate_loaded_plugin(plugin, model_name):
             f"Plugin declares unsupported execution mode '{mode}' for '{model_name}'."
         )
     return mode
+
+
+def find_model_plugin(model_name):
+    """
+    Dynamically locates and loads the plugin script supporting the selected model_name.
+    Uses AST to inspect supported models statically to avoid running code of non-matching plugins.
+
+    It lives here rather than in Generate_Embeddings.py so that a tool needing
+    it never imports another tool, whose import-time block would read the
+    shared tools_settings.json.
+    """
+    plugin_dir = str(Path(__file__).resolve().parents[2] / "resources" / "pLM_models")
+
+    if not os.path.exists(plugin_dir):
+        raise FileNotFoundError(f"Plugin directory not found: {plugin_dir}")
+
+    for filepath in glob.glob(os.path.join(plugin_dir, "*.py")):
+        if os.path.basename(filepath) == "__init__.py":
+            continue
+        try:
+            supported_models, _ = read_plugin_metadata(filepath)
+
+            if model_name in supported_models:
+                module_name = os.path.splitext(os.path.basename(filepath))[0]
+                spec = importlib.util.spec_from_file_location(module_name, filepath)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                validate_loaded_plugin(module, model_name)
+                return module
+        except Exception as error:
+            raise ValueError(
+                f"Invalid pLM plugin '{os.path.basename(filepath)}': {error}"
+            ) from error
+    return None
 
 
 # =====================================================================

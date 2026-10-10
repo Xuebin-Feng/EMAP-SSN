@@ -472,6 +472,41 @@ class ToolSettingsHandOffTests(unittest.TestCase):
             self.assertEqual(inherited_settings_path("/elsewhere/Example.py"), expected)
 
 
+def _module_level_statements(tree):
+    """Yield the statements that run when a module is imported."""
+    pending = list(tree.body)
+    while pending:
+        node = pending.pop(0)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        yield node
+        for field in ("body", "orelse", "finalbody", "handlers"):
+            pending.extend(getattr(node, field, []))
+
+
+class ToolWorkerImportTests(unittest.TestCase):
+    """A spawned worker imports its tool and must see the settings main() used."""
+
+    def test_no_tool_imports_another_tool_when_it_is_imported(self):
+        # Another tool's import-time block would read the shared
+        # tools_settings.json, since the hand-off names only the running tool.
+        tool_names = {name[:-3] for name in EXPECTED_TOOLS}
+        found = []
+        for path in sorted((SRC_DIR / "tools").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in _module_level_statements(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    modules = [node.module]
+                elif isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                else:
+                    continue
+                for module in modules:
+                    if module.removeprefix("tools.") in tool_names:
+                        found.append(f"{path.name}:{node.lineno} imports {module}")
+        self.assertEqual(found, [])
+
+
 class SharedToolSettingsTests(unittest.TestCase):
     """The Tools window's writers rewrite one section of tools_settings.json.
 

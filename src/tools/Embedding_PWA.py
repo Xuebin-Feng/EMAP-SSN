@@ -52,7 +52,7 @@ from utilities.HDF5_Storage import (
     read_embedding_manifest,
     validate_embedding_array,
 )
-from tools.Generate_Embeddings import find_model_plugin
+from tools.tool_helpers.Model_Plugins import find_model_plugin
 
 # ==========================================
 # CONFIGURATION

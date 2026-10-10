@@ -83,8 +83,8 @@ from utilities.HDF5_Storage import (
     write_embedding_manifest,
 )
 from tools.tool_helpers.Model_Plugins import (
+    find_model_plugin,
     prompt_for_model_license_acceptance,
-    read_plugin_metadata,
     require_model_license_acceptance,
     validate_loaded_plugin,
 )
@@ -221,41 +221,6 @@ def configure_runtime_paths():
 # %% =======================================
 # OPTIMIZED EMBEDDING (GPU/CPU)
 # ==========================================
-
-def find_model_plugin(model_name):
-    """
-    Dynamically locates and loads the plugin script supporting the selected model_name.
-    Uses AST to inspect supported models statically to avoid running code of non-matching plugins.
-    """
-    import ast
-    import glob
-    import importlib.util
-
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    plugin_dir = os.path.abspath(os.path.join(current_dir, "..", "resources", "pLM_models"))
-
-    if not os.path.exists(plugin_dir):
-        raise FileNotFoundError(f"Plugin directory not found: {plugin_dir}")
-
-    for filepath in glob.glob(os.path.join(plugin_dir, "*.py")):
-        if os.path.basename(filepath) == "__init__.py":
-            continue
-        try:
-            supported_models, _ = read_plugin_metadata(filepath)
-            
-            if model_name in supported_models:
-                module_name = os.path.splitext(os.path.basename(filepath))[0]
-                spec = importlib.util.spec_from_file_location(module_name, filepath)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                validate_loaded_plugin(module, model_name)
-                return module
-        except Exception as error:
-            raise ValueError(
-                f"Invalid pLM plugin '{os.path.basename(filepath)}': {error}"
-            ) from error
-    return None
-
 
 def _move_model_object(model_obj, device):
     """Move tensors/modules inside the supported plugin container shapes."""

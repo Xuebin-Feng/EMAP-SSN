@@ -813,6 +813,12 @@ still change before version 1.0.0.
 - The statistics report in Config and VR Config cut its hint off after "Select Fasta
   subset and HDF5" at the window's default size, in every language: Qt shows only the
   first line of a text box's placeholder. The hint now wraps to the report's width.
+- The Embedding Database Search (`Embedding_SSEARCH.py`) and the Pairwise Embedding
+  Alignment (`Embedding_PWA.py`) imported `Generate_Embeddings.py` to find a model's
+  plugin, and that import read the shared `tools_settings.json`, in the tool and in each
+  of its worker processes, even when the tool ran from an exported settings file or an
+  MCP job's settings. The plugin lookup now lives in `tools/tool_helpers/Model_Plugins.py`,
+  so no tool imports another.
 
 ### Removed
 
