@@ -21,7 +21,7 @@ import Command_Engine
 from PySide6 import QtWidgets
 from desktop.Desktop_App import translate
 from utilities.Localization import JoinedMessage, Message
-from Viewer_Command_Portal import user_interaction, CURRENT
+from Viewer_Command_Portal import user_interaction, CURRENT, MAX_SCRIPT_COMMANDS
 
 # A byte-order mark names a .txt file's encoding. UTF-32 LE's mark begins with
 # UTF-16 LE's, so the UTF-32 marks are checked first.
@@ -56,6 +56,90 @@ def read_command_lines(file_path):
     return io.StringIO(data.decode(encoding, errors='replace'), newline=None).readlines()
 
 
+def script_commands(command_lines):
+    """The commands a script's lines hold: blank and comment lines, and nested run lines, are left out."""
+    commands = []
+    for line in command_lines:
+        # Drop blank lines, # lines and any trailing // comment
+        cmd_line = Command_Engine.script_command(line)
+        if not cmd_line:
+            continue
+        if cmd_line.split()[0].lower() == 'run':
+            print("Warning: Recursive 'run' command in script ignored to prevent infinite loop.")
+            continue
+        commands.append(cmd_line)
+    return commands
+
+
+def run_script_lines(viewer, command_lines):
+    """Run a typed script's command lines in order, and report how it went.
+
+    The rules are those of a script sent through the command portal: a script
+    holds at most MAX_SCRIPT_COMMANDS commands, and the first command that
+    fails, or is cancelled, ends the run. The later commands often depend on
+    it, so none of them runs.
+    """
+    commands = script_commands(command_lines)
+    total = len(commands)
+    if total > MAX_SCRIPT_COMMANDS:
+        msg = Message("Error: The script holds {count} commands, more than the {limit} a script may run. None were run.",
+                      count=total, limit=MAX_SCRIPT_COMMANDS)
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg, report_message=False)
+        return
+
+    for index, cmd_line in enumerate(commands, 1):
+        print(f"[Run] Executing: {cmd_line}")
+        with Command_Engine.recorded_outcome() as outcome:
+            Command_Engine._dispatch_user_command(viewer, cmd_line, record_history=False)
+        if outcome['status'] not in ('failed', 'cancelled'):
+            continue
+        if outcome['status'] == 'failed':
+            stopped = Message("Batch stopped at command {index} of {total}: '{command}' failed.",
+                              index=index, total=total, command=cmd_line)
+        else:
+            stopped = Message("Batch stopped at command {index} of {total}: '{command}' was cancelled.",
+                              index=index, total=total, command=cmd_line)
+        remaining = total - index
+        msg = stopped if not remaining else JoinedMessage([
+            stopped, Message("Not run: the remaining %n command(s).", n=remaining)])
+        if outcome['status'] == 'failed':
+            Command_Engine.command_failed(viewer, msg)
+        else:
+            Command_Engine.command_cancelled(viewer, msg)
+        Command_Engine.print_help(viewer, msg, report_message=False)
+        return
+
+    msg = Message("Batch execution completed: %n command(s) run.", n=total)
+    Command_Engine.print_help(viewer, msg)
+    Command_Engine.command_succeeded(viewer, msg)
+
+
+def finish_script(viewer, result):
+    """What the end of a typed Python script brings, on the GUI thread: its failure, or its commands run.
+
+    result is the script's CompletedProcess, or the exception that kept it from running.
+    """
+    try:
+        if isinstance(result, Exception):
+            raise result
+        if result.returncode != 0:
+            stderr_output = result.stderr.strip()
+            # The console line shows the first line; the script's errors are for the terminal.
+            msg = JoinedMessage([
+                Message("Error: Python script failed (exit code {code}):", code=result.returncode),
+                stderr_output,
+            ], separator="\n")
+            Command_Engine.command_failed(viewer, msg)
+            Command_Engine.print_help(viewer, msg)
+            return
+        run_script_lines(viewer, result.stdout.splitlines())
+    except Exception as e:
+        msg = Message("Error reading/executing command file: {error}", error=e)
+        Command_Engine.command_failed(viewer, msg)
+        Command_Engine.print_help(viewer, msg)
+
+
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         # The console line shows the first line; the terminal shows it all, in English.
@@ -63,7 +147,10 @@ def run(viewer, args):
             Message("Usage: {syntax}", syntax="run"),
             "Description: Opens a file explorer to select a command script file (.txt or .py) and executes the commands in sequence.\n"
             "  - For .txt files: Executes each line as a command.\n"
-            "  - For .py files: Executes the Python script in a subprocess and runs the commands outputted to stdout.\n"
+            "  - For .py files: Executes the Python script in a subprocess, in the script's own folder and in the background, "
+            "and then runs the commands outputted to stdout. One script runs at a time.\n"
+            "  - The first command that fails stops the run; the commands after it are not run.\n"
+            f"  - A script may hold at most {MAX_SCRIPT_COMMANDS} commands; a longer one is refused before any command runs.\n"
             "Example:\n"
             "  run",
         ], separator="\n")
@@ -105,58 +192,39 @@ def run(viewer, args):
 
     # Read/execute the file and extract commands
     try:
-        commands_lines = []
         _, ext = os.path.splitext(file_path)
-        
-        if ext.lower() == '.py':
-            import subprocess
-            import sys
-            from vispy import app as vispy_app
-            
-            print(f"[Run] Executing Python script: {file_path}")
-            if hasattr(viewer, 'console_text'):
-                Command_Engine.show_status(viewer, Message("Executing Python script..."))
-                if hasattr(vispy_app, 'process_events'):
-                    vispy_app.process_events()
+        context = CURRENT.get()
 
-            context = CURRENT.get()
+        if ext.lower() == '.py':
+            print(f"[Run] Executing Python script: {file_path}")
+            if context is None and getattr(viewer, 'command_script_run', None) is not None:
+                # One typed script at a time: the Viewer would otherwise run the commands of two
+                # scripts in the order they happen to finish.
+                msg = Message("A Python script is already running; wait for it to finish before running another.")
+                Command_Engine.command_failed(viewer, msg)
+                Command_Engine.print_help(viewer, msg, report_message=False)
+                return
+
+            msg = Message("Executing Python script...")
+            if hasattr(viewer, 'console_text'):
+                Command_Engine.show_status(viewer, msg)
+
             if context is not None:
                 from Viewer_Worker_Tracking import ScriptTracker
                 ScriptTracker(context, file_path)
                 Command_Engine.command_succeeded(viewer, 'Python command script started; waiting for its output.')
                 return
 
-            # Execute python script in a subprocess using the current python executable.
-            # Its output is decoded as UTF-8, so the child must print UTF-8; a piped
-            # child otherwise uses the Windows ANSI code page. Bad bytes show as U+FFFD.
-            # It has no stdin: a script calling input() would otherwise wait on the
-            # Viewer's own stdin, and the Viewer with it.
-            result = subprocess.run(
-                [sys.executable, file_path],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
-            )
-            
-            if result.returncode != 0:
-                stderr_output = result.stderr.strip()
-                # The console line shows the first line; the script's errors are for the terminal.
-                msg = JoinedMessage([
-                    Message("Error: Python script failed (exit code {code}):", code=result.returncode),
-                    stderr_output,
-                ], separator="\n")
-                Command_Engine.command_failed(viewer, msg)
-                Command_Engine.print_help(viewer, msg)
-                return
-                
-            commands_lines = result.stdout.splitlines()
-        else:
-            commands_lines = read_command_lines(file_path)
+            # A typed script runs in the background, so the Viewer stays usable, and its commands run
+            # on the GUI thread when it ends (finish_script). It runs as ScriptTracker runs one for the
+            # command portal: with no stdin, printing UTF-8, and in the script's own folder.
+            from Viewer_Worker_Tracking import TypedScriptRun
+            TypedScriptRun(viewer, file_path, finish_script)
+            Command_Engine.command_succeeded(viewer, msg)
+            return
 
-        context = CURRENT.get()
+        commands_lines = read_command_lines(file_path)
+
         if context is not None:
             commands = [Command_Engine.script_command(line) for line in commands_lines]
             commands = [line for line in commands if line and line.split()[0].lower() != 'run']
@@ -164,45 +232,10 @@ def run(viewer, args):
             Command_Engine.command_succeeded(viewer, f'Prepared {len(commands)} child commands.')
             return
 
-        # Execute the commands in sequence
-        executed_count = 0
-        failed_count = 0
-        for line in commands_lines:
-            # Drop blank lines, # lines and any trailing // comment
-            cmd_line = Command_Engine.script_command(line)
-            if not cmd_line:
-                continue
-            
-            parts = cmd_line.split()
-            if not parts:
-                continue
-                
-            command_name = parts[0].lower()
-            if command_name == 'run':
-                print("Warning: Recursive 'run' command in script ignored to prevent infinite loop.")
-                continue
-            
-            print(f"[Run] Executing: {cmd_line}")
-            # Every line runs, as before; a line that reported a failure is counted.
-            with Command_Engine.recorded_outcome() as outcome:
-                Command_Engine._dispatch_user_command(viewer, cmd_line, record_history=False)
-            executed_count += 1
-            if outcome['status'] == 'failed':
-                failed_count += 1
+        run_script_lines(viewer, commands_lines)
 
-        if failed_count:
-            msg = Message("Batch execution finished: {failed} of %n command(s) failed.",
-                          n=executed_count, failed=failed_count)
-            Command_Engine.command_failed(viewer, msg)
-            Command_Engine.print_help(viewer, msg, report_message=False)
-            return
-
-        msg = Message("Batch execution completed: %n command(s) run.", n=executed_count)
-        Command_Engine.print_help(viewer, msg)
-        
     except Exception as e:
         msg = Message("Error reading/executing command file: {error}", error=e)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)
         return
-    Command_Engine.command_succeeded(viewer, msg)

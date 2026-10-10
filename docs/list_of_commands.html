@@ -968,9 +968,11 @@
                 <p><strong>Function:</strong> Opens a file explorer to select a command script file (<code>.txt</code> or <code>.py</code>) and executes the commands in sequence.</p>
                 <div class="subheading">Execution Details</div>
                 <ul>
-                    <li><strong>Python Scripts (<code>.py</code>):</strong> Executed in a subprocess using the active python environment. The script's standard output (stdout) is read and executed line-by-line in the viewer.</li>
+                    <li><strong>Python Scripts (<code>.py</code>):</strong> Executed in a subprocess using the active python environment, in the script's own folder, so relative paths in the script resolve beside it. The subprocess runs in the background, so the viewer stays responsive; when it finishes, its standard output (stdout) is read and executed line-by-line in the viewer. One script runs at a time: running another while one is still running is refused.</li>
                     <li><strong>Text Files (<code>.txt</code>):</strong> Read line-by-line. Text after <code>//</code> is removed, so both full-line and trailing comments are ignored.</li>
                     <li><strong>Infinite Loop Protection:</strong> Recursive <code>run</code> calls inside a script are automatically ignored to prevent viewer freezes.</li>
+                    <li><strong>Stops at the First Failure:</strong> The commands run in order, and the first command that fails ends the run. The commands after it are not run; the console names the command that failed and says how many were left out. A command cancelled from its own dialog ends the run in the same way.</li>
+                    <li><strong>Command Limit:</strong> A script may supply at most 1000 commands. A longer script is refused before any command runs.</li>
                 </ul>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">

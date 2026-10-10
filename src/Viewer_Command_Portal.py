@@ -30,6 +30,8 @@ CURRENT = ContextVar('viewer_command_context', default=None)
 REVIEWED_SOURCES = {'web_agent'}
 APPROVAL = {'run': None, 'approve': 'pending', 'refuse': 'refused'}
 REFUSED = 'Agent replies cannot run this command; type it in the Viewer terminal instead.'
+# The most commands a run script may hold, typed or sent through the portal.
+MAX_SCRIPT_COMMANDS = 1000
 
 
 def now():
@@ -147,7 +149,7 @@ class ExecutionContext:
         self.portal.changed.emit(self.request_id)
 
     def children(self, commands):
-        if len(commands) > 1000 or any(not isinstance(c, str) or not c.strip() or len(c) > 8192 or '\n' in c or '\r' in c for c in commands):
+        if len(commands) > MAX_SCRIPT_COMMANDS or any(not isinstance(c, str) or not c.strip() or len(c) > 8192 or '\n' in c or '\r' in c for c in commands):
             raise ValueError('A command script may emit at most 1000 nonempty single-line commands, each at most 8192 characters')
         self.record['children'].extend(self.portal.new_command(c) for c in commands)
 

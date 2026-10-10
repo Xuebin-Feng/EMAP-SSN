@@ -55,6 +55,8 @@ Available CLI commands:
    - Opens a file chooser for a `.txt` command script or a `.py` command-generating script. It does not accept a filepath argument.
    - Text scripts execute each nonblank line after removing a trailing `//` comment. Python scripts run in a subprocess and each nonblank stdout line is treated as a viewer command.
    - Recursive `run` lines are ignored to prevent loops.
+   - Python scripts run in their own folder, so relative paths in them resolve beside the script. A Python script typed into the Viewer runs in the background, one at a time, and its commands run when it ends.
+   - The run stops at the first command that fails or is cancelled: the commands after it are not run. A script may supply at most 1000 commands; a longer one is refused before any command runs.
 
 10. `reference [TARGET]`
     - With no target, reports the active alignment reference, or marks the configured reference inactive when it does not resolve.

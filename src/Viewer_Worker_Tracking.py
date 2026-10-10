@@ -9,6 +9,7 @@ import uuid
 import subprocess
 import sys
 import threading
+import weakref
 import psutil
 from PySide6 import QtCore
 
@@ -74,6 +75,31 @@ class WorkerTracker(QtCore.QObject):
             self.fail('Worker did not report startup within 60 seconds; inspect its terminal before retrying')
 
 
+def start_command_script(path, finished):
+    """Run the Python command script at path on a daemon thread, and emit finished with its result.
+
+    The result is the script's CompletedProcess, or the exception that kept it
+    from running. The script runs in its own folder, so a relative path in it
+    names a file beside the script wherever the Viewer was started; path is made
+    absolute first, as the folder change would otherwise move it.
+    """
+    path = os.path.abspath(path)
+    # Decoded as UTF-8, so the child must print UTF-8, not the Windows ANSI code page.
+    environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+    def work():
+        try:
+            # No stdin: a script calling input() would otherwise wait on the Viewer's own.
+            result = subprocess.run([sys.executable, path], stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, encoding='utf-8', errors='replace', env=environment, cwd=os.path.dirname(path))
+        except Exception as error:
+            result = error
+        try:
+            finished.emit(result)
+        except RuntimeError:
+            pass  # The receiving Qt object is already deleted; nothing is left to hand the result to.
+    threading.Thread(target=work, name='Viewer-command-script', daemon=True).start()
+
+
 class ScriptTracker(QtCore.QObject):
     finished = QtCore.Signal(object)
 
@@ -83,18 +109,8 @@ class ScriptTracker(QtCore.QObject):
         self.job_id = 'script-' + uuid.uuid4().hex
         context.add_job(self.job_id, status_detail='Executing selected Python command script')
         self.finished.connect(self._finish, QtCore.Qt.ConnectionType.QueuedConnection)
-        # Decoded as UTF-8, so the child must print UTF-8, not the Windows ANSI code page.
-        environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
-        def work():
-            try:
-                # No stdin: a script calling input() would otherwise wait on the Viewer's own.
-                result = subprocess.run([sys.executable, path], stdin=subprocess.DEVNULL, capture_output=True,
-                    text=True, encoding='utf-8', errors='replace', env=environment)
-            except Exception as error:
-                result = error
-            self.finished.emit(result)
         context.job_event(self.job_id, 'running')
-        threading.Thread(target=work, name='Viewer-command-script', daemon=True).start()
+        start_command_script(path, self.finished)
 
     def _finish(self, result):
         if isinstance(result, Exception):
@@ -114,3 +130,66 @@ class ScriptTracker(QtCore.QObject):
             self.context.job_event(self.job_id, 'failed', str(error))
             return
         self.context.job_event(self.job_id, 'succeeded', f'Prepared {len(commands)} child commands')
+
+
+class TypedScriptRun(QtCore.QObject):
+    """A Python command script that a typed `run` runs in the background.
+
+    The Viewer stays usable while the script runs, since it only prints the
+    commands to run. When it ends, a queued signal hands its result to the GUI
+    thread, where on_finished(viewer, result) reports a failure or runs the
+    commands. The Viewer's command_script_run names the run from its start until
+    its commands have run, which is how a second run is refused.
+
+    Nothing here keeps the Viewer alive, and nothing touches a Viewer that has
+    closed: a run abandoned when the window closes or the application quits
+    drops its result, and the thread is a daemon.
+    """
+    finished = QtCore.Signal(object)
+
+    def __init__(self, viewer, path, on_finished):
+        super().__init__()
+        self._viewer = weakref.ref(viewer)
+        self._on_finished = on_finished
+        self._abandoned = False
+        self.finished.connect(self._finish, QtCore.Qt.ConnectionType.QueuedConnection)
+        application = QtCore.QCoreApplication.instance()
+        if application is not None:
+            application.aboutToQuit.connect(self.abandon)
+        # The canvas of a stand-in Viewer has no events. vispy keeps a bound method weakly.
+        close = getattr(getattr(getattr(viewer, 'canvas', None), 'events', None), 'close', None)
+        if close is not None:
+            close.connect(self.abandon)
+        viewer.command_script_run = self
+        start_command_script(path, self.finished)
+
+    def abandon(self, event=None):
+        """Drop the script's result: the Viewer is closing."""
+        self._abandoned = True
+
+    def _finish(self, result):
+        viewer = self._viewer()
+        if viewer is None:
+            return
+        if self._abandoned:
+            self._release(viewer)
+            return
+        if getattr(viewer, '_command_dispatch_active', False):
+            # Another command is mid-dispatch, and its event processing delivered this signal. Its
+            # outcome and the Viewer's state are not ours to touch: wait for it to end, as typed input does.
+            QtCore.QTimer.singleShot(20, lambda: self._finish(result))
+            return
+        from Viewer_Command_Portal import bind
+        # As Command_Engine.execute_command does: input typed while the commands run, and the command
+        # portal's next request, wait until they have run.
+        viewer._command_dispatch_active = True
+        try:
+            with bind(None):
+                self._on_finished(viewer, result)
+        finally:
+            viewer._command_dispatch_active = False
+            self._release(viewer)
+
+    def _release(self, viewer):
+        if getattr(viewer, 'command_script_run', None) is self:
+            viewer.command_script_run = None
