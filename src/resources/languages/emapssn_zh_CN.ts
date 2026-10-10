@@ -7077,28 +7077,28 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+284"/>
         <source>⏱️ Benchmark</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">⏱️ 基准测试</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+59"/>
         <source>Run Benchmark</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">运行基准测试</translation>
     </message>
     <message>
         <location line="-57"/>
         <source>Time EMAP-SSN&apos;s heavy calculations on the bundled sequence set and write a report. It asks before it starts.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">在内置序列集上为 EMAP-SSN 的耗时计算计时，并写出报告。开始前会先询问。</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Report Folder:</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">报告文件夹：</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The benchmark&apos;s folder. Each run saves its report here as a .txt named by the date and time the run started, in the window&apos;s language, with an English .json beside it. Reports are never deleted.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试的文件夹。每次运行都会把报告以 .txt 保存在这里，文件名为运行开始的日期和时间，使用窗口的语言，旁边另有一份英文 .json。报告从不删除。</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -7107,7 +7107,11 @@ The file was left unchanged. Correct it, or delete it to start over from the def
 A run takes about 6 minutes on a recent GPU workstation, and longer on a computer without a GPU. It uses the CPU and the GPU fully, so close other heavy programs for results you can compare. The first run downloads the ESM-2 8M model, about 30 MB.
 
 Start the benchmark?</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">基准测试会在内置的 860 条公开蛋白质序列上为 EMAP-SSN 的耗时计算计时，并在其文件夹中写出报告。
+
+在较新的 GPU 工作站上，一次运行约需 6 分钟；没有 GPU 的计算机需要更长时间。运行会占满 CPU 和 GPU，因此请关闭其他耗费资源的程序，以便得到可比较的结果。首次运行会下载 ESM-2 8M 模型，约 30 MB。
+
+是否开始基准测试？</translation>
     </message>
     <message>
         <location line="+138"/>
