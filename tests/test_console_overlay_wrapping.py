@@ -499,6 +499,30 @@ class SidebarToggle:
         return True
 
 
+class CloseButton:
+    """Stands in for the instruction line's close button: where it moved, and whether shown."""
+
+    def __init__(self, size=20):
+        self.size = size
+        self.pos = None
+        self.shown = False
+
+    def width(self):
+        return self.size
+
+    def height(self):
+        return self.size
+
+    def move(self, x, y):
+        self.pos = (x, y)
+
+    def show(self):
+        self.shown = True
+
+    def hide(self):
+        self.shown = False
+
+
 class InstructionLineWrappingTests(unittest.TestCase):
     """The instruction line lists every key and mouse action. It wraps between
     them to end before the sidebar toggle, which shares its top margin, and
@@ -634,6 +658,66 @@ class InstructionLineWrappingTests(unittest.TestCase):
         self.assertAlmostEqual(viewer.console_bg.center[1], box_y + self.ROW_HEIGHT)
         self.assertAlmostEqual(status.pos[1], status_y + self.ROW_HEIGHT)
 
+    @staticmethod
+    def add_close_button(viewer):
+        viewer.hud_layout.update({"instr_y": 10.0, "instr_close_gap": 6.0})
+        viewer.close_instructions_btn = CloseButton(20)
+        return viewer.close_instructions_btn
+
+    def test_the_close_button_follows_the_first_row_and_every_row_leaves_it_room(self):
+        viewer = self.make_viewer(width=300)
+        viewer.toggle_sidebar_btn = SidebarToggle(230)
+        button = self.add_close_button(viewer)
+
+        viewer.update_instruction_layout()
+
+        # 210 px would hold "[C] Three | [D] Four" (200 px) on the second row;
+        # the button and its gap take 26 of them, so it breaks once more.
+        rows = self.assert_rows_end_before(viewer, 230 - 26)
+        self.assertEqual(rows, ["[A] One | [B] Two", "[C] Three", "[D] Four"])
+        # A gap after the first row, centred on the row (12 px rows, a 20 px button).
+        self.assertEqual(button.pos, (10 + 170 + 6, 6))
+        self.assertTrue(button.shown)
+        self.assertLessEqual(button.pos[0] + button.size, 230 - viewer.hud_layout["instr_right_padding"])
+
+    def test_closing_hides_the_line_and_its_button_and_moves_the_console_back_up(self):
+        viewer = ConsoleOverlayWrappingTests.make_viewer(size=(250, 300), text="Cmd: _")
+        viewer.hud_displays = {}
+        self.add_instructions(viewer)
+        button = self.add_close_button(viewer)
+        configured = (viewer.hud_layout["console_text_x"], viewer.hud_layout["console_text_y"])
+        viewer._update_hud_elements()
+        self.assertEqual(viewer.instr_text.text.count("\n"), 1)
+        self.assertEqual(viewer.console_text.pos, (configured[0], configured[1] + self.ROW_HEIGHT))
+
+        # Nothing is saved, so the line shows again when the Viewer next starts.
+        with mock.patch("builtins.open", side_effect=AssertionError("closing saved a file")):
+            viewer.close_instructions()
+
+        self.assertFalse(viewer.instr_text.visible)
+        self.assertFalse(button.shown)
+        self.assertEqual(viewer.console_text.pos, configured)
+        # It stays closed through a resize.
+        viewer.canvas.size = (600, 300)
+        viewer._update_hud_elements()
+        self.assertFalse(viewer.instr_text.visible)
+        self.assertFalse(button.shown)
+        self.assertEqual(viewer.console_text.pos, configured)
+
+    def test_a_new_viewer_shows_the_line_and_its_button_again(self):
+        closed = self.make_viewer(width=300)
+        closed.canvas.update = lambda: None
+        closed.hud_displays = {}
+        self.add_close_button(closed)
+        closed.close_instructions()
+
+        viewer = self.make_viewer(width=300)
+        button = self.add_close_button(viewer)
+        viewer.update_instruction_layout()
+
+        self.assertTrue(button.shown)
+        self.assertIsNot(getattr(viewer.instr_text, "visible", True), False)
+
     def test_hud_update_wraps_the_instructions_before_placing_the_console(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.canvas = SimpleNamespace(size=(300, 300), update=lambda: None)
@@ -708,6 +792,45 @@ class ShippedInstructionLineTests(unittest.TestCase):
                 self.assertEqual(HUD_INSTRUCTION_SEPARATOR.join(rows), line)
                 for row in rows:
                     self.assertLessEqual(measure(None, row), room, row)
+
+
+class InstructionCloseButtonTests(unittest.TestCase):
+    """The instruction line's close button, as the Viewer's main window builds it."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        from tests.theme_fixture import apply_theme_for_class
+
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def test_a_bare_cross_that_leaves_the_keyboard_with_the_canvas(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QWidget
+
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.canvas = SimpleNamespace(native=QWidget(), size=(1200, 800))
+        viewer._build_main_window()
+        self.addCleanup(viewer.main_window.deleteLater)
+        self.addCleanup(viewer.main_window.close)
+        viewer.main_window.show()
+        self.app.processEvents()
+
+        button = viewer.close_instructions_btn
+        self.assertIs(button.parentWidget(), viewer.canvas.native)
+        self.assertFalse(button.icon().isNull())
+        self.assertEqual(button.toolTip(), "Hide these instructions")
+        self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        # The theme's buttons are at least 28 px tall; this one stays a 20 px square.
+        self.assertEqual(button.size().toTuple(), (20, 20))
+
+        closed = []
+        viewer._update_hud_elements = lambda: closed.append(viewer._instructions_closed)
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        self.assertEqual(closed, [True])
 
 
 if __name__ == "__main__":

@@ -114,6 +114,11 @@ still change before version 1.0.0.
   while both are open, a choice made on one shows on the other at once. Until a choice
   is made, a page follows the system's dark setting. The Meta Data page sets its theme
   before it is drawn, so a dark page never shows light first.
+- **The Viewer's instruction line can be closed.** A × after its first row hides the
+  key and mouse actions listed at the top of the Viewer, and the command line moves
+  back up by the rows they had pushed it down. The line shows again each time the
+  Viewer starts; nothing is saved. Its rows leave room for the ×, so they still end
+  before the sidebar toggle.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts

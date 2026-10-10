@@ -6015,6 +6015,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Hide these instructions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished"></translation>
     </message>

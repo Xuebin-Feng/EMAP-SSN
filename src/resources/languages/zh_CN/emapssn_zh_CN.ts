@@ -3845,12 +3845,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1119"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1145"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+702"/>
+        <location line="+731"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -7977,12 +7977,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2236"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2288"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+1178"/>
+        <location line="+14"/>
+        <source>Hide these instructions</source>
+        <translation type="unfinished">隐藏交互说明</translation>
+    </message>
+    <message>
+        <location line="+1216"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>

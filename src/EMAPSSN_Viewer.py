@@ -230,6 +230,8 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
 
 # What separates the actions the HUD's instruction line lists.
 HUD_INSTRUCTION_SEPARATOR = " | "
+# The square button after the instruction line's first row that hides the line.
+HUD_CLOSE_BUTTON_SIZE = 20
 
 
 def _wrap_instructions_for_display(text, max_width, measure_width):
@@ -731,6 +733,7 @@ class MainViewer:
             "instr_anchor_x": "left",    # Horizontal text alignment: 'left', 'center', 'right'
             "instr_anchor_y": "bottom",  # Vertical text alignment: 'top', 'middle', 'bottom'
             "instr_right_padding": 10.0, # Gap left before the sidebar toggle; a longer line wraps
+            "instr_close_gap": 6.0,      # Gap between the first row's end and its close button
             
             # 2. Command Line Text (" Cmd: <input> ")
             "console_text_x": 30.0,      # Horizontal coordinate from left edge
@@ -1100,9 +1103,26 @@ class MainViewer:
         self.toggle_sidebar_btn.setFixedHeight(30)
         self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
         self.toggle_sidebar_btn.hide()
+
+        # A close button after the instruction line's first row
+        # (update_instruction_layout places it). Closing hides the line until
+        # the Viewer next starts; nothing is saved. A click leaves the
+        # keyboard with the canvas, where [ENTER] opens the command line.
+        self.close_instructions_btn = QtWidgets.QPushButton(self.canvas.native)
+        self.close_instructions_btn.setObjectName("closeInstructionsBtn")
+        self.close_instructions_btn.setIcon(studio_icon("x"))
+        self.close_instructions_btn.setIconSize(QtCore.QSize(14, 14))
+        hide_text = translate("Viewer", "Hide these instructions")
+        self.close_instructions_btn.setToolTip(hide_text)
+        self.close_instructions_btn.setAccessibleName(hide_text)
+        self.close_instructions_btn.setFixedSize(HUD_CLOSE_BUTTON_SIZE, HUD_CLOSE_BUTTON_SIZE)
+        self.close_instructions_btn.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.close_instructions_btn.clicked.connect(self.close_instructions)
         
         # The sidebar floats over the canvas: a white card with a hairline on its
-        # left, holding a list of left-aligned buttons. The rest is the window theme.
+        # left, holding a list of left-aligned buttons. The instructions' close
+        # button is a bare cross, filled only under the mouse. The rest is the
+        # window theme.
         self.main_window.setStyleSheet("""
             QWidget#rightPanel {
                 background-color: rgba(255, 255, 255, 0.95);
@@ -1110,7 +1130,13 @@ class MainViewer:
             }
             QWidget#rightPanel QPushButton { text-align: left; padding-left: 10px; min-height: 24px; }
             QWidget#rightPanel QPushButton:focus { padding-left: 9px; }
-        """ % {"border": TOKENS["border"]})
+            QPushButton#closeInstructionsBtn {
+                background: transparent; border: none; border-radius: 6px;
+                padding: 0px;
+            }
+            QPushButton#closeInstructionsBtn:hover { background: %(hover)s; }
+            QPushButton#closeInstructionsBtn:pressed { background: %(border)s; }
+        """ % {"border": TOKENS["border"], "hover": TOKENS["surface_muted"]})
 
     def _update_console_text(self):
         """Helper to render the command line with a visible cursor."""
@@ -1174,13 +1200,23 @@ class MainViewer:
 
         In English the line is wider than a default-size window. Its rows
         break between actions, and update_console_background moves the
-        command line down by the rows the wrapping adds.
+        command line down by the rows the wrapping adds. The close button
+        follows the first row, so every row leaves room for it. Once closed,
+        the line and its button are hidden and push nothing down.
         """
         text_visual = getattr(self, 'instr_text', None)
         if text_visual is None:
             return
+        close_button = getattr(self, 'close_instructions_btn', None)
+        if getattr(self, '_instructions_closed', False):
+            text_visual.visible = False
+            if close_button is not None:
+                close_button.hide()
+            self._instruction_extra_height = 0.0
+            return
 
         cfg_hud = self.hud_layout
+        close_gap = cfg_hud.get("instr_close_gap", 6.0)
         panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
         panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
         right_edge = self.canvas.size[0] - panel_width
@@ -1188,9 +1224,10 @@ class MainViewer:
         if toggle is not None and toggle.isVisible():
             # The toggle sits in the instructions' top margin, so they end before it.
             right_edge = min(right_edge, toggle.x())
+        close_room = close_button.width() + close_gap if close_button is not None else 0.0
         available_width = max(
             1.0,
-            right_edge - cfg_hud.get("instr_right_padding", 10.0) - cfg_hud["instr_x"],
+            right_edge - cfg_hud.get("instr_right_padding", 10.0) - cfg_hud["instr_x"] - close_room,
         )
 
         logical_text = getattr(self, '_instruction_logical_text', text_visual.text or "")
@@ -1210,6 +1247,26 @@ class MainViewer:
         self._instruction_extra_height = (
             added_rows * _vispy_text_line_height_pixels(text_visual) if added_rows else 0.0
         )
+
+        if close_button is not None:
+            row_height = _vispy_text_line_height_pixels(text_visual)
+            # VisPy hangs 'bottom'-anchored text below its position in the
+            # canvas's y-down pixels; the button is centred on the first row.
+            row_top = cfg_hud["instr_y"] - {
+                "top": row_height, "center": row_height / 2.0, "middle": row_height / 2.0,
+            }.get(cfg_hud.get("instr_anchor_y", "bottom"), 0.0)
+            first_row = rendered_text.split('\n', 1)[0]
+            close_button.move(
+                round(cfg_hud["instr_x"] + _vispy_text_width_pixels(text_visual, first_row) + close_gap),
+                round(row_top + (row_height - close_button.height()) / 2.0),
+            )
+            close_button.show()
+
+    def close_instructions(self):
+        """Hide the instruction line until the Viewer next starts, and move the
+        command line back up by the rows the line had pushed it down."""
+        self._instructions_closed = True
+        self._update_hud_elements()
 
     def update_console_background(self):
         """Wrap the console visually and size its background to the rendered rows."""
