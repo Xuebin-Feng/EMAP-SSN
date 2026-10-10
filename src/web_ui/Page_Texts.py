@@ -411,6 +411,12 @@ def read_page(source, suffix):
         if "%n" in text.text:
             page.problems.append((text.line, f"{text.text!r} holds %n, but a page's text can't be counted. "
                                              "Rephrase it without the count."))
+        if text.kind == "script" and text.text.rstrip().endswith(":"):
+            # A label the script puts in front of a value, with its own space,
+            # leaves that space in every language: Chinese would read "错误： …".
+            page.problems.append((text.line, f"{text.text!r} is a label cut off from what follows it, so a "
+                                             "translation can't place its own spacing. Mark the whole line, as in "
+                                             't("<b>Error:</b> {error}", {error: value}).'))
     page.texts.sort(key=lambda text: text.start)
     page.problems.sort()
     return page

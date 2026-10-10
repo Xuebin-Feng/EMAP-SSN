@@ -348,7 +348,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error:</source>
+        <source>&lt;b&gt;Error:&lt;/b&gt; {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

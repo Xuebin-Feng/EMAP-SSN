@@ -1901,7 +1901,7 @@
             const chatLog = document.getElementById("chat-log");
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-error";
-            wrapper.innerHTML = `<div class="msg msg-error"><b>${escapeHtml(t("Error:"))}</b> ${escapeHtml(err)}</div>`;
+            wrapper.innerHTML = `<div class="msg msg-error">${t("<b>Error:</b> {error}", {error: escapeHtml(err)})}</div>`;
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }

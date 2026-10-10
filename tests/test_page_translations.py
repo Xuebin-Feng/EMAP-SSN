@@ -639,6 +639,37 @@ class ChinesePageFontTests(WebPageTestCase):
                       [[family.strip('"'), weight, status] for family, weight, status in faces])
 
 
+class AgentErrorLineTests(WebPageTestCase):
+    """The Agent page's error line is one text, so each language punctuates it as it writes.
+
+    It once put a translated bold "Error:" before the message with a space of
+    its own, and Chinese read "错误： …".
+    """
+
+    def shown_error(self, message):
+        """The error line's text, and its bold label's, after the page shows message."""
+        PageHandler.body = (200, json.dumps(CARDS).encode())
+        self.load("/agent.html", "document.getElementById('capture-viewer-btn').onclick !== null")
+        self.js(f"appendErrorMsg({json.dumps(message)})")
+        line = "document.querySelector('#chat-log .msg-error')"
+        return self.js(f"{line}.textContent"), self.js(f"{line}.querySelector('b').textContent")
+
+    def test_english_reads_as_before(self):
+        install_translations(self.app, None)  # These page tests start in the pseudo-language.
+        # The message is still escaped: its markup shows as text.
+        self.assertEqual(self.shown_error("<x> & y"), ("Error: <x> & y", "Error:"))
+
+    def test_the_pseudo_language_shows_it_as_one_text(self):
+        shown, label = self.shown_error("18")
+        self.assertTrue(shown.startswith("[") and shown.endswith("18]"), shown)
+        self.assertEqual(label, pseudo_translate("Error:")[1:-1], "the label stays bold inside the one text")
+
+    def test_chinese_puts_no_space_after_its_colon(self):
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.assertEqual(self.shown_error("<连接失败>"), ("错误：<连接失败>", "错误："))
+
+
 class MetadataPageTests(WebPageTestCase):
     """The metadata spreadsheet page, its table built by Tabulator, and its help."""
 

@@ -498,6 +498,14 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("resources/agent/attachments.js:1: 'Back\\\\slash' holds a backslash")
                             for line in self.lines), self.lines)
 
+    def test_a_label_a_script_shows_apart_from_its_line_fails_the_update(self):
+        # Its own space would follow the label in every language: Chinese would read "错误： …".
+        self.write_pages(page='<script>\nshow(t("Error:") + " " + message);\nshow(t("Done: {name}", {name: n}));\n</script>\n')
+        self.assertEqual(self.update(), 1)
+        refused = [line for line in self.lines if "is a label cut off" in line]
+        self.assertEqual(len(refused), 1, self.lines)
+        self.assertTrue(refused[0].startswith("web_ui/agent.html:2: 'Error:' is a label cut off"), refused)
+
     def test_a_help_page_translation_behind_its_page_is_noted_not_refused(self):
         from utilities import Help_Pages
 

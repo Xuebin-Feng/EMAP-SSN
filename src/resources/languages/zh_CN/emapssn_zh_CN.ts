@@ -441,11 +441,16 @@
         <translation type="unfinished">思考中（{model}）…</translation>
     </message>
     <message>
+        <location line="+184"/>
+        <source>&lt;b&gt;Error:&lt;/b&gt; {error}</source>
+        <translation type="unfinished">&lt;b&gt;错误：&lt;/b&gt;{error}</translation>
+    </message>
+    <message>
         <source>⏳ Thinking ({model})...</source>
         <translation type="obsolete">⏳ 思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="-144"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
@@ -485,12 +490,11 @@
         <translation type="unfinished">请求次数：{requests}</translation>
     </message>
     <message>
-        <location line="+16"/>
         <source>Error:</source>
-        <translation type="unfinished">错误：</translation>
+        <translation type="obsolete">错误：</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+41"/>
         <source>Request failed (HTTP {status}).</source>
         <translation type="unfinished">请求失败（HTTP {status}）。</translation>
     </message>
@@ -3850,7 +3854,7 @@ Command-line usage:
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+731"/>
+        <location line="+733"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -7977,7 +7981,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2288"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2290"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -7987,7 +7991,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="+1216"/>
+        <location line="+1218"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
