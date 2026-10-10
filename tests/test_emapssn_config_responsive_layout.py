@@ -550,6 +550,30 @@ class ResponsiveConfigTests(unittest.TestCase):
                                 self.assertGreaterEqual(label.width(),
                                                         self.natural_width(label))
 
+    def test_fixed_width_labels_get_the_width_they_ask_for(self):
+        """A label given a fixed width gets its size hint, not its text's advance.
+        Linux font hinting can draw a text past its advance, which cut a pixel
+        off "Min % Drop Threshold:" there. A right contents margin makes every
+        label need 1 px more than its text's advance, on every platform."""
+        QLabel = self.namespace["QLabel"]
+
+        class OverhangLabel(QLabel):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.setContentsMargins(0, 0, 1, 0)
+
+        window = self.open_window_with(QLabel=OverhangLabel)
+        fixed = [label for label in window.findChildren(OverhangLabel)
+                 if label.text() and label.minimumWidth() == label.maximumWidth()]
+        self.assertIn(window.labels["PERCENTAGE_DROP_THRESHOLD"], fixed)
+        for width in (1600, 700):
+            self.resize_panel(width, window)
+            for label in fixed:
+                with self.subTest(width=width, label=label.text()):
+                    # QLabel's size hint is at least its minimum width, so this
+                    # fails only when the fixed width is narrower than the text.
+                    self.assertGreaterEqual(label.width(), label.sizeHint().width())
+
     def test_statistics_hint_wraps_inside_the_report(self):
         """At the window's default size the hint shown before the first report
         is wider than the report; it wraps there, in the report's font."""

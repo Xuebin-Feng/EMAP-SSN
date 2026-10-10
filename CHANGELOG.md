@@ -947,6 +947,12 @@ still change before version 1.0.0.
   launch size. Its VR client settings stand in two halves side by side only while both
   fit; in a narrower window the second half goes under the first, its fields lined up
   with the ones above. The wide layout is unchanged.
+- The Configuration window's Simulation & Physics tab cut the last pixel column off
+  "Min % Drop Threshold:" on Linux, and off its Chinese label. The four labels beside the
+  paired fields shared a width taken from their text's advance, and Linux font hinting
+  can draw a text a pixel past it. They now get the width the labels ask for, as the
+  label column does; on Windows the widths are unchanged. VR Configuration sizes the
+  same labels the same way.
 
 ### Removed
 

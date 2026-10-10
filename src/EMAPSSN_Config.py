@@ -3731,10 +3731,9 @@ if __name__ == "__main__":
                 lbl_steps,
                 lbl_drop,
             )
-            right_label_width = max(
-                label.fontMetrics().horizontalAdvance(label.text())
-                for label in paired_right_labels
-            )
+            # The size hint, not the text's advance: Linux font hinting can
+            # draw a text a pixel past its advance.
+            right_label_width = max(label.sizeHint().width() for label in paired_right_labels)
             for paired_label in paired_right_labels:
                 paired_label.setFixedWidth(right_label_width)
             
