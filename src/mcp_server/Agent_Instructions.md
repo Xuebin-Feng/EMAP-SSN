@@ -21,8 +21,8 @@ Unknown actions, unexpected arguments and invalid types fail before dispatch.
 Plan with `emapssn_pipeline(action="list_tools")`: each `tool_id` lists its inputs and
 the directory a relative name resolves in, output names, what happens to an existing
 output, and typical next tools; workflow recipes cover common goals (for example,
-injecting new sequences instead of recomputing). A pipeline ID is an argument to MCP
-tools, not itself an MCP tool name. Pass it to `emapssn_pipeline(action="get_tool_schema")`
+injecting new sequences instead of recomputing). A pipeline ID is an argument, not an
+MCP tool name. Pass it to `emapssn_pipeline(action="get_tool_schema")`
 for accepted parameters, defaults, conditions, model availability and an example. Do not
 invent IDs, script names, or parameter keys.
 
@@ -42,8 +42,10 @@ Submit with `emapssn_pipeline(action="start_job")`, save its `job_id`, and follo
 `emapssn_pipeline(action="wait_job")`, which returns when the job ends or after at most 50
 seconds; call it again instead of polling. Submission means queued or running, not
 completed. A finished job's `output_files` lists the files it created, modified or
-deleted: take output paths from there. Settings can cause output files to be created or
-overwritten; align those choices with the user's request.
+deleted: take output paths from there. Settings may create or overwrite output
+files; align them with the user's request. To time this computer
+`emapssn_pipeline(action="start_benchmark")` queues the bundled benchmark; its `result`
+lists stage times, devices and report paths.
 
 ## Reuse saved settings
 
@@ -64,7 +66,7 @@ When reporting calculations or generations, always list the effective parameters
 input files actually used, including preserved values and applied defaults, from the
 executed settings rather than just the requested edits.
 
-Exporting does not execute a job, and an exported layout cache filename is a preview,
+Exporting executes nothing, and an exported layout cache filename is a preview,
 not a reservation. Viewer exports may select the newest compatible cache: verify it is
 the intended one. Execution documents are not silently refreshed from personal settings.
 Relative input paths follow each tool's directory rules, not the settings file's folder.
@@ -94,8 +96,8 @@ settings. Do not assume a layout job opens a Viewer.
 
 When the user means an existing Viewer, call `emapssn_viewer_data(action="list_sessions")` first. Match
 the intended session using its identity and cache metadata, then connect. Listing
-does not select a session. With multiple candidates, resolve the intended target
-rather than arbitrarily choosing one.
+does not select a session. With multiple candidates, resolve the intended one;
+never choose arbitrarily.
 
 For a new Viewer, first call `emapssn_viewer_control(action="export_settings")`. To select
 another cache, its optional `settings_path` can supply an overlay with
@@ -130,8 +132,7 @@ with its launch_id, never relaunch.
 
 Inspect summary-first through `emapssn_viewer_data`: get_summary captures an
 immutable metadata/membership snapshot. Reuse its snapshot_id with describe_fields,
-create_subset, summarize_subset, query_nodes, and read_value. Use describe for each
-action's schema. create_subset requires all, visible, or selected scope; an optional
+create_subset, summarize_subset, query_nodes, and read_value. create_subset requires all, visible, or selected scope; an optional
 header/metadata/label/selection expression intersects that scope. Empty selection
 stays empty. Residue predicates need an include_alignment=true snapshot; file
 predicates are unavailable. Execute user commands through the separate command portal when requested.
@@ -164,7 +165,7 @@ connect to another session explicitly. Backend shutdown ends the connection. Ind
 Viewers remain available for reconnection. A Windows host that forbids independent
 launch reports an error; an existing GUI/CLI Viewer can still be connected.
 
-Pipeline and layout jobs share a FIFO queue owned by this server. Use
+Pipeline, layout and benchmark jobs share a FIFO queue owned by this server. Use
 `emapssn_pipeline(action="list_jobs")` to recover job IDs, and `emapssn_pipeline(action="get_job")` for status,
 `failure_message`, and output locations. Backend exit cancels its jobs. Wait with
 wait_job; report completion only after `succeeded`, and inspect

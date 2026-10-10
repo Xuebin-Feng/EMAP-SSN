@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 from copy import deepcopy
+import functools
 import json
 import math
 import os
@@ -29,7 +31,7 @@ from pydantic import BaseModel, Field
 
 from mcp_server.core.App_Context import AppContext, _context
 from mcp_server.pipeline.Pipeline_Guide import path_rules, tool_guide, workflows
-from mcp_server.pipeline.Pipeline_Jobs import MAX_WAIT_SECONDS, PipelineJobError
+from mcp_server.pipeline.Pipeline_Jobs import BENCHMARK_TOOL_ID, MAX_WAIT_SECONDS, PipelineJobError
 from mcp_server.pipeline.Pipeline_Settings import (
     DESCRIPTIONS,
     PipelineSettingsError,
@@ -87,6 +89,7 @@ class PipelineToolInfo(BaseModel):
 class PipelineCatalog(BaseModel):
     tools: list[PipelineToolInfo]
     layout: dict[str, Any]
+    benchmark: dict[str, Any]
     workflows: list[dict[str, Any]]
     path_rules: list[str]
     max_running: int
@@ -125,7 +128,9 @@ class PipelineJobInfo(BaseModel):
         "Files the job created, modified or deleted in the folders it writes; empty while it runs."))
     output_files_omitted: int = 0
     result: dict[str, Any] | None = Field(default=None, description=(
-        "Layout jobs: node, edge, cluster and threshold summary of the published cache."))
+        "Layout jobs: node, edge, cluster and threshold summary of the published cache. "
+        "Benchmark jobs: report paths, each stage's status, time, throughput, device and "
+        "Auto choices, and the hardware."))
     latest_output: dict[str, str | None] | None = Field(default=None, description=(
         "Last line of stdout and stderr (progress), from get_job and wait_job."))
 
@@ -240,6 +245,16 @@ def list_pipeline_tools() -> PipelineCatalog:
                        "and a FASTA backup; existing caches are never overwritten.",
             "next": "Viewer settings (emapssn_viewer_control export_settings) to open the cache.",
             "examples": LAYOUT_CALL_EXAMPLES,
+        },
+        benchmark={
+            "actions": ["start_benchmark"],
+            "job_tool_id": BENCHMARK_TOOL_ID,
+            "purpose": "Time this computer: the program's heavy calculations on a bundled public set "
+                       "of 860 sequences, with every device on Auto.",
+            "stages": [f"{number} {key}" for number, key in benchmark_stages().items()],
+            "outputs": "A report in src/resources/benchmark named by the start time, as a .txt in the "
+                       "program's language with an English .json beside it; reports are never deleted.",
+            "duration": "About 6 minutes on a recent GPU workstation, longer without a GPU.",
         },
         workflows=workflows(),
         path_rules=path_rules(),
@@ -525,6 +540,71 @@ async def start_layout_job(
     return _job_info(payload)
 
 
+@functools.lru_cache(maxsize=1)
+def benchmark_stages() -> dict[int, str]:
+    """{number: key} of the benchmark's stages, read from its script's STAGES table without running it."""
+    script = Path(_PROJECT_ROOT) / "src" / "resources" / "benchmark" / "Run_Benchmark.py"
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    stages = {}
+    for node in tree.body:
+        targets = [target.id for target in getattr(node, "targets", []) if isinstance(target, ast.Name)]
+        if "STAGES" not in targets:
+            continue
+        for call in node.value.elts:
+            number, key = (argument.value for argument in call.args[:2])
+            stages[int(number)] = str(key)
+    if not stages:
+        raise RuntimeError(f"{script} has no STAGES table.")
+    return stages
+
+
+def _benchmark_stage_text(stages: list[int | str]) -> str:
+    """The benchmark's --stages text for stages given by number or name; a ToolError names a wrong one."""
+    known = benchmark_stages()
+    names = set(known.values())
+    chosen = []
+    for item in stages:
+        text = str(item).strip().lower()
+        if text.isdigit() and int(text) in known or text in names:
+            chosen.append(text)
+            continue
+        listed = ", ".join(f"{number} {key}" for number, key in known.items())
+        raise ToolError(f"There is no benchmark stage {item!r}. The stages are {listed}.")
+    if not chosen:
+        raise ToolError("stages must name at least one stage; omit it to run all of them.")
+    return ",".join(chosen)
+
+
+async def start_benchmark(
+    ctx: Context[AppContext],
+    stages: Annotated[
+        list[int | str] | None,
+        Field(description="Stages to run, by number (1-10) or name such as 'alignment'; "
+                          "the stages they need are added. Omit to run all of them."),
+    ] = None,
+) -> PipelineJobInfo:
+    """Time this computer with the benchmark that ships with EMAP-SSN.
+    Enqueue src/resources/benchmark/Run_Benchmark.py in the shared pipeline
+    queue. It runs the program's heavy calculations (embeddings, all-against-all
+    alignment, layouts, clustering, search, injection, MSA and BLAST) on a bundled
+    public set of 860 sequences, every device on Auto, for about 6 minutes on a
+    recent GPU workstation and longer without a GPU. It writes only its temporary
+    folder, which it clears, and a new report named by its start time, never
+    touching saved settings or the user's data. Follow the returned job_id with
+    wait_pipeline_job: the result lists each stage's status, time, throughput,
+    device and Auto choices, the hardware, and the report paths, also in
+    output_locations. The report's .txt is in the program's language; the
+    result, the .json beside it and the logs are English. A stage the computer
+    can't run is skipped with the reason.
+    """
+    stage_text = None if stages is None else _benchmark_stage_text(stages)
+    try:
+        payload = await _context(ctx).jobs.submit_benchmark_job(stages=stage_text)
+    except (OSError, PipelineJobError) as error:
+        raise ToolError(str(error)) from error
+    return _job_info(payload)
+
+
 async def list_pipeline_jobs(
     ctx: Context[AppContext],
     limit: Annotated[int, Field(ge=1, le=100, description="Maximum number of newest server-owned jobs to return")] = 100,
@@ -769,6 +849,7 @@ __all__ = [
     "list_pipeline_tools",
     "network_statistics",
     "read_pipeline_log",
+    "start_benchmark",
     "start_layout_job",
     "start_pipeline_job",
     "validate_pipeline_settings",

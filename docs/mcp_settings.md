@@ -1,4 +1,4 @@
-# MCP settings (server 0.13.0, pipeline settings schema 1)
+# MCP settings (server 0.14.0, pipeline settings schema 1)
 
 ## Three workflow tools (breaking migration)
 
@@ -550,6 +550,42 @@ fallback (Intel and Apple GPUs, or a GPU whose kernels are unavailable) can diff
 slightly between runs, and CPU and GPU layouts differ slightly from each other.
 Layout documents exported before these keys existed load with the defaults. In the
 individual-parameter form, pass either key through `parameters`.
+
+## Benchmark (server 0.14.0)
+
+`emapssn_pipeline(action="start_benchmark")` times this computer. It enqueues
+`src/resources/benchmark/Run_Benchmark.py` in the shared FIFO queue as a job whose
+`tool_id` is `run_benchmark`, so `wait_job`, `get_job`, `read_log` and `cancel_job`
+work as for any job:
+
+```json
+{"action": "start_benchmark", "arguments": {"stages": [3, "search"]}}
+```
+
+`stages` is optional: stage numbers (1–10) or names, such as `alignment`; the stages
+they need are added. Omitted, all ten run. A stage that does not exist is refused
+before anything is queued. `list_tools` carries a `benchmark` entry with the action,
+the job's `tool_id`, the stages, the outputs and the expected duration.
+
+The benchmark runs the program's heavy calculations on a bundled public set of 860
+sequences, with every device setting on Auto: sanitizing, ESM-2 8M embeddings, the
+all-against-all embedding alignment, the SSN and UMAP layouts, clustering, an
+embedding database search, injection of 92 more sequences, an embedding MSA and BLAST.
+A run takes about 6 minutes on a recent GPU workstation and longer without a GPU. A
+stage the computer cannot run, such as BLAST without NCBI BLAST+, is skipped with the
+reason. It writes only its own `temp/` folder, which it clears, and a new report; it
+never reads or changes saved settings or the user's data.
+
+When the job ends, its `result` is the benchmark's English summary: `status`,
+`exit_code`, the report paths (`report_text`, `report_json`), the protocol version,
+the duration, each stage's `status`, `reason`, `seconds`, `throughput`, `device` and
+`auto_choices`, and the hardware. `output_locations` adds `BENCHMARK_REPORT` and
+`BENCHMARK_DATA`, and `output_files` lists the two new report files. The report's
+`.txt` is in the program's language; the result, the `.json` and the logs are
+English. The job succeeds when every stage ran or was skipped for a stated reason.
+It fails, with `result` still filled in, when a stage failed, the run was interrupted,
+or the benchmark could not start because another benchmark holds its lock or the disk
+is too full; `failure_message` says which. A cancelled job has no result.
 
 ## Viewer sessions
 

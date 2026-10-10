@@ -1,5 +1,6 @@
 """Tests for the benchmark that ships in src/resources/benchmark: its sequence sets and Run_Benchmark.py."""
 
+import asyncio
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -821,6 +822,138 @@ class BenchmarkToolsCardTests(unittest.TestCase):
             window.run_benchmark()
         _parent, title, text = asked.call_args.args[:3]
         self.assertEqual((outside_the_catalog(title), outside_the_catalog(text)), ("", ""))
+
+
+STAND_IN_BENCHMARK = '''
+import json, os, pathlib, sys, time
+
+arguments = sys.argv[1:]
+behaviour = json.loads(pathlib.Path(__file__).with_name("behaviour.json").read_text(encoding="utf-8"))
+folder = pathlib.Path(os.environ["SSN_BENCHMARK_WORK_DIR"])
+text, data = folder / "Benchmark_Report_2026-10-09_21-00-00.txt", folder / "Benchmark_Report_2026-10-09_21-00-00.json"
+print("benchmark arguments", json.dumps(arguments), flush=True)
+if behaviour["exit"] != 2:
+    text.write_text("report", encoding="utf-8")
+    data.write_text("{}", encoding="utf-8")
+summary = dict(behaviour["summary"], report_text=str(text), report_json=str(data),
+               stages_argument=arguments[arguments.index("--stages") + 1] if "--stages" in arguments else None)
+if behaviour.get("write_result", True):
+    pathlib.Path(arguments[arguments.index("--result") + 1]).write_text(json.dumps(summary), encoding="utf-8")
+time.sleep(behaviour.get("sleep", 0))  # A cancelled job's result is ignored even once written.
+raise SystemExit(behaviour["exit"])
+'''
+
+
+class BenchmarkMCPJobTests(unittest.IsolatedAsyncioTestCase):
+    """emapssn_pipeline(action="start_benchmark") jobs, with a stand-in Run_Benchmark.py."""
+
+    async def asyncSetUp(self):
+        from mcp_server.pipeline.Pipeline_Jobs import PipelineJobManager
+
+        self.temporary = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
+        self.project = self.temporary / "project"
+        script = self.project / "src" / "resources" / "benchmark" / "Run_Benchmark.py"
+        script.parent.mkdir(parents=True)
+        script.write_text(STAND_IN_BENCHMARK, encoding="utf-8")
+        self.behaviour = script.with_name("behaviour.json")
+        self.reports = self.temporary / "reports"
+        self.reports.mkdir()
+        self.enterContext(mock.patch.dict(os.environ, {"SSN_BENCHMARK_WORK_DIR": str(self.reports)}))
+        self.manager = PipelineJobManager(self.project, max_pending=2, history_limit=4, termination_grace=0.5,
+                                          temporary_parent=self.temporary)
+        await self.manager.start()
+        self.addAsyncCleanup(self.manager.close)
+
+    async def run_job(self, behaviour, stages=None):
+        self.behaviour.write_text(json.dumps(behaviour), encoding="utf-8")
+        submitted = await self.manager.submit_benchmark_job(stages=stages)
+        self.assertEqual(submitted["tool_id"], "run_benchmark")
+        return await self.manager.wait_for_terminal(submitted["job_id"])
+
+    async def test_a_finished_benchmark_returns_its_summary_and_report_files(self):
+        job = await self.run_job({"exit": 0, "summary": {"status": "completed", "stages": []}}, stages="3,search")
+        self.assertEqual(job["status"], "succeeded")
+        self.assertEqual((job["result"]["status"], job["result"]["stages_argument"]), ("completed", "3,search"))
+        self.assertEqual(job["output_locations"]["BENCHMARK_REPORT"], str(self.reports / "Benchmark_Report_2026-10-09_21-00-00.txt"))
+        self.assertEqual(job["output_locations"]["BENCHMARK_REPORT_DIR"], str(self.reports))
+        self.assertEqual(sorted(Path(item["path"]).name for item in job["output_files"]),
+                         ["Benchmark_Report_2026-10-09_21-00-00.json", "Benchmark_Report_2026-10-09_21-00-00.txt"])
+        self.assertEqual({item["change"] for item in job["output_files"]}, {"created"})
+
+    async def test_every_stage_runs_without_a_stages_argument(self):
+        job = await self.run_job({"exit": 0, "summary": {"status": "completed"}})
+        self.assertIsNone(job["result"]["stages_argument"])
+
+    async def test_a_failed_stage_fails_the_job_but_keeps_the_result(self):
+        stages = [{"number": 3, "key": "alignment", "status": "failed"}, {"number": 1, "key": "sanitize", "status": "completed"}]
+        job = await self.run_job({"exit": 1, "summary": {"status": "failed", "stages": stages}})
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("stage(s) 3 alignment failed", job["failure_message"])
+        self.assertEqual(job["result"]["stages"], stages)
+
+    async def test_a_benchmark_that_could_not_start_says_why(self):
+        job = await self.run_job({"exit": 2, "summary": {"status": "could_not_start",
+                                                         "reason": "Another benchmark is running."}})
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["failure_message"], "The benchmark could not start: Another benchmark is running.")
+
+    async def test_a_missing_result_after_success_fails_the_job(self):
+        job = await self.run_job({"exit": 0, "write_result": False, "summary": {}})
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("The benchmark process exited with code 0, but its result could not be read",
+                      job["failure_message"])
+        self.assertIsNone(job["result"])
+
+    async def test_a_cancelled_benchmark_has_no_result(self):
+        self.behaviour.write_text(json.dumps({"exit": 0, "sleep": 30, "summary": {"status": "completed"}}),
+                                  encoding="utf-8")
+        submitted = await self.manager.submit_benchmark_job()
+        for _attempt in range(500):
+            if (await self.manager.get_job(submitted["job_id"]))["status"] == "running":
+                break
+            await asyncio.sleep(0.01)
+        await self.manager.cancel(submitted["job_id"])
+        job = await self.manager.wait_for_terminal(submitted["job_id"])
+        self.assertEqual(job["status"], "cancelled")
+        self.assertIsNone(job["result"])
+
+
+class BenchmarkMCPActionTests(unittest.IsolatedAsyncioTestCase):
+    """The action's arguments and its entry in the pipeline catalog."""
+
+    def setUp(self):
+        from mcp_server.pipeline import Pipeline_Operations
+
+        self.operations = Pipeline_Operations
+        self.submit = mock.AsyncMock(return_value={
+            "job_id": "job", "tool_id": "run_benchmark", "status": "queued", "queue_position": 1,
+            "created_at": "now", "started_at": None, "finished_at": None, "exit_code": None,
+            "failure_message": None, "cancellation_requested": False, "settings_snapshot": "snapshot.json",
+            "stdout_log": "out", "stderr_log": "err", "output_locations": {},
+        })
+        context = mock.Mock(jobs=mock.Mock(submit_benchmark_job=self.submit))
+        self.enterContext(mock.patch.object(Pipeline_Operations, "_context", return_value=context))
+
+    async def test_stages_go_to_the_script_by_number_or_name(self):
+        info = await self.operations.start_benchmark(mock.Mock(), stages=[3, " Search ", "10"])
+        self.submit.assert_awaited_once_with(stages="3,search,10")
+        self.assertEqual(info.tool_id, "run_benchmark")
+        await self.operations.start_benchmark(mock.Mock())
+        self.submit.assert_awaited_with(stages=None)
+
+    async def test_a_stage_that_does_not_exist_is_refused_before_queueing(self):
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        for stages in ([11], ["nope"], []):
+            with self.subTest(stages=stages), self.assertRaises(ToolError):
+                await self.operations.start_benchmark(mock.Mock(), stages=stages)
+        self.submit.assert_not_awaited()
+
+    def test_the_catalog_names_the_script_s_stages(self):
+        catalog = self.operations.list_pipeline_tools()
+        self.assertEqual(catalog.benchmark["stages"], [f"{stage.number} {stage.key}" for stage in benchmark.STAGES])
+        self.assertEqual(catalog.benchmark["job_tool_id"], "run_benchmark")
+        self.assertEqual(len(catalog.tools), 14, "the benchmark is no pipeline tool")
 
 
 @unittest.skipUnless(

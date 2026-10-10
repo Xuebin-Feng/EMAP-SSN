@@ -17,7 +17,7 @@ import mcp_server.viewer.Viewer_Operations as viewer_ops
 PipelineAction = Literal[
     "help", "describe", "list_tools", "get_tool_schema", "get_layout_schema", "get_compute_capabilities",
     "inspect_file", "network_statistics", "export_tool_settings", "export_layout_settings", "validate_settings",
-    "start_job", "start_layout_job", "list_jobs", "get_job", "wait_job", "read_log", "cancel_job",
+    "start_job", "start_layout_job", "start_benchmark", "list_jobs", "get_job", "wait_job", "read_log", "cancel_job",
 ]
 ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
 ViewerControlAction = Literal[
@@ -74,6 +74,7 @@ _SPECS = {
         "validate_settings": (pipeline_ops, "validate_pipeline_settings", "Validate pipeline settings without submitting a job or writing files; not a layout validator.", {"tool_id": "sanitize_sequences", "parameters": {}}),
         "start_job": (pipeline_ops, "start_pipeline_job", "Enqueue a pipeline; may create or overwrite files according to settings.", {"tool_id": "sanitize_sequences", "settings_path": "pipeline.json"}),
         "start_layout_job": (pipeline_ops, "start_layout_job", "Validate and enqueue layout-cache generation in the shared pipeline queue; writes cache artifacts, does not launch a Viewer.", {"settings_path": "layout.json"}),
+        "start_benchmark": (pipeline_ops, "start_benchmark", "Enqueue the bundled benchmark in the shared pipeline queue; it runs the heavy calculations for minutes and writes a new report in src/resources/benchmark.", {"stages": [3, "search"]}),
         "list_jobs": (pipeline_ops, "list_pipeline_jobs", "Read recent server-owned pipeline and layout jobs.", {}),
         "get_job": (pipeline_ops, "get_pipeline_job", "Read pipeline or layout job status, output files and output locations.", {"job_id": "job-id"}),
         "wait_job": (pipeline_ops, "wait_pipeline_job", "Wait for a job instead of polling: returns when it ends, or after timeout_seconds (at most 50) still running, so call again; includes output files and the latest log line.", {"job_id": "job-id", "timeout_seconds": 30}),

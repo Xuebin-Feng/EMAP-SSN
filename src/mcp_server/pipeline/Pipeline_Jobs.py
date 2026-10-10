@@ -42,6 +42,9 @@ JOB_STATUSES = (
 # Longest single wait: some clients end a tool call that runs about a minute.
 MAX_WAIT_SECONDS = 50.0
 OUTPUT_FILE_LIMIT = 100
+# The benchmark (src/resources/benchmark/Run_Benchmark.py) runs as a job of its own kind.
+BENCHMARK_TOOL_ID = "run_benchmark"
+BENCHMARK_RESULT = "benchmark-result.json"
 _LATEST_OUTPUT_BYTES = 4096
 _LATEST_OUTPUT_CHARACTERS = 300
 
@@ -103,6 +106,24 @@ def changed_files(before, after):
         if key not in after:
             changes.append({"path": path, "change": "deleted", "size_bytes": None})
     return sorted(changes, key=lambda item: os.path.normcase(item["path"]))
+
+
+def _benchmark_failure(result, return_code):
+    """Why a benchmark that wrote its result did not succeed, from that result."""
+    status = result.get("status")
+    if status == "could_not_start":
+        return f"The benchmark could not start: {result.get('reason')}"
+    if status == "interrupted":
+        return "The benchmark was interrupted; its result reports the stages that ran."
+    failed = [
+        f"{stage.get('number')} {stage.get('key')}"
+        for stage in result.get("stages") or []
+        if isinstance(stage, dict) and stage.get("status") == "failed"
+    ]
+    if failed:
+        return (f"The benchmark finished, but stage(s) {', '.join(failed)} failed; "
+                "its result and report say why.")
+    return f"The benchmark process exited with code {return_code}; its result says how far it got."
 
 
 def latest_line(path):
@@ -427,6 +448,94 @@ class PipelineJobManager:
             self._wake.set()
             return payload
 
+    async def submit_benchmark_job(self, stages=None):
+        """Enqueue the benchmark; stages is its --stages text, or None for every stage.
+
+        The benchmark writes its reports beside its script, or into
+        SSN_BENCHMARK_WORK_DIR when the server's environment sets it, and its
+        English summary into the job folder, which the worker reads as the
+        job's result.
+        """
+        await self.start()
+        async with self._lock:
+            if self._closed:
+                raise PipelineJobError("The pipeline job manager is closed.")
+            if len(self._pending) >= self.max_pending:
+                raise PipelineQueueFullError(
+                    f"The pipeline queue already has {self.max_pending} pending jobs."
+                )
+
+        job_id = str(uuid.uuid4())
+        job_directory = os.path.join(self.temporary_root, job_id)
+        os.makedirs(job_directory, mode=0o700)
+        try:
+            benchmark_dir = os.path.join(self.project_root, "src", "resources", "benchmark")
+            script_path = os.path.join(benchmark_dir, "Run_Benchmark.py")
+            report_dir = os.environ.get("SSN_BENCHMARK_WORK_DIR") or benchmark_dir
+            snapshot_path = os.path.join(job_directory, f"benchmark-{job_id}.json")
+            write_json_document(
+                snapshot_path,
+                {"stages": stages or "all"},
+                atomic=True,
+                trailing_newline=True,
+            )
+            argv = [
+                self.python_executable,
+                "-u",
+                script_path,
+                "--result",
+                os.path.join(job_directory, BENCHMARK_RESULT),
+            ]
+            if stages:
+                argv += ["--stages", stages]
+            invocation = ToolInvocation(
+                tool=SimpleNamespace(tool_id=BENCHMARK_TOOL_ID, script_name="Run_Benchmark.py"),
+                argv=tuple(argv),
+                cwd=self.project_root,
+                settings_path=snapshot_path,
+                owns_settings_snapshot=True,
+            )
+            stdout_path = os.path.join(job_directory, "stdout.log")
+            stderr_path = os.path.join(job_directory, "stderr.log")
+            for path in (stdout_path, stderr_path):
+                with open(path, "wb"):
+                    pass
+                if sys.platform != "win32":
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:
+                        pass
+            job = PipelineJob(
+                job_id=job_id,
+                tool_id=BENCHMARK_TOOL_ID,
+                invocation=invocation,
+                created_at=_utc_now(),
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                output_locations={"BENCHMARK_REPORT_DIR": report_dir},
+                # The reports only: temp/, a subfolder, holds the run's own files.
+                watched_directories=(report_dir,),
+                watch_depth=1,
+            )
+        except Exception:
+            self._remove_job_directory(job_directory)
+            raise
+
+        async with self._lock:
+            if self._closed:
+                self._remove_job_directory(job_directory)
+                raise PipelineJobError("The pipeline job manager is closed.")
+            if len(self._pending) >= self.max_pending:
+                self._remove_job_directory(job_directory)
+                raise PipelineQueueFullError(
+                    f"The pipeline queue already has {self.max_pending} pending jobs."
+                )
+            self._jobs[job_id] = job
+            self._pending.append(job_id)
+            payload = self._job_payload_locked(job)
+            self._wake.set()
+            return payload
+
     async def list_jobs(self, *, limit=100):
         try:
             limit = int(limit)
@@ -630,21 +739,34 @@ class PipelineJobManager:
                             output_files.insert(0, cache)
                     except (OSError, ValueError, PipelineJobError) as error:
                         result_problem = str(error)
+                # A benchmark writes its result when it finishes (0), when a stage
+                # failed or it was interrupted (1), and when it could not start (2).
+                if (job.tool_id == BENCHMARK_TOOL_ID and return_code in (0, 1, 2)
+                        and not job.cancellation_requested):
+                    try:
+                        self._read_benchmark_result(job)
+                    except (OSError, ValueError, PipelineJobError) as error:
+                        if return_code == 0:
+                            result_problem = str(error)
                 async with self._lock:
                     job.exit_code = return_code
                     job.finished_at = _utc_now()
                     job.output_files = output_files[:OUTPUT_FILE_LIMIT]
                     job.output_files_omitted = max(0, len(output_files) - OUTPUT_FILE_LIMIT)
+                    kind = "benchmark" if job.tool_id == BENCHMARK_TOOL_ID else "layout"
                     if job.cancellation_requested:
                         job.status = "cancelled"
                     elif result_problem is not None:
                         job.status = "failed"
                         job.failure_message = (
-                            "The layout process exited with code 0, but its result "
+                            f"The {kind} process exited with code 0, but its result "
                             f"could not be read: {result_problem}"
                         )
                     elif return_code == 0:
                         job.status = "succeeded"
+                    elif job.tool_id == BENCHMARK_TOOL_ID and job.result is not None:
+                        job.status = "failed"
+                        job.failure_message = _benchmark_failure(job.result, return_code)
                     else:
                         job.status = "failed"
                         job.failure_message = (
@@ -707,6 +829,19 @@ class PipelineJobManager:
         except OSError:
             size = None
         return {"path": os.path.abspath(cache_path), "change": "created", "size_bytes": size}
+
+    @staticmethod
+    def _read_benchmark_result(job):
+        """Record a finished benchmark's English summary as the job's result, and its report paths."""
+        result_path = os.path.join(os.path.dirname(job.invocation.settings_path), BENCHMARK_RESULT)
+        with open(result_path, encoding="utf-8") as handle:
+            summary = json.load(handle)
+        if not isinstance(summary, dict):
+            raise PipelineJobError("Benchmark result is not a JSON object.")
+        for key, location in (("report_text", "BENCHMARK_REPORT"), ("report_json", "BENCHMARK_DATA")):
+            if isinstance(summary.get(key), str) and summary[key]:
+                job.output_locations[location] = summary[key]
+        job.result = summary
 
     def _job_payload_locked(self, job):
         queue_position = None
