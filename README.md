@@ -167,6 +167,9 @@ clients do not share a queue and can start conflicting calculations. Pipeline
 jobs may create or overwrite files according to their settings, and cancelling
 a job does not roll back files already written.
 
+Pipeline action `start_benchmark` queues the [benchmark](#benchmark) like any other
+job; its `result` names the report and gives each stage's time.
+
 Job responses report captured stdout/stderr, the immutable settings snapshot,
 and the configured result directories. They do not guess the exact scientific
 files produced by a program. MCP-owned logs and snapshots are temporary and
@@ -598,6 +601,37 @@ saved preferences; old execution JSON must be re-exported. Personal settings
 and pipeline-document formats are unchanged. See [MCP settings](docs/mcp_settings.md)
 for the export-first workflow and overlay format.
 
+### Benchmark
+
+The benchmark times EMAP-SSN's heavy calculations on a bundled set of 860 public
+protein sequences, so computers and versions can be compared. It runs ten stages,
+from embeddings and the all-against-all alignment through both layouts, clustering,
+search, injection and the MSA to BLAST, with every device setting on Auto, and its
+report records what each tool's Auto trials chose. Click **Run Benchmark** on the
+Tools window's **Manual Tools** tab, or run it from the project root:
+
+```powershell
+# Windows, from the project root
+.\.venv\Scripts\python.exe -u src\resources\benchmark\Run_Benchmark.py
+```
+
+```bash
+# Linux or macOS, from the project root
+./.venv/bin/python -u src/resources/benchmark/Run_Benchmark.py
+```
+
+A run took about 6 minutes on an RTX 5070 Ti with a Core Ultra 7 265KF, and takes
+longer without a GPU. It needs about 1 GB of free disk space, and the first run
+downloads ESM-2 8M (about 30 MB). A stage the computer can't run, such as BLAST
+without NCBI BLAST+, is skipped with the reason. The report,
+`Benchmark_Report_<date>_<time>.txt`, is written to `src/resources/benchmark/` in
+the language the windows show, with an English `.json` beside it, and is never
+deleted. The benchmark keeps its working files in its own `temp/` folder, which it
+clears, and never reads or changes `tools_settings.json` or the configured folders.
+MCP clients start it with `emapssn_pipeline(action="start_benchmark")`. The
+[benchmark README](src/resources/benchmark/README.md) lists the stages, where the
+sequences come from and their license.
+
 ### Additional language fonts
 
 The application bundles a 4.68 MiB Noto Sans/Noto Sans Mono desktop core with
@@ -673,6 +707,7 @@ EMAP-SSN/
 │   ├── desktop/              # Qt integration, Viewer state, snapshots, and settings contracts
 │   ├── mcp_server/           # Workflow dispatch, pipeline jobs, and Viewer session adapters
 │   ├── resources/            # Configuration and system prompts
+│   │   └── benchmark/        # Benchmark script, its public sequence sets and its reports
 │   ├── tools/                # Executable processing scripts exposed by EMAPSSN_Tools
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
 │   ├── utilities/            # Focused cache, network, hardware, alignment, and FASTA helpers

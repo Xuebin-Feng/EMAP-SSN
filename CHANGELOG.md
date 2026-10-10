@@ -194,6 +194,39 @@ still change before version 1.0.0.
   browser views draw Chinese in the bundled Noto Sans SC too: a page served in Chinese,
   and the Tools help panel, carry its @font-face rules, and their font stacks name it
   after Noto Sans, as the windows' stacks do.
+- **Benchmark.** `src/resources/benchmark/Run_Benchmark.py` times the program's heavy
+  calculations on a bundled set of public sequences, so computers and versions can be
+  compared. It runs ten stages, each in a process of its own with every device setting
+  on Auto: sanitizing, ESM-2 8M embeddings, the all-against-all embedding alignment
+  (369,370 pairs), the SSN and UMAP layouts, clustering, an embedding database search,
+  injection of 92 new sequences, an embedding MSA and the BLAST all-against-all
+  alignment. The report gives each stage's time, throughput, CPU time, memory peaks and
+  device, every choice the tools' Auto trials made, the hardware and software, and what
+  can slow a run, such as other EMAP-SSN processes or a laptop on battery. Tools report
+  their Auto choices only when `SSN_BENCHMARK_RECORD` is set, as the benchmark does. A
+  stage the computer can't run, such as BLAST without NCBI BLAST+, is skipped with the
+  reason, and so are the stages that need it; `--stages 3,7` runs only some. The
+  report, `Benchmark_Report_<date>_<time>.txt` in the benchmark folder, is written in
+  the windows' language with an English `.json` of its data beside it, and is never
+  deleted; the terminal shows it in English. A run keeps its files in its own `temp/`,
+  which it clears, and never reads or changes `tools_settings.json` or the configured
+  folders. A run took about 6 minutes on an RTX 5070 Ti with a Core Ultra 7 265KF. See
+  `src/resources/benchmark/README.md`.
+- **The benchmark's sequences.** 860 reviewed UniProtKB/Swiss-Prot entries of the
+  metallo-β-lactamase superfamily (InterPro IPR001279, UniProt release 2026_03), one
+  per distinct sequence, with 92 more held out for the injection stage. UniProt shares
+  them under CC BY 4.0. The benchmark README records the query, the code that remakes
+  both files byte for byte, their SHA-256 and the attribution, and
+  `THIRD_PARTY_LICENSES.md` lists them.
+- **A Benchmark card on the Tools window's Manual Tools tab.** **Run Benchmark** asks
+  before it starts, then runs the benchmark in a console window of its own, which shows
+  the progress and the report. **Report Folder** opens the folder the reports are kept
+  in. The Manual Tools help page describes the stages and the report.
+- MCP `emapssn_pipeline(action="start_benchmark")` queues the benchmark as a job: all
+  ten stages, or the `stages` given by number or name with the stages they need. When
+  the job ends, its `result` holds the benchmark's English summary: the outcome, the
+  report paths, and each stage's time, throughput, device and Auto choices. `list_tools`
+  describes the stages and the expected duration. MCP server version 0.14.0.
 
 ### Changed
 
