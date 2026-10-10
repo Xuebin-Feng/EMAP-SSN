@@ -939,9 +939,12 @@ def print_help():
                        their original position labels.
       2. EXPRESSION  : Boolean logic target (e.g., #cluster_1#, "ATA", or $sele$).
       3. FILENAME    : Output name. Defaults to logo_YYYYMMDD_HHMMSS.svg.
-                       (Note: With two or more remaining strings, the LAST is the
-                       filename. A single remaining string is a filename only if it
-                       ends in .svg or .png; otherwise it is read as the expression.)
+                       (Note: A filename must end in .svg or .png. If the LAST
+                       remaining string does, it is the filename and any others form
+                       the expression; otherwise all remaining strings form the
+                       expression, so a mistyped keyword such as 'nogap' is an error
+                       and is never used as a filename. Strings of an expression are
+                       joined with spaces, as in '#c1# & #c2#'.)
       4. MODE        : 'bits' (Default, Information Content) or 'pcts' (Percentages).
       5. GAP_MODE    : 'with_gap' (Default, scales total height by occupancy) or 'no_gap'.
       6. COLOR_SCHEME: Preset color scheme name. (Default: chemistry)
@@ -1140,20 +1143,35 @@ def run(viewer, args):
     automatic_filename = True
     expr = "$sele$" 
     
-    if len(args) == 1:
-        if args[0].lower().endswith(('.png', '.svg')):
-            filename = args[0]
-            automatic_filename = False
-        else:
-            expr = args[0]
-    elif len(args) >= 2:
+    # A filename ends in .svg or .png. If the last remaining string does, it is
+    # the filename; everything else, and every string when it does not, is the
+    # expression, so a mistyped keyword fails validation instead of naming a file.
+    if args and args[-1].lower().endswith(('.png', '.svg')):
         filename = args.pop(-1)
         automatic_filename = False
+    if args:
         expr = " ".join(args)
 
     if expr != "$sele$":
         classification = Command_Engine.classify_selection_expression(expr)
         if classification.kind != Command_Engine.SelectionClassificationKind.VALID_EXPRESSION:
+            # With no .svg/.png name given, a mistyped keyword or an extension-less
+            # filename is the last word of the expression: name it. A last string
+            # that is itself part of an expression keeps the selection error.
+            if (
+                automatic_filename
+                and len(args) >= 2
+                and Command_Engine.classify_selection_expression(args[-1]).kind
+                == Command_Engine.SelectionClassificationKind.NOT_EXPRESSION
+            ):
+                msg = Message(
+                    "Error: Unrecognized logo argument '{argument}'. "
+                    "A filename must end in .svg or .png.",
+                    argument=args[-1],
+                )
+                Command_Engine.command_failed(viewer, msg)
+                Command_Engine.print_help(viewer, msg)
+                return
             error = classification.error or Command_Engine.SelectionExpressionError(
                 Message("'{expression}' is not a Boolean selection expression.", expression=expr)
             )

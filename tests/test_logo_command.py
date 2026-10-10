@@ -808,10 +808,18 @@ class LogoArgumentTests(unittest.TestCase):
 
     HEADERS = ["Escherichia_a", "Escherichia_b", "Bacillus_c"]
 
-    def run_logo(self, args, selected=(0, 1, 2)):
-        """Run `logo` with ARGS; return the viewer, queued job and the terminal text."""
+    def run_logo(self, args, selected=(0, 1, 2), existing_files=()):
+        """Run `logo` with ARGS; return the viewer, queued job and the terminal text.
+
+        EXISTING_FILES are created in the logo directory first, holding b"previous";
+        self.directory names that directory.
+        """
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        for name in existing_files:
+            with open(os.path.join(self.directory, name), "wb") as existing:
+                existing.write(b"previous")
         alignment = SimpleNamespace(
             aln=sparse_alignment(zip(self.HEADERS, ["AAAA", "ACAA", "GGGG"])),
             viewer_to_aln=np.array([0, 1, 2]),
@@ -896,6 +904,82 @@ class LogoArgumentTests(unittest.TestCase):
                 _, job, _ = self.run_logo(args, selected=())
                 self.assertEqual(len(job["payload"]["selected_seqs"]), 2)
 
+    def test_a_mistyped_keyword_is_refused_and_never_becomes_a_filename(self):
+        # Each used to be the filename (nogap.svg, ...), leaving the mode at
+        # its default and replacing an existing file of that name.
+        for typo in ("nogap", "no-gap", "percent", "colourblind"):
+            for args in (
+                ["#cluster_1#", "[1]", typo],
+                ["#cluster_1#", "[1]", "pcts", typo],
+                [typo, "[1]", "#cluster_1#", "&", "#cluster_2#", typo],
+            ):
+                with self.subTest(args=args):
+                    viewer, job, _ = self.run_logo(args, existing_files=[f"{typo}.svg"])
+                    self.assertIsNone(job)
+                    self.assertEqual(
+                        viewer.console_text.text,
+                        f"Error: Unrecognized logo argument '{typo}'. "
+                        "A filename must end in .svg or .png.",
+                    )
+                    self.assertEqual(os.listdir(self.directory), [f"{typo}.svg"])
+                    with open(os.path.join(self.directory, f"{typo}.svg"), "rb") as kept:
+                        self.assertEqual(kept.read(), b"previous")
+
+    def test_an_extensionless_last_word_may_end_a_valid_multi_word_expression(self):
+        for args, selected_rows in (
+            (["{Organism=Escherichia", "coli}", "[1]"], 2),
+            (["#cluster_1#", "|", "#cluster_2#", "[1]"], 2),
+            (["#cluster_1#", "&", "!", "#cluster_2#", "[1]"], 1),
+            (["[1]", "!", "#cluster_3#"], 2),
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args, selected=())
+                self.assertEqual(len(job["payload"]["selected_seqs"]), selected_rows)
+                self.assertRegex(job["payload"]["filename"], r"^logo_\d{8}_\d{6}\.svg$")
+                self.assertFalse(job["allow_overwrite"])
+
+    def test_explicit_png_and_svg_names_end_the_arguments_in_any_case(self):
+        cases = (
+            (["#cluster_1#", "[1]", "target_logo.png"], "target_logo.png", 1),
+            (["[1]", "plain.svg"], "plain.svg", 3),
+            (["[1]", "UPPER.SVG"], "UPPER.SVG", 3),
+            (["#cluster_1#", "[1]", "Mixed.PnG"], "Mixed.PnG", 1),
+            (["#cluster_1#", "|", "#cluster_2#", "[1]", "pair.png"], "pair.png", 2),
+            (["#cluster_1#", "[1,2]", "pcts", "no_gap", "modes.svg"], "modes.svg", 1),
+        )
+        for args, filename, selected_rows in cases:
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args, selected=(0, 1, 2))
+                self.assertEqual(job["payload"]["filename"], filename)
+                self.assertEqual(len(job["payload"]["selected_seqs"]), selected_rows)
+                self.assertTrue(job["allow_overwrite"])
+
+    def test_documented_examples_still_work(self):
+        _, job, _ = self.run_logo(["#cluster_1#", "[1,2]", "pcts", "no_gap"])
+        self.assertEqual(
+            (job["payload"]["mode"], job["payload"]["gap_mode"]), ("pcts", "no_gap")
+        )
+        self.assertEqual(len(job["payload"]["selected_seqs"]), 1)
+        self.assertRegex(job["payload"]["filename"], r"^logo_\d{8}_\d{6}\.svg$")
+
+        _, job, _ = self.run_logo(["#cluster_1#", "[1]", "target_logo.png"])
+        self.assertEqual(job["payload"]["filename"], "target_logo.png")
+
+    def test_a_last_string_that_belongs_to_an_expression_keeps_the_selection_error(self):
+        # Only an extensionless plain word is named as unrecognized; a broken
+        # expression, or one followed by a real filename, reports its own error.
+        for args in (
+            ["#cluster_1#", "&", "(#cluster_2#", "[1]"],
+            ["#cluster_1#", "&", "[1]"],
+            ["#cluster_1#", "nogap", "[1]", "out.svg"],
+            ["[1]", "nogap"],
+        ):
+            with self.subTest(args=args):
+                viewer, job, _ = self.run_logo(args)
+                self.assertIsNone(job)
+                self.assertTrue(viewer.console_text.text.startswith("Logo error: "))
+                self.assertNotIn("Unrecognized logo argument", viewer.console_text.text)
+
     def test_color_values_are_validated_before_the_job_is_queued(self):
         for value in ("nonsense", "", "classicc", "#12", "notacolor"):
             with self.subTest(value=value):
@@ -972,6 +1056,15 @@ class LogoArgumentTests(unittest.TestCase):
         self.assertIn("1 means 100%", text)
         self.assertIn("5 means 5%", text)
         self.assertIn("not case-sensitive", text)
+
+    def test_help_states_the_filename_rule(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            logo_command.print_help()
+        text = " ".join(output.getvalue().split())
+
+        self.assertIn("A filename must end in .svg or .png", text)
+        self.assertNotIn("the LAST is the filename", text)
 
 
 class LogoPositionAxisLabelTests(unittest.TestCase):

@@ -69,7 +69,8 @@ def print_help():
                     the capture ends, and resizing the window cancels it.
       svg         : Reconstructs the visible network as a Scalable Vector Graphic 
                     for infinite zoom without pixelation (Not compatible with 
-                    other modifiers).
+                    other modifiers). Node sizes and line widths follow the
+                    current zoom, as on screen.
 
     Examples:
       print                               (Saves view as a timestamped PNG)
@@ -123,8 +124,33 @@ def _available_automatic_filename(directory, filename):
     return candidate
 
 
+def _scene_units_per_pixel(viewer):
+    """Return how many scene units one logical screen pixel spans in the view.
+
+    Marker sizes and line widths are set in logical pixels: VisPy multiplies
+    them by the display scale itself, so they read the same on a high-DPI
+    screen. The SVG is written in scene coordinates, so every such size is
+    multiplied by this scale. The camera maps its real rect (the requested
+    one, widened to the view's aspect ratio) onto the view, which is in
+    logical pixels too. The Viewer fixes the aspect at 1, so one scale holds
+    for both axes. A view with no area keeps the sizes as they are, 1 to 1.
+    """
+    view = viewer.view
+    camera = view.camera
+    rect = camera._real_rect if hasattr(camera, '_real_rect') else camera.rect
+    try:
+        scale = abs(float(rect.width)) / float(view.size[0])
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 1.0
+    return scale if math.isfinite(scale) and scale > 0.0 else 1.0
+
+
 def _export_svg(viewer, filepath):
     """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility.
+
+    Sizes set in screen pixels (node size and outline, edge width) are written
+    in scene units at the current zoom, so the SVG keeps the proportions of
+    the view on screen.
 
     Returns False, writing nothing, when no node is visible.
     """
@@ -152,10 +178,13 @@ def _export_svg(viewer, filepath):
     w_bounds = max_x - min_x
     h_bounds = max_y - min_y
 
+    # Node sizes are screen pixels; the SVG is in scene units.
+    unit = _scene_units_per_pixel(viewer)
+
     # Add 5% padding so outer nodes aren't clipped by the viewport boundaries,
     # and at least what the largest node reaches past its centre: its radius,
     # or the ring's wider stroke. Below the 5-unit minimum nothing changes.
-    radii = np.asarray(sizes, dtype=np.float64) / 2.0
+    radii = np.asarray(sizes, dtype=np.float64) / 2.0 * unit
     is_ring = np.array([shape == 'ring' for shape in shapes], dtype=bool)
     reach = np.where(is_ring, radii * 1.2, radii)
     reach = reach[np.isfinite(reach)]
@@ -200,11 +229,12 @@ def _export_svg(viewer, filepath):
     active_edges, _ = edge_stages(viewer, cfg)
 
     edge_alpha = getattr(cfg, 'EDGE_ALPHA', 0.2)
-    edge_width = getattr(cfg, 'EDGE_WIDTH', 0.5)
+    edge_width = getattr(cfg, 'EDGE_WIDTH', 0.5) * unit
     edge_rgba = mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000'))
     edge_stroke = get_color_attrs((*edge_rgba[:3], edge_alpha), is_stroke=True)
     boundary_rgba = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
-    boundary_stroke = get_color_attrs(boundary_rgba, is_stroke=True) + ' stroke-width="0.5"'
+    boundary_width = getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5) * unit
+    boundary_stroke = get_color_attrs(boundary_rgba, is_stroke=True) + f' stroke-width="{boundary_width:.3f}"'
 
     svg_lines.append(f'  <!-- Edges -->')
     svg_lines.append(f'  <g id="edges" name="Edges">')
@@ -220,7 +250,7 @@ def _export_svg(viewer, filepath):
     
     for i in range(len(pos)):
         cx, cy = get_svg_coords(pos[i, 0], pos[i, 1])
-        d = sizes[i]
+        d = sizes[i] * unit
         r = d / 2.0
         shape = shapes[i]
         rgba = colors[i]

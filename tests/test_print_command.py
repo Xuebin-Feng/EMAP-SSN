@@ -34,6 +34,7 @@ def load_print_command():
     # later imports then load a second copy that patches of the first miss.
     import matplotlib.pyplot  # noqa: F401
     import vispy.app  # noqa: F401
+    import vispy.scene  # noqa: F401
     import desktop.Desktop_App  # noqa: F401
     import utilities.Output_Names  # noqa: F401
     import Viewer_Visual_State  # noqa: F401
@@ -324,8 +325,26 @@ class PrintOutputNameTests(unittest.TestCase):
         self.assertEqual(save.call_args.args[0], os.path.join(save_dir, "my_network.png"))
 
 
+def view_at(units_per_pixel, size=(800, 600)):
+    """A view showing `units_per_pixel` scene units per logical screen pixel.
+
+    The camera's real rect is the scene area the view of `size` pixels shows.
+    """
+    real_rect = SimpleNamespace(
+        width=size[0] * units_per_pixel, height=size[1] * units_per_pixel
+    )
+    return SimpleNamespace(
+        size=size,
+        camera=SimpleNamespace(rect=real_rect, _real_rect=real_rect, aspect=1.0),
+    )
+
+
 def square_network(**overrides):
-    """Four visible nodes on a square; two of the four edges pass a 0.5 threshold."""
+    """Four visible nodes on a square; two of the four edges pass a 0.5 threshold.
+
+    The view shows one scene unit per pixel, so sizes in pixels read as the
+    scene units the SVG writes; the scale tests set a view of their own.
+    """
     viewer = SimpleNamespace(
         visible_mask=np.ones(4, dtype=bool),
         pos=np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]),
@@ -333,6 +352,7 @@ def square_network(**overrides):
         current_sizes=np.full(4, 10.0),
         current_shapes=np.array(["disc"] * 4, dtype=object),
         canvas=SimpleNamespace(bgcolor=SimpleNamespace(rgba=(1.0, 1.0, 1.0, 1.0))),
+        view=view_at(1.0),
         edges=np.array([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=np.int32),
         edge_scores=np.array([0.90, 0.20, 0.95, 0.10]),
         current_slider_threshold=0.5,
@@ -413,7 +433,7 @@ class PrintSvgOutcomeTests(unittest.TestCase):
     def run_svg_print(self, visible_mask):
         viewer = square_network(visible_mask=np.array(visible_mask))
         for name, value in vars(PrintMarginTrimTests.make_viewer()).items():
-            if name != "canvas":
+            if name not in ("canvas", "view"):
                 setattr(viewer, name, value)
         viewer.canvas.update = mock.Mock()
         engine = print_command.Command_Engine
@@ -600,8 +620,25 @@ class PrintSvgPaddingTests(unittest.TestCase):
             )
         )
 
-        # Radius 20 plus half of its 8-unit stroke, on each side of the 10-unit square.
+        # At one unit per pixel: radius 20 plus half of its 8-unit stroke, on
+        # each side of the 10-unit square.
         self.assertEqual(self.view_box(svg), (58.0, 58.0))
+
+    def test_padding_follows_the_node_radius_in_scene_units(self):
+        # 40-pixel nodes at half a scene unit per pixel have a radius of 10 units.
+        sizes = np.full(4, 40.0)
+        discs = export_svg(square_network(view=view_at(0.5), current_sizes=sizes))
+        rings = export_svg(
+            square_network(
+                view=view_at(0.5),
+                current_sizes=sizes,
+                current_shapes=np.array(["ring"] * 4, dtype=object),
+            )
+        )
+
+        self.assertEqual(self.view_box(discs), (30.0, 30.0))
+        # The ring's stroke reaches 1.2 times as far: 12 units each side.
+        self.assertEqual(self.view_box(rings), (34.0, 34.0))
 
     def test_small_nodes_keep_the_five_unit_padding(self):
         svg = export_svg(square_network(current_sizes=np.full(4, 2.0)))
@@ -614,6 +651,153 @@ class PrintSvgPaddingTests(unittest.TestCase):
         )
 
         self.assertEqual(self.view_box(export_svg(viewer)), (440.0, 220.0))
+
+
+def number(element, name):
+    """The numeric attribute `name` of one SVG element line."""
+    return float(re.search(rf'(?<![\w-]){name}="(-?[\d.]+)"', element).group(1))
+
+
+class PrintSvgScaleTests(unittest.TestCase):
+    """Sizes set in screen pixels are written in scene units at the zoom shown.
+
+    The view below shows 160 scene units across its 800 pixels, so one pixel
+    is 0.2 units and a 12-pixel node has a radius of 6 pixels, or 1.2 units.
+    """
+
+    UNITS_PER_PIXEL = 0.2
+
+    def network(self, **overrides):
+        overrides.setdefault("view", view_at(self.UNITS_PER_PIXEL))
+        overrides.setdefault("current_sizes", np.full(4, 12.0))
+        return square_network(**overrides)
+
+    def test_node_radius_is_half_its_size_in_pixels_in_scene_units(self):
+        circles = elements(export_svg(self.network()), "circle")
+
+        self.assertEqual(len(circles), 4)
+        for circle in circles:
+            self.assertAlmostEqual(number(circle, "r"), 12 / 2 * self.UNITS_PER_PIXEL)
+
+    def test_every_shape_is_scaled_by_the_same_factor(self):
+        squares = export_svg(
+            self.network(current_shapes=np.array(["square"] * 4, dtype=object))
+        )
+        crosses = export_svg(
+            self.network(current_shapes=np.array(["cross"] * 4, dtype=object))
+        )
+
+        for square in elements(squares, "rect")[1:]:  # the first is the background
+            self.assertAlmostEqual(number(square, "width"), 12 * self.UNITS_PER_PIXEL)
+        # A stroke-only shape is drawn 0.4 of its radius wide.
+        for cross in elements(crosses, "path"):
+            self.assertAlmostEqual(
+                number(cross, "stroke-width"), 0.4 * 6 * self.UNITS_PER_PIXEL
+            )
+
+    def test_edge_and_node_outline_widths_are_converted_too(self):
+        svg = export_svg(self.network(), EDGE_WIDTH=1.5)
+
+        lines = elements(svg, "line")
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertAlmostEqual(number(line, "stroke-width"), 1.5 * self.UNITS_PER_PIXEL)
+        # The 0.5-pixel outline of every filled node.
+        for circle in elements(svg, "circle"):
+            self.assertAlmostEqual(number(circle, "stroke-width"), 0.5 * self.UNITS_PER_PIXEL)
+
+    def test_node_outline_follows_the_boundary_width_setting(self):
+        svg = export_svg(self.network(), NODE_BOUNDARY_WIDTH=2.0)
+
+        for circle in elements(svg, "circle"):
+            self.assertAlmostEqual(number(circle, "stroke-width"), 2.0 * self.UNITS_PER_PIXEL)
+
+    def test_doubling_the_zoom_halves_the_sizes_relative_to_the_scene(self):
+        def drawn(units_per_pixel):
+            svg = export_svg(self.network(view=view_at(units_per_pixel)), EDGE_WIDTH=1.5)
+            return (
+                elements(svg, "circle")[0],
+                elements(svg, "line")[0],
+            )
+
+        circle, line = drawn(0.2)
+        zoomed_circle, zoomed_line = drawn(0.1)
+
+        self.assertAlmostEqual(number(zoomed_circle, "r"), number(circle, "r") / 2)
+        self.assertAlmostEqual(
+            number(zoomed_circle, "stroke-width"), number(circle, "stroke-width") / 2
+        )
+        self.assertAlmostEqual(
+            number(zoomed_line, "stroke-width"), number(line, "stroke-width") / 2
+        )
+        # The network itself keeps its scene coordinates.
+        for name in ("cx", "cy"):
+            self.assertEqual(number(zoomed_circle, name), number(circle, name))
+        for name in ("x1", "y1", "x2", "y2"):
+            self.assertEqual(number(zoomed_line, name), number(line, name))
+
+    def test_a_node_is_drawn_as_wide_next_to_its_neighbour_as_on_screen(self):
+        # Nodes 0 and 1 are 10 scene units apart: 50 pixels on screen at 0.2 per pixel.
+        circles = elements(export_svg(self.network()), "circle")
+        centres = [number(circle, "cx") for circle in circles[:2]]
+
+        svg_ratio = 2 * number(circles[0], "r") / abs(centres[1] - centres[0])
+
+        self.assertAlmostEqual(svg_ratio, 12 / 50)
+
+    def test_the_view_scale_comes_from_the_camera_real_rect(self):
+        # The camera widens the rect it was asked for to the view's aspect
+        # ratio; the widened one is what lies across the view's pixels.
+        view = view_at(self.UNITS_PER_PIXEL)
+        view.camera.rect = SimpleNamespace(width=100.0, height=100.0)
+
+        circles = elements(export_svg(self.network(view=view)), "circle")
+
+        self.assertAlmostEqual(number(circles[0], "r"), 12 / 2 * self.UNITS_PER_PIXEL)
+
+    def test_a_camera_without_a_real_rect_uses_its_rect(self):
+        view = view_at(self.UNITS_PER_PIXEL)
+        del view.camera._real_rect
+
+        circles = elements(export_svg(self.network(view=view)), "circle")
+
+        self.assertAlmostEqual(number(circles[0], "r"), 12 / 2 * self.UNITS_PER_PIXEL)
+
+    def test_a_high_dpi_display_changes_nothing(self):
+        # Sizes are logical pixels, which VisPy scales to the display itself,
+        # and the view is measured in them: only the physical size doubles.
+        sharp = self.network()
+        sharp.canvas.size = (800, 600)
+        sharp.canvas.physical_size = (1600, 1200)
+        sharp.canvas.pixel_scale = 2.0
+
+        self.assertEqual(export_svg(sharp), export_svg(self.network()))
+
+    def test_a_view_without_area_leaves_sizes_as_they_are(self):
+        svg = export_svg(self.network(view=view_at(self.UNITS_PER_PIXEL, size=(0, 0))))
+
+        for circle in elements(svg, "circle"):
+            self.assertAlmostEqual(number(circle, "r"), 6.0)
+
+    def test_the_scale_matches_the_real_camera_mapping_in_any_view_shape(self):
+        # What VisPy itself maps from the scene to the view's pixels, in a view
+        # wider than the requested range, taller than it, and after a zoom.
+        from vispy import scene
+
+        view = scene.ViewBox()
+        view.camera = scene.PanZoomCamera(aspect=1)
+        view.camera.set_range(x=(0, 100), y=(0, 100))
+        for size, zoom in (((800, 600), 1.0), ((400, 900), 1.0), ((800, 600), 0.5)):
+            with self.subTest(size=size, zoom=zoom):
+                view.size = size
+                view.camera.zoom(zoom)
+                transform = view.camera.transform
+                pixels_per_unit_x, pixels_per_unit_y = abs(transform.scale[0]), abs(transform.scale[1])
+
+                scale = print_command._scene_units_per_pixel(SimpleNamespace(view=view))
+
+                self.assertAlmostEqual(scale * pixels_per_unit_x, 1.0, places=5)
+                self.assertAlmostEqual(scale * pixels_per_unit_y, 1.0, places=5)
 
 
 class PrintCommandChecksTests(unittest.TestCase):
@@ -695,7 +879,7 @@ class PrintCommandChecksTests(unittest.TestCase):
     def test_an_svg_makes_the_save_folder_when_it_writes(self):
         viewer = square_network()
         for name, value in vars(PrintMarginTrimTests.make_viewer()).items():
-            if name != "canvas":
+            if name not in ("canvas", "view"):
                 setattr(viewer, name, value)
         viewer.canvas.update = mock.Mock()
         with tempfile.TemporaryDirectory() as root:
@@ -752,7 +936,7 @@ class PrintAutomaticNameTests(unittest.TestCase):
         viewer = square_network() if svg_viewer else PrintMarginTrimTests.make_viewer()
         if svg_viewer:
             for name, value in vars(PrintMarginTrimTests.make_viewer()).items():
-                if name != "canvas":
+                if name not in ("canvas", "view"):
                     setattr(viewer, name, value)
             viewer.canvas.update = mock.Mock()
         else:
