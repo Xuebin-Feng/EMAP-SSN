@@ -1,18 +1,28 @@
-"""Tests for the benchmark that ships in src/resources/benchmark: its sequence sets."""
+"""Tests for the benchmark that ships in src/resources/benchmark: its sequence sets and Run_Benchmark.py."""
 
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
+from datetime import datetime, timedelta
 import hashlib
+import importlib.util
+from io import StringIO
+import json
+import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from utilities import Localization
 from utilities.Sequence_Utils import VALID_RESIDUE_CODES, read_fasta, sanitize_fasta_records
 
 BENCHMARK_DIR = SRC_DIR / "resources" / "benchmark"
@@ -21,6 +31,18 @@ MAIN_SET = BENCHMARK_DIR / "benchmark_sequences.fasta"
 INJECTION_SET = BENCHMARK_DIR / "injection_sequences.fasta"
 ESM2_LONGEST_SEQUENCE = 1022
 GLYOXALASE_II = " Hydroxyacylglutathione hydrolase OS="
+
+
+def load_script():
+    """Run_Benchmark.py as a module; src/resources is no package, so it loads from its path."""
+    spec = importlib.util.spec_from_file_location("Run_Benchmark", BENCHMARK_DIR / "Run_Benchmark.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # Its dataclasses look their module up by name.
+    spec.loader.exec_module(module)
+    return module
+
+
+benchmark = load_script()
 
 
 def recorded_files():
@@ -155,7 +177,7 @@ class BenchmarkRepositoryTests(unittest.TestCase):
                      "Benchmark_Report_2026-10-09_15-00-00.json", "Benchmark_Report_2026-10-09_15-00-00_2.txt"):
             with self.subTest(name=name):
                 self.assertEqual(self.git("check-ignore", "--no-index", "--quiet", "--", folder + name).returncode, 0)
-        for name in ("benchmark_sequences.fasta", "injection_sequences.fasta", "README.md"):
+        for name in ("benchmark_sequences.fasta", "injection_sequences.fasta", "README.md", "Run_Benchmark.py"):
             with self.subTest(name=name):
                 self.assertEqual(self.git("check-ignore", "--no-index", "--quiet", "--", folder + name).returncode, 1)
 
@@ -165,6 +187,433 @@ class BenchmarkRepositoryTests(unittest.TestCase):
                 relative = path.relative_to(PROJECT_ROOT).as_posix()
                 self.assertEqual(self.git("check-attr", "text", "--", relative).stdout.strip(),
                                  f"{relative}: text: unset")
+
+
+class BenchmarkFolderTests(unittest.TestCase):
+    """temp/ holds one run's files under a lock and is cleared; reports are never overwritten."""
+
+    def setUp(self):
+        self.folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.temp = self.folder / "temp"
+
+    def test_the_tests_never_use_the_real_benchmark_folder(self):
+        self.assertNotEqual(benchmark.work_dir(), benchmark.BENCHMARK_DIR)
+
+    def test_the_work_folder_follows_its_variable_and_is_otherwise_the_script_s_folder(self):
+        with mock.patch.dict(os.environ, {benchmark.WORK_DIR_VARIABLE: str(self.folder)}):
+            self.assertEqual(benchmark.work_dir(), self.folder.resolve())
+        with mock.patch.dict(os.environ):
+            os.environ.pop(benchmark.WORK_DIR_VARIABLE, None)
+            self.assertEqual(benchmark.work_dir(), BENCHMARK_DIR)
+
+    def test_a_run_clears_what_an_earlier_run_left_and_removes_temp_at_its_end(self):
+        (self.temp / "embeddings").mkdir(parents=True)
+        (self.temp / "embeddings" / "left_behind.h5").write_bytes(b"old")
+        (self.temp / "context.json").write_text("{}", encoding="utf-8")
+        lock = benchmark.acquire_lock(self.temp)
+        benchmark.wipe_temp(self.temp, keep=(benchmark.LOCK_NAME,))
+        self.assertEqual([path.name for path in self.temp.iterdir()], [benchmark.LOCK_NAME])
+        (self.temp / "logs").mkdir()
+        (self.temp / "logs" / "stage_01_sanitize.log").write_text("output", encoding="utf-8")
+        benchmark.remove_temp(self.temp, lock)
+        self.assertFalse(self.temp.exists())
+
+    def test_a_live_lock_stops_a_second_run(self):
+        lock = benchmark.acquire_lock(self.temp)
+        self.addCleanup(benchmark.release_lock, lock)
+        with self.assertRaises(benchmark.CannotStart):
+            benchmark.acquire_lock(self.temp)
+        self.assertEqual(benchmark.read_lock(lock)["pid"], os.getpid())
+
+    def test_a_lock_whose_process_is_gone_is_taken_over(self):
+        self.temp.mkdir()
+        path = self.temp / benchmark.LOCK_NAME
+        # The same process ID with another start time: the ID now belongs to a new process.
+        for stale in (json.dumps({"pid": os.getpid(), "started": 1.0, "host": socket.gethostname()}), "{cut short"):
+            with self.subTest(lock=stale):
+                path.write_text(stale, encoding="utf-8")
+                lock = benchmark.acquire_lock(self.temp)
+                self.assertEqual(benchmark.read_lock(lock)["pid"], os.getpid())
+                benchmark.release_lock(lock)
+                self.assertFalse(lock.exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows refuses to delete a file a program has open")
+    def test_a_file_still_in_use_stops_the_start_instead_of_running_on_old_files(self):
+        self.temp.mkdir()
+        with open(self.temp / "busy.h5", "wb"):
+            with self.assertRaises(benchmark.CannotStart) as raised:
+                benchmark.wipe_temp(self.temp)
+        self.assertIn("busy.h5", str(raised.exception.args[0]))
+
+    def test_too_little_free_space_stops_the_start(self):
+        with self.assertRaises(benchmark.CannotStart):
+            benchmark.check_disk(self.folder, required=1 << 62)
+
+    def test_a_report_never_takes_the_name_of_an_earlier_one(self):
+        started = datetime(2026, 10, 9, 21, 0, 0)
+        first = benchmark.reserve_report_paths(self.folder, started)
+        second = benchmark.reserve_report_paths(self.folder, started)
+        self.assertEqual([path.name for path in first],
+                         ["Benchmark_Report_2026-10-09_21-00-00.txt", "Benchmark_Report_2026-10-09_21-00-00.json"])
+        self.assertEqual([path.name for path in second],
+                         ["Benchmark_Report_2026-10-09_21-00-00_2.txt", "Benchmark_Report_2026-10-09_21-00-00_2.json"])
+        (self.folder / "Benchmark_Report_2026-10-09_21-00-00_3.json").write_text("{}", encoding="utf-8")
+        third = benchmark.reserve_report_paths(self.folder, started)
+        self.assertEqual(third[0].name, "Benchmark_Report_2026-10-09_21-00-00_4.txt")
+
+
+class BenchmarkInputTests(unittest.TestCase):
+    """The sizes of the work, the search query and the MSA subset."""
+
+    def test_an_all_against_all_run_counts_pairs_and_dynamic_programming_cells(self):
+        self.assertEqual(
+            benchmark.all_pairs_workload(["AA", "AAA", "A"]),
+            {"sequences": 3, "residues": 6, "pairs": 3, "cells": 2 * 3 + 2 * 1 + 3 * 1},
+        )
+
+    def test_injection_aligns_the_new_sequences_with_the_old_ones_and_each_other(self):
+        self.assertEqual(
+            benchmark.injection_workload(["AA", "AAA"], ["A", "AAAA"]),
+            {"sequences": 2, "residues": 5, "pairs": 2 * 2 + 1, "cells": 5 * 5 + 1 * 4},
+        )
+
+    def test_the_full_run_searches_with_e_coli_glyoxalase_ii_and_aligns_100_of_its_kind(self):
+        with tempfile.TemporaryDirectory() as folder:
+            inputs = benchmark.prepare_inputs(Path(folder))
+            self.assertEqual(list(Path(folder).iterdir()), [], "the bundled files are read where they are")
+        self.assertEqual(inputs["main_fasta"], str(MAIN_SET))
+        self.assertEqual(accession(inputs["search_query"]), "B1XD76")
+        self.assertEqual(len(inputs["msa_headers"]), 100)
+        self.assertTrue(all(GLYOXALASE_II in header for header in inputs["msa_headers"]))
+        self.assertEqual(inputs["workload"]["main"]["pairs"], 860 * 859 // 2)
+        self.assertEqual(inputs["workload"]["injection"]["pairs"], 92 * 860 + 92 * 91 // 2)
+        self.assertIsNone(inputs["dataset"]["limit"])
+
+    def test_the_test_option_takes_the_first_records_into_temp(self):
+        main_headers, _ = read_fasta(MAIN_SET)
+        with tempfile.TemporaryDirectory() as folder:
+            inputs = benchmark.prepare_inputs(Path(folder), limit=20)
+            headers, _ = read_fasta(inputs["main_fasta"])
+            new_headers, _ = read_fasta(inputs["injection_fasta"])
+        self.assertEqual(headers, main_headers[:20])
+        self.assertEqual(len(new_headers), 2)
+        self.assertEqual(inputs["search_query"], main_headers[0], "B1XD76 is not among the first 20")
+        self.assertEqual(inputs["dataset"]["limit"], 20)
+
+
+class BenchmarkStageTableTests(unittest.TestCase):
+    """The ten stages, what each needs, and which a run takes."""
+
+    def test_the_ten_stages_run_in_order_and_each_needs_only_earlier_ones(self):
+        self.assertEqual([stage.number for stage in benchmark.STAGES], list(range(1, 11)))
+        seen = set()
+        for stage in benchmark.STAGES:
+            with self.subTest(stage=stage.key):
+                self.assertLessEqual(set(stage.needs), seen)
+                self.assertTrue(stage.steps)
+                self.assertLessEqual(set(stage.steps), set(benchmark.STEP_RUNNERS))
+                self.assertLessEqual(set(stage.auto), set(benchmark.DECISION_TITLES))
+            seen.add(stage.key)
+
+    def test_choosing_stages_adds_the_stages_they_need(self):
+        everything = [stage.key for stage in benchmark.STAGES]
+        self.assertEqual(benchmark.select_stages(None), everything)
+        self.assertEqual(benchmark.select_stages("4"), ["sanitize", "embeddings", "alignment", "ssn_layout"])
+        self.assertEqual(benchmark.select_stages(" blast, 1 "), ["sanitize", "blast"])
+        self.assertEqual(benchmark.select_stages("injection"), ["sanitize", "embeddings", "alignment", "injection"])
+
+    def test_an_unknown_stage_stops_the_start(self):
+        for text in ("11", "nope"):
+            with self.subTest(text=text), self.assertRaises(benchmark.CannotStart):
+                benchmark.select_stages(text)
+
+
+class BenchmarkOutputParsingTests(unittest.TestCase):
+    """What the report reads from the tools' own output."""
+
+    def log(self, text):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (folder / "stage.log").write_bytes(text.encode("utf-8"))
+        return folder / "stage.log"
+
+    def test_layout_stop_lines(self):
+        path = self.log(
+            "Simulating Batch 1/2 (4 components, 11 nodes)...\r\n"
+            "    - Step 0500/10000: RMSD = 0.03639\n"
+            "    - Converged at Step 1291 (RMSD: 0.00499)\n"
+            "    - Plateau Reached at Step 99 (RMSD: 0.1)\n"
+            "    - Step limit reached after 10000 steps (RMSD: 0.01044)\n"
+        )
+        self.assertEqual(benchmark.layout_stops(path), [
+            {"stop": "Converged", "steps": 1292},
+            {"stop": "Plateau Reached", "steps": 100},
+            {"stop": "Step limit reached", "steps": 10000},
+        ])
+
+    def test_msa_time_lines(self):
+        path = self.log("Total processing time: 2m 5.00s\nTree building time: 1h 1m 2.50s\nCluster merging time: 0.85s\n")
+        times = benchmark.msa_times(path)
+        self.assertAlmostEqual(times["tree_seconds"], 3662.5)
+        self.assertAlmostEqual(times["merge_seconds"], 0.85)
+
+
+class BenchmarkStageProcessTests(unittest.TestCase):
+    """A step runs in a process of its own, measured from outside and reported from inside."""
+
+    def setUp(self):
+        self.folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+    def test_a_stage_process_is_logged_and_measured(self):
+        run = benchmark.run_stage_process(
+            [sys.executable, "-c", "print('hello from a stage'); raise SystemExit(3)"],
+            cwd=self.folder, env=dict(os.environ), log_path=self.folder / "logs" / "stage.log", echo=False,
+        )
+        self.assertEqual(run.returncode, 3)
+        self.assertFalse(run.interrupted)
+        self.assertGreater(run.wall_seconds, 0)
+        self.assertGreater(run.peak_rss_bytes, 0)
+        self.assertGreaterEqual(run.peak_processes, 1)
+        self.assertEqual(benchmark.log_tail(run.log), ["hello from a stage"])
+
+    def test_a_step_writes_its_result_even_when_it_fails(self):
+        context_path = self.folder / "context.json"
+        context_path.write_text(json.dumps({"temp": str(self.folder), "stage": 1}), encoding="utf-8")
+
+        def broken(_context):
+            raise RuntimeError("broken")
+
+        runners = {"good": lambda _context: {"returncode": 0, "tool_seconds": 1.5, "outputs": {"x": "y"}},
+                   "broken": broken}
+        with mock.patch.dict(benchmark.STEP_RUNNERS, runners), redirect_stderr(StringIO()):
+            self.assertEqual(benchmark.stage_main("good", context_path), 0)
+            self.assertEqual(benchmark.stage_main("broken", context_path), 1)
+        good = json.loads((self.folder / "results" / "good.json").read_text(encoding="utf-8"))
+        self.assertEqual((good["tool_seconds"], good["outputs"]), (1.5, {"x": "y"}))
+        self.assertIn("gpu_peak_bytes", good)
+        failed = json.loads((self.folder / "results" / "broken.json").read_text(encoding="utf-8"))
+        self.assertEqual((failed["returncode"], failed["error"]), (1, "RuntimeError: broken"))
+
+
+MACHINE = {
+    "hardware": {"cpu": "Test CPU", "logical_cpus": 8, "physical_cores": 4, "ram_bytes": 16 << 30,
+                 "devices": [{"spec": "cpu", "name": "CPU", "backend": "cpu"}], "gpus": [], "os": "TestOS"},
+    "software": {"python": "3.13", "pytorch": "2.12", "packages": {"numpy": "2.5.3", "esm": None}},
+    "conditions": {"cpu_load_percent": 3.0, "available_ram_bytes": 8 << 30, "on_battery": None,
+                   "other_emapssn_processes": [], "caches": {"numba_cache_files": 4, "gpu_kernel_cache_files": 0}},
+}
+ALIGNMENT_DECISIONS = [
+    {"kind": "alignment_plan", "unit": "pairs/s", "ranking": [1, 0], "winner": 1, "candidates": [
+        {"device": "CPU", "backend": "cpu", "variant": "scalar", "lanes": 1, "value": 500.0, "error": None},
+        {"device": "Test GPU", "backend": "cuda", "variant": "tiled", "lanes": 2, "value": 5000.0, "error": None},
+        {"device": "Test GPU", "backend": "cuda", "variant": "scalar", "lanes": 8, "value": None, "error": "out of memory"},
+    ]},
+    {"kind": "matmul_precision", "choice": "ieee_fp32", "reason": "too_little_speedup", "unit": "pairs/s",
+     "rates": [{"variant": "tiled", "precision": "ieee_fp32", "value": 4000.0},
+               {"variant": "tiled", "precision": "tf32", "value": 4100.0}]},
+]
+
+
+class BenchmarkRunTests(unittest.TestCase):
+    """Whole runs with stand-in steps: the order, skips, failures, interruptions and reports."""
+
+    def setUp(self):
+        self.folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(mock.patch.dict(os.environ, {benchmark.WORK_DIR_VARIABLE: str(self.folder)}))
+        # The machine's own checks (BLAST+, packages) stay out of these runs; the model's stays in.
+        stages = tuple(stage if stage.ready is benchmark.model_problem else replace(stage, ready=None)
+                       for stage in benchmark.STAGES)
+        for name, value in (("STAGES", stages), ("STAGES_BY_KEY", {stage.key: stage for stage in stages}),
+                            ("STAGES_BY_NUMBER", {stage.number: stage for stage in stages})):
+            self.enterContext(mock.patch.object(benchmark, name, value))
+        self.enterContext(mock.patch.object(benchmark, "describe_machine", return_value=MACHINE))
+        self.enterContext(mock.patch.object(benchmark, "program_version",
+                                            return_value={"version": "0.3.0", "commit": "abc", "dirty": False}))
+        self.cached = mock.patch.object(benchmark, "reference_model_cached", return_value=True)
+        self.enterContext(self.cached)
+        self.enterContext(mock.patch.object(benchmark, "run_child", self.stand_in_step))
+        self.steps, self.failing, self.interrupt_at, self.download_error = [], set(), None, None
+
+    def stand_in_step(self, step, context, temp, *, number=0, record=None, echo=True, offline=False):
+        self.steps.append(step)
+        log = temp / "logs" / f"stage_{number:02d}_{step}.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(f"output of {step}\n", encoding="utf-8")
+        if record is not None and step == "alignment":
+            with open(record, "a", encoding="utf-8") as handle:
+                handle.writelines(json.dumps(decision) + "\n" for decision in ALIGNMENT_DECISIONS)
+        interrupted = step == self.interrupt_at
+        failed = step in self.failing or (step == "download_model" and self.download_error)
+        run = benchmark.StageRun(returncode=None if interrupted else int(bool(failed)), wall_seconds=1.5,
+                                 cpu_seconds=1.0, peak_rss_bytes=1 << 20, peak_processes=1,
+                                 interrupted=interrupted, log=log)
+        child = {} if interrupted else {"returncode": int(bool(failed)), "tool_seconds": 1.0, "import_seconds": 0.25}
+        if step == "download_model" and self.download_error:
+            child["error"] = self.download_error
+        return run, child
+
+    def run_benchmark(self, **arguments):
+        with redirect_stdout(StringIO()) as shown:
+            code = benchmark.run_benchmark(result_path=self.folder / "result.json", echo=False, **arguments)
+        return code, shown.getvalue(), json.loads((self.folder / "result.json").read_text(encoding="utf-8"))
+
+    def statuses(self, result):
+        return {stage["key"]: stage["status"] for stage in result["stages"]}
+
+    def test_a_full_run_writes_both_reports_and_leaves_no_temporary_files(self):
+        code, shown, result = self.run_benchmark()
+        self.assertEqual(code, 0)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(self.steps, [step for stage in benchmark.STAGES for step in stage.steps])
+        self.assertEqual(set(self.statuses(result).values()), {"completed"})
+        text_path, json_path = Path(result["report_text"]), Path(result["report_json"])
+        self.assertEqual((text_path.parent, json_path.parent), (self.folder, self.folder))
+        self.assertFalse((self.folder / "temp").exists())
+        text = text_path.read_text(encoding="utf-8")
+        for stage in benchmark.STAGES:
+            self.assertIn(str(stage.title), text)
+        self.assertIn("Test GPU, tiled plan, 2 lanes", text)
+        self.assertIn("Failed (out of memory)", text)
+        self.assertIn("Matrix-product precision FP32, because TF32 was less than 1.10 times as fast.", text)
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["stages"][2]["auto_choices"][0], {"kind": "alignment_plan",
+                                                              "choice": "Test GPU, tiled plan, 2 lanes"})
+        self.assertTrue(shown.rstrip().endswith(f"Its data are saved as {json_path}"))
+        self.assertIn(f"The report is saved as {text_path}", shown)
+        self.assertIn("EMAP-SSN benchmark report", shown)
+
+    def test_a_failed_stage_skips_the_stages_that_need_it_while_the_others_run(self):
+        self.failing = {"alignment"}
+        code, _shown, result = self.run_benchmark()
+        self.assertEqual((code, result["status"]), (1, "failed"))
+        statuses = self.statuses(result)
+        self.assertEqual(statuses["alignment"], "failed")
+        for key in ("ssn_layout", "umap_layout", "clustering", "injection", "msa"):
+            self.assertEqual(statuses[key], "skipped", key)
+        for key in ("sanitize", "embeddings", "search", "blast"):
+            self.assertEqual(statuses[key], "completed", key)
+        stages = {stage["key"]: stage for stage in result["stages"]}
+        self.assertIn("stage 3", stages["msa"]["reason"])
+        data = json.loads(Path(result["report_json"]).read_text(encoding="utf-8"))
+        self.assertEqual(data["stages"][2]["log_tail"], ["output of alignment"])
+
+    def test_an_interrupted_run_still_writes_its_report(self):
+        self.interrupt_at = "ssn_layout"
+        code, _shown, result = self.run_benchmark()
+        self.assertEqual((code, result["status"]), (1, "interrupted"))
+        statuses = self.statuses(result)
+        self.assertEqual(statuses["ssn_layout"], "interrupted")
+        self.assertEqual({statuses[stage.key] for stage in benchmark.STAGES[4:]}, {"not_run"})
+        self.assertTrue(Path(result["report_text"]).is_file())
+        self.assertFalse((self.folder / "temp").exists())
+
+    def test_only_the_chosen_stages_and_what_they_need_run(self):
+        code, _shown, result = self.run_benchmark(stages="4")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.steps, ["sanitize", "embeddings", "alignment", "ssn_layout"])
+        self.assertEqual({key for key, status in self.statuses(result).items() if status == "not_selected"},
+                         {"umap_layout", "clustering", "search", "injection", "msa", "blast"})
+
+    def test_a_second_run_keeps_the_first_report(self):
+        _code, _shown, first = self.run_benchmark()
+        first_text = Path(first["report_text"]).read_bytes()
+        _code, _shown, second = self.run_benchmark()
+        self.assertNotEqual(first["report_text"], second["report_text"])
+        self.assertEqual(Path(first["report_text"]).read_bytes(), first_text)
+        self.assertEqual(len(list(self.folder.glob("Benchmark_Report_*.txt"))), 2)
+
+    def test_a_running_benchmark_stops_a_second_one_with_exit_code_2(self):
+        lock = benchmark.acquire_lock(self.folder / "temp")
+        self.addCleanup(benchmark.release_lock, lock)
+        code, shown, result = self.run_benchmark()
+        self.assertEqual(code, 2)
+        self.assertEqual(result["status"], "could_not_start")
+        self.assertIn("Another benchmark is running", shown)
+        self.assertEqual(self.steps, [])
+        self.assertTrue(lock.exists())
+
+    def test_a_model_that_can_t_be_downloaded_skips_the_stages_that_embed(self):
+        self.download_error = "OSError: offline"
+        with mock.patch.object(benchmark, "reference_model_cached", return_value=False):
+            code, _shown, result = self.run_benchmark()
+        self.assertEqual(code, 0, "a stage this machine can't run is skipped, not failed")
+        self.assertEqual(self.steps, ["download_model", "sanitize", "blast"])
+        stages = {stage["key"]: stage for stage in result["stages"]}
+        self.assertIn("could not be downloaded (OSError: offline)", stages["embeddings"]["reason"])
+        self.assertEqual(stages["alignment"]["status"], "skipped")
+
+
+class BenchmarkReportTests(unittest.TestCase):
+    """The .txt lines up its columns in any script."""
+
+    def test_wide_characters_take_two_columns(self):
+        self.assertEqual(benchmark.display_width("abc"), 3)
+        self.assertEqual(benchmark.display_width("酶活性"), 6)
+        self.assertEqual(benchmark.display_width("é"), 1)
+
+    def test_table_columns_line_up_by_display_width(self):
+        lines = benchmark.table([["酶", "x", "end"], ["abc", "yy", "end"]])
+        self.assertEqual([benchmark.display_width(line[:line.index("end")]) for line in lines], [9, 9])
+
+    def test_a_plan_names_its_device_lanes_and_memory_profile(self):
+        tiled = {"device": "GPU", "backend": "cuda", "variant": "tiled", "lanes": 2, "profile": "balanced"}
+        scalar = {"device": "GPU", "backend": "cuda", "variant": "scalar", "lanes": 1, "profile": None}
+        cpu = {"device": "CPU", "backend": "cpu", "variant": "scalar", "lanes": 1}
+        self.assertEqual(str(benchmark.candidate_text(tiled, "alignment_plan")),
+                         "GPU, tiled plan with the balanced memory profile, 2 lanes")
+        self.assertEqual(str(benchmark.candidate_text(scalar, "injection_plan")), "GPU, scalar plan, 1 lane")
+        self.assertEqual(str(benchmark.candidate_text(cpu, "alignment_plan")), "CPU, scalar plan")
+        self.assertEqual(benchmark.candidate_text(tiled, "embedding_device"), "GPU")
+
+    def test_the_auto_trials_are_told_apart_from_the_work_after_them(self):
+        outcome = benchmark.StageResult(benchmark.STAGES_BY_KEY["alignment"], status="completed")
+        outcome.decisions = [{"kind": "matmul_precision", "time": 1003.0}, {"kind": "alignment_plan", "time": 1010.0},
+                             {"kind": "host_cache", "time": 1012.0}]
+        outcome.child = {"tool_seconds": 15.0,
+                         "steps": {"alignment": {"started_at": 1000.0, "finished_at": 1015.0}}}
+        self.assertEqual(benchmark.trial_split(outcome), (10.0, 5.0))
+        inputs = {"workload": {"main": {"sequences": 4, "residues": 40, "pairs": 6, "cells": 600}}}
+        rates = benchmark.stage_rates(outcome, inputs)
+        self.assertEqual(rates[-1], {"value": 6 / 5.0, "unit": "pairs/s after the Auto trials"})
+        self.assertEqual(rates[0], {"value": 6 / 15.0, "unit": "pairs/s"})
+        outcome.decisions = []
+        self.assertIsNone(benchmark.trial_split(outcome))
+
+    def test_a_translated_report_keeps_its_columns_lined_up(self):
+        previous = Localization.set_translator(lambda template, n: "测试" + Localization.english_text(template, n))
+        self.addCleanup(Localization.set_translator, previous)
+        started = datetime(2026, 10, 9, 21, 0, 0).astimezone()
+        outcomes = [benchmark.StageResult(stage, status="skipped", reason=benchmark.Message("Not here."))
+                    for stage in benchmark.STAGES]
+        run = benchmark.BenchmarkRun(started=started, selected=[], outcomes=outcomes,
+                                     finished=started + timedelta(seconds=90), machine=MACHINE)
+        text = benchmark.render(benchmark.report_blocks(run), Localization.display_text)
+        summary = text.split("\n测试Summary\n")[1].split("\n\n")[0].splitlines()[1:]
+        self.assertEqual(len(summary), 11)
+        starts = {benchmark.display_width(line[:line.index("测试Skipped" if index else "测试Status")])
+                  for index, line in enumerate(summary)}
+        self.assertEqual(len(starts), 1, summary)
+
+
+@unittest.skipUnless(
+    os.environ.get("EMAPSSN_BENCHMARK_SMOKE_TEST") == "1",
+    "runs the real benchmark on 20 sequences for about two minutes; set EMAPSSN_BENCHMARK_SMOKE_TEST=1",
+)
+class BenchmarkSmokeTests(unittest.TestCase):
+    def test_a_real_run_on_20_sequences_completes_every_stage_this_machine_can_run(self):
+        if not benchmark.reference_model_cached():
+            self.skipTest("ESM-2 8M is not in the Hugging Face cache, and tests never download")
+        with tempfile.TemporaryDirectory() as folder:
+            result_path = Path(folder) / "result.json"
+            completed = subprocess.run(
+                [sys.executable, "-u", str(BENCHMARK_DIR / "Run_Benchmark.py"), "--limit", "20",
+                 "--result", str(result_path)],
+                env={**os.environ, benchmark.WORK_DIR_VARIABLE: folder}, capture_output=True,
+                text=True, encoding="utf-8", errors="replace", timeout=1800,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout[-4000:])
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            self.assertFalse((Path(folder) / "temp").exists())
+        self.assertEqual({stage["status"] for stage in result["stages"]} - {"skipped"}, {"completed"})
 
 
 if __name__ == "__main__":

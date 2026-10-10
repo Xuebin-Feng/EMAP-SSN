@@ -2,13 +2,67 @@
 
 The benchmark runs the program's heavy calculations on a fixed set of public
 protein sequences, so reports from different machines can be compared. This
-folder holds that sequence set.
+folder holds the benchmark and that sequence set.
 
 | File | What it holds |
 |---|---|
+| `Run_Benchmark.py` | The benchmark. |
 | `benchmark_sequences.fasta` | The main set: 860 sequences. |
 | `injection_sequences.fasta` | 92 more sequences, held out for the injection stage. |
-| `README.md` | This file: where the sequences come from, how the sets were made, and their licence. |
+| `README.md` | This file: how to run the benchmark, where the sequences come from, how the sets were made, and their licence. |
+
+## Running the benchmark
+
+From the EMAP-SSN folder, with the program's Python:
+
+```
+.venv\Scripts\python.exe -u src\resources\benchmark\Run_Benchmark.py
+```
+
+On Linux and macOS the Python is `.venv/bin/python`. `--stages 3,7` runs only
+those stages and the stages they need, by number or name. `--result <file>` also
+writes an English summary as JSON, which MCP jobs read.
+
+It runs ten stages, each in a process of its own, with every device setting on
+Auto:
+
+| # | Stage | What it times |
+|---|---|---|
+| 1 | Sanitize sequences | `Sanitize_Sequences.py` on the main set |
+| 2 | Embeddings | `Generate_Embeddings.py` with ESM-2 8M (`esm2_t6_8m`) |
+| 3 | All-against-all embedding alignment | `Align_Similarity_Matrix.py`: 369,370 pairs |
+| 4 | SSN layout | the force-directed layout of the top 5% of edges |
+| 5 | UMAP layout | the same network laid out with UMAP |
+| 6 | Clustering | Leiden, MCL and the Jaccard filter, as the `cluster` command runs them |
+| 7 | Embedding database search | `Embedding_SSEARCH.py`: E. coli's glyoxalase II (B1XD76) against the main set |
+| 8 | Injection of new sequences | `Embedding_Injection.py` and `Network_Injection.py` with the 92 held-out sequences |
+| 9 | Embedding MSA | `Embedding_MSA.py` on the first 100 glyoxalase II entries |
+| 10 | BLAST all-against-all alignment | `Align_Substitution_Matrix.py`, with NCBI BLAST+ |
+
+A stage this machine can't run, such as BLAST without NCBI BLAST+ on the PATH or
+in `C:\Program Files\NCBI`, is skipped with the reason, and so are the stages
+that need it. The first run downloads ESM-2 8M (about 30 MB) into the Hugging
+Face cache; that download is not timed.
+
+The report is named by the time the run started, as
+`Benchmark_Report_<date>_<time>.txt`, with an English `.json` of its data beside
+it, in this folder. It records each stage's time, throughput, CPU time, memory
+peaks and device; the choices the tools' own Auto benchmarks made; the
+hardware and software; and the conditions that affect the numbers. Reports are
+never deleted, and a second run in the same second adds `_2`. The terminal shows
+the report in English and ends with the report's path.
+
+While it runs, the benchmark keeps every file it makes in `temp/` here, with a
+lock that stops a second benchmark from starting. `temp/` is cleared when a run
+starts and when it ends, so files a killed run left behind go at the next start.
+The benchmark never reads or changes `tools_settings.json` or the folders
+configured in the Tools window. A run needs about 1 GB of free disk space and
+took about 6 minutes on an RTX 5070 Ti with a Core Ultra 7 265KF.
+
+It exits with 0 when every stage ran or was skipped for a stated reason, 1 when
+a stage failed or the run was interrupted (Ctrl+C still writes the report), and
+2 when it could not start: another benchmark is running, the folder is not
+writable, or the disk is too full.
 
 ## The sequences
 

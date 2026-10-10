@@ -2872,6 +2872,702 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark needs {needed} of free disk space on the drive of {folder}, but only {free} is free.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Another benchmark is running (process {pid}, started {time}). Wait for it to finish, then start this one again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark could not replace the stale lock {path} ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark could not take its lock {path}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark could not clear its temporary folder {folder}, so it stopped instead of starting on old files. Close the program that uses them and start again. {problems}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Completed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Skipped</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Interrupted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not run</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not selected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} sequences/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} residues/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} pairs/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} billion DP cells/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} layout steps/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} targets/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} queries/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} edges/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} sequences/s after the Auto trials</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{rate} pairs/s after the Auto trials</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>This stage needs %n Python package(s) that are not installed ({packages}).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>The MSA needs at least 3 {protein} sequences, but this run has {count}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>NCBI BLAST+ was not found on the PATH or in {folder} ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The reference model ESM-2 8M could not be downloaded ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sanitize sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embeddings (ESM-2 8M)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All-against-all embedding alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SSN layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>UMAP layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clustering (Leiden, MCL and Jaccard)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding database search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Injection of new sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding MSA</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BLAST all-against-all alignment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The stage stopped with exit code {code}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>There is no stage {stage}. The stages are {stages}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{device}, {plan} plan</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>{device}, {plan} plan with the {profile} memory profile, %n lane(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>{device}, {plan} plan, %n lane(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>CPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>not recorded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>no candidate succeeded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>TF32 gave the same results and was at least 1.10 times as fast</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>TF32 was less than 1.10 times as fast</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>TF32 did not give the same results</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>there is no NVIDIA CUDA device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>there were too few pairs to compare the two</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the trial would not fit in the GPU&apos;s memory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the trial failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>all embeddings packed in RAM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>embeddings read in tiles</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device for the embeddings, by predicted job time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment plan, by pairs per second in a short trial</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Injection alignment plan, by pairs per second in a short trial</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device for the MSA, by the median time of sample merges</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device for the layout, by estimated time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Search plan, by predicted search time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Matrix-product precision {choice}, because {reason}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Precision</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Plan</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Measured</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host cache {choice}: {size} of embeddings, with a limit of {limit}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>({size} components)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Candidate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Peak memory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Result</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Chosen</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed ({error})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ranked {place}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{sequences} sequences, {residues} residues</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{pairs} pairs, {cells} dynamic-programming cells</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{nodes} nodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>One query against {sequences} sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{sequences} new sequences, {pairs} new pairs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{sequences} queries against {sequences} sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{nodes} nodes, {edges} edges</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layout jobs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n job(s), {steps} steps in all</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>{clusters} clusters of 10 or more in {time}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tree building</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cluster merging</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding the new sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligning the new sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The run was interrupted, so the stages after it did not run.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The benchmark itself failed ({error}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>This run used only the first %n sequence(s) of the set, a test option, so it can&apos;t be compared with full runs.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Stage times include the time each tool spends on its own Auto hardware trials.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESM-2 8M makes embeddings 320 values wide, so the alignment&apos;s matrix products are cheaper here than with larger models.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The CPU was {load} busy when the run started, which can slow the run down.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The computer ran on battery, which can slow the run down.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other EMAP-SSN programs were running ({programs}), which can slow the run down.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A machine&apos;s first run also compiles kernels that later runs load from a cache, so it can be slower.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Compare reports only when their protocol versions and sequence sets match.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU cores</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{logical} logical CPUs, {physical} physical cores</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Memory (RAM)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>driver {driver}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>compute capability {capability}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>GPU</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>with {memory}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Compute device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Operating system</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Installed backend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Numba threads</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{threads} of {usable} usable CPUs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download failed ({error})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Downloaded before the timed stages in {time}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Already in the Hugging Face cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not needed by the selected stages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU load</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Available RAM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Power</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No battery found</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Battery</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mains</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other EMAP-SSN programs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Compiled kernel caches</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{numba} Numba files, {gpu} GPU kernel files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN {version}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN {version}, commit {commit}, with local changes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN {version}, commit {commit}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN benchmark report</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{completed} completed, {failed} failed, {skipped} skipped</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Started</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Finished</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duration</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Disk space used</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Program</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Benchmark protocol</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{main} in the main set, {new} for injection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Summary</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stage</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Status</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Throughput</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stage {number}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware and software</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Packages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>not installed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Conditions at the start</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Auto hardware decisions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No stage recorded an Auto decision.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stage {number}, {title}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stage details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reason</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Total time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Time in the tool</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Start-up and imports</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>CPU time</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{time}, {share} of all logical CPUs on average</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Peak RAM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>{size} in %n process(es)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Peak GPU memory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None recorded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Auto trials</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{time} until the last Auto decision, {rest} after it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Work</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Settings for {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The last lines of its output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Notes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It needs {stages}, which did not complete.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>stage {number}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Model: {model}
 Weights license: {license}
 Restriction: {restriction}

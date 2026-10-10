@@ -16,6 +16,9 @@ files and shell, whichever subset of modules runs:
 * SSN_APP_SETTINGS_PATH points the program's own settings (app_settings.json,
   which holds the language) into that folder too, so no test reads or writes
   the developer's.
+* SSN_BENCHMARK_WORK_DIR points the benchmark's temp/ folder and its reports
+  (src/resources/benchmark/Run_Benchmark.py) into that folder too, so no test
+  writes into the real benchmark folder.
 * QT_QPA_PLATFORM defaults to offscreen, so no Qt window appears.
 * Every script in src/tools applies <project>/tools_settings.json to its module
   globals when it is imported. An import hook points each tool import at a
@@ -54,6 +57,7 @@ if not os.environ.get(_ROOT_PROCESS_MARKER):
     os.environ["SSN_VIEWER_SESSION_DIR"] = _SESSION_DIRECTORY
     os.environ["SSN_LAYOUT_GPU_KERNEL_CACHE"] = os.path.join(_SESSION_DIRECTORY, "gpu_kernels")
     os.environ["SSN_APP_SETTINGS_PATH"] = os.path.join(_SESSION_DIRECTORY, "app_settings.json")
+    os.environ["SSN_BENCHMARK_WORK_DIR"] = os.path.join(_SESSION_DIRECTORY, "benchmark")
     atexit.register(shutil.rmtree, _SESSION_DIRECTORY, ignore_errors=True)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
