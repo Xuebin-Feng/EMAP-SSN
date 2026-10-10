@@ -310,6 +310,7 @@ class ExportBranchTests(unittest.TestCase):
         self.assertEqual(viewer.console_text.text, "Error: No groups defined.")
         self.assertEqual(self.written(), [])
 
+    @unittest.skipUnless(os.name == "nt", "Only Windows refuses names that differ only in letter case.")
     def test_group_names_differing_only_in_case_are_refused_before_writing(self):
         viewer = self.groups_viewer([{"Alpha"}, {"alpha"}])
         succeeded, failed = self.export(viewer, "groups")

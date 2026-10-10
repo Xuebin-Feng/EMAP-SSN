@@ -5,6 +5,7 @@ from, and never replacing a destination when the provenance is invalid."""
 import copy
 import io
 import json
+import os
 import pathlib
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -144,6 +145,7 @@ class InteractiveSaveTests(unittest.TestCase):
             self.assertTrue((folder / "Snap.H5").exists())
             self.assertFalse((folder / "Snap.H5.h5").exists())
 
+    @unittest.skipUnless(os.name == "nt", "Only Windows refuses ':' (NTFS reads it as a data stream).")
     def test_colon_in_name_is_refused_before_any_file_is_made(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             folder = pathlib.Path(temp_dir) / "cache-folder"
