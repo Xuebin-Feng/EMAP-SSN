@@ -230,6 +230,15 @@ still change before version 1.0.0.
 
 ### Changed
 
+- Faster commands on large networks. After every command the Viewer rebuilt the metadata
+  table for the web page even when no page was open: 2.7 s per command at 500,000 nodes
+  with 4 columns, 10.3 s with 30, paid on every line of a `run` script. It now skips that
+  when no page is open and is 8–11× faster when one is. Each undo step also copied the
+  whole state, one group set per node included: about 420 ms and 261 MB per command at
+  500,000 nodes, up to 13 GB for the 50-step history. Unchanged arrays are now shared
+  between steps and groups stored compactly: about 50 ms and 3 MB per command, and undo
+  and redo take about 185 ms instead of 620–910 ms. What the page shows and what undo
+  restores are unchanged.
 - **Viewer command behaviour, as decided after the command audit.** Results change on purpose:
   - **`cluster`/`subcluster` jaccard:** compares closed neighbourhoods (each node counts as its own neighbour), so an edge scores (c + 2) / (a + b − c). Isolated pairs, stars and chains are no longer forced into Noise at any threshold above 0, and a clique scores 1. Every Jaccard result changes, and the default threshold of 0.2 now keeps more edges.
   - **`cluster`/`subcluster` mcl:** each node's self-loop weighs as much as its strongest edge instead of a fixed 1, so the clusters no longer depend on the scale of the scores (identity 0–1 or −log10 E). MCL results change.
