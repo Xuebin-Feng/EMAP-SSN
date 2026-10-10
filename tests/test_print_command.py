@@ -375,6 +375,52 @@ class PrintPngMosaicTests(unittest.TestCase):
 
         self.assertEqual(mosaic.trimmed(padding_px=0).shape, (1, 1, 4))
 
+class PrintPngEncodingTests(unittest.TestCase):
+    """The PNG is encoded off the calling thread while the window paints."""
+
+    def test_the_file_is_the_one_imsave_writes(self):
+        rng = np.random.default_rng(3)
+        images = (
+            rng.random((37, 53, 4)).astype(np.float32),
+            (rng.random((20, 31, 4)) * 255).astype(np.uint8),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for index, image in enumerate(images):
+                with self.subTest(dtype=str(image.dtype)):
+                    threaded = os.path.join(directory, f"threaded{index}.png")
+                    direct = os.path.join(directory, f"direct{index}.png")
+                    print_command._save_png(threaded, image)
+                    print_command.mpimg.imsave(direct, image)
+                    with open(threaded, "rb") as a, open(direct, "rb") as b:
+                        self.assertEqual(a.read(), b.read())
+
+    def test_the_window_keeps_painting_while_a_thread_encodes(self):
+        import threading
+
+        pumped = threading.Event()
+        encoders = []
+
+        def slow_encode(path, image):
+            encoders.append(threading.current_thread())
+            # Done only once the calling thread has let Qt run.
+            self.assertTrue(pumped.wait(5))
+
+        with mock.patch.object(print_command.mpimg, "imsave", side_effect=slow_encode), \
+                mock.patch.object(print_command, "_process_events_without_input", side_effect=pumped.set) as pump:
+            print_command._save_png("picture.png", np.zeros((2, 2, 4), dtype=np.uint8))
+
+        self.assertEqual(len(encoders), 1)
+        self.assertIsNot(encoders[0], threading.current_thread())
+        self.assertGreaterEqual(pump.call_count, 1)
+
+    def test_an_encoder_error_reaches_the_caller(self):
+        error = OSError("disk full")
+        with mock.patch.object(print_command.mpimg, "imsave", side_effect=error), \
+                self.assertRaises(OSError) as raised:
+            print_command._save_png("picture.png", np.zeros((2, 2, 4), dtype=np.uint8))
+        self.assertIs(raised.exception, error)
+
+
 class PrintOutputNameTests(unittest.TestCase):
     def run_print(self, save_dir, arguments):
         viewer = PrintMarginTrimTests.make_viewer()
@@ -1918,6 +1964,23 @@ class PrintTransientMarksTests(unittest.TestCase):
                 engine.command_succeeded.assert_called_once()
                 self.assert_drawn_without_transient_marks(viewer, before, during)
                 self.assert_restored(viewer, before)
+
+    def test_the_marks_are_back_while_the_png_is_encoded(self):
+        for arguments in (["marks"], ["marks", "full"]):
+            with self.subTest(arguments=arguments):
+                viewer = marked_viewer()
+                before = drawn(viewer)
+                while_encoding = []
+
+                def encode(_path, _image):
+                    while_encoding.append(viewer.transient_marks_hidden)
+                    self.assert_restored(viewer, before)
+
+                with mock.patch.object(print_command, "_save_png", side_effect=encode):
+                    engine, _during = self.run_print(viewer, arguments)
+
+                engine.command_succeeded.assert_called_once()
+                self.assertEqual(while_encoding, [False])
 
     def test_the_marks_come_back_when_the_capture_fails(self):
         for arguments in (["marks"], ["marks", "full"]):

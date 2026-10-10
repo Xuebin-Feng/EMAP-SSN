@@ -16,14 +16,13 @@
 import Command_Engine
 import os
 import math
+import threading
 import time
 import datetime
 import uuid
 import numpy as np
 import matplotlib.image as mpimg
-import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
-from matplotlib.collections import LineCollection
 from PySide6 import QtCore
 from vispy import app
 from vispy.scene.visuals import VisualNode
@@ -636,6 +635,33 @@ def _process_events_without_input():
         )
 
 
+def _save_png(filepath, image):
+    """Write image as a PNG, as imsave does, while the window keeps painting.
+
+    A full capture of tens of megapixels takes seconds to encode. The encoder
+    runs on a thread of its own (Pillow lets other threads run while it
+    compresses), and meanwhile the window paints and timers run, as between
+    capture tiles; keyboard and mouse input waits until the command ends. An
+    error in the encoder is raised here.
+    """
+    failure = []
+
+    def encode():
+        try:
+            mpimg.imsave(filepath, image)
+        except BaseException as error:
+            failure.append(error)
+
+    encoder = threading.Thread(target=encode, name="print-png-encoder")
+    encoder.start()
+    while encoder.is_alive():
+        encoder.join(CAPTURE_EVENT_INTERVAL_S)
+        if encoder.is_alive():
+            _process_events_without_input()
+    if failure:
+        raise failure[0]
+
+
 class _CaptureInterrupted(RuntimeError):
     """Something a full capture depends on changed between its tiles.
 
@@ -1139,8 +1165,13 @@ def run(viewer, args):
                     f"{trimmed_width}x{trimmed_height} px "
                     f"({PNG_TRIM_PADDING_PX} px border)."
                 )
+            # The picture is taken: the live view gets its hover colour and
+            # click halo back while the PNG is encoded.
+            if restore_marks is not None:
+                restore_marks()
+                restore_marks = None
             os.makedirs(save_dir, exist_ok=True)
-            mpimg.imsave(filepath, final_img)
+            _save_png(filepath, final_img)
             # A scale the user chose can make a small picture; it is saved all the same.
             if zoom_width is not None and max(trimmed_width, trimmed_height) < ZOOMED_IMAGE_MIN_SIDE_PX:
                 size_warning = Message(
