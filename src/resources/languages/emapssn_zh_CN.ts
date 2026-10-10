@@ -2224,7 +2224,7 @@ Command-line usage:
         <location line="+151"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -2879,7 +2879,7 @@ Command-line usage:
     <message>
         <location line="+35"/>
         <source>Error: Unrecognized logo argument &apos;{argument}&apos;. A filename must end in .svg or .png.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 logo 参数“{argument}”。文件名必须以 .svg 或 .png 结尾。</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3162,12 +3162,12 @@ Command-line usage:
     <message>
         <location filename="../../commands/reference.py" line="-41"/>
         <source>Warning: Multiple matches found for &apos;{target}&apos;. Using &apos;{reference}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">警告：“{target}”有多个匹配项，将使用“{reference}”。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Error: &apos;{name}&apos; is not in the loaded alignment, so it cannot be the reference. The reference is unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：“{name}”不在已加载的比对中，因此不能作为参考序列。参考序列保持不变。</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -3447,7 +3447,7 @@ Command-line usage:
     <message>
         <location line="+7"/>
         <source>Error: Unknown color scheme &apos;{scheme}&apos;. Use a matplotlib colormap name such as viridis; see &apos;spectrum help&apos; for the list.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：未知的配色方案“{scheme}”。请使用 matplotlib 颜色映射名称，例如 viridis；完整列表见 &apos;spectrum help&apos;。</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -3975,93 +3975,93 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
     <message>
         <location line="+624"/>
         <source>MSA headers must not be empty after sanitization.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">清理后的 MSA 序列标题不能为空。</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>MSA row {row} has an empty header.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 第 {row} 行的序列标题为空。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Duplicate MSA header: &apos;{header}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 序列标题重复：“{header}”。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>MSA header sanitization creates a duplicate header: &apos;{header}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">清理 MSA 序列标题后出现了重复的序列标题：“{header}”。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>MSA FASTA file not found: {path}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">找不到 MSA FASTA 文件：{path}</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+28"/>
         <source>MSA record &apos;{header}&apos; has no sequence data.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 记录“{header}”没有序列数据。</translation>
     </message>
     <message>
         <location line="-19"/>
         <source>MSA FASTA line {line} has an empty header.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA FASTA 第 {line} 行的序列标题为空。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>MSA FASTA line {line} contains sequence data before the first header.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA FASTA 第 {line} 行在第一个序列标题之前就出现了序列数据。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>MSA FASTA is not valid UTF-8: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA FASTA 不是有效的 UTF-8：{error}</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unable to read MSA FASTA: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法读取 MSA FASTA：{error}</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>MSA FASTA contains no records.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA FASTA 中没有记录。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>MSA sequences must not be empty after sanitization.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">清理后的 MSA 序列不能为空。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>MSA sequences must have equal aligned lengths; expected {expected}, found {examples}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 序列的比对长度必须相同；应为 {expected}，实际有 {examples}。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>HDF5 int_to_aa must decode to a JSON object.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">HDF5 int_to_aa 解码后必须是 JSON 对象。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>HDF5 int_to_aa contains a non-integer code: {code}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">HDF5 int_to_aa 含有非整数编码：{code}。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>HDF5 int_to_aa contains a non-canonical code: {code}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">HDF5 int_to_aa 含有非规范编码：{code}。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Duplicate HDF5 residue code: {code}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">HDF5 残基编码重复：{code}。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>HDF5 residue code {code} must map to a string.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
         <location filename="../../Viewer_Command_Portal.py" line="+184"/>
@@ -4774,7 +4774,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+8"/>
         <source>Results within {percent} % of the best count as a tie, which goes to the CPU, a scalar plan, less peak memory and fewer lanes, in that order.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">与最佳结果相差在 {percent}% 以内的结果视为并列；并列时依次优先选择 CPU、标量方案、峰值内存较小者和通道较少者。</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -5312,138 +5312,138 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location filename="../../Alignment_Manager.py" line="+246"/>
         <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 缺少必需对象“{path}”。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sparse HDF5 required object &apos;{path}&apos; must be a local hard link.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的必需对象“{path}”必须是本地硬链接。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sparse HDF5 &apos;matrix&apos; must be a group.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 &apos;matrix&apos; 必须是一个组。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sparse HDF5 matrix is missing its shape attribute.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 矩阵缺少 shape 属性。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sparse HDF5 matrix shape must contain two integers.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 矩阵的 shape 必须包含两个整数。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sparse HDF5 matrix must contain at least one row and one column.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 矩阵必须至少有一行一列。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Sparse HDF5 &apos;{name}&apos; must be a one-dimensional dataset.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的“{name}”必须是一维数据集。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sparse HDF5 &apos;{name}&apos; must use an integer dtype.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的“{name}”必须使用整数 dtype。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sparse HDF5 &apos;headers&apos; must be a one-dimensional dataset.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 &apos;headers&apos; 必须是一维数据集。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sparse HDF5 header count ({headers}) does not match matrix rows ({rows}).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的序列标题数（{headers}）与矩阵行数（{rows}）不一致。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sparse HDF5 data and indices datasets have different lengths.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 data 与 indices 数据集长度不同。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sparse HDF5 indptr length must equal row count plus one.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 indptr 长度必须等于行数加一。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Sparse HDF5 indptr endpoints do not match the stored entries.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 indptr 端点与存储的条目不一致。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sparse HDF5 indptr values must be non-negative and monotonic.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 indptr 值必须非负且单调。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sparse HDF5 contains column indices outside the matrix shape.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 含有超出矩阵形状的列索引。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sparse HDF5 row {row} contains duplicate column indices.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 第 {row} 行含有重复的列索引。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Sparse HDF5 header {row} is not valid UTF-8.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的第 {row} 个序列标题不是有效的 UTF-8。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sparse HDF5 header {row} is not a string.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的第 {row} 个序列标题不是字符串。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Sparse HDF5 &apos;int_to_aa&apos; must be a scalar JSON dataset.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 &apos;int_to_aa&apos; 必须是标量 JSON 数据集。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sparse HDF5 int_to_aa is not valid UTF-8.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 int_to_aa 不是有效的 UTF-8。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Sparse HDF5 int_to_aa must contain UTF-8 JSON text.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 int_to_aa 必须包含 UTF-8 JSON 文本。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Sparse HDF5 int_to_aa contains invalid JSON: {error}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">稀疏 HDF5 的 int_to_aa 含有无效的 JSON：{error}。</translation>
     </message>
     <message>
         <location line="+271"/>
         <location line="+24"/>
         <source>MSA rejected: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 被拒绝：{error}</translation>
     </message>
     <message>
         <location line="-20"/>
         <source>Error loading HDF5: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">加载 HDF5 出错：{error}</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Specified HDF5 file does not exist: {path}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">指定的 HDF5 文件不存在：{path}</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>MSA rejected: Unsupported alignment extension &apos;{extension}&apos;. Expected .fasta or .h5.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">MSA 被拒绝：不支持的比对文件扩展名“{extension}”。应为 .fasta 或 .h5。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Error loading FASTA into memory: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">将 FASTA 加载到内存时出错：{error}</translation>
     </message>
 </context>
 <context>
