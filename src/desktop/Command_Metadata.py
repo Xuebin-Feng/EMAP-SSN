@@ -23,7 +23,7 @@ EXPRESSION = ('Boolean node selection: quoted headers, #LABEL#, @file@, $sele$, 
               'No spaces inside selection expressions. Referenced data must exist; '
               'negative residue positions and negative metadata range bounds use '
               'parentheses, e.g. K(-1) or {GRAVY=(-1)-0}.')
-CLUSTER_MODE = argument('mode', 'Default leiden. Leiden requires graspologic-native; MCL requires markov_clustering, networkx and scipy.',
+CLUSTER_MODE = argument('mode', 'Default leiden. Leiden requires graspologic-native; MCL requires markov_clustering, networkx and scipy. MCL gives every node a self-loop as heavy as its strongest edge, so rescaling every score does not change its clusters. Jaccard compares closed neighbourhoods (a node counts as its own neighbour), so an edge outside every triangle still scores above 0 and an isolated pair or clique edge scores 1.',
                         choice('leiden'), choice('mcl'), choice('jaccard'))
 CLUSTER_PARAMETER = argument('parameter', 'Optional number: Leiden resolution defaults to 1.0; MCL inflation to 2.0, within 1.1 to 10.0; Jaccard threshold to 0.2.')
 MIN_SIZE = argument('min_size', 'Optional integer, default 10. Smaller subsets become noise.')
@@ -55,7 +55,7 @@ COMMAND_METADATA = {
         argument('labels', 'One or more #LABEL# tokens for existing clusters, groups, or noise; repeated labels are deduplicated. Legacy group: prefixes are rejected.')),
     'group': entry('Assign overlapping custom group labels or manage existing groups.',
         argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups (all of which must exist, or nothing is removed), reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
-        argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes.'),
+        argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes. Only visible nodes are labelled: hidden matches are skipped, as in color, and an expression matching only hidden nodes labels none.'),
         argument('names', 'Names use letters, digits, underscores, hyphens or periods, without spaces. Reserved command names, canonical cluster_N names of clusters that currently exist, and every subcluster_N_M name in the generated form (positive IDs without leading zeros) cannot be assigned. remove accepts multiple names.')),
     'hide': entry('Hide selected or matching visible nodes and their connected edges.',
         argument('action', 'single hides nodes with no active edges at the current threshold; reset unhides all nodes. Without arguments, hide selected nodes.', choice('single', 'free'), choice('reset')),

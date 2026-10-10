@@ -917,9 +917,10 @@ def sorted_neighbour_csr(edges, n_nodes):
 def jaccard_partition(n_nodes, edges, threshold, min_size):
     """Label the connected components left by ``fast_jaccard_filter``.
 
-    Components with fewer than ``min_size`` nodes are Noise (-1); the others
-    get distinct positive labels in no particular order, so callers number
-    them with ``renumber_clusters_by_size``.
+    Edges are kept by the Jaccard index of their endpoints' closed
+    neighbourhoods. Components with fewer than ``min_size`` nodes are Noise
+    (-1); the others get distinct positive labels in no particular order, so
+    callers number them with ``renumber_clusters_by_size``.
     """
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
@@ -938,11 +939,20 @@ def jaccard_partition(n_nodes, edges, threshold, min_size):
 
 
 def _mcl_add_self_loops(matrix):
-    """``markov_clustering.add_self_loops(matrix, 1)`` for the canonical CSR
-    adjacency the commands build, without its DOK round trip.
+    """Give every node a self-loop as heavy as its strongest edge, so the
+    loops scale with the edge weights (``markov_clustering.add_self_loops``
+    gives every node the same fixed weight, whatever the scale of the scores),
+    for the canonical CSR adjacency the commands build and without the
+    library's DOK round trip.
 
-    Returns the same CSC arrays: each column's rows ascending, its diagonal
-    entry set to 1, or appended last when the column had none.
+    A node's loop weighs the largest entry of its column outside the
+    diagonal, or 1 for a node with no edge, so that its column normalises to
+    itself. A diagonal entry the matrix already holds is replaced, not added
+    to, and plays no part in the maximum.
+
+    Returns the CSC arrays ``add_self_loops`` returns for a sparse matrix:
+    each column's rows ascending, its diagonal entry replaced, or appended
+    last when the column had none.
     """
     import scipy.sparse as sp
 
@@ -954,7 +964,22 @@ def _mcl_add_self_loops(matrix):
         np.arange(n_nodes, dtype=indices.dtype), np.diff(indptr)
     )
     diagonal = indices == columns
-    data[diagonal] = 1
+
+    # A column's entries are contiguous, so the maximum of every column that
+    # has an off-diagonal entry is a reduction over that column's run.
+    others = ~diagonal
+    other_columns = columns[others]
+    other_data = data[others]
+    loops = np.ones(n_nodes, dtype=data.dtype)
+    if other_data.size:
+        run_starts = np.flatnonzero(
+            np.concatenate(([True], other_columns[1:] != other_columns[:-1]))
+        )
+        loops[other_columns[run_starts]] = np.maximum.reduceat(
+            other_data, run_starts
+        )
+
+    data[diagonal] = loops[columns[diagonal]]
     missing = np.ones(n_nodes, dtype=bool)
     missing[columns[diagonal]] = False
     positions = indptr[1:][missing]
@@ -963,7 +988,7 @@ def _mcl_add_self_loops(matrix):
     new_indptr[1:] = indptr[1:] + np.cumsum(missing)
     return sp.csc_matrix(
         (
-            np.insert(data, positions, np.ones(added.size, dtype=data.dtype)),
+            np.insert(data, positions, loops[added]),
             np.insert(indices, positions, added),
             new_indptr,
         ),
@@ -1034,11 +1059,14 @@ def _mcl_get_clusters(matrix):
 
 def markov_clusters(matrix, inflation):
     """Return ``get_clusters(run_mcl(matrix, inflation=inflation))`` of
-    ``markov_clustering``, with the library's defaults and arithmetic.
+    ``markov_clustering``, with the library's defaults and arithmetic, except
+    for the self-loops: each node's loop weighs its strongest edge (1 without
+    an edge) instead of the library's fixed 1, so scaling every weight by a
+    constant does not change the clusters.
 
-    Only its DOK-based self-loop, pruning and cluster-extraction steps are
-    replaced, by array code producing identical matrices, which ``matrix``
-    (canonical CSR from ``csr_matrix((data, (row, col)))``) guarantees.
+    Its DOK-based pruning and cluster-extraction steps are replaced by array
+    code producing identical matrices, which ``matrix`` (canonical CSR from
+    ``csr_matrix((data, (row, col)))``) guarantees.
     """
     from markov_clustering import mcl
 
@@ -1055,9 +1083,26 @@ def markov_clusters(matrix, inflation):
 if NUMBA_AVAILABLE:
 
     def fast_jaccard_filter(edges, indptr, indices, threshold):
-        """Keep edges whose endpoint neighbourhoods meet the Jaccard threshold."""
+        """Keep the edges whose endpoints' closed neighbourhoods have a
+        Jaccard index of at least ``threshold``.
+
+        The closed neighbourhood N[x] of node x is its neighbours in the
+        CSR rows (``indptr``, ``indices``, each row ascending) and x itself.
+        For an edge (u, v) of a simple graph the index is
+        (c + 2) / (|N(u)| + |N(v)| - c), c being the neighbours u and v share,
+        so an isolated pair and a clique both score 1. A node already in its
+        own row, through a self-loop, is not counted twice.
+        """
         with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
             return _jaccard_keep_mask(edges, indptr, indices, threshold)
+
+    @njit(cache=True)
+    def _sorted_row_count(indices, start, end, value):
+        """How many entries of the ascending run indices[start:end] equal value."""
+        row = indices[start:end]
+        return np.searchsorted(row, value, side="right") - np.searchsorted(
+            row, value, side="left"
+        )
 
     # Every edge writes only its own mask entry, so edges run in parallel.
     @jit(nopython=True, parallel=True, cache=True)
@@ -1070,6 +1115,7 @@ if NUMBA_AVAILABLE:
             start_v, end_v = indptr[v], indptr[v + 1]
             size_u, size_v = end_u - start_u, end_v - start_v
 
+            # The rows' common entries: the open neighbourhoods' intersection.
             intersection = 0
             pointer_u, pointer_v = start_u, start_v
             while pointer_u < end_u and pointer_v < end_v:
@@ -1083,23 +1129,45 @@ if NUMBA_AVAILABLE:
                 else:
                     pointer_v += 1
 
+            # Close the neighbourhoods: add each node to its own row unless a
+            # self-loop has put it there already, then count what that adds to
+            # the intersection (u in v's row, v in u's row).
+            own_u = _sorted_row_count(indices, start_u, end_u, u)
+            own_v = _sorted_row_count(indices, start_v, end_v, v)
+            add_u = 1 if own_u == 0 else 0
+            add_v = 1 if own_v == 0 else 0
+            size_u += add_u
+            size_v += add_v
+            if u == v:
+                intersection = size_u
+            else:
+                v_in_u = _sorted_row_count(indices, start_u, end_u, v)
+                u_in_v = _sorted_row_count(indices, start_v, end_v, u)
+                intersection += min(own_u + add_u, u_in_v) - min(own_u, u_in_v)
+                intersection += min(v_in_u, own_v + add_v) - min(v_in_u, own_v)
+
+            # Each closed neighbourhood holds its own node, so union >= 1.
             union = size_u + size_v - intersection
-            if union > 0 and (intersection / union) >= threshold:
+            if (intersection / union) >= threshold:
                 keep_mask[edge_index] = True
         return keep_mask
 
 else:
 
     def fast_jaccard_filter(edges, indptr, indices, threshold):
+        """Keep the edges whose endpoints' closed neighbourhoods have a
+        Jaccard index of at least ``threshold`` (see the Numba version)."""
         n_edges = edges.shape[0]
         keep_mask = np.zeros(n_edges, dtype=bool)
         for edge_index in range(n_edges):
             u, v = edges[edge_index]
-            neighbours_u = set(indices[indptr[u] : indptr[u + 1]])
-            neighbours_v = set(indices[indptr[v] : indptr[v + 1]])
-            intersection = len(neighbours_u.intersection(neighbours_v))
-            union = len(neighbours_u.union(neighbours_v))
-            if union > 0 and (intersection / union) >= threshold:
+            closed_u = set(indices[indptr[u] : indptr[u + 1]].tolist())
+            closed_u.add(int(u))
+            closed_v = set(indices[indptr[v] : indptr[v + 1]].tolist())
+            closed_v.add(int(v))
+            intersection = len(closed_u.intersection(closed_v))
+            union = len(closed_u.union(closed_v))
+            if (intersection / union) >= threshold:
                 keep_mask[edge_index] = True
         return keep_mask
 

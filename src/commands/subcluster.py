@@ -106,10 +106,16 @@ def print_help():
     What is clustered:
       - Subclustering uses every loaded edge between the cluster's own nodes,
         regardless of the similarity slider and hidden nodes.
-      - Jaccard compares open neighbourhoods (a node does not count as its own
-        neighbour), so an edge whose endpoints share no neighbour scores 0.
+      - Jaccard compares closed neighbourhoods (a node counts as its own
+        neighbour). An edge whose endpoints have a and b neighbours, c of them
+        shared, scores (c + 2) / (a + b - c), so an edge outside every triangle
+        still scores above 0, while an isolated pair and every edge of a clique
+        score 1.
       - Isolated nodes are always Noise in Leiden, but can be singleton subclusters
         in MCL and Jaccard when MIN_SIZE is 1.
+      - MCL gives every node a self-loop as heavy as its strongest edge within
+        the cluster (1 for a node with no edge), so multiplying every score by a
+        constant does not change the subclusters.
       - MCL needs every edge score within the cluster to be finite and above 0.
 
     Examples:

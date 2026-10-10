@@ -82,9 +82,9 @@ def run_command(command, viewer, args):
 
 
 # Two triangles, 0-1-2 and 3-4-5, joined by the bridge 2-3. The Jaccard index
-# of an edge (neighbours shared by its endpoints / all their neighbours) is 1/3
-# for 0-1 and 4-5, 1/4 for the four triangle edges that touch the bridge, and
-# 0 for the bridge, whose endpoints share no neighbour.
+# of an edge (its endpoints' closed neighbourhoods, each node counting as its
+# own neighbour: shared / all) is 1 for 0-1 and 4-5, 3/4 for the four triangle
+# edges that touch the bridge, and 1/3 for the bridge.
 BARBELL_EDGES = ((0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5))
 
 

@@ -496,7 +496,7 @@ class ParallelNeighborJoiningTests(unittest.TestCase):
 
 
 class ParallelJaccardFilterTests(unittest.TestCase):
-    def test_matches_neighbourhood_set_definition_on_any_thread_count(self):
+    def test_matches_closed_neighbourhood_set_definition_on_any_thread_count(self):
         rng = np.random.default_rng(9)
         count, pairs = 200, 900
         adjacency = sp.coo_matrix(
@@ -506,8 +506,9 @@ class ParallelJaccardFilterTests(unittest.TestCase):
         adjacency = ((adjacency + adjacency.T) > 0).tocsr()
         adjacency.sort_indices()
         edges = np.column_stack(sp.triu(adjacency, 1).nonzero()).astype(np.int64)
+        # A node counts as its own neighbour.
         neighbours = [
-            set(adjacency.indices[adjacency.indptr[node]:adjacency.indptr[node + 1]])
+            set(adjacency.indices[adjacency.indptr[node]:adjacency.indptr[node + 1]]) | {node}
             for node in range(count)
         ]
         for threshold in (0.0, 0.1, 0.3):

@@ -1147,7 +1147,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header">MCL (Markov Clustering)</div>
                     <div class="collapsible-content">
-                        <p><strong>Mechanism:</strong> Simulates random walks through the network, assuming that a random walker stays within a dense cluster rather than crossing a sparse boundary. Uses similarity scores as transition probabilities. Requires <code>markov_clustering</code> and <code>networkx</code>.</p>
+                        <p><strong>Mechanism:</strong> Simulates random walks through the network, assuming that a random walker stays within a dense cluster rather than crossing a sparse boundary. Uses similarity scores as transition probabilities. Every node also receives a self-loop as heavy as its strongest edge (1 for a node with no edge), so the clusters do not depend on the scale of the scores: identities from 0 to 1 and &minus;log<sub>10</sub> E-values cluster alike. Requires <code>markov_clustering</code> and <code>networkx</code>.</p>
                         <p><strong>Parameter:</strong> <em>Inflation</em> (Default: 2.0), from 1.1 to 10.0 inclusive; a value outside this range is refused before anything changes. Controls boundary granularity. Higher values (e.g. 4.0, 6.0) generally produce tighter, more numerous clusters.</p>
                         <p><strong>Usage:</strong> <code>cluster mcl 2.0 10</code></p>
                     </div>
@@ -1156,8 +1156,8 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header">Jaccard Filter</div>
                     <div class="collapsible-content">
-                        <p><strong>Mechanism:</strong> Purely topological filter. Calculates the Jaccard index (shared neighbors / total neighbors) for every edge and cuts edges falling below the threshold. Requires <code>numba</code>.</p>
-                        <p><strong>Parameter:</strong> <em>Threshold</em> (Default: 0.2). A float between 0.0 and 1.0. A threshold of 0.2 means connected nodes must share at least 20% of their surrounding neighbors to remain attached.</p>
+                        <p><strong>Mechanism:</strong> Purely topological filter. Calculates the Jaccard index of the two endpoints' closed neighborhoods for every edge and cuts edges falling below the threshold. A closed neighborhood is a node's neighbors plus the node itself, so for an edge between nodes with <em>a</em> and <em>b</em> neighbors, <em>c</em> of them shared, the index is (<em>c</em> + 2) / (<em>a</em> + <em>b</em> &minus; <em>c</em>). An edge outside every triangle still scores above 0, and an isolated pair or any edge of a clique scores 1. Uses <code>numba</code> when installed, and a slower pure-Python path otherwise.</p>
+                        <p><strong>Parameter:</strong> <em>Threshold</em> (Default: 0.2). A float between 0.0 and 1.0. A threshold of 0.2 means the closed neighborhoods of two connected nodes must overlap by at least 20% of their union for the edge to remain.</p>
                         <p><strong>Usage:</strong> <code>cluster jaccard 0.2 10</code></p>
                     </div>
                 </div>
@@ -1287,6 +1287,7 @@
                 <ul>
                     <li><strong>Implicit UI Targeting:</strong> Selecting nodes in the viewer with the mouse and running <code>group [NAME]</code> assigns that group label directly to the selection.</li>
                     <li><strong>Advanced Expression Targeting:</strong> Use the Expression Interpreter to assign labels to thousands of nodes instantly. Multiple expressions and names can be chained, e.g. <code>group P106 mutant "Human" human_proteins</code>.</li>
+                    <li><strong>Visible Nodes Only:</strong> Like <code>color</code>, <code>spectrum</code> and <code>select</code>, <code>group</code> skips hidden nodes. An expression may match them, and so may the selection, but only visible nodes receive the label; an expression that matches only hidden nodes labels none, as one that matches nothing does. Labels a node already carries are kept when it is hidden.</li>
                 </ul>
 
                 <div class="subheading">Managing Groups</div>

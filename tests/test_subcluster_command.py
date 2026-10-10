@@ -167,19 +167,20 @@ class JaccardAndMCLSubclusterTests(unittest.TestCase):
                 np.testing.assert_array_equal(color, GREY)
 
     def test_jaccard_splits_the_cluster_by_its_own_edges(self):
+        # The barbell's closed-neighbourhood Jaccard indices: 1 for 0-1 and
+        # 4-5, 3/4 for the other triangle edges and 1/3 for the bridge.
+        triangles = {"subcluster_1_1": (2, 3, 4), "subcluster_1_2": (5, 6, 7)}
+        everything = {"subcluster_1_1": (2, 3, 4, 5, 6, 7)}
         cases = [
-            (["0.2", "3"], {"subcluster_1_1": (2, 3, 4), "subcluster_1_2": (5, 6, 7)}),
-            (["0.26", "2"], {"subcluster_1_1": (2, 3), "subcluster_1_2": (6, 7)}),
-            (["0", "3"], {"subcluster_1_1": (2, 3, 4, 5, 6, 7)}),
+            # At or below 1/3 the bridge is kept too.
+            (["0.2", "3"], everything),
+            (["0", "3"], everything),
+            (["0.34", "3"], triangles),
+            (["0.5", "3"], triangles),
+            (["0.76", "2"], {"subcluster_1_1": (2, 3), "subcluster_1_2": (6, 7)}),
             # Node 8 has no edge inside the cluster: a singleton.
-            (
-                ["0.2", "1"],
-                {
-                    "subcluster_1_1": (2, 3, 4),
-                    "subcluster_1_2": (5, 6, 7),
-                    "subcluster_1_3": (8,),
-                },
-            ),
+            (["0.2", "1"], {**everything, "subcluster_1_2": (8,)}),
+            (["0.5", "1"], {**triangles, "subcluster_1_3": (8,)}),
         ]
         for params, members in cases:
             with self.subTest(params=params):
@@ -281,7 +282,7 @@ class JaccardAndMCLSubclusterTests(unittest.TestCase):
 
     def test_edge_orientation_does_not_matter(self):
         reversed_edges = tuple((v, u) for u, v in NETWORK_EDGES)
-        for args in (["jaccard", "0.2", "3"], ["mcl", "2", "3"]):
+        for args in (["jaccard", "0.5", "3"], ["mcl", "2", "3"]):
             with self.subTest(args=args):
                 viewer = network_viewer(
                     10, reversed_edges, cluster_labels=NETWORK_CLUSTERS
@@ -477,7 +478,7 @@ class SubclusterWithoutNumbaTests(unittest.TestCase):
             subcluster_command.network_clustering, "NUMBA_AVAILABLE", False
         ):
             succeeded, failed, output = run_command(
-                subcluster_command, viewer, ["cluster_1", "jaccard", "0.2", "3"]
+                subcluster_command, viewer, ["cluster_1", "jaccard", "0.5", "3"]
             )
         failed.assert_not_called()
         self.assertNotIn("Numba", output)
@@ -572,8 +573,10 @@ class SubclusterModuleTests(unittest.TestCase):
         text = " ".join(output.getvalue().split())
         for line in (
             "regardless of the similarity slider and hidden nodes",
-            "Jaccard compares open neighbourhoods",
-            "an edge whose endpoints share no neighbour scores 0",
+            "Jaccard compares closed neighbourhoods",
+            "a node counts as its own neighbour",
+            "an edge outside every triangle still scores above 0",
+            "MCL gives every node a self-loop as heavy as its strongest edge",
             "Isolated nodes are always Noise in Leiden",
             "singleton subclusters in MCL and Jaccard when MIN_SIZE is 1",
         ):

@@ -83,8 +83,9 @@ def print_help():
       * QUICK USE: If no expression is provided, the command automatically applies
         the group name to the nodes currently selected in the viewer.
 
-      Hidden nodes are included: an expression matches them like any other node,
-      and they receive the group label.
+      Hidden nodes are skipped, as by color, spectrum, and select: only visible
+      nodes receive a group label, even when an expression or the selection
+      matches hidden ones. Labels that hidden nodes already carry are kept.
 
     Expression Targets (Do NOT use spaces inside expressions!):
       1. AA Position:  [AA][Pos] (e.g., P106, _100 for gap), or ([AA...])[Pos]
@@ -102,7 +103,8 @@ def print_help():
     Validation:
       Referenced clusters, groups, alignment positions, metadata properties, and
       files must exist. If any expression is invalid, no groups are applied.
-      A valid expression may match zero nodes.
+      A valid expression may match zero nodes, and one that matches only hidden
+      nodes labels none.
       Reserved group names are: noise, reset, remove, delete, list, help, cluster,
       group, groups, and clusters. A canonical cluster name is rejected only when
       that cluster currently exists (for example, cluster_1 while cluster 1 is
@@ -311,6 +313,11 @@ def run(viewer, args):
                 metadata=getattr(viewer, 'metadata', None),
                 selection_mask=Command_Engine.get_selected_mask(viewer),
             )
+            # Hidden nodes are outside the command's target domain, even when
+            # the expression matches them, and a selection can hold nodes
+            # hidden after it was made. Intersecting here also keeps them
+            # out of the staged labels a later pair's #name# refers to.
+            mask = mask & viewer.visible_mask
             count = int(np.sum(mask))
 
             if count > 0:

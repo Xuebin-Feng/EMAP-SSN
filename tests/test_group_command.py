@@ -237,17 +237,143 @@ class GroupCommandTests(unittest.TestCase):
             ["Groups Applied: 1 node -> 'ok'"],
         )
 
-    def test_hidden_nodes_are_grouped_and_the_help_says_so(self):
-        viewer = self.make_viewer()
-        viewer.visible_mask = np.array([False])
 
-        self.record(viewer, ['"node"', "ok"])
-        self.assertEqual(viewer.group_labels, [{"ok"}])
+class GroupHiddenNodeTests(unittest.TestCase):
+    """group skips hidden nodes, as color, spectrum and select do."""
 
+    def make_viewer(self, hidden=(1,), selected=()):
+        """Four nodes with Length 100-400; the nodes in hidden are not visible."""
+        viewer = one_node_viewer()
+        viewer.n_nodes = 4
+        viewer.full_headers = [f"node{index}" for index in range(4)]
+        viewer.cluster_labels = np.array([1, 1, 2, 2])
+        viewer.group_labels = [set() for _ in range(4)]
+        viewer.metadata = {
+            "Length": {"type": "number", "values": np.array([100.0, 200.0, 300.0, 400.0])}
+        }
+        viewer.visible_mask = np.array([index not in hidden for index in range(4)])
+        viewer.selected_indices = list(selected)
+        return viewer
+
+    def run_group(self, viewer, arguments):
+        with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+            group_command.run(viewer, arguments)
+        failed.assert_not_called()
+        return succeeded.call_args.args[1]
+
+    def test_hidden_matches_are_not_labelled_and_visible_ones_are(self):
+        viewer = self.make_viewer(hidden=(1,))
+
+        message = self.run_group(viewer, ["{Length>150}", "big"])
+
+        # Nodes 1, 2 and 3 match; node 1 is hidden.
+        self.assertEqual(viewer.group_labels, [set(), set(), {"big"}, {"big"}])
+        self.assertEqual(message, "Groups Applied: 2 nodes -> 'big'")
+        viewer._save_state.assert_called_once_with()
+        viewer.update_nodes.assert_called_once_with()
+
+    def test_every_expression_target_skips_hidden_nodes(self):
+        for expression in ('"node1"', "#cluster_1#", "{Length=200-200}", "!#cluster_2#&!$sele$"):
+            with self.subTest(expression=expression):
+                viewer = self.make_viewer(hidden=(1,))
+                self.run_group(viewer, [expression, "name"])
+                self.assertFalse(viewer.group_labels[1])
+
+        viewer = self.make_viewer(hidden=(1,))
+        self.run_group(viewer, ["#cluster_1#", "name"])
+        self.assertEqual(viewer.group_labels, [{"name"}, set(), set(), set()])
+
+    def test_the_selection_labels_only_its_visible_nodes(self):
+        # Node 1 was selected, then hidden.
+        viewer = self.make_viewer(hidden=(1,), selected=(0, 1, 2))
+
+        message = self.run_group(viewer, ["picked"])
+
+        self.assertEqual(viewer.group_labels, [{"picked"}, set(), {"picked"}, set()])
+        self.assertEqual(message, "Groups Applied: 2 nodes -> 'picked'")
+
+        viewer = self.make_viewer(hidden=(1,), selected=(0, 1, 2))
+        self.run_group(viewer, ["$sele$", "picked"])
+        self.assertEqual(viewer.group_labels, [{"picked"}, set(), {"picked"}, set()])
+
+    def test_an_expression_matching_only_hidden_nodes_matches_nothing(self):
+        viewer = self.make_viewer(hidden=(1,))
+
+        message = self.run_group(viewer, ['"node1"', "ghost"])
+
+        # The message and the state are those of an expression matching no node.
+        self.assertEqual(message, "No nodes matched criteria for grouping.")
+        self.assertEqual(viewer.group_labels, [set()] * 4)
+        viewer._save_state.assert_not_called()
+        viewer.update_nodes.assert_not_called()
+
+        empty = self.make_viewer(hidden=(1,))
+        self.assertEqual(
+            self.run_group(empty, ['"absent"', "ghost"]),
+            "No nodes matched criteria for grouping.",
+        )
+
+    def test_a_selection_of_only_hidden_nodes_matches_nothing(self):
+        viewer = self.make_viewer(hidden=(1,), selected=(1,))
+
+        message = self.run_group(viewer, ["picked"])
+
+        self.assertEqual(message, "No nodes matched criteria for grouping.")
+        self.assertEqual(viewer.group_labels, [set()] * 4)
+        viewer._save_state.assert_not_called()
+
+    def test_chained_pairs_see_only_the_visible_nodes_labelled_before(self):
+        viewer = self.make_viewer(hidden=(1,))
+
+        message = self.run_group(
+            viewer, ["{Length>150}", "big", "#big#&{Length<350}", "middle"]
+        )
+
+        # big is nodes 2 and 3; hidden node 1 is in neither group.
+        self.assertEqual(viewer.group_labels, [set(), set(), {"big", "middle"}, {"big"}])
+        self.assertEqual(message, "Groups Applied: 2 nodes -> 'big'; 1 node -> 'middle'")
+
+    def test_labels_hidden_nodes_already_carry_are_kept_but_not_matched(self):
+        viewer = self.make_viewer(hidden=(1,))
+        viewer.group_labels[1] = {"old"}
+        viewer.group_labels[2] = {"old"}
+
+        self.run_group(viewer, ["#old#", "again"])
+
+        self.assertEqual(viewer.group_labels, [set(), {"old"}, {"old", "again"}, set()])
+
+    def test_all_visible_nodes_are_labelled_as_before(self):
+        viewer = self.make_viewer(hidden=())
+
+        message = self.run_group(viewer, ["{Length>150}", "big"])
+
+        self.assertEqual(viewer.group_labels, [set(), {"big"}, {"big"}, {"big"}])
+        self.assertEqual(message, "Groups Applied: 3 nodes -> 'big'")
+
+    def test_remove_list_and_reset_still_cover_hidden_nodes(self):
+        viewer = self.make_viewer(hidden=(1,))
+        viewer.group_labels = [{"keep"}, {"keep", "drop"}, set(), {"drop"}]
+
+        self.run_group(viewer, ["remove", "drop"])
+        self.assertEqual(viewer.group_labels, [{"keep"}, {"keep"}, set(), set()])
+
+        output = io.StringIO()
+        with reported_outcomes(), redirect_stdout(output):
+            group_command.run(viewer, ["list"])
+        self.assertRegex(output.getvalue(), r"keep\s+\|\s+2 ")
+
+    def test_help_says_hidden_nodes_are_skipped(self):
         output = io.StringIO()
         with redirect_stdout(output):
             group_command.print_help()
-        self.assertIn("Hidden nodes are included", output.getvalue())
+        text = " ".join(output.getvalue().split())
+        self.assertIn(
+            "Hidden nodes are skipped, as by color, spectrum, and select: only "
+            "visible nodes receive a group label",
+            text,
+        )
+        self.assertIn("one that matches only hidden nodes labels none", text)
+        self.assertNotIn("Hidden nodes are included", text)
 
 
 if __name__ == "__main__":
