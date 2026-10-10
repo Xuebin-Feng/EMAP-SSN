@@ -55,6 +55,11 @@ GLOBAL_CONSERVATION_THRESHOLD = 0.97
 # comparisons allow for that much noise.
 THRESHOLD_TOLERANCE = 1e-9
 
+# Ambiguity codes occupy a position but name no residue: label counts them as
+# occupied, non-gap positions and never reports one as conserved. The loaders
+# map `*`, `~` and `_` to X, so those are covered too. U and O are residues.
+AMBIGUOUS_RESIDUES = frozenset("XBZJ")
+
 # A threshold is written in plain digits: float() alone would also take
 # underscores ("2026_01_01") and words ("nan").
 _PLAIN_NUMBER = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
@@ -398,6 +403,10 @@ def print_help():
       union leaves no outside sequences, the residue is not subset specific.
       Multiple passing amino acids share one workbook cell (for example,
       "Y120 | F120") in descending subset-frequency order.
+      The ambiguity codes X, B, Z and J are never reported as conserved (the
+      alignment loader reads '*', '~' and '_' as X), but they still count as
+      occupied positions, so frequencies, thresholds and occupancy keep the
+      same denominators. U and O are reported as residues.
       Globally conserved residues are reported when their frequency is greater
       than 97% across all aligned sequences. This threshold is not configurable.
       Label and logo jobs share one sequential background queue. Alignment,
@@ -797,7 +806,15 @@ def _calculate_weighted_frequencies(aln, mapping, weights, gap_chars=None):
             stats[label] = ('-', 0.0, 0.0)
             continue
 
-        consensus_aa, consensus_count = max(counts.items(), key=lambda item: item[1])
+        # Ambiguity codes stay in the occupancy above but are never the consensus.
+        residue_counts = [
+            item for item in counts.items() if item[0] not in AMBIGUOUS_RESIDUES
+        ]
+        if not residue_counts:
+            stats[label] = ('-', 0.0, occupancy)
+            continue
+
+        consensus_aa, consensus_count = max(residue_counts, key=lambda item: item[1])
         stats[label] = (
             consensus_aa,
             float(consensus_count) / total_weight,
@@ -1157,6 +1174,11 @@ def _run_label_artifact(viewer, args):
                         for amino_acid, count in sorted(
                             c_counts_by_label[lbl].items()
                         ):
+                            # X, B, Z and J are occupied positions, not residues
+                            # that can be conserved; the frequencies of the
+                            # others keep the same denominator.
+                            if str(amino_acid).upper() in AMBIGUOUS_RESIDUES:
+                                continue
                             frequency = float(count) / c_effective_n
                             if frequency < cluster_min - THRESHOLD_TOLERANCE:
                                 continue

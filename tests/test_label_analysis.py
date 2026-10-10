@@ -10,6 +10,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 from Bio.Align import MultipleSeqAlignment
@@ -155,6 +156,82 @@ class LabelGlobalProfileTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(count, 0.75)
+
+
+class LabelAmbiguityCodeTests(unittest.TestCase):
+    """X, B, Z and J occupy a position but are never its consensus residue."""
+
+    MAPPING = {0: "1"}
+
+    @staticmethod
+    def dense_alignment(*sequences):
+        return MultipleSeqAlignment(
+            [SeqRecord(Seq(sequence), id=f"row{index}") for index, sequence in enumerate(sequences)]
+        )
+
+    def stats_for_every_reading_path(self, sequences, weights):
+        """The Global Stats of one column from each way label reads columns."""
+        weights = np.asarray(weights, dtype=float)
+        results = {
+            "dense": _calculate_weighted_frequencies(
+                self.dense_alignment(*sequences), self.MAPPING, weights
+            ),
+            "row-major": _calculate_weighted_frequencies(
+                frozen_alignment(*sequences), self.MAPPING, weights
+            ),
+        }
+        with mock.patch.object(label, "_ROW_MAJOR_ENTRY_LIMIT", 0):
+            results["column-block"] = _calculate_weighted_frequencies(
+                frozen_alignment(*sequences), self.MAPPING, weights
+            )
+        return results
+
+    def test_ambiguity_codes_count_toward_occupancy_but_never_as_consensus(self):
+        for code in "XBZJ":
+            with self.subTest(code=code):
+                results = self.stats_for_every_reading_path(
+                    [code, code, code, "A", "-"], np.ones(5)
+                )
+                for path, (stats, counts) in results.items():
+                    with self.subTest(path=path):
+                        consensus, frequency, occupancy = stats["1"]
+                        self.assertEqual(consensus, "A")
+                        self.assertAlmostEqual(frequency, 0.2)
+                        self.assertAlmostEqual(occupancy, 0.8)
+                        self.assertEqual(counts["1"], {code: 3.0, "A": 1.0})
+
+    def test_a_column_of_only_ambiguity_codes_has_no_consensus_but_full_occupancy(self):
+        for code in "XBZJ":
+            with self.subTest(code=code):
+                results = self.stats_for_every_reading_path(
+                    [code, code, "-", code], np.ones(4)
+                )
+                for path, (stats, counts) in results.items():
+                    with self.subTest(path=path):
+                        self.assertEqual(stats["1"][0], "-")
+                        self.assertEqual(stats["1"][1], 0.0)
+                        self.assertAlmostEqual(stats["1"][2], 0.75)
+                        self.assertEqual(counts["1"], {code: 3.0})
+
+    def test_weighted_consensus_skips_an_ambiguity_code_that_outweighs_it(self):
+        # X holds 3 of the 4.5 weight, A 1.5: A is the consensus at 1.5/4.5.
+        results = self.stats_for_every_reading_path(
+            ["X", "X", "A", "A"], [1.0, 2.0, 0.5, 1.0]
+        )
+        for path, (stats, _counts) in results.items():
+            with self.subTest(path=path):
+                self.assertEqual(stats["1"][0], "A")
+                self.assertAlmostEqual(stats["1"][1], 1.5 / 4.5)
+                self.assertAlmostEqual(stats["1"][2], 1.0)
+
+    def test_selenocysteine_and_pyrrolysine_can_be_the_consensus(self):
+        for residue in "UO":
+            with self.subTest(residue=residue):
+                stats, _counts = _calculate_weighted_frequencies(
+                    frozen_alignment(residue, residue, "X"), self.MAPPING, np.ones(3)
+                )
+                self.assertEqual(stats["1"][0], residue)
+                self.assertAlmostEqual(stats["1"][1], 2 / 3)
 
 
 class LabelTargetModeTests(unittest.TestCase):

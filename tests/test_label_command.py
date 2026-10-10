@@ -750,6 +750,118 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 "Y1 | F1",
             )
 
+    def label_sheets(self, sequences, groups, args, name, **kwargs):
+        """Run label on a one-column alignment; return its two sheets and workbook."""
+        viewer = self.make_viewer(sequences, None, groups)
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(directory, args + [name], viewer=viewer, **kwargs)
+            workbook = openpyxl.load_workbook(Path(directory, f"{name}.xlsx"))
+        return workbook["Subset Stats"], workbook["Occupancy Stats"]
+
+    def test_ambiguity_codes_are_occupied_but_never_reported_as_conserved(self):
+        # Rows 0-2 are the group: two of the residue and a gap, so 2/3 of the
+        # group is the residue, enough for a cmin of 60%, and nothing else
+        # holds it outside. As Y the cell reads "Y1"; as an ambiguity code it
+        # is left empty, but the position is as occupied as with Y.
+        groups = [{"G"}, {"G"}, {"G"}, set(), set()]
+        args = ["groups", "gmax", "50%", "cmin", "60%"]
+        control_subset, control_occupancy = self.label_sheets(
+            ["Y", "Y", "-", "A", "C"], groups, args, "control"
+        )
+        self.assertEqual(control_subset.cell(find_row(control_subset, "Group G"), 10).value, "Y1")
+        control_fill = control_occupancy.cell(
+            find_row(control_occupancy, "Group G"), 10
+        ).fill.fgColor.rgb
+        for symbol in ("X", "B", "Z", "J", "*", "~", "_"):
+            with self.subTest(symbol=symbol):
+                subset, occupancy = self.label_sheets(
+                    [symbol, symbol, "-", "A", "C"], groups, args, "ambiguous"
+                )
+                header_row = find_row(subset, "Subset Name")
+                self.assertIsNone(subset.cell(header_row, 10).value)
+                self.assertIsNone(subset.cell(find_row(subset, "Group G"), 10).value)
+                # The position stays in the occupancy sheet, shaded as for Y.
+                self.assertEqual(occupancy.cell(find_row(occupancy, "Subset Name"), 10).value, "#1")
+                self.assertEqual(
+                    occupancy.cell(find_row(occupancy, "Group G"), 10).fill.fgColor.rgb,
+                    control_fill,
+                )
+
+    def test_ambiguity_codes_dilute_frequencies_like_any_residue(self):
+        # Five rows in the group: 60% A and 40% X. A is reported at cmin 60%
+        # (and below), X is never reported, and 61% is out of A's reach.
+        sequences = ["A", "A", "A", "X", "X", "C", "C"]
+        groups = [{"G"}] * 5 + [set(), set()]
+        for cmin, expected in (("30%", "A1"), ("60%", "A1"), ("61%", None)):
+            with self.subTest(cmin=cmin):
+                subset, _occupancy = self.label_sheets(
+                    sequences, groups, ["groups", "gmax", "50%", "cmin", cmin], "mixed"
+                )
+                self.assertEqual(
+                    subset.cell(find_row(subset, "Group G"), 10).value, expected
+                )
+
+    def test_ambiguity_codes_are_not_reported_with_identity_weights_either(self):
+        # Weights 1, 1, .5, .5, .5 over the group make A 2.5 of 3.5 (71.4%)
+        # and X 1 of 3.5 (28.6%); X would pass a cmin of 20% unweighted.
+        sequences = ["A", "A", "A", "X", "X", "C", "C"]
+        groups = [{"G"}] * 5 + [set(), set()]
+        weights = [1.0, 1.0, 0.5, 0.5, 0.5, 1.0, 1.0]
+        for cmin, expected in (("20%", "A1"), ("70%", "A1"), ("72%", None)):
+            with self.subTest(cmin=cmin):
+                viewer = self.make_viewer(sequences, None, groups)
+                with tempfile.TemporaryDirectory() as directory:
+                    self.run_label(
+                        directory,
+                        ["groups", "id", "100%", "gmax", "50%", "cmin", cmin, "weighted"],
+                        viewer=viewer,
+                        identity_weights=weights,
+                    )
+                    worksheet = openpyxl.load_workbook(
+                        Path(directory, "weighted.xlsx")
+                    )["Subset Stats"]
+                viewer.identity_weight_mock.assert_called_once()
+                self.assertEqual(
+                    worksheet.cell(find_row(worksheet, "Group G"), 12).value, expected
+                )
+
+    def test_global_conserved_row_never_lists_an_ambiguity_code(self):
+        # 33 of 34 rows is 97.06%: conserved for U and O, which are residues,
+        # but not for the ambiguity codes.
+        cases = (
+            ("X", ["None"]), ("B", ["None"]), ("Z", ["None"]), ("J", ["None"]),
+            ("U", ["U1"]), ("O", ["O1"]),
+        )
+        for residue, expected in cases:
+            sequences = [residue] * 33 + ["A"]
+            viewer = self.make_viewer(
+                sequences, [0] * len(sequences), [set() for _ in sequences]
+            )
+            with self.subTest(residue=residue), tempfile.TemporaryDirectory() as directory:
+                self.run_label(directory, ["global_conserved"], viewer=viewer)
+                workbook = openpyxl.load_workbook(Path(directory, "global_conserved.xlsx"))
+                for sheet_name in ("Subset Stats", "Occupancy Stats"):
+                    worksheet = workbook[sheet_name]
+                    row = find_row(worksheet, "Global Conserved (>97%)")
+                    values = [
+                        cell.value for cell in worksheet[row + 1] if cell.value is not None
+                    ]
+                    self.assertEqual(values, expected, sheet_name)
+
+    def test_selenocysteine_and_pyrrolysine_remain_conserved_candidates(self):
+        groups = [{"G"}, {"G"}, set(), set()]
+        for residue in ("U", "O"):
+            with self.subTest(residue=residue):
+                subset, _occupancy = self.label_sheets(
+                    [residue, residue, "A", "C"],
+                    groups,
+                    ["groups", "gmax", "50%", "cmin", "100%"],
+                    "rare",
+                )
+                self.assertEqual(
+                    subset.cell(find_row(subset, "Group G"), 10).value, f"{residue}1"
+                )
+
     def test_filename_cannot_escape_output_directory(self):
         with self.assertRaisesRegex(ValueError, "path separators"):
             label._normalize_output_filename("../outside")
