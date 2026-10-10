@@ -665,3 +665,46 @@ class WrappedPlaceholderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResponsiveColumnsLayoutTests(unittest.TestCase):
+    """Equal columns side by side while they fit, else one full-width row each."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_columns_split_evenly_then_stack_and_say_so(self):
+        from PySide6.QtCore import QRect
+        from PySide6.QtWidgets import QWidget
+        from desktop.Desktop_App import ResponsiveColumnsLayout
+
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        switches = []
+        layout = ResponsiveColumnsLayout(host, spacing=24, on_stack=switches.append)
+        first, second = QWidget(), QWidget()
+        for widget, minimum in ((first, 200), (second, 300)):
+            widget.setMinimumWidth(minimum)
+            widget.setFixedHeight(40)
+            layout.addWidget(widget)
+        # Only the widest column counts towards the minimum, so the host can stack.
+        self.assertEqual(layout.minimumSize().width(), 300)
+
+        layout.setGeometry(QRect(0, 0, 724, 200))  # two columns of 350 px
+        self.assertEqual(first.geometry(), QRect(0, 0, 350, 40))
+        self.assertEqual(second.geometry(), QRect(374, 0, 350, 40))
+        self.assertIs(host.property("stacked"), False)
+
+        layout.setGeometry(QRect(0, 0, 500, 200))  # 238 px each: below 300
+        self.assertEqual(first.geometry(), QRect(0, 0, 500, 40))
+        self.assertEqual(second.geometry(), QRect(0, 64, 500, 40))
+        self.assertIs(host.property("stacked"), True)
+        self.assertEqual(layout.heightForWidth(500), 104)
+
+        for _ in range(3):
+            self.app.processEvents()
+        self.assertEqual(switches, [False, True])
+

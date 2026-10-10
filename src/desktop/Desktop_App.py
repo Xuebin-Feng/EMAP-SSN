@@ -1067,6 +1067,67 @@ class ResponsiveFlowLayout(QLayout):
         return max(0, y - rect.y() - self.spacing())
 
 
+class ResponsiveColumnsLayout(ResponsiveFlowLayout):
+    """Equal columns side by side while each keeps its minimum width, else one per row.
+
+    Unlike the flow it extends, a wide row splits its width evenly, as a box
+    layout with equal stretches does, so two halves stay halves. Once a column
+    would drop below its minimum, every column takes a full-width row of its own,
+    and the layout's minimum width is only its widest column's.
+
+    Its parent's "stacked" property says which it is, and ``on_stack(stacked)``,
+    if given, is called once the layout has switched, after the layout pass.
+    """
+
+    def __init__(self, parent=None, spacing=6, on_stack=None):
+        super().__init__(parent, spacing)
+        self._on_stack = on_stack
+        self._stacked = None
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        visible = self._visible()
+        column = (rect.width() - self.spacing() * max(0, len(visible) - 1)) // max(1, len(visible))
+        stacked = any(self._minimum(index).width() > column for index in visible)
+        if stacked != self._stacked:
+            self._stacked = stacked
+            parent = self.parentWidget()
+            if parent is not None:
+                parent.setProperty("stacked", stacked)
+            if self._on_stack is not None:
+                QTimer.singleShot(0, lambda: self._on_stack(stacked))
+
+    def sizeHint(self):
+        visible = self._visible()
+        width = (len(visible) * max((self._minimum(i).width() for i in visible), default=0)
+                 + self.spacing() * max(0, len(visible) - 1))
+        return QSize(width, self.heightForWidth(width))
+
+    def _arrange(self, rect, *, apply):
+        visible = self._visible()
+        if not visible:
+            return 0
+        count = len(visible)
+        column = (rect.width() - self.spacing() * (count - 1)) // count
+        if all(self._minimum(index).width() <= column for index in visible):
+            height = max(self._items[index].sizeHint().height() for index in visible)
+            x = rect.x()
+            for position, index in enumerate(visible):
+                # The last column takes what the even split leaves over.
+                width = column if position < count - 1 else rect.x() + rect.width() - x
+                if apply:
+                    self._items[index].setGeometry(QRect(x, rect.y(), width, height))
+                x += column + self.spacing()
+            return height
+        y = rect.y()
+        for index in visible:
+            height = self._items[index].sizeHint().height()
+            if apply:
+                self._items[index].setGeometry(QRect(rect.x(), y, rect.width(), height))
+            y += height + self.spacing()
+        return y - rect.y() - self.spacing()
+
+
 class ResponsiveSelectorLayout(ResponsiveFlowLayout):
     """Selector, optional name, folder button; keep the folder beside the selector."""
 
@@ -1817,6 +1878,7 @@ __all__ = [
     "language_web_font_css",
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
+    "ResponsiveColumnsLayout",
     "ResponsiveSelectorLayout",
     "WrappedPlaceholderTextEdit",
     "add_combo_options",

@@ -939,6 +939,10 @@ still change before version 1.0.0.
   minimum width, so in a narrower pane every line ran past the right edge and had to be
   scrolled sideways. A table wider than the pane now scrolls on its own, and long names
   such as a script's break onto the next line.
+- The VR Configuration window's Visual Effects tab no longer scrolls sideways at the
+  launch size. Its VR client settings stand in two halves side by side only while both
+  fit; in a narrower window the second half goes under the first, its fields lined up
+  with the ones above. The wide layout is unchanged.
 
 ### Removed
 
