@@ -883,7 +883,7 @@
                     <li><code>color / colors</code>: Reverts all node colors to the configured initial node color.</li>
 <li><code>size / sizes</code>: Resets all node sizes to the baseline size defined in configuration.</li>
 <li><code>shape / shapes</code>: Resets all nodes back to standard circular &#x27;disc&#x27; shapes.</li>
-<li><code>cluster / clusters</code>: Strips all cluster labels, removes cluster UI visuals, and clears the cluster tooltip data.</li>
+<li><code>cluster / clusters</code>: Strips all cluster labels, removes cluster UI visuals, and clears the cluster tooltip data. It also removes the <code>subcluster_N_M</code> groups the <code>subcluster</code> command generated for them and reports how many; custom groups with lookalike names, such as <code>subcluster_0_2</code>, are kept.</li>
 <li><code>group / groups</code>: Clears all custom group label sets assigned to nodes.</li>
 <li><code>hide / hidden</code>: Unhides all hidden nodes by setting the entire visibility mask back to True.</li>
 <li><code>network / networks</code>: Snaps all node positions back to the original starting layout coordinates (or the state loaded from the last .h5 save).</li>

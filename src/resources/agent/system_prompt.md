@@ -32,7 +32,7 @@ Available CLI commands:
 
 4. `reset <TARGET_1> [TARGET_2 ...]`
    - Resets any requested combination of `colors`, `sizes`, `shapes`, `clusters`, `groups`, `hide`/`hidden`, `network`, and `order`/`layer`; singular and plural target names are accepted. An unknown target fails the whole command, and nothing is reset.
-   - Visual targets restore configured defaults, cluster/group targets clear those labels, hide restores visibility, network restores layout positions to the original or most recently saved baseline, and order/layer restores persistent node rendering to index order without clearing active focus.
+   - Visual targets restore configured defaults, cluster/group targets clear those labels (clearing clusters also removes the generated `subcluster_N_M` groups; custom lookalikes such as `subcluster_0_2` are kept), hide restores visibility, network restores layout positions to the original or most recently saved baseline, and order/layer restores persistent node rendering to index order without clearing active focus.
    - The command name must precede all targets.
    - Never emit `COMMAND reset` shortcuts such as `label reset`, which clears all topology clusters; use `reset TARGET` instead.
 

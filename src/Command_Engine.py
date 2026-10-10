@@ -1258,8 +1258,11 @@ def _reset_changes_state(viewer, base_p):
         shapes = getattr(viewer, 'current_shapes', None)
         return shapes is not None and bool(np.any(shapes != 'disc'))
     if base_p == "cluster":
+        from commands import group as group_command
+        groups = getattr(viewer, 'group_labels', None) or []
         return (getattr(viewer, 'cluster_labels', None) is not None
-                or getattr(viewer, 'last_cluster_params', None) is not None)
+                or getattr(viewer, 'last_cluster_params', None) is not None
+                or any(group_command.is_generated_subcluster_name(g) for g_set in groups for g in g_set))
     if base_p == "group":
         groups = getattr(viewer, 'group_labels', None)
         return groups is None or any(groups)
@@ -1284,11 +1287,13 @@ def execute_reset(viewer, targets):
     when no target is given or any target is unknown. Undo state is saved
     only when a target has something to reset.
     """
+    from commands import group as group_command
     from commands import reset as reset_command
     reset_command.check_targets(targets)
 
     targets_found = []
     needs_update = False
+    removed_subclusters = []
 
     # A reset that changes nothing must not push an undo entry: the history
     # holds 50, and an empty one would push out a real one.
@@ -1320,8 +1325,10 @@ def execute_reset(viewer, targets):
 
         elif base_p == "cluster":
             viewer.cluster_labels = None
-            # The parameters belong to the clusters just cleared.
+            # The parameters belong to the clusters just cleared, and so do
+            # the groups the subcluster command generated for them.
             viewer.last_cluster_params = None
+            removed_subclusters = group_command.remove_generated_subcluster_groups(viewer)
             if hasattr(viewer, 'label_visuals'):
                 for visual in viewer.label_visuals:
                     visual.parent = None
@@ -1363,6 +1370,11 @@ def execute_reset(viewer, targets):
     # The targets are the reset command's own words, which stay English. A
     # target named twice is reported once.
     msg = Message("Reset successful: {targets}.", targets=", ".join(dict.fromkeys(targets_found)))
+    if removed_subclusters:
+        msg = JoinedMessage([msg, Message(
+            "Removed %n generated subcluster group(s) of the previous clustering.",
+            n=len(removed_subclusters),
+        )])
 
     show_status(viewer, msg)
     print(f"{msg}")

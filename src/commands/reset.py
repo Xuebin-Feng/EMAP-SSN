@@ -42,7 +42,9 @@ def print_help():
       shapes
           Restores all node shapes to discs.
       clusters
-          Clears all cluster labels.
+          Clears all cluster labels, and removes the subcluster groups
+          (subcluster_N_M) the subcluster command generated for them. Custom
+          groups with lookalike names, such as subcluster_0_2, are kept.
       groups
           Clears all group labels.
       hide

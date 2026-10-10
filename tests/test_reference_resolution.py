@@ -18,6 +18,7 @@ if SRC_DIR not in sys.path:
 import Alignment_Manager  # noqa: E402
 from commands import reference as reference_command  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
+from utilities.Localization import Message  # noqa: E402
 from utilities.Sequence_Utils import reference_header_matches  # noqa: E402
 from tests.sparse_alignment import load_manager, write_fasta  # noqa: E402
 
@@ -250,6 +251,31 @@ class ReferenceResolutionTests(unittest.TestCase):
         self.assertTrue(viewer.alignment.has_reference)
         self.assertEqual(viewer.active_reference, "node1")
         self.assertEqual(viewer.resolved_ref_full, "node1")
+
+    def test_a_failed_reload_reports_the_loaders_reason(self):
+        viewer = self.loaded_viewer_on_node1()
+        alignment = viewer.alignment
+        reason = Message("MSA rejected: {error}", error="MSA FASTA contains no records.")
+
+        def reload_is_rejected():
+            # The loader leaves its reason on the manager that the restore replaces.
+            viewer.alignment = SimpleNamespace(aln=None, has_reference=False, load_failure=reason)
+
+        viewer.load_global_alignment = mock.Mock(side_effect=reload_is_rejected)
+        engine = reference_command.Command_Engine
+        with mock.patch.object(engine, "command_failed") as failed,                 mock.patch.object(engine, "command_succeeded") as succeeded,                 redirect_stdout(io.StringIO()):
+            reference_command.run(viewer, ["node2"])
+
+        failed.assert_called_once()
+        self.assertEqual(
+            str(failed.call_args.args[1]),
+            "Error: Could not reload the current MSA for reference 'node2'. "
+            "MSA rejected: MSA FASTA contains no records.",
+        )
+        self.assertIn("MSA FASTA contains no records.", viewer.console_text.text)
+        succeeded.assert_not_called()
+        self.assertIs(viewer.alignment, alignment)
+        self.assertEqual(viewer.active_reference, "node1")
 
     def test_reload_that_raises_restores_the_previous_state_and_reraises(self):
         viewer = self.loaded_viewer_on_node1()

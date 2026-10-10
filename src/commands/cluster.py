@@ -203,24 +203,6 @@ def label_mcl_clusters(clusters, n_nodes, min_size):
     return labels
 
 
-def remove_generated_subcluster_groups(viewer):
-    """Remove the groups the subcluster command generated; return their names, sorted.
-
-    They name nodes of the clusters that were just replaced. Custom groups with
-    lookalike names, such as subcluster_0_2 or subcluster_001_2, are kept.
-    """
-    group_labels = getattr(viewer, 'group_labels', None)
-    if group_labels is None:
-        return []
-    removed = set()
-    for g_set in group_labels:
-        generated = [g for g in g_set if group_cmd.is_generated_subcluster_name(g)]
-        for g in generated:
-            g_set.remove(g)
-        removed.update(generated)
-    return sorted(removed)
-
-
 def print_help():
     print("""
     Topology Clustering Tool
@@ -480,7 +462,7 @@ def run(viewer, args):
     viewer.cluster_labels = labels
 
     # The generated subcluster groups name nodes of the clusters just replaced.
-    removed_subclusters = remove_generated_subcluster_groups(viewer)
+    removed_subclusters = group_cmd.remove_generated_subcluster_groups(viewer)
     
     # Store parameters as strings so external commands (align.py, etc.) know what was used
     viewer.last_cluster_params = (f"{mode.upper()}_{param1}", min_sz)

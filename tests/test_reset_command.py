@@ -147,6 +147,34 @@ class ResetCommandTests(unittest.TestCase):
         self.assertIsNone(viewer.last_cluster_params)
         viewer._save_state.assert_called_once_with()
 
+    def test_clusters_reset_removes_the_generated_subcluster_groups(self):
+        # They name nodes of the clusters this reset clears (label reset
+        # comes here too). Custom groups, lookalikes included, are kept.
+        viewer = self.make_viewer()
+        viewer.group_labels[0].update({"subcluster_1_1", "subcluster_1_2", "subcluster_0_2", "kinases"})
+        with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+            reset_command.run(viewer, ["clusters"])
+
+        self.assertIsNone(viewer.cluster_labels)
+        self.assertEqual(viewer.group_labels[0], {"subcluster_0_2", "kinases"})
+        viewer._save_state.assert_called_once_with()
+        failed.assert_not_called()
+        self.assertEqual(
+            succeeded.call_args.args[1],
+            "Reset successful: clusters. Removed 2 generated subcluster groups of the previous clustering.",
+        )
+
+    def test_clusters_reset_with_only_subcluster_groups_left_still_saves_undo_state(self):
+        viewer = self.make_viewer()
+        viewer.cluster_labels = None
+        viewer.last_cluster_params = None
+        viewer.group_labels[0].add("subcluster_1_1")
+        with reported_outcomes(), redirect_stdout(io.StringIO()):
+            reset_command.run(viewer, ["clusters"])
+
+        self.assertEqual(viewer.group_labels[0], set())
+        viewer._save_state.assert_called_once_with()
+
     def test_execute_reset_refuses_unknown_targets_before_saving_state(self):
         # The other commands' "<command> reset" forms call execute_reset
         # directly, so it keeps its own guard.

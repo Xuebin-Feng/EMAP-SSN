@@ -47,6 +47,25 @@ def is_generated_subcluster_name(name):
     return _GENERATED_SUBCLUSTER_NAME_RE.fullmatch(str(name)) is not None
 
 
+def remove_generated_subcluster_groups(viewer):
+    """Remove the groups the subcluster command generated; return their names, sorted.
+
+    They name nodes of clusters that cluster or reset cluster just replaced
+    or cleared. Custom groups with lookalike names, such as subcluster_0_2 or
+    subcluster_001_2, are kept.
+    """
+    group_labels = getattr(viewer, 'group_labels', None)
+    if group_labels is None:
+        return []
+    removed = set()
+    for g_set in group_labels:
+        generated = [g for g in g_set if is_generated_subcluster_name(g)]
+        for g in generated:
+            g_set.remove(g)
+        removed.update(generated)
+    return sorted(removed)
+
+
 def print_help():
     print("""
     Custom Group Labeling Tool

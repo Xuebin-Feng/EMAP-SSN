@@ -138,8 +138,13 @@ def run(viewer, args):
             _refuse_unaligned_reference(viewer, resolved_header)
             return
         else:
+            # The loader says why on the manager it leaves behind, which the
+            # restore replaces.
+            reason = getattr(viewer.alignment, 'load_failure', None)
             restore_previous_state()
             msg = Message("Error: Could not reload the current MSA for reference '{reference}'.", reference=target)
+            if reason is not None:
+                msg = JoinedMessage([msg, reason])
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.show_status(viewer, msg)
             print(f"\n{msg}")
