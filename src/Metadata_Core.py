@@ -36,6 +36,7 @@ engine in the other; both expose the reporting helpers and the selection
 grammar used below.
 """
 
+import math
 import os
 import re
 import uuid
@@ -338,8 +339,11 @@ def upload_metadata(viewer, file_paths):
             matched_count = 0
             unmatched_count = 0
 
+            # Each column is read out of the table once, rather than cell by
+            # cell, which costs pandas far more than the cell itself.
+            first_column = df.iloc[:, 0].to_numpy(dtype=object).tolist()
             for df_row_idx in range(2, df.shape[0]):
-                header_val = df.iloc[df_row_idx, 0]
+                header_val = first_column[df_row_idx]
                 if _metadata_cell_is_blank(header_val):
                     unmatched_count += 1
                     continue
@@ -397,9 +401,17 @@ def upload_metadata(viewer, file_paths):
                             viewer.metadata[prop_name]["values"] = new_vals
 
                 values_arr = viewer.metadata[prop_name]["values"]
+                column = df.iloc[:, col_idx].to_numpy(dtype=object)
+                # A blank cell is missing (pd.isna, as _metadata_cell_is_blank
+                # tests it, but for the whole column at once) or holds only
+                # whitespace.
+                missing = pd.isna(column).tolist()
+                column = column.tolist()
                 for node_idx, df_row_idx in node_updates.items():
-                    cell_val = df.iloc[df_row_idx, col_idx]
-                    if _metadata_cell_is_blank(cell_val):
+                    if missing[df_row_idx]:
+                        continue
+                    cell_val = column[df_row_idx]
+                    if str(cell_val).strip() == "":
                         continue
 
                     if prop_type == 'number':
@@ -410,7 +422,7 @@ def upload_metadata(viewer, file_paths):
                             number = float(cell_val)
                         except (ValueError, TypeError):
                             continue
-                        if not np.isnan(number):
+                        if not math.isnan(number):
                             values_arr[node_idx] = number
                     else:
                         # A text column keeps every word as written, "NA" and
@@ -481,6 +493,42 @@ def metadata_download_path(meta_dir, filename=""):
         counter += 1
     return os.path.abspath(filepath)
 
+def _download_column(entry, nodes):
+    """One property's cells for NODES as `meta download` writes them.
+
+    Returns (cells, valid): a number is written as export_metadata_value
+    gives it and a missing one as ""; a text value as stored, and "" for
+    None or whitespace. VALID marks the nodes whose cell holds a value.
+    """
+    stored = entry["values"]
+    if isinstance(stored, np.ndarray):
+        values = stored[nodes]
+    else:
+        values = [stored[i] for i in nodes.tolist()]
+    if entry["type"] == "number":
+        if isinstance(values, np.ndarray) and values.dtype.kind == "f":
+            valid = ~np.isnan(values)
+            # Integral values are written as ints and the rest as the stored
+            # float scalars, as export_metadata_value writes them one by one.
+            integral = valid & np.isfinite(values) & (np.floor(values) == values)
+            cells = list(values)
+            for position in np.flatnonzero(~valid).tolist():
+                cells[position] = ""
+            for position in np.flatnonzero(integral).tolist():
+                cells[position] = int(cells[position])
+            return cells, valid
+        valid = np.fromiter((bool(pd.notna(value)) for value in values), dtype=bool, count=len(values))
+        cells = [export_metadata_value(value) if ok else "" for value, ok in zip(values, valid.tolist())]
+        return cells, valid
+    cells = list(values)
+    valid = np.fromiter(
+        (value is not None and str(value).strip() != "" for value in cells), dtype=bool, count=len(cells)
+    )
+    for position in np.flatnonzero(~valid).tolist():
+        cells[position] = ""
+    return cells, valid
+
+
 def download_metadata(viewer, filepath, expr=None):
     """Downloads network metadata to a file, applying optional logic filters."""
     if not getattr(viewer, 'metadata', None):
@@ -522,33 +570,23 @@ def download_metadata(viewer, filepath, expr=None):
                 return False
 
         prop_names = list(viewer.metadata.keys())
-        
+
         row_0 = [""] + prop_names
         row_1 = [""] + [viewer.metadata[p]["type"] for p in prop_names]
-        
+
+        # The table is built a column at a time; each row then holds the same
+        # cells, in the same order, as one built node by node.
+        nodes = np.flatnonzero(mask)
+        headers = viewer.full_headers
+        columns = [[headers[i] for i in nodes.tolist()]]
+        has_valid_prop = np.zeros(len(nodes), dtype=bool)
+        for p in prop_names:
+            cells, valid = _download_column(viewer.metadata[p], nodes)
+            columns.append(cells)
+            has_valid_prop |= valid
+        kept = range(len(nodes)) if expr else np.flatnonzero(has_valid_prop).tolist()
         rows = [row_0, row_1]
-        for i in range(viewer.n_nodes):
-            if not mask[i]:
-                continue
-            has_valid_prop = False
-            row_val = [viewer.full_headers[i]]
-            for p in prop_names:
-                val = viewer.metadata[p]["values"][i]
-                if viewer.metadata[p]["type"] == "number":
-                    if pd.notna(val):
-                        has_valid_prop = True
-                        row_val.append(export_metadata_value(val))
-                    else:
-                        row_val.append("")
-                else:
-                    if val is not None and str(val).strip() != "":
-                        has_valid_prop = True
-                        row_val.append(val)
-                    else:
-                        row_val.append("")
-            
-            if has_valid_prop or expr:
-                rows.append(row_val)
+        rows.extend([column[k] for column in columns] for k in kept)
 
         df = pd.DataFrame(rows)
 

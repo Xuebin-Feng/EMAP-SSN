@@ -351,6 +351,37 @@ class MetadataFilteredDownloadTests(unittest.TestCase):
             self.assertFalse(result)
             self.assertFalse(os.path.exists(output_path))
 
+    def test_a_filter_keeps_matched_nodes_without_values_and_no_filter_leaves_them_out(self):
+        viewer = make_viewer()
+        viewer.n_nodes = 4
+        viewer.full_headers = ["node-1", "node-2", "node-3", "other-4"]
+        viewer.visible_mask = np.ones(4, dtype=bool)
+        viewer.metadata = {
+            "Length": {"type": "number", "values": np.array([100.0, np.nan, 2.5, np.nan])},
+            "Host": {"type": "text", "values": np.array(["plant", " ", "", None], dtype=object)},
+        }
+
+        def download(expr=None):
+            with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                meta_backend.Command_Engine, "print_help"
+            ), mock.patch.object(
+                meta_backend.Command_Engine, "command_artifact"
+            ), mock.patch.object(
+                meta_backend.Command_Engine, "command_succeeded"
+            ):
+                target = os.path.join(temp_dir, "metadata.csv")
+                self.assertTrue(meta_backend.download_metadata(viewer, target, expr=expr))
+                return Path(target).read_text(encoding="utf-8").splitlines()
+
+        # node-2 holds only blanks (a space is blank too) and other-4 nothing.
+        self.assertEqual(
+            download(), [",Length,Host", ",number,text", "node-1,100,plant", "node-3,2.5,"]
+        )
+        self.assertEqual(
+            download('"node"'),
+            [",Length,Host", ",number,text", "node-1,100,plant", "node-2,,", "node-3,2.5,"],
+        )
+
 
 def write_metadata_csv(folder, name, rows, encoding="utf-8"):
     """Write rows (headers, types, then data) as a CSV file and return its path."""
