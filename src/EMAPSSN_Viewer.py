@@ -124,6 +124,9 @@ import h5py
 import numpy as np
 import importlib
 from collections import deque
+import ctypes
+import gc
+import itertools
 import math
 import queue
 from vispy import scene, app
@@ -486,6 +489,150 @@ CUSTOM_ATTRIBUTES_INIT = {
 # network's history: restoring an older list would drop a button that a later
 # `save` or `meta` call added. `save` still writes it into the cache.
 UNDO_EXCLUDED_ATTRIBUTES = frozenset({"sidebar_buttons_to_persist"})
+
+
+# --- Undo history snapshots -------------------------------------------------
+# A full-state history entry holds read-only copies of the viewer's arrays.
+# Nothing ever changes an array held in an entry, so an entry may hold the very
+# array an earlier entry holds when its contents are unchanged: a command that
+# recolours nodes then costs one new colour array, not a copy of every array.
+
+def _object_array_pointers(array):
+    """The element pointers of a C-contiguous object array, as unsigned ints."""
+    pointers = (ctypes.c_void_p * array.size).from_address(array.ctypes.data)
+    return np.frombuffer(pointers, dtype=np.uintp)
+
+
+def _holds_same_bits(array, snapshot):
+    """Whether ``snapshot``, an array made by ``_history_copy``, holds exactly
+    what ``array`` holds: the same type, shape, dtype and bytes.
+
+    Bytes are compared, so a float array whose NaNs sit where the snapshot's
+    do is unchanged, and 0.0 is not -0.0. An object array is unchanged when it
+    points at the very objects the snapshot points at; equal but distinct
+    objects count as a change. The snapshot keeps its objects alive, so an
+    address it holds cannot belong to another object meanwhile.
+    """
+    if (
+        type(snapshot) is not np.ndarray
+        # A history copy is read-only and owns its memory: no other array
+        # can change it.
+        or snapshot.flags.writeable
+        or snapshot.base is not None
+        or snapshot.shape != array.shape
+        or snapshot.dtype != array.dtype
+        or not array.flags.c_contiguous
+        or not snapshot.flags.c_contiguous
+    ):
+        return False
+    if array.size == 0:
+        return True
+    if array.dtype.hasobject:
+        if array.dtype != object:
+            return False
+        return np.array_equal(
+            _object_array_pointers(array), _object_array_pointers(snapshot)
+        )
+    unit = np.uint64 if array.nbytes % 8 == 0 else np.uint8
+    return np.array_equal(
+        array.reshape(-1).view(np.uint8).view(unit),
+        snapshot.reshape(-1).view(np.uint8).view(unit),
+    )
+
+
+def _history_copy(value, previous=None):
+    """A history entry's copy of ``value``.
+
+    A numpy array becomes a read-only copy, or ``previous`` itself when that is
+    the earlier entry's copy and ``value`` has not changed since. Anything else
+    is copied with its own ``copy()``, as before.
+    """
+    if type(value) is not np.ndarray:
+        return value.copy()
+    if previous is not None and _holds_same_bits(value, previous):
+        return previous
+    snapshot = value.copy()
+    snapshot.flags.writeable = False
+    return snapshot
+
+
+class _GroupLabelsSnapshot:
+    """The undo history's form of ``MainViewer.group_labels``, the list of one
+    set of group names per node: for each distinct name, the sorted indices of
+    the nodes whose set holds it.
+
+    ``keys`` pairs each name with its type, so names that compare equal across
+    types, such as 1 and 1.0, stay apart. Like the history's arrays, a
+    snapshot is never changed after it is made, and later entries share it or
+    its arrays while the groups are unchanged.
+    """
+
+    __slots__ = ("length", "keys", "members")
+
+    def __init__(self, length, keys, members):
+        self.length = length
+        self.keys = keys
+        self.members = members
+
+    @classmethod
+    def capture(cls, group_labels, previous=None):
+        """Snapshot ``group_labels``; reuse ``previous`` where nothing changed.
+
+        Only a list of plain sets is encoded. Anything else is copied as the
+        history always copied it, one ``copy()`` per element.
+        """
+        if type(group_labels) is not list or set(map(type, group_labels)) - {set}:
+            return [g.copy() for g in group_labels]
+        buckets = {}
+        for index in itertools.compress(range(len(group_labels)), group_labels):
+            for name in group_labels[index]:
+                key = (type(name), name)
+                try:
+                    buckets[key].append(index)
+                except KeyError:
+                    buckets[key] = [index]
+
+        earlier = {}
+        if isinstance(previous, cls):
+            earlier = dict(zip(previous.keys, previous.members))
+        index_type = np.int32 if len(group_labels) <= np.iinfo(np.int32).max else np.int64
+        members = []
+        for key, indices in buckets.items():
+            array = np.fromiter(indices, dtype=index_type, count=len(indices))
+            kept = earlier.get(key)
+            if kept is not None and _holds_same_bits(array, kept):
+                array = kept
+            else:
+                array.flags.writeable = False
+            members.append(array)
+        keys, members = tuple(buckets), tuple(members)
+
+        if (
+            isinstance(previous, cls)
+            and previous.length == len(group_labels)
+            and previous.keys == keys
+            and all(a is b for a, b in zip(members, previous.members))
+        ):
+            return previous
+        return cls(len(group_labels), keys, members)
+
+    def to_list(self):
+        """A new list of new sets equal to the captured ``group_labels``."""
+        # One new set per node: on a large network the cyclic collector,
+        # which these allocations keep triggering, would take most of the
+        # time. Sets of names hold no cycles, so it waits until they exist.
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            labels = [set() for _ in range(self.length)]
+            for (_, name), indices in zip(self.keys, self.members):
+                for index in indices.tolist():
+                    labels[index].add(name)
+        finally:
+            if collecting:
+                gc.enable()
+        return labels
+
 
 # Fix High-DPI scaling
 class HUDDisplay:
@@ -1499,22 +1646,38 @@ class MainViewer:
                 setattr(self, attr_name, default_val)
             self._cacheable_attrs.add(attr_name)
 
-    def _get_current_state(self):
-        """Helper to package the entire visual and spatial state."""
+    def _get_current_state(self, share_with=None):
+        """Helper to package the entire visual and spatial state.
+
+        The state is a history entry, and nothing may change what it holds
+        afterwards: its arrays are read-only copies, and its groups a
+        _GroupLabelsSnapshot. ``share_with``, an earlier full-state entry,
+        lends the new entry each array (and the groups) that has not changed
+        since that entry was taken; see _history_copy.
+        """
+        previous = share_with if isinstance(share_with, dict) else {}
+        previous_metadata = previous.get('metadata')
+        if not isinstance(previous_metadata, dict):
+            previous_metadata = {}
+
+        def previous_values(name):
+            entry = previous_metadata.get(name)
+            return entry.get('values') if isinstance(entry, dict) else None
+
         return {
-            'pos': self.pos.copy() if hasattr(self, 'pos') else None,
-            'visible_mask': self.visible_mask.copy() if hasattr(self, 'visible_mask') else None,
-            'colors': self.current_colors.copy() if hasattr(self, 'current_colors') else None,
-            'sizes': self.current_sizes.copy() if hasattr(self, 'current_sizes') else None,
-            'shapes': self.current_shapes.copy() if hasattr(self, 'current_shapes') else None,
-            'node_render_order': self.node_render_order.copy() if hasattr(self, 'node_render_order') else None,
-            'clusters': self.cluster_labels.copy() if getattr(self, 'cluster_labels', None) is not None else None,
-            'groups': [g.copy() for g in self.group_labels] if getattr(self, 'group_labels', None) is not None else None,
+            'pos': _history_copy(self.pos, previous.get('pos')) if hasattr(self, 'pos') else None,
+            'visible_mask': _history_copy(self.visible_mask, previous.get('visible_mask')) if hasattr(self, 'visible_mask') else None,
+            'colors': _history_copy(self.current_colors, previous.get('colors')) if hasattr(self, 'current_colors') else None,
+            'sizes': _history_copy(self.current_sizes, previous.get('sizes')) if hasattr(self, 'current_sizes') else None,
+            'shapes': _history_copy(self.current_shapes, previous.get('shapes')) if hasattr(self, 'current_shapes') else None,
+            'node_render_order': _history_copy(self.node_render_order, previous.get('node_render_order')) if hasattr(self, 'node_render_order') else None,
+            'clusters': _history_copy(self.cluster_labels, previous.get('clusters')) if getattr(self, 'cluster_labels', None) is not None else None,
+            'groups': _GroupLabelsSnapshot.capture(self.group_labels, previous.get('groups')) if getattr(self, 'group_labels', None) is not None else None,
             'last_cluster_params': self.last_cluster_params if getattr(self, 'last_cluster_params', None) is not None else None,
-            'metadata': {k: {'type': v['type'], 'values': v['values'].copy()} for k, v in self.metadata.items()} if getattr(self, 'metadata', None) else {},
+            'metadata': {k: {'type': v['type'], 'values': _history_copy(v['values'], previous_values(k))} for k, v in self.metadata.items()} if getattr(self, 'metadata', None) else {},
             # Just the name of the property the metadata HUD displays, which `spectrum` and `meta show` set.
             'meta_display_prop': getattr(self, 'meta_display_prop', None),
-            '_custom_data': self._get_custom_attributes_snapshot()
+            '_custom_data': self._get_custom_attributes_snapshot(previous.get('_custom_data'))
         }
 
     def _apply_state(self, state):
@@ -1538,8 +1701,12 @@ class MainViewer:
             self.cluster_labels = None
             self.last_cluster_params = None
 
-        if state.get('groups') is not None:
-            self.group_labels = [g.copy() for g in state['groups']]
+        groups = state.get('groups')
+        if isinstance(groups, _GroupLabelsSnapshot):
+            self.group_labels = groups.to_list()
+        elif groups is not None:
+            # A list of sets, as states saved before _GroupLabelsSnapshot held.
+            self.group_labels = [g.copy() for g in groups]
         else:
             self.group_labels = [set() for _ in range(self.n_nodes)]
             
@@ -1563,14 +1730,18 @@ class MainViewer:
         self.update_selection_visual()
         self.update_edges()
 
-    def _get_custom_attributes_snapshot(self):
+    def _get_custom_attributes_snapshot(self, share_with=None):
+        """Copy the cacheable attributes undo restores. An array may be the one
+        ``share_with``, an earlier entry's custom data, holds (see
+        _history_copy); anything else is deep-copied."""
         if not getattr(self, '_cacheable_attrs', None):
             return {}
+        previous = share_with if isinstance(share_with, dict) else {}
         snapshot = {}
         for attr_name in self._cacheable_attrs - UNDO_EXCLUDED_ATTRIBUTES:
             val = getattr(self, attr_name, None)
             if isinstance(val, np.ndarray):
-                snapshot[attr_name] = val.copy()
+                snapshot[attr_name] = _history_copy(val, previous.get(attr_name))
             else:
                 import copy
                 snapshot[attr_name] = copy.deepcopy(val)
@@ -1674,10 +1845,21 @@ class MainViewer:
         else:
             raise ValueError(f"Unsupported history entry kind: {kind}")
 
+    def _latest_full_history_state(self):
+        """The newest full-state entry on the undo history, or None."""
+        for entry in reversed(self.position_history):
+            if not entry.get("_history_kind"):
+                return entry
+        return None
+
     def _save_state(self):
         """Saves current state to history and clears redo stack."""
-        self._append_history_entry(self._get_current_state())
-        
+        # The newest full state is the likeliest to match: since it was taken,
+        # usually just the last command's field has changed.
+        self._append_history_entry(
+            self._get_current_state(share_with=self._latest_full_history_state())
+        )
+
     def _do_undo(self):
         if len(self.position_history) > 0:
             state = self.position_history.pop()
@@ -1685,7 +1867,9 @@ class MainViewer:
                 self.redo_stack.append(state)
                 self._apply_metadata_history_entry(state, undo=True)
             else:
-                self.redo_stack.append(self._get_current_state())
+                # The current state differs from the one undo restores in
+                # what the undone command changed; it shares the rest.
+                self.redo_stack.append(self._get_current_state(share_with=state))
                 self._apply_state(state)
             msg = Message("Undo successful.")
             changed = True
@@ -1717,7 +1901,7 @@ class MainViewer:
                 self.position_history.append(state)
                 self._apply_metadata_history_entry(state, undo=False)
             else:
-                self.position_history.append(self._get_current_state())
+                self.position_history.append(self._get_current_state(share_with=state))
                 self._apply_state(state)
             msg = Message("Redo successful.")
             changed = True
