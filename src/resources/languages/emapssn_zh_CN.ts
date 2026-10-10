@@ -2137,7 +2137,7 @@ Command-line usage:
     <message>
         <location line="+8"/>
         <source>The Agent backend did not accept the message.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">智能体后端未接受该消息。</translation>
     </message>
     <message>
         <location filename="../../commands/alignment.py" line="+22"/>
@@ -2184,23 +2184,23 @@ Command-line usage:
     <message>
         <location line="+11"/>
         <source>Error: Leiden resolution must be a finite number above 0; got {resolution}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：Leiden 分辨率必须是大于 0 的有限数；实际为 {resolution}。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Error: Jaccard threshold must be between {low} and {high}; got {threshold}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：Jaccard 阈值必须介于 {low} 和 {high} 之间；实际为 {threshold}。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Error: Min Size must be at least 1; got {min_size}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：最小簇大小必须至少为 1；实际为 {min_size}。</translation>
     </message>
     <message numerus="yes">
         <location line="+30"/>
         <source>Error: MCL needs every edge score to be finite and above 0, but found %n edge(s) with a score that is not.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>错误：MCL 要求每条边的分数都是大于 0 的有限值，但有 %n 条边的分数不符合要求。</numerusform>
         </translation>
     </message>
     <message>
@@ -2224,7 +2224,7 @@ Command-line usage:
         <location line="+155"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
         </translation>
     </message>
     <message>
@@ -2263,7 +2263,7 @@ Command-line usage:
     <message>
         <location line="+13"/>
         <source>Error: Scale &apos;{scale}&apos; is too large to make a valid node size.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：缩放比例“{scale}”过大，无法得到有效的节点大小。</translation>
     </message>
     <message>
         <location line="+43"/>
@@ -2302,7 +2302,7 @@ Command-line usage:
         <location line="+5"/>
         <source>Skipped %n expression(s) with no color, scale or shape: {skipped}.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>已跳过 %n 个没有颜色、缩放比例或形状的表达式：{skipped}。</numerusform>
         </translation>
     </message>
     <message>
@@ -2313,7 +2313,7 @@ Command-line usage:
     <message>
         <location line="+4"/>
         <source>Duplicate esmfold keyword: {keyword}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">重复的 esmfold 关键字：{keyword}</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -2382,7 +2382,7 @@ Command-line usage:
         <location line="+3"/>
         <source>Skipped %n selected node(s) without a sequence.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>已跳过 %n 个没有序列的选中节点。</numerusform>
         </translation>
     </message>
     <message>
@@ -2449,25 +2449,25 @@ Command-line usage:
     <message>
         <location line="+12"/>
         <source>Error: Export refused: {first} and {second} differ only in letter case, so Windows would write them to one file.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：拒绝导出：{first} 和 {second} 仅大小写不同，Windows 会把它们写入同一个文件。</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Failed to write {file}: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法写入 {file}：{error}</translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>Error: Failed to write %n file(s); {written} written.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>错误：%n 个文件写入失败；已写入 {written}。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n file(s)</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>%n 个文件</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -2640,7 +2640,7 @@ Command-line usage:
     <message>
         <location filename="../../commands/label.py" line="-1275"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
     <message>
         <location line="+32"/>
@@ -2675,7 +2675,7 @@ Command-line usage:
     <message>
         <location line="+6"/>
         <source>Unrecognized argument &apos;{argument}&apos;. A filename cannot start with &apos;-&apos; or contain &apos;=&apos;; write a threshold as a keyword and a value, such as &apos;cmin 90%&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法识别的参数“{argument}”。文件名不能以 &apos;-&apos; 开头，也不能包含 &apos;=&apos;；阈值请写成关键字加数值，例如 &apos;cmin 90%&apos;。</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -2774,7 +2774,7 @@ Command-line usage:
     <message>
         <location line="+40"/>
         <source>Output file cannot be replaced (it may be open in another program or read-only): {path}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">无法替换输出文件（它可能已在其他程序中打开，或为只读）：{path}</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -2818,7 +2818,7 @@ Command-line usage:
     <message>
         <location line="+66"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
     <message>
         <location line="+66"/>
@@ -2839,20 +2839,20 @@ Command-line usage:
         <location line="+4"/>
         <source>Position range &apos;{range}&apos; is too large; a range may span at most %n position(s).</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>位置范围“{range}”过大；一个范围最多只能跨越 %n 个位置。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+8"/>
         <source>The position list is too large; it may name at most %n position(s).</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>位置列表过大；最多只能列出 %n 个位置。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+133"/>
         <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或使用 red 或 #ff0000 这样的颜色。</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -2867,7 +2867,7 @@ Command-line usage:
     <message>
         <location line="+11"/>
         <source>Error: Give the positions in one [...] argument; found a second one: &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：请在一个 [...] 参数中给出位置；发现了第二个：“{argument}”。</translation>
     </message>
     <message>
         <location line="+29"/>
@@ -2952,7 +2952,7 @@ Command-line usage:
     <message>
         <location line="+15"/>
         <source>Error: Property &apos;{property}&apos; not found in current metadata. Available properties: {available}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：当前元数据中找不到属性“{property}”。可用的属性：{available}。</translation>
     </message>
     <message>
         <location line="+54"/>
@@ -2967,7 +2967,7 @@ Command-line usage:
     <message>
         <location line="+25"/>
         <source>Error: &apos;{option}&apos; is not a metadata option. To clear the metadata display, use {syntax}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：“{option}”不是元数据选项。要清除元数据显示，请使用 {syntax}。</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -2997,7 +2997,7 @@ Command-line usage:
     <message>
         <location line="+8"/>
         <source>Error: Alignment offset must be between {minimum} and {maximum}, not &apos;{value}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：比对偏移量必须介于 {minimum} 和 {maximum} 之间，而不是“{value}”。</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -3027,7 +3027,7 @@ Command-line usage:
     <message>
         <location line="+83"/>
         <source>Error: Unknown option &apos;{option}&apos;. Modifiers are written without dashes: transparent, full or svg.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：未知的选项“{option}”。修饰词不带短横线：transparent、full 或 svg。</translation>
     </message>
     <message>
         <location line="+15"/>
@@ -3069,7 +3069,7 @@ Command-line usage:
     <message>
         <location line="+85"/>
         <source>Unknown frequency target &apos;{target}&apos;. Use one residue letter, GAP, _, or a parenthesized group such as (KR).</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未知的频率目标“{target}”。请使用一个残基字母、GAP、_，或用括号括起来的组，例如 (KR)。</translation>
     </message>
     <message>
         <location line="+99"/>
@@ -3110,7 +3110,7 @@ Command-line usage:
         <location line="+2"/>
         <source>The expression &apos;{expression}&apos; matched %n node(s), but none is in the alignment. Aborting query.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>表达式“{expression}”匹配了 %n 个节点，但都不在比对中，已中止查询。</numerusform>
         </translation>
     </message>
     <message>
@@ -3221,7 +3221,7 @@ Command-line usage:
         <location line="+46"/>
         <source>Batch execution finished: {failed} of %n command(s) failed.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>批量执行结束：%n 条命令中有 {failed} 条失败。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -3239,7 +3239,7 @@ Command-line usage:
     <message>
         <location filename="../../commands/save.py" line="+24"/>
         <source>Filename cannot contain &apos;:&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">文件名不能包含 &apos;:&apos;。</translation>
     </message>
     <message>
         <location line="+91"/>
@@ -3520,12 +3520,12 @@ Command-line usage:
     <message>
         <location line="+4"/>
         <source>Error: Zoom width is too small to draw accurately at the current view centre.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：缩放宽度过小，在当前视图中心无法精确绘制。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Error: Zoom could not be applied: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法应用缩放：{error}</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -3809,7 +3809,7 @@ Command-line usage:
     <message>
         <location line="+8"/>
         <source>Property names {names} are reserved for the metadata table&apos;s row index. Rename the column and upload the file again.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">属性名 {names} 保留给元数据表的行索引使用。请重命名该列，然后重新上传文件。</translation>
     </message>
     <message>
         <location line="+49"/>
@@ -4024,7 +4024,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
     <message>
         <location line="+71"/>
         <source>Error: Model card &apos;{card}&apos; has an invalid temperature ({temperature}). Open ⚙ Models to edit it.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：模型卡“{card}”的温度无效（{temperature}）。请打开 ⚙ 模型进行编辑。</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -4057,7 +4057,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+14"/>
         <source>The agent turn was stopped because the model was changed or switched off.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">由于模型已被更换或关闭，本轮智能体对话已停止。</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -5140,17 +5140,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location filename="../../utilities/Network_Kernels.py" line="+806"/>
         <source>Leiden clustering failed: {error}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Leiden 聚类失败：{error}</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Leiden resolution must be a finite number; got {resolution}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Leiden 分辨率必须是有限数；实际为 {resolution}。</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Leiden edge weights must be finite numbers.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">Leiden 的边权重必须是有限数。</translation>
     </message>
 </context>
 <context>
