@@ -2201,7 +2201,7 @@ Command-line usage:
     <message>
         <location line="+18"/>
         <source>Error: Unrecognized cluster argument &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 cluster 参数“{argument}”。</translation>
     </message>
     <message numerus="yes">
         <location line="+20"/>
@@ -2338,7 +2338,7 @@ Command-line usage:
     <message>
         <location line="+21"/>
         <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">未选择任何节点，因此折叠最后点击的节点的结构：{node}。</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -2353,7 +2353,7 @@ Command-line usage:
     <message>
         <location line="+7"/>
         <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">一个 esmfold 工作进程仍在运行。请等它结束或关闭它的控制台窗口，然后再折叠新的结构。</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -2628,7 +2628,7 @@ Command-line usage:
     <message>
         <location filename="../../commands/hide.py" line="+19"/>
         <source>Error: Unrecognized hide argument &apos;{argument}&apos;. &apos;{keyword}&apos; takes no other arguments.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 hide 参数“{argument}”。&apos;{keyword}&apos; 不接受其他参数。</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -2645,7 +2645,7 @@ Command-line usage:
     <message>
         <location line="+12"/>
         <source>Error: Hide accepts exactly one whitespace-free Boolean expression.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：hide 只接受一个不含空白的布尔表达式。</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -2961,7 +2961,7 @@ Command-line usage:
         <location line="+8"/>
         <source>Error: A PNG logo of %n position(s) is too large to draw; at most {limit} positions fit. Use an .svg filename, which has no such limit, or fewer positions.</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>错误：含 %n 个位置的 PNG 序列标识图过大，无法绘制；最多只能容纳 {limit} 个位置。请使用没有此限制的 .svg 文件名，或减少位置数。</numerusform>
         </translation>
     </message>
     <message>
@@ -3094,12 +3094,12 @@ Command-line usage:
     <message>
         <location line="+12"/>
         <source>Error: Unrecognized print argument &apos;{argument}&apos;. A file name is one word; the modifiers are {modifiers}.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 print 参数“{argument}”。文件名只能是一个词；修饰词为 {modifiers}。</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Error: &apos;{file}&apos; ends in {extension}, but {modifier} saves an SVG file. Use &apos;{suggestion}&apos; or leave the extension off.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：“{file}”以 {extension} 结尾，但 {modifier} 保存的是 SVG 文件。请使用“{suggestion}”，或不写扩展名。</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -3135,7 +3135,7 @@ Command-line usage:
     <message>
         <location line="+3"/>
         <source>It replaced an existing file of that name.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">已替换同名的现有文件。</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -3165,7 +3165,7 @@ Command-line usage:
     <message>
         <location line="+115"/>
         <source>other (&lt;1% each): {percent}</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">其他（各低于 1%）：{percent}</translation>
     </message>
     <message>
         <location line="+92"/>
@@ -3266,7 +3266,7 @@ Command-line usage:
     <message>
         <location line="+32"/>
         <source>Error: {syntax} takes one target; &apos;{argument}&apos; was not used. The reference is unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{syntax} 只接受一个目标；未使用“{argument}”。参考序列保持不变。</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -3403,7 +3403,7 @@ Command-line usage:
     <message>
         <location line="+7"/>
         <source>Error: Unrecognized select save argument &apos;{argument}&apos;. A file name is one word.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 select save 参数“{argument}”。文件名只能是一个词。</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -3449,7 +3449,7 @@ Command-line usage:
     <message>
         <location line="+28"/>
         <source>Error: Select modes &apos;{first}&apos; and &apos;{second}&apos; conflict. Use one mode.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：select 模式 &apos;{first}&apos; 和 &apos;{second}&apos; 相互冲突。请只使用一种模式。</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -3603,7 +3603,7 @@ Command-line usage:
     <message>
         <location filename="../../commands/subcluster.py" line="-1"/>
         <source>Error: Unrecognized subcluster argument &apos;{argument}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：无法识别的 subcluster 参数“{argument}”。</translation>
     </message>
     <message>
         <location line="+96"/>
@@ -3625,7 +3625,7 @@ Command-line usage:
     <message>
         <location line="+13"/>
         <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：请将簇写成 {canonical}，不要带前导零。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -3650,7 +3650,7 @@ Command-line usage:
     <message>
         <location line="+105"/>
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">{cluster} 中没有子簇达到最小大小 {min_size}；未做任何更改。</translation>
     </message>
     <message numerus="yes">
         <location line="+77"/>
@@ -5585,26 +5585,26 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location filename="../../commands/redo.py" line="-31"/>
         <location filename="../../commands/undo.py" line="-32"/>
         <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{syntax} 需要一个正整数步数，而不是“{value}”。</translation>
     </message>
     <message>
         <location line="+5"/>
         <location filename="../../commands/undo.py" line="+5"/>
         <source>Error: {syntax} takes one number of steps; &apos;{argument}&apos; was not used.</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">错误：{syntax} 只接受一个步数；未使用“{argument}”。</translation>
     </message>
     <message numerus="yes">
         <location line="+35"/>
         <source>Redid %n step(s).</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>已重做 %n 步。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location filename="../../commands/undo.py" line="+36"/>
         <source>Undid %n step(s).</source>
         <translation type="unfinished">
-            <numerusform></numerusform>
+            <numerusform>已撤销 %n 步。</numerusform>
         </translation>
     </message>
 </context>
